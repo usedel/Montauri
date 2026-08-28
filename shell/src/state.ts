@@ -33,6 +33,8 @@ export interface Settings {
   format_on_save: boolean;
   runtime_intel_enabled: boolean;
   terminal_cwd: string;
+  /** PyPI 包源（uv 拉取依赖用；默认官方源，国内网络可切镜像） */
+  pypi_index: string;
   /** 快捷键自定义（id → 键位串如 "Ctrl+D"；空串 = 解绑）。
    *  id 清单与出厂默认见 keybindings.ts 的 KEYBINDING_META（两处须同步）。 */
   keybindings: Record<string, string>;
@@ -56,6 +58,8 @@ export const DEFAULT_SETTINGS: Settings = {
   format_on_save: false,
   runtime_intel_enabled: true,
   terminal_cwd: "workspace",
+  // PyPI 包源默认官方源（须与 Rust Settings::default 保持同步）
+  pypi_index: "https://pypi.org/simple",
   // 出厂默认键位（PyCharm 风格）：与 keybindings.ts KEYBINDING_META 的 def、
   // Rust settings.rs default_keybindings 三处保持同步（keybindings.test.ts 有漂移锁）。
   keybindings: {

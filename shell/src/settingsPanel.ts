@@ -33,6 +33,8 @@ const settingsFormatOnSaveEl = $("settings-format-on-save") as HTMLInputElement;
 const settingsTerminalCwdEl = $("settings-terminal-cwd") as HTMLSelectElement;
 const settingsReduceMotionEl = $("settings-reduce-motion") as HTMLInputElement;
 const settingsFontFamilyPresetEl = $("settings-font-family-preset") as HTMLSelectElement;
+const settingsPypiIndexPresetEl = $("settings-pypi-index-preset") as HTMLSelectElement;
+const settingsPypiIndexEl = $("settings-pypi-index") as HTMLInputElement;
 
 // ---------- 分类导航（P1） ----------
 
@@ -152,6 +154,14 @@ function syncFontPreset(family: string): void {
   settingsFontFamilyPresetEl.value = hit ? hit.value : "__custom__";
 }
 
+/** PyPI 源下拉候选 ↔ 自定义输入框同步（命中候选则选中，否则落「自定义…」） */
+function syncPypiIndexPreset(index: string): void {
+  const hit = Array.from(settingsPypiIndexPresetEl.options).find(
+    (o) => o.value === index && o.value !== "__custom__",
+  );
+  settingsPypiIndexPresetEl.value = hit ? hit.value : "__custom__";
+}
+
 /** 字体族实时预览（设置面板内即时生效；正式保存仍走「保存」按钮） */
 function previewFontFamily(): void {
   const family = settingsFontFamilyEl.value.trim();
@@ -176,6 +186,9 @@ function fillForm(settings: Settings): void {
   settingsEngineEl.value = settings.lsp_engine;
   settingsFormatOnSaveEl.checked = settings.format_on_save;
   settingsTerminalCwdEl.value = settings.terminal_cwd;
+  // 旧配置缺 pypi_index 时兜底出厂默认（官方源）
+  settingsPypiIndexEl.value = settings.pypi_index || DEFAULT_SETTINGS.pypi_index;
+  syncPypiIndexPreset(settingsPypiIndexEl.value);
   for (const m of KEYBINDING_META) {
     const input = document.getElementById(kbInputId(m.id)) as HTMLInputElement | null;
     if (input) input.value = settings.keybindings[m.id] ?? "";
@@ -221,6 +234,7 @@ async function saveSettingsPanel(): Promise<void> {
   const formatOnSave = settingsFormatOnSaveEl.checked;
   const runtimeIntelEnabled = settingsIntelEl.checked;
   const terminalCwd = settingsTerminalCwdEl.value;
+  const pypiIndex = settingsPypiIndexEl.value.trim();
   const engineChanged = lspEngine !== app.settings.lsp_engine;
   const intelChanged = runtimeIntelEnabled !== app.settings.runtime_intel_enabled;
 
@@ -240,6 +254,7 @@ async function saveSettingsPanel(): Promise<void> {
     format_on_save: formatOnSave,
     runtime_intel_enabled: runtimeIntelEnabled,
     terminal_cwd: terminalCwd,
+    pypi_index: pypiIndex,
     keybindings,
   };
   // P1 副作用表：外观/编辑器即时生效（model 层缩进单独应用）；引擎变化重启；intel 变化起停
@@ -305,6 +320,16 @@ export function wireSettingsPanel(): void {
   settingsFontFamilyEl.addEventListener("input", () => {
     syncFontPreset(settingsFontFamilyEl.value.trim());
     previewFontFamily();
+  });
+  // PyPI 源：预设命中写入输入框；输入框失配时落「自定义…」
+  settingsPypiIndexPresetEl.addEventListener("change", () => {
+    if (settingsPypiIndexPresetEl.value !== "__custom__") {
+      settingsPypiIndexEl.value = settingsPypiIndexPresetEl.value;
+    }
+    syncPypiIndexPreset(settingsPypiIndexEl.value);
+  });
+  settingsPypiIndexEl.addEventListener("input", () => {
+    syncPypiIndexPreset(settingsPypiIndexEl.value.trim());
   });
   // D3 P-06：「减少动画」勾选即时生效（localStorage 持久化，独立于 Settings 结构）
   settingsReduceMotionEl.addEventListener("change", () => applyReduceMotion(settingsReduceMotionEl.checked));

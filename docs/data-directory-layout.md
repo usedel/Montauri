@@ -54,6 +54,11 @@ probe 是独立进程，默认 `Path.home()/.opencharm`。shell 在 `run_script`
   `UV_TOOL_BIN_DIR=<data_root>/.opencharm/bin`、`UV_TOOL_DIR=<data_root>/.opencharm/tools`
   下安装（`uv tool install` 无 `--tool-dir` 参数，工具目录由这两个环境变量控制）；
   运行时仅当命中的 uv 位于托管目录时才注入 `UV_CACHE_DIR`（`tool_paths.rs::tool_command`）。
+- **PyPI 包源**（`tool_paths.rs::tool_command`）：所有 uv 子进程（tool install / pip install /
+  uv add / uv run 等）注入 `UV_DEFAULT_INDEX`，值来自设置项 `pypi_index`
+  （默认官方源 `https://pypi.org/simple`；设置面板「Python → PyPI 镜像源」可切换
+  清华 / 阿里云 / 腾讯云 / 中科大等国内镜像，规避 `files.pythonhosted.org` 在部分
+  网络下连接重置）；用户已设置 `UV_DEFAULT_INDEX` / `UV_INDEX_URL` 时保持原样，不覆盖。
 
 ## 安装器默认目录（NSIS）
 

@@ -20,6 +20,18 @@ pub const ENV_UV: &str = "OPENCHARM_UV_BIN";
 pub const ENV_RUFF: &str = "OPENCHARM_RUFF_BIN";
 pub const ENV_GIT: &str = "OPENCHARM_GIT_BIN";
 
+/// 为 uv 子进程注入 PyPI 包源（值来自设置项 `Settings.pypi_index`，默认官方源；
+/// 国内网络可在设置面板「Python → PyPI 镜像源」切镜像，规避 files.pythonhosted.org
+/// 在部分网络下连接重置）。用户已显式设置 `UV_DEFAULT_INDEX` / `UV_INDEX_URL` 时保持原样。
+fn inject_pypi_mirror(cmd: &mut Command) {
+    if std::env::var("UV_DEFAULT_INDEX").is_err() && std::env::var("UV_INDEX_URL").is_err() {
+        let index = crate::settings::load().pypi_index.trim().to_string();
+        if !index.is_empty() {
+            cmd.env("UV_DEFAULT_INDEX", index);
+        }
+    }
+}
+
 /// OpenCharm 托管工具目录：~/.opencharm/bin（放置用户级注入的 uv / pyrefly / ruff 等二进制）。
 pub fn managed_bin_dir() -> PathBuf {
     opencharm_home().join("bin")
@@ -112,8 +124,12 @@ pub fn tool_command(name: &str, env_override: &str) -> Command {
     let mut cmd = resolved
         .as_ref()
         .map_or_else(|| Command::new(name), |p| Command::new(p));
-    if name == "uv" && resolved.as_ref().is_some_and(|p| p.starts_with(managed_bin_dir())) {
-        cmd.env("UV_CACHE_DIR", crate::util::uv_cache_dir());
+    if name == "uv" {
+        if resolved.as_ref().is_some_and(|p| p.starts_with(managed_bin_dir())) {
+            cmd.env("UV_CACHE_DIR", crate::util::uv_cache_dir());
+        }
+        // 所有 uv 网络操作（tool install / pip install / uv add / uv run 等）统一走设置中的 PyPI 包源
+        inject_pypi_mirror(&mut cmd);
     }
     cmd
 }

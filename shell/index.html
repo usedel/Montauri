@@ -424,6 +424,19 @@
                 <label>运行时智能层（intel）</label>
                 <input id="settings-intel" type="checkbox" />
               </div>
+              <div class="settings-row">
+                <label>PyPI 镜像源</label>
+                <!-- uv 拉取依赖的包源：预设下拉 + 自定义输入，默认官方源 -->
+                <select id="settings-pypi-index-preset" title="PyPI 包源（uv 拉取依赖）">
+                  <option value="https://pypi.org/simple">官方源（pypi.org）</option>
+                  <option value="https://pypi.tuna.tsinghua.edu.cn/simple">清华大学 TUNA</option>
+                  <option value="https://mirrors.aliyun.com/pypi/simple/">阿里云</option>
+                  <option value="https://mirrors.cloud.tencent.com/pypi/simple/">腾讯云</option>
+                  <option value="https://pypi.mirrors.ustc.edu.cn/simple/">中国科学技术大学</option>
+                  <option value="__custom__">自定义…</option>
+                </select>
+                <input id="settings-pypi-index" type="text" placeholder="https://pypi.org/simple" spellcheck="false" />
+              </div>
             </div>
             <div id="settings-section-templates" class="settings-section settings-section-templates hidden">
               <div class="lt-toolbar">

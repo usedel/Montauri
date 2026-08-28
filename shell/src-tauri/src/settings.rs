@@ -61,6 +61,8 @@ pub struct Settings {
     pub runtime_intel_enabled: bool,
     /// 终端默认启动目录："workspace"（工作区根）| "file"（活动文件所在目录）
     pub terminal_cwd: String,
+    /// PyPI 包源（uv 拉取依赖用；默认官方源，国内网络可在设置面板切镜像）
+    pub pypi_index: String,
     /// 快捷键自定义（id → 键位串如 "Ctrl+D"；空串 = 解绑）。
     /// 旧配置文件缺此字段时经 struct 级 #[serde(default)] 整体回落 default_keybindings；
     /// 部分键缺失（手改文件）由前端 loadSettings 逐项兜底。
@@ -86,12 +88,13 @@ impl Default for Settings {
             format_on_save: false,
             runtime_intel_enabled: true,
             terminal_cwd: "workspace".into(),
+            pypi_index: "https://pypi.org/simple".into(),
             keybindings: default_keybindings(),
         }
     }
 }
 
-fn load() -> Settings {
+pub(crate) fn load() -> Settings {
     let p = settings_path();
     if !p.is_file() {
         return Settings::default();
@@ -177,6 +180,7 @@ mod tests {
         assert_eq!(s.probe_enabled, true);
         assert_eq!(s.format_on_save, false); // 旧配置文件无此字段 → 默认关闭
         assert_eq!(s.terminal_cwd, "workspace"); // 旧配置文件无此字段 → 默认工作区根
+        assert_eq!(s.pypi_index, "https://pypi.org/simple"); // 旧配置文件无此字段 → 默认官方源
         // 编辑器新增项（P1）：旧配置文件无此字段 → 回落默认
         assert_eq!(s.tab_size, 4);
         assert_eq!(s.insert_spaces, true);
