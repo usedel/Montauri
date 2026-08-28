@@ -101,12 +101,20 @@ fn install_toolchain_impl(app: AppHandle, engine: &str) -> Result<bool, String> 
         .ok_or_else(|| "uv 安装后仍未找到，请重启 OpenCharm 或手动把 uv 加入 PATH".to_string())?;
     emit(&app, "toolchain-stdout", &format!("uv 位置：{}\n", uv.display()))?;
 
-    // 3. 安装静态引擎（uv tool install，落 ~/.local/bin）
+    // 3. 安装静态引擎（uv tool install，可执行文件落 ~/.opencharm/bin）
     if !is_available(cmd, "") {
         emit(&app, "toolchain-stdout", &format!("安装静态引擎 `{pkg}`（uv tool install）…\n"))?;
-        let uv_str = uv.to_string_lossy().to_string();
-        let tool_dir = crate::tool_paths::managed_bin_dir().to_string_lossy().to_string();
-        run_streaming(&app, &uv_str, &["tool", "install", "--tool-dir", tool_dir.as_str(), pkg], INSTALL_TIMEOUT)?;
+        // uv tool install 没有 --tool-dir 参数，工具目录由环境变量控制：
+        //   UV_TOOL_BIN_DIR —— 可执行命令链接目录（落 ~/.opencharm/bin，resolve_tool 无需刷新 PATH 即可命中）
+        //   UV_TOOL_DIR     —— 工具本体（venv）目录（随数据根走，绿色部署删除即净）
+        // tool_command 已解析 uv 绝对路径，并对托管 uv 注入 UV_CACHE_DIR。
+        let bin_dir = crate::tool_paths::managed_bin_dir();
+        std::fs::create_dir_all(&bin_dir).map_err(|e| e.to_string())?;
+        let mut cmd = crate::tool_paths::tool_command("uv", ENV_UV);
+        cmd.env("UV_TOOL_BIN_DIR", &bin_dir)
+            .env("UV_TOOL_DIR", crate::util::opencharm_home().join("tools"))
+            .args(["tool", "install", pkg]);
+        run_streaming_cmd(&app, cmd, INSTALL_TIMEOUT)?;
     }
 
     // 4. 复核
@@ -151,6 +159,12 @@ fn stream_lines<R: Read + Send + 'static>(
 fn run_streaming(app: &AppHandle, program: &str, args: &[&str], timeout: Duration) -> Result<i32, String> {
     let mut cmd = Command::new(program);
     cmd.args(args);
+    run_streaming_cmd(app, cmd, timeout)
+}
+
+/// 同 [`run_streaming`]，但接收已配置好（含环境变量注入）的 `Command`。
+fn run_streaming_cmd(app: &AppHandle, mut cmd: Command, timeout: Duration) -> Result<i32, String> {
+    let program = cmd.get_program().to_string_lossy().to_string();
     let mut child = no_window(&mut cmd)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())

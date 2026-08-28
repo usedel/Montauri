@@ -32,7 +32,8 @@
 | `recent/<hash>.json` | 最近打开文件 | `file_ops.rs` |
 | `traces/<hash>.db` | 运行时类型采样 SQLite 库 | `lsp.rs` / probe `store.py` |
 | `envs/<名称>-<hash6>/` | 全局虚拟环境 | `env_cmds.rs` |
-| `bin/` | 托管工具（引导安装的 uv / 静态引擎） | `tool_paths.rs` |
+| `bin/` | 托管工具（引导安装的 uv / 静态引擎可执行文件） | `tool_paths.rs` |
+| `tools/` | uv tool 安装的工具本体（pyrefly 等 venv，由 `UV_TOOL_DIR` 指定） | `toolchain.rs` |
 | `runtime/` | 运行时组件（opencharm-intel、probe/src） | `tool_paths.rs` |
 | `cache/uv/` | OpenCharm 引导安装 uv 的下载缓存 | `tool_paths.rs` |
 | `webview/` | WebView2 用户数据（localStorage/Cookie/缓存） | `util.rs` + `lib.rs` |
@@ -49,7 +50,9 @@ probe 是独立进程，默认 `Path.home()/.opencharm`。shell 在 `run_script`
 
 - **用户已安装 uv**：不迁移、不注入、缓存位置不动。
 - **OpenCharm 引导安装 uv**（`toolchain.rs`）：经 `UV_INSTALL_DIR` 装到
-  `<data_root>/.opencharm/bin`，静态引擎用 `uv tool install --tool-dir <bin>`；
+  `<data_root>/.opencharm/bin`；静态引擎用 `uv tool install` 并在环境变量
+  `UV_TOOL_BIN_DIR=<data_root>/.opencharm/bin`、`UV_TOOL_DIR=<data_root>/.opencharm/tools`
+  下安装（`uv tool install` 无 `--tool-dir` 参数，工具目录由这两个环境变量控制）；
   运行时仅当命中的 uv 位于托管目录时才注入 `UV_CACHE_DIR`（`tool_paths.rs::tool_command`）。
 
 ## 安装器默认目录（NSIS）
