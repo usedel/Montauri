@@ -50,7 +50,10 @@ open-charm/
 一键打包（在项目根执行）：
 
 ```powershell
+# PowerShell 版本
 powershell -File .\build-release.ps1
+# 或 cmd 版本（功能等价，均支持 -SkipNpmInstall 跳过 npm install）
+.\build-release.bat
 ```
 
 安装包输出：`shell/src-tauri/target/release/bundle/nsis/`；工具链版本见 `ci/versions.toml`。
