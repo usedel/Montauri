@@ -1,0 +1,197 @@
+// 全局搜索面板：工作区递归文本搜索（Tauri search_workspace 命令）。
+// UI：侧栏第三个 tab（SEARCH），输入框 + 大小写开关 + 结果树（文件分组，行级匹配）。
+// 点击匹配 → 打开文件并定位行列。
+
+import { invoke } from "@tauri-apps/api/core";
+import { emptyState } from "./util";
+
+export interface SearchMatch {
+  path: string;
+  line: number;
+  text: string;
+  column: number;
+  length: number;
+}
+
+interface SearchResult {
+  matches: SearchMatch[];
+  files_scanned: number;
+  files_skipped: number;
+  files_skipped_binary: number;
+  truncated: boolean;
+}
+
+/** 匹配点击回调（main.ts 注入：openFile + 定位） */
+let onOpenMatch: ((m: SearchMatch) => void) | null = null;
+export function setOpenMatchHandler(fn: (m: SearchMatch) => void): void {
+  onOpenMatch = fn;
+}
+
+/** 高亮匹配片段：匹配前 40 字符 + 匹配段 + 后文（截断长行） */
+function renderMatchLine(container: HTMLElement, m: SearchMatch): void {
+  const text = m.text;
+  const start = m.column - 1;
+  // 列号基于原行，但 text 已 trim——换算 trim 掉的前缀长度
+  const lead = text.length - text.trimStart().length;
+  const rel = start - lead;
+  const before = rel > 0 ? text.slice(0, Math.min(rel, 60)) : "";
+  const hitStart = Math.max(0, rel);
+  const hitEnd = Math.min(text.length, hitStart + m.length);
+  const hit = text.slice(hitStart, hitEnd);
+  const after = text.slice(hitEnd, hitEnd + 60);
+
+  if (before) container.appendChild(document.createTextNode(before));
+  if (hit) {
+    const mark = document.createElement("span");
+    mark.className = "search-hit";
+    mark.textContent = hit;
+    container.appendChild(mark);
+  }
+  if (after) container.appendChild(document.createTextNode(after));
+}
+
+/** 单批渲染的匹配上限：超过则分批 +「加载更多」，避免一次性构建数千 DOM 节点卡顿 */
+const RENDER_BATCH = 500;
+
+/** 构建单条匹配行（行号 + 高亮文本，点击跳转） */
+function buildMatchLine(m: SearchMatch): HTMLElement {
+  const lineEl = document.createElement("div");
+  lineEl.className = "search-match";
+  const lineNo = document.createElement("span");
+  lineNo.className = "search-line-no";
+  lineNo.textContent = String(m.line);
+  const textEl = document.createElement("span");
+  textEl.className = "search-match-text";
+  renderMatchLine(textEl, m);
+  lineEl.append(lineNo, textEl);
+  lineEl.addEventListener("click", () => onOpenMatch?.(m));
+  return lineEl;
+}
+
+/** 构建文件分组头（文件名 + 该文件匹配总数） */
+function buildFileHeader(path: string, total: number): HTMLElement {
+  const fileEl = document.createElement("div");
+  fileEl.className = "search-file";
+  const name = document.createElement("div");
+  name.className = "search-file-name";
+  name.textContent = `${path.split(/[\\/]/).pop()} (${total})`;
+  name.title = path;
+  fileEl.appendChild(name);
+  return fileEl;
+}
+
+/** 搜索请求令牌：每次搜索自增；结果返回时校验，过期（被更新的搜索取代）即丢弃 */
+let searchToken = 0;
+
+/** 作废进行中的搜索（令牌自增，在途结果返回时校验失败即丢弃）；视图隐藏时调用 */
+export function cancelSearch(): void {
+  searchToken++;
+}
+
+/** 清空搜索结果并作废在途搜索（工作区切换时调用，避免旧工作区结果残留） */
+export function resetSearch(): void {
+  cancelSearch();
+  const results = document.getElementById("search-results");
+  if (results) results.textContent = "";
+}
+
+/** 执行搜索并渲染结果树（文件分组 + 分批渲染） */
+export async function runSearch(
+  root: string,
+  query: string,
+  caseSensitive: boolean,
+  resultEl: HTMLElement,
+): Promise<void> {
+  const token = ++searchToken;
+  resultEl.textContent = "";
+  if (!query.trim()) {
+    appendHint(resultEl, "输入关键词后回车搜索");
+    return;
+  }
+  appendHint(resultEl, "搜索中…");
+  let r: SearchResult;
+  try {
+    r = await invoke<SearchResult>("search_workspace", { root, query, caseSensitive });
+  } catch (e) {
+    if (token !== searchToken) return; // 过期请求，丢弃
+    resultEl.textContent = "";
+    appendHint(resultEl, `搜索失败：${e}`);
+    return;
+  }
+  if (token !== searchToken) return; // 过期请求，丢弃（避免旧结果覆盖新结果）
+  resultEl.textContent = "";
+  if (r.matches.length === 0) {
+    // D4：统一空状态（图标 + 标题 + 说明）
+    resultEl.appendChild(emptyState("search", "无匹配结果", `已扫描 ${r.files_scanned} 个文件，换个关键词试试`));
+    return;
+  }
+  // 按文件分组（后端已按路径+行排序，分组保持有序）
+  const groups = new Map<string, SearchMatch[]>();
+  for (const m of r.matches) {
+    const list = groups.get(m.path) ?? [];
+    list.push(m);
+    groups.set(m.path, list);
+  }
+  const totalMatches = r.matches.length;
+  const skippedLarge = r.files_skipped - r.files_skipped_binary;
+  const summary = document.createElement("div");
+  summary.className = "search-summary";
+  summary.textContent = `${totalMatches} 个匹配 · ${groups.size} 个文件（扫描 ${r.files_scanned}${
+    r.files_skipped ? `，跳过 ${r.files_skipped}：二进制 ${r.files_skipped_binary} / 超大 ${skippedLarge}` : ""
+  }）${r.truncated ? " · 结果过多已截断，请细化关键词" : ""}`;
+  resultEl.appendChild(summary);
+
+  // 分批渲染：按文件顺序推进游标，单批最多 RENDER_BATCH 条匹配；
+  // 单文件匹配超出一批时，同一文件块跨批续写（不重复建文件头）。
+  const fileEntries = Array.from(groups.entries());
+  let entryIdx = 0; // 当前文件组索引
+  let offsetInEntry = 0; // 当前文件组内已渲染匹配数
+  let rendered = 0; // 累计已渲染匹配数
+  let currentFileEl: HTMLElement | null = null; // 正在续写的文件块
+  let currentPath: string | null = null;
+
+  const loadMoreBtn = document.createElement("div");
+  loadMoreBtn.className = "search-load-more";
+
+  function renderBatch(): void {
+    let budget = RENDER_BATCH;
+    while (budget > 0 && entryIdx < fileEntries.length) {
+      const [path, matches] = fileEntries[entryIdx];
+      if (currentPath !== path) {
+        currentFileEl = buildFileHeader(path, matches.length);
+        resultEl.appendChild(currentFileEl);
+        currentPath = path;
+        offsetInEntry = 0;
+      }
+      const take = Math.min(matches.length - offsetInEntry, budget);
+      for (let k = 0; k < take; k++) {
+        currentFileEl!.appendChild(buildMatchLine(matches[offsetInEntry + k]));
+      }
+      offsetInEntry += take;
+      budget -= take;
+      rendered += take;
+      if (offsetInEntry >= matches.length) {
+        entryIdx++;
+        offsetInEntry = 0;
+        currentPath = null;
+        currentFileEl = null;
+      }
+    }
+    if (entryIdx < fileEntries.length) {
+      loadMoreBtn.textContent = `加载更多（已显示 ${rendered} / ${totalMatches}）`;
+      if (!loadMoreBtn.isConnected) resultEl.appendChild(loadMoreBtn);
+    } else if (loadMoreBtn.isConnected) {
+      loadMoreBtn.remove();
+    }
+  }
+
+  loadMoreBtn.addEventListener("click", () => renderBatch());
+  renderBatch();
+}
+
+function appendHint(el: HTMLElement, text: string): void {
+  const hint = document.createElement("div");
+  hint.className = "env-empty";
+  hint.textContent = text;
+  el.appendChild(hint);
+}

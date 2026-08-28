@@ -1,0 +1,74 @@
+---
+description: shell/src 前端 TypeScript 代码规范（Vite + Monaco + LSP 桥 TS 侧）
+globs: "**/*.ts"
+alwaysApply: false
+enabled: true
+updatedAt: 2026-08-25T10:00:00.000Z
+provider:
+---
+
+# TypeScript 代码规范（shell/src）
+
+## 技术基线
+
+- Vanilla TS + Vite + Monaco（**本地 worker，去 CDN**）。
+
+## 模块结构
+
+- `main.ts` — 入口与胶水层（TD-007 域拆分后）：工作区生命周期 / 标签页与编辑器 / 运行 / LSP 接线 / 环境面板 / 搜索与大纲 / 菜单栏 / 新建项目 / 文件监听 / init。
+- `state.ts` — AppState 上下文对象（TD-007）：跨域共享状态（monaco / editor / workspaceRoot / tabs / settings）+ `$` / `$btn` DOM 工具；域内私有状态不进这里。
+- `fileTree.ts` — 文件树域：树渲染 / 选择 / 右键菜单 / 文件操作 / 过滤 / 键盘导航（`wireFileTree()` 自接线）。
+- `git.ts` — Git 域：状态 / SCM 面板 / diff / 分支 / 历史 / blame（`wireGitUI()` 自接线）。
+- `termUi.ts` — 终端域：多会话终端 + 底部面板标签切换（`wireBottomPanel()` / `wireTerminalEvents()`）。
+- `settingsPanel.ts` — 设置面板域：设置加载/保存 + 面板 UI + intel 开关（`wireSettingsPanel()`）。
+- `util.ts` — 无状态纯工具函数（路径 / 文件图标 / 语言映射 / Git 展示 / 大纲符号）。
+- `monaco.ts` — Monaco 本地 worker 配置。
+- `views.ts` — 侧栏视图注册表（Activity Bar + 单根视图容器）。
+- `keybindings.ts` — 快捷键配置域：PyCharm 风格默认键位 + 解析/校验/分发（设置 → 快捷键；出厂默认三处同步：KEYBINDING_META.def / state.ts DEFAULT_SETTINGS / Rust default_keybindings）。
+- `format.ts` — ruff 格式化桥接。
+- `dialog.ts` — 统一自绘消息对话框（TD-008）：`openConfirm` / `openAlert`，全项目确认/提示交互的唯一入口，禁止原生消息框。
+- `search.ts` — 全局搜索。
+- `terminal.ts` — 集成终端前端封装（PTY 会话）。
+- `live-templates/` — Live Templates（M1/M2/M3 重构）：`index.ts` 入口 / `schema.ts` Schema v2 + v1 迁移 / `builtin.ts` 内置模板库（插入/环绕/后缀）/ `registry.ts` 三层合并（键 = scope+kind+abbreviation）/ `engine.ts` 表达式引擎（纯函数）/ `compiler.ts` `$VAR$`→snippet 编译（纯函数，literals 注入 $EXPR$/$SELECTION$）/ `scope.ts` 上下文判定（符号主路径+启发式兜底）/ `symbols.ts` documentSymbol 缓存 / `tabExpand.ts` 缩写+Tab 展开 / `completion.ts` 补全路径（sortText `0xx` + preselect + `.` 分流后缀）/ `postfix.ts` 后缀补全 / `surround.ts` 环绕（Ctrl+Alt+T）/ `palette.ts` 模板面板（Ctrl+J）/ `pycharmImport.ts` PyCharm XML 导入 / `snippet.ts` SnippetController2 注入助手 / `ui/manager.ts` 管理面板。
+- `output.ts` — 输出面板 + traceback `File "…", line N` 点击跳转。
+- `lsp/client.ts` — LSP 桥 TS 侧（JSON-RPC 关联 + Monaco providers）。
+
+## 补全三层合并（sortText 段，顺序固定）
+
+1. 智能模板 `0xx`
+2. 运行时 intel `1xx`（Phase 3 预留）
+3. 静态引擎 `2xx`
+
+## Live Templates 配置（Schema v2）
+
+- 三层来源：内置（`builtin.ts`）→ 用户 `~/.opencharm/templates.json` → 工作区 `<workspace>/.opencharm/templates.json`；键 = `abbreviation + scope`，窄层覆盖宽层，`enabled: false` 为墓碑。
+- `body` 用 `$VAR$` 命名变量语法：`$END$` 终点、`$$` 字面美元符；变量经 `engine.ts` 求值后由 `compiler.ts` 编译为 Monaco snippet（占位符跳转复用 SnippetController2，经 `editor.getContribution("snippetController2").insert()` 注入）。
+- `tabExpand: false` 的模板（关键字类缩写）仅走补全弹窗；缩写扫描字符集 `[A-Za-z0-9_-]`（`.` 留给成员访问/后缀）。
+- 单测：`live-templates/__tests__/`（vitest，`npm test`）；引擎/编译器/迁移为纯函数，禁止在其中 import Monaco。
+
+## 键位约定
+
+默认键位为 PyCharm 风格，均可在「设置 → 快捷键」自定义（存 `Settings.keybindings`，
+注册表与解析/校验在 `keybindings.ts`；出厂默认三处同步见该文件头注）。
+
+| 键（默认） | 功能 | 可自定义 |
+|---|---|---|
+| `Tab` | 缩写直接展开（无弹窗时）/ snippet 占位符前进 | 否 |
+| `Ctrl+S` | 保存（推送 didSave） | 是（window 级） |
+| `Ctrl+F10` | 运行当前文件 | 是（window 级） |
+| `Ctrl+Shift+F` | 全局搜索 | 是（window 级） |
+| `Ctrl+B` | 跳转定义 | 是（`F12` / `Ctrl+点击` 固定保留） |
+| `Ctrl+D` | 复制行 / 选区 | 是 |
+| `Ctrl+/` / `Ctrl+Shift+/` | 行 / 块注释开关 | 是 |
+| `Ctrl+J` | Live Templates 面板 | 是 |
+| `Ctrl+Alt+T` | 环绕模板（需选区） | 是 |
+
+- window 级键经 `matchWindowBinding` 实时匹配（改键即生效）；editor 级键经
+  `monaco.editor.addKeybindingRules` 建映射，设置保存后 `applyEditorKeybindings()` 重建。
+
+## 消息对话框约定
+
+- 禁止使用浏览器原生消息框：`window.alert` / `window.confirm` / `window.prompt`（Tauri 2 中会被拦截转发到已废弃的 `dialog.confirm`，报 `not allowed`，且无法匹配深色自绘主题）。
+- 禁止使用 `@tauri-apps/plugin-dialog` 的 `confirm` / `ask` / `message`；该插件的 `open` / `save`（文件选择对话框）除外。
+- 确认与提示统一经 `dialog.ts` 的 `openConfirm` / `openAlert` 自绘弹窗；文本输入类交互走文件树 `inlineInput` 等自绘输入，不落地原生 `prompt`。
+- `kind` 语义：破坏性操作用 `danger`，安装/设置等正向操作用 `primary`。新增确认/提示交互时默认接入 `openConfirm`/`openAlert`，不得新增原生消息框调用。

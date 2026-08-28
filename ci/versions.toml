@@ -1,0 +1,30 @@
+# OpenCharm 版本锁定基线（S1-T07）
+# 纪律：升级任何组件必须 PR + bench 回归全绿（开发计划 v2 §8）
+
+[shell]
+tauri = "2.11.5"          # Tauri 核心（cargo 依赖解析出的实际版本）
+monaco-editor = "0.52.2"  # 前端编辑器（npm 精确锁定）
+portable-pty = "0.9.0"    # 集成终端 PTY 后端（cargo，Windows ConPTY）
+xterm = "5.5.0"           # 集成终端前端（@xterm/xterm）
+xterm-addon-fit = "0.10.0" # xterm 自适应尺寸插件（@xterm/addon-fit）
+vite = "6.4.3"
+typescript = "5.x"
+node = "22.12.0"
+npm = "10.9.2"
+
+[engines]
+pyrefly = "1.2.0"                    # 默认静态引擎（`pyrefly lsp`）
+basedpyright = "1.39.10"             # 备选引擎（`basedpyright-langserver --stdio`，~/.local/bin）
+ruff = "0.16.1"                      # lint/format（Phase 1 后期接入 LSP 桥）
+
+[toolchain]
+python = "3.13.7"         # uv 管理（D:\py3\3.13.7）；系统默认 3.11.9 不可用（<3.12 基线）
+uv = "0.10.11"
+rust = "1.96.0"           # x86_64-pc-windows-msvc
+webview2 = "151.0"        # Windows 内置
+
+[notes]
+# - monaco-editor 与 monaco-languageclient 版本强耦合（ADR-0003 弃用后者的原因之一），
+#   升级 Monaco 前需重新评估桥接层兼容性。
+# - basedpyright 经 `uv tool install` 安装，升级：`uv tool upgrade basedpyright`。
+# - bench 样例 venv 各自独立（bench/sample/*/pyproject.toml + uv.lock）。

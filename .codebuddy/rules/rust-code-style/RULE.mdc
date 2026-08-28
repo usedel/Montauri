@@ -1,0 +1,49 @@
+---
+description: shell/src-tauri Rust 外壳代码规范（Tauri 2 命令、LSP 桥、运行集成）
+globs: "**/*.rs"
+alwaysApply: false
+enabled: true
+updatedAt: 2026-08-25T10:00:00.000Z
+provider:
+---
+
+# Rust 代码规范（shell/src-tauri）
+
+## 模块结构
+
+- `lib.rs` — Tauri 入口 + 命令注册。
+- 功能模块按职责拆分：
+  - `fs_cmds.rs` — 文件树/读写/工作区记忆/全局搜索；
+  - `file_ops.rs` — 文件写操作（增删改/复制粘贴/回收站/最近文件）；
+  - `env_cmds.rs` — Python 环境（解释器列举/venv/包管理）；
+  - `settings.rs` — 全局设置（存 `~/.opencharm/settings.json`）；
+  - `lsp.rs` — LSP 桥（spawn/帧解析/事件转发）+ 运行脚本；
+  - `git_cmds.rs` / `git_status.rs` — Git 状态装饰与写操作（暂存/提交/diff/分支/远程/stash/blame）；
+  - `terminal.rs` — 集成终端（portable-pty 多会话）；
+  - `watcher.rs` — 文件监听（增量刷新源）；
+  - `util.rs` — 跨模块共享工具（`opencharm_home` / `no_window` / `unpoison` / `kill_process_tree`）。
+
+## LSP 桥（ADR-0003）
+
+- **引擎无关**：pyrefly（`pyrefly lsp`）与 basedpyright（`basedpyright-langserver --stdio`）切换只改**前端命令表**条目。
+- 桥接：Rust stdio ↔ Tauri IPC ↔ Monaco providers；spawn stdio + 帧解析 + 事件转发。
+
+## 运行脚本（run_script）
+
+- `uv run <file>`，cwd **锚定文件所在目录**（spike 踩坑）。
+- 探针注入：`PYTHONPATH` 前置 `probe/src` + `OPENCHARM_PROBE_AUTOSTART=1` + `OPENCHARM_PROBE_SCRIPT=<绝对路径>`。
+- probe/src 定位顺序：环境变量 `OPENCHARM_PROBE_SRC` → 相对 exe 上溯仓库布局；找不到则照常运行仅提示（**探针缺席不拖垮脚本**）。
+
+## 进程与锁约定（务必遵守）
+
+- **杀子进程必须用 `util::kill_process_tree`**（Windows `taskkill /T /F` 杀进程树），禁止裸 `child.kill()`——
+  直接子进程（`uv run` / 解释器 / shell）会拉起孙进程，只杀父进程会让孙进程成孤儿继续运行、停止按钮失效。
+- **跨线程 `Mutex` 锁统一走 `util::unpoison`**，禁止 `.lock().unwrap()`（避免一个线程 panic 污染锁后连锁 panic）。
+- **网络类 git 操作（push/pull/fetch）用 `exec_git_timeout`**（spawn + 轮询退出 + 超时杀进程树），
+  禁止裸 `.output()` 无超时阻塞，会耗尽 `spawn_blocking` 线程池。
+- **阻塞型命令统一 async + `spawn_blocking`**，不得在同步 command 里等待子进程卡死主线程。
+- LSP 引擎退出监视以实例序号 `seq` 锁定监视对象（同名重启后旧线程立即退出），避免重复 `lsp-exit` 事件。
+
+## 架构约束
+
+- 不侵入外壳内核对静态引擎；自研组件通过独立进程/包集成。
