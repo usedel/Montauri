@@ -1481,17 +1481,45 @@ button:focus-visible,
 .lt-status-bar { min-height: 18px; margin-top: 6px; }
 #settings-reset { margin-right: auto; }
 .settings-body { display: flex; flex-direction: column; gap: 10px; margin-bottom: 4px; }
-.settings-row { display: flex; align-items: center; gap: 14px; }
-.settings-row label { width: 140px; flex: none; color: var(--fg); font-size: 12.5px; }
+.settings-row { display: flex; align-items: center; gap: 14px; --settings-label-w: 160px; }
+/* 无文案占位元素与 label 同宽，保持「控件列」左边界一致（替代空 <label>） */
+.settings-row label,
+.settings-label-gap {
+  width: var(--settings-label-w);
+  flex: none;
+  color: var(--fg);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
 .settings-row select, .settings-row input[type="number"], .settings-row input[type="text"] {
   flex: 1;
+  min-width: 0;
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 3px;
   color: var(--fg);
   padding: 5px 8px;
   font-size: 12.5px;
+  font-family: inherit;
 }
+/* 行内按钮与 select/input 同高同字号同圆角：
+   此前 .settings-row button 无规则，日志/存储页的按钮退回浏览器默认外观（矮一截、系统灰底、字体不继承）。 */
+.settings-row button {
+  flex: none;
+  background: transparent;
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 5px 12px;
+  cursor: pointer;
+  font-size: 12.5px;
+  font-family: inherit;
+  white-space: nowrap;
+}
+.settings-row button:hover:not(:disabled) { border-color: var(--fg-dim); background: var(--hover-subtle); }
+.settings-row button:disabled { opacity: 0.45; cursor: not-allowed; }
+.settings-row button.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.settings-row button.primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
 .settings-row input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; }
 .settings-hint { font-size: 12.5px; color: var(--fg-dim); line-height: 1.6; }
 .settings-hint code {
@@ -1504,28 +1532,7 @@ button:focus-visible,
 
 /* ---------- 新建项目面板 ---------- */
 .new-project-card { min-width: 480px; }
-.new-project-card .settings-row input[type="text"],
-.new-project-card .settings-row select {
-  flex: 1;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  color: var(--fg);
-  padding: 5px 8px;
-  font-size: 12.5px;
-  min-width: 0;
-}
-.new-project-card .settings-row button {
-  background: transparent;
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  padding: 5px 12px;
-  cursor: pointer;
-  font-size: 12.5px;
-  white-space: nowrap;
-}
-.new-project-card .settings-row button:hover { border-color: var(--fg-dim); background: var(--accent); color: var(--on-accent); }
+/* 控件观感统一走上面的通用 .settings-row 规则（此处曾自带一套，造成两套观感） */
 .new-project-preview {
   font-size: 11px;
   color: var(--fg-dim);
@@ -2122,26 +2129,43 @@ button.flash-error {
 
 /* ---------- 存储面板（docs/disk-space-plan.md P1/P2） ---------- */
 
-.storage-usage { border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; max-height: 260px; overflow-y: auto; margin-bottom: 4px; }
+/* 内嵌列表与设置面板同调：圆角 3px、字号 12.5、间距走同一套 token */
+.storage-usage { border: 1px solid var(--border); border-radius: 3px; background: var(--bg); padding: 4px 6px; max-height: 260px; overflow-y: auto; margin-bottom: 4px; }
 
-.storage-row { display: flex; align-items: center; gap: 8px; padding: 3px 2px; font-size: 12px; }
+.storage-row { display: flex; align-items: center; gap: 10px; padding: 4px 6px; font-size: 12.5px; border-radius: 3px; }
 
-.storage-row-sub { padding-left: 20px; color: var(--fg-dim); }
+.storage-row:hover { background: var(--hover-subtle); }
+
+.storage-row-sub { padding-left: 16px; color: var(--fg-dim); }
 
 .storage-label { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .storage-size { flex: none; color: var(--fg-dim); font-variant-numeric: tabular-nums; min-width: 64px; text-align: right; }
 
-.storage-badge { flex: none; font-size: 10px; color: var(--fg-dim); border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; }
+.storage-badge { flex: none; font-size: 11px; color: var(--fg-dim); border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; }
 
-.storage-badge-ok { color: var(--accent, #4ec9b0); border-color: currentColor; }
+.storage-badge-ok { color: var(--ok); border-color: var(--ok-border); }
 
-.storage-badge-part { color: #e8c07d; border-color: currentColor; }
+.storage-badge-part { color: var(--warn); border-color: var(--warn-border); }
 
-.storage-del { flex: none; font-size: 11px; padding: 1px 8px; }
+/* 与 .settings-row button 同款，仅尺寸收紧以适配列表行高 */
+.storage-del {
+  flex: none;
+  font-size: 12px;
+  font-family: inherit;
+  padding: 2px 10px;
+  background: transparent;
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.storage-del:hover { border-color: var(--danger); background: var(--danger-soft); color: var(--danger); }
 
-.storage-sep { padding: 6px 2px 2px; font-size: 11px; color: var(--fg-dim); }
+.storage-sep { padding: 8px 6px 2px; margin-top: 4px; border-top: 1px solid var(--border-soft); font-size: 12px; color: var(--fg-dim); }
 
-.storage-path { flex: 1 1 auto; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+/* 路径按书写方向截断（此前 direction: rtl 会重排冒号与反斜杠） */
+.storage-path { flex: 1 1 auto; min-width: 0; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 
-.storage-inline-label { font-size: 12px; color: var(--fg-dim); }
+.storage-inline-label { font-size: 12.5px; color: var(--fg-dim); }
