@@ -6,6 +6,7 @@ mod git_status;
 mod logging;
 mod lsp;
 mod settings;
+mod storage_cmds;
 mod terminal;
 mod tool_paths;
 mod toolchain;
@@ -101,6 +102,18 @@ pub fn run() {
             settings::set_settings,
             // 日志（TD-007 扩展：设置面板「日志」分类）
             logging::open_log_dir,
+            logging::open_data_dir,
+            // 磁盘占用治理（docs/disk-space-plan.md：存储页 + 首启落位 + 迁移）
+            storage_cmds::storage_usage,
+            storage_cmds::clean_traces,
+            storage_cmds::clean_webview_cache,
+            storage_cmds::clean_log_rotation,
+            storage_cmds::uv_cache_clean,
+            storage_cmds::first_run_status,
+            storage_cmds::ack_first_run,
+            storage_cmds::set_data_root,
+            storage_cmds::migrate_data_root,
+            storage_cmds::restart_app,
             // 工具链引导（Phase 4 第 4 步：探测 + 一键安装 uv/pyrefly/basedpyright）
             toolchain::detect_toolchain,
             toolchain::install_toolchain,

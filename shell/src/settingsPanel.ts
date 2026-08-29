@@ -12,6 +12,7 @@ import { KEYBINDING_META, validateKeybindingMap, applyEditorKeybindings } from "
 import { refreshTerminalThemes } from "./termUi";
 import { applyReduceMotion, hideEl, reduceMotionEnabled, showEl } from "./anim";
 import { openAlert } from "./dialog";
+import { loadStorageUsage, wireStoragePanel } from "./storagePanel";
 
 // ---------- 域内 DOM ----------
 
@@ -40,10 +41,11 @@ const settingsLogLevelEl = $("settings-log-level") as HTMLSelectElement;
 const settingsLogKeepEl = $("settings-log-keep") as HTMLInputElement;
 const settingsLogStdoutEl = $("settings-log-stdout") as HTMLInputElement;
 const settingsLogOpenEl = $("settings-log-open") as HTMLButtonElement;
+const settingsDataOpenEl = $("settings-data-open") as HTMLButtonElement;
 
 // ---------- 分类导航（P1） ----------
 
-export type SettingsCategory = "appearance" | "editor" | "keybindings" | "save" | "python" | "templates" | "terminal" | "logging";
+export type SettingsCategory = "appearance" | "editor" | "keybindings" | "save" | "python" | "templates" | "terminal" | "logging" | "storage";
 
 /** 切换到指定分类并更新导航高亮；进入 Live Templates 分类时渲染模板列表 */
 function switchCategory(cat: SettingsCategory): void {
@@ -56,6 +58,8 @@ function switchCategory(cat: SettingsCategory): void {
   // 模板页为「列表 + 编辑器」双栏，加宽卡片以获得足够编辑空间
   document.querySelector(".settings-card")?.classList.toggle("settings-card--wide", cat === "templates");
   if (cat === "templates") ltUi.openPanel();
+  // 存储页每次进入刷新占用明细（体积随使用变化）
+  if (cat === "storage") void loadStorageUsage();
 }
 
 // ---------- 加载 / 保存 ----------
@@ -355,4 +359,10 @@ export function wireSettingsPanel(): void {
   settingsLogOpenEl.addEventListener("click", () => {
     invoke("open_log_dir").catch((e) => console.warn("打开日志目录失败", e));
   });
+  // 数据：打开数据根目录（系统资源管理器）
+  settingsDataOpenEl.addEventListener("click", () => {
+    invoke("open_data_dir").catch((e) => console.warn("打开数据目录失败", e));
+  });
+  // 存储：占用可视化 / 清理 / 迁移（storagePanel.ts）
+  wireStoragePanel();
 }

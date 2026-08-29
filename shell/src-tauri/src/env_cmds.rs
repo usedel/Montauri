@@ -1,6 +1,6 @@
 // Python 环境管理（P25-T04）：uv 驱动 + 工作区配置存储。
 // 设计要点（见 docs/phase2.5-ide-basics-plan.md §4）：
-// - 解释器选择存 ~/.opencharm/workspaces/<project-hash>.json（不侵入用户项目，粒度与 probe 的 trace 库一致）；
+// - 解释器选择存 <data_root>/workspaces/<project-hash>.json（不侵入用户项目，粒度与 probe 的 trace 库一致）；
 // - 优先级：工作区配置 > 工作区 .venv 自动检测 > 无（uv run 兜底）；
 // - uv 命令 120s 超时保护（创建环境/装包）；列表 15s 超时。
 
@@ -113,17 +113,6 @@ fn venv_python_at(dir: &Path) -> Option<String> {
 /// 工作区 .venv 解释器路径
 fn venv_python(root: &str) -> Option<String> {
     venv_python_at(&Path::new(root).join(".venv"))
-}
-
-/// 全局环境缓存目录（跨项目复用，PyCharm 同款约定）：~/.opencharm/envs/<项目名>-<hash6>
-fn global_env_dir(root: &str) -> PathBuf {
-    let name = Path::new(root)
-        .file_name()
-        .map(|s| s.to_string_lossy().to_string())
-        .unwrap_or_else(|| "env".to_string());
-    let hash = project_hash(root);
-    let n = hash.len().min(6);
-    opencharm_home().join("envs").join(format!("{name}-{}", &hash[..n]))
 }
 
 // ---------- 命令执行（带超时） ----------
@@ -429,29 +418,18 @@ fn pick_default_system_interpreter_impl() -> Result<Option<String>, String> {
     Ok(cands.first().map(|(_, p)| p.clone()))
 }
 
-/// 创建 venv：uv venv <target> [--python <version>]。
-/// location：None/"project" → <workspace_root>/.venv；"global" → 全局缓存目录。
+/// 创建 venv：uv venv <workspace_root>/.venv [--python <version>]。
+/// 环境一律独立于项目目录内（项目环境隔离原则，不提供跨项目共享的全局环境）。
 /// 返回命令输出 + 创建后的解释器路径，供前端直接持久化选中。
 #[tauri::command]
-pub async fn create_venv(
-    workspace_root: String,
-    version: String,
-    location: Option<String>,
-) -> Result<CreateVenvResult, String> {
-    tauri::async_runtime::spawn_blocking(move || create_venv_impl(workspace_root, version, location))
+pub async fn create_venv(workspace_root: String, version: String) -> Result<CreateVenvResult, String> {
+    tauri::async_runtime::spawn_blocking(move || create_venv_impl(workspace_root, version))
         .await
         .map_err(|e| format!("任务执行异常：{e}"))?
 }
 
-fn create_venv_impl(
-    workspace_root: String,
-    version: String,
-    location: Option<String>,
-) -> Result<CreateVenvResult, String> {
-    let target = match location.as_deref() {
-        Some("global") => global_env_dir(&workspace_root),
-        _ => Path::new(&workspace_root).join(".venv"),
-    };
+fn create_venv_impl(workspace_root: String, version: String) -> Result<CreateVenvResult, String> {
+    let target = Path::new(&workspace_root).join(".venv");
     let mut cmd = tool_command("uv", ENV_UV);
     cmd.arg("venv").arg(&target);
     if !version.trim().is_empty() {

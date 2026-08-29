@@ -232,7 +232,7 @@ fn resource_candidates(app: &AppHandle) -> Vec<std::path::PathBuf> {
 
 /// 定位 opencharm-intel 二进制，优先顺序：
 /// 1) 环境变量 OPENCHARM_INTEL_BIN；
-/// 2) 托管目录 ~/.opencharm/runtime/；
+/// 2) 托管目录 <data_root>/runtime/；
 /// 3) Tauri 资源目录（打包分发，第 3 步 bundle.resources 落地）；
 /// 4) dev 相对 exe 上溯仓库布局（intel/target/<profile>/）。
 fn locate_intel_binary(app: &AppHandle) -> Option<std::path::PathBuf> {
@@ -286,7 +286,7 @@ static RUN_CHILD: Mutex<Option<Child>> = Mutex::new(None);
 
 /// 定位 probe/src 注入目录（含 sitecustomize.py 顶层模块），优先顺序：
 /// 1) 环境变量 OPENCHARM_PROBE_SRC；
-/// 2) 托管目录 ~/.opencharm/runtime/probe/src（及 /probe 兼容）；
+/// 2) 托管目录 <data_root>/runtime/probe/src（及 /probe 兼容）；
 /// 3) Tauri 资源目录（打包分发）；
 /// 4) dev 相对 exe 上溯仓库布局（probe/src）。
 /// 找不到返回 None——运行照常，仅无采集（探针缺席绝不拖垮用户脚本）。

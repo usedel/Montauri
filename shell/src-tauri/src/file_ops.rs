@@ -231,7 +231,7 @@ fn strip_verbatim_prefix(path: &str) -> String {
     }
 }
 
-// ---------- 最近打开文件（P25-T09，工作区级，存 ~/.opencharm/recent/<hash>.json） ----------
+// ---------- 最近打开文件（P25-T09，工作区级，存 <data_root>/recent/<hash>.json） ----------
 
 fn recent_path(root: &str) -> PathBuf {
     opencharm_home().join("recent").join(format!("{}.json", project_hash(root)))

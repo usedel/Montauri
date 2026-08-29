@@ -261,6 +261,21 @@
         </div>
       </div>
     </div>
+    <!-- 首启数据落位提示（docs/disk-space-plan.md P2-a） -->
+    <div id="storage-onboarding-modal" class="modal hidden">
+      <div class="modal-card new-project-card">
+        <div class="env-header">
+          <span class="env-title">选择数据存储位置</span>
+        </div>
+        <div class="settings-body">
+          <div class="settings-hint">请设置数据目录，之后随时可在「设置 → 存储」中迁移。</div>
+        </div>
+        <div class="modal-actions">
+          <button id="storage-ob-default" class="primary">使用默认位置</button>
+          <button id="storage-ob-custom">自定义位置…</button>
+        </div>
+      </div>
+    </div>
     <!-- 新建项目面板（模态） -->
     <div id="new-project-modal" class="modal hidden">
       <div class="modal-card new-project-card">
@@ -295,13 +310,6 @@
             <label>Python 版本</label>
             <select id="new-project-version"></select>
           </div>
-          <div class="settings-row" id="new-project-location-row">
-            <label>环境位置</label>
-            <select id="new-project-env-location">
-              <option value="project">项目内 .venv</option>
-              <option value="global">全局缓存（~/.opencharm/envs）</option>
-            </select>
-          </div>
           <div id="new-project-preview" class="new-project-preview"></div>
         </div>
         <div class="modal-actions">
@@ -330,6 +338,7 @@
             <button class="settings-nav-item" data-cat="templates">Live Templates</button>
             <button class="settings-nav-item" data-cat="terminal">终端</button>
             <button class="settings-nav-item" data-cat="logging">日志</button>
+            <button class="settings-nav-item" data-cat="storage">存储</button>
           </nav>
           <div class="settings-content">
             <div id="settings-section-appearance" class="settings-section">
@@ -497,10 +506,47 @@
                 <input id="settings-log-stdout" type="checkbox" />
               </div>
               <div class="settings-row">
+                <label>数据目录</label>
+                <button id="settings-data-open">打开数据目录…</button>
+              </div>
+              <div class="settings-row">
                 <label>日志目录</label>
                 <button id="settings-log-open">打开日志目录…</button>
               </div>
-              <div class="settings-hint">日志写入 <code>~/.opencharm/logs/opencharm.log</code>，单文件超过 1 MiB 自动轮转。关闭「启用日志」后仍会记录错误级日志。</div>
+              <div class="settings-hint">日志写入数据根的 <code>logs/opencharm.log</code>，单文件超过 1 MiB 自动轮转。关闭「启用日志」后仍会记录错误级日志。</div>
+            </div>
+            <div id="settings-section-storage" class="settings-section hidden">
+              <div class="settings-row">
+                <label>数据根目录</label>
+                <span id="storage-root-path" class="storage-path" title=""></span>
+                <button id="storage-open">打开…</button>
+              </div>
+              <div class="settings-row">
+                <label>磁盘占用</label>
+                <button id="storage-refresh">刷新</button>
+              </div>
+              <div id="storage-usage" class="storage-usage"></div>
+              <div class="settings-row">
+                <label>可再生清理</label>
+                <button id="storage-clean-webview">清理 WebView 缓存…</button>
+                <button id="storage-clean-logs">清理轮转日志</button>
+              </div>
+              <div class="settings-row">
+                <label>uv 缓存</label>
+                <button id="storage-uv-prune">清理无效条目…</button>
+                <button id="storage-uv-clean">深度清理…</button>
+              </div>
+              <div class="settings-hint">uv 缓存默认与其他项目通过硬链接共享；深度清理后已装环境不受影响，但重装包将重新落盘。uv 位置由用户自有环境变量（<code>UV_CACHE_DIR</code> 等）决定，OpenCharm 不代管。</div>
+              <div class="settings-row">
+                <label>迁移数据到其他盘</label>
+                <input id="storage-migrate-path" type="text" placeholder="D:\opencharm-data" spellcheck="false" />
+                <button id="storage-migrate-browse">浏览…</button>
+              </div>
+              <div class="settings-row">
+                <label></label>
+                <button id="storage-migrate" class="primary">开始迁移…</button>
+              </div>
+              <div class="settings-hint">迁移 = 复制数据到目标并写入数据根指针文件（位于系统配置目录，仅几十字节），重启后生效。uv 缓存/工具目录由你的环境变量（<code>UV_CACHE_DIR</code> / <code>UV_TOOL_DIR</code>）自行管理，OpenCharm 不代管。旧目录不会被自动删除，重启确认无误后可手工删除。</div>
             </div>
           </div>
         </div>

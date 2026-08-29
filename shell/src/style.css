@@ -1039,6 +1039,10 @@ button:focus-visible,
 .modal-actions button.danger { background: var(--danger-bg); border-color: var(--danger-bg); color: var(--on-accent); }
 .modal-actions button.danger:hover { background: var(--danger-bg-hover); }
 .confirm-message { font-size: 13px; color: var(--fg); margin-bottom: 12px; white-space: pre-line; word-break: break-all; }
+/* 统一消息框（confirm/alert）常由设置面板等模态内的操作触发：
+   必须压在所有 .modal（z-index: 300）之上，否则会被面板遮挡、看起来像「点了没反应」。
+   同时高于 tooltip（400）。 */
+#confirm-modal { z-index: 500; }
 
 /* ---------- 环境面板 ---------- */
 .env-card { min-width: 520px; max-width: 640px; max-height: 70vh; display: flex; flex-direction: column; }
@@ -2115,3 +2119,29 @@ button.flash-error {
 .jp-badge.jp-object { color: #e8c07d; }
 .jp-badge.jp-array { color: #d19a66; }
 .jp-children { padding-left: 16px; }
+
+/* ---------- 存储面板（docs/disk-space-plan.md P1/P2） ---------- */
+
+.storage-usage { border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; max-height: 260px; overflow-y: auto; margin-bottom: 4px; }
+
+.storage-row { display: flex; align-items: center; gap: 8px; padding: 3px 2px; font-size: 12px; }
+
+.storage-row-sub { padding-left: 20px; color: var(--fg-dim); }
+
+.storage-label { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.storage-size { flex: none; color: var(--fg-dim); font-variant-numeric: tabular-nums; min-width: 64px; text-align: right; }
+
+.storage-badge { flex: none; font-size: 10px; color: var(--fg-dim); border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; }
+
+.storage-badge-ok { color: var(--accent, #4ec9b0); border-color: currentColor; }
+
+.storage-badge-part { color: #e8c07d; border-color: currentColor; }
+
+.storage-del { flex: none; font-size: 11px; padding: 1px 8px; }
+
+.storage-sep { padding: 6px 2px 2px; font-size: 11px; color: var(--fg-dim); }
+
+.storage-path { flex: 1 1 auto; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+
+.storage-inline-label { font-size: 12px; color: var(--fg-dim); }

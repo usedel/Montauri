@@ -1,4 +1,4 @@
-// 全局设置（P25-T08/T09）：~/.opencharm/settings.json。
+// 全局设置（P25-T08/T09）：<data_root>/config/settings.json。
 // 读取链：settings.json → 前端内存 → Monaco/editor.updateOptions（见 docs/phase2.5-ide-basics-plan.md §5.3）。
 
 use serde::{Deserialize, Serialize};

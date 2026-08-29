@@ -78,8 +78,8 @@ src-tauri/src/
 ├── toolchain.rs          # 环境探测与一键安装（首次启动引导）
 ├── env_cmds.rs           # Python 环境面板命令
 ├── settings.rs           # 设置读写（含键位默认值）
-├── util.rs               # opencharm_home / no_window / unpoison 收敛
-├── watcher.rs            # 文件监听（工作区 + ~/.opencharm）
+├── util.rs               # data_root / no_window / unpoison 收敛
+├── watcher.rs            # 文件监听（工作区 + 数据目录 config/）
 └── main.rs               # binary 入口
 ```
 
@@ -87,11 +87,12 @@ src-tauri/src/
 
 - **补全三层合并**（sortText 段）：智能模板 `0xx` → 运行时 intel `1xx`（Phase 3 已交付，`⟳ runtime`）→ 静态引擎 `2xx`；
 - **LSP 桥引擎无关**（ADR-0003）：pyrefly（`pyrefly lsp`）/ basedpyright（`basedpyright-langserver --stdio`）切换 = 前端命令表条目，工具栏下拉即切；
-- **Live Templates**（M1-M4）：三范式齐备——插入（缩写 + Tab / 补全弹窗 / Ctrl+J 面板）、环绕（选中 + Ctrl+Alt+T）、后缀（`表达式.if` 等 + Tab/Enter 转换）；`$VAR$` 变量可挂表达式（fileName/date/user/大小写变换/enum→choice/regularExpression 等），编译为 Monaco snippet 复用占位符跳转；上下文判定 = LSP documentSymbol 缓存（主）+ 缩进启发式（兜底）；三层配置（内置 → `~/.opencharm/templates.json` → `<workspace>/.opencharm/templates.json`）+ 管理面板（查看菜单「Live Templates」，编辑/启停/导入导出——导入兼容 JSON 与 PyCharm 导出 XML，保存即生效，外部修改热重载），格式见下；
+- **Live Templates**（M1-M4）：三范式齐备——插入（缩写 + Tab / 补全弹窗 / Ctrl+J 面板）、环绕（选中 + Ctrl+Alt+T）、后缀（`表达式.if` 等 + Tab/Enter 转换）；`$VAR$` 变量可挂表达式（fileName/date/user/大小写变换/enum→choice/regularExpression 等），编译为 Monaco snippet 复用占位符跳转；上下文判定 = LSP documentSymbol 缓存（主）+ 缩进启发式（兜底）；三层配置（内置 → `<data_root>/config/templates.json` → `<workspace>/.opencharm/templates.json`）+ 管理面板（查看菜单「Live Templates」，编辑/启停/导入导出——导入兼容 JSON 与 PyCharm 导出 XML，保存即生效，外部修改热重载），格式见下；
 - **运行**：`uv run <file>`，cwd 锚定文件所在目录（spike 踩坑 #6）；输出流式转发，traceback 帧渲染为可点击链接；
-- **工作区记忆**：`~/.opencharm/last-workspace`。
+- **工作区记忆**：`<data_root>/config/recent-workspaces.json`；
+- **磁盘占用治理**：数据根默认 `%LOCALAPPDATA%\OpenCharm`（`OPENCHARM_DATA_ROOT` 可重定向）；设置 → 「存储」页提供占用可视化、可再生内容清理（trace 库 / WebView 缓存 / 轮转日志 / uv 缓存）、首启落位提示与数据根迁移向导，详见 `docs/disk-space-plan.md`。
 
-## 模板配置示例（Schema v2，~/.opencharm/templates.json）
+## 模板配置示例（Schema v2，<data_root>/config/templates.json）
 
 ```json
 {

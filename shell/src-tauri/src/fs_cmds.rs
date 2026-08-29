@@ -57,7 +57,7 @@ pub fn write_file(path: &str, content: &str) -> Result<(), String> {
 }
 
 /// 写入 Live Templates 配置（M2 管理面板 / 导入）
-/// scope="user" → ~/.opencharm/templates.json；scope="workspace" → <workspace_root>/.opencharm/templates.json
+/// scope="user" → <data_root>/config/templates.json；scope="workspace" → <workspace_root>/.opencharm/templates.json
 #[tauri::command]
 pub fn write_templates_config(
     scope: &str,
@@ -87,7 +87,7 @@ pub fn get_user_name() -> Result<String, String> {
         .map_err(|e| e.to_string())
 }
 
-/// 智能模板用户配置路径：~/.opencharm/templates.json（不存在返回 null）
+/// 智能模板用户配置路径：<data_root>/config/templates.json（不存在返回 null）
 #[tauri::command]
 pub fn read_templates_config() -> Result<Option<String>, String> {
     let p = opencharm_home().join("config").join("templates.json");
@@ -98,7 +98,7 @@ pub fn read_templates_config() -> Result<Option<String>, String> {
     }
 }
 
-/// 最近工作区列表：~/.opencharm/recent-workspaces.json（启动自动恢复 / 「最近的工作区」菜单）
+/// 最近工作区列表：<data_root>/config/recent-workspaces.json（启动自动恢复 / 「最近的工作区」菜单）
 #[tauri::command]
 pub fn get_recent_workspaces() -> Result<Vec<String>, String> {
     let p = opencharm_home().join("config").join("recent-workspaces.json");

@@ -1,8 +1,10 @@
 // 工具链引导（Phase 4 · 第 4 步）：首次启动探测 + 一键安装 uv / 静态引擎（pyrefly / basedpyright）。
 //
 // 全新 Windows 系统缺 uv / pyrefly 时，shell 的补全、跳转、运行均无法工作。
-// 本模块补上「随包分发」外的最后一块：探测缺失项，并引导用户一键把这些
-// 外部工具安装到用户目录（~/.local/bin、~/.opencharm/bin，不污染系统）。
+// 本模块补上「随包分发」外的最后一块：探测缺失项，并引导用户一键把外部工具
+// 安装到**用户自有位置**（uv 官方默认 ~/.local/bin；工具本体落用户 uv 工具目录）。
+// 工具归用户所有、跨项目可复用，OpenCharm 不托管、不重定向（见
+// docs/data-directory-layout-v2.md §4.2 工具所有权原则）。
 //
 // 设计边界：只做「探测」与「引导安装」，不做版本锁定与升级；版本锁定仍走 ci/versions.toml。
 
@@ -62,18 +64,11 @@ fn install_toolchain_impl(app: AppHandle, engine: &str) -> Result<bool, String> 
     let pkg = engine_package(engine);
     let cmd = engine_command(engine);
 
-    // 1. 确保 uv 就绪（缺失则走官方安装脚本，装到 ~/.local/bin）
+    // 1. 确保 uv 就绪（缺失则走官方安装脚本，装到官方默认位置 ~/.local/bin，不重定向）
     if !is_available("uv", ENV_UV) {
-        emit(&app, "toolchain-stdout", "安装 uv（官方脚本，需联网）…\n")?;
+        emit(&app, "toolchain-stdout", "安装 uv（官方脚本，默认位置 ~/.local/bin，需联网）…\n")?;
         if cfg!(windows) {
-            // 引导安装到 OpenCharm 托管目录（<data_root>/.opencharm/bin），不写用户主目录；
-            // tool_command 会对托管 uv 注入 UV_CACHE_DIR 重定向缓存。
-            let install_dir = crate::tool_paths::managed_bin_dir();
-            std::fs::create_dir_all(&install_dir).map_err(|e| e.to_string())?;
-            let ps = format!(
-                "$env:UV_INSTALL_DIR='{}'; irm https://astral.sh/uv/install.ps1 | iex",
-                install_dir.to_string_lossy()
-            );
+            // 不设置 UV_INSTALL_DIR——uv 归用户所有，落官方默认位置，与其他项目共享。
             run_streaming(
                 &app,
                 "powershell.exe",
@@ -82,7 +77,7 @@ fn install_toolchain_impl(app: AppHandle, engine: &str) -> Result<bool, String> 
                     "-ExecutionPolicy",
                     "Bypass",
                     "-Command",
-                    &ps,
+                    "irm https://astral.sh/uv/install.ps1 | iex",
                 ],
                 INSTALL_TIMEOUT,
             )?;
@@ -96,24 +91,18 @@ fn install_toolchain_impl(app: AppHandle, engine: &str) -> Result<bool, String> 
         }
     }
 
-    // 2. 定位 uv 绝对路径（托管目录 ~/.local/bin 命中，无需新 shell 刷新 PATH）
+    // 2. 定位 uv 绝对路径（~/.local/bin 命中，无需新 shell 刷新 PATH）
     let uv = resolve_tool("uv", ENV_UV)
         .ok_or_else(|| "uv 安装后仍未找到，请重启 OpenCharm 或手动把 uv 加入 PATH".to_string())?;
     emit(&app, "toolchain-stdout", &format!("uv 位置：{}\n", uv.display()))?;
 
-    // 3. 安装静态引擎（uv tool install，可执行文件落 ~/.opencharm/bin）
+    // 3. 安装静态引擎（uv tool install，走用户 uv 默认工具目录，入口脚本落 ~/.local/bin）
     if !is_available(cmd, "") {
         emit(&app, "toolchain-stdout", &format!("安装静态引擎 `{pkg}`（uv tool install）…\n"))?;
-        // uv tool install 没有 --tool-dir 参数，工具目录由环境变量控制：
-        //   UV_TOOL_BIN_DIR —— 可执行命令链接目录（落 ~/.opencharm/bin，resolve_tool 无需刷新 PATH 即可命中）
-        //   UV_TOOL_DIR     —— 工具本体（venv）目录（随数据根走，绿色部署删除即净）
-        // tool_command 已解析 uv 绝对路径，并对托管 uv 注入 UV_CACHE_DIR。
-        let bin_dir = crate::tool_paths::managed_bin_dir();
-        std::fs::create_dir_all(&bin_dir).map_err(|e| e.to_string())?;
+        // 不设 UV_TOOL_BIN_DIR / UV_TOOL_DIR——工具落用户 uv 默认目录，跨项目可复用；
+        // tool_command 仅注入 UV_DEFAULT_INDEX（PyPI 包源设置）。
         let mut cmd = crate::tool_paths::tool_command("uv", ENV_UV);
-        cmd.env("UV_TOOL_BIN_DIR", &bin_dir)
-            .env("UV_TOOL_DIR", crate::util::opencharm_home().join("tools"))
-            .args(["tool", "install", pkg]);
+        cmd.args(["tool", "install", pkg]);
         run_streaming_cmd(&app, cmd, INSTALL_TIMEOUT)?;
     }
 

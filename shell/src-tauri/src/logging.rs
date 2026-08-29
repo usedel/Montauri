@@ -5,7 +5,7 @@
 //   - log_keep     保留的轮转文件份数（1-10）
 //   - log_stdout   是否同时打印 stdout（dev 终端可见，release 无控制台时可关）
 //
-// 日志文件：~/.opencharm/logs/opencharm.log，超过 LOG_MAX_BYTES 轮转为 .1/.2/...
+// 日志文件：<data_root>/logs/opencharm.log，超过 LOG_MAX_BYTES 轮转为 .1/.2/...
 // （保留 log_keep 份）。窗口期不重建，进程内始终追加当前文件。
 
 use std::io::Write;
@@ -13,7 +13,7 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 use crate::settings;
-use crate::util::user_home;
+use crate::util::logs_dir;
 
 /// 单文件超过此字节数即轮转（1 MiB）。
 const LOG_MAX_BYTES: u64 = 1024 * 1024;
@@ -49,12 +49,12 @@ impl Level {
     }
 }
 
-/// 日志目录：~/.opencharm/logs
+/// 日志目录：<data_root>/logs
 pub(crate) fn log_dir() -> PathBuf {
-    user_home().join(".opencharm").join("logs")
+    logs_dir()
 }
 
-/// 当前日志文件：~/.opencharm/logs/opencharm.log
+/// 当前日志文件：<data_root>/logs/opencharm.log
 fn current_log() -> PathBuf {
     log_dir().join("opencharm.log")
 }
@@ -168,17 +168,15 @@ fn unpoison<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-/// 在系统资源管理器中打开日志目录（设置面板「日志」分类的入口按钮）。
-#[tauri::command]
-pub fn open_log_dir() -> Result<(), String> {
-    let dir = log_dir();
+/// 在系统资源管理器中打开目录（跨平台）。
+fn reveal_dir(dir: PathBuf, what: &str) -> Result<(), String> {
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     #[cfg(windows)]
     {
         crate::util::no_window(std::process::Command::new("explorer").arg(dir))
             .spawn()
             .map(|_| ())
-            .map_err(|e| format!("无法打开日志目录：{e}"))
+            .map_err(|e| format!("无法打开{what}：{e}"))
     }
     #[cfg(target_os = "macos")]
     {
@@ -186,7 +184,7 @@ pub fn open_log_dir() -> Result<(), String> {
             .arg(dir)
             .spawn()
             .map(|_| ())
-            .map_err(|e| format!("无法打开日志目录：{e}"))
+            .map_err(|e| format!("无法打开{what}：{e}"))
     }
     #[cfg(all(not(windows), not(target_os = "macos")))]
     {
@@ -194,6 +192,18 @@ pub fn open_log_dir() -> Result<(), String> {
             .arg(dir)
             .spawn()
             .map(|_| ())
-            .map_err(|e| format!("无法打开日志目录：{e}"))
+            .map_err(|e| format!("无法打开{what}：{e}"))
     }
+}
+
+/// 在系统资源管理器中打开日志目录（设置面板「日志」分类的入口按钮）。
+#[tauri::command]
+pub fn open_log_dir() -> Result<(), String> {
+    reveal_dir(log_dir(), "日志目录")
+}
+
+/// 在系统资源管理器中打开数据根目录（设置面板入口；含 config/traces/envs 等子目录）。
+#[tauri::command]
+pub fn open_data_dir() -> Result<(), String> {
+    reveal_dir(crate::util::opencharm_home(), "数据目录")
 }

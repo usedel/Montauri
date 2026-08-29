@@ -32,6 +32,7 @@ import {
 import { refreshGitStatus, renderGitPanel, refreshBranchPanel, resetGitState, wireGitUI } from "./git";
 import { disposeTerminal, openTerminalAt, wireBottomPanel, wireTerminalEvents } from "./termUi";
 import { loadSettings, saveSettings, applyFontStatus, openSettingsPanel, wireSettingsPanel, buildEditorOptions } from "./settingsPanel";
+import { checkFirstRunStorage } from "./storagePanel";
 import { basename, codicon, emptyState, joinPath, languageOf, parentDirOf, renderFileIcon, SNAKE_SVG, symbolIcon } from "./util";
 import { restoreLayout, wireSplitters } from "./layout";
 import { hideEl, restoreReduceMotion, showEl } from "./anim";
@@ -73,9 +74,7 @@ const newProjectLocationEl = $("new-project-location") as HTMLInputElement;
 const newProjectGitEl = $("new-project-git") as HTMLInputElement;
 const newProjectEnvTypeEl = $("new-project-env-type") as HTMLSelectElement;
 const newProjectVersionEl = $("new-project-version") as HTMLSelectElement;
-const newProjectEnvLocationEl = $("new-project-env-location") as HTMLSelectElement;
 const newProjectVersionRowEl = $("new-project-version-row");
-const newProjectLocationRowEl = $("new-project-location-row");
 const newProjectPreviewEl = $("new-project-preview");
 
 // ---------- 工作区 ----------
@@ -298,7 +297,6 @@ function updateNewProjectPreview(): void {
 async function openNewProjectPanel(): Promise<void> {
   newProjectNameEl.value = "";
   newProjectEnvTypeEl.value = "venv";
-  newProjectEnvLocationEl.value = "project";
   if (!newProjectLocationEl.value.trim()) {
     let recents: string[] = [];
     try {
@@ -322,7 +320,6 @@ function closeNewProjectPanel(): void {
 function updateNewProjectEnvFields(): void {
   const isVenv = newProjectEnvTypeEl.value === "venv";
   newProjectVersionRowEl.classList.toggle("hidden", !isVenv);
-  newProjectLocationRowEl.classList.toggle("hidden", !isVenv);
 }
 
 /** 填充 Python 版本下拉（venv 用，含可下载版本标记）。加载期间显示占位。 */
@@ -368,7 +365,6 @@ async function createProject(): Promise<void> {
   const wantGit = newProjectGitEl.checked;
   const envType = newProjectEnvTypeEl.value; // venv | system | none
   const version = newProjectVersionEl.value; // venv 时为版本 spec，其余为空
-  const location = newProjectEnvLocationEl.value; // project | global（仅 venv）
   const createBtn = $btn("new-project-create");
   setBusy(createBtn, true, "创建中…");
 
@@ -388,10 +384,9 @@ async function createProject(): Promise<void> {
 
   try {
     if (envType === "venv") {
-      const targetLabel = location === "global" ? "~/.opencharm/envs" : ".venv";
-      appendOutputLine(outputEl, `> uv venv ${targetLabel}${version ? " --python " + version : ""}  (${result.path})`, "cmd", gotoFromLink);
+      appendOutputLine(outputEl, `> uv venv .venv${version ? " --python " + version : ""}  (${result.path})`, "cmd", gotoFromLink);
       setBusy(createBtn, true, "创建环境…");
-      const r = await invoke<CreateVenvResult>("create_venv", { workspaceRoot: result.path, version, location });
+      const r = await invoke<CreateVenvResult>("create_venv", { workspaceRoot: result.path, version });
       if (r.output) appendOutputLine(outputEl, r.output, "stdout", gotoFromLink);
       if (r.python) await invoke("set_interpreter", { workspaceRoot: result.path, path: r.python }).catch(console.error);
     } else if (envType === "system") {
@@ -501,8 +496,14 @@ function handleFsChanged(dirs: string[]): void {
     if (root && dirs.includes(root) && isTreeEmpty()) {
       await refreshTree();
     }
-    // Live Templates 热重载：用户层（~/.opencharm，watcher 附加监听）或工作区层配置变更（M2）
-    if (dirs.some((d) => d.toLowerCase().endsWith(".opencharm"))) await loadTemplatesConfig();
+    // Live Templates 热重载：用户层（<data_root>/config，watcher 附加监听）或工作区层配置变更（M2）
+    if (
+      dirs.some((d) => {
+        const n = d.toLowerCase().replace(/\\/g, "/");
+        return n.endsWith(".opencharm") || n.endsWith("opencharm/config") || n.endsWith("/config");
+      })
+    )
+      await loadTemplatesConfig();
   }, 200);
 }
 
@@ -786,9 +787,9 @@ async function createVenv(): Promise<void> {
   appendOutputLine(outputEl, `> ${cmdDesc}`, "cmd", gotoFromLink);
   setBusy(btn, true, "创建中…");
   try {
-    const r = await invoke<CreateVenvResult>("create_venv", { workspaceRoot: app.workspaceRoot, version, location: null });
+    const r = await invoke<CreateVenvResult>("create_venv", { workspaceRoot: app.workspaceRoot, version });
     if (r.output) appendOutputLine(outputEl, r.output, "stdout", gotoFromLink);
-    // 直接以创建出的解释器路径持久化选中（不依赖 .venv 自动检测，兼容全局缓存位置）
+    // 直接以创建出的解释器路径持久化选中（不依赖 .venv 自动检测）
     if (r.python) {
       await invoke("set_interpreter", { workspaceRoot: app.workspaceRoot, path: r.python }).catch(console.error);
     }
@@ -1802,6 +1803,7 @@ async function init(): Promise<void> {
   $("ew-new-project").addEventListener("click", () => openNewProjectPanel());
   $("ew-recent-clear").addEventListener("click", () => void clearRecentWorkspaces());
   wireMenuBar();
+  void checkFirstRunStorage(); // 首启数据落位提示（disk-space-plan.md P2-a；内部判断触发条件，多数启动为 no-op）
 
   // 自绘标题栏（decorations: false）：窗口控制按钮 + 拖拽区 + 边缘 resize 兜底
   const appWindow = getCurrentWindow();

@@ -7,7 +7,7 @@
 //
 // 解析优先级：
 //   1. 环境变量显式指定（如 OPENCHARM_UV_BIN，值须为现存文件的路径）；
-//   2. OpenCharm 托管目录 ~/.opencharm/bin/<name>[.exe]；
+//   2. uv 官方默认用户级安装目录 ~/.local/bin/<name>[.exe]（引导安装落点，无需刷新 PATH 即可命中）；
 //   3. 均未命中 → 回退 Command::new(name)（走系统 PATH，保持现状行为，开发态零破坏）。
 
 use std::path::{Path, PathBuf};
@@ -32,12 +32,7 @@ fn inject_pypi_mirror(cmd: &mut Command) {
     }
 }
 
-/// OpenCharm 托管工具目录：~/.opencharm/bin（放置用户级注入的 uv / pyrefly / ruff 等二进制）。
-pub fn managed_bin_dir() -> PathBuf {
-    opencharm_home().join("bin")
-}
-
-/// OpenCharm 运行时组件目录：~/.opencharm/runtime（放置随包分发的自研组件——
+/// OpenCharm 运行时组件目录：<data_root>/runtime（放置随包分发的自研组件——
 /// opencharm-intel 二进制、probe/src 源码等，见第 2 步 locate_* 函数）。
 pub fn runtime_dir() -> PathBuf {
     opencharm_home().join("runtime")
@@ -45,7 +40,7 @@ pub fn runtime_dir() -> PathBuf {
 
 /// uv / uv tool 的默认用户级安装目录：~/.local/bin（Windows：%USERPROFILE%\\.local\\bin）。
 /// uv 官方 install.ps1 与 `uv tool install` 均默认安装到这里，
-/// 因此把该目录纳入托管候选，引导安装后无需新 shell 刷新 PATH 即可命中。
+/// 因此把该目录纳入解析候选，引导安装后无需新 shell 刷新 PATH 即可命中。
 pub fn local_bin_dir() -> PathBuf {
     user_home().join(".local").join("bin")
 }
@@ -79,7 +74,7 @@ fn find_in_dirs(name: &str, dirs: &[PathBuf]) -> Option<PathBuf> {
     None
 }
 
-/// 定位工具：环境变量 override → 托管目录（~/.opencharm/bin、~/.local/bin）；
+/// 定位工具：环境变量 override → uv 官方默认用户级安装目录（~/.local/bin）；
 /// 未命中返回 None（调用方回退 PATH）。
 pub fn resolve_tool(name: &str, env_override: &str) -> Option<PathBuf> {
     if !env_override.is_empty() {
@@ -90,10 +85,10 @@ pub fn resolve_tool(name: &str, env_override: &str) -> Option<PathBuf> {
             }
         }
     }
-    find_in_dirs(name, &[managed_bin_dir(), local_bin_dir()])
+    find_in_dirs(name, &[local_bin_dir()])
 }
 
-/// 在系统 PATH 中查找工具二进制（用于探测；较托管目录慢，仅首次启动/引导时调用）。
+/// 在系统 PATH 中查找工具二进制（用于探测；较目录探测慢，仅首次启动/引导时调用）。
 fn find_on_path(name: &str) -> Option<PathBuf> {
     let path_var = std::env::var("PATH").ok()?;
     let sep = if cfg!(windows) { ';' } else { ':' };
@@ -111,23 +106,20 @@ fn find_on_path(name: &str) -> Option<PathBuf> {
     None
 }
 
-/// 工具是否可用：环境变量 / 托管目录命中，或系统 PATH 中存在。
+/// 工具是否可用：环境变量 / ~/.local/bin 命中，或系统 PATH 中存在。
 pub fn is_available(name: &str, env_override: &str) -> bool {
     resolve_tool(name, env_override).is_some() || find_on_path(name).is_some()
 }
 
 /// 构造工具命令：命中绝对路径则直接使用，否则回退原命令名（走系统 PATH）。
-/// 仅对 OpenCharm 引导安装的 uv（落在托管目录 bin/）重定向缓存到 data_root，
-/// 用户自装的 uv 保持默认缓存位置不受影响（见 util::uv_cache_dir）。
+/// 不注入 UV_CACHE_DIR / UV_TOOL_DIR——uv 与其工具链是用户级跨项目资产，
+/// 使用用户自有缓存与工具目录（uv 工具所有权原则，见 docs/data-directory-layout-v2.md §4.2）。
 pub fn tool_command(name: &str, env_override: &str) -> Command {
     let resolved = resolve_tool(name, env_override);
     let mut cmd = resolved
         .as_ref()
         .map_or_else(|| Command::new(name), |p| Command::new(p));
     if name == "uv" {
-        if resolved.as_ref().is_some_and(|p| p.starts_with(managed_bin_dir())) {
-            cmd.env("UV_CACHE_DIR", crate::util::uv_cache_dir());
-        }
         // 所有 uv 网络操作（tool install / pip install / uv add / uv run 等）统一走设置中的 PyPI 包源
         inject_pypi_mirror(&mut cmd);
     }
@@ -135,7 +127,7 @@ pub fn tool_command(name: &str, env_override: &str) -> Command {
 }
 
 /// 构造 LSP 引擎命令：前端传入的 `command` 可能是「绝对/相对路径」或「裸命令名」。
-/// 已是路径 → 原样使用；裸命令名 → 走工具解析（托管目录优先，回退 PATH）。
+/// 已是路径 → 原样使用；裸命令名 → 走工具解析（~/.local/bin 优先，回退 PATH）。
 pub fn resolve_lsp_command(command: &str) -> Command {
     let cmd = command.trim();
     if cmd.is_empty() {
@@ -205,7 +197,7 @@ mod tests {
 
     #[test]
     fn resolve_lsp_command_falls_back_to_bare_name() {
-        // 用必然不存在的工具名，避免受本机 ~/.opencharm/bin 环境干扰
+        // 用必然不存在的工具名，避免受本机工具环境干扰
         let cmd = resolve_lsp_command("__opencharm_no_such_lsp__");
         assert_eq!(cmd.get_program().to_string_lossy(), "__opencharm_no_such_lsp__");
     }

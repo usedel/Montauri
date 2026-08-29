@@ -1,10 +1,10 @@
 // 跨模块共享工具：用户目录定位 + Windows 无窗口子进程启动。
-// 消除 file_ops / env_cmds / lsp / settings 中重复的 opencharm_home 与 no_window 实现。
+// 消除 file_ops / env_cmds / lsp / settings 中重复的 data_root 与 no_window 实现。
 
 use std::path::PathBuf;
 
 /// 用户主目录（Windows 为 USERPROFILE/HOME）。
-/// 固定指向系统用户目录，不随便携/安装目录模式改变。
+/// 固定指向系统用户目录。
 /// 用于 uv 官方脚本默认安装位置 `~/.local/bin` 等用户级路径。
 pub(crate) fn user_home() -> PathBuf {
     std::env::var("USERPROFILE")
@@ -13,55 +13,71 @@ pub(crate) fn user_home() -> PathBuf {
         .unwrap_or_else(|_| PathBuf::from("."))
 }
 
-/// OpenCharm 数据根目录（不含 `.opencharm` 段），进程内只探测一次（OnceLock 缓存）。
+/// OpenCharm 数据根目录，进程内只探测一次（OnceLock 缓存）。
 ///
-/// 决策顺序：
-/// 1. `OPENCHARM_DATA_ROOT` 环境变量（调试 / 便携自定义）；
-/// 2. 可执行文件所在目录——存在 `opencharm.portable` 标记，或该目录可写
-///    （绿色版 / 安装到非系统盘时数据与程序同盘，删目录即卸载）；
-/// 3. 回退用户主目录（安装目录无写权限等场景，保持历史行为）。
+/// 决策顺序（三级，无便携形态，跨平台无注册表依赖）：
+/// 1. `OPENCHARM_DATA_ROOT` 环境变量（仅开发 / 测试 / 高级用户重定向，应用自身不写入）；
+/// 2. 数据根指针文件（首启落位提示 / 迁移向导写入，见 `data_root_pointer`）；
+/// 3. 平台默认：Windows 为 `%LOCALAPPDATA%\OpenCharm`（Known Folders 惯例）。
 pub(crate) fn data_root() -> &'static PathBuf {
     static ROOT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
     ROOT.get_or_init(resolve_data_root)
 }
 
+/// 数据根指针文件目录：平台标准配置目录（与数据根解耦——指针只有几十字节，
+/// 落在系统盘无妨；真正的大体积数据按指针指向落盘，跨平台无注册表/环境变量依赖）。
+/// Windows: `%APPDATA%\OpenCharm`；Linux: `$XDG_CONFIG_HOME/opencharm`；
+/// macOS: `~/Library/Application Support/OpenCharm`。
+pub(crate) fn pointer_dir() -> PathBuf {
+    #[cfg(windows)]
+    {
+        std::env::var("APPDATA")
+            .map(|d| PathBuf::from(d).join("OpenCharm"))
+            .unwrap_or_else(|_| user_home().join("AppData").join("Roaming").join("OpenCharm"))
+    }
+    #[cfg(target_os = "macos")]
+    {
+        user_home().join("Library").join("Application Support").join("OpenCharm")
+    }
+    #[cfg(all(not(windows), not(target_os = "macos")))]
+    {
+        std::env::var("XDG_CONFIG_HOME")
+            .map(|d| PathBuf::from(d).join("opencharm"))
+            .unwrap_or_else(|_| user_home().join(".config").join("opencharm"))
+    }
+}
+
+/// 数据根指针文件（内容 = 数据根绝对路径；不存在 = 用平台默认）。
+pub(crate) fn data_root_pointer() -> PathBuf {
+    pointer_dir().join("data-root")
+}
+
 fn resolve_data_root() -> PathBuf {
-    // 1. 显式环境变量覆盖（最高优先级）
+    // 1. 显式环境变量覆盖（仅开发 / 测试 / 高级用户，应用自身不写入环境变量）
     if let Ok(dir) = std::env::var("OPENCHARM_DATA_ROOT") {
         let p = PathBuf::from(dir.trim());
         if !p.as_os_str().is_empty() {
             return p;
         }
     }
-    // 2. 可执行文件目录：便携标记 或 目录可写
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            if dir.join("opencharm.portable").is_file() || dir_writable(dir) {
-                return dir.to_path_buf();
-            }
+    // 2. 指针文件（首启落位提示 / 迁移向导写入）
+    if let Ok(s) = std::fs::read_to_string(data_root_pointer()) {
+        let p = PathBuf::from(s.trim());
+        if !p.as_os_str().is_empty() {
+            return p;
         }
     }
-    // 3. 回退用户主目录
-    user_home()
+    // 3. 平台默认：Known Folders（Windows %LOCALAPPDATA%\OpenCharm）
+    std::env::var("LOCALAPPDATA")
+        .map(|d| PathBuf::from(d).join("OpenCharm"))
+        .unwrap_or_else(|_| user_home().join("OpenCharm"))
 }
 
-/// 探针式可写检测：写临时空文件成功后删除。结果仅用于数据根决策。
-fn dir_writable(dir: &std::path::Path) -> bool {
-    let probe = dir.join(format!(".opencharm-wprobe-{}", std::process::id()));
-    match std::fs::write(&probe, b"") {
-        Ok(()) => {
-            let _ = std::fs::remove_file(&probe);
-            true
-        }
-        Err(_) => false,
-    }
-}
-
-/// OpenCharm 用户数据目录 `<data_root>/.opencharm`。
-/// 各模块在此目录下按功能划分子目录（config/ workspaces/ recent/ traces/ envs/
-/// bin/ runtime/ cache/ webview/），不要把文件平铺到根目录。
+/// OpenCharm 用户数据根（即 data_root）。
+/// 各模块在此目录下按功能划分子目录（config/ workspaces/ recent/ traces/
+/// runtime/ webview/ logs/），不要把文件平铺到根目录。
 pub(crate) fn opencharm_home() -> PathBuf {
-    data_root().join(".opencharm")
+    data_root().to_path_buf()
 }
 
 /// WebView2 用户数据目录（localStorage / Cookie / 缓存落盘位置，仅 Windows WebView2 使用）。
@@ -70,9 +86,9 @@ pub(crate) fn webview_data_dir() -> PathBuf {
     opencharm_home().join("webview")
 }
 
-/// uv 下载/构建缓存目录（仅对 OpenCharm 引导安装的 uv 生效，见 tool_paths.rs）。
-pub(crate) fn uv_cache_dir() -> PathBuf {
-    opencharm_home().join("cache").join("uv")
+/// 诊断日志目录（按天轮转，保留 14 天，见 logging.rs）。
+pub(crate) fn logs_dir() -> PathBuf {
+    opencharm_home().join("logs")
 }
 
 /// Windows 下为子进程附加 CREATE_NO_WINDOW，避免弹出控制台窗口；其他平台原样返回。
