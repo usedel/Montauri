@@ -3,6 +3,7 @@ mod file_ops;
 mod fs_cmds;
 mod git_cmds;
 mod git_status;
+mod logging;
 mod lsp;
 mod settings;
 mod terminal;
@@ -98,6 +99,8 @@ pub fn run() {
             // 全局设置（P25-T08/T09）
             settings::get_settings,
             settings::set_settings,
+            // 日志（TD-007 扩展：设置面板「日志」分类）
+            logging::open_log_dir,
             // 工具链引导（Phase 4 第 4 步：探测 + 一键安装 uv/pyrefly/basedpyright）
             toolchain::detect_toolchain,
             toolchain::install_toolchain,

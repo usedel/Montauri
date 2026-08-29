@@ -38,6 +38,14 @@ export interface Settings {
   /** 快捷键自定义（id → 键位串如 "Ctrl+D"；空串 = 解绑）。
    *  id 清单与出厂默认见 keybindings.ts 的 KEYBINDING_META（两处须同步）。 */
   keybindings: Record<string, string>;
+  /** 日志：总开关（关闭后仅 error 仍落盘） */
+  log_enabled: boolean;
+  /** 日志级别阈值："error" | "warn" | "info" | "debug" */
+  log_level: string;
+  /** 日志轮转保留份数（1-10） */
+  log_keep: number;
+  /** 日志是否同时打印 stdout（dev 终端可见；release 无控制台可关） */
+  log_stdout: boolean;
 }
 
 /** Settings 出厂默认值（「恢复默认」与 app.settings 初始值共用；须与 Rust Settings::default 保持一致） */
@@ -74,6 +82,11 @@ export const DEFAULT_SETTINGS: Settings = {
     template_palette: "Ctrl+J",
     surround: "Ctrl+Alt+T",
   },
+  // 日志默认（须与 Rust settings.rs Default 保持同步）
+  log_enabled: true,
+  log_level: "info",
+  log_keep: 3,
+  log_stdout: false,
 };
 
 export interface AppState {

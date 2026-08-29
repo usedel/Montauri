@@ -13,7 +13,8 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use crate::file_ops::project_hash;
 use crate::tool_paths::{resolve_lsp_command, tool_command, ENV_UV};
-use crate::util::{kill_process_tree, no_window, opencharm_home, unpoison};
+use crate::logging::{log_line, Level};
+use crate::util::{kill_process_tree, kill_process_tree_async, no_window, opencharm_home, unpoison};
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -197,18 +198,23 @@ fn send_message(engine: &str, msg: &Value) -> Result<(), String> {
 /// 停止 LSP 引擎进程；`engine` 为 "*" / "all" 时停止全部实例。
 #[tauri::command]
 pub fn lsp_stop(engine: String) -> Result<(), String> {
+    let start = std::time::Instant::now();
+    log_line(Level::Info, &format!("[lsp_stop] begin engine={engine}"));
     let mut map = unpoison(LSP.lock());
     if engine == "*" || engine == "all" {
         for (_, mut inst) in map.drain() {
-            if let Some(mut c) = inst.child.take() {
-                kill_process_tree(&mut c);
+            if let Some(c) = inst.child.take() {
+                log_line(Level::Debug, &format!("[lsp_stop] kill_process_tree_async: pid={}", c.id()));
+                kill_process_tree_async(c); // 异步终止，避免关闭工作区时阻塞数秒
             }
         }
     } else if let Some(mut inst) = map.remove(&engine) {
-        if let Some(mut c) = inst.child.take() {
-            kill_process_tree(&mut c);
+        if let Some(c) = inst.child.take() {
+            log_line(Level::Debug, &format!("[lsp_stop] kill_process_tree_async: pid={}", c.id()));
+            kill_process_tree_async(c);
         }
     }
+    log_line(Level::Info, &format!("[lsp_stop] done, took={:?}", start.elapsed()));
     Ok(())
 }
 

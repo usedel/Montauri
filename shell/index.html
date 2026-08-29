@@ -329,6 +329,7 @@
             <button class="settings-nav-item" data-cat="python">Python / 运行时</button>
             <button class="settings-nav-item" data-cat="templates">Live Templates</button>
             <button class="settings-nav-item" data-cat="terminal">终端</button>
+            <button class="settings-nav-item" data-cat="logging">日志</button>
           </nav>
           <div class="settings-content">
             <div id="settings-section-appearance" class="settings-section">
@@ -472,6 +473,34 @@
                   <option value="file">活动文件所在目录</option>
                 </select>
               </div>
+            </div>
+            <div id="settings-section-logging" class="settings-section hidden">
+              <div class="settings-row">
+                <label>启用日志</label>
+                <input id="settings-log-enabled" type="checkbox" />
+              </div>
+              <div class="settings-row">
+                <label>日志级别</label>
+                <select id="settings-log-level">
+                  <option value="error">仅错误</option>
+                  <option value="warn">错误 + 警告</option>
+                  <option value="info">信息（默认）</option>
+                  <option value="debug">调试（最详细）</option>
+                </select>
+              </div>
+              <div class="settings-row">
+                <label>保留轮转份数</label>
+                <input id="settings-log-keep" type="number" min="1" max="10" />
+              </div>
+              <div class="settings-row">
+                <label>同时输出到终端（stdout）</label>
+                <input id="settings-log-stdout" type="checkbox" />
+              </div>
+              <div class="settings-row">
+                <label>日志目录</label>
+                <button id="settings-log-open">打开日志目录…</button>
+              </div>
+              <div class="settings-hint">日志写入 <code>~/.opencharm/logs/opencharm.log</code>，单文件超过 1 MiB 自动轮转。关闭「启用日志」后仍会记录错误级日志。</div>
             </div>
           </div>
         </div>

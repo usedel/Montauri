@@ -94,11 +94,14 @@ pub(crate) fn unpoison<T>(r: std::sync::LockResult<T>) -> T {
     r.unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-/// 终止子进程**及其全部子孙进程**并回收。
+/// 终止子进程**及其全部子孙进程**并回收（同步阻塞）。
 ///
 /// 只 `child.kill()` 会杀掉直接子进程（如 `uv run` / 解释器），但 uv 拉起的 python 脚本、
 /// shell 再 spawn 的子进程会变成孤儿继续运行（停止按钮失效）。Windows 用
 /// `taskkill /T /F` 杀进程树；其他平台仅杀直接子进程。
+///
+/// 阻塞直到进程树被终结并回收。调用方需自行确保不会被 `kill_process_tree` 阻塞数秒
+/// （如关闭工作区场景应改用 [`kill_process_tree_async`]）。
 pub(crate) fn kill_process_tree(child: &mut std::process::Child) {
     #[cfg(windows)]
     {
@@ -115,4 +118,56 @@ pub(crate) fn kill_process_tree(child: &mut std::process::Child) {
         let _ = child.kill();
     }
     let _ = child.wait();
+}
+
+/// 同 [`kill_process_tree`]，但异步：阻塞性的 `taskkill` + 回收（`child.wait()`）全部移到
+/// 后台线程执行并对回收加超时，函数立即返回。
+///
+/// 供关闭工作区 / 停止 LSP 引擎等**不应阻塞 UI** 的场景使用；需要同步确保子进程已退出的
+/// 场景（如超时/出错后紧接着 join 输出线程）仍应使用 [`kill_process_tree`]。
+pub(crate) fn kill_process_tree_async(child: std::process::Child) {
+    // taskkill 的 PID 先取出（进程树终结后 child.id() 可能失效）。
+    let pid = child.id();
+
+    // taskkill 对庞杂进程树可能耗时数秒，必须在后台线程执行，否则仍会阻塞调用方（lsp_stop）。
+    std::thread::spawn(move || {
+        let t0 = std::time::Instant::now();
+        #[cfg(windows)]
+        let _ = std::process::Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/T", "/F"])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+
+        let mut child = child;
+        #[cfg(not(windows))]
+        let _ = child.kill();
+
+        // 回收进程句柄，最多等 RETRIES 次共 ~1s，避免子进程迟迟不退出而卡住。
+        const RETRIES: usize = 10;
+        for _ in 0..RETRIES {
+            match child.try_wait() {
+                Ok(Some(_)) => {
+                    crate::logging::log_line(
+                        crate::logging::Level::Info,
+                        &format!("[kill_async] pid={pid} reaped, took={:?}", t0.elapsed()),
+                    );
+                    return;
+                }
+                Ok(None) => std::thread::sleep(std::time::Duration::from_millis(100)),
+                Err(_) => {
+                    crate::logging::log_line(
+                        crate::logging::Level::Warn,
+                        &format!("[kill_async] pid={pid} wait err, took={:?}", t0.elapsed()),
+                    );
+                    return;
+                }
+            }
+        }
+        crate::logging::log_line(
+            crate::logging::Level::Warn,
+            &format!("[kill_async] pid={pid} timeout(~1s), gave up"),
+        );
+    });
 }

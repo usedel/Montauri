@@ -58,6 +58,27 @@ powershell -File .\build-release.ps1
 
 安装包输出：`shell/src-tauri/target/release/bundle/nsis/`；工具链版本见 `ci/versions.toml`。
 
+## 日志
+
+统一日志工具（`shell/src-tauri/src/logging.rs`，设置面板「日志」分类可配置）：
+
+- **落盘位置**：`~/.opencharm/logs/opencharm.log`（固定用户主目录，release / 打包后仍可稳定定位）。
+- **级别过滤**：`error` / `warn` / `info` / `debug`，按设置阈值过滤（默认 `info`）。
+- **大小轮转**：单文件超 1 MiB 自动切成 `.1` / `.2` …，保留 `log_keep` 份（默认 3）。
+- **stdout 双写**：受 `log_stdout` 开关控制（dev 终端可见；release 无控制台可关）。
+- **防黑盒**：关闭「启用日志」后，`error` 级仍会落盘。
+
+配置项（`settings.json` → 设置面板 → 日志）：
+
+| 字段 | 默认 | 说明 |
+|---|---|---|
+| `log_enabled` | `true` | 总开关（关闭后仅 error 落盘） |
+| `log_level` | `"info"` | 阈值：`error` / `warn` / `info` / `debug` |
+| `log_keep` | `3` | 轮转保留份数（1-10） |
+| `log_stdout` | `false` | 是否同时输出 stdout |
+
+排查线上问题：设置面板 → 日志分类 → 调高级别到 `debug`，或点「打开日志目录」直接定位日志文件。
+
 ## 当前状态
 
 - 项目阶段：**Phase 1 / Phase 2 / Phase 2.5 均已交付，Phase 3（opencharm-intel）已基本交付（P3-T01~T10 完成，仅 PyCharm 同场景人工对标待复核）**；当前进入 **Phase 4（持续打磨）**，进度见 `docs/python_ide_dev_plan_v2.md` §7。

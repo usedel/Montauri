@@ -44,6 +44,12 @@ provider:
 - **阻塞型命令统一 async + `spawn_blocking`**，不得在同步 command 里等待子进程卡死主线程。
 - LSP 引擎退出监视以实例序号 `seq` 锁定监视对象（同名重启后旧线程立即退出），避免重复 `lsp-exit` 事件。
 
+## 修改后验证（务必遵守）
+
+- **每次改动 `shell/src-tauri` 下的 Rust 代码后，必须主动在 `shell/src-tauri` 目录运行 `cargo check`**，确认编译通过再交付，不得等用户测试或反馈编译错误。
+- Windows cmd 下运行：`cd /d d:\code\open-charm\shell\src-tauri && cargo check`（不可用 `tail` 等 Unix 命令，管道用 `2>&1` 即可）。
+- 若 `cargo check` 报错，应就地修复并重新 `cargo check` 直至通过。
+
 ## 架构约束
 
 - 不侵入外壳内核对静态引擎；自研组件通过独立进程/包集成。

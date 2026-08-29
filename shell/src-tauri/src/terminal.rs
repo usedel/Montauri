@@ -13,6 +13,7 @@ use std::io::{Read, Write};
 use std::sync::{LazyLock, Mutex};
 use tauri::{AppHandle, Emitter};
 
+use crate::logging::{log_line, Level};
 use crate::util::unpoison;
 
 /// 单个终端会话：master 供 resize / clone reader / take writer；writer/child 各自持有。
@@ -221,7 +222,9 @@ pub fn term_resize(id: String, cols: u16, rows: u16) -> Result<(), String> {
 /// 终止指定会话（关闭某个终端 tab / 重新 spawn 前调用）
 #[tauri::command]
 pub fn term_kill(id: String) -> Result<(), String> {
+    let start = std::time::Instant::now();
     kill_session(&id);
+    log_line(Level::Debug, &format!("[term_kill] id={id}, took={:?}", start.elapsed()));
     Ok(())
 }
 

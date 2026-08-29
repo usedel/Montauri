@@ -107,9 +107,20 @@ async function teardownCurrent(): Promise<boolean> {
     if (app.tabs.some((t) => t.dirty) && !(await openConfirm({ message: "存在未保存的修改，继续将丢失，确认关闭工作区？", kind: "danger" }))) {
       return false;
     }
+    let t0 = performance.now();
+    console.log("[teardown] closeTabs begin, tabs=", app.tabs.length);
     for (const t of [...app.tabs]) closeTabSilent(t);
+    console.log("[teardown] closeTabs done, took=", (performance.now() - t0).toFixed(0), "ms");
+
+    t0 = performance.now();
+    console.log("[teardown] lsp.stopEngine begin");
     await lsp.stopEngine();
+    console.log("[teardown] lsp.stopEngine done, took=", (performance.now() - t0).toFixed(0), "ms");
+
+    t0 = performance.now();
+    console.log("[teardown] disposeTerminal begin");
     await disposeTerminal();
+    console.log("[teardown] disposeTerminal done, took=", (performance.now() - t0).toFixed(0), "ms");
   }
   return true;
 }
@@ -137,7 +148,10 @@ async function openWorkspace(root: string): Promise<void> {
 async function closeWorkspace(): Promise<void> {
   if (!app.workspaceRoot) return;
   if (!(await teardownCurrent())) return;
+  let t0 = performance.now();
+  console.log("[closeWorkspace] stopFileWatcher begin");
   await stopFileWatcher();
+  console.log("[closeWorkspace] stopFileWatcher done, took=", (performance.now() - t0).toFixed(0), "ms");
   resetWorkspaceUiState();
   app.workspaceRoot = null;
   resetTreeState();

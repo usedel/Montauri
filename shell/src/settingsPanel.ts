@@ -35,10 +35,15 @@ const settingsReduceMotionEl = $("settings-reduce-motion") as HTMLInputElement;
 const settingsFontFamilyPresetEl = $("settings-font-family-preset") as HTMLSelectElement;
 const settingsPypiIndexPresetEl = $("settings-pypi-index-preset") as HTMLSelectElement;
 const settingsPypiIndexEl = $("settings-pypi-index") as HTMLInputElement;
+const settingsLogEnabledEl = $("settings-log-enabled") as HTMLInputElement;
+const settingsLogLevelEl = $("settings-log-level") as HTMLSelectElement;
+const settingsLogKeepEl = $("settings-log-keep") as HTMLInputElement;
+const settingsLogStdoutEl = $("settings-log-stdout") as HTMLInputElement;
+const settingsLogOpenEl = $("settings-log-open") as HTMLButtonElement;
 
 // ---------- 分类导航（P1） ----------
 
-export type SettingsCategory = "appearance" | "editor" | "keybindings" | "save" | "python" | "templates" | "terminal";
+export type SettingsCategory = "appearance" | "editor" | "keybindings" | "save" | "python" | "templates" | "terminal" | "logging";
 
 /** 切换到指定分类并更新导航高亮；进入 Live Templates 分类时渲染模板列表 */
 function switchCategory(cat: SettingsCategory): void {
@@ -189,6 +194,11 @@ function fillForm(settings: Settings): void {
   // 旧配置缺 pypi_index 时兜底出厂默认（官方源）
   settingsPypiIndexEl.value = settings.pypi_index || DEFAULT_SETTINGS.pypi_index;
   syncPypiIndexPreset(settingsPypiIndexEl.value);
+  // 日志配置（旧配置缺字段时兜底出厂默认）
+  settingsLogEnabledEl.checked = settings.log_enabled ?? DEFAULT_SETTINGS.log_enabled;
+  settingsLogLevelEl.value = settings.log_level || DEFAULT_SETTINGS.log_level;
+  settingsLogKeepEl.value = String(settings.log_keep ?? DEFAULT_SETTINGS.log_keep);
+  settingsLogStdoutEl.checked = settings.log_stdout ?? DEFAULT_SETTINGS.log_stdout;
   for (const m of KEYBINDING_META) {
     const input = document.getElementById(kbInputId(m.id)) as HTMLInputElement | null;
     if (input) input.value = settings.keybindings[m.id] ?? "";
@@ -235,6 +245,10 @@ async function saveSettingsPanel(): Promise<void> {
   const runtimeIntelEnabled = settingsIntelEl.checked;
   const terminalCwd = settingsTerminalCwdEl.value;
   const pypiIndex = settingsPypiIndexEl.value.trim();
+  const logEnabled = settingsLogEnabledEl.checked;
+  const logLevel = settingsLogLevelEl.value;
+  const logKeep = Math.max(1, Math.min(10, Number(settingsLogKeepEl.value) || DEFAULT_SETTINGS.log_keep));
+  const logStdout = settingsLogStdoutEl.checked;
   const engineChanged = lspEngine !== app.settings.lsp_engine;
   const intelChanged = runtimeIntelEnabled !== app.settings.runtime_intel_enabled;
 
@@ -256,6 +270,10 @@ async function saveSettingsPanel(): Promise<void> {
     terminal_cwd: terminalCwd,
     pypi_index: pypiIndex,
     keybindings,
+    log_enabled: logEnabled,
+    log_level: logLevel,
+    log_keep: logKeep,
+    log_stdout: logStdout,
   };
   // P1 副作用表：外观/编辑器即时生效（model 层缩进单独应用）；引擎变化重启；intel 变化起停
   app.monaco.editor.setTheme(theme);
@@ -333,4 +351,8 @@ export function wireSettingsPanel(): void {
   });
   // D3 P-06：「减少动画」勾选即时生效（localStorage 持久化，独立于 Settings 结构）
   settingsReduceMotionEl.addEventListener("change", () => applyReduceMotion(settingsReduceMotionEl.checked));
+  // 日志：打开日志目录（系统资源管理器）
+  settingsLogOpenEl.addEventListener("click", () => {
+    invoke("open_log_dir").catch((e) => console.warn("打开日志目录失败", e));
+  });
 }

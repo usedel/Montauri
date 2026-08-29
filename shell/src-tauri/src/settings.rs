@@ -67,6 +67,14 @@ pub struct Settings {
     /// 旧配置文件缺此字段时经 struct 级 #[serde(default)] 整体回落 default_keybindings；
     /// 部分键缺失（手改文件）由前端 loadSettings 逐项兜底。
     pub keybindings: HashMap<String, String>,
+    /// 日志：总开关（关闭后仅 error 仍落盘）
+    pub log_enabled: bool,
+    /// 日志级别阈值："error" | "warn" | "info" | "debug"
+    pub log_level: String,
+    /// 日志轮转保留份数（1-10）
+    pub log_keep: usize,
+    /// 日志是否同时打印 stdout（dev 终端可见；release 无控制台可关）
+    pub log_stdout: bool,
 }
 
 impl Default for Settings {
@@ -90,6 +98,10 @@ impl Default for Settings {
             terminal_cwd: "workspace".into(),
             pypi_index: "https://pypi.org/simple".into(),
             keybindings: default_keybindings(),
+            log_enabled: true,
+            log_level: "info".into(),
+            log_keep: 3,
+            log_stdout: false,
         }
     }
 }
