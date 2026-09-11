@@ -2440,6 +2440,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha1",
+ "shell-words",
  "tauri",
  "tauri-build",
  "tauri-plugin-clipboard-manager",

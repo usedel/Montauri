@@ -30,5 +30,8 @@ shell/dist/
 *.db-wal
 *.db-shm
 
+# debugpy vendor 拉取产物（tools/fetch-debugpy.ps1 按 sha256 锁定生成，不入库）
+vendor/
+
 # CI 本地缓存
 ci/.cache/

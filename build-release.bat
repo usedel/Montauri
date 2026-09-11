@@ -75,6 +75,15 @@ if not %CARGO_RC%==0 (
     exit /b 1
 )
 
+rem ---------- 2.5 fetch vendored debugpy (sha256-pinned, idempotent) ----------
+call :Step "Fetch vendored debugpy (cp310-cp314 win_amd64, pinned in ci/versions.toml)"
+
+powershell -ExecutionPolicy Bypass -File "%ROOT%\tools\fetch-debugpy.ps1"
+if errorlevel 1 (
+    call :Fail "fetch-debugpy.ps1 failed"
+    exit /b 1
+)
+
 rem ---------- 3. npm install (optional) ----------
 if %SKIP_NPM%==1 (
     echo.

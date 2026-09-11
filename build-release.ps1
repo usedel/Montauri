@@ -56,6 +56,11 @@ try {
     Pop-Location
 }
 
+# ---------- 2.5 fetch vendored debugpy (sha256-pinned, idempotent) ----------
+Step "Fetch vendored debugpy (cp310-cp314 win_amd64, pinned in ci/versions.toml)"
+& (Join-Path $Root "tools\fetch-debugpy.ps1")
+if ($LASTEXITCODE -ne 0) { Fail "fetch-debugpy.ps1 failed" }
+
 # ---------- 3. npm install (optional) ----------
 if (-not $SkipNpmInstall) {
     Step "npm install (frontend deps)"

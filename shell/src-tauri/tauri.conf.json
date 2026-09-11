@@ -34,7 +34,8 @@
     ],
     "resources": {
       "../../intel/target/release/opencharm-intel.exe": "opencharm-intel.exe",
-      "../../probe/src/": "probe/src/"
+      "../../probe/src/": "probe/src/",
+      "../../vendor/debugpy/": "debugpy/"
     }
   }
 }
