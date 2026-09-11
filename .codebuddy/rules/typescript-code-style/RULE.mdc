@@ -3,7 +3,7 @@ description: shell/src 前端 TypeScript 代码规范（Vite + Monaco + LSP 桥 
 globs: "**/*.ts"
 alwaysApply: false
 enabled: true
-updatedAt: 2026-08-25T10:00:00.000Z
+updatedAt: 2026-09-10T10:00:00.000Z
 provider:
 ---
 
@@ -16,12 +16,13 @@ provider:
 ## 模块结构
 
 - `main.ts` — 入口与胶水层（TD-007 域拆分后）：工作区生命周期 / 标签页与编辑器 / 运行 / LSP 接线 / 环境面板 / 搜索与大纲 / 菜单栏 / 新建项目 / 文件监听 / init。
-- `state.ts` — AppState 上下文对象（TD-007）：跨域共享状态（monaco / editor / workspaceRoot / tabs / settings）+ `$` / `$btn` DOM 工具；域内私有状态不进这里。
+- `state.ts` — AppState 上下文对象（TD-007）：跨域共享状态（monaco / editor / workspaceRoot / tabs / settings）+ `$` / `$btn`（找不到即抛错）/ `lazyEl` 惰性 DOM / `outputEl` / `statusFileEl`；域内私有状态不进这里。`monaco`/`editor` 为 getter 抛错式非空属性——init 前访问立即抛清晰错误，正常路径零判空。
 - `fileTree.ts` — 文件树域：树渲染 / 选择 / 右键菜单 / 文件操作 / 过滤 / 键盘导航（`wireFileTree()` 自接线）。
 - `git.ts` — Git 域：状态 / SCM 面板 / diff / 分支 / 历史 / blame（`wireGitUI()` 自接线）。
+- `gitStatusState.ts` — Git 状态存储（零依赖下沉层）：`gitStatuses` / `gitDirtyDirs` / `gitRepoActive` + 只读访问器；写入方仅 git.ts，fileTree 等消费方从这里读（不 import git.ts 状态，防循环）。
 - `termUi.ts` — 终端域：多会话终端 + 底部面板标签切换（`wireBottomPanel()` / `wireTerminalEvents()`）。
 - `settingsPanel.ts` — 设置面板域：设置加载/保存 + 面板 UI + intel 开关（`wireSettingsPanel()`）。
-- `util.ts` — 无状态纯工具函数（路径 / 文件图标 / 语言映射 / Git 展示 / 大纲符号）。
+- `util.ts` — 无状态工具与共享 UI 助手：路径（`normalizePath` / `samePath` / `relativePath` 大小写无关）/ 文件图标 / 语言映射（`LspSymbolKind` 枚举）/ Git 展示 / 大纲符号 / `setBusy`+`spinIcon`（按钮忙碌态唯一实现）/ `DisposableStore`（disposable 集中清理）。
 - `monaco.ts` — Monaco 本地 worker 配置。
 - `views.ts` — 侧栏视图注册表（Activity Bar + 单根视图容器）。
 - `keybindings.ts` — 快捷键配置域：PyCharm 风格默认键位 + 解析/校验/分发（设置 → 快捷键；出厂默认三处同步：KEYBINDING_META.def / state.ts DEFAULT_SETTINGS / Rust default_keybindings）。
@@ -32,6 +33,9 @@ provider:
 - `live-templates/` — Live Templates（M1/M2/M3 重构）：`index.ts` 入口 / `schema.ts` Schema v2 + v1 迁移 / `builtin.ts` 内置模板库（插入/环绕/后缀）/ `registry.ts` 三层合并（键 = scope+kind+abbreviation）/ `engine.ts` 表达式引擎（纯函数）/ `compiler.ts` `$VAR$`→snippet 编译（纯函数，literals 注入 $EXPR$/$SELECTION$）/ `scope.ts` 上下文判定（符号主路径+启发式兜底）/ `symbols.ts` documentSymbol 缓存 / `tabExpand.ts` 缩写+Tab 展开 / `completion.ts` 补全路径（sortText `0xx` + preselect + `.` 分流后缀）/ `postfix.ts` 后缀补全 / `surround.ts` 环绕（Ctrl+Alt+T）/ `palette.ts` 模板面板（Ctrl+J）/ `pycharmImport.ts` PyCharm XML 导入 / `snippet.ts` SnippetController2 注入助手 / `ui/manager.ts` 管理面板。
 - `output.ts` — 输出面板 + traceback `File "…", line N` 点击跳转。
 - `lsp/client.ts` — LSP 桥 TS 侧（JSON-RPC 关联 + Monaco providers）。
+- `dap/client.ts` — DAP 桥 TS 侧（与 `lsp/client.ts` 对称）：DAP 请求/响应关联（单序号域，`id` 作出站 `seq`，响应按 `request_seq` 回显）+ 事件分发 + 会话状态机（`idle/starting/running/stopped/exited`）+ `startDebug` 握手时序（`initialize → attach{listen} → debugpyWaitingForServer → debug_attach_debuggee → initialized → setBreakpoints → configurationDone`）。
+- `debugGutter.ts` — 断点 gutter（复用 `runGutter.ts` glyphMargin 装饰/命中范式，独立一套装饰集合勿冲突）：断点表 `Map<path, Set<line>>` 模块级持久（跨会话保留，`pushAllBreakpoints` 重放）+ `setBreakpoints` 同步 + 当前行高亮（`stopped → highlightCurrentLine`，`continued` 清除）；仅 `.py`/`.pyw` 生效。
+- `debugView.ts` — 调试侧栏（对标 `runWidget.ts` handlers 注入模式，避免循环导入）：工具栏 / 调用栈 / 变量 / 断点列表；`onPhase` 驱动渲染，`stopped → threads/stackTrace/scopes/variables` 刷新；MVP 忽略 `output` 事件（stdout 已走输出面板，避免双份）。
 
 ## 补全三层合并（sortText 段，顺序固定）
 
@@ -62,7 +66,13 @@ provider:
 | `Ctrl+/` / `Ctrl+Shift+/` | 行 / 块注释开关 | 是 |
 | `Ctrl+J` | Live Templates 面板 | 是 |
 | `Ctrl+Alt+T` | 环绕模板（需选区） | 是 |
+| `F5` | 启动调试 / 继续 | 是（window 级） |
+| `Shift+F5` | 停止调试 | 是（window 级） |
+| `F10` | 单步跳过（next） | 是（window 级） |
+| `F11` | 单步进入（stepIn） | 是（window 级） |
+| `Shift+F11` | 单步退出（stepOut） | 是（window 级） |
 
+- 调试五件套为 **window 级**（调试中编辑器可能失焦）；新增/改键须**三处同步**：`keybindings.ts` `KEYBINDING_META.def` / `state.ts` `DEFAULT_SETTINGS.keybindings` / Rust `settings.rs` `default_keybindings`（`settings.rs` 单测断言键位数，漏改会红）。
 - window 级键经 `matchWindowBinding` 实时匹配（改键即生效）；editor 级键经
   `monaco.editor.addKeybindingRules` 建映射，设置保存后 `applyEditorKeybindings()` 重建。
 
@@ -72,3 +82,21 @@ provider:
 - 禁止使用 `@tauri-apps/plugin-dialog` 的 `confirm` / `ask` / `message`；该插件的 `open` / `save`（文件选择对话框）除外。
 - 确认与提示统一经 `dialog.ts` 的 `openConfirm` / `openAlert` 自绘弹窗；文本输入类交互走文件树 `inlineInput` 等自绘输入，不落地原生 `prompt`。
 - `kind` 语义：破坏性操作用 `danger`，安装/设置等正向操作用 `primary`。新增确认/提示交互时默认接入 `openConfirm`/`openAlert`，不得新增原生消息框调用。
+
+## 异步与竞态约定（2026-09-10 整改固化）
+
+- **「检查 + await + 置位」必须拆开**：守卫变量在 await 之后才置位的写法会让连点并发穿透。同步检查并置位（如 `beginRunPreparing()`），await 返回后二次校验。
+- **异步刷新一律带请求令牌**（照搬 `search.ts` 的 `searchToken` 范本）：`const token = ++xToken` → await → `if (token !== xToken) return`。大纲/包列表/git 状态均已套用，新增面板照搬。
+- **同一资源的并发触发用 in-flight 去重表**（如 `openFileInflight`）：后到者 await 同一 Promise，不重复执行。
+- **多文件/多条目的异步转发必须逐条 await 串行**（如 `syncPendingChanges`），禁止 for 循环内 fire-and-forget（到达顺序不保证）。
+- **防抖 timer 属于工作区生命周期**：用模块级集中对象（`editorTimers`）管理，`resetWorkspaceUiState` 时 `clearAll()`，禁止塞在 init 闭包里。
+
+## DOM 与资源管理约定（2026-09-10 整改固化）
+
+- **模块顶层禁止立即解析 DOM**：顶层快照会让测试环境（happy-dom 无完整 DOM）import 即炸。统一用 `state.ts` 的 `lazyEl("id")`（Proxy 惰性解析，方法自动绑定真实元素）；显式调用点用 `$` / `$btn`（找不到即抛错，禁止 `as` 断言吞掉）。
+- **路径比较必须走 `util.ts` 的 `samePath` / `normalizePath`**（斜杠 + 大小写归一）；禁止在各域手写 `.replace(/\\/g,"/").toLowerCase()`。
+- **Monaco 键位命令注册用 `addAction`/静态 `addCommand(descriptor)`**：实例级 `addCommand` 返回 id 且无法解绑（曾致 dispose 空操作 bug）。
+- **disposable 不许丢弃**：provider/监听器注册的返回值入 `util.ts` 的 `DisposableStore`；LSP 监听器销毁走 `client.ts` 的 `disposeListeners()`。
+- **工作区 URI 构造**：rootUri 必须用 `client.ts` 的 `workspaceRootUri()`（百分号编码）；手拼 `file:///${path}` 会在空格/中文路径下与 didOpen 的 URI 前缀失配。
+- **诊断缓存 key 走归一化路径**（`client.ts` 内部已处理）；关文件必须 `discardCachedDiagnostics`。
+- **LSP 请求自带超时**（15s / initialize 60s），pending 不可无界增长；引擎 starting 期间的文档同步由 broadcast 排队，ready 自动冲刷。

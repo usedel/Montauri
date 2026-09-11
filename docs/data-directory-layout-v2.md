@@ -177,7 +177,7 @@ Linux `~/.config/opencharm/data-root`、macOS `~/Library/Application Support/Ope
 | `tauri.conf.json` | `bundle.windows.nsis` 删 `template` 字段，新增 `installerHooks: "nsis/hooks.nsh"` |
 | `nsis/installer.nsi` | **删除**（不再维护自定义模板） |
 | `nsis/hooks.nsh` | **新增**（~10 行）：POSTUNINSTALL 询问删除数据根 |
-| `docs/data-directory-layout.md` | 审核通过后标记废弃并指向本文件 |
+| data-directory-layout.md（v1） | 已删除，本文档为现行版本 |
 
 ## 8. 风险与权衡
 

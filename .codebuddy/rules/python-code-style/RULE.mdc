@@ -13,7 +13,13 @@ provider:
 
 - `probe/` 用 **uv** 管理，Python 3.13+（当前 3.13.7）。
 - **零第三方依赖**：不得擅自引入第三方包，除非有明确裁决。
-- 单测用 pytest，必须保持全绿（当前 61 个，`uv run pytest`）。
+- 单测用 pytest，必须保持全绿（当前 63 个，`uv run pytest`）。
+
+## 打包与注入（2026-09-10 整改固化）
+
+- **wheel 必须包含顶层 `sitecustomize.py`**：`pyproject.toml` 的 `[tool.hatch.build.targets.wheel] force-include` 已配置；漏包会让 pip 安装后 inject/check 注入链路整体失效。改动打包配置后用 `uv build --wheel` + 检查 zip 内容回归。
+- **`run_with_probe` 的现场恢复（argv/cwd/sys.path）必须包住 `mon.start()`**：start 抛异常（如低版本无 sys.monitoring）也要恢复现场，不得只在 run_path 外围 try/finally。
+- **argv[0] 守卫比较用 `os.path.normcase` 归一化**（`autostart.py`）：Windows 启动方式不同导致的大小写差异会让主进程被误判为子进程而跳过采集。
 
 ## 架构分层（固定，勿打乱）
 

@@ -7,8 +7,7 @@
 | 编号 | 标题 | 状态 | 日期 |
 |---|---|---|---|
 | [0003](0003-lsp-bridge-custom.md) | LSP 接入采用自研轻量桥接层（Rust stdio ↔ Tauri IPC ↔ Monaco providers） | 已定案 | 2026-08-20 |
-
-> 外壳切换交接文档：[`docs/handoff-tauri-monaco.md`](../handoff-tauri-monaco.md)
+| [0004](0004-dap-bridge-debugpy-bundled.md) | 调试接入采用自研轻量 DAP 桥 + debugpy 随应用打包分发（stdio adapter 模式） | 已定案 | 2026-09-10 |
 
 ## 待记录（候选）
 

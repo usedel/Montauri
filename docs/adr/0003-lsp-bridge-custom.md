@@ -3,7 +3,7 @@
 - 状态：**已定案（2026-08-20）**
 - 日期：2026-08-20
 - 决策者：开发团队提出，产品负责人随技术方案 v3 一并确认
-- 上游：[ADR-0002](0002-zed-completion-ordering-not-controllable.md)（换壳裁决）；交接文档议题 2
+- 上游：换壳裁决（Tauri 2 + Monaco 取代 Zed，2026-08-20）；交接文档议题 2
 
 ## 背景
 
@@ -14,7 +14,7 @@
 - `monaco-languageclient` 与 `monaco-editor` **版本强耦合**（官方兼容表：monaco-editor 0.52.2 ↔ monaco-languageclient 9.x；0.53+ 需 10.x）。升级 Monaco 必须同步升级整条依赖链。
 - 它依赖 `@codingame/monaco-vscode-api`，把 vscode 编辑器服务层整体带入 WebView，包体积与内存显著增加，与 ≤600 MB 内存预算（裁决 #2）存在冲突风险。
 - 补全管线经 vscode 服务层中转，多 LSP 合并（运行时优先 + `⟳ runtime` 来源标注）的自定义控制点变深。
-- **本项目换壳的直接动因就是「补全排序完全可控」**（ADR-0002），这是最高优先级的架构约束。
+- **本项目换壳的直接动因就是「补全排序完全可控」**，这是最高优先级的架构约束。
 
 ## 决策
 

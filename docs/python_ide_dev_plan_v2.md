@@ -11,7 +11,7 @@
 
 为单人自用场景构建 Python IDE（代号 OpenCharm）：
 
-- **外壳**：Tauri 2 + Monaco（Vanilla TS + Vite），2026-08-20 裁决（ADR-0002）；
+- **外壳**：Tauri 2 + Monaco（Vanilla TS + Vite），2026-08-20 裁决；
 - **静态语义**：Pyrefly（默认）/ basedpyright（备选），经自研 LSP 桥接层挂载（ADR-0003），第一天即可切换；
 - **差异化核心**：运行时类型采样（PEP 669）+ 自研运行时智能 LSP（opencharm-intel）；
 - **功能范围**：补全 / 跳转 / Hover / 诊断 + 智能 live template + 脚本运行与 traceback 点击跳转；
@@ -116,9 +116,9 @@ open-charm/
 | 任务 | 说明 | 状态 |
 |---|---|---|
 | 上游跟随 | Tauri / Monaco / Pyrefly / basedpyright / ruff 升级走回归 CI | ⚠️ 版本已锁定（`ci/versions.toml`），升级回归 CI 自动化待建 |
-| 外壳基本功补齐 | 集成终端（xterm.js + portable-pty 多会话）、Git 集成（状态装饰 + 暂存/提交/diff/分支，见 tech-debt TD-002）、全局搜索（ripgrep 引擎，phase2.5 §11） | ✅ 已交付 |
+| 外壳基本功补齐 | 集成终端（xterm.js + portable-pty 多会话）、Git 集成（状态装饰 + 暂存/提交/diff/分支，见 tech-debt TD-002）、全局搜索（ripgrep 引擎） | ✅ 已交付 |
 | 打包发布 + 首次启动环境引导 | 自研组件（`opencharm-intel`、`probe/src`）随 NSIS 安装包分发（`bundle.resources`，运行时按 `locate_*` 查找资源目录）；外部命令（uv/pyrefly/ruff/git）统一经 `shell/src-tauri/src/tool_paths.rs` 解析（环境变量 → `~/.opencharm/bin`/`~/.local/bin` → 系统 PATH）；全新系统缺 uv/pyrefly 时由 `toolchain.rs` 探测、前端弹「环境引导」一键安装到用户目录；`build-release.ps1` 一键打包（清理 → intel release 构建 → 前端依赖 → `tauri build` nsis） | ✅ 已交付（Phase 4 第 1~4 步） |
-| 调试评估 | debugpy DAP 集成是否立项（Phase 3 后裁决） | ❌ 未启动 |
+| 调试评估 | debugpy DAP 集成是否立项（Phase 3 后裁决） | ✅ 已立项并交付最小闭环（`docs/python_debug_dev_plan.md` v1.1：debugpy 1.8.21 随包分发 + DAP 桥 + 断点/步进/调用栈/变量；验收记录 `docs/debug_acceptance_record.md`，人工验收清单待办） |
 | trace 新鲜度优化 | 基于真实使用数据调整降权/清理策略 | ⚠️ 机制已就位（probe `stale` + `clean` + intel 降权），基于真实使用数据的调参未做 |
 | 边角修复 | 产品负责人日常使用反馈驱动 | 🔄 持续中 |
 | 边角修复 · live template 上下文位置轴 | 模板上下文从「容器单轴」升级为「容器 × 位置 × 词法」三维（`docs/live_templates上下文轴修订稿.md` v1.1）；缺省位置 = statement+expression（排除 name），根治 `main` 撞函数名误触发 | ✅ 相位 A 已实现（80 项单测全绿）；相位 B（导入/UI）待排期 |

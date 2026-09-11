@@ -1,7 +1,7 @@
 # OpenCharm：自用 Python IDE 技术方案 v3
 
 > 版本：v3.0 · 日期：2026-08-20 · 状态：已与产品负责人对齐关键议题（外壳栈 / 内存红线 / Phase 1 范围 / 调试时机）
-> 取代 `python_ide_tech_plan_v2.md`（v2 的 Zed 外壳部分已被 [ADR-0002](adr/0002-zed-completion-ordering-not-controllable.md) 推翻；probe/intel/验收指标等章节继续有效，本文仅重写外壳相关部分并引用之）
+> 取代 `python_ide_tech_plan_v2.md`（v2 的 Zed 外壳部分已被换壳裁决推翻；probe/intel/验收指标等章节继续有效，本文仅重写外壳相关部分并引用之）
 
 ## 0. 与 v2 的关系
 
@@ -9,7 +9,7 @@ v2 的核心判断（运行时采样是立项核心、静态语义复用 pyrefly
 
 | 维度 | v2（已过时） | v3（本文） |
 |---|---|---|
-| 外壳 | Zed 渐进式（配置 → 扩展 → 薄 fork） | **Tauri 2 + Monaco**（ADR-0002 裁决） |
+| 外壳 | Zed 渐进式（配置 → 扩展 → 薄 fork） | **Tauri 2 + Monaco**（换壳裁决，2026-08-20） |
 | 智能 live template | 依赖 Zed，实测不可达 | **外壳内置，完全可控**（换壳直接动因） |
 | 编辑器基本功 | Zed 免费提供 | 自建（文件树/标签页/终端/搜索/Git） |
 | 内存预算 | < 400 MB（Zed 基线） | **≤ 600 MB**（spike 实测 ~420 MB + 余量） |
