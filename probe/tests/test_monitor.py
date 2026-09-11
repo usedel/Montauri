@@ -374,3 +374,98 @@ def test_business_function_called_after_discovery_window(monkeypatch):
     outer()
     mon.stop()
     assert _args_of(sink, "inner") == {"x": {"int": 1}}
+
+
+def test_active_window_recheck_throttled(monkeypatch):
+    """CR-01 回归：_active>0 保持窗口时必须同步推进 _win_until。
+
+    修复前：长运行脚本（_active 恒 > 0）下窗口到期后每个库调用派发都会执行一次
+    _sync_active 全栈回溯，热路径退化 O(调用数×栈深)。修复后：窗口被推进，
+    下一个决策点在完整窗口周期之后 → 回溯每窗口至多一次。
+    """
+    import time
+    from opencharm_probe import monitor as mon_mod
+
+    monkeypatch.setattr(mon_mod, "_DISCOVERY_WINDOW", 0.05)
+
+    mon, sink = _new_monitor()
+    mon.start()
+
+    calls = {"sync": 0}
+    orig_sync = mon._sync_active
+
+    def counting_sync():
+        calls["sync"] += 1
+        return orig_sync()
+
+    mon._sync_active = counting_sync
+
+    def busy(x):
+        return x
+
+    # outer 活跃期间持续越过窗口周期：每个周期内多次库调用只应触发一次回溯
+    def outer():
+        for _ in range(3):
+            time.sleep(0.08)   # 越过一个窗口周期
+            len([1, 2, 3])     # 库调用：触发关窗检查
+            busy(_)            # 项目函数保持活跃
+
+    outer()
+    mon.stop()
+
+    # 至少触发过决策点校准（3 个窗口周期 → ≥3 次），且采集仍正常（busy 被发现）
+    assert calls["sync"] >= 1
+    args = _args_of(sink, "busy")
+    assert args and "int" in next(iter(args.values()))
+    # 窗口推进语义：回溯次数受窗口周期约束（远小于派发次数）。
+    # 3 个周期 + 若干边界 → 上限放宽到 6，防御调度抖动
+    assert calls["sync"] <= 6, f"回溯次数 {calls['sync']} 未被窗口周期节流"
+
+
+def test_sync_active_count_throttled_by_window(monkeypatch):
+    """CR-01 精确语义：同一窗口周期内的多次到期检查只回溯一次。
+
+    直接驱动 _maybe_close_window：模拟 _active>0 的长运行脚本，验证
+    _win_until 被推进（窗口期内后续调用直接 return，不再 _sync_active）。
+    """
+    import time
+    from opencharm_probe import monitor as mon_mod
+
+    monkeypatch.setattr(mon_mod, "_DISCOVERY_WINDOW", 0.05)
+    monkeypatch.setattr(mon_mod, "_QUIET_CLOSE", 10**9)  # 静默关窗不干扰
+
+    mon, _sink = _new_monitor()
+    mon.start()
+
+    calls = {"sync": 0}
+    orig_sync = mon._sync_active
+
+    def counting_sync():
+        calls["sync"] += 1
+        return orig_sync()
+
+    mon._sync_active = counting_sync
+    # 把当前测试帧标记为项目代码：直接驱动 _maybe_close_window 时测试函数
+    # 未经 _on_start 派发分类，_sync_active 会算出 0 而走关窗分支
+    mon._code_ok[sys._getframe().f_code] = True
+    mon._active = 1  # 模拟活跃项目函数（栈上确实有本测试帧）
+
+    # 先把窗口置为已过期，模拟「长运行脚本跑到决策点」
+    mon._win_until = time.perf_counter() - 1.0
+    before = mon._win_until
+    mon._maybe_close_window()  # 决策点：回溯 + 保持窗口 + 推进
+    assert calls["sync"] == 1
+    assert mon._win_until > before, "窗口到期时刻应被推进"
+    advanced = mon._win_until
+
+    mon._maybe_close_window()  # 窗口期内：直接 return，不回溯
+    mon._maybe_close_window()
+    assert calls["sync"] == 1, "窗口期内重复决策点不应再次回溯"
+    assert mon._win_until == advanced
+
+    # 越过推进后的窗口：再次到达决策点 → 再回溯一次（每窗口至多一次）
+    time.sleep(0.06)
+    mon._maybe_close_window()
+    assert calls["sync"] == 2
+
+    mon.stop()

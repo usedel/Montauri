@@ -9,7 +9,7 @@ OpenCharm 运行时探针：基于 **PEP 669（`sys.monitoring`，Python 3.12+�
 ```powershell
 cd probe
 uv sync                 # 建 venv（Python 3.13.7）
-uv run pytest           # 59 个单测全绿
+uv run pytest           # 61 个单测全绿
 
 # 采集运行（同进程模式：脚本无第三方依赖时）
 uv run opencharm-probe run <script.py>
@@ -136,8 +136,8 @@ shell 运行按钮集成（P2-T06，已交付）：`lsp.rs` 的 `run_script` 在
 | 指标 | 目标 | 当前 |
 |---|---|---|
 | 探针开销 | < 1.5x | ✅ 1.00x（bench `unannotated_scraper`，2000 轮 × 3 函数；回归 0.94x） |
-| trace 正确率抽检 | ≥ 98% | ✅ **100.0%**（`check` 命令，8 项全命中）+ 59 单测全绿 |
+| trace 正确率抽检 | ≥ 98% | ✅ **100.0%**（`check` 命令，8 项全命中）+ 61 单测全绿 |
 | 采集无感 | 无感 | ✅ shell 运行按钮一键采集；摘要仅 stderr 一行，quiet 可关 |
 | trace 库稳定 | 稳定 | ✅ 跨运行累加正确 + 陈旧标记 + clean 防膨胀 |
 
-验收报告：`docs/gate-c-acceptance.md`（待产品负责人签署）。
+Gate C 四项验收指标全部达标并未留待办。

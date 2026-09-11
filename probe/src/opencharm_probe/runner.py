@@ -45,8 +45,10 @@ def run_with_probe(cfg: ProbeConfig, script: str, argv: list[str] | None = None)
     exit_code = 0
     error: BaseException | None = None
 
-    mon.start()
+    # CR-19：mon.start() 纳入 try/finally——若 start 抛异常（如 PEP 669 不可用），
+    # sys.argv / cwd / sys.path 必须照样恢复（原 start 在 try 之外，异常路径泄漏现场）。
     try:
+        mon.start()
         runpy.run_path(script, run_name="__main__")
     except SystemExit as e:
         if e.code is None:

@@ -141,6 +141,12 @@ class Monitor:
         只在「关窗决策点」（窗口到期或静默超限）做一次调用栈回溯校准（_sync_active），
         把泄漏计数收敛到真实活跃帧数，避免全局 PY_START 被永久拖住。日常派发期间
         不做回溯，保持 O(1) 热路径开销。
+
+        校准确有活跃项目函数时**推进窗口**（win_until += _DISCOVERY_WINDOW）：否则
+        长运行脚本（_active 恒 > 0）下每次派发都命中决策点，回溯退化成 O(派发数×
+        栈深)，击穿「局部事件零派发」开销目标。推进后下一个决策点在完整窗口周期
+        之后，回溯频率收敛到每窗口至多一次；「慢 import 后才发现的业务函数」仍被
+        采集（原设计意图不变）。
         """
         now = time.perf_counter()
         if now < self._win_until and self._quiet < _QUIET_CLOSE:
@@ -148,7 +154,11 @@ class Monitor:
         if self._active > 0:
             self._sync_active()  # 决策点校准：修复异常/生成器/静音造成的计数泄漏
         if self._active > 0:
-            return  # 确有项目函数活跃（如慢 import 中的 <module> 帧），保持窗口
+            # 确有项目函数活跃（如慢 import 中的 <module> 帧），保持窗口；
+            # 同步推进窗口到期时刻，避免下个派发再次触发栈回溯（每窗口至多一次）
+            self._win_until = now + _DISCOVERY_WINDOW
+            self._next_win = self._win_until + _REDISCOVERY_INTERVAL
+            return
         sys.monitoring.set_events(self._tid, sys.monitoring.events.RAISE)
         self._in_window = False
         self._next_win = now + _REDISCOVERY_INTERVAL

@@ -5,12 +5,19 @@ $env:PYTHONIOENCODING = "utf-8"
 $env:OPENCHARM_PROBE_QUIET = "1"   # suppress probe summary (goes to stderr)
 
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
-$probeExe = "F:\ai-pro\open-charm\probe\.venv\Scripts\opencharm-probe.exe"
+$probeExe = Join-Path $here "..\..\..\probe\.venv\Scripts\opencharm-probe.exe"
 
 function Get-BenchMs([scriptblock]$runner) {
     $best = [double]::MaxValue
     for ($i = 0; $i -lt 3; $i++) {
-        $out = & $runner 2>$null | Select-String "^bench:"
+        $prev = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        try {
+            # 合并 stderr 再过滤 "^bench:"，避免 uv/probe 写 stderr 触发 -ErrorActionPreference Stop 而中断
+            $out = & $runner 2>&1 | Select-String "^bench:"
+        } finally {
+            $ErrorActionPreference = $prev
+        }
         if (-not $out) { throw "bench output not captured" }
         $ms = [double]($out -replace "bench: ", "" -replace "s \(.*", "") * 1000
         if ($ms -lt $best) { $best = $ms }

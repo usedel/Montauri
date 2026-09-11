@@ -20,8 +20,10 @@ def bootstrap() -> None:
     if not script or not os.path.isfile(script):
         return  # 非目标进程（如 uv 内部调用）——静默跳过
     # argv[0] 守卫：仅主脚本进程挂探针
+    # CR-19：os.path.normcase 归一化大小写（Windows 上 argv[0] 与 script 的大小写
+    # 可能因启动方式不同而不同，严格相等会误判主进程为子进程而跳过采集）
     try:
-        if os.path.abspath(sys.argv[0]) != os.path.abspath(script):
+        if os.path.normcase(os.path.abspath(sys.argv[0])) != os.path.normcase(os.path.abspath(script)):
             return
     except (IndexError, ValueError):
         return
