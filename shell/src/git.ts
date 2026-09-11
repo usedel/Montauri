@@ -9,6 +9,7 @@ import { basename, codicon, emptyState, languageOf, gitBadgeClass, gitLineClass,
 import { appendOutputLine, clearOutput } from "./output";
 import { refreshTreeWithExpandedState } from "./fileTree";
 import { setBottomTab } from "./termUi";
+import { motionDisabled } from "./anim"; // UI-11：diff 编辑器不走 buildEditorOptions，需单独接管光标闪烁
 import { gotoFromLink } from "./main";
 // CR-25：状态存储下沉到零依赖的 gitStatusState（fileTree 装饰只读，不再 import 本模块）
 import { gitStatuses, gitDirtyDirs, gitRepoActive } from "./gitStatusState";
@@ -174,13 +175,16 @@ function renderScmItem(f: GitStatusFile, staged: boolean): HTMLElement {
 
   const action = document.createElement("button");
   action.className = "scm-action";
+  // UI-09：迁 data-tip。按钮文本是符号（! / − / +），当可访问名称毫无意义（读屏只会念符号），
+  // 故一并补 aria-label 用语义文案覆盖——这是本次迁移中少数「顺手修好既有 a11y 缺陷」的地方。
+  const actionTip = f.code === "!" ? "冲突，需手动解决" : staged ? "取消暂存" : "暂存更改";
+  action.dataset.tip = actionTip;
+  action.setAttribute("aria-label", actionTip);
   if (f.code === "!") {
     action.textContent = "!";
     action.classList.add("conflict");
-    action.title = "冲突，需手动解决";
   } else {
     action.textContent = staged ? "−" : "+";
-    action.title = staged ? "取消暂存" : "暂存更改";
     if (staged) action.classList.add("staged");
   }
 
@@ -247,13 +251,20 @@ async function commitChanges(): Promise<void> {
 
 /** 懒创建 diff 编辑器（首次查看差异时） */
 export function ensureDiffEditor(): MonacoApi.editor.IStandaloneDiffEditor {
-  if (diffEditor) return diffEditor;
+  // UI-11：光标闪烁随「减少动画」。实例懒创建后长期复用，故每次取用都重设一次——
+  // 用户中途改了开关，下次打开 diff 即生效，无需再为它单独接一条设置变更的事件线。
+  const blinking = motionDisabled() ? "solid" : "blink";
+  if (diffEditor) {
+    diffEditor.updateOptions({ cursorBlinking: blinking });
+    return diffEditor;
+  }
   diffEditor = app.monaco.editor.createDiffEditor(gitDiffEditorEl, {
     automaticLayout: true,
     theme: app.settings.theme,
     readOnly: true,
     renderSideBySide: true,
     fontSize: app.settings.font_size,
+    cursorBlinking: blinking,
   });
   return diffEditor;
 }
@@ -489,7 +500,8 @@ function renderBranchList(): void {
     item.appendChild(name);
     if (b.current) {
       const mark = codicon("check");
-      mark.title = "当前分支";
+      // UI-09：迁 data-tip。codicon() 产出的 <i> 带 aria-hidden（装饰性），只需视觉提示，无需 aria-label
+      mark.dataset.tip = "当前分支";
       item.appendChild(mark);
     }
     box.appendChild(item);
@@ -501,6 +513,9 @@ function renderBranchList(): void {
   input.placeholder = "新分支名…";
   input.spellcheck = false;
   const btn = document.createElement("button");
+  // UI-08：原先靠 `.git-branch-new button` 后代选择器取样式，迁移到 .btn 体系后须显式加类名
+  // （wireGitUI 的事件委托仍用 `.git-branch-new button` 命中，与类名无关，不受影响）
+  btn.className = "btn btn--sm btn--primary";
   btn.textContent = "新建";
   newBox.append(input, btn);
   box.appendChild(newBox);

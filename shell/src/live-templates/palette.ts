@@ -9,6 +9,10 @@ import { compileTemplate } from "./compiler";
 import type { EngineContext } from "./engine";
 import { insertSnippet } from "./snippet";
 import { hideEl, showEl } from "../anim";
+import { trapFocus } from "../focusTrap";
+
+/** UI-05：模板面板模态的焦点陷阱解除句柄 */
+let releasePaletteFocus: (() => void) | null = null;
 
 export interface PaletteHost {
   buildEngineContext(
@@ -36,6 +40,8 @@ export function registerPalette(
 function closePalette(): void {
   const modal = document.getElementById("palette-modal");
   const input = document.getElementById("palette-search") as HTMLInputElement | null;
+  releasePaletteFocus?.();
+  releasePaletteFocus = null;
   if (modal) hideEl(modal);
   if (input) input.value = "";
 }
@@ -149,5 +155,7 @@ function openPalette(
 
   render();
   showEl(modal);
+  releasePaletteFocus?.();
+  releasePaletteFocus = trapFocus(modal);
   input.focus();
 }

@@ -28,6 +28,8 @@ fn default_keybindings() -> HashMap<String, String> {
     m.insert("debug_step_over".into(), "F10".into());
     m.insert("debug_step_into".into(), "F11".into());
     m.insert("debug_step_out".into(), "Shift+F11".into());
+    // Markdown 预览开关（markdown preview dev plan §5-T4；与前端 KEYBINDING_META / DEFAULT_SETTINGS 三处同步）
+    m.insert("markdown_preview".into(), "Ctrl+Shift+V".into());
     m
 }
 
@@ -187,7 +189,8 @@ mod tests {
         assert_eq!(d.keybindings.get("debug_step_over").map(String::as_str), Some("F10"));
         assert_eq!(d.keybindings.get("debug_step_into").map(String::as_str), Some("F11"));
         assert_eq!(d.keybindings.get("debug_step_out").map(String::as_str), Some("Shift+F11"));
-        assert_eq!(d.keybindings.len(), 16);
+        assert_eq!(d.keybindings.get("markdown_preview").map(String::as_str), Some("Ctrl+Shift+V"));
+        assert_eq!(d.keybindings.len(), 17);
     }
 
     #[test]
@@ -221,6 +224,7 @@ mod tests {
         // 快捷键：旧配置文件无此字段 → 整体回落默认键位表
         assert_eq!(s.keybindings.get("duplicate_line").map(String::as_str), Some("Ctrl+D"));
         assert_eq!(s.keybindings.get("debug").map(String::as_str), Some("F5"));
-        assert_eq!(s.keybindings.len(), 16);
+        assert_eq!(s.keybindings.get("markdown_preview").map(String::as_str), Some("Ctrl+Shift+V"));
+        assert_eq!(s.keybindings.len(), 17);
     }
 }

@@ -7,6 +7,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { $, $btn } from "./state";
 import { hideEl, showEl } from "./anim";
+import { trapFocus } from "./focusTrap";
 import { openAlert, openConfirm } from "./dialog";
 import { setBusy } from "./util"; // CR-27：按钮忙碌态收敛到 util
 
@@ -53,6 +54,15 @@ const usageEl = $("storage-usage");
 const rootPathEl = $("storage-root-path") as HTMLElement;
 const migratePathEl = $("storage-migrate-path") as HTMLInputElement;
 const onboardingModalEl = $("storage-onboarding-modal");
+/** UI-05：首启落位提示模态的焦点陷阱解除句柄 */
+let releaseOnboardingFocus: (() => void) | null = null;
+
+/** 关闭首启落位提示（解除焦点陷阱 + 隐藏），供两个按钮的收尾路径共用 */
+function closeOnboarding(): void {
+  releaseOnboardingFocus?.();
+  releaseOnboardingFocus = null;
+  hideEl(onboardingModalEl);
+}
 
 // ---------- 按钮忙碌态（CR-27：已收敛到 util.ts 的 setBusy，本域直接 import 使用） ----------
 
@@ -114,7 +124,7 @@ function renderUsage(u: StorageUsage): void {
     if (e.key === "traces" && u.traces.length > 0) {
       for (const t of u.traces) {
         const del = document.createElement("button");
-        del.className = "storage-del";
+        del.className = "btn btn--sm btn--danger-outline"; // UI-08：迁移到通用按钮体系
         del.dataset.trace = t.hash;
         del.textContent = "删除";
         usageEl.appendChild(
@@ -122,7 +132,7 @@ function renderUsage(u: StorageUsage): void {
         );
       }
       const allDel = document.createElement("button");
-      allDel.className = "storage-del";
+      allDel.className = "btn btn--sm btn--danger-outline";
       allDel.dataset.trace = "__all__";
       allDel.textContent = "全部清理";
       usageEl.appendChild(
@@ -289,6 +299,8 @@ export async function checkFirstRunStorage(): Promise<void> {
     }
     if (!st.should_prompt) return;
     showEl(onboardingModalEl);
+    releaseOnboardingFocus?.();
+    releaseOnboardingFocus = trapFocus(onboardingModalEl);
   } catch (e) {
     console.warn("首启落位检测失败", e);
   }
@@ -298,14 +310,14 @@ function wireOnboarding(): void {
   $btn("storage-ob-default").addEventListener("click", () => {
     invoke("ack_first_run")
       .catch((e) => console.warn("写首启标记失败", e))
-      .finally(() => hideEl(onboardingModalEl));
+      .finally(() => closeOnboarding());
   });
   $btn("storage-ob-custom").addEventListener("click", async () => {
     try {
       const dir = await invoke<string | null>("pick_folder");
       if (!dir) return; // 取消选择 → 弹窗保持，用户可再选或用默认
       await invoke("set_data_root", { path: dir });
-      hideEl(onboardingModalEl);
+      closeOnboarding();
       const go = await openConfirm({
         title: "数据位置已设置",
         message: `数据根已指向 ${dir}。重启后生效（首启尚无数据，重启无损失）。现在重启？`,
@@ -331,7 +343,8 @@ export function wireStoragePanel(): void {
     invoke("open_data_dir").catch((e) => console.warn("打开数据目录失败", e));
   });
   usageEl.addEventListener("click", (e) => {
-    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>(".storage-del");
+    // UI-08：改按 [data-trace] 命中——按钮外观已由 .btn 体系承载，不再拿样式类名当事件钩子
+    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-trace]");
     if (btn?.dataset.trace) void cleanTraces(btn.dataset.trace, btn);
   });
   $btn("storage-clean-webview").addEventListener("click", (e) =>

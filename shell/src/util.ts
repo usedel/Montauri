@@ -58,7 +58,7 @@ export function languageOf(path: string): string {
     js: "javascript", ts: "typescript", html: "html", htm: "html",
     css: "css", scss: "scss",
     // 数据 / 文档
-    json: "json", xml: "xml", md: "markdown", rst: "restructuredtext",
+    json: "json", xml: "xml", md: "markdown", markdown: "markdown", rst: "restructuredtext",
     // 配置
     yml: "yaml", yaml: "yaml", toml: "ini", ini: "ini", cfg: "ini", conf: "ini",
     // 脚本 / 容器 / 其他
@@ -274,7 +274,8 @@ export function setBusy(btn: HTMLButtonElement, busy: boolean, busyText = "处�
     if (btn.dataset.label === undefined) btn.dataset.label = btn.textContent ?? "";
     btn.textContent = "";
     btn.appendChild(spinIcon());
-    btn.append(` ${busyText}`);
+    // UI-08：不再靠前导空格分隔图标与文字——所有 setBusy 目标均已迁移到 .btn，间距由其 gap 提供
+    btn.append(busyText);
     btn.disabled = true;
     btn.classList.add("busy");
   } else {

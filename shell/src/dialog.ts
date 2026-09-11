@@ -4,6 +4,7 @@
 // 复用 #confirm-modal（遮罩 + showEl/hideEl + 品牌按钮），提供 confirm 与 alert 两种形态。
 
 import { hideEl, showEl } from "./anim";
+import { trapFocus } from "./focusTrap";
 import { lazyEl } from "./state";
 
 export type DialogKind = "danger" | "primary";
@@ -34,9 +35,10 @@ const messageEl = lazyEl("confirm-message");
 const okBtn = lazyEl<HTMLButtonElement>("confirm-ok");
 const cancelBtn = lazyEl<HTMLButtonElement>("confirm-cancel");
 
+/** UI-08：切换 .btn 体系的变体类（原为裸 `danger`/`primary`，依赖已删除的 `.modal-actions button.*` 规则） */
 function applyKind(kind: DialogKind): void {
-  okBtn.classList.toggle("danger", kind === "danger");
-  okBtn.classList.toggle("primary", kind === "primary");
+  okBtn.classList.toggle("btn--danger", kind === "danger");
+  okBtn.classList.toggle("btn--primary", kind === "primary");
 }
 
 /** 统一底层：withCancel 决定双按钮（confirm）或单按钮（alert）形态 */
@@ -51,6 +53,20 @@ function openModal(opts: {
   return new Promise((resolve) => {
     titleEl.textContent = opts.title ?? "";
     titleEl.classList.toggle("hidden", !opts.title);
+    // UI-16：dialog 的可访问名称。有标题 → aria-labelledby 指向标题；
+    // 无标题（多数调用只传 message）→ 用消息首行做 aria-label，避免 dialog 无名
+    //（aria-labelledby 指向空元素时读屏只能报「对话框」，信息量为零）
+    const card = modalEl.querySelector<HTMLElement>(".modal-card");
+    if (card) {
+      if (opts.title) {
+        card.setAttribute("aria-labelledby", "confirm-title");
+        card.removeAttribute("aria-label");
+      } else {
+        card.removeAttribute("aria-labelledby");
+        const firstLine = opts.message.split("\n", 1)[0].trim();
+        card.setAttribute("aria-label", firstLine.length > 60 ? `${firstLine.slice(0, 60)}…` : firstLine);
+      }
+    }
     messageEl.textContent = opts.message;
     okBtn.textContent = opts.okLabel;
     cancelBtn.textContent = opts.cancelLabel ?? "取消";
@@ -58,8 +74,12 @@ function openModal(opts: {
     applyKind(opts.kind);
 
     showEl(modalEl);
+    // UI-05：焦点陷阱——Tab 循环限制在本模态内；finish 时先解除再隐藏
+    let releaseFocus: (() => void) | null = trapFocus(modalEl);
 
     const finish = (v: boolean) => {
+      releaseFocus?.();
+      releaseFocus = null;
       hideEl(modalEl);
       okBtn.onclick = null;
       cancelBtn.onclick = null;

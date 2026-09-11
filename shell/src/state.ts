@@ -91,6 +91,8 @@ export const DEFAULT_SETTINGS: Settings = {
     debug_step_over: "F10",
     debug_step_into: "F11",
     debug_step_out: "Shift+F11",
+    // Markdown 预览开关（与 keybindings.ts META / Rust default_keybindings 三处同步）
+    markdown_preview: "Ctrl+Shift+V",
   },
   // 日志默认（须与 Rust settings.rs Default 保持同步）
   log_enabled: true,

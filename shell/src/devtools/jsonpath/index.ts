@@ -5,6 +5,8 @@ import type { DevTool, ToolHost, ToolInstance } from "../types";
 import { codicon } from "../../util";
 import { flashError, flashSuccess } from "../feedback";
 import { buildJsonTree, toJsonPath, toPythonSubscript, tryParseJson, type JsonNode } from "./tree";
+import { motionDisabled } from "../../anim"; // UI-11：只读预览的光标闪烁也随「减少动画」
+import { app } from "../../state"; // UI-29：字号/字体族跟随用户设置
 
 export const jsonpathTool: DevTool = {
   id: "jsonpath",
@@ -67,12 +69,15 @@ function mountJsonPath(host: ToolHost): ToolInstance {
 
   const bar = document.createElement("div");
   bar.className = "tool-toolbar";
+  // UI-08：走通用 .btn 体系（flash 反馈依赖 .btn.flash-ok/.flash-error）
   const parseBtn = document.createElement("button");
-  parseBtn.className = "primary";
+  parseBtn.className = "btn btn--primary";
   parseBtn.textContent = "解析";
   const sampleBtn = document.createElement("button");
+  sampleBtn.className = "btn";
   sampleBtn.textContent = "示例";
   const clearBtn = document.createElement("button");
+  clearBtn.className = "btn";
   clearBtn.textContent = "清空";
   const errEl = document.createElement("div");
   errEl.className = "tool-error";
@@ -88,21 +93,29 @@ function mountJsonPath(host: ToolHost): ToolInstance {
   pathInput.readOnly = true;
   pathInput.spellcheck = false;
   pathInput.placeholder = "点击树节点显示路径";
+  // UI-08：窄面板（默认 360px）内用紧凑档 .btn--sm；切换态由 .btn.active 承载
+  // UI-09 例外：下面两个按钮在未选中节点时即为 disabled（见本文件末尾的初始化与 selectNode），
+  // 而 Chromium 不向禁用表单控件派发鼠标事件，data-tip 会静默失效——初始态就收不到提示。
+  // 故保留原生 title（由渲染层命中测试驱动，禁用态仍显示）。
   const copyPathBtn = document.createElement("button");
+  copyPathBtn.className = "btn btn--sm";
   copyPathBtn.title = "复制路径";
   copyPathBtn.appendChild(codicon("copy"));
-  copyPathBtn.append(" 路径");
+  copyPathBtn.append("路径"); // 间距由 .btn 的 gap 提供，不再靠前导空格
   const copyValueBtn = document.createElement("button");
+  copyValueBtn.className = "btn btn--sm";
   copyValueBtn.title = "复制值";
   copyValueBtn.appendChild(codicon("copy"));
-  copyValueBtn.append(" 值");
+  copyValueBtn.append("值");
   pathRow.append(pathInput, copyPathBtn, copyValueBtn);
 
   const modeRow = document.createElement("div");
   modeRow.className = "jp-moderow";
   const jsonpathModeBtn = document.createElement("button");
+  jsonpathModeBtn.className = "btn btn--sm";
   jsonpathModeBtn.textContent = "JSONPath";
   const pyModeBtn = document.createElement("button");
+  pyModeBtn.className = "btn btn--sm";
   pyModeBtn.textContent = "Python []";
   modeRow.append(jsonpathModeBtn, pyModeBtn);
 
@@ -120,21 +133,30 @@ function mountJsonPath(host: ToolHost): ToolInstance {
   const treeBox = document.createElement("div");
   treeBox.className = "jp-tree";
 
+  // UI-29：字号/字体族读用户设置（原硬编码 fontSize:12）。与 UI-11 同一裁决：
+  // 实例随工具挂载新建、卸载即销毁，创建时读一次即可；重新挂载自然拿到新值。
+  const fontFamily = app.settings.font_family.trim();
   const valueEditor = host.monaco.editor.create(valueBox, {
     value: "",
     language: "json",
     readOnly: true,
     automaticLayout: true,
     minimap: { enabled: false },
-    fontSize: 12,
+    fontSize: app.settings.font_size,
+    ...(fontFamily ? { fontFamily } : {}),
     scrollBeyondLastLine: false,
     wordWrap: "on",
+    // UI-11：实例随工具挂载新建、卸载即销毁，故创建时读一次开关即可，无需运行时接线
+    cursorBlinking: motionDisabled() ? "solid" : "blink",
   });
 
   const setMode = (m: "jsonpath" | "python"): void => {
     mode = m;
+    // UI-16：互斥模式开关的按下态用 aria-pressed 表达，与 .active 类同源切换
     jsonpathModeBtn.classList.toggle("active", m === "jsonpath");
+    jsonpathModeBtn.setAttribute("aria-pressed", String(m === "jsonpath"));
     pyModeBtn.classList.toggle("active", m === "python");
+    pyModeBtn.setAttribute("aria-pressed", String(m === "python"));
     updatePathBar();
   };
 
@@ -286,7 +308,7 @@ function mountJsonPath(host: ToolHost): ToolInstance {
 
   copyPathBtn.disabled = true;
   copyValueBtn.disabled = true;
-  jsonpathModeBtn.classList.add("active");
+  setMode("jsonpath"); // UI-16：初始态改走 setMode（原直接加 .active 类，会漏掉 aria-pressed）
 
   return {
     dispose() {

@@ -19,6 +19,7 @@
 | [`docs/data-directory-layout-v2.md`](docs/data-directory-layout-v2.md) | 数据目录与部署方案（现行，已实施） |
 | [`docs/disk-space-plan.md`](docs/disk-space-plan.md) | 系统盘占用治理方案（已实施） |
 | [`docs/tech-debt.md`](docs/tech-debt.md) | 技术债登记（待处理 + 已归档） |
+| [`docs/ui_design_improvement_plan.md`](docs/ui_design_improvement_plan.md) | **界面设计改进计划 v2.1（已全部完成：30/30 项 + 2 条清单外遗留，共十批）**：UI 缺陷、设计系统一致性、ARIA 无障碍与响应式打磨；§7 有逐批进度记录与人工抽查清单 |
 | [`docs/adr/`](docs/adr/) | 技术决策记录（ADR） |
 
 > 技术方案与开发计划冲突时，以开发计划为准并反馈修订。
@@ -87,4 +88,5 @@ powershell -File .\build-release.ps1
 
 - 项目阶段：**Phase 1 / Phase 2 / Phase 2.5 均已交付，Phase 3（opencharm-intel）已交付**；当前进入 **Phase 4（持续打磨）**，进度见 `docs/python_ide_dev_plan_v2.md` §7。
 - **调试功能（DAP / debugpy 最小闭环）已交付**：D1–D5 / Gate E 见 [`docs/debug_acceptance_record.md`](docs/debug_acceptance_record.md)；协议层与打包均已验证，部分 UI 交互项待人工抽查（清单见验收记录 §五）。
+- **界面设计改进计划已收官**（十批，30/30 项 + 2 条遗留）：按钮体系 / scale token / Tooltip 双轨收敛 / ARIA 语义（tree·tabs·dialog·tooltip·menu）/ 浅色主题对比度达标 / 响应式下限 / 字号字体族全局跟随设置；沉淀的硬规则已固化到 `.codebuddy/rules/typescript-code-style`，逐批可见变化的人工抽查清单见计划文档 §7。
 - 现行方案：[`docs/python_ide_tech_plan_v3.md`](docs/python_ide_tech_plan_v3.md) · 现行计划：[`docs/python_ide_dev_plan_v2.md`](docs/python_ide_dev_plan_v2.md) · 技术债登记：[`docs/tech-debt.md`](docs/tech-debt.md)。

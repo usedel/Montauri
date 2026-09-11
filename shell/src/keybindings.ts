@@ -27,7 +27,8 @@ export type KeybindingId =
   | "debug_stop"
   | "debug_step_over"
   | "debug_step_into"
-  | "debug_step_out";
+  | "debug_step_out"
+  | "markdown_preview";
 
 export interface KeybindingMeta {
   id: KeybindingId;
@@ -57,6 +58,8 @@ export const KEYBINDING_META: KeybindingMeta[] = [
   { id: "debug_step_over", label: "单步跳过", def: "F10", scope: "window" },
   { id: "debug_step_into", label: "单步进入", def: "F11", scope: "window" },
   { id: "debug_step_out", label: "单步退出", def: "Shift+F11", scope: "window" },
+  // Markdown 预览开关（markdown preview dev plan §5-T4；window 级——编辑器聚焦/失焦均可用）
+  { id: "markdown_preview", label: "Markdown 预览", def: "Ctrl+Shift+V", scope: "window" },
 ];
 
 // ---------- 解析 ----------
@@ -173,6 +176,35 @@ export function matchWindowBinding(e: KeyboardEvent): KeybindingId | null {
 /** 当前键位显示文本（菜单标签用；解绑时返回空串） */
 export function bindingLabel(id: KeybindingId): string {
   return (app.settings.keybindings[id] ?? "").trim();
+}
+
+/** 修饰键的规范显示形（用户可能写成 control/CTRL 等，显示时统一） */
+const MOD_DISPLAY: Record<string, string> = {
+  ctrl: "Ctrl",
+  control: "Ctrl",
+  shift: "Shift",
+  alt: "Alt",
+};
+
+/** 键位串 → 逐段显示 token（"Ctrl+Shift+F" → ["Ctrl","Shift","F"]），供 <kbd> 分段渲染（UI-25 欢迎页）。
+ *  与 tooltip 的 data-tip-key 分工不同：那里是整串一个 kbd 框（浮层空间紧张），这里是每段一个框。
+ *  规则：修饰键按 MOD_DISPLAY 归一大小写；末位单字母/数字转大写（用户写 "ctrl+s" 也显示 "S"）；
+ *  其余功能键/符号原样保留（F10、Slash 等由用户自己写）。
+ *  无法解析的串（parseBinding 判非法，如 "Ctrl+X+Y"）整串作一段返回——不猜拆法，也不丢信息。
+ *  空串返回 []（调用方据此显示「未绑定」占位，而不是渲染一个空 kbd 框）。 */
+export function bindingChord(raw: string): string[] {
+  const s = (raw ?? "").trim();
+  if (!s) return [];
+  const tokens = s.split("+").map((t) => t.trim()).filter((t) => t.length > 0);
+  if (tokens.length === 0) return [];
+  if (!parseBinding(s)) return [s];
+  const last = tokens.length - 1;
+  return tokens.map((t, i) => {
+    const mod = MOD_DISPLAY[t.toLowerCase()];
+    if (mod) return mod;
+    if (i === last && t.length === 1) return t.toUpperCase(); // 末位主键：单字符统一大写
+    return t;
+  });
 }
 
 // ---------- editor 级命令与映射 ----------

@@ -56,20 +56,125 @@
   /* diff 输出语法色 */
   --diff-hunk: #569cd6;
   --diff-add: #6a9955;
+
+  /* ---------- 语法色（UI-15）----------
+     深色值沿用 VS Code Dark+ 的标准 token 色，与 Monaco 编辑器内的 Python 高亮同源，
+     使调试变量面板 / JSONPath 查看器的着色与编辑器视觉一致。
+     此前这些色值硬编码在各条规则里，浅色主题覆盖层完全没有对应项，
+     切到浅色后 #9cdcfe 之类为深底设计的浅色文字在白底上只剩 1.49:1（远低于 AA 4.5:1）。
+     浅色主题取值见下方 [data-theme="light"] 块，均经 WCAG 相对亮度公式核算。 */
+  --syntax-var: #9cdcfe;     /* 变量名 / JSON 键 */
+  --syntax-string: #ce9178;
+  --syntax-number: #b5cea8;
+  --syntax-boolean: #569cd6;
+  --syntax-null: #808080;
+  --syntax-object: #e8c07d;  /* JSON 类型徽标：对象 */
+  --syntax-array: #d19a66;   /* JSON 类型徽标：数组 */
+
+  /* ---------- 调试装饰色（UI-15）----------
+     断点红在两套主题下均满足 WCAG 1.4.11 非文本对比（深底 3.52:1 / 浅底 4.01:1），
+     故不随主题变化——与 VS Code 一致，断点红是跨主题稳定的身份色。 */
+  --debug-breakpoint: #e51400;
+  --debug-line-bg: rgba(245, 197, 24, 0.18);      /* 当前执行行底色 */
+  --debug-line-outline: rgba(245, 197, 24, 0.5);  /* 当前执行行描边 */
+  --debug-line-margin: #f5c518;                   /* gutter 左侧 3px 指示条 */
+  --debug-frame-active: rgba(84, 116, 224, 0.2);  /* 调用栈激活帧底色 */
   /* 品牌 / 欢迎页装饰 */
   --brand-gradient: linear-gradient(135deg, #4da3ff, #9a6bff);
   --welcome-glow: rgba(88, 166, 255, 0.07);
+
+  /* ---------- 主题预览色卡（UI-26）----------
+     这 8 个值描绘的是「各套主题自身」的基调，必须固定不随当前主题变化，
+     故只在 :root 登记、[data-theme="light"] 覆盖层**不含**对应项（覆盖掉就失去预览意义）。
+     取值与两套主题的实际 token 逐项对齐，不是凭观感挑的：
+       深色 = --bg #1e1e1e · --bg-panel #1b1b1b · --fg #d4d4d4 · --border #3c3c3c
+       浅色 = --bg #ffffff · --bg-panel #ececec · --fg #333333 · --border #d4d4d4
+     预览里的强调色带直接用 var(--accent)（accent 跨主题一致，见浅色覆盖层头部注释）。 */
+  --theme-pv-dark-bg: #1e1e1e;
+  --theme-pv-dark-side: #1b1b1b;
+  --theme-pv-dark-fg: #d4d4d4;
+  --theme-pv-dark-border: #3c3c3c;
+  --theme-pv-light-bg: #ffffff;
+  --theme-pv-light-side: #ececec;
+  --theme-pv-light-fg: #333333;
+  --theme-pv-light-border: #d4d4d4;
   /* 等宽字体栈（D3 P-14：输出/搜索匹配/终端/模板编辑等统一） */
   --mono: Consolas, "Cascadia Code", "JetBrains Mono", monospace;
+
+  /* ---------- 字号 scale（UI-18）----------
+     审计口径：全项目 181 处 font-size、12 种取值。裁决「主动精简档位」后归档如下
+     （12.5px 为最高频值 63 处，按裁决就近归到 12px；向下归档可避免 tab / 状态栏 /
+     菜单等定宽 nowrap 容器的溢出截断风险）：
+       11.5→11 · 12.5→12 · 18→16 · 26→24
+     两处 15px 按语义分别归档：模态标题（.env-title）→16px 保住标题层级，
+     图标字形（.debug-toolbar-btn）→14px。
+     UI-17：原 10px 档（--text-2xs）整体提到 11px 并删除该档，11px 现为全局最小字号下限。
+     理由：10px 在 100%/125% DPI 的普通显示器上已接近可读性下限，而它承载的恰是需要快速扫读的
+     信息——Git 状态徽标（M/A/D/U/R/C）、模板类型徽标、JSON 类型徽标、tooltip 里的快捷键 kbd、
+     解释器种类徽标、大纲折叠箭头。
+     6 处用点均已逐一核实无溢出风险：所在容器都带一个可截断的弹性成员来吸收 ~10% 的宽度增量
+     （.tree-item .name / .env-item .path / .lt-row .lt-desc / .jp-row .jp-value 均为
+     overflow:hidden + text-overflow:ellipsis），或本身宽度自适应（.oc-tooltip 是 nowrap 浮层、
+     宽度由内容撑开；#outline-toggle 是图标字形，不占文本宽度）。
+     另：.lt-badge 与 .git-badge 的高度由 line-height/padding 决定而非字号，故纵向排布不受影响。
+     新增样式禁止裸字号——如需新档，先在此登记。 */
+  --text-xs: 11px;   /* 全局最小字号下限（UI-17）：分组标题 / 状态栏 / 徽标 / 提示与次要说明 */
+  --text-sm: 12px;   /* 次要 UI 主档：标签页 / 菜单 / 表单控件 / 列表项（原 12 + 12.5 合并） */
+  --text-base: 13px; /* 正文与主要文字：html/body 基准、文件树、大纲 */
+  --text-md: 14px;   /* 强调文字 / 工具栏图标字形 */
+  --text-lg: 16px;   /* 模态标题 / 活动栏与窗口控制图标字形 */
+  --text-xl: 24px;   /* 展示级标题（欢迎页） */
+
+  /* ---------- 间距 scale（UI-18）----------
+     2px 网格，覆盖现有全部常用值（6px/8px/10px/4px 为最高频，故网格取 2px 而非 4px）。
+     奇数值就近向上归档：1→2 · 3→4 · 5→6 · 7→8 · 9→10；另 18→20 · 22→24。
+     例外（保留裸值，均属「与元素自身尺寸成比例」的一次性光学值）：
+       · .activity-item.active::before 的 border-radius:1px（2px 宽指示条的半宽圆角）
+       · #editor-overlay 的 padding 56px/64px（欢迎页版式留白，非组件间距） */
+  --space-1: 2px;
+  --space-2: 4px;
+  --space-3: 6px;
+  --space-4: 8px;
+  --space-5: 10px;
+  --space-6: 12px;
+  --space-7: 14px;
+  --space-8: 16px;
+  --space-9: 20px;
+  --space-10: 24px;
+  --space-11: 28px;
+  --space-12: 32px;
+
+  /* ---------- 圆角 scale（UI-18）----------
+     审计口径：83 处 border-radius、7 种取值；3px 为绝对主档（51 处）。
+     5px（7 处，均为卡片/内嵌面板类容器）就近归入容器档 6px。 */
+  --radius-xs: 2px;   /* 徽标 / 行内输入 / 高亮片段 */
+  --radius-sm: 3px;   /* 通用控件主档：按钮 / 输入 / 菜单 / 列表 */
+  --radius-md: 4px;   /* 稍大控件与内嵌面板 */
+  --radius-lg: 6px;   /* 卡片 / 容器 / 模态 */
+  --radius-xl: 10px;  /* 品牌装饰（欢迎页 logo） */
 }
 
 /* ---------- 动效系统（D3 P-06） ----------
    --motion 为全局动效倍率：0 = 禁用（「减少动画」设置或系统 prefers-reduced-motion）。
    所有动效时长 ≤150ms（快而克制，方案 §3）。 */
-:root { --motion: 1; }
+/* --transition-* 为 UI-18 附带的过渡 token（已内置 --motion 倍率）；
+   UI-11 会把其余散落的硬编码 transition 时长一并收敛到这两个 token。 */
+:root {
+  --motion: 1;
+  --transition-fast: calc(0.12s * var(--motion)) ease;
+  --transition-base: calc(0.15s * var(--motion)) ease;
+}
 html[data-reduce-motion] { --motion: 0; }
 @media (prefers-reduced-motion: reduce) {
   html { --motion: 0; }
+}
+/* UI-11：codicon 的旋转修饰类由 vendored CSS 定义，animation 时长硬编码（约 1.5s steps(12)），
+   --motion 倍率管不到它——util.ts::spinIcon() 与 Monaco 内部加载态都在用。
+   在此统一压制：一处覆盖全部调用点，无需每个调用方各自判断 motionDisabled()。
+   静止后仍是圆弧字形，「加载中」语义不丢。 */
+html[data-reduce-motion] .codicon-modifier-spin { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  .codicon-modifier-spin { animation: none; }
 }
 
 @keyframes oc-fade-in { from { opacity: 0; } to { opacity: 1; } }
@@ -125,7 +230,13 @@ html[data-reduce-motion] { --motion: 0; }
   --brand: #14806b;
   --ok: #14806b;
   --danger: #d61f1f;
-  --warn: #8a6d00;
+  /* UI-15：原值 #8a6d00 在面板底 #ececec 上仅 4.16:1，且 .search-hit 是「--warn 文字叠在
+     --warn-soft 底色上」的组合，合成后更低到 3.57:1——浅色主题下今天就不满足 AA 4.5:1。
+     加深到 #6f5800：面板底 5.79:1、叠在 --warn-soft 合成底上 4.96:1，两处均达标。
+     影响面（均为改善）：.search-hit 命中词、.git-commit-item .hash、.lt-kind-surround 徽标、
+     .storage-badge-part、.pkg-outdated，以及 .tab .dirty / .lsp-dot.dot-starting 两个状态点。
+     注：--warn-soft / --warn-border 是填充与描边（非文字），保持原值不动。 */
+  --warn: #6f5800;
   --warn-soft: rgba(189, 155, 0, 0.2);
   --warn-border: rgba(146, 118, 0, 0.4);
   --ok-border: rgba(26, 127, 106, 0.4);
@@ -142,6 +253,27 @@ html[data-reduce-motion] { --motion: 0; }
   --git-branch: #946c00;
   --diff-hunk: #3070c0;
   --diff-add: #4d7a3f;
+  /* 语法色浅色适配（UI-15）：取 VS Code Light+ 的对应 token 色，与深色侧同源同一套体系。
+     括号内为「文字色 / 面板底 #ececec」的对比度（按最暗的浅底算，白底必然更高）。
+     两处偏离 Light+ 原值，均因其不满足 AA 4.5:1：
+       · number 的 Light+ 原值 #098658 仅 3.90:1 → 加深到 #0a6e46（5.34:1）
+       · null 原硬编码 #808080 仅 3.95:1 → #666666（4.86:1） */
+  --syntax-var: #001080;     /* 12.83:1 */
+  --syntax-string: #a31515;  /* 6.64:1 */
+  --syntax-number: #0a6e46;  /* 5.34:1 */
+  --syntax-boolean: #0000ff; /* 7.27:1 */
+  --syntax-null: #666666;    /* 4.86:1 */
+  --syntax-object: #795e26;  /* 5.16:1 */
+  --syntax-array: #9a4d00;   /* 5.17:1 */
+  /* 调试装饰色浅色适配（UI-15）。断点红 --debug-breakpoint 两主题共用，此处不覆盖。
+     当前执行行是「底色 + 描边 + gutter 指示条」三重线索：黄色底在白底上的可辨识度有物理上限
+     （合成后约 1.25:1，深色主题为 1.52:1，黄色本身亮度高所致，VS Code 浅色主题同样如此），
+     故 WCAG 1.4.11 的 3:1 非文本对比由描边（3.08:1）与指示条（3.90:1）承担；
+     底色只负责「这一块是当前行」的区域感，其上正文对比仍有 10.14:1。 */
+  --debug-line-bg: rgba(245, 200, 30, 0.45);      /* 合成 #fae69a */
+  --debug-line-outline: rgba(163, 123, 0, 0.85);  /* 合成 #b18f26，3.08:1 */
+  --debug-line-margin: #a37b00;                   /* 3.90:1（原 #f5c518 在白底仅 1.63:1） */
+  --debug-frame-active: rgba(14, 99, 156, 0.18);  /* 可辨识 1.31:1，略优于深色主题的 1.26:1 */
   --welcome-glow: rgba(88, 166, 255, 0.12);
 }
 
@@ -153,7 +285,7 @@ html, body {
   background: var(--bg);
   color: var(--fg);
   font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
-  font-size: 13px;
+  font-size: var(--text-base);
   user-select: none;
 }
 
@@ -167,8 +299,9 @@ html, body {
 
 /* ---------- 键盘焦点反馈（D1 P-02） ----------
    输入控件以 border-color 变化表达焦点（见各 :focus 规则）；
-   按钮与列表项类控件统一 outline。div 列表项当前多无 tabindex，
-   规则先行就位，后续接入键盘导航即生效。 */
+   按钮与列表项类控件统一 outline。UI-16 起 .tab / .term-tab 与可点击 span 按钮
+   已接入 tabindex + 键盘激活；其余 div 列表项（scm-item 等）规则先行就位，
+   后续接入键盘导航即生效。 */
 button:focus-visible,
 .menubar-item:focus-visible,
 .win-btn:focus-visible,
@@ -187,32 +320,136 @@ button:focus-visible,
 .outline-item:focus-visible,
 .search-match:focus-visible,
 .lt-row:focus-visible,
-#status-engine:focus-visible {
+#status-engine:focus-visible,
+#status-interpreter:focus-visible, /* 状态栏芯片语义（第七批）：解释器芯片补 tabindex 后纳入统一键盘焦点 */
+/* UI-16：以下元素本批补齐 role=button + tabindex=0（可点击 span/div 的键盘可达性），
+   纳入统一键盘焦点规则；小尺寸元素用 -1px 内描边，避免 outline 溢出挤占相邻热区 */
+.term-tab-close:focus-visible,
+.term-tab-stop:focus-visible,
+.term-tab-add:focus-visible,
+.tab .close:focus-visible,
+.debug-bp-del:focus-visible,
+.debug-bp-label:focus-visible,
+.debug-stack-frame:focus-visible,
+#outline-header:focus-visible,
+.btn:focus-visible {
   outline: 1px solid var(--focus-ring);
   outline-offset: 2px;
 }
+.term-tab-close:focus-visible,
+.term-tab-stop:focus-visible,
+.tab .close:focus-visible,
+.debug-bp-del:focus-visible {
+  outline-offset: -1px;
+}
+
+/* ---------- 通用按钮体系（UI-08） ----------
+   审计口径：原有 30+ 套并列的一次性按钮选择器，hover 行为 / 圆角 / 字号 / 内边距各不相同，
+   且 `button.flash-ok` 需要 `!important` 才能压过它们——特异性冲突已失控的直接证据。
+   本体系收敛为「基类 + 变体 + 尺寸 + 状态」四轴：
+     变体：默认（次要）/ --primary / --danger（实心）/ --danger-outline / --ghost / --icon
+     尺寸：--sm（紧凑工具栏与行内）/ 默认 md（表单与对话框）/ --lg（欢迎页 CTA）
+     状态：:disabled / .active（切换类常驻高亮）/ .busy（setBusy）/ .flash-ok / .flash-error
+   状态类沿用现有名称（util.ts::setBusy 与 devtools/feedback.ts 无需改动）；
+   `.btn.xxx` 特异性为 (0,2,0)，天然压过 `.btn--primary` 的 (0,1,0)，故不再需要 `!important`。
+   **不纳入本体系**（UI-08 裁决：热区尺寸是按上下文刻意调过的特定组件，强行统一会造成
+   可用性倒退）：.win-btn（46px，Windows 窗口控制标准热区）/ .activity-item（36×36）/
+   .debug-toolbar-btn（28×28）/ .scm-action（16×16，受列表行高约束）/ .term-tab-close、
+   .term-tab-stop（14×14）/ .ew-recent-clear、.ew-recent-remove（hover 才显现的行内删除）。 */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  flex: none;
+  box-sizing: border-box;
+  background: transparent;
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  /* md（默认尺寸）：与原「表单/对话框按钮」档一致（原 5px 12px，间距归档后 6px 12px） */
+  padding: var(--space-3) var(--space-6);
+  font-size: var(--text-sm);
+  font-family: inherit;
+  /* 不显式设 line-height：沿用 body 的 normal，避免迁移后按钮整体变高影响紧凑布局 */
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+}
+.btn:hover:not(:disabled) { border-color: var(--fg-dim); background: var(--hover-subtle); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn:disabled:hover { border-color: var(--border); background: transparent; }
+.btn:not(:disabled):active { transform: translateY(1px); }
+
+/* 尺寸档 */
+.btn--sm { padding: var(--space-1) var(--space-4); font-size: var(--text-xs); }
+.btn--lg {
+  padding: var(--space-4) var(--space-8);
+  font-size: var(--text-base);
+  border-radius: var(--radius-md);
+  gap: var(--space-4); /* 大尺寸档图标与文字留更宽的间距（沿用欢迎页 CTA 原观感） */
+}
+
+/* 图标字形随尺寸档走：codicon 基础类固定 16px，必须逐档覆盖。
+   `.btn--sm .codicon` 置于 `.btn .codicon` 之后，同为 (0,2,0) 特异性，靠源序生效。 */
+.btn .codicon { font-size: var(--text-md); }
+.btn--sm .codicon { font-size: var(--text-sm); }
+
+/* 变体 */
+.btn--primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.btn--primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
+
+.btn--danger { background: var(--danger-bg); border-color: var(--danger-bg); color: var(--on-accent); }
+.btn--danger:hover:not(:disabled) { background: var(--danger-bg-hover); border-color: var(--danger-bg-hover); }
+
+/* 破坏性动作处于次要位置时用描边形态（如模板编辑器的「删除」），避免整块实心红过于抢眼 */
+.btn--danger-outline { color: var(--danger); border-color: var(--danger-border); }
+.btn--danger-outline:hover:not(:disabled) { background: var(--danger-soft); border-color: var(--danger); }
+
+/* 幽灵按钮：无边框，静态时弱化（--fg-dim），hover 才提亮并给底色。
+   用于模态头部关闭按钮等从属操作——这正是原 .env-close 的观感，故迁移后无需再保留按域规则。 */
+.btn--ghost { border-color: transparent; color: var(--fg-dim); }
+.btn--ghost:hover:not(:disabled) { border-color: transparent; background: var(--hover); color: var(--fg); }
+
+/* 图标按钮：仅用于通用工具栏图标按钮（tree-header 三按钮 / env-close / git-diff 头部等）。
+   只收紧内边距，字形尺寸由上面的「随尺寸档」规则决定；置于尺寸档之后，
+   与 .btn--sm 同时使用时以更紧的图标内边距为准。 */
+.btn--icon { padding: var(--space-1) var(--space-2); }
+
+/* 状态：切换类按钮的常驻高亮（大小写敏感开关、模式切换等） */
+.btn.active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.btn.active:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
+
+/* 状态：忙碌（util.ts::setBusy 加 .busy；内联转圈 + 禁用交互）。
+   .btn 为 inline-flex + align-items:center，图标垂直居中由 flex 承担，无需 vertical-align。 */
+.btn.busy { opacity: 0.9; cursor: progress; }
+.btn.busy .codicon { font-size: var(--text-xs); }
+
+/* 状态：执行结果闪回（devtools/feedback.ts）。置于全部变体之后，靠源序覆盖，无需 !important */
+.btn.flash-ok { background: var(--ok); border-color: var(--ok); color: var(--on-accent); }
+.btn.flash-error { background: var(--danger-bg); border-color: var(--danger-bg); color: var(--on-accent); }
 
 /* ---------- Codicon 图标分场景尺寸（D2 P-04） ----------
    codicon 基础类固定 16px/inline-block，此处按槽位逐一覆盖。 */
-.activity-item .codicon { font-size: 18px; }
-.menubar-icon .codicon { font-size: 14px; }
-.win-btn .codicon { font-size: 16px; }
-#tree-header button .codicon { font-size: 14px; }
-#git-toolbar button .codicon { font-size: 12px; vertical-align: -1px; }
-#git-branch-btn .codicon { font-size: 12px; }
-#git-branch-current .codicon, #status-git .codicon { font-size: 12.5px; vertical-align: -1px; }
-#outline-toggle .codicon { font-size: 12px; }
-#btn-toggle-output .codicon { font-size: 12px; transition: transform 0.15s ease; }
+.activity-item .codicon { font-size: var(--text-lg); }
+.menubar-icon .codicon { font-size: var(--text-md); }
+.win-btn .codicon { font-size: var(--text-lg); }
+/* UI-08：#tree-header button（14px）/ #git-toolbar button（12px）/ #git-branch-btn（12px）/
+   #git-diff-header .ghost-btn（11px→12px）/ #btn-toggle-output（12px）的图标尺寸
+   已由 .btn .codicon（--text-md 14px）与 .btn--sm .codicon（--text-sm 12px）按尺寸档统一承载，
+   五条按域覆盖删除。此处只保留非按钮元素的图标尺寸。 */
+#git-branch-current .codicon, #status-git .codicon { font-size: var(--text-sm); vertical-align: -1px; }
+#outline-toggle .codicon { font-size: var(--text-sm); }
+/* 折叠箭头的旋转动画属交互反馈，与图标尺寸无关，保留（UI-11：时长已收敛到 --transition-base，随「减少动画」归零） */
+#btn-toggle-output .codicon { transition: transform var(--transition-base); }
 #bottom.collapsed #btn-toggle-output .codicon { transform: rotate(180deg); }
-#git-diff-header .ghost-btn .codicon { font-size: 11px; }
-.term-tab-close .codicon { font-size: 12px; }
-.term-tab-add .codicon { font-size: 13px; }
-.tab .close .codicon { font-size: 13px; }
+.term-tab-close .codicon { font-size: var(--text-sm); }
+.term-tab-add .codicon { font-size: var(--text-base); }
+.tab .close .codicon { font-size: var(--text-base); }
 .tab .dirty { display: flex; align-items: center; }
-.tab .dirty .codicon { font-size: 12px; }
-.ew-recent-item .folder .codicon { font-size: 14px; }
-.git-branch-item .codicon { font-size: 12px; }
-.lt-mini-btn .codicon { font-size: 12px; vertical-align: -1px; }
+.tab .dirty .codicon { font-size: var(--text-sm); }
+.ew-recent-item .folder .codicon { font-size: var(--text-md); }
+.git-branch-item .codicon { font-size: var(--text-sm); }
 .status-snake svg { vertical-align: -2px; }
 /* 文本徽标（JS/TS/{} 等）加粗提升小尺寸可读性 */
 .icon-text { font-weight: 600; }
@@ -224,7 +461,7 @@ button:focus-visible,
   position: absolute;
   z-index: 20;
   background: transparent;
-  transition: background 0.12s ease;
+  transition: background var(--transition-fast); /* UI-11 */
 }
 .splitter-col { top: 0; right: -3px; width: 6px; height: 100%; cursor: col-resize; }
 .splitter-col-left { top: 0; left: -3px; width: 6px; height: 100%; cursor: col-resize; }
@@ -236,9 +473,9 @@ button:focus-visible,
 #menubar {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: var(--space-1);
   height: 34px;
-  padding-left: 10px;
+  padding-left: var(--space-5);
   background: var(--bg-panel);
   border-bottom: 1px solid var(--border);
   flex: none;
@@ -248,24 +485,24 @@ button:focus-visible,
   display: inline-flex;
   align-items: center;
   color: var(--brand);
-  margin-right: 6px;
+  margin-right: var(--space-3);
   flex: none;
 }
 .menubar-title {
-  font-size: 12.5px;
+  font-size: var(--text-sm);
   font-weight: 600;
   color: var(--brand);
-  margin-right: 12px;
+  margin-right: var(--space-6);
   letter-spacing: 0.5px;
 }
 .menubar-item {
   background: transparent;
   color: var(--fg-dim);
   border: none;
-  border-radius: 3px;
-  padding: 3px 10px;
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-5);
   cursor: pointer;
-  font-size: 12.5px;
+  font-size: var(--text-sm);
 }
 .menubar-item:hover, .menubar-item.active {
   background: var(--accent);
@@ -277,26 +514,40 @@ button:focus-visible,
   border: none;
   color: var(--fg-dim);
   cursor: pointer;
-  font-size: 14px;
-  padding: 2px 6px;
-  border-radius: 3px;
+  font-size: var(--text-md);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-sm);
 }
 .menubar-icon:hover { color: var(--fg); background: var(--hover); }
 .menubar-icon:disabled { opacity: 0.4; cursor: default; }
 .menubar-icon:disabled:hover { color: var(--fg-dim); background: transparent; }
 
+/* UI-19 / UI-27：标题栏功能分区细分隔线（菜单区│动作区、设置区│窗口控制区）。
+   1px × 16px 垂直居中，用 --border-soft；两侧 --space-2 间距。
+   动作区（运行组+调试）与右侧系统区（设置+窗口控制）之间由 #menubar .spacer 弹性间距分隔，
+   不在弹性空隙中放孤立分隔线（会随窗口宽度漂移），故仅在两处相邻边界加实线。 */
+.menubar-sep {
+  width: 1px;
+  height: 16px;
+  background: var(--border-soft);
+  flex: none;
+  align-self: center;
+  margin: 0 var(--space-2);
+}
+
 /* 运行组（C3）：三独立按钮，紧跟「工具」菜单后。按钮均为 <button>，天然不受拖窗区影响 */
-#run-group { display: flex; align-items: center; gap: 2px; margin-left: 6px; flex: none; }
+/* UI-19：原 margin-left 由前置 .menubar-sep 的间距取代，避免分隔线两侧间距叠加过宽 */
+#run-group { display: flex; align-items: center; gap: var(--space-1); flex: none; }
 #run-group #btn-run { color: var(--brand); }
 #run-group #btn-run:disabled { color: var(--fg-dim); }
 #run-group #btn-stop { color: var(--fg-dim); }
 #run-group #btn-stop:not(:disabled) { color: var(--danger); }
 
 /* ---------- 标题栏窗口控制按钮（自绘，VS Code 风） ---------- */
+/* UI-19：原 margin-left 由前置 .menubar-sep 的间距取代（设置区│窗口控制区分隔线） */
 #win-controls {
   display: flex;
   align-self: stretch;
-  margin-left: 6px;
   flex: none;
 }
 .win-btn {
@@ -305,7 +556,7 @@ button:focus-visible,
   background: transparent;
   color: var(--fg-dim);
   cursor: pointer;
-  font-size: 18px;
+  font-size: var(--text-lg);
   font-family: "Segoe UI Symbol", "Segoe UI", sans-serif;
 }
 .win-btn:hover { background: var(--hover); color: var(--fg); }
@@ -325,11 +576,22 @@ button:focus-visible,
 #output-header .spacer, #statusbar .spacer { flex: 1; }
 
 /* ---------- 主区域 ---------- */
+/* UI-23：三栏布局的宽度下限体系。
+   Tauri 侧已有 min_inner_size(800, 600)（lib.rs，非 tauri.conf.json——本项目窗口在 Rust 里手动构建），
+   但光有窗口下限不够：左右面板原先都是 flex: none（不可收缩），而 #center 是 flex:1 + min-width:0，
+   于是「侧栏 280 + 右面板 360」在 800px 窗口下就把编辑区压到 160px，把两侧都拖到最大（480+560）
+   更是直接压到 0——编辑器被挤没，正是计划描述的缺陷。
+   现改为：两侧面板允许收缩（flex-shrink:1）但各设 min-width 下限（与 layout.ts 的 SIDEBAR_MIN /
+   RIGHT_MIN 同值），编辑区设 240px 硬下限。800px 窗口下三者下限之和 180+260+240=680 < 800，
+   任何面板宽度组合都不会溢出、也不会把编辑区压到不可用；空间不足时由两侧面板按比例让位。
+   layout.ts 的拖拽上限同步按「窗口宽 − 编辑区下限 − 对面面板当前宽」动态收口，
+   避免设进去的宽度被 flex 收缩吃掉（拖动手感发粘）。 */
 #main { display: flex; flex: 1; min-height: 0; }
 
 #sidebar {
   width: 280px;
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 180px;
   background: var(--bg-panel);
   border-right: 1px solid var(--border);
   display: flex;
@@ -339,8 +601,8 @@ button:focus-visible,
 #tree-header {
   display: flex;
   align-items: center;
-  padding: 6px 10px;
-  font-size: 11px;
+  padding: var(--space-3) var(--space-5);
+  font-size: var(--text-xs);
   letter-spacing: 1px;
   color: var(--fg-dim);
   border-bottom: 1px solid var(--border);
@@ -351,59 +613,50 @@ button:focus-visible,
   overflow: hidden;
   text-overflow: ellipsis;
 }
-#btn-tree-refresh, #btn-tree-collapse, #btn-tree-hidden {
-  background: transparent;
-  border: none;
-  color: var(--fg-dim);
-  cursor: pointer;
-  font-size: 13px;
-  padding: 1px 4px;
-  border-radius: 3px;
-  flex: none;
-}
-#btn-tree-refresh:hover, #btn-tree-collapse:hover, #btn-tree-hidden:hover {
-  color: var(--fg);
-  background: var(--hover);
-}
-#btn-tree-hidden.active { color: var(--brand); }
+/* UI-08：树头部三按钮迁移到 .btn .btn--ghost .btn--icon（原为无边框 + --fg-dim + hover 提亮，
+   正是 --ghost 变体的观感）。
+   ⚠ 可见变化：`#btn-tree-hidden.active` 原先是「品牌青绿图标 + 透明底」，迁移后统一走
+   `.btn.active`（实心 accent 底 + 白图标），与 #search-case / 模式切换等其它开关一致——
+   全应用只保留一种开关「开」态表达。ID 选择器特异性 (1,0,0) 会压过 .btn，故必须删除而非并存。 */
 
-#tree { flex: 1; overflow: auto; padding: 4px 0; }
+#tree { flex: 1; overflow: auto; padding: var(--space-2) 0; }
 
 .tree-item {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: var(--space-3);
   min-height: 22px; /* D4：行高由 ~18px 提至 22px，扩大点击热区 */
-  padding: 0 8px;
+  padding: 0 var(--space-4);
   cursor: pointer;
   white-space: nowrap;
-  font-size: 13px;
+  font-size: var(--text-base);
   outline: none;
 }
 .tree-item:hover { background: var(--hover); }
 .tree-item.active { background: var(--selected); }
-.tree-item:focus { outline: 1px solid var(--accent); outline-offset: -1px; }
+/* UI-10：改 :focus-visible + 统一 outline-offset，与全局键盘焦点反馈规则一致（鼠标点击不再误显焦点框） */
+.tree-item:focus-visible { outline: 1px solid var(--focus-ring); outline-offset: 2px; }
 .tree-item .icon {
   width: 16px; height: 16px;
   display: flex; align-items: center; justify-content: center;
   flex: none;
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
-.tree-item .icon .codicon { font-size: 14px; }
+.tree-item .icon .codicon { font-size: var(--text-md); }
 .tree-item .icon svg { display: block; }
 .tree-item .name { overflow: hidden; text-overflow: ellipsis; }
 .tree-item.dir .name { color: var(--fg); }
 .tree-item.dir.git-dirty .name { color: var(--git-modified); }
-.tree-item .twisty { width: 12px; flex: none; color: var(--fg-dim); font-size: 12px; }
+.tree-item .twisty { width: 12px; flex: none; color: var(--fg-dim); font-size: var(--text-sm); }
 
 /* Git 状态装饰标记 */
 .git-badge {
   margin-left: auto;
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 700;
   flex: none;
-  padding: 0 3px;
-  border-radius: 2px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-xs);
 }
 .git-badge.git-m { color: var(--git-modified); }
 .git-badge.git-a { color: var(--git-added); }
@@ -415,31 +668,31 @@ button:focus-visible,
 
 /* 空目录提示 */
 .tree-empty {
-  padding: 2px 8px;
+  padding: var(--space-1) var(--space-4);
   color: var(--fg-dim);
-  font-size: 11px;
+  font-size: var(--text-xs);
   font-style: italic;
 }
 
 /* 缩进参考线（子目录容器左边框） */
 .tree-children {
   border-left: 1px solid var(--indent-guide);
-  margin-left: 14px;
+  margin-left: var(--space-7);
 }
 
 /* 文件树过滤框 */
 #tree-filter-box {
-  padding: 4px 8px;
+  padding: var(--space-2) var(--space-4);
   border-bottom: 1px solid var(--border);
 }
 #tree-filter-input {
   width: 100%;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   color: var(--fg);
-  padding: 3px 8px;
-  font-size: 12.5px;
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-sm);
 }
 #tree-filter-input:focus { outline: none; border-color: var(--accent); }
 #tree-filter-input::placeholder { color: var(--fg-dim); }
@@ -448,15 +701,15 @@ button:focus-visible,
 .tree-item.filtered-out, .tree-empty.filtered-out { display: none; }
 
 /* 内联输入框（重命名/新建） */
-.inline-input-row { padding: 1px 8px !important; }
+.inline-input-row { padding: var(--space-1) var(--space-4) !important; }
 .inline-input {
   width: 100%;
   background: var(--bg);
   border: 1px solid var(--accent);
-  border-radius: 2px;
+  border-radius: var(--radius-xs);
   color: var(--fg);
-  padding: 1px 6px;
-  font-size: 12.5px;
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-sm);
   font-family: inherit;
 }
 .inline-input:focus { outline: none; }
@@ -476,7 +729,9 @@ button:focus-visible,
   user-select: none;
 }
 
-#center { position: relative; flex: 1; display: flex; flex-direction: column; min-width: 0; }
+/* UI-23：编辑区硬下限 240px（原为 min-width:0，可被两侧面板压到 0）。
+   layout.ts::centerMin() 在拖拽开始时读本计算值，两处不会漂移。 */
+#center { position: relative; flex: 1; display: flex; flex-direction: column; min-width: 240px; }
 
 /* ---------- 标签栏 ---------- */
 #tabbar {
@@ -491,13 +746,13 @@ button:focus-visible,
 .tab {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 0 10px;
+  gap: var(--space-3);
+  padding: 0 var(--space-5);
   height: 34px;
   background: var(--tab-inactive-bg);
   border-right: 1px solid var(--border);
   cursor: pointer;
-  font-size: 12.5px;
+  font-size: var(--text-sm);
   color: var(--fg-dim);
   flex: none;
   max-width: 200px;
@@ -508,9 +763,9 @@ button:focus-visible,
   width: 16px; height: 16px;
   display: flex; align-items: center; justify-content: center;
   flex: none;
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
-.tab .icon .codicon { font-size: 14px; }
+.tab .icon .codicon { font-size: var(--text-md); }
 .tab .icon svg { display: block; }
 .tab .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tab .dirty { color: var(--warn); }
@@ -524,7 +779,7 @@ button:focus-visible,
   color: var(--brand);
   pointer-events: none; /* 被动指示：动作已集中在菜单栏运行组，tab 不再提供第二入口 */
 }
-.tab .tab-running .codicon { font-size: 12px; }
+.tab .tab-running .codicon { font-size: var(--text-sm); }
 /* gutter 运行图标（C5）：__main__ 守卫行的 glyph margin ▶（codicon-play，码点 \eb2c） */
 .gutter-run { cursor: pointer; }
 .gutter-run::after { font-family: "codicon"; content: "\eb2c"; }
@@ -539,16 +794,18 @@ button:focus-visible,
 .gutter-breakpoint::after {
   font-family: "codicon";
   content: "\ea71"; /* codicon-debug-breakpoint */
-  color: #e51400;
+  color: var(--debug-breakpoint); /* UI-15：原裸值 #e51400（该值两主题均达标，故 token 不分主题） */
 }
 
 /* 当前行高亮（stopped 后标示执行行，debugGutter.ts） */
+/* UI-15：三个裸色值收归 token。浅色主题下原值 #f5c518 的指示条在白底仅 1.63:1，
+   作为图形指示远低于 WCAG 1.4.11 要求的 3:1，现已由浅色覆盖层加深到 3.90:1。 */
 .debug-current-line {
-  background: rgba(245, 197, 24, 0.18);
-  outline: 1px solid rgba(245, 197, 24, 0.5);
+  background: var(--debug-line-bg);
+  outline: 1px solid var(--debug-line-outline);
 }
 .debug-current-line-margin {
-  border-left: 3px solid #f5c518;
+  border-left: 3px solid var(--debug-line-margin);
 }
 
 /* 调试侧栏 */
@@ -561,8 +818,8 @@ button:focus-visible,
 }
 #debug-toolbar {
   display: flex;
-  gap: 4px;
-  padding: 8px;
+  gap: var(--space-2);
+  padding: var(--space-4);
   border-bottom: 1px solid var(--border);
 }
 .debug-toolbar-btn {
@@ -572,71 +829,74 @@ button:focus-visible,
   align-items: center;
   justify-content: center;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   background: transparent;
   color: var(--fg);
   cursor: pointer;
-  font-size: 15px;
+  font-size: var(--text-md); /* UI-18：图标字形档，原 15px 就近归到 14px */
 }
-.debug-toolbar-btn:hover:not(:disabled) {
-  background: var(--hover, rgba(128, 128, 128, 0.15));
+/* UI-09：禁用态改由 .is-disabled 类表达（不再是 disabled 属性）。原因见 debugView.ts::toolbarButton：
+   Chromium 不向禁用的表单控件派发鼠标事件，data-tip 会静默失效，而这排按钮在「未调试」时恰好全是禁用态。 */
+.debug-toolbar-btn:hover:not(.is-disabled) {
+  /* 顺带去掉裸色兜底值：--hover 在两套主题下恒有定义，兜底永不生效，且违反本文件「禁止裸色值」约定 */
+  background: var(--hover);
 }
-.debug-toolbar-btn:disabled {
+.debug-toolbar-btn.is-disabled {
   opacity: 0.35;
   cursor: default;
 }
 .debug-section-header {
-  padding: 6px 10px 4px;
-  font-size: 11px;
+  padding: var(--space-3) var(--space-5) var(--space-2);
+  font-size: var(--text-xs);
   font-weight: 600;
   letter-spacing: 0.05em;
-  text-transform: uppercase;
+  /* UI-13：文本实际是中文（调用栈/变量/断点），uppercase 对其无效，去掉死代码；letter-spacing 保留作为「标签感」手段 */
   color: var(--fg-dim);
   user-select: none;
 }
 #debug-stack,
 #debug-vars,
 #debug-breakpoints {
-  padding: 0 6px 8px;
+  padding: 0 var(--space-3) var(--space-4);
 }
-.debug-empty {
-  padding: 4px 6px;
-  font-size: 12px;
-  color: var(--fg-dim);
-}
+/* UI-12：.debug-empty 已删除——调试侧栏三处空态（调用栈/变量/断点）统一改用
+   util.ts::emptyState()（.empty-state compact），与文件树/大纲/搜索面板同一套视觉语言。 */
 .debug-stack-frame {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 8px;
-  padding: 3px 6px;
-  border-radius: 4px;
-  font-size: 12px;
+  gap: var(--space-4);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
   cursor: pointer;
   overflow: hidden;
   white-space: nowrap;
 }
 .debug-stack-frame:hover {
-  background: var(--hover, rgba(128, 128, 128, 0.15));
+  /* UI-15：去掉裸色兜底——--hover 在两套主题下恒有定义，兜底永不生效，且违反「禁止裸色值」约定 */
+  background: var(--hover);
 }
 .debug-stack-frame.active {
-  background: rgba(84, 116, 224, 0.2);
+  background: var(--debug-frame-active); /* UI-15：原裸值 rgba(84,116,224,0.2) */
 }
 .debug-frame-loc {
   color: var(--fg-dim);
-  font-size: 11px;
+  font-size: var(--text-xs);
   flex-shrink: 0;
 }
 .debug-var-row {
   display: flex;
-  gap: 8px;
-  padding: 2px 6px;
-  font-size: 12px;
-  font-family: Consolas, "Cascadia Code", monospace;
+  gap: var(--space-4);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-sm);
+  font-family: var(--mono); /* UI-28：走全局等宽字体 token，与输出面板/搜索/终端保持一致的兜底栈 */
   overflow: hidden;
 }
 .debug-var-name {
-  color: #9cdcfe;
+  /* UI-15：原裸值 #9cdcfe 是为深底设计的浅蓝，切到浅色主题后在白底只剩 1.49:1（AA 要求 4.5:1），
+     是本次最严重的一处。改走 --syntax-var，浅色主题取 Light+ 的 #001080（12.83:1）。 */
+  color: var(--syntax-var);
   flex-shrink: 0;
 }
 .debug-var-value {
@@ -648,15 +908,15 @@ button:focus-visible,
 .debug-bp-row {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 2px 6px;
-  font-size: 12px;
+  gap: var(--space-3);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-sm);
 }
 .debug-bp-dot {
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: #e51400;
+  background: var(--debug-breakpoint); /* UI-15：与 gutter 断点图标共用同一 token，两处红点保证同色 */
   flex-shrink: 0;
 }
 .debug-bp-label {
@@ -680,9 +940,9 @@ button:focus-visible,
 .tab .close {
   width: 16px; height: 16px;
   display: flex; align-items: center; justify-content: center;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   color: var(--fg-dim);
-  font-size: 13px;
+  font-size: var(--text-base);
   /* D4：默认隐藏，悬停或活动（非脏）标签显示；脏标签悬停时关闭钮取代脏点（VS Code 行为） */
   opacity: 0;
   transition: opacity calc(0.1s * var(--motion)) ease;
@@ -691,7 +951,138 @@ button:focus-visible,
 .tab.dirty:hover .dirty { display: none; }
 .tab .close:hover { background: var(--control-hover); color: var(--fg); }
 
-#editor { flex: 1; min-height: 0; }
+#editor-row { position: relative; flex: 1; min-height: 0; display: flex; }
+#editor { flex: 1; min-width: 0; min-height: 0; }
+
+/* ---------- Markdown 预览分栏（markdown preview dev plan §5-T2） ---------- */
+/* 分隔条：独立 flex 子项（不复用 .splitter 的 absolute 定位——那套附着在面板右缘外侧，
+   这里编辑器/预览是并排 flex，分隔条须占位）。视觉 token 与 .splitter 保持一致。 */
+#md-splitter {
+  width: 6px;
+  flex: none;
+  cursor: col-resize;
+  background: transparent;
+}
+#md-splitter:hover { background: var(--accent-soft); }
+#md-splitter.dragging { background: var(--accent); }
+
+/* 预览面板：右侧固定宽（--mdpreview-w），独立滚动；颜色全走 token，深浅主题自动适配 */
+#md-preview {
+  flex: none;
+  width: var(--mdpreview-w, 420px);
+  min-width: 0;
+  overflow-y: auto;
+  background: var(--bg);
+  border-left: 1px solid var(--border);
+  font-size: var(--text-base);
+  line-height: 1.6;
+  color: var(--fg);
+  padding: var(--space-6);
+  transition: width calc(0.15s * var(--motion)) ease-out;
+}
+#md-preview.resizing { transition: none; }
+
+/* 预览内容排版（标题 / 表格 / 代码块 / 任务列表 / 图片）——全部 token 化 */
+#md-preview h1, #md-preview h2, #md-preview h3,
+#md-preview h4, #md-preview h5, #md-preview h6 {
+  margin: var(--space-6) 0 var(--space-3);
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--fg);
+}
+#md-preview h1 { font-size: 1.6em; border-bottom: 1px solid var(--border); padding-bottom: var(--space-2); }
+#md-preview h2 { font-size: 1.4em; border-bottom: 1px solid var(--border); padding-bottom: var(--space-2); }
+#md-preview h3 { font-size: 1.2em; }
+#md-preview p { margin: var(--space-3) 0; }
+#md-preview a { color: var(--accent); text-decoration: none; }
+#md-preview a:hover { text-decoration: underline; }
+#md-preview code {
+  font-family: "Consolas", "Cascadia Code", "JetBrains Mono", monospace;
+  background: var(--bg-panel);
+  border-radius: var(--radius-xs);
+  padding: 0 var(--space-2);
+  font-size: 0.92em;
+}
+#md-preview pre {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  overflow-x: auto;
+  margin: var(--space-3) 0;
+}
+#md-preview pre code { background: transparent; padding: 0; }
+#md-preview blockquote {
+  margin: var(--space-3) 0;
+  padding: var(--space-2) var(--space-5);
+  border-left: 3px solid var(--border);
+  color: var(--fg-dim);
+}
+#md-preview ul, #md-preview ol { margin: var(--space-3) 0; padding-left: var(--space-6); }
+#md-preview li { margin: var(--space-1) 0; }
+#md-preview table { border-collapse: collapse; margin: var(--space-3) 0; display: block; overflow-x: auto; }
+#md-preview th, #md-preview td { border: 1px solid var(--border); padding: var(--space-2) var(--space-4); }
+#md-preview th { background: var(--bg-panel); font-weight: 600; }
+#md-preview img { max-width: 100%; }
+#md-preview hr { border: none; border-top: 1px solid var(--border); margin: var(--space-6) 0; }
+/* GFM 任务列表（marked 生成 <li class="task-list-item"><input type="checkbox" disabled>) */
+#md-preview li.task-list-item { list-style: none; margin-left: calc(-1 * var(--space-5)); }
+#md-preview input[type="checkbox"] { margin-right: var(--space-2); vertical-align: middle; }
+#md-preview del { color: var(--fg-dim); }
+
+/* 方案A：预览开关按钮（悬浮于编辑区右上角；预览开启时随 #editor-row 右缘移到预览面板右上角） */
+#btn-md-preview, #btn-md-export {
+  position: absolute;
+  top: 8px;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--fg-dim);
+  cursor: pointer;
+  font-size: var(--text-md);
+}
+#btn-md-preview { right: 8px; }
+#btn-md-export { right: 40px; }
+#btn-md-preview:hover, #btn-md-export:hover { background: var(--hover); color: var(--fg); }
+#btn-md-preview.active { color: var(--brand); }
+
+/* 方案D：一次性引导提示条（编辑器顶部居中悬浮） */
+#md-preview-hint {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  max-width: 90%;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-4);
+  color: var(--fg-dim);
+  font-size: var(--text-sm);
+  box-shadow: 0 4px 16px var(--border-soft);
+}
+#md-preview-hint .md-preview-hint-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--fg-dim);
+  cursor: pointer;
+  padding: 0;
+  font-size: var(--text-md);
+}
+#md-preview-hint .md-preview-hint-close:hover { color: var(--fg); }
 
 /* ---------- 编辑器区 Welcome / Get Started ---------- */
 #editor-overlay {
@@ -703,18 +1094,26 @@ button:focus-visible,
   overflow: auto;
   z-index: 5;
   display: flex;
-  padding: 56px 28px 64px;
+  /* UI-04：justify-content/align-items 取代 .ew-card 的 margin:auto 居中——
+     align-items: safe center 在卡片高度超出容器时自动回退为 start 对齐，
+     规避「flex 居中 + overflow:auto」的已知问题（顶部溢出内容滚动不到）。 */
+  justify-content: center;
+  align-items: safe center;
+  padding: 56px var(--space-11) 64px;
+  /* UI-23：作为欢迎页快捷键网格的容器查询上下文（见 .ew-shortcuts 处的 @container）。
+     尺寸由 inset:0 决定、与内容无关，故 inline-size containment 不改变布局结果。 */
+  container-type: inline-size;
 }
 #editor-overlay.hidden { display: none; }
 
-.ew-card { width: 100%; max-width: 560px; margin: auto; }
+.ew-card { width: 100%; max-width: 560px; }
 
 /* 品牌区 */
-.ew-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
+.ew-brand { display: flex; align-items: center; gap: var(--space-6); margin-bottom: var(--space-10); }
 .ew-logo {
   width: 42px;
   height: 42px;
-  border-radius: 10px;
+  border-radius: var(--radius-xl);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -722,45 +1121,30 @@ button:focus-visible,
   background: var(--brand-gradient);
   flex: none;
 }
-.ew-title { font-size: 24px; margin: 0; color: var(--fg); font-weight: 600; letter-spacing: -0.3px; }
-.ew-subtitle { color: var(--fg-dim); font-size: 12.5px; margin: 2px 0 0; }
+.ew-title { font-size: var(--text-xl); margin: 0; color: var(--fg); font-weight: 600; letter-spacing: -0.3px; }
+.ew-subtitle { color: var(--fg-dim); font-size: var(--text-sm); margin: var(--space-1) 0 0; }
 
 /* 快捷入口 */
-.ew-actions { display: flex; gap: 10px; }
-.ew-actions button {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 8px 16px;
-  border-radius: 5px;
-  cursor: pointer;
-  font-size: 13px;
-  transition: background 0.12s ease, border-color 0.12s ease;
-}
-.ew-actions button .icon { font-size: 14px; }
-.ew-actions button.primary { background: var(--accent); color: var(--on-accent); border: 1px solid var(--accent); }
-.ew-actions button.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
-.ew-actions button:not(.primary) {
-  background: transparent;
-  color: var(--fg);
-  border: 1px solid var(--border);
-}
-.ew-actions button:not(.primary):hover { border-color: var(--fg-dim); background: var(--hover-subtle); }
+.ew-actions { display: flex; gap: var(--space-5); }
+/* UI-08：欢迎页两个 CTA 迁移到 .btn .btn--lg（+ 主操作加 .btn--primary）。
+   原 8px 16px / 13px / gap 8px 与 --lg 档逐项吻合（圆角 6px→4px 是唯一可见差异）；
+   `.ew-actions button .icon` 的 14px 实际被 codicon 基础类的 16px 覆盖（该规则作用于外层 span
+   而非 <i>），属误导性死规则，一并删除——图标尺寸改由 .btn .codicon 统一给到 14px。 */
 
 /* 分组（最近 / 快捷键） */
-.ew-section { margin-top: 26px; padding-top: 18px; border-top: 1px solid var(--border); }
+.ew-section { margin-top: var(--space-11); padding-top: var(--space-9); border-top: 1px solid var(--border); }
 .ew-section-title {
-  font-size: 11px;
+  font-size: var(--text-xs);
   letter-spacing: 1.2px;
   color: var(--fg-dim);
-  margin: 0 0 10px;
-  text-transform: uppercase;
+  margin: 0 0 var(--space-5);
+  /* UI-13：文本实际是中文（最近的工作区/快捷键），uppercase 对其无效，去掉死代码 */
   font-weight: 600;
 }
 .ew-recent-title {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-4);
 }
 .ew-recent-clear {
   margin-left: auto;
@@ -771,11 +1155,11 @@ button:focus-visible,
   height: 20px;
   padding: 0;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   background: transparent;
   color: var(--fg-dim);
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--text-sm);
   flex: none;
 }
 .ew-recent-clear:hover { background: var(--hover-subtle); color: var(--fg); }
@@ -784,18 +1168,18 @@ button:focus-visible,
 .ew-recent-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  border-radius: 5px;
+  gap: var(--space-5);
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-lg);
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--text-base);
 }
 .ew-recent-item:hover { background: var(--hover-subtle); }
-.ew-recent-item .folder { color: var(--accent); font-size: 13px; flex: none; }
+.ew-recent-item .folder { color: var(--accent); font-size: var(--text-base); flex: none; }
 .ew-recent-item .name { color: var(--fg); white-space: nowrap; flex: none; }
 .ew-recent-item .path {
   color: var(--fg-dim);
-  font-size: 11px;
+  font-size: var(--text-xs);
   margin-left: auto;
   max-width: 55%;
   min-width: 0;
@@ -811,55 +1195,75 @@ button:focus-visible,
   height: 18px;
   padding: 0;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   background: transparent;
   color: var(--fg-dim);
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--text-sm);
   flex: none;
 }
 .ew-recent-remove:hover { background: var(--hover-subtle); color: var(--fg); }
 .ew-recent-item:hover .ew-recent-remove { display: flex; }
 
-/* 快捷键网格 */
-.ew-shortcuts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; }
-.ew-shortcut { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--fg); min-width: 0; }
+/* 快捷键网格（UI-25：内容由 welcomeShortcuts.ts 按键位系统动态渲染，index.html 只留空容器——
+   原先是 6 行硬编码 <kbd>，用户在设置里改键后欢迎页仍显示出厂默认值，与实际键位不符） */
+.ew-shortcuts { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4) var(--space-10); }
+.ew-shortcut { display: flex; align-items: center; gap: var(--space-3); font-size: var(--text-sm); color: var(--fg); min-width: 0; }
 .ew-shortcut kbd {
   background: var(--bg-panel);
   border: 1px solid var(--border);
   border-bottom-width: 2px;
-  border-radius: 4px;
-  padding: 2px 6px;
-  font-size: 11px;
+  border-radius: var(--radius-md);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-xs);
   font-family: inherit;
   color: var(--fg);
   white-space: nowrap;
+  flex: none; /* 键位分段不参与收缩：宁可让后面的说明文字截断，也不把 kbd 压变形 */
 }
 .ew-shortcut .label { color: var(--fg-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 该项被用户解绑（键位串为空且无固定兜底）时的占位：不能渲染空 kbd 框，也不能整行消失
+   （消失会让网格项数变化、看不出「这个动作还在，只是没键」） */
+.ew-kbd-none { color: var(--fg-dim); font-size: var(--text-xs); font-style: italic; flex: none; }
+/* UI-23 配套：编辑区被两侧面板挤到下限（240px）时，欢迎页仍要能读。
+   两列网格需要 ~540px（每列 3 段 kbd + 说明文字），故按容器宽降到单列。
+   用容器查询而非视口媒体查询：决定可用宽度的是 #editor-overlay（= 编辑区）的宽度，
+   而不是窗口宽度——同样的窗口宽度下，收起侧栏时两列更好、展开双面板时单列更好。
+   容器声明放在 #editor-overlay（见其规则处的 container-type），不放 #center，
+   避免给承载 Monaco 的元素套上 containment。 */
+@container (max-width: 560px) {
+  .ew-shortcuts { grid-template-columns: 1fr; }
+}
 
 /* ---------- 输出面板 ---------- */
 #bottom {
   flex: none;
-  height: 220px;
+  /* 遗留修复（第八批登记）：高度改经自定义属性 --bottom-h 提供，layout.ts 的拖拽/双击/恢复
+     只写/清该属性、绝不写内联 height——内联样式特异性最高，会压过下面的 .collapsed{height:28px}，
+     拖过一次底部面板高度后就再也收不起来（且要拖过才暴露的静默回归）。
+     与 #outline-section 的 --outline-h 同一方案（UI-22 决策 2）。
+     ⚠ 默认值 220px 与 layout.ts 的 BOTTOM_MIN 上下限常量存在隐式同步义务（双击重置回落到此值）。 */
+  height: var(--bottom-h, 220px);
   display: flex;
   flex-direction: column;
   background: var(--bg-panel);
   border-top: 1px solid var(--border);
 }
+/* 折叠态：特异性 (1,1,0) > 基础规则 (1,0,0)，无论 --bottom-h 是否已设都能收回 28px */
 #bottom.collapsed { height: 28px; }
 #bottom.collapsed #output,
 #bottom.collapsed #run-stdin-row,
 #bottom.collapsed #terminal-panel { display: none; }
 
 /* 底部面板标签（输出 / 终端） */
-#bottom-tabs { display: flex; align-items: center; gap: 2px; }
+#bottom-tabs { display: flex; align-items: center; gap: var(--space-1); }
 .bottom-tab {
   background: transparent;
   color: var(--fg-dim);
   border: none;
-  padding: 2px 10px;
+  padding: var(--space-1) var(--space-5);
   cursor: pointer;
-  font-size: 11px;
+  font-size: var(--text-xs);
   letter-spacing: 1px;
   border-bottom: 2px solid transparent;
 }
@@ -886,10 +1290,10 @@ button:focus-visible,
 .term-tab {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 2px 10px;
+  gap: var(--space-3);
+  padding: var(--space-1) var(--space-5);
   cursor: pointer;
-  font-size: 12.5px;
+  font-size: var(--text-sm);
   color: var(--fg-dim);
   border-right: 1px solid var(--border);
   flex: none;
@@ -911,16 +1315,16 @@ button:focus-visible,
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 3px;
-  font-size: 12px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
   color: var(--fg-dim);
 }
 .term-tab-close:hover { background: var(--control-hover); color: var(--fg); }
 .term-tab-add {
-  padding: 2px 8px;
+  padding: var(--space-1) var(--space-4);
   cursor: pointer;
   color: var(--fg-dim);
-  font-size: 13px;
+  font-size: var(--text-base);
   flex: none;
 }
 .term-tab-add:hover { color: var(--fg); background: var(--hover); }
@@ -933,12 +1337,12 @@ button:focus-visible,
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   color: var(--danger);
   flex: none;
 }
 .term-tab-stop:hover { background: var(--control-hover); color: var(--fg); }
-.term-tab-stop .codicon { font-size: 12px; }
+.term-tab-stop .codicon { font-size: var(--text-sm); }
 
 #terminal-views {
   flex: 1;
@@ -948,39 +1352,46 @@ button:focus-visible,
 .terminal-view {
   position: absolute;
   inset: 0;
-  padding: 6px 8px 6px 12px;
+  padding: var(--space-3) var(--space-4) var(--space-3) var(--space-6);
 }
 .terminal-view .xterm { height: 100%; }
+
+/* UI-12：终端无会话时的兜底空态。此前切到「终端」标签只看到一片空白区域，
+   用户不知道该点哪里。沿用 .terminal-view 的绝对定位铺满方式（#terminal-views 已是 position:relative），
+   再加 justify-content 让 .empty-state 垂直居中——其自身已是 flex column + align-items:center，
+   故这里只补主轴居中即可，不重复定义排版。 */
+.term-empty {
+  position: absolute;
+  inset: 0;
+  /* safe center：底部面板可被拖到最小 120px，此时内容会溢出。普通 center 在溢出时
+     会把内容向两端各推出一半，而顶部那一半滚动不到（与 UI-04 欢迎页同一类陷阱）；
+     safe 关键字在放不下时自动退化为 start，保证图标与文案始终从头可见。 */
+  justify-content: safe center;
+  overflow: auto;
+}
 
 #output-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 4px 10px;
-  font-size: 11px;
+  gap: var(--space-4);
+  padding: var(--space-2) var(--space-5);
+  font-size: var(--text-xs);
   letter-spacing: 1px;
   color: var(--fg-dim);
   border-bottom: 1px solid var(--border);
   flex: none;
 }
-#output-header button {
-  background: transparent;
-  color: var(--fg-dim);
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  padding: 1px 8px;
-  cursor: pointer;
-  font-size: 11px;
-}
-#output-header button:hover { color: var(--fg); }
+/* UI-08：迁移到 .btn .btn--sm（清空 = 文本按钮）/ .btn .btn--sm .btn--icon（折叠箭头）。
+   ID 后代选择器特异性 (1,0,1) 会压过 .btn，必须删除。
+   ⚠ 可见变化：原 hover 只提亮文字色（不变底色），迁移后统一为 .btn 的「描边加深 + 浅底」。 */
 
 #terminal-cmd {
   background: var(--bg);
   color: var(--fg);
   border: 1px solid var(--border);
-  border-radius: 3px;
-  padding: 1px 4px;
-  font-size: 11px;
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-xs);
   cursor: pointer;
 }
 #terminal-cmd:hover { border-color: var(--fg-dim); }
@@ -988,9 +1399,9 @@ button:focus-visible,
 #output {
   flex: 1;
   overflow: auto;
-  padding: 6px 10px;
+  padding: var(--space-3) var(--space-5);
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: var(--text-sm);
   line-height: 1.5;
   user-select: text;
   white-space: pre-wrap;
@@ -1001,13 +1412,13 @@ button:focus-visible,
 #run-stdin-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-4);
   flex: none;
-  padding: 4px 10px;
+  padding: var(--space-2) var(--space-5);
   border-top: 1px solid var(--border);
   background: var(--bg-panel);
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: var(--text-sm);
 }
 #run-stdin-row.hidden { display: none; }
 #run-stdin-label { color: var(--fg-dim); flex: none; }
@@ -1016,16 +1427,16 @@ button:focus-visible,
   min-width: 0;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   color: var(--fg);
-  padding: 3px 8px;
+  padding: var(--space-2) var(--space-4);
   font-family: inherit;
   font-size: inherit;
 }
 #run-stdin-input:focus { outline: none; border-color: var(--accent); }
 #run-stdin-input::placeholder { color: var(--fg-dim); }
 /* 「等待输入…」状态可见化：脚本正阻塞在 input() 时给用户一个明确信号（缓解坑 2 的单实例阻塞焦虑） */
-#run-stdin-status { color: var(--meta, var(--fg-dim)); font-style: italic; flex: none; font-size: 11.5px; }
+#run-stdin-status { color: var(--meta, var(--fg-dim)); font-style: italic; flex: none; font-size: var(--text-xs); }
 
 .out-line { min-height: 1.2em; }
 .out-line.stderr { color: var(--danger); }
@@ -1056,19 +1467,21 @@ button:focus-visible,
   display: flex;
   align-items: center;
   height: 24px;
-  padding: 0 6px;
+  padding: 0 var(--space-3);
   background: var(--bg-panel);
   border-top: 1px solid var(--border);
   color: var(--fg-dim);
-  font-size: 11px;
+  font-size: var(--text-xs);
   flex: none;
+  overflow: hidden; /* UI-21：窄窗口兜底——超出裁剪，绝不换行/撑破 24px 固定高度 */
 }
 #statusbar > span {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 0 8px;
+  gap: var(--space-2);
+  padding: 0 var(--space-4);
   white-space: nowrap;
+  min-width: 0; /* UI-21：允许 flex 收缩到内容宽以下，配合 overflow 截断（否则 nowrap 文本的 min-content 会顶破容器） */
 }
 /* 细分隔符（spacer 除外） */
 #statusbar > span + span:not(.spacer) { border-left: 1px solid var(--border-soft); }
@@ -1078,12 +1491,15 @@ button:focus-visible,
   text-overflow: ellipsis;
   max-width: 42%;
 }
-#status-git { color: var(--git-branch); }
+/* UI-21：分支名可长（feature/xxx），补 max-width + 截断，避免窄窗口顶破状态栏 */
+#status-git { color: var(--git-branch); overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
 #status-interpreter { overflow: hidden; text-overflow: ellipsis; max-width: 120px; }
 #status-interpreter:hover { color: var(--fg); }
 /* 引擎 chip（C2）：可点击身份/切换入口；状态点职责在 #status-lsp，两者分工不重复 */
 #status-engine { overflow: hidden; text-overflow: ellipsis; max-width: 110px; }
 #status-engine:hover { color: var(--fg); }
+/* UI-21：LSP 状态文本（含异常时的「LSP 启动失败: …」长串）补 max-width + 截断 */
+#status-lsp { overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
 /* LSP 状态点（● 灰未启动 / 黄启动中 / 绿就绪 / 红错误） */
 .lsp-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
 .lsp-dot.dot-off { background: var(--fg-dim); }
@@ -1091,21 +1507,29 @@ button:focus-visible,
 .lsp-dot.dot-ready { background: var(--ok); }
 .lsp-dot.dot-error { background: var(--danger); }
 
+/* UI-21：窄窗口响应式（style.css 首条 @media）。字号芯片（#status-font「字号 N」）是状态栏里
+   信息价值最低、且完全静态的一项，窄窗口下优先隐藏以给文件路径/分支/解释器/引擎/LSP 让位；
+   其余项靠上面的 min-width:0 + overflow:hidden 弹性截断，#statusbar 的 overflow:hidden 作最终兜底。
+   900px 为计划建议断点：此时左右面板均展开仍能保证主要芯片不被挤出可视区。 */
+@media (max-width: 900px) {
+  #status-font { display: none; }
+}
+
 /* ---------- 空状态（D4：搜索无结果 / 无 Git 变更 / 无符号等统一） ---------- */
 .empty-state {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
-  padding: 28px 12px;
+  gap: var(--space-3);
+  padding: var(--space-11) var(--space-6);
   color: var(--fg-dim);
-  font-size: 12.5px;
+  font-size: var(--text-sm);
   text-align: center;
 }
-.empty-state .codicon { font-size: 26px; opacity: 0.5; }
+.empty-state .codicon { font-size: var(--text-xl); opacity: 0.5; }
 .empty-state .empty-title { color: var(--fg); font-weight: 600; }
-.empty-state.compact { padding: 14px 10px; gap: 4px; }
-.empty-state.compact .codicon { font-size: 18px; }
+.empty-state.compact { padding: var(--space-7) var(--space-5); gap: var(--space-2); }
+.empty-state.compact .codicon { font-size: var(--text-lg); }
 
 /* ---------- 自绘 Tooltip（D3 P-11） ---------- */
 .oc-tooltip {
@@ -1114,10 +1538,10 @@ button:focus-visible,
   background: var(--bg-alt);
   color: var(--fg);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   box-shadow: var(--shadow);
-  padding: 4px 8px;
-  font-size: 11px;
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-xs);
   line-height: 1.4;
   pointer-events: none;
   white-space: nowrap;
@@ -1127,16 +1551,16 @@ button:focus-visible,
   background: var(--bg-panel);
   border: 1px solid var(--border);
   border-bottom-width: 2px;
-  border-radius: 3px;
-  padding: 1px 5px;
-  font-size: 10px;
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-xs);
   font-family: inherit;
   color: var(--fg-dim);
 }
 
 /* ---------- 滚动条 ---------- */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 5px; }
+::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: var(--radius-lg); }
 ::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); }
 ::-webkit-scrollbar-track { background: transparent; }
 
@@ -1147,21 +1571,23 @@ button:focus-visible,
   min-width: 180px;
   background: var(--bg-alt);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   box-shadow: var(--shadow);
-  padding: 4px 0;
+  padding: var(--space-2) 0;
 }
 .ctx-menu-item {
-  padding: 5px 14px;
+  padding: var(--space-3) var(--space-7);
   cursor: pointer;
-  font-size: 12.5px;
+  font-size: var(--text-sm);
   color: var(--fg);
 }
-.ctx-menu-item:hover { background: var(--accent); color: var(--on-accent); }
-.ctx-menu-item.danger:hover { background: var(--danger); }
+/* UI-20：普通项 hover 降为 --hover（与 .tree-item:hover/.palette-item:hover 等其它列表一致），
+   不再用实心 accent 蓝；破坏性操作的实心红 hover 保留（这是刻意的强提示，见计划 UI-20） */
+.ctx-menu-item:hover { background: var(--hover); }
+.ctx-menu-item.danger:hover { background: var(--danger); color: var(--on-accent); }
 .ctx-menu-item .sep {
   height: 1px;
-  margin: 4px 8px;
+  margin: var(--space-2) var(--space-4);
   background: var(--border);
   cursor: default;
 }
@@ -1169,33 +1595,33 @@ button:focus-visible,
 .ctx-menu-item.sep-item:hover { background: transparent; }
 
 /* C1 通用弹出菜单（menu.ts）：与菜单栏 flyout 那套分离，只作用于 #ctx-menu 容器 */
-#ctx-menu .ctx-menu-item { display: flex; align-items: center; gap: 8px; }
-.ctx-menu-item .mi-icon { width: 16px; flex: none; display: flex; align-items: center; justify-content: center; font-size: 13px; color: var(--fg-dim); }
+#ctx-menu .ctx-menu-item { display: flex; align-items: center; gap: var(--space-4); }
+.ctx-menu-item .mi-icon { width: 16px; flex: none; display: flex; align-items: center; justify-content: center; font-size: var(--text-base); color: var(--fg-dim); }
 .ctx-menu-item .mi-label { white-space: nowrap; }
-.ctx-menu-item .mi-detail { color: var(--fg-dim); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ctx-menu-item .mi-detail { color: var(--fg-dim); font-size: var(--text-xs); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ctx-menu-item.disabled { opacity: 0.45; cursor: default; }
 .ctx-menu-item.disabled:hover { background: transparent; color: var(--fg); }
 
 /* 菜单栏下拉：快捷键右对齐 */
 #menu-dropdown .ctx-menu-item { display: flex; align-items: center; min-width: 210px; }
-.menu-shortcut { margin-left: auto; color: var(--fg-dim); font-size: 11px; padding-left: 24px; }
+.menu-shortcut { margin-left: auto; color: var(--fg-dim); font-size: var(--text-xs); padding-left: var(--space-10); }
 
 /* 菜单栏级联子菜单（flyout） */
 #menu-submenu { z-index: 201; min-width: 200px; }
-#menu-submenu .ctx-menu-item { display: block; padding: 5px 12px; }
+#menu-submenu .ctx-menu-item { display: block; padding: var(--space-3) var(--space-6); }
 #menu-submenu .sub-label { display: block; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #menu-submenu .sub-detail {
   display: block;
   color: var(--fg-dim);
-  font-size: 11px;
-  margin-top: 1px;
+  font-size: var(--text-xs);
+  margin-top: var(--space-1);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 300px;
 }
 /* 有子菜单的父项：hover 展开态指示 */
-.ctx-menu-item.with-submenu .sub-arrow { margin-left: auto; color: var(--fg-dim); font-size: 11px; padding-left: 12px; }
+.ctx-menu-item.with-submenu .sub-arrow { margin-left: auto; color: var(--fg-dim); font-size: var(--text-xs); padding-left: var(--space-6); }
 .ctx-menu-item.with-submenu.open { background: var(--hover-subtle); color: var(--fg); }
 
 /* ---------- 模态（新建/重命名输入框） ---------- */
@@ -1211,41 +1637,30 @@ button:focus-visible,
 .modal-card {
   background: var(--bg-alt);
   border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 16px 18px;
+  border-radius: var(--radius-lg);
+  padding: var(--space-8) var(--space-9);
   min-width: 380px;
 }
-.modal-title { font-size: 13px; color: var(--fg); margin-bottom: 10px; }
+.modal-title { font-size: var(--text-base); color: var(--fg); margin-bottom: var(--space-5); }
 .modal-card input {
   width: 100%;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   color: var(--fg);
-  padding: 6px 10px;
-  font-size: 13px;
+  padding: var(--space-3) var(--space-5);
+  font-size: var(--text-base);
 }
 .modal-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
-  margin-top: 14px;
+  gap: var(--space-4);
+  margin-top: var(--space-7);
 }
-.modal-actions button {
-  background: transparent;
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  padding: 5px 16px;
-  cursor: pointer;
-  font-size: 12.5px;
-}
-.modal-actions button:hover { border-color: var(--fg-dim); }
-.modal-actions button.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
-.modal-actions button.primary:hover { background: var(--accent-hover); }
-.modal-actions button.danger { background: var(--danger-bg); border-color: var(--danger-bg); color: var(--on-accent); }
-.modal-actions button.danger:hover { background: var(--danger-bg-hover); }
-.confirm-message { font-size: 13px; color: var(--fg); margin-bottom: 12px; white-space: pre-line; word-break: break-all; }
+/* UI-08：对话框按钮迁移到 .btn 体系（.btn / .btn--primary / .btn--danger）。
+   原 `.modal-actions button` 特异性 (0,1,1) 高于 .btn 的 (0,1,0)，故整块删除而非并存。
+   注：#confirm-ok 的 primary/danger 形态由 dialog.ts::applyKind 动态切换类名。 */
+.confirm-message { font-size: var(--text-base); color: var(--fg); margin-bottom: var(--space-6); white-space: pre-line; word-break: break-all; }
 /* 统一消息框（confirm/alert）常由设置面板等模态内的操作触发：
    必须压在所有 .modal（z-index: 300）之上，否则会被面板遮挡、看起来像「点了没反应」。
    同时高于 tooltip（400）。 */
@@ -1253,34 +1668,39 @@ button:focus-visible,
 
 /* ---------- 环境面板 ---------- */
 .env-card { min-width: 520px; max-width: 640px; max-height: 70vh; display: flex; flex-direction: column; }
-.env-header { display: flex; align-items: center; margin-bottom: 10px; }
+.env-header { display: flex; align-items: center; margin-bottom: var(--space-5); }
 .env-header .spacer { flex: 1; }
-.env-title { font-size: 15px; font-weight: 600; color: var(--fg); }
-.env-close { background: transparent; border: none; color: var(--fg-dim); font-size: 16px; cursor: pointer; padding: 0 4px; }
-.env-close:hover { color: var(--fg); }
-.env-body { overflow: auto; display: flex; flex-direction: column; gap: 10px; }
-.env-section-title { font-size: 11px; letter-spacing: 1px; color: var(--fg-dim); margin-bottom: 4px; }
+/* UI-18：模态标题档，原 15px 归到 16px（--text-lg）以保住「标题 > 正文 13px」的层级差 */
+.env-title { font-size: var(--text-lg); font-weight: 600; color: var(--fg); }
+/* UI-08：六个模态头部关闭按钮（env / new-project / run-config / settings / surround / devtools）
+   迁移到 .btn .btn--ghost .btn--icon；--ghost 变体的「静态 --fg-dim、hover 提亮 + 浅底」
+   正是原 .env-close 观感，故按域规则整条删除。
+   ⚠ 可见变化：关闭图标 16px→14px（由 .btn .codicon 统一），按钮因 1px 透明边框而各边大 1px。 */
+.env-body { overflow: auto; display: flex; flex-direction: column; gap: var(--space-5); }
+.env-section-title { font-size: var(--text-xs); letter-spacing: 1px; color: var(--fg-dim); margin-bottom: var(--space-2); }
 /* P2（建议 5）：裸目录 pyproject.toml 引导横幅 */
 .env-banner {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  margin-bottom: 8px;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  margin-bottom: var(--space-4);
   border: 1px solid var(--border);
-  border-left: 3px solid var(--accent, #4a9eff);
-  border-radius: 4px;
+  /* UI-15：去掉裸色兜底。除违反「禁止裸色值」约定外，这个兜底值 #4a9eff 与 --accent 的实际值
+     （#0e639c）根本不符，是早期改版遗留的过期值——一旦哪天真被用上，颜色会是错的。 */
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-md);
   background: var(--hover);
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--fg-dim);
 }
 .env-banner.hidden { display: none; }
 .env-banner-text { flex: 1; }
-.env-banner-text code { color: var(--fg); background: transparent; padding: 0 1px; }
-.env-banner .env-mini-btn { flex: none; white-space: nowrap; }
+.env-banner-text code { color: var(--fg); background: transparent; padding: 0 var(--space-1); }
+/* UI-08：横幅内按钮的 flex:none / nowrap 已由 .btn 基类提供，原 .env-banner .env-mini-btn 覆盖成为死规则 */
 .env-list, .env-packages {
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   max-height: 160px;
   overflow: auto;
   background: var(--bg);
@@ -1288,78 +1708,65 @@ button:focus-visible,
 .env-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 5px 10px;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-5);
   cursor: pointer;
-  font-size: 12.5px;
+  font-size: var(--text-sm);
   border-bottom: 1px solid var(--border-soft);
 }
 .env-item:last-child { border-bottom: none; }
 .env-item:hover { background: var(--hover); }
 .env-item.selected { background: var(--accent-soft); }
-.env-item .badge { font-size: 10px; color: var(--fg-dim); border: 1px solid var(--border); border-radius: 2px; padding: 0 4px; flex: none; }
-.env-item .path { color: var(--fg-dim); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.env-row { display: flex; gap: 8px; align-items: center; }
+.env-item .badge { font-size: var(--text-xs); color: var(--fg-dim); border: 1px solid var(--border); border-radius: var(--radius-xs); padding: 0 var(--space-2); flex: none; }
+.env-item .path { color: var(--fg-dim); font-size: var(--text-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.env-row { display: flex; gap: var(--space-4); align-items: center; }
 .env-row select, .env-row input {
   flex: 1;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   color: var(--fg);
-  padding: 5px 8px;
-  font-size: 12.5px;
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-sm);
 }
-.env-row button {
-  background: transparent;
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  padding: 5px 12px;
-  cursor: pointer;
-  font-size: 12.5px;
-  white-space: nowrap;
-}
-.env-row button:hover { border-color: var(--fg-dim); background: var(--accent); color: var(--on-accent); }
-.env-pkg-line { display: flex; gap: 8px; padding: 3px 10px; font-size: 12.5px; border-bottom: 1px solid var(--border-soft); }
+/* UI-08：迁移到 .btn 体系。顺带修正一处旧的 hover 不一致——原 `.env-row button:hover`
+   直接变成实心 accent 蓝底白字，跳变强度远超其它按钮（只变 border-color 或浅底），
+   收敛后统一走 .btn 的轻量 hover。 */
+.env-pkg-line { display: flex; gap: var(--space-4); padding: var(--space-2) var(--space-5); font-size: var(--text-sm); border-bottom: 1px solid var(--border-soft); }
 .env-pkg-line:last-child { border-bottom: none; }
 .env-pkg-line .pkg-name { color: var(--fg); }
 .env-pkg-line .pkg-version { color: var(--fg-dim); }
-.env-empty { padding: 10px; color: var(--fg-dim); font-size: 12.5px; }
+/* UI-12：原 .env-empty 被搜索面板跨域借用（类名带 env 业务前缀却用在无关区域，属命名泄漏，
+   后续维护者改环境面板样式时会误伤搜索面板）。改为中性的 .hint-text：
+   一行次要提示文字，覆盖「空结果 / 加载中 / 需先满足前置条件」三类场景。
+   需要「图标 + 标题 + 说明」的完整空态请改用 util.ts::emptyState()（.empty-state）。 */
+.hint-text { padding: var(--space-5); color: var(--fg-dim); font-size: var(--text-sm); }
 .env-pkg-count { color: var(--fg-dim); font-weight: normal; letter-spacing: 0; }
-.env-pkg-toolbar { display: flex; gap: 6px; margin-bottom: 4px; }
-.env-mini-btn {
-  background: transparent;
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  padding: 3px 10px;
-  cursor: pointer;
-  font-size: 11.5px;
-}
-.env-mini-btn:hover:not(:disabled) { border-color: var(--fg-dim); background: var(--hover); }
-.env-mini-btn:disabled { opacity: 0.45; cursor: not-allowed; }
-.env-pkg-line { display: flex; align-items: center; gap: 6px; padding: 3px 8px; font-size: 12.5px; border-bottom: 1px solid var(--border-soft); }
+.env-pkg-toolbar { display: flex; gap: var(--space-3); margin-bottom: var(--space-2); }
+/* UI-08：迁移到 .btn .btn--sm（紧凑档，原 4px 10px / 11px 收敛到 2px 8px / 11px） */
+.env-pkg-line { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-4); font-size: var(--text-sm); border-bottom: 1px solid var(--border-soft); }
 .env-pkg-line:last-child { border-bottom: none; }
 .env-pkg-line .pkg-check { flex: none; width: 14px; height: 14px; cursor: pointer; }
 .env-pkg-line .pkg-name { color: var(--fg); flex: none; }
 .env-pkg-line .pkg-version { color: var(--fg-dim); flex: none; }
-.env-pkg-line .pkg-outdated { color: var(--warning, #e2b93d); font-size: 11px; flex: none; }
-.env-pkg-line .pkg-actions { margin-left: auto; display: flex; gap: 4px; flex: none; }
+/* UI-15：修掉 --warning 笔误。token 里定义的从来是 --warn，故这行一直落到硬编码兜底 #e2b93d，
+   而浅色主题覆盖层改的是 --warn，对它毫无作用——「有新版」标记在浅色主题下只有 1.58:1。
+   改用 --warn 后即随主题变化（浅色值也已在本批加深，见 [data-theme="light"] 的 --warn 注释）。 */
+.env-pkg-line .pkg-outdated { color: var(--warn); font-size: var(--text-xs); flex: none; }
+.env-pkg-line .pkg-actions { margin-left: auto; display: flex; gap: var(--space-2); flex: none; }
 .env-pkg-line .pkg-actions button {
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   color: var(--fg-dim);
   cursor: pointer;
-  padding: 0 5px;
-  font-size: 12px;
+  padding: 0 var(--space-3);
+  font-size: var(--text-sm);
   line-height: 20px;
 }
 .env-pkg-line .pkg-actions button:hover { color: var(--fg); border-color: var(--border); }
 .env-pkg-line .pkg-actions button.danger:hover { color: var(--danger); border-color: var(--danger-border); }
-/* 按钮忙碌态：内联转圈，禁用交互 */
-.env-row button.busy, .env-mini-btn.busy { opacity: 0.9; cursor: progress; }
-.env-row button.busy .codicon, .env-mini-btn.busy .codicon { font-size: 11px; vertical-align: -1px; }
+/* UI-08：按钮忙碌态（内联转圈 + 禁用交互）已收敛到 .btn.busy，见「通用按钮体系」 */
 
 /* ---------- Activity Bar（TD-001 步骤2：竖排图标栏）+ 单一视图容器 ---------- */
 #activity-bar {
@@ -1368,8 +1775,8 @@ button:focus-visible,
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
-  padding: 6px 0;
+  gap: var(--space-2);
+  padding: var(--space-3) 0;
   border-right: 1px solid var(--border);
 }
 .activity-item {
@@ -1383,8 +1790,8 @@ button:focus-visible,
   border: none;
   color: var(--fg-dim);
   cursor: pointer;
-  font-size: 18px;
-  border-radius: 4px;
+  font-size: var(--text-lg);
+  border-radius: var(--radius-md);
 }
 .activity-item:hover { color: var(--fg); background: var(--hover); }
 .activity-item.active { color: var(--fg); background: var(--selected); }
@@ -1418,49 +1825,39 @@ button:focus-visible,
 
 /* ---------- Git / SCM 面板（P1 最小可写闭环） ---------- */
 #git-panel { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-#git-commit-box { display: flex; flex-direction: column; gap: 6px; padding: 8px; border-bottom: 1px solid var(--border); }
+#git-commit-box { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4); border-bottom: 1px solid var(--border); }
 #git-commit-msg {
   width: 100%;
   box-sizing: border-box;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   color: var(--fg);
-  padding: 6px 8px;
-  font-size: 12.5px;
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-sm);
   font-family: inherit;
   resize: vertical;
 }
 #git-commit-msg:focus { outline: none; border-color: var(--accent); }
-#git-commit-btn {
-  align-self: flex-end;
-  background: var(--accent);
-  color: var(--on-accent);
-  border: none;
-  border-radius: 3px;
-  padding: 4px 14px;
-  font-size: 12.5px;
-  cursor: pointer;
-}
-#git-commit-btn:hover { background: var(--accent-hover); }
-#git-commit-btn:disabled { opacity: 0.5; cursor: default; }
-#git-changes { flex: 1; overflow: auto; padding: 4px 0; }
+/* UI-08：外观改由 .btn .btn--primary 承载，此处只保留布局职责（靠右对齐） */
+#git-commit-btn { align-self: flex-end; }
+#git-changes { flex: 1; overflow: auto; padding: var(--space-2) 0; }
 .git-section-title {
-  padding: 6px 10px 2px;
-  font-size: 11px;
+  padding: var(--space-3) var(--space-5) var(--space-1);
+  font-size: var(--text-xs);
   font-weight: 700;
   letter-spacing: 0.5px;
-  text-transform: uppercase;
+  /* UI-13：文本实际是中文（已暂存/更改，见 git.ts::gitSectionTitle），uppercase 对其无效，去掉死代码 */
   color: var(--fg-dim);
 }
 .scm-item {
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 2px 8px;
+  gap: var(--space-3);
+  padding: var(--space-1) var(--space-4);
   cursor: pointer;
   white-space: nowrap;
-  font-size: 12.5px;
+  font-size: var(--text-sm);
 }
 .scm-item:hover { background: var(--hover); }
 .scm-item .scm-action {
@@ -1468,10 +1865,10 @@ button:focus-visible,
   flex: none;
   display: flex; align-items: center; justify-content: center;
   border: none;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--fg-dim);
-  font-size: 14px;
+  font-size: var(--text-md);
   cursor: pointer;
 }
 .scm-item .scm-action:hover { background: var(--control-hover); color: var(--fg); }
@@ -1484,17 +1881,17 @@ button:focus-visible,
   width: 16px; height: 16px;
   display: flex; align-items: center; justify-content: center;
   flex: none;
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
-.scm-item .icon .codicon { font-size: 14px; }
+.scm-item .icon .codicon { font-size: var(--text-md); }
 .scm-item .icon svg { display: block; }
 
 /* SCM 分支条（P2：当前分支 + 切换 / 新建） */
 #git-branch-bar {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 6px 8px;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid var(--border);
 }
 #git-branch-current {
@@ -1502,32 +1899,23 @@ button:focus-visible,
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12.5px;
+  font-size: var(--text-sm);
   font-weight: 600;
   color: var(--brand);
 }
-#git-branch-btn {
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  color: var(--fg-dim);
-  cursor: pointer;
-  font-size: 12.5px;
-  padding: 1px 8px;
-}
-#git-branch-btn:hover { color: var(--fg); background: var(--hover); }
+/* UI-08：迁移到 .btn .btn--sm .btn--icon（ID 选择器特异性 (1,0,0) 会压过 .btn，必须删除） */
 #git-branch-list {
   border-bottom: 1px solid var(--border);
-  padding: 4px 8px;
+  padding: var(--space-2) var(--space-4);
 }
 .git-branch-item {
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 3px 6px;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
   cursor: pointer;
-  font-size: 12.5px;
-  border-radius: 3px;
+  font-size: var(--text-sm);
+  border-radius: var(--radius-sm);
   white-space: nowrap;
   overflow: hidden;
 }
@@ -1536,45 +1924,44 @@ button:focus-visible,
 .git-branch-item .scm-name { flex: 1; overflow: hidden; text-overflow: ellipsis; }
 .git-branch-new {
   display: flex;
-  gap: 4px;
-  margin-top: 6px;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
 }
 .git-branch-new input {
   flex: 1;
   min-width: 0;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   color: var(--fg);
-  padding: 3px 6px;
-  font-size: 12.5px;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
 }
 .git-branch-new input:focus { outline: none; border-color: var(--accent); }
-.git-branch-new button {
-  background: var(--accent);
-  color: var(--on-accent);
-  border: none;
-  border-radius: 3px;
-  padding: 2px 8px;
-  cursor: pointer;
-  font-size: 11px;
-}
-.git-branch-new button:hover { background: var(--accent-hover); }
+/* UI-08：迁移到 .btn .btn--sm .btn--primary（原 2px 8px / 11px / accent 底与紧凑主按钮档一致）。
+   注：git.ts 的事件委托用 `.git-branch-new button` 后代选择器命中，与类名无关，迁移不受影响。 */
 
 #outline-section {
   flex: none;
   display: flex;
   flex-direction: column;
-  max-height: 40%;
+  /* UI-22：默认「内容高 + 上限 40%」——与改动前逐字一致（符号少不占空间、符号多封顶 40% 且 #outline 滚动）。
+     拖拽后 layout.ts 写内联自定义属性：--outline-h(固定 px) 定高、--outline-max(none) 解除 40% 封顶（可拖过默认比例）；
+     双击清除二者即回落默认。用自定义属性而非直接写内联 height/max-height——内联样式特异性最高，
+     会让下面 .collapsed 的 height:auto 失效；而内联只设自定义属性时，height/max-height 声明仍来自样式表，
+     .collapsed（特异性 1,1,0 > 基础规则 1,0,0）可正常覆盖，折叠始终收起到 header 高。 */
+  height: var(--outline-h, auto);
+  max-height: var(--outline-max, 40%);
   min-height: 0;
+  position: relative; /* UI-22：#outline-splitter 绝对定位锚点 */
   border-top: 1px solid var(--border);
 }
 #outline-header {
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 6px 10px;
-  font-size: 11px;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-5);
+  font-size: var(--text-xs);
   letter-spacing: 1px;
   color: var(--fg-dim);
   cursor: pointer;
@@ -1583,60 +1970,55 @@ button:focus-visible,
 #outline-header:hover { color: var(--fg); }
 #outline-toggle {
   display: inline-block;
-  font-size: 10px;
-  transition: transform 0.1s;
+  font-size: var(--text-xs);
+  /* UI-11：原 0.1s 未写缓动函数（实际取默认 ease），就近归档到 fast 档（0.12s ease），差 20ms 不可感知 */
+  transition: transform var(--transition-fast);
 }
+/* UI-22：折叠时收起到 header 高度（覆盖上面的固定/拖拽高度） */
+#outline-section.collapsed { height: auto; }
 #outline-section.collapsed #outline-toggle { transform: rotate(-90deg); }
 #outline-section.collapsed #outline { display: none; }
-#outline { flex: 1; overflow: auto; padding: 4px 0; min-height: 0; }
+#outline { flex: 1; overflow: auto; padding: var(--space-2) 0; min-height: 0; }
 .outline-item {
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 2px 8px;
+  gap: var(--space-3);
+  padding: var(--space-1) var(--space-4);
   cursor: pointer;
   white-space: nowrap;
-  font-size: 13px;
+  font-size: var(--text-base);
 }
 .outline-item:hover { background: var(--hover); }
 .outline-item .outline-icon {
   width: 16px; height: 16px;
   display: flex; align-items: center; justify-content: center;
   flex: none;
-  font-size: 13px;
+  font-size: var(--text-base);
   color: var(--link);
 }
 .outline-item .name { overflow: hidden; text-overflow: ellipsis; }
 
 /* ---------- 全局搜索面板 ---------- */
 #search-panel { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-.search-box { display: flex; gap: 6px; padding: 8px; border-bottom: 1px solid var(--border); }
+.search-box { display: flex; gap: var(--space-3); padding: var(--space-4); border-bottom: 1px solid var(--border); }
 .search-box input {
   flex: 1;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   color: var(--fg);
-  padding: 5px 8px;
-  font-size: 12.5px;
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-sm);
 }
 .search-box input:focus { outline: none; border-color: var(--accent); }
-.search-box .ghost-btn {
-  background: transparent;
-  color: var(--fg-dim);
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  cursor: pointer;
-  font-size: 11px;
-  padding: 0 8px;
-  flex: none;
-}
-.search-box .ghost-btn.active { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
-#search-results { flex: 1; overflow: auto; padding: 4px 0; }
-.search-summary { padding: 6px 10px; font-size: 11px; color: var(--fg-dim); }
+/* UI-08：大小写开关（Aa）迁移到 .btn .btn--sm，「开」态由 .btn.active 承载（实心 accent），
+   与其它开关按钮统一。原 .ghost-btn 命名有歧义——它其实是有边框的次要按钮，
+   与 .btn--ghost（无边框）语义相反，迁移后该歧义类名在搜索面板不再使用。 */
+#search-results { flex: 1; overflow: auto; padding: var(--space-2) 0; }
+.search-summary { padding: var(--space-3) var(--space-5); font-size: var(--text-xs); color: var(--fg-dim); }
 .search-file-name {
-  padding: 4px 10px;
-  font-size: 12.5px;
+  padding: var(--space-2) var(--space-5);
+  font-size: var(--text-sm);
   color: var(--fg);
   font-weight: 600;
   white-space: nowrap;
@@ -1645,14 +2027,14 @@ button:focus-visible,
 }
 .search-match {
   display: flex;
-  gap: 8px;
-  padding: 2px 10px 2px 22px;
+  gap: var(--space-4);
+  padding: var(--space-1) var(--space-5) var(--space-1) var(--space-10);
   cursor: pointer;
-  font-size: 12.5px;
+  font-size: var(--text-sm);
   align-items: baseline;
 }
 .search-match:hover { background: var(--hover); }
-.search-line-no { color: var(--fg-dim); font-size: 11px; flex: none; min-width: 28px; text-align: right; }
+.search-line-no { color: var(--fg-dim); font-size: var(--text-xs); flex: none; min-width: 28px; text-align: right; }
 .search-match-text {
   font-family: var(--mono);
   white-space: nowrap;
@@ -1661,32 +2043,32 @@ button:focus-visible,
   direction: rtl; /* 长行截断时保留匹配段可见 */
   text-align: left;
 }
-.search-hit { background: var(--warn-soft); color: var(--warn); border-radius: 2px; padding: 0 1px; }
-.search-load-more { padding: 6px 10px; font-size: 12.5px; color: var(--accent); cursor: pointer; user-select: none; }
+.search-hit { background: var(--warn-soft); color: var(--warn); border-radius: var(--radius-xs); padding: 0 var(--space-1); }
+.search-load-more { padding: var(--space-3) var(--space-5); font-size: var(--text-sm); color: var(--accent); cursor: pointer; user-select: none; }
 .search-load-more:hover { text-decoration: underline; }
 
 /* ---------- 设置面板（P1 左右分栏） ---------- */
 .settings-card { width: 820px; max-width: 94vw; height: 560px; max-height: 82vh; display: flex; flex-direction: column; }
 /* Live Templates 分类需要双栏（列表+编辑器），进入时加宽加高 */
 .settings-card--wide { width: min(1160px, 96vw); height: min(780px, 88vh); }
-.settings-layout { display: flex; flex: 1; min-height: 0; margin-top: 2px; }
+.settings-layout { display: flex; flex: 1; min-height: 0; margin-top: var(--space-1); }
 .settings-nav {
   width: 170px;
   flex: none;
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding-right: 10px;
+  gap: var(--space-1);
+  padding-right: var(--space-5);
 }
 .settings-nav-item {
   text-align: left;
   background: transparent;
   border: none;
   color: var(--fg);
-  font-size: 12.5px;
-  padding: 7px 12px;
-  border-radius: 4px;
+  font-size: var(--text-sm);
+  padding: var(--space-4) var(--space-6);
+  border-radius: var(--radius-md);
   cursor: pointer;
   white-space: nowrap;
 }
@@ -1698,22 +2080,54 @@ button:focus-visible,
   font-weight: 600;
   box-shadow: inset 2px 0 0 var(--brand);
 }
-.settings-content { flex: 1; min-width: 0; padding-left: 14px; overflow: auto; display: flex; flex-direction: column; }
-.settings-section { flex: none; display: flex; flex-direction: column; gap: 12px; }
+.settings-content { flex: 1; min-width: 0; padding-left: var(--space-7); overflow: auto; display: flex; flex-direction: column; }
+
+/* ---------- UI-24：极窄窗口下的设置面板 ----------
+   导航列固定 170px（flex:none），在窄窗口下会吃掉卡片宽度的近三分之一：卡片是 width:820px +
+   max-width:94vw，720px 视口下只有 676px，减去导航 190px（含 padding-right）与内容区 padding-left 28px，
+   表单区仅剩 ~458px，而每个 .settings-row 的 label 就要占 min-width:160px，控件被挤到局促甚至裁切。
+   窄窗口下把竖排导航改为「横向滚动 tab 条」——分类一个不少（可横向滚动），内容区拿回整幅宽度。
+   ⚠ 排布方向变了，role=tablist 的 aria-orientation 必须同步（settingsPanel.ts::syncNavOrientation，
+   其断点常量与本处 720px 保持一致），否则读屏播报的方向键语义与视觉排布不符。
+   ⚠ 本块必须写在上面几条基础规则之后：媒体查询不提升特异性，靠源序覆盖。
+   断点取值推导：卡片宽 = min(820px, 94vw)，内容区宽 = 94vw − 40(卡片内边距) − 190(导航) − 28(内容区左内边距)
+   = 0.94vw − 258；要保住 ≥420px（label 160 + gap 28 + 控件 ~200）即需 vw ≥ 721，故取 720px。
+   注：Tauri 侧窗口下限是 800px（lib.rs），故打包应用内本断点当前不会触发（800px 时内容区仍有 ~534px，够用）；
+   它是为 dev 模式的浏览器窗口（可任意收窄）与「将来下调窗口下限」兜底——不把可用性依赖寄托在窗口约束上。
+   与 UI-21 的 900px 断点不同：那条落在 800–900 的可调区间内，打包应用内确实会触发。 */
+@media (max-width: 720px) {
+  .settings-layout { flex-direction: column; }
+  .settings-nav {
+    width: auto;
+    flex-direction: row;
+    overflow-x: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    padding-right: 0;
+    padding-bottom: var(--space-2);
+  }
+  .settings-nav-item { flex: none; padding: var(--space-2) var(--space-5); }
+  /* 品牌指示条随排布方向换边：竖排 = 左侧 2px，横排 = 底部 2px */
+  .settings-nav-item.active { box-shadow: inset 0 -2px 0 var(--brand); }
+  .settings-content { padding-left: 0; padding-top: var(--space-5); }
+}
+.settings-section { flex: none; display: flex; flex-direction: column; gap: var(--space-6); }
 .settings-section-templates { flex: 1; min-height: 0; }
 .settings-section-templates .lt-toolbar { flex: none; margin-bottom: 0; }
 .settings-section-templates .lt-body { flex: 1; min-height: 320px; }
-.lt-status-bar { min-height: 18px; margin-top: 6px; }
+.lt-status-bar { min-height: 18px; margin-top: var(--space-3); }
 #settings-reset { margin-right: auto; }
-.settings-body { display: flex; flex-direction: column; gap: 10px; margin-bottom: 4px; }
-.settings-row { display: flex; align-items: center; gap: 14px; --settings-label-w: 160px; }
-/* 无文案占位元素与 label 同宽，保持「控件列」左边界一致（替代空 <label>） */
+.settings-body { display: flex; flex-direction: column; gap: var(--space-5); margin-bottom: var(--space-2); }
+.settings-row { display: flex; align-items: center; gap: var(--space-7); --settings-label-w: 160px; }
+/* 无文案占位元素与 label 同宽，保持「控件列」左边界一致（替代空 <label>）。
+   UI-03：width 改 min-width——短标签仍对齐到 160px 基线，超长标签（如「同时输出到终端（stdout）」）
+   可以撑开而不溢出压到右侧控件（配合 white-space: nowrap，flex-basis:auto 会按内容宽度取值）。 */
 .settings-row label,
 .settings-label-gap {
-  width: var(--settings-label-w);
+  min-width: var(--settings-label-w);
   flex: none;
   color: var(--fg);
-  font-size: 12.5px;
+  font-size: var(--text-sm);
   white-space: nowrap;
 }
 .settings-row select, .settings-row input[type="number"], .settings-row input[type="text"] {
@@ -1721,51 +2135,100 @@ button:focus-visible,
   min-width: 0;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   color: var(--fg);
-  padding: 5px 8px;
-  font-size: 12.5px;
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-sm);
   font-family: inherit;
 }
 /* 行内按钮与 select/input 同高同字号同圆角：
    此前 .settings-row button 无规则，日志/存储页的按钮退回浏览器默认外观（矮一截、系统灰底、字体不继承）。 */
-.settings-row button {
-  flex: none;
-  background: transparent;
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  padding: 5px 12px;
-  cursor: pointer;
-  font-size: 12.5px;
-  font-family: inherit;
-  white-space: nowrap;
-}
-.settings-row button:hover:not(:disabled) { border-color: var(--fg-dim); background: var(--hover-subtle); }
-.settings-row button:disabled { opacity: 0.45; cursor: not-allowed; }
-.settings-row button.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
-.settings-row button.primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
+/* UI-08：迁移到 .btn 体系（.btn / .btn--primary）。原规则是为修「日志/存储页按钮退回浏览器
+   默认外观」而补的（矮一截、系统灰底、字体不继承）——.btn 基类已含 font-family:inherit 与
+   flex:none，该修复由体系天然承载，无需再按域重复一遍。 */
 .settings-row input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; }
-.settings-hint { font-size: 12.5px; color: var(--fg-dim); line-height: 1.6; }
+.settings-hint { font-size: var(--text-sm); color: var(--fg-dim); line-height: 1.6; }
 .settings-hint code {
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 3px;
-  padding: 0 4px;
-  font-size: 11px;
+  border-radius: var(--radius-sm);
+  padding: 0 var(--space-2);
+  font-size: var(--text-xs);
+}
+
+/* ---------- 主题选择器（UI-26：预览色卡） ----------
+   原生 <select> 的 <option> 内不支持复杂 HTML，色卡放不进去；改为自绘单选组：两张迷你预览卡
+   （左侧栏条 + 三条正文色带，取各主题自身的基调色），选中态用 accent 描边 + 浅底 + 勾选图标表达。
+   语义与键盘走 WAI-ARIA radiogroup 模式：role=radio + aria-checked，漫游 tabindex（选中项 0、其余 -1），
+   ←→↑↓ 移动并选中、Home/End 跳首尾。DOM 由 themePicker.ts 渲染，值真源 = aria-checked（无第二份状态）。
+   注：与原 select 一致，切换只改表单值，点「保存」才真正套用主题（saveSettingsPanel）。 */
+.theme-picker { display: flex; gap: var(--space-5); }
+.theme-swatch {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  color: var(--fg-dim);
+  font-size: var(--text-sm);
+  font-family: inherit; /* 无全局 button 重置，<button> 不继承字体：漏了这行会退回 UA 字体 */
+  transition: border-color var(--transition-fast), background var(--transition-fast); /* UI-11 */
+}
+.theme-swatch:hover { border-color: var(--control-hover); background: var(--hover-subtle); }
+.theme-swatch[aria-checked="true"] {
+  border-color: var(--accent);
+  background: var(--accent-faint);
+  color: var(--fg);
+  font-weight: 600;
+}
+.theme-swatch-name { display: flex; align-items: center; gap: var(--space-3); }
+/* 勾选图标常驻 DOM、仅切可见性：选中态变化不必重建节点，且两卡宽度保持一致（不跳动） */
+.theme-swatch .codicon-check { font-size: var(--text-sm); color: var(--accent); visibility: hidden; }
+.theme-swatch[aria-checked="true"] .codicon-check { visibility: visible; }
+/* 迷你预览：--pv-* 由下方两个主题修饰类各自赋值（值全部来自 :root 的 --theme-pv-* token） */
+.theme-pv {
+  display: flex;
+  width: 96px;
+  height: 60px;
+  flex: none;
+  overflow: hidden;
+  border: 1px solid var(--pv-border);
+  border-radius: var(--radius-md);
+  background: var(--pv-bg);
+}
+.theme-pv-side { width: 26px; flex: none; background: var(--pv-side); border-right: 1px solid var(--pv-border); }
+.theme-pv-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-4); }
+.theme-pv-line { height: 4px; flex: none; border-radius: var(--radius-xs); background: var(--pv-fg); opacity: 0.55; }
+.theme-pv-line--accent { width: 60%; background: var(--accent); opacity: 1; } /* accent 跨主题一致，直接用 token */
+.theme-pv-line--short { width: 78%; }
+.theme-pv--dark {
+  --pv-bg: var(--theme-pv-dark-bg);
+  --pv-side: var(--theme-pv-dark-side);
+  --pv-fg: var(--theme-pv-dark-fg);
+  --pv-border: var(--theme-pv-dark-border);
+}
+.theme-pv--light {
+  --pv-bg: var(--theme-pv-light-bg);
+  --pv-side: var(--theme-pv-light-side);
+  --pv-fg: var(--theme-pv-light-fg);
+  --pv-border: var(--theme-pv-light-border);
 }
 /* P3（建议 2）：运行配置面板——纵向行（label 在上、多行文本域在下） */
-.settings-row-col { display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
+.settings-row-col { display: flex; flex-direction: column; align-items: stretch; gap: var(--space-3); }
 .settings-row-col label { width: auto; }
 .settings-row-col textarea {
   flex: 1;
   min-width: 0;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   color: var(--fg);
-  padding: 5px 8px;
-  font-size: 12.5px;
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-sm);
   font-family: var(--font-mono, monospace);
   resize: vertical;
 }
@@ -1774,12 +2237,12 @@ button:focus-visible,
 .new-project-card { min-width: 480px; }
 /* 控件观感统一走上面的通用 .settings-row 规则（此处曾自带一套，造成两套观感） */
 .new-project-preview {
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: var(--fg-dim);
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 3px;
-  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  padding: var(--space-3) var(--space-5);
   word-break: break-all;
   min-height: 16px;
 }
@@ -1792,49 +2255,38 @@ button:focus-visible,
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 10px;
-  padding: 8px;
+  gap: var(--space-4);
+  margin-bottom: var(--space-5);
+  padding: var(--space-4);
   background: var(--bg-alt);
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: var(--radius-lg);
 }
 .lt-toolbar .spacer { flex: 1; }
 .lt-toolbar select, .lt-toolbar input[type="text"] {
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   color: var(--fg);
-  padding: 6px 10px;
-  font-size: 12.5px;
-  transition: border-color 0.13s ease;
+  padding: var(--space-3) var(--space-5);
+  font-size: var(--text-sm);
+  transition: border-color var(--transition-fast); /* UI-11：原 0.13s 就近归档到 fast 档（0.12s） */
 }
 .lt-toolbar select:hover, .lt-toolbar input[type="text"]:hover { border-color: var(--fg-dim); }
 .lt-toolbar select:focus, .lt-toolbar input[type="text"]:focus { border-color: var(--accent); outline: none; }
 .lt-toolbar input[type="text"] { flex: 1; min-width: 140px; max-width: 320px; }
-.lt-toolbar button {
-  background: transparent;
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 6px 14px;
-  cursor: pointer;
-  font-size: 12.5px;
-  white-space: nowrap;
-  transition: background 0.13s ease, border-color 0.13s ease;
-}
-.lt-toolbar button:hover { border-color: var(--fg-dim); background: var(--hover-subtle); }
-.lt-toolbar button:disabled { opacity: 0.45; cursor: not-allowed; }
-.lt-toolbar button:disabled:hover { border-color: var(--border); background: transparent; }
+/* UI-08：工具栏按钮已迁移到 .btn 体系（原 padding 6px 14px / radius 4px 收敛到 md 档 6px 12px / 3px）。
+   本容器只保留排布职责，不再自带按钮外观——注意旧选择器 `.lt-toolbar button` 特异性 (0,1,1)
+   高于 `.btn` 的 (0,1,0)，只加类名不删旧规则会被静默压过。 */
 /* 分组内联重命名（工具栏内展开的输入框 + 确定/取消） */
-.lt-rename-inline { display: inline-flex; align-items: center; gap: 6px; }
+.lt-rename-inline { display: inline-flex; align-items: center; gap: var(--space-3); }
 .lt-rename-input {
   background: var(--bg);
   border: 1px solid var(--accent);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   color: var(--fg);
-  padding: 6px 10px;
-  font-size: 12.5px;
+  padding: var(--space-3) var(--space-5);
+  font-size: var(--text-sm);
   width: 150px;
 }
 .lt-rename-input:focus { outline: none; }
@@ -1850,18 +2302,20 @@ button:focus-visible,
   z-index: 40;
   background: var(--bg-alt);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   max-height: 160px;
   overflow: auto;
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35);
+  /* UI-15：原为硬编码阴影，是全部浮层里唯一的离群值（.ctx-menu / .oc-tooltip 等均走 --shadow）。
+     收归 token 后三重收益：符合「禁止裸色值」约定、与其它浮层同一海拔、且随主题变淡
+     （浅色主题 0.35 的黑色投影过重，--shadow 在浅色下是 0.18）。 */
+  box-shadow: var(--shadow);
 }
 .lt-group-drop.open { display: block; }
-.lt-group-drop-item { padding: 6px 10px; font-size: 12.5px; color: var(--fg); cursor: pointer; }
+.lt-group-drop-item { padding: var(--space-3) var(--space-5); font-size: var(--text-sm); color: var(--fg); cursor: pointer; }
 .lt-group-drop-item:hover { background: var(--hover); }
-.lt-toolbar button.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
-.lt-toolbar button.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+/* UI-08：「新建模板」的主按钮形态改由 .btn--primary 承载 */
 
-.lt-body { display: flex; gap: 12px; flex: 1; min-height: 380px; overflow: hidden; }
+.lt-body { display: flex; gap: var(--space-6); flex: 1; min-height: 380px; overflow: hidden; }
 
 /* 模板列表 */
 .lt-list {
@@ -1869,19 +2323,19 @@ button:focus-visible,
   flex: none;
   overflow: auto;
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: var(--radius-lg);
   background: var(--bg-alt);
 }
 .lt-row {
   display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 7px 10px;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
   border-bottom: 1px solid var(--border);
   border-left: 2px solid transparent;
   cursor: pointer;
-  font-size: 12.5px;
-  transition: background 0.12s ease;
+  font-size: var(--text-sm);
+  transition: background var(--transition-fast); /* UI-11 */
 }
 .lt-row:last-child { border-bottom: none; }
 .lt-row:hover { background: var(--hover-subtle); }
@@ -1889,11 +2343,11 @@ button:focus-visible,
 .lt-row input[type="checkbox"] { width: 14px; height: 14px; cursor: pointer; flex: none; accent-color: var(--accent); }
 .lt-row .lt-abbr { font-weight: 600; color: var(--fg); flex: none; font-family: var(--mono); }
 .lt-badge {
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--fg-dim);
   border: 1px solid var(--border);
-  border-radius: 3px;
-  padding: 0 5px;
+  border-radius: var(--radius-sm);
+  padding: 0 var(--space-3);
   line-height: 16px;
   flex: none;
   white-space: nowrap;
@@ -1908,13 +2362,13 @@ button:focus-visible,
 .lt-group { color: var(--accent); border-color: var(--accent); }
 .lt-row .lt-desc {
   color: var(--fg-dim);
-  font-size: 11px;
+  font-size: var(--text-xs);
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.lt-empty { padding: 28px 12px; text-align: center; color: var(--fg-dim); font-size: 12.5px; }
+.lt-empty { padding: var(--space-11) var(--space-6); text-align: center; color: var(--fg-dim); font-size: var(--text-sm); }
 
 /* 编辑器 */
 .lt-editor {
@@ -1922,27 +2376,27 @@ button:focus-visible,
   overflow: auto;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 14px;
+  gap: var(--space-5);
+  padding: var(--space-7);
   background: var(--bg-alt);
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: var(--radius-lg);
 }
 /* 双列网格表单：标签在上、控件在下，窄容器下不再互相挤压 */
-.lt-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; }
+.lt-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-6) var(--space-8); }
 .lt-span2 { grid-column: 1 / -1; }
-.lt-field { display: flex; flex-direction: column; align-items: stretch; gap: 5px; }
-.lt-field label { flex: none; color: var(--fg-dim); font-size: 11px; }
+.lt-field { display: flex; flex-direction: column; align-items: stretch; gap: var(--space-3); }
+.lt-field label { flex: none; color: var(--fg-dim); font-size: var(--text-xs); }
 .lt-field input[type="text"], .lt-field textarea, .lt-field select {
   flex: 1;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   color: var(--fg);
-  padding: 6px 10px;
-  font-size: 12.5px;
+  padding: var(--space-3) var(--space-5);
+  font-size: var(--text-sm);
   font-family: inherit;
-  transition: border-color 0.13s ease;
+  transition: border-color var(--transition-fast); /* UI-11：原 0.13s 就近归档到 fast 档（0.12s） */
 }
 .lt-field input[type="text"]:hover, .lt-field textarea:hover, .lt-field select:hover { border-color: var(--fg-dim); }
 .lt-field input[type="text"]:focus, .lt-field textarea:focus, .lt-field select:focus {
@@ -1958,30 +2412,30 @@ button:focus-visible,
 }
 .lt-field input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; accent-color: var(--accent); }
 /* 作用域 + Tab 展开合并行 */
-.lt-inline { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
-.lt-inline-label { font-size: 11px; color: var(--fg-dim); flex: none; }
-.lt-scope-box { display: flex; gap: 14px; flex-wrap: wrap; }
-.lt-scope-opt { display: flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--fg); cursor: pointer; }
+.lt-inline { display: flex; align-items: center; gap: var(--space-7); flex-wrap: wrap; }
+.lt-inline-label { font-size: var(--text-xs); color: var(--fg-dim); flex: none; }
+.lt-scope-box { display: flex; gap: var(--space-7); flex-wrap: wrap; }
+.lt-scope-opt { display: flex; align-items: center; gap: var(--space-3); font-size: var(--text-sm); color: var(--fg); cursor: pointer; }
 .lt-scope-opt input { width: 15px; height: 15px; cursor: pointer; accent-color: var(--accent); }
 .lt-tab-opt {
   display: flex;
   align-items: center;
-  gap: 5px;
-  font-size: 12.5px;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
   color: var(--fg);
   cursor: pointer;
   margin-left: auto;
   border-left: 1px solid var(--border);
-  padding-left: 14px;
+  padding-left: var(--space-7);
 }
 .lt-tab-opt input { width: 15px; height: 15px; cursor: pointer; accent-color: var(--accent); }
-.lt-hint { font-size: 11px; color: var(--fg-dim); }
+.lt-hint { font-size: var(--text-xs); color: var(--fg-dim); }
 
 /* 变量表 */
-.lt-vars { border: 1px solid var(--border); border-radius: 5px; padding: 10px; background: var(--bg); }
-.lt-vars-title { font-size: 12.5px; color: var(--fg-dim); margin-bottom: 6px; }
+.lt-vars { border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-5); background: var(--bg); }
+.lt-vars-title { font-size: var(--text-sm); color: var(--fg-dim); margin-bottom: var(--space-3); }
 /* 固定列宽，避免窄容器下表头竖排换行 */
-.lt-vars-table { width: 100%; border-collapse: collapse; font-size: 12.5px; table-layout: fixed; }
+.lt-vars-table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); table-layout: fixed; }
 .lt-vars-table th:nth-child(1) { width: 20%; }
 .lt-vars-table th:nth-child(2) { width: 42%; }
 .lt-vars-table th:nth-child(3) { width: 22%; }
@@ -1990,77 +2444,54 @@ button:focus-visible,
   text-align: left;
   color: var(--fg-dim);
   font-weight: 500;
-  padding: 4px 6px;
+  padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--border);
 }
-.lt-vars-table td { padding: 3px 6px; }
+.lt-vars-table td { padding: var(--space-2) var(--space-3); }
 .lt-vars-table tbody tr:hover { background: var(--hover-subtle); }
 .lt-vars-table input[type="text"] {
   width: 100%;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   color: var(--fg);
-  padding: 4px 8px;
-  font-size: 12.5px;
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-sm);
 }
 .lt-vars-table input[type="text"]:focus { border-color: var(--accent); outline: none; }
 .lt-vars-table input[type="text"].invalid { border-color: var(--danger-bg); }
 .lt-vars-table input[type="checkbox"] { width: 14px; height: 14px; cursor: pointer; accent-color: var(--accent); }
-.lt-mini-btn {
-  background: transparent;
-  color: var(--fg-dim);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 2px 8px;
-  cursor: pointer;
-  font-size: 12.5px;
-  transition: color 0.12s ease, border-color 0.12s ease;
-}
-.lt-mini-btn:hover { border-color: var(--danger); color: var(--danger); }
+/* UI-08：变量表小按钮迁移到 .btn--sm。原 .lt-mini-btn 把 danger hover 写死在基类上，
+   导致「+ 添加变量」按钮悬停也泛红——语义错误，迁移后按用途分流修正：
+   添加变量 = .btn--sm（中性）、删除变量 = .btn--sm .btn--danger-outline。 */
 
 /* 底部操作按钮：左（破坏性/还原）右（主流程）分组 */
 .lt-editor-actions {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  margin-top: 4px;
-  padding-top: 12px;
+  gap: var(--space-4);
+  margin-top: var(--space-2);
+  padding-top: var(--space-6);
   border-top: 1px solid var(--border);
 }
-.lt-actions-left, .lt-actions-right { display: flex; gap: 8px; }
-.lt-editor-actions button {
-  background: transparent;
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 6px 16px;
-  cursor: pointer;
-  font-size: 12.5px;
-  transition: background 0.13s ease, border-color 0.13s ease;
-}
-.lt-editor-actions button:hover:not(:disabled) { border-color: var(--fg-dim); background: var(--hover-subtle); }
-.lt-editor-actions button.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
-.lt-editor-actions button.primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
-.lt-editor-actions button.danger { color: var(--danger); border-color: var(--danger-border); }
-.lt-editor-actions button.danger:hover:not(:disabled) { background: var(--danger-soft); border-color: var(--danger); }
-.lt-editor-actions button:disabled { opacity: 0.45; cursor: default; }
-.lt-editor-actions button.danger:disabled { color: var(--fg-dim); border-color: var(--border); }
-.lt-status { font-size: 12.5px; color: var(--fg-dim); }
+.lt-actions-left, .lt-actions-right { display: flex; gap: var(--space-4); }
+/* UI-08：按钮外观改由 .btn / .btn--primary / .btn--danger-outline 承载，本容器只保留排布。
+   原 `.danger:disabled` 的专属置灰（灰字灰边）由 .btn:disabled 的 opacity 统一处理。 */
+.lt-status { font-size: var(--text-sm); color: var(--fg-dim); }
 .lt-status.error { color: var(--danger-bg); }
 
 /* ---------- 环绕模板选择器（M3） ---------- */
 .surround-card { min-width: 340px; max-width: 480px; }
-.surround-list { display: flex; flex-direction: column; gap: 2px; }
+.surround-list { display: flex; flex-direction: column; gap: var(--space-1); }
 .surround-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 6px 8px;
-  border-radius: 3px;
+  gap: var(--space-5);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-sm);
   cursor: pointer;
-  font-size: 12.5px;
+  font-size: var(--text-sm);
 }
 .surround-item:hover { background: var(--hover); }
 .surround-num {
@@ -2071,83 +2502,67 @@ button:focus-visible,
   align-items: center;
   justify-content: center;
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   color: var(--fg-dim);
-  font-size: 11px;
+  font-size: var(--text-xs);
 }
 .surround-name { font-weight: 600; color: var(--fg); flex: none; }
-.surround-desc { color: var(--fg-dim); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.surround-desc { color: var(--fg-dim); font-size: var(--text-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ---------- 模板面板（M4，Ctrl+J） ---------- */
-.palette-card { width: 480px; max-width: 92vw; display: flex; flex-direction: column; gap: 8px; }
+.palette-card { width: 480px; max-width: 92vw; display: flex; flex-direction: column; gap: var(--space-4); }
 .palette-card input {
   width: 100%;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   color: var(--fg);
-  padding: 6px 10px;
-  font-size: 13px;
+  padding: var(--space-3) var(--space-5);
+  font-size: var(--text-base);
 }
-.palette-list { max-height: 340px; overflow: auto; display: flex; flex-direction: column; gap: 2px; }
+.palette-list { max-height: 340px; overflow: auto; display: flex; flex-direction: column; gap: var(--space-1); }
 .palette-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 6px 8px;
-  border-radius: 3px;
+  gap: var(--space-5);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-sm);
   cursor: pointer;
-  font-size: 12.5px;
+  font-size: var(--text-sm);
 }
 .palette-item:hover { background: var(--hover); }
 .palette-item.selected { background: var(--accent-soft); }
 .palette-abbr { font-weight: 600; color: var(--fg); flex: none; min-width: 92px; }
-.palette-desc { color: var(--fg-dim); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.palette-group { margin-right: 6px; }
-.palette-empty { padding: 16px; text-align: center; color: var(--fg-dim); font-size: 12.5px; }
+.palette-desc { color: var(--fg-dim); font-size: var(--text-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.palette-group { margin-right: var(--space-3); }
+.palette-empty { padding: var(--space-8); text-align: center; color: var(--fg-dim); font-size: var(--text-sm); }
 
 /* ---------- Git 集成增强（TD-002）：工具栏 / 差异视图 / 历史 ---------- */
-#git-toolbar { display: flex; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
-#git-toolbar button {
-  background: transparent;
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  padding: 3px 8px;
-  cursor: pointer;
-  font-size: 11px;
-  white-space: nowrap;
-}
-#git-toolbar button:hover { border-color: var(--fg-dim); background: var(--hover); }
+#git-toolbar { display: flex; gap: var(--space-2); padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+/* UI-08：迁移到 .btn .btn--sm（原 2px 8px / 11px 与紧凑档完全一致，视觉零变化）。
+   本条原为 ID 后代选择器，特异性 (1,0,1) 远高于 .btn 的 (0,1,0)——不删除会让新体系被完全压过。 */
 
 /* 差异视图（Monaco diff editor 容器） */
 #git-diff-panel { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 #git-diff-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 5px 10px;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-5);
   border-bottom: 1px solid var(--border);
-  font-size: 12.5px;
+  font-size: var(--text-sm);
   color: var(--fg-dim);
   flex: none;
 }
 #git-diff-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#git-diff-header .ghost-btn {
-  background: transparent;
-  color: var(--fg-dim);
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  padding: 2px 8px;
-  cursor: pointer;
-  font-size: 11px;
-  flex: none;
-}
-#git-diff-header .ghost-btn:hover { color: var(--fg); border-color: var(--fg-dim); }
+/* UI-08：迁移到 .btn .btn--sm（Blame 文本按钮）/ .btn .btn--sm .btn--icon（关闭按钮）。
+   原 ID 后代选择器特异性 (1,1,1)，不删除会压过 .btn。
+   注：这里的 .ghost-btn 其实是「有边框的次要按钮」而非无边框幽灵按钮，语义与 .btn--ghost
+   （border-color: transparent）不符，故映射到默认变体而不是 --ghost。 */
 #git-diff-editor { flex: 1; min-height: 0; overflow: hidden; }
 
 /* 历史提交列表 */
-#git-history { flex: 1; overflow: auto; padding: 4px 0; }
+#git-history { flex: 1; overflow: auto; padding: var(--space-2) 0; }
 .git-history-back {
   display: block;
   width: 100%;
@@ -2156,29 +2571,30 @@ button:focus-visible,
   border: none;
   color: var(--accent);
   cursor: pointer;
-  font-size: 12.5px;
-  padding: 6px 10px;
+  font-size: var(--text-sm);
+  padding: var(--space-3) var(--space-5);
 }
 .git-history-back:hover { text-decoration: underline; }
 .git-commit-item {
   display: flex;
   align-items: baseline;
-  gap: 8px;
-  padding: 4px 10px;
+  gap: var(--space-4);
+  padding: var(--space-2) var(--space-5);
   cursor: pointer;
-  font-size: 12.5px;
+  font-size: var(--text-sm);
 }
 .git-commit-item:hover { background: var(--hover); }
 .git-commit-item .hash { color: var(--warn); font-family: var(--mono); flex: none; }
-.git-commit-item .date { color: var(--fg-dim); font-size: 11px; flex: none; }
+.git-commit-item .date { color: var(--fg-dim); font-size: var(--text-xs); flex: none; }
 .git-commit-item .subject { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); }
-.git-commit-item .author { color: var(--fg-dim); font-size: 11px; flex: none; }
+.git-commit-item .author { color: var(--fg-dim); font-size: var(--text-xs); flex: none; }
 
 /* ---------- 开发工具面板（右侧辅助面板，非模态） ---------- */
 #right-panel {
   position: relative;
   width: 360px;
-  flex: none;
+  flex: 0 1 auto; /* UI-23：可收缩（原 flex:none 会把编辑区挤没），下限同 layout.ts 的 RIGHT_MIN */
+  min-width: 260px;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -2188,40 +2604,41 @@ button:focus-visible,
 #devtools-header {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-2);
   flex: none;
   border-bottom: 1px solid var(--border);
-  padding: 4px 6px;
+  padding: var(--space-2) var(--space-3);
 }
 #devtools-header .spacer { flex: 1; }
-#devtools-tabs { display: flex; gap: 2px; min-width: 0; overflow-x: auto; }
+#devtools-tabs { display: flex; gap: var(--space-1); min-width: 0; overflow-x: auto; }
 .devtools-tab {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: var(--space-3);
   background: transparent;
   color: var(--fg);
   border: none;
   border-bottom: 2px solid transparent;
-  padding: 5px 9px;
+  padding: var(--space-3) var(--space-5);
   cursor: pointer;
-  font-size: 12.5px;
+  font-size: var(--text-sm);
   white-space: nowrap;
 }
 .devtools-tab:hover { background: var(--hover-subtle); }
-.devtools-tab.active { border-bottom-color: var(--accent); color: var(--accent); }
-.devtools-tab .codicon { font-size: 13px; }
+/* UI-06：激活态与 .tab/.bottom-tab/.term-tab/.activity-item/.settings-nav-item 统一到 --brand（激活=品牌识别色，非功能交互色） */
+.devtools-tab.active { border-bottom-color: var(--brand); color: var(--brand); }
+.devtools-tab .codicon { font-size: var(--text-base); }
 .devtools-body {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  padding: 8px;
+  padding: var(--space-4);
 }
 
 /* 工具通用骨架 */
-.tool-body { flex: 1; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.tool-body { flex: 1; display: flex; flex-direction: column; gap: var(--space-4); min-height: 0; }
 .tool-textarea {
   width: 100%;
   min-height: 84px;
@@ -2229,183 +2646,140 @@ button:focus-visible,
   resize: vertical;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   color: var(--fg);
-  padding: 8px 10px;
-  font-size: 12px;
+  padding: var(--space-4) var(--space-5);
+  font-size: var(--text-sm);
   font-family: var(--mono);
   flex: none;
 }
 .tool-textarea:focus { border-color: var(--accent); outline: none; }
-.tool-toolbar { display: flex; align-items: center; gap: 8px; flex: none; }
+/* UI-08：工具栏按钮已迁移到通用 .btn 体系（容器只负责排布，不再自带按钮外观） */
+.tool-toolbar { display: flex; align-items: center; gap: var(--space-4); flex: none; }
 .tool-toolbar .spacer { flex: 1; }
-.tool-toolbar button {
-  background: transparent;
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  padding: 5px 12px;
-  cursor: pointer;
-  font-size: 12.5px;
-  white-space: nowrap;
-}
-.tool-toolbar button:hover:not(:disabled) { border-color: var(--fg-dim); background: var(--hover-subtle); }
-.tool-toolbar button.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
-.tool-toolbar button.primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
-.tool-toolbar button.active { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
-.tool-toolbar button:disabled { opacity: 0.45; cursor: not-allowed; }
 .tool-output {
   flex: 1;
   min-height: 0;
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   overflow: hidden;
 }
-.tool-error { font-size: 12px; color: var(--danger); min-height: 16px; flex: none; }
+.tool-error { font-size: var(--text-sm); color: var(--danger); min-height: 16px; flex: none; }
 
-/* 按钮反馈：按真实结果显示成功（绿）或失败（红），按压时轻微下沉 */
-button.flash-ok {
-  background: var(--ok) !important;
-  border-color: var(--ok) !important;
-  color: #fff !important;
-}
-button.flash-error {
-  background: var(--danger-bg) !important;
-  border-color: var(--danger-bg) !important;
-  color: var(--on-accent) !important;
-}
-.tool-toolbar button:not(:disabled):active,
-.jp-pathbox button:not(:disabled):active {
-  transform: translateY(1px);
-}
+/* UI-08：按钮反馈（成功绿 / 失败红）与按压下沉已收敛到 .btn.flash-ok / .btn.flash-error /
+   .btn:not(:disabled):active（见「通用按钮体系」）。原先这里用 `button.flash-ok { !important }`
+   才能压过十几套并列的按域按钮选择器——体系收敛后特异性 (0,2,0) 天然覆盖变体 (0,1,0)，!important 已删除。 */
 
 /* JSONPath 提取器 */
-.jp-pathbox { display: flex; flex-direction: column; gap: 4px; flex: none; }
-.jp-pathrow { display: flex; align-items: center; gap: 6px; }
+.jp-pathbox { display: flex; flex-direction: column; gap: var(--space-2); flex: none; }
+.jp-pathrow { display: flex; align-items: center; gap: var(--space-3); }
 .jp-pathrow input[type="text"] {
   flex: 1;
   min-width: 0;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   color: var(--fg);
-  padding: 5px 8px;
-  font-size: 12px;
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-sm);
   font-family: var(--mono);
 }
-.jp-moderow { display: flex; gap: 6px; }
-.jp-pathbox button {
-  background: transparent;
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  padding: 4px 9px;
-  cursor: pointer;
-  font-size: 12px;
-  white-space: nowrap;
-}
-.jp-pathbox button:hover:not(:disabled) { border-color: var(--fg-dim); background: var(--hover-subtle); }
-.jp-pathbox button.active { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
-.jp-pathbox button:disabled { opacity: 0.45; cursor: not-allowed; }
+.jp-moderow { display: flex; gap: var(--space-3); }
+/* UI-08：路径区/模式切换按钮已迁移到 .btn .btn--sm（紧凑档，适配 360px 窄面板），
+   切换态由 .btn.active 承载。值预览折叠开关（.jp-value-toggle）是无边框的 disclosure 控件，
+   语义上不是按钮，保持独立样式不纳入 .btn 体系。 */
 .jp-tree {
   flex: 1;
   overflow: auto;
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   background: var(--bg);
-  padding: 4px;
+  padding: var(--space-2);
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--text-sm);
   min-height: 60px;
 }
 .jp-value-toggle {
   flex: none;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-2);
   background: transparent;
   color: var(--fg-dim);
   border: none;
-  padding: 3px 2px;
+  padding: var(--space-2) var(--space-1);
   cursor: pointer;
-  font-size: 11px;
+  font-size: var(--text-xs);
 }
 .jp-value-toggle:hover { color: var(--fg); }
-.jp-value-toggle .codicon { transition: transform 0.12s ease; }
+.jp-value-toggle .codicon { transition: transform var(--transition-fast); } /* UI-11 */
 .jp-value-toggle .codicon.expanded { transform: rotate(90deg); }
 .jp-value-box {
   flex: none;
   height: 160px;
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   overflow: hidden;
 }
 .jp-node { margin-left: 0; }
 .jp-row {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 1px 4px;
-  border-radius: 3px;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
   cursor: pointer;
   white-space: nowrap;
 }
 .jp-row:hover { background: var(--hover-subtle); }
-.jp-row.selected { background: var(--accent); color: var(--on-accent); }
+/* UI-07：选中态降级为柔和底（与 .env-item.selected / .palette-item.selected 一致），不再用实心 accent */
+.jp-row.selected { background: var(--accent-soft); color: var(--fg); }
 .jp-toggle { width: 14px; flex: none; display: inline-flex; cursor: pointer; color: var(--fg-dim); }
 .jp-toggle.expanded .codicon { transform: rotate(90deg); }
-.jp-toggle .codicon { transition: transform 0.12s ease; }
-.jp-key { color: #9cdcfe; flex: none; }
+.jp-toggle .codicon { transition: transform var(--transition-fast); } /* UI-11 */
+/* UI-15：以下 7 个色值原先全部硬编码为 VS Code Dark+ 的深色系语法色，浅色主题覆盖层没有任何
+   对应项——切到浅色后在白底上的对比度分别是 1.49 / 2.64 / 1.70 / 2.95 / 3.95 / 1.71 / 2.46:1，
+   七项无一满足 AA 4.5:1。现全部收归 --syntax-* token，浅色取值见 [data-theme="light"] 块。 */
+.jp-key { color: var(--syntax-var); flex: none; }
 .jp-row.selected .jp-key { color: inherit; }
 .jp-value { flex: 1; overflow: hidden; text-overflow: ellipsis; }
-.jp-value.jp-string { color: #ce9178; }
-.jp-value.jp-number { color: #b5cea8; }
-.jp-value.jp-boolean { color: #569cd6; }
-.jp-value.jp-null { color: #808080; }
-.jp-badge { font-size: 10px; color: var(--fg-dim); flex: none; }
-.jp-badge.jp-object { color: #e8c07d; }
-.jp-badge.jp-array { color: #d19a66; }
-.jp-children { padding-left: 16px; }
+.jp-value.jp-string { color: var(--syntax-string); }
+.jp-value.jp-number { color: var(--syntax-number); }
+.jp-value.jp-boolean { color: var(--syntax-boolean); }
+.jp-value.jp-null { color: var(--syntax-null); }
+.jp-badge { font-size: var(--text-xs); color: var(--fg-dim); flex: none; }
+.jp-badge.jp-object { color: var(--syntax-object); }
+.jp-badge.jp-array { color: var(--syntax-array); }
+.jp-children { padding-left: var(--space-8); }
 
 /* ---------- 存储面板（docs/disk-space-plan.md P1/P2） ---------- */
 
 /* 内嵌列表与设置面板同调：圆角 3px、字号 12.5、间距走同一套 token */
-.storage-usage { border: 1px solid var(--border); border-radius: 3px; background: var(--bg); padding: 4px 6px; max-height: 260px; overflow-y: auto; margin-bottom: 4px; }
+.storage-usage { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); padding: var(--space-2) var(--space-3); max-height: 260px; overflow-y: auto; margin-bottom: var(--space-2); }
 
-.storage-row { display: flex; align-items: center; gap: 10px; padding: 4px 6px; font-size: 12.5px; border-radius: 3px; }
+.storage-row { display: flex; align-items: center; gap: var(--space-5); padding: var(--space-2) var(--space-3); font-size: var(--text-sm); border-radius: var(--radius-sm); }
 
 .storage-row:hover { background: var(--hover-subtle); }
 
-.storage-row-sub { padding-left: 16px; color: var(--fg-dim); }
+.storage-row-sub { padding-left: var(--space-8); color: var(--fg-dim); }
 
 .storage-label { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .storage-size { flex: none; color: var(--fg-dim); font-variant-numeric: tabular-nums; min-width: 64px; text-align: right; }
 
-.storage-badge { flex: none; font-size: 11px; color: var(--fg-dim); border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; }
+.storage-badge { flex: none; font-size: var(--text-xs); color: var(--fg-dim); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0 var(--space-2); }
 
 .storage-badge-ok { color: var(--ok); border-color: var(--ok-border); }
 
 .storage-badge-part { color: var(--warn); border-color: var(--warn-border); }
 
-/* 与 .settings-row button 同款，仅尺寸收紧以适配列表行高 */
-.storage-del {
-  flex: none;
-  font-size: 12px;
-  font-family: inherit;
-  padding: 2px 10px;
-  background: transparent;
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.storage-del:hover { border-color: var(--danger); background: var(--danger-soft); color: var(--danger); }
+/* UI-08：trace 删除按钮已迁移到 .btn .btn--sm .btn--danger-outline
+   （原 .storage-del 的 hover 正是 danger-outline 语义：描边红 + 红字 + --danger-soft 底）。
+   JS 侧的事件委托改按 [data-trace] 命中，不再依赖样式类名当钩子。 */
 
-.storage-sep { padding: 8px 6px 2px; margin-top: 4px; border-top: 1px solid var(--border-soft); font-size: 12px; color: var(--fg-dim); }
+.storage-sep { padding: var(--space-4) var(--space-3) var(--space-1); margin-top: var(--space-2); border-top: 1px solid var(--border-soft); font-size: var(--text-sm); color: var(--fg-dim); }
 
 /* 路径按书写方向截断（此前 direction: rtl 会重排冒号与反斜杠） */
-.storage-path { flex: 1 1 auto; min-width: 0; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.storage-path { flex: 1 1 auto; min-width: 0; font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 
-.storage-inline-label { font-size: 12.5px; color: var(--fg-dim); }
+.storage-inline-label { font-size: var(--text-sm); color: var(--fg-dim); }

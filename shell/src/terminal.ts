@@ -6,8 +6,9 @@ import { Terminal, type ILink, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { invoke } from "@tauri-apps/api/core";
-import { app } from "./state";
+import { app, DEFAULT_SETTINGS } from "./state";
 import { TRACEBACK_RE, type OutputLink } from "./output";
+import { motionDisabled } from "./anim"; // UI-11：终端光标闪烁也归「减少动画」管（anim.ts 无依赖，导入不成环）
 
 /** 终端配色随外壳主题（D1 P-01：浅色主题下不再固定深色终端） */
 function xtermTheme(): ITheme {
@@ -15,6 +16,19 @@ function xtermTheme(): ITheme {
     return { background: "#ececec", foreground: "#333333", cursor: "#333333", selectionBackground: "#add6ff" };
   }
   return { background: "#1b1b1b", foreground: "#d4d4d4", cursor: "#d4d4d4", selectionBackground: "#264f78" };
+}
+
+/** UI-29：终端字号 = 用户设置 font_size（与主编辑器同源，原硬编码 13 不跟随设置）。
+ *  手改配置写坏（NaN/0）时回落出厂默认，避免 xterm 拿到非法值渲染异常。 */
+function termFontSize(): number {
+  const n = Number(app.settings.font_size);
+  return Number.isFinite(n) && n > 0 ? n : DEFAULT_SETTINGS.font_size;
+}
+
+/** UI-29：终端字体族 = 用户设置 font_family（原为一份与 --mono token 重复维护的硬编码栈，
+ *  UI-28 只统一了 CSS 侧，这里是 JS 侧的最后一处）；空值回落出厂默认栈。 */
+function termFontFamily(): string {
+  return app.settings.font_family.trim() || DEFAULT_SETTINGS.font_family;
 }
 
 /** traceback 链接的点击处理（由 main.ts 注入 `gotoFromLink`）。
@@ -39,9 +53,12 @@ export class IntegratedTerminal {
     this.id = id;
     this.container = container;
     this.term = new Terminal({
-      fontSize: 13,
-      fontFamily: 'Consolas, "Cascadia Code", "JetBrains Mono", monospace',
-      cursorBlink: true,
+      // UI-29：字号/字体族读用户设置（原硬编码 fontSize:13 + 一份与 --mono 重复维护的字体栈）
+      fontSize: termFontSize(),
+      fontFamily: termFontFamily(),
+      // UI-11：光标闪烁是终端里唯一常驻的动画，对前庭功能障碍用户正是需要消除的对象，
+      // 而 CSS 的 --motion 倍率管不到 xterm 内部（它用 canvas/DOM 自绘），必须在此显式关闭。
+      cursorBlink: !motionDisabled(),
       scrollback: 5000,
       theme: xtermTheme(),
     });
@@ -84,6 +101,21 @@ export class IntegratedTerminal {
   /** 外壳主题切换后重套配色（D1） */
   applyTheme(): void {
     this.term.options.theme = xtermTheme();
+  }
+
+  /** UI-11：「减少动画」开关切换后重设光标闪烁。
+   *  xterm 的 options 支持运行时赋值，无需销毁重建实例（与 applyTheme 同一套做法）。 */
+  applyMotionPreference(): void {
+    this.term.options.cursorBlink = !motionDisabled();
+  }
+
+  /** UI-29：设置保存（字号/字体族）后重套字体。
+   *  改字号会改变字符度量 → cols/rows 随之变化，必须 refit 并同步 PTY 尺寸，
+   *  否则后端按旧列宽折行、终端出现错位（syncSize 内部已含 term_resize）。 */
+  applyFontPreference(): void {
+    this.term.options.fontSize = termFontSize();
+    this.term.options.fontFamily = termFontFamily();
+    this.syncSize();
   }
 
   /** fit 当前尺寸并通知后端 resize（未启动时仅前端 fit） */

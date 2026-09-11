@@ -4,7 +4,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { app, $, outputEl } from "./state";
-import { basename, codicon, parentDirOf } from "./util";
+import { basename, codicon, emptyState, parentDirOf } from "./util"; // UI-12：终端无会话时的空态
 import { IntegratedTerminal } from "./terminal";
 import { clearOutput } from "./output";
 import { ensureDiffEditor } from "./git";
@@ -65,9 +65,12 @@ const gitDiffPanelEl = $("git-diff-panel");
 /** 切换底部面板标签（输出 / 终端 / 差异） */
 export function setBottomTab(tab: BottomTab): void {
   bottomTab = tab;
-  $("tab-output").classList.toggle("active", tab === "output");
-  $("tab-terminal").classList.toggle("active", tab === "terminal");
-  $("tab-diff").classList.toggle("active", tab === "diff");
+  // UI-16：role=tab 的 aria-selected 与 .active 类同源切换（单一写入点）
+  for (const [id, sel] of [["tab-output", tab === "output"], ["tab-terminal", tab === "terminal"], ["tab-diff", tab === "diff"]] as const) {
+    const el = $(id);
+    el.classList.toggle("active", sel);
+    el.setAttribute("aria-selected", String(sel));
+  }
   outputEl.classList.toggle("hidden", tab !== "output");
   terminalPanelEl.classList.toggle("hidden", tab !== "terminal");
   gitDiffPanelEl.classList.toggle("hidden", tab !== "diff");
@@ -144,6 +147,9 @@ async function createTerminal(cwd: string | null, shell?: string): Promise<TermS
   const id = `term-${++termSeq}`;
   const view = document.createElement("div");
   view.className = "terminal-view";
+  // UI-16：与 .term-tab（role=tab）配对的面板；xterm 自身管理内部焦点与读屏播报
+  view.setAttribute("role", "tabpanel");
+  view.tabIndex = -1; // tabpanel 惯例：可被程序聚焦（不占 tab 序列），便于从 tab 跳转进来
   terminalViewsEl.appendChild(view);
 
   const chosenShell = shell ?? defaultShell();
@@ -249,14 +255,50 @@ function fireRunExit(): void {
   hook?.();
 }
 
+/** UI-16：给「以 span/div 充当按钮」的元素补齐 button 语义 + 键盘激活。
+ *  第四批待办的落地：role=generic 的 span 上 aria-label 不会被读屏暴露，且无 tabindex
+ *  键盘不可达——补 role=button + tabindex=0 + Enter/Space 触发 click（复用既有 click 回调，
+ *  单一动作入口；keydown 需 stopPropagation，避免冒泡到 tab 本体的方向键/回车处理）。 */
+function makeSpanButton(el: HTMLElement, label: string): void {
+  el.setAttribute("role", "button");
+  el.setAttribute("aria-label", label);
+  el.tabIndex = 0;
+  el.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter" || ev.key === " ") {
+      ev.preventDefault();
+      ev.stopPropagation();
+      el.click();
+    }
+  });
+}
+
 /** 重绘终端 tab 栏（含「＋」新建按钮） */
 function renderTerminalTabs(): void {
+  // UI-16：重绘会销毁正在聚焦的 tab 元素，先记录焦点、渲染后按会话 id 恢复，
+  // 否则键盘用户每按一次方向键/回车焦点就掉回 body
+  const ae = document.activeElement as HTMLElement | null;
+  const focusedId = ae?.classList.contains("term-tab-add")
+    ? "__add__"
+    : (ae?.closest(".term-tab") as HTMLElement | null)?.dataset?.termId ?? null;
   terminalTabsEl.textContent = "";
   for (const s of termSessions) {
     const el = document.createElement("div");
+    const active = s.id === activeTermId;
     // S3：运行终端用独立样式（§4.7 结论 2：与普通 shell 视觉区分）
-    el.className = `term-tab${s.id === activeTermId ? " active" : ""}${s.kind === "run" ? " run" : ""}`;
-    el.title = termTitle(s);
+    el.className = `term-tab${active ? " active" : ""}${s.kind === "run" ? " run" : ""}`;
+    // UI-16：tabs 模式。tab 本体 role=tab + aria-selected（与 .active 同源）；
+    // 漫游 tabindex（激活项 0、其余 -1）+ Enter/Space 激活 + ←→ 移动焦点；
+    // 面板侧 .terminal-view 为 tabpanel（createTerminal 处声明）。
+    el.setAttribute("role", "tab");
+    el.setAttribute("aria-selected", String(active));
+    // 显式给定可访问名称：tab 名称默认从内容计算，会把子级停止/关闭按钮的
+    // aria-label 一并混入（「终端 1 · pwsh 关闭终端」），故收敛为会话标题本身
+    el.setAttribute("aria-label", termTitle(s));
+    el.tabIndex = active ? 0 : -1;
+    el.dataset.termId = s.id;
+    // UI-09：tab 本体一并迁到 data-tip。原生 title 会沿祖先链继承解析——若父 tab 留 title、
+    // 子级 stop/close 用 data-tip，悬停子级时两个提示会同时出现，故父子必须同轨。
+    el.dataset.tip = termTitle(s);
     const name = document.createElement("span");
     name.className = "term-tab-name";
     name.textContent = termTitle(s);
@@ -266,7 +308,10 @@ function renderTerminalTabs(): void {
       const stop = document.createElement("span");
       stop.className = "term-tab-stop";
       stop.appendChild(codicon("debug-stop"));
-      stop.title = "停止运行";
+      // UI-09：这两个是 <span> 而非 <button>（沿用既有结构，改成 button 需重置按钮默认样式）。
+      // UI-16：已按第四批待办补齐 role/tabindex/键盘激活（见 makeSpanButton）。
+      stop.dataset.tip = "停止运行";
+      makeSpanButton(stop, "停止运行");
       stop.addEventListener("click", (ev) => {
         ev.stopPropagation();
         void stopRunTerminal();
@@ -276,36 +321,99 @@ function renderTerminalTabs(): void {
     const close = document.createElement("span");
     close.className = "term-tab-close";
     close.appendChild(codicon("close"));
-    close.title = s.kind === "run" ? "关闭运行终端" : "关闭终端";
+    close.dataset.tip = s.kind === "run" ? "关闭运行终端" : "关闭终端";
+    makeSpanButton(close, s.kind === "run" ? "关闭运行终端" : "关闭终端"); // UI-16
     close.addEventListener("click", (ev) => {
       ev.stopPropagation();
       void closeTerminal(s.id);
     });
     el.appendChild(close);
     el.addEventListener("click", () => activateTerminal(s.id));
+    el.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter" || ev.key === " ") {
+        ev.preventDefault();
+        activateTerminal(s.id);
+      } else if (ev.key === "ArrowRight" || ev.key === "ArrowLeft") {
+        ev.preventDefault();
+        focusSiblingTermTab(el, ev.key === "ArrowRight" ? 1 : -1);
+      }
+    });
     terminalTabsEl.appendChild(el);
   }
   const add = document.createElement("div");
   add.className = "term-tab-add";
   add.appendChild(codicon("add"));
-  add.title = "新建终端";
+  add.dataset.tip = "新建终端";
+  // UI-16：非 tab 的动作按钮，不进 tablist 的漫游序列，但需键盘可达
+  makeSpanButton(add, "新建终端");
+  // UI-30：点击弹出 shell 选择菜单（menu.ts showMenu 以本元素为 anchor）——声明 haspopup，
+  // aria-expanded 由 menu.ts 的触发元素跟踪统一切换（打开置 true、关闭复位 false）
+  add.setAttribute("aria-haspopup", "menu");
+  add.setAttribute("aria-expanded", "false");
   add.addEventListener("click", (ev) => {
     ev.stopPropagation();
     void spawnShellMenu(add);
   });
   terminalTabsEl.appendChild(add);
+  // 焦点恢复：按会话 id 找回新元素；原焦点在「＋」上则还给「＋」
+  if (focusedId) {
+    const target = focusedId === "__add__" ? add : terminalTabsEl.querySelector<HTMLElement>(`.term-tab[data-term-id="${CSS.escape(focusedId)}"]`);
+    target?.focus();
+  }
 }
+
+/** 终端 tab 的 ←→ 焦点漫游（跳过中间的停止/关闭小按钮，只在 tab 之间移动；越界环绕） */
+function focusSiblingTermTab(from: HTMLElement, dir: 1 | -1): void {
+  const tabs = Array.from(terminalTabsEl.querySelectorAll<HTMLElement>(".term-tab"));
+  if (tabs.length < 2) return;
+  const idx = tabs.indexOf(from);
+  const next = tabs[(idx + dir + tabs.length) % tabs.length];
+  next.focus();
+}
+
+/** UI-12：无会话时的兜底空态元素（懒建；一旦有会话即移除，避免与终端视图争空间） */
+let termEmptyEl: HTMLElement | null = null;
 
 /** 重绘终端视图（仅显示激活的那个） */
 function renderTerminalViews(): void {
   for (const s of termSessions) {
     s.view.classList.toggle("hidden", s.id !== activeTermId);
   }
+  // UI-12：会话数为 0 时渲染引导性空态。此前本函数只切换已有 view 的显隐，
+  // 关掉最后一个终端后 #terminal-views 会彻底空白，用户切到「终端」标签无从下手。
+  // 用 compact 档：底部面板高度有限（可拖到 120px），标准档的大留白会放不下。
+  if (termSessions.length === 0) {
+    if (!termEmptyEl) {
+      termEmptyEl = emptyState(
+        "terminal",
+        "尚无终端",
+        "点击上方「＋」新建，或在文件树中右键「在终端中打开」",
+        true,
+      );
+      termEmptyEl.classList.add("term-empty");
+      terminalViewsEl.appendChild(termEmptyEl);
+    }
+  } else if (termEmptyEl) {
+    termEmptyEl.remove();
+    termEmptyEl = null;
+  }
 }
 
 /** 外壳主题切换 → 所有终端实例重套配色（D1 P-01） */
 export function refreshTerminalThemes(): void {
   for (const s of termSessions) s.iterm.applyTheme();
+}
+
+/** UI-11：「减少动画」开关切换 → 所有已存在的终端实例重设光标闪烁
+ *  （新建实例在构造时已读开关，此处只负责补上切换前就存在的那些） */
+export function refreshTerminalMotion(): void {
+  for (const s of termSessions) s.iterm.applyMotionPreference();
+}
+
+/** UI-29：设置保存（字号/字体族）→ 所有已存在的终端实例重套字体并 refit
+ *  （新建实例在构造时已读设置，此处只负责补上变更前就存在的那些——与 refreshTerminalMotion 同款模式） */
+export function refreshTerminalFonts(): void {
+  for (const s of termSessions) s.iterm.applyFontPreference();
 }
 
 /** 在指定目录新建终端（右键「在终端中打开」） */

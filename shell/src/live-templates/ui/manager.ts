@@ -409,9 +409,13 @@ function beginGroupRename(): void {
   inp.className = "lt-rename-input";
   inp.value = oldName;
   inp.spellcheck = false;
+  // UI-08：内联重命名的确定/取消原先靠 `.lt-toolbar button` 后代选择器取样式，
+  // 迁移到 .btn 体系后必须显式加类名（紧凑档，贴合工具栏行高）
   const ok = document.createElement("button");
+  ok.className = "btn btn--sm";
   ok.textContent = "确定";
   const cancel = document.createElement("button");
+  cancel.className = "btn btn--sm";
   cancel.textContent = "取消";
   wrap.append(inp, ok, cancel);
   btn.style.display = "none";
@@ -531,6 +535,7 @@ function openEditor(entry: EffectiveEntry | null): void {
   kindLabel.textContent = "类型";
   const kindSel = document.createElement("select");
   kindSel.id = "lt-f-kind";
+  kindLabel.htmlFor = kindSel.id; // 遗留修复：label↔控件关联
   for (const k of ["normal", "surround", "postfix"] as const) {
     const opt = document.createElement("option");
     opt.value = k;
@@ -629,8 +634,10 @@ function openEditor(entry: EffectiveEntry | null): void {
   table.appendChild(tbody);
   varsWrap.appendChild(table);
   const addBtn = document.createElement("button");
-  addBtn.className = "lt-mini-btn";
-  addBtn.append(codicon("add"), " 添加变量");
+  // UI-08：中性档（原 .lt-mini-btn 把 danger hover 写死在基类，「添加」也泛红，此处顺带修正）；
+  // 图标与文字间距由 .btn 的 gap 提供，不再靠前导空格
+  addBtn.className = "btn btn--sm";
+  addBtn.append(codicon("add"), "添加变量");
   addBtn.addEventListener("click", () => addVarRow());
   varsWrap.appendChild(addBtn);
   ed.appendChild(varsWrap);
@@ -645,10 +652,14 @@ function openEditor(entry: EffectiveEntry | null): void {
     (t) => t.abbreviation === (entry?.abbreviation ?? "") && t.kind === (entry?.kind ?? "normal"),
   );
   const isBuiltin = entry?.origin === "builtin";
+  // UI-08：底部操作按钮迁移到 .btn 体系——破坏性动作用描边形态（次要位置不宜整块实心红）
   const delBtn = document.createElement("button");
   delBtn.textContent = "删除";
-  delBtn.className = "danger";
+  delBtn.className = "btn btn--danger-outline";
   delBtn.disabled = !entry || isBuiltin;
+  // UI-09 例外：保留原生 title。本按钮的提示主要就是「禁用原因」（内置模板不可删除 / 需先选中模板），
+  // 而它在这些情况下恰恰是 disabled 的——Chromium 不向禁用表单控件派发鼠标事件，data-tip 会静默失效，
+  // 等于把最该看到的提示弄丢。原生 title 由渲染层命中测试驱动，禁用态仍显示。resetBtn 同理。
   delBtn.title = isBuiltin
     ? "内置模板不可删除，只能禁用"
     : entry
@@ -658,15 +669,17 @@ function openEditor(entry: EffectiveEntry | null): void {
     if (entry) void doDelete(entry);
   });
   const resetBtn = document.createElement("button");
+  resetBtn.className = "btn";
   resetBtn.textContent = "恢复内置";
   resetBtn.title = "移除本层对该模板的覆盖/禁用";
   resetBtn.disabled = !entry || !isBuiltin || !layerHasOverride;
   resetBtn.addEventListener("click", () => void doReset(entry?.kind ?? "normal", entry?.abbreviation ?? ""));
   const saveBtn = document.createElement("button");
-  saveBtn.className = "primary";
+  saveBtn.className = "btn btn--primary";
   saveBtn.textContent = "保存模板";
   saveBtn.addEventListener("click", () => void doSave());
   const cancelBtn = document.createElement("button");
+  cancelBtn.className = "btn";
   cancelBtn.textContent = "取消";
   cancelBtn.addEventListener("click", renderEmptyEditor);
 
@@ -687,6 +700,10 @@ function fieldRow(labelText: string, control: HTMLElement): HTMLElement {
   row.className = "lt-field";
   const label = document.createElement("label");
   label.textContent = labelText;
+  // 遗留修复：label↔控件关联。control 可能是包装容器（如「分组」行的 input+自绘下拉 wrapper），
+  // 此时下探到首个带 id 的表单控件；找不到可关联目标则不设 for（label 只作视觉行标题）
+  const target = control.id ? control : control.querySelector<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>("input[id],select[id],textarea[id]");
+  if (target?.id) label.htmlFor = target.id;
   row.append(label, control);
   return row;
 }
@@ -753,9 +770,13 @@ function addVarRow(name = "", expression = "", defaultValue = "", skip = false):
 
   const tdDel = document.createElement("td");
   const delBtn = document.createElement("button");
-  delBtn.className = "lt-mini-btn";
+  // UI-08：表格行内的图标删除按钮——紧凑档 + 图标内边距 + 破坏性描边
+  delBtn.className = "btn btn--sm btn--icon btn--danger-outline";
   delBtn.appendChild(codicon("close"));
-  delBtn.title = "删除变量";
+  // UI-09：纯图标按钮且从不 disabled → 迁 data-tip；内部 <i> 带 aria-hidden，
+  // 可访问名称原先仅由 title 提供，故同步补 aria-label。
+  delBtn.dataset.tip = "删除变量";
+  delBtn.setAttribute("aria-label", "删除变量");
   delBtn.addEventListener("click", () => tr.remove());
   tdDel.appendChild(delBtn);
 

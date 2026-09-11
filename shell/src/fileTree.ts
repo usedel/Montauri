@@ -11,6 +11,7 @@ import { refreshGitStatus } from "./git";
 import { gitStatusOf, isGitRepoActive, isGitDirtyDir } from "./gitStatusState";
 import { openTerminalAt } from "./termUi";
 import { openFile, renderTabs, closeTabSilent, insertHeaderTemplate } from "./main";
+import * as mdPreview from "./markdownPreview"; // Markdown 预览（.md 右键「打开预览」）
 import { openConfirm } from "./dialog";
 import * as lsp from "./lsp/client";
 import { hideMenu, showMenu, type MenuItem } from "./menu";
@@ -62,6 +63,9 @@ async function buildDir(dir: string, container: HTMLElement, depth: number): Pro
   if (entries.length === 0) {
     const empty = document.createElement("div");
     empty.className = "tree-empty";
+    // UI-16：role=tree 的容器期望子级为 treeitem/group；占位提示自身无语义，
+    // 标 presentation 避免读屏把它当成结构节点（文本内容仍会被朗读）
+    empty.setAttribute("role", "presentation");
     empty.style.paddingLeft = `${8 + depth * 14}px`;
     empty.textContent = "（空）";
     container.appendChild(empty);
@@ -78,6 +82,12 @@ function renderTreeItem(e: Entry, depth: number): HTMLElement {
   item.title = e.path;
   item.dataset.path = e.path;
   item.tabIndex = -1; // 可聚焦但不进 tab 序列（键盘导航手动管理）
+  // UI-16：tree 模式（WAI-ARIA treeitem）。容器 #tree 的 role=tree 在 index.html 静态声明；
+  // 目录的展开态用 aria-expanded（toggleDir/collapseAll 与 twisty 图标同源切换）；
+  // 选中态用 aria-selected（selectEntry 与 .active 类同源切换）。
+  item.setAttribute("role", "treeitem");
+  item.setAttribute("aria-selected", "false");
+  if (e.is_dir) item.setAttribute("aria-expanded", "false");
 
   const twisty = document.createElement("i");
   twisty.className = "twisty" + (e.is_dir ? " codicon codicon-chevron-right" : "");
@@ -111,6 +121,8 @@ function renderTreeItem(e: Entry, depth: number): HTMLElement {
       const badge = document.createElement("span");
       badge.className = gitBadgeClass(st);
       badge.textContent = st;
+      // UI-09：保留原生 title（嵌套约束）。父级 .tree-item 按「截断披露」规则保留 title=e.path，
+      // 而原生 title 沿祖先链继承解析——若此处改用 data-tip，悬停徽标时会与父级 title 双重提示。
       badge.title = gitStatusLabel(st);
       item.appendChild(badge);
     }
@@ -183,13 +195,16 @@ async function toggleDir(item: HTMLElement, e: Entry, depth: number): Promise<vo
     expandedDirs.delete(e.path);
     setTwisty(twisty, false);
     setFolderIcon(item, false);
+    item.setAttribute("aria-expanded", "false"); // UI-16：与 twisty 图标同源
     return;
   }
   setTwisty(twisty, true);
   setFolderIcon(item, true);
+  item.setAttribute("aria-expanded", "true"); // UI-16
   expandedDirs.add(e.path);
   const childContainer = document.createElement("div");
   childContainer.className = "tree-children";
+  childContainer.setAttribute("role", "group"); // UI-16：treeitem 的子级分组
   childContainer.dataset.depth = String(depth + 1);
   item.insertAdjacentElement("afterend", childContainer);
   dirContainers.set(e.path, { container: childContainer, depth: depth + 1 });
@@ -220,17 +235,39 @@ function collapseAll(): void {
     dirContainers.delete(path);
     expandedDirs.delete(path);
   }
-  // 重置所有 twisty 与文件夹图标为收起态
+  // 重置所有 twisty 与文件夹图标为收起态（UI-16：aria-expanded 一并复位）
   treeEl.querySelectorAll<HTMLElement>(".tree-item.dir .twisty").forEach((el) => setTwisty(el, false));
-  treeEl.querySelectorAll<HTMLElement>(".tree-item.dir").forEach((el) => setFolderIcon(el, false));
+  treeEl.querySelectorAll<HTMLElement>(".tree-item.dir").forEach((el) => {
+    setFolderIcon(el, false);
+    el.setAttribute("aria-expanded", "false");
+  });
+}
+
+/** 同步「显示隐藏文件」开关按钮的视觉态与提示——.active / data-tip / aria-label / aria-pressed 的单一来源。
+ *
+ *  UI-09 顺带修掉两个既有缺陷：
+ *  1. 双重提示：index.html 上本按钮已带静态 data-tip，而这里又动态设 title，两个 tooltip 会同时弹出；
+ *  2. 状态失同步：原先 toggleHiddenFiles 与 resetTreeState 各改一半状态——关闭工作区时
+ *     resetTreeState 只把 showHiddenFiles 复位为 false，却不清 .active 与提示文案，
+ *     导致按钮残留高亮、下次点击时视觉与真实状态相反。收敛到本函数后两处共用同一套写入。 */
+function syncHiddenFilesBtn(): void {
+  // 不用 $()：$ 在元素缺失时抛错，而本函数会在 closeWorkspace 路径上被调用，
+  // 精简 DOM（如单测）环境下按钮可能不存在，此处按「无按钮则跳过」处理。
+  const btn = document.getElementById("btn-tree-hidden");
+  if (!btn) return;
+  const tip = showHiddenFiles ? "隐藏 dot 文件" : "显示 dot 文件";
+  btn.classList.toggle("active", showHiddenFiles);
+  btn.dataset.tip = tip;
+  // 图标按钮：内部 <i> 带 aria-hidden，可访问名称须由 aria-label 承担；
+  // 开关态用 aria-pressed 表达，与 .active 类同源写入，避免二者不一致。
+  btn.setAttribute("aria-label", tip);
+  btn.setAttribute("aria-pressed", String(showHiddenFiles));
 }
 
 /** 切换显示/隐藏隐藏文件 */
 async function toggleHiddenFiles(): Promise<void> {
   showHiddenFiles = !showHiddenFiles;
-  const btn = $("btn-tree-hidden");
-  btn.classList.toggle("active", showHiddenFiles);
-  btn.title = showHiddenFiles ? "隐藏 dot 文件" : "显示 dot 文件";
+  syncHiddenFilesBtn();
   await refreshTreeWithExpandedState();
 }
 
@@ -257,7 +294,13 @@ export async function refreshTreeWithExpandedState(): Promise<void> {
   }
 }
 
-/** 选中树节点并高亮 */
+/** UI-16：选中态的单一写入点——.active 类（视觉）与 aria-selected（读屏）必须同源，
+ *  散落两写必然漂移（第四批 syncHiddenFilesBtn 同款教训）。 */
+function setTreeItemSelected(el: HTMLElement, selected: boolean): void {
+  el.classList.toggle("active", selected);
+  el.setAttribute("aria-selected", String(selected));
+}
+
 /** 选中树节点（支持 Ctrl 多选、Shift 范围选） */
 function selectEntry(e: Entry, itemEl?: HTMLElement, ev?: MouseEvent): void {
   const ctrl = ev?.ctrlKey || ev?.metaKey;
@@ -267,10 +310,10 @@ function selectEntry(e: Entry, itemEl?: HTMLElement, ev?: MouseEvent): void {
     // Ctrl+点击：切换选中状态
     if (selectedPaths.has(e.path)) {
       selectedPaths.delete(e.path);
-      itemEl.classList.remove("active");
+      setTreeItemSelected(itemEl, false);
     } else {
       selectedPaths.add(e.path);
-      itemEl.classList.add("active");
+      setTreeItemSelected(itemEl, true);
     }
     selectedEntry = e;
     return;
@@ -284,11 +327,11 @@ function selectEntry(e: Entry, itemEl?: HTMLElement, ev?: MouseEvent): void {
     const endIdx = items.indexOf(itemEl);
     const [lo, hi] = startIdx < endIdx ? [startIdx, endIdx] : [endIdx, startIdx];
     selectedPaths.clear();
-    treeEl.querySelectorAll(".tree-item.active").forEach((el) => el.classList.remove("active"));
+    clearTreeSelection();
     for (let i = lo; i <= hi; i++) {
       const p = items[i].dataset.path;
       if (p) selectedPaths.add(p);
-      items[i].classList.add("active");
+      setTreeItemSelected(items[i], true);
     }
     selectedEntry = e;
     return;
@@ -298,8 +341,13 @@ function selectEntry(e: Entry, itemEl?: HTMLElement, ev?: MouseEvent): void {
   selectedPaths.clear();
   selectedPaths.add(e.path);
   selectedEntry = e;
-  treeEl.querySelectorAll(".tree-item.active").forEach((el) => el.classList.remove("active"));
-  itemEl?.classList.add("active");
+  clearTreeSelection();
+  if (itemEl) setTreeItemSelected(itemEl, true);
+}
+
+/** 清除全树选中高亮（.active 与 aria-selected 同步复位） */
+function clearTreeSelection(): void {
+  treeEl.querySelectorAll<HTMLElement>(".tree-item.active").forEach((el) => setTreeItemSelected(el, false));
 }
 
 /** 获取当前所有选中的 Entry */
@@ -353,6 +401,13 @@ function showContextMenu(entry: Entry, x: number, y: number): void {
     { label: "在终端中打开", action: () => void openTerminalAt(entry.is_dir ? entry.path : parentDirOf(entry.path)) },
     { label: "在资源管理器中显示", action: () => revealEntry(entry) },
   );
+  // Markdown 预览（markdown preview dev plan §5-T4）：.md 文件右键「打开预览」= 打开 + 开启分栏
+  if (!entry.is_dir && mdPreview.isMarkdownPath(entry.path)) {
+    items.push(
+      { sep: true },
+      { label: "打开预览", action: () => { mdPreview.setPreviewOpen(true); void openFile(entry.path); } },
+    );
+  }
 
   renderCtxMenu(items, x, y);
 }
@@ -412,6 +467,9 @@ function inlineInput(container: HTMLElement, beforeEl: HTMLElement | null, initi
     inlineInputActive = true;
     const row = document.createElement("div");
     row.className = "tree-item inline-input-row";
+    // UI-16：借用 .tree-item 只为行高/内边距样式，它不是树节点（role=tree 容器里
+    // 出现第二个 treeitem 语义会误导读屏），标 presentation；内部 input 语义不受影响
+    row.setAttribute("role", "presentation");
     row.style.paddingLeft = `${8 + depth * 14}px`;
     const input = document.createElement("input");
     input.className = "inline-input";
@@ -904,6 +962,7 @@ export function isTreeEmpty(): boolean {
 /** 关闭工作区时复位文件树状态（由 main.ts closeWorkspace 调用） */
 export function resetTreeState(): void {
   showHiddenFiles = false;
+  syncHiddenFilesBtn(); // UI-09：同步复位按钮的 .active / 提示 / aria 态（此前遗漏，详见该函数注释）
   expandedDirs.clear();
   treeEl.textContent = "";
   dirContainers.clear();

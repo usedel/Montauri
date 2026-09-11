@@ -34,6 +34,12 @@ pub fn run() {
             let builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
                 .title("OpenCharm")
                 .inner_size(1280.0, 800.0)
+                // UI-23：窗口下限（本项目窗口在 Rust 侧手动构建，故约束在这里而非 tauri.conf.json 的 app.windows）。
+                // 800 不是随手取的：三栏布局的宽度下限之和 = 侧栏 180 + 编辑区 240 + 右面板 260 = 680
+                // （见 style.css 的 #sidebar / #center / #right-panel 与 layout.ts 的 SIDEBAR_MIN / RIGHT_MIN），
+                // 留余量后任何面板宽度组合都不会把编辑区挤没；两侧面板可 flex 收缩、拖拽上限也按窗口宽动态收口。
+                // ⚠ 下调前先核对上面那组下限；⚠ 上调到 900 以上会让 UI-21 的 `@media (max-width:900px)`
+                // （状态栏窄窗口降级）在打包应用内永不触发。
                 .min_inner_size(800.0, 600.0)
                 .decorations(false)
                 .disable_drag_drop_handler()
@@ -61,6 +67,7 @@ pub fn run() {
             // 文件系统
             fs_cmds::read_dir,
             fs_cmds::read_file,
+            fs_cmds::read_file_base64,
             fs_cmds::write_file,
             fs_cmds::delete_file,
             fs_cmds::read_templates_config,
@@ -75,6 +82,8 @@ pub fn run() {
             fs_cmds::create_project,
             fs_cmds::format_python,
             fs_cmds::search_workspace,
+            // asset 协议动态授权（Markdown 预览本地图片）
+            util::allow_asset_dir,
             // 文件管理写操作（P25-T01）
             file_ops::create_file,
             file_ops::create_dir,
@@ -84,6 +93,7 @@ pub fn run() {
             file_ops::copy_path,
             file_ops::paste_path,
             file_ops::reveal_in_explorer,
+            file_ops::open_external,
             file_ops::copy_to_clipboard,
             file_ops::get_recent,
             file_ops::add_recent,

@@ -3,7 +3,7 @@ description: shell/src-tauri Rust 外壳代码规范（Tauri 2 命令、LSP 桥�
 globs: "**/*.rs"
 alwaysApply: false
 enabled: true
-updatedAt: 2026-09-10T10:00:00.000Z
+updatedAt: 2026-09-11T18:40:00.000Z
 provider:
 ---
 
@@ -11,10 +11,10 @@ provider:
 
 ## 模块结构
 
-- `lib.rs` — Tauri 入口 + 命令注册。
+- `lib.rs` — Tauri 入口 + 命令注册。窗口用 `WebviewWindowBuilder` 手动构建（`tauri.conf.json` 的 `app.windows` 是空数组，改窗口属性来这里）。**`min_inner_size(800,600)` 有跨层耦合，调整前必读两条禁区**（UI-23，lib.rs 就地注释同录）：① 下调前核对前端三栏宽度下限之和（侧栏 180 + 右面板 260 + 编辑区 240 = 680，见 style.css / layout.ts）；② 上调到 900 以上会让 style.css 的 `@media (max-width:900px)`（状态栏窄窗口降级）在打包应用内永不触发。
 - 功能模块按职责拆分：
   - `fs_cmds.rs` — 文件树/读写/工作区记忆/全局搜索；
-  - `file_ops.rs` — 文件写操作（增删改/复制粘贴/回收站/最近文件）；
+  - `file_ops.rs` — 文件写操作（增删改/复制粘贴/回收站/最近文件）+ 打开系统浏览器（`open_external`，仅放行 http/https 外链）；
   - `env_cmds.rs` — Python 环境（解释器列举/venv/包管理）；
   - `settings.rs` — 全局设置（存 `~/.opencharm/settings.json`）；
   - `lsp.rs` — LSP 桥（spawn/帧解析/事件转发，stdin 独立 `Arc<Mutex>` 持有）+ 运行脚本；
@@ -22,7 +22,7 @@ provider:
   - `git_cmds.rs` / `git_status.rs` — Git 状态装饰与写操作（暂存/提交/diff/分支/远程/stash/blame）；
   - `terminal.rs` — 集成终端（portable-pty 多会话）；
   - `watcher.rs` — 文件监听（增量刷新源）；
-  - `util.rs` — 跨模块共享工具（`opencharm_home` / `no_window` / `unpoison` / `kill_process_tree`）。
+  - `util.rs` — 跨模块共享工具（`opencharm_home` / `no_window` / `unpoison` / `kill_process_tree` / `allow_asset_dir` asset 协议动态授权）。
 
 ## LSP 桥（ADR-0003）
 

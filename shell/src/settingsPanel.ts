@@ -11,16 +11,20 @@ import { renderEngineChip } from "./engineChip";
 import { repaintRunWidget } from "./runWidget";
 import * as ltUi from "./live-templates/ui/manager";
 import { KEYBINDING_META, validateKeybindingMap, applyEditorKeybindings } from "./keybindings";
-import { refreshTerminalThemes } from "./termUi";
-import { applyReduceMotion, hideEl, reduceMotionEnabled, showEl } from "./anim";
+import { refreshTerminalFonts, refreshTerminalMotion, refreshTerminalThemes } from "./termUi";
+import { applyReduceMotion, hideEl, motionDisabled, reduceMotionEnabled, showEl } from "./anim";
+import { trapFocus } from "./focusTrap";
 import { openAlert } from "./dialog";
 import { loadStorageUsage, wireStoragePanel } from "./storagePanel";
+// UI-26：主题选择改自绘预览色卡（原生 <option> 放不下色卡），值读写经 themePicker
+import { getSelectedTheme, setSelectedTheme, wireThemePicker } from "./themePicker";
+// UI-25：欢迎页快捷键网格跟随键位系统，改键保存后需刷新
+import { renderWelcomeShortcuts } from "./welcomeShortcuts";
 
 // ---------- 域内 DOM ----------
 
 const statusFontEl = $("status-font");
 const settingsModalEl = $("settings-modal");
-const settingsThemeEl = $("settings-theme") as HTMLSelectElement;
 const settingsFontEl = $("settings-font") as HTMLInputElement;
 const settingsFontFamilyEl = $("settings-font-family") as HTMLInputElement;
 const settingsFontLigaturesEl = $("settings-font-ligatures") as HTMLInputElement;
@@ -53,7 +57,9 @@ export type SettingsCategory = "appearance" | "editor" | "keybindings" | "save" 
 /** 切换到指定分类并更新导航高亮；进入 Live Templates 分类时渲染模板列表 */
 function switchCategory(cat: SettingsCategory): void {
   document.querySelectorAll<HTMLElement>(".settings-nav-item").forEach((b) => {
-    b.classList.toggle("active", b.dataset.cat === cat);
+    const sel = b.dataset.cat === cat;
+    b.classList.toggle("active", sel);
+    b.setAttribute("aria-selected", String(sel)); // UI-16：role=tab 的选中态与 .active 同源
   });
   document.querySelectorAll<HTMLElement>(".settings-section").forEach((s) => {
     s.classList.toggle("hidden", s.id !== `settings-section-${cat}`);
@@ -63,6 +69,18 @@ function switchCategory(cat: SettingsCategory): void {
   if (cat === "templates") ltUi.openPanel();
   // 存储页每次进入刷新占用明细（体积随使用变化）
   if (cat === "storage") void loadStorageUsage();
+}
+
+/** UI-24：窄窗口断点，须与 style.css 的 `@media (max-width: 720px)` 保持一致。
+ *  该断点下分类导航由竖排改为横向滚动 tab 条，role=tablist 的 aria-orientation 必须跟着改——
+ *  读屏播报的方向键语义（竖排 ↑↓ / 横排 ←→）与视觉排布不符会直接误导键盘用户。 */
+const NARROW_NAV_QUERY = "(max-width: 720px)";
+
+function syncNavOrientation(): void {
+  const nav = document.querySelector(".settings-nav");
+  if (!nav) return;
+  const horizontal = window.matchMedia(NARROW_NAV_QUERY).matches;
+  nav.setAttribute("aria-orientation", horizontal ? "horizontal" : "vertical");
 }
 
 // ---------- 加载 / 保存 ----------
@@ -107,6 +125,18 @@ export function buildEditorOptions(settings: Settings): MonacoApi.editor.IEditor
   };
   const family = settings.font_family.trim();
   if (family) opts.fontFamily = family;
+  // UI-11：「减少动画」也要管住 Monaco 内部动画——CSS 的 --motion 倍率到不了编辑器内部，
+  // 而光标闪烁是编辑器里最显眼的常驻动画。本函数是创建（main.ts:2315 展开）与设置变更
+  // （applySettings 的 updateOptions）的唯一共用入口，故在此一处写入即全覆盖。
+  //
+  // 必须【双向】显式赋值：updateOptions 是合并语义，未列出的项不会复位到默认值。
+  // 若只在开启时写 "solid"，关掉开关后光标会一直不闪、直到重启才恢复。
+  // "blink" 正是 Monaco 出厂默认，故未开启减少动画时行为与改动前完全一致。
+  opts.cursorBlinking = motionDisabled() ? "solid" : "blink";
+  // 下面两项出厂即为关闭，此处显式写出：一是表明「本开关负责管住它们」，
+  // 二是将来若别处打开了，也会随本函数一并关回去。
+  opts.smoothScrolling = false;
+  opts.cursorSmoothCaretAnimation = "off";
   return opts;
 }
 
@@ -136,6 +166,7 @@ function renderKeybindingRows(): void {
     input.id = kbInputId(m.id);
     input.placeholder = m.def;
     input.spellcheck = false;
+    label.htmlFor = input.id; // 遗留修复：动态生成的行同样要 label↔控件关联（读屏聚焦输入框报得出动作名）
     row.append(label, input);
     container.appendChild(row);
   }
@@ -212,7 +243,7 @@ async function refreshTerminalShellSelect(): Promise<void> {
 
 /** 用给定 settings 填充表单控件 */
 function fillForm(settings: Settings): void {
-  settingsThemeEl.value = settings.theme;
+  setSelectedTheme(settings.theme); // UI-26：原为 settingsThemeEl.value = settings.theme
   settingsFontEl.value = String(settings.font_size);
   settingsFontFamilyEl.value = settings.font_family;
   syncFontPreset(settings.font_family);
@@ -243,12 +274,18 @@ function fillForm(settings: Settings): void {
   }
 }
 
+/** UI-05：设置面板模态的焦点陷阱解除句柄 */
+let releaseSettingsFocus: (() => void) | null = null;
+
 /** 打开设置面板（可指定初始分类；「视图 → Live Templates」快捷入口复用） */
 export function openSettingsPanel(category: SettingsCategory = "appearance"): void {
   fillForm(app.settings);
   void refreshTerminalShellSelect(); // 异步探测可用 shell，完成后重建下拉
   switchCategory(category);
   showEl(settingsModalEl);
+  // UI-05：焦点陷阱（防御性先解除上一次未释放的陷阱，避免异常路径下重复叠加）
+  releaseSettingsFocus?.();
+  releaseSettingsFocus = trapFocus(settingsModalEl);
 }
 
 /** 恢复默认：仅重置表单控件为出厂默认，待用户「保存」才持久化/应用（与「取消」语义对称） */
@@ -259,6 +296,8 @@ function resetSettingsPanel(): void {
 }
 
 function closeSettingsPanel(): void {
+  releaseSettingsFocus?.();
+  releaseSettingsFocus = null;
   hideEl(settingsModalEl);
 }
 
@@ -270,7 +309,7 @@ async function saveSettingsPanel(): Promise<void> {
     await openAlert({ message: kbError, kind: "danger" });
     return;
   }
-  const theme = settingsThemeEl.value;
+  const theme = getSelectedTheme(); // UI-26：原为 settingsThemeEl.value
   const fontSize = clampFontSize(Number(settingsFontEl.value), app.settings.font_size);
   const fontFamily = settingsFontFamilyEl.value.trim();
   const fontLigatures = settingsFontLigaturesEl.checked;
@@ -321,12 +360,21 @@ async function saveSettingsPanel(): Promise<void> {
   app.monaco.editor.setTheme(theme);
   applyShellTheme(theme); // D1：外壳 CSS 主题与 Monaco 同步切换
   refreshTerminalThemes(); // D1：已打开的终端实例重套深浅配色
+  // UI-29：已打开的终端实例跟随新字号/字体族（内部含 refit + PTY resize）。
+  // 两个 devtools 只读预览器沿用第四批 UI-11 的既定裁决——随工具挂载新建、创建时读一次设置，
+  // 重新挂载（切换工具 / 收起再展开面板）即刷新，不做运行时接线。
+  refreshTerminalFonts();
   applyReduceMotion(settingsReduceMotionEl.checked); // D3：「减少动画」开关
-  app.editor.updateOptions(buildEditorOptions(app.settings));
+  // UI-11：同步已存在的终端实例（光标闪烁）。这条路径不能省——「恢复默认」是直接给
+  // .checked 赋值的，不会派发 change 事件，故下方那个即时生效的监听器不会被触发。
+  refreshTerminalMotion();
+  app.editor.updateOptions(buildEditorOptions(app.settings)); // UI-11：内部按 motionDisabled() 决定光标闪烁
   applyModelIndent(app.settings);
   applyFontStatus();
   applyEditorKeybindings(); // 编辑器级键位即时重建（window 级实时匹配无需处理）
   repaintRunWidget(); // 改键后运行组 tooltip 副文本跟随新键位（window 级键位变化不走 renderTabs）
+  // UI-25：欢迎页快捷键网格同理——保存路径不经 updateEditorOverlay，不显式刷就会留着旧键位
+  renderWelcomeShortcuts();
   await saveSettings();
   closeSettingsPanel();
 
@@ -360,6 +408,10 @@ async function applyIntelToggle(enabled: boolean): Promise<void> {
 /** 接线设置面板交互（菜单栏齿轮 + 分类导航 + 面板内按钮 + 遮罩点击关闭） */
 export function wireSettingsPanel(): void {
   renderKeybindingRows(); // 快捷键分区行一次性构建（值由 fillForm 填充）
+  wireThemePicker(); // UI-26：主题预览色卡（卡片构建 + radiogroup 键盘导航；值由 fillForm 填充）
+  // UI-24：窄窗口断点下分类导航转横排，aria-orientation 随之同步（先跑一次覆盖「启动即窄窗口」）
+  syncNavOrientation();
+  window.matchMedia(NARROW_NAV_QUERY).addEventListener("change", syncNavOrientation);
   $btn("btn-settings").addEventListener("click", () => openSettingsPanel());
   $btn("settings-close").addEventListener("click", closeSettingsPanel);
   $btn("settings-cancel").addEventListener("click", closeSettingsPanel);
@@ -393,7 +445,15 @@ export function wireSettingsPanel(): void {
     syncPypiIndexPreset(settingsPypiIndexEl.value.trim());
   });
   // D3 P-06：「减少动画」勾选即时生效（localStorage 持久化，独立于 Settings 结构）
-  settingsReduceMotionEl.addEventListener("change", () => applyReduceMotion(settingsReduceMotionEl.checked));
+  // UI-11：开关即时生效。CSS 侧靠 applyReduceMotion 切换 html[data-reduce-motion] 立即生效，
+  // 这里补上两个管不到的地方：已存在的终端实例、以及主编辑器光标。
+  // 编辑器只单独写 cursorBlinking，不调 buildEditorOptions(app.settings)——后者会读「已保存」的
+  // settings，在用户还没点保存时套用，会把表单里正在调整的字号/字体等改动先视觉回退掉。
+  settingsReduceMotionEl.addEventListener("change", () => {
+    applyReduceMotion(settingsReduceMotionEl.checked);
+    refreshTerminalMotion();
+    app.editor?.updateOptions({ cursorBlinking: motionDisabled() ? "solid" : "blink" });
+  });
   // 日志：打开日志目录（系统资源管理器）
   settingsLogOpenEl.addEventListener("click", () => {
     invoke("open_log_dir").catch((e) => console.warn("打开日志目录失败", e));

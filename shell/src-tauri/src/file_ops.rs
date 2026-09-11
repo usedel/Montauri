@@ -147,6 +147,49 @@ pub fn reveal_in_explorer(path: String) -> Result<(), String> {
     }
 }
 
+/// 用系统默认浏览器打开 URL（Markdown 预览点击外部链接用）。
+/// 仅放行 http/https，杜绝 `javascript:`、`file:` 等协议从预览注入。
+/// 与 reveal_in_explorer 同款的跨平台 spawn + no_window，零新依赖。
+#[tauri::command]
+pub fn open_external(url: String) -> Result<(), String> {
+    let u = url.trim();
+    if !(u.starts_with("http://") || u.starts_with("https://")) {
+        return Err(format!("仅允许 http/https 链接：{u}"));
+    }
+    #[cfg(windows)]
+    {
+        // explorer 直接接受 URL 参数（不经过 shell 解析，避免 & / ^ 等 cmd 元字符被误解释），
+        // 会把 http(s) 交给系统默认浏览器。
+        let mut cmd = std::process::Command::new("explorer");
+        cmd.arg(u);
+        no_window(&mut cmd)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| format!("无法打开浏览器：{e}"))
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(u)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(u)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+    #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
+    {
+        let _ = u;
+        Err("当前平台不支持打开外部链接".into())
+    }
+}
+
 /// 文本写入系统剪贴板（tauri clipboard-manager 插件）。
 #[tauri::command]
 pub fn copy_to_clipboard(app: tauri::AppHandle, text: String) -> Result<(), String> {

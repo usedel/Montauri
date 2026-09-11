@@ -4,7 +4,11 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>OpenCharm</title>
-    <!-- 首屏兜底样式：正式 CSS 由 main.ts 异步注入，此内联样式避免启动瞬间的白底/无样式闪烁（FOUC） -->
+    <!-- 首屏兜底样式：正式 CSS 由 main.ts 异步注入，此内联样式避免启动瞬间的白底/无样式闪烁（FOUC）。
+         必须用字面值而非 var(--token)：本块要在 style.css 之前生效，那时 :root 里的 token 还不存在。
+         ⚠ 因此这里与 style.css 的 token 存在隐式同步义务，改动下列任一 token 时须回来同步：
+           #1e1e1e = --bg · #d4d4d4 = --fg · 13px = --text-base（全局最小字号下限为 11px，见 UI-17）
+           #ffffff / #333333 = 浅色主题的 --bg / --fg -->
     <style>
       html, body {
         margin: 0;
@@ -31,98 +35,144 @@
         <!-- D4 品牌触点：Charm Snake 品牌标（单色，随 --brand） -->
         <span class="menubar-logo" aria-hidden="true"><svg viewBox="0 0 24 24" width="15" height="15"><path d="M6 19C6 15 17 16.5 17 12.5C17 8.5 8 9.5 8 5.8" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><path fill="currentColor" fill-rule="evenodd" d="M10.2 4.9a2.3 2.3 0 1 0-4.6 0a2.3 2.3 0 1 0 4.6 0ZM8 4.3a.7.7 0 1 0-1.4 0a.7.7 0 1 0 1.4 0Z"/><path fill="currentColor" d="M17.5 1.9Q17.5 4.6 20.2 4.6Q17.5 4.6 17.5 7.3Q17.5 4.6 14.8 4.6Q17.5 4.6 17.5 1.9Z"/></svg></span>
         <span class="menubar-title">OpenCharm</span>
-        <button class="menubar-item" data-menu="file">文件</button>
-        <button class="menubar-item" data-menu="edit">编辑</button>
-        <button class="menubar-item" data-menu="view">视图</button>
-        <button class="menubar-item" data-menu="tools">工具</button>
+        <!-- UI-30：菜单按钮声明 aria-haspopup + aria-expanded（开合态由 showMenuDropdown/hideMenuDropdown 同源切换） -->
+        <button class="menubar-item" data-menu="file" aria-haspopup="menu" aria-expanded="false">文件</button>
+        <button class="menubar-item" data-menu="edit" aria-haspopup="menu" aria-expanded="false">编辑</button>
+        <button class="menubar-item" data-menu="view" aria-haspopup="menu" aria-expanded="false">视图</button>
+        <button class="menubar-item" data-menu="tools" aria-haspopup="menu" aria-expanded="false">工具</button>
+        <!-- UI-19：菜单区│动作区分隔线（纯装饰，读屏跳过） -->
+        <span class="menubar-sep" aria-hidden="true"></span>
         <!-- 运行组（C3）：紧跟在「工具」菜单之后、spacer 之前。三独立按钮 ▶/⏹/▾ -->
+        <!-- UI-16：存量 data-tip 图标按钮补齐 aria-label（第四批登记的待办）。内部 <i> 带 aria-hidden，
+             可访问名称只能由 aria-label 提供；data-tip 只服务视觉 tooltip，读屏不感知。 -->
         <div id="run-group">
-          <button id="btn-run" class="menubar-icon" data-tip="运行"><i class="codicon codicon-run" aria-hidden="true"></i></button>
-          <button id="btn-stop" class="menubar-icon" data-tip="停止运行"><i class="codicon codicon-debug-stop" aria-hidden="true"></i></button>
-          <button id="btn-run-menu" class="menubar-icon" data-tip="更多运行选项"><i class="codicon codicon-chevron-down" aria-hidden="true"></i></button>
+          <button id="btn-run" class="menubar-icon" data-tip="运行" aria-label="运行"><i class="codicon codicon-run" aria-hidden="true"></i></button>
+          <button id="btn-stop" class="menubar-icon" data-tip="停止运行" aria-label="停止运行"><i class="codicon codicon-debug-stop" aria-hidden="true"></i></button>
+          <!-- UI-30：▾ 按钮弹出运行菜单（menu.ts showMenu），声明 haspopup；aria-expanded 由 menu.ts 的触发元素跟踪统一切换 -->
+          <button id="btn-run-menu" class="menubar-icon" data-tip="更多运行选项" aria-label="更多运行选项" aria-haspopup="menu" aria-expanded="false"><i class="codicon codicon-chevron-down" aria-hidden="true"></i></button>
         </div>
         <!-- 调试按钮（debug dev plan §6.1）：运行组旁新增「调试」入口 -->
-        <button id="btn-debug" class="menubar-icon" data-tip="调试"><i class="codicon codicon-debug" aria-hidden="true"></i></button>
+        <button id="btn-debug" class="menubar-icon" data-tip="调试" aria-label="调试"><i class="codicon codicon-debug" aria-hidden="true"></i></button>
         <span class="spacer"></span>
-        <button id="btn-settings" class="menubar-icon" data-tip="设置"><i class="codicon codicon-gear" aria-hidden="true"></i></button>
+        <button id="btn-settings" class="menubar-icon" data-tip="设置" aria-label="设置"><i class="codicon codicon-gear" aria-hidden="true"></i></button>
+        <!-- UI-19 / UI-27：设置区│窗口控制区分隔线（动作区与右侧系统区之间由 .spacer 弹性间距分隔） -->
+        <span class="menubar-sep" aria-hidden="true"></span>
         <div id="win-controls">
-          <button id="win-min" class="win-btn" title="最小化"><i class="codicon codicon-chrome-minimize" aria-hidden="true"></i></button>
-          <button id="win-max" class="win-btn" title="最大化"><i class="codicon codicon-chrome-maximize" aria-hidden="true"></i></button>
-          <button id="win-close" class="win-btn win-close" title="关闭"><i class="codicon codicon-chrome-close" aria-hidden="true"></i></button>
+          <!-- UI-09：图标按钮统一走自绘 data-tip。因内部 <i> 带 aria-hidden，可访问名称原先仅由 title 提供，
+               删 title 必须同步补 aria-label，否则屏幕阅读器读到「未命名按钮」（全库 aria-label 此前为 0 处）。 -->
+          <button id="win-min" class="win-btn" data-tip="最小化" aria-label="最小化"><i class="codicon codicon-chrome-minimize" aria-hidden="true"></i></button>
+          <button id="win-max" class="win-btn" data-tip="最大化" aria-label="最大化"><i class="codicon codicon-chrome-maximize" aria-hidden="true"></i></button>
+          <button id="win-close" class="win-btn win-close" data-tip="关闭" aria-label="关闭"><i class="codicon codicon-chrome-close" aria-hidden="true"></i></button>
         </div>
       </nav>
       <div id="main">
         <aside id="sidebar">
           <!-- TD-001 步骤2：VSCode 式 Activity Bar（竖排图标栏）+ 单一视图容器 -->
-          <div id="activity-bar">
-            <button id="tab-files" class="activity-item active" data-tip="资源管理器"><i class="codicon codicon-files" aria-hidden="true"></i></button>
-            <button id="tab-search" class="activity-item" data-tip="搜索"><i class="codicon codicon-search" aria-hidden="true"></i></button>
-            <button id="tab-git" class="activity-item" data-tip="源代码管理"><i class="codicon codicon-source-control" aria-hidden="true"></i></button>
-            <button id="tab-debug" class="activity-item" data-tip="调试"><i class="codicon codicon-debug-alt" aria-hidden="true"></i></button>
+          <!-- UI-16：Activity Bar 是标准的 tabs 模式（竖排 tablist，tab 切换 sidebar-view tabpanel）。
+               aria-selected 由 views.ts::setSidebarTab 与 .active 类同源切换；aria-label 为第四批登记的存量缺口。 -->
+          <div id="activity-bar" role="tablist" aria-orientation="vertical" aria-label="侧栏视图">
+            <button id="tab-files" class="activity-item active" role="tab" aria-selected="true" aria-controls="view-files" aria-label="资源管理器" data-tip="资源管理器"><i class="codicon codicon-files" aria-hidden="true"></i></button>
+            <button id="tab-search" class="activity-item" role="tab" aria-selected="false" aria-controls="view-search" aria-label="搜索" data-tip="搜索"><i class="codicon codicon-search" aria-hidden="true"></i></button>
+            <button id="tab-git" class="activity-item" role="tab" aria-selected="false" aria-controls="view-git" aria-label="源代码管理" data-tip="源代码管理"><i class="codicon codicon-source-control" aria-hidden="true"></i></button>
+            <button id="tab-debug" class="activity-item" role="tab" aria-selected="false" aria-controls="view-debug" aria-label="调试" data-tip="调试"><i class="codicon codicon-debug-alt" aria-hidden="true"></i></button>
           </div>
           <div id="view-container">
             <!-- TD-001：每个视图单一根节点，切换只操作根（见 src/views.ts 注册表） -->
-            <div id="view-files" class="sidebar-view">
+            <div id="view-files" class="sidebar-view" role="tabpanel" aria-labelledby="tab-files">
               <div id="tree-header">
-                <span id="tree-header-text">FILES</span>
-                <button id="btn-tree-collapse" data-tip="全部折叠"><i class="codicon codicon-collapse-all" aria-hidden="true"></i></button>
-                <button id="btn-tree-hidden" data-tip="显示/隐藏隐藏文件"><i class="codicon codicon-eye" aria-hidden="true"></i></button>
-                <button id="btn-tree-refresh" data-tip="刷新文件树"><i class="codicon codicon-refresh" aria-hidden="true"></i></button>
+                <!-- UI-13：分组标题统一中文（原为英文全大写，与其它中文分组标题风格不一致） -->
+                <span id="tree-header-text">文件</span>
+                <!-- UI-09：三个都是图标按钮（内部 <i> 带 aria-hidden），补 aria-label 提供可访问名称。
+                     collapse/refresh 是既有 data-tip 但一直缺名的存量缺口，只补 hidden 一个会让同组 3 按钮不一致，故一并处理。
+                     hidden 的静态文案与 fileTree.ts 初始态（showHiddenFiles=false）对齐，
+                     之后由 syncHiddenFilesBtn() 统一改写 data-tip / aria-label / aria-pressed。 -->
+                <button id="btn-tree-collapse" class="btn btn--ghost btn--icon" data-tip="全部折叠" aria-label="全部折叠"><i class="codicon codicon-collapse-all" aria-hidden="true"></i></button>
+                <button id="btn-tree-hidden" class="btn btn--ghost btn--icon" data-tip="显示 dot 文件" aria-label="显示 dot 文件" aria-pressed="false"><i class="codicon codicon-eye" aria-hidden="true"></i></button>
+                <button id="btn-tree-refresh" class="btn btn--ghost btn--icon" data-tip="刷新文件树" aria-label="刷新文件树"><i class="codicon codicon-refresh" aria-hidden="true"></i></button>
               </div>
               <div id="tree-filter-box">
                 <input id="tree-filter-input" type="text" placeholder="过滤文件…" spellcheck="false" />
               </div>
-              <div id="tree"></div>
+              <!-- UI-16：tree 模式容器。treeitem/group 由 fileTree.ts 渲染时写入；
+                   支持 Ctrl/Shift 多选，故声明 aria-multiselectable -->
+              <div id="tree" role="tree" aria-labelledby="tree-header-text" aria-multiselectable="true"></div>
               <!-- OUTLINE 并入文件视图（TD-001 附带考虑）：header 可折叠 -->
               <div id="outline-section">
-                <div id="outline-header" title="折叠 / 展开大纲">
+                <!-- UI-22：文件树/大纲高度拖拽热区（双击重置为默认 40% 比例），复用 .splitter-row 样式与 layout.ts 拖拽机制 -->
+                <div id="outline-splitter" class="splitter splitter-row" data-tip="拖动调整大纲高度（双击重置）"></div>
+                <!-- UI-16：可点击 div 补 disclosure 语义（role=button + aria-expanded + 键盘激活，main.ts 同步状态） -->
+                <div id="outline-header" data-tip="折叠 / 展开大纲" role="button" tabindex="0" aria-expanded="true" aria-controls="outline">
                   <span id="outline-toggle"><i class="codicon codicon-chevron-down" aria-hidden="true"></i></span>
-                  <span id="outline-title">OUTLINE</span>
+                  <!-- UI-13：分组标题统一中文 -->
+                  <span id="outline-title">大纲</span>
                 </div>
                 <div id="outline"></div>
               </div>
             </div>
-            <div id="view-search" class="sidebar-view hidden">
+            <div id="view-search" class="sidebar-view hidden" role="tabpanel" aria-labelledby="tab-search">
               <div id="search-panel">
                 <div class="search-box">
                   <input id="search-input" type="text" placeholder="搜索工作区…" spellcheck="false" />
-                  <button id="search-case" class="ghost-btn" title="区分大小写">Aa</button>
+                  <!-- UI-09：可见文本「Aa」是符号而非语义名，补 aria-label 让可访问名称有意义；
+                       UI-16：开关态用 aria-pressed 表达（main.ts 与 .active 类同源切换） -->
+                  <button id="search-case" class="btn btn--sm" data-tip="区分大小写" aria-label="区分大小写" aria-pressed="false">Aa</button>
                 </div>
                 <div id="search-results"></div>
               </div>
             </div>
-            <div id="view-git" class="sidebar-view hidden">
+            <div id="view-git" class="sidebar-view hidden" role="tabpanel" aria-labelledby="tab-git">
               <div id="git-panel">
                 <div id="git-branch-bar">
-                  <span id="git-branch-current" title="当前分支">—</span>
-                  <button id="git-branch-btn" title="切换 / 新建分支"><i class="codicon codicon-git-branch" aria-hidden="true"></i></button>
+                  <span id="git-branch-current" data-tip="当前分支">—</span>
+                  <button id="git-branch-btn" class="btn btn--sm btn--icon" data-tip="切换 / 新建分支" aria-label="切换 / 新建分支"><i class="codicon codicon-git-branch" aria-hidden="true"></i></button>
                 </div>
+                <!-- UI-14：按钮文案统一中文（与各提示文案语言一致），不再中英混排 -->
+                <!-- UI-09：文字按钮迁 data-tip 即可（可见文本已是可访问名称，无需 aria-label） -->
                 <div id="git-toolbar">
-                  <button id="git-btn-fetch" title="抓取远程分支"><i class="codicon codicon-sync" aria-hidden="true"></i> Fetch</button>
-                  <button id="git-btn-pull" title="拉取远程更改"><i class="codicon codicon-arrow-down" aria-hidden="true"></i> Pull</button>
-                  <button id="git-btn-push" title="推送到远程"><i class="codicon codicon-arrow-up" aria-hidden="true"></i> Push</button>
-                  <button id="git-btn-stash" title="暂存当前更改">Stash</button>
-                  <button id="git-btn-unstash" title="弹出最近一次 stash">Unstash</button>
-                  <button id="git-btn-history" title="查看提交历史">历史</button>
+                  <button id="git-btn-fetch" class="btn btn--sm" data-tip="抓取远程分支"><i class="codicon codicon-sync" aria-hidden="true"></i>抓取</button>
+                  <button id="git-btn-pull" class="btn btn--sm" data-tip="拉取远程更改"><i class="codicon codicon-arrow-down" aria-hidden="true"></i>拉取</button>
+                  <button id="git-btn-push" class="btn btn--sm" data-tip="推送到远程"><i class="codicon codicon-arrow-up" aria-hidden="true"></i>推送</button>
+                  <button id="git-btn-stash" class="btn btn--sm" data-tip="暂存当前更改">暂存</button>
+                  <button id="git-btn-unstash" class="btn btn--sm" data-tip="弹出最近一次 stash">弹出暂存</button>
+                  <button id="git-btn-history" class="btn btn--sm" data-tip="查看提交历史">历史</button>
                 </div>
                 <div id="git-branch-list" class="hidden"></div>
                 <div id="git-commit-box">
                   <textarea id="git-commit-msg" rows="2" placeholder="提交信息…" spellcheck="false"></textarea>
-                  <button id="git-commit-btn" title="提交已暂存更改">提交</button>
+                  <!-- UI-09 例外：可禁用按钮保留原生 title。git.ts:155 在无暂存内容时禁用本按钮（常态），
+                       而 Chromium 不向禁用表单控件派发鼠标事件，data-tip 会静默失效；原生 title 走渲染层命中测试，禁用态仍显示。 -->
+                  <button id="git-commit-btn" class="btn btn--primary" title="提交已暂存更改">提交</button>
                 </div>
                 <div id="git-changes"></div>
                 <div id="git-history" class="hidden"></div>
               </div>
             </div>
             <!-- 调试侧栏（debug dev plan §6.1）：工具栏/调用栈/变量/断点，initDebugView 构建内容 -->
-            <div id="view-debug" class="sidebar-view hidden"></div>
+            <div id="view-debug" class="sidebar-view hidden" role="tabpanel" aria-labelledby="tab-debug"></div>
           </div>
           <!-- D2 P-03：侧栏宽度拖拽热区（双击重置） -->
-          <div id="sidebar-splitter" class="splitter splitter-col" title="拖动调整侧栏宽度（双击重置）"></div>
+          <div id="sidebar-splitter" class="splitter splitter-col" data-tip="拖动调整侧栏宽度（双击重置）"></div>
         </aside>
         <div id="center">
-          <div id="tabbar"></div>
-          <div id="editor"></div>
+          <!-- UI-16：编辑器标签 tablist。tab 由 main.ts::renderTabs 动态渲染（role=tab + aria-selected + 漫游 tabindex）。
+               不设 aria-controls：所有 tab 共享同一个 Monaco 编辑器面板，逐 tab 声明独立 tabpanel 与事实不符 -->
+          <div id="tabbar" role="tablist" aria-label="打开的编辑器"></div>
+          <div id="editor-row">
+            <div id="editor"></div>
+            <!-- Markdown 预览分隔条（markdown preview dev plan §5-T2）：拖动调整预览宽度，双击重置 -->
+            <div id="md-splitter" data-tip="拖动调整 Markdown 预览宽度（双击重置）"></div>
+            <!-- Markdown 预览面板（默认隐藏；仅活动 .md tab 且开关开启时显示） -->
+            <div id="md-preview" class="hidden"></div>
+            <!-- 方案A：预览开关按钮（悬浮编辑区右上角，活动 .md 时可见） -->
+            <button id="btn-md-preview" class="hidden" data-tip="打开 Markdown 预览" aria-label="打开 Markdown 预览" aria-pressed="false"><i class="codicon codicon-split-horizontal" aria-hidden="true"></i></button>
+            <!-- 导出 HTML（P3）：右上角，与预览开关按钮并列 -->
+            <button id="btn-md-export" class="hidden" data-tip="导出为 HTML" aria-label="导出为 HTML"><i class="codicon codicon-desktop-download" aria-hidden="true"></i></button>
+            <!-- 方案D：一次性引导提示（首次打开 .md 且预览未开启时出现一次） -->
+            <div id="md-preview-hint" class="hidden">
+              <span id="md-preview-hint-text">按 Ctrl+Shift+V 或点击右上角图标打开 Markdown 预览</span>
+              <button id="md-preview-hint-close" class="md-preview-hint-close" aria-label="关闭提示"><i class="codicon codicon-close" aria-hidden="true"></i></button>
+            </div>
+          </div>
           <div id="editor-overlay">
             <div id="ew-get-started" class="ew-card">
               <div class="ew-brand">
@@ -135,51 +185,49 @@
               </div>
 
               <div id="ew-actions" class="ew-actions">
-                <button id="ew-open-folder" class="primary"><span class="icon"><i class="codicon codicon-folder-opened" aria-hidden="true"></i></span>打开文件夹</button>
-                <button id="ew-new-project"><span class="icon"><i class="codicon codicon-add" aria-hidden="true"></i></span>新建项目</button>
+                <button id="ew-open-folder" class="btn btn--lg btn--primary"><span class="icon"><i class="codicon codicon-folder-opened" aria-hidden="true"></i></span>打开文件夹</button>
+                <button id="ew-new-project" class="btn btn--lg"><span class="icon"><i class="codicon codicon-add" aria-hidden="true"></i></span>新建项目</button>
               </div>
 
               <div id="ew-recent-section" class="ew-section hidden">
                 <div class="ew-section-title ew-recent-title">
                   最近的工作区
-                  <button id="ew-recent-clear" class="ew-recent-clear" title="清空最近的工作区"><i class="codicon codicon-clear-all" aria-hidden="true"></i></button>
+                  <button id="ew-recent-clear" class="ew-recent-clear" data-tip="清空最近的工作区" aria-label="清空最近的工作区"><i class="codicon codicon-clear-all" aria-hidden="true"></i></button>
                 </div>
                 <div id="ew-recent-list"></div>
               </div>
 
               <div class="ew-section">
                 <div class="ew-section-title">快捷键</div>
-                <div class="ew-shortcuts">
-                  <div class="ew-shortcut"><kbd>Ctrl</kbd><kbd>S</kbd><span class="label">保存文件</span></div>
-                  <div class="ew-shortcut"><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>F</kbd><span class="label">全局搜索</span></div>
-                  <div class="ew-shortcut"><kbd>Ctrl</kbd><kbd>F10</kbd><span class="label">运行当前文件</span></div>
-                  <div class="ew-shortcut"><kbd>F12</kbd><span class="label">跳转到定义</span></div>
-                  <div class="ew-shortcut"><kbd>Shift</kbd><kbd>F12</kbd><span class="label">查找引用</span></div>
-                  <div class="ew-shortcut"><kbd>Shift</kbd><kbd>Alt</kbd><kbd>F</kbd><span class="label">格式化文档</span></div>
-                </div>
+                <!-- UI-25：内容由 welcomeShortcuts.ts 按键位系统动态渲染（原为 6 行硬编码 kbd，
+                     用户在设置里改键后这里仍显示出厂默认值）。首屏不会露空：main.ts::init 在首个 await
+                     （Monaco 动态包）之前同步渲染一次出厂键位，设置加载完成后由 updateEditorOverlay 刷新为真实值。 -->
+                <div class="ew-shortcuts" id="ew-shortcuts"></div>
               </div>
             </div>
           </div>
         </div>
         <!-- 右侧开发工具面板（非模态，方案 B）：与编辑器同时可见，工具以顶部 tab 切换 -->
         <div id="right-panel" class="hidden">
-          <div id="right-splitter" class="splitter splitter-col-left" title="拖动调整面板宽度（双击重置）"></div>
+          <div id="right-splitter" class="splitter splitter-col-left" data-tip="拖动调整面板宽度（双击重置）"></div>
           <div id="devtools-header">
-            <div id="devtools-tabs"></div>
+            <!-- UI-16：工具切换 tablist（tab 由 panel.ts 渲染，aria-controls 共同指向共享面板 #devtools-body） -->
+            <div id="devtools-tabs" role="tablist" aria-label="开发工具"></div>
             <span class="spacer"></span>
-            <button id="devtools-close" class="env-close" title="收起面板"><i class="codicon codicon-close" aria-hidden="true"></i></button>
+            <button id="devtools-close" class="btn btn--ghost btn--icon" data-tip="收起面板" aria-label="收起面板"><i class="codicon codicon-close" aria-hidden="true"></i></button>
           </div>
-          <div id="devtools-body" class="devtools-body"></div>
+          <div id="devtools-body" class="devtools-body" role="tabpanel" aria-label="工具面板"></div>
         </div>
       </div>
       <div id="bottom">
         <!-- D2 P-03：底部面板高度拖拽热区（双击重置） -->
-        <div id="bottom-splitter" class="splitter splitter-row" title="拖动调整面板高度（双击重置）"></div>
+        <div id="bottom-splitter" class="splitter splitter-row" data-tip="拖动调整面板高度（双击重置）"></div>
         <div id="output-header">
-          <div id="bottom-tabs">
-            <button id="tab-output" class="bottom-tab active">输出</button>
-            <button id="tab-terminal" class="bottom-tab">终端</button>
-            <button id="tab-diff" class="bottom-tab">差异</button>
+          <!-- UI-16：底部面板 tabs 模式；aria-selected 由 termUi.ts::setBottomTab 与 .active 同源切换 -->
+          <div id="bottom-tabs" role="tablist" aria-label="底部面板">
+            <button id="tab-output" class="bottom-tab active" role="tab" aria-selected="true" aria-controls="output">输出</button>
+            <button id="tab-terminal" class="bottom-tab" role="tab" aria-selected="false" aria-controls="terminal-panel">终端</button>
+            <button id="tab-diff" class="bottom-tab" role="tab" aria-selected="false" aria-controls="git-diff-panel">差异</button>
           </div>
           <span class="spacer"></span>
           <select id="terminal-cmd" class="hidden" title="高频命令">
@@ -192,10 +240,10 @@
             <option value="uv pip uninstall " data-run="0">uv pip uninstall …</option>
             <option value="uv add " data-run="0">uv add …</option>
           </select>
-          <button id="btn-clear-output" data-tip="清空输出">清空</button>
-          <button id="btn-toggle-output" data-tip="收起/展开面板"><i class="codicon codicon-chevron-down" aria-hidden="true"></i></button>
+          <button id="btn-clear-output" class="btn btn--sm" data-tip="清空输出">清空</button>
+          <button id="btn-toggle-output" class="btn btn--sm btn--icon" data-tip="收起/展开面板"><i class="codicon codicon-chevron-down" aria-hidden="true"></i></button>
         </div>
-        <div id="output"></div>
+        <div id="output" role="tabpanel" aria-labelledby="tab-output"></div>
         <!-- S4：交互式运行的输入行（仅 stdin=「交互式」且运行中可见）。
              提示符经 chunk 转发即时显示在上方输出里，用户在此逐行应答（Enter 发送，Esc 交回焦点） -->
         <div id="run-stdin-row" class="hidden">
@@ -204,58 +252,68 @@
                  placeholder="输入一行后回车发送给脚本（Esc 把焦点交回编辑器）" />
           <span id="run-stdin-status">等待输入…</span>
         </div>
-        <div id="git-diff-panel" class="hidden">
+        <div id="git-diff-panel" class="hidden" role="tabpanel" aria-labelledby="tab-diff">
           <div id="git-diff-header">
             <span id="git-diff-label">—</span>
-            <button id="git-diff-blame" class="ghost-btn" title="逐行 Blame">Blame</button>
-            <button id="git-diff-close" class="ghost-btn" title="关闭差异视图"><i class="codicon codicon-close" aria-hidden="true"></i></button>
+            <button id="git-diff-blame" class="btn btn--sm" data-tip="逐行 Blame">Blame</button>
+            <button id="git-diff-close" class="btn btn--sm btn--icon" data-tip="关闭差异视图" aria-label="关闭差异视图"><i class="codicon codicon-close" aria-hidden="true"></i></button>
           </div>
           <div id="git-diff-editor"></div>
         </div>
-        <div id="terminal-panel" class="hidden">
-          <div id="terminal-tabs"></div>
+        <div id="terminal-panel" class="hidden" role="tabpanel" aria-labelledby="tab-terminal">
+          <!-- UI-16：终端会话 tabs（tab 由 termUi.ts 渲染）；每个 .terminal-view 是 tabpanel -->
+          <div id="terminal-tabs" role="tablist" aria-label="终端会话"></div>
           <div id="terminal-views"></div>
         </div>
       </div>
       <footer id="statusbar">
         <span id="status-file"></span>
-        <span id="status-git" title="当前分支" style="cursor:default"></span>
+        <!-- UI-09：与同栏的 #status-interpreter / #status-engine 统一走 data-tip，消除状态栏内的 tooltip 双轨 -->
+        <span id="status-git" data-tip="当前分支" style="cursor:default"></span>
         <span class="spacer"></span>
         <span id="status-font" style="cursor:default"></span>
-        <span id="status-interpreter" data-tip="点击管理 Python 环境" style="cursor:pointer"></span>
-        <span id="status-engine" data-tip="点击切换静态语义引擎" style="cursor:pointer" tabindex="0"></span>
+        <!-- 状态栏芯片语义（第六批登记，第七批顺带处理）：可点击 span 补 role=button + aria-haspopup +
+             tabindex，使其成为可读屏、可键盘操作的按钮。interpreter 弹环境面板(dialog)、engine 弹引擎菜单(menu)。
+             UI-30：aria-expanded 开合态已接——engine 由 menu.ts 的触发元素跟踪统一切换，
+             interpreter 由 main.ts 的 openEnvPanel/closeEnvPanel 与模态显隐同源切换。 -->
+        <span id="status-interpreter" data-tip="点击管理 Python 环境" style="cursor:pointer" role="button" aria-haspopup="dialog" aria-expanded="false" tabindex="0"></span>
+        <span id="status-engine" data-tip="点击切换静态语义引擎" style="cursor:pointer" role="button" aria-haspopup="menu" aria-expanded="false" tabindex="0"></span>
         <span id="status-lsp"></span>
       </footer>
     </div>
-    <!-- 树右键菜单（自绘 div，非原生 contextmenu） -->
-    <div id="ctx-menu" class="ctx-menu hidden"></div>
+    <!-- 树右键菜单（自绘 div，非原生 contextmenu）。UI-30：三个弹出菜单容器均声明 role=menu，
+         菜单项 role=menuitem / 分隔符 role=separator 由各渲染器（menu.ts / main.ts 菜单栏）动态设置 -->
+    <div id="ctx-menu" class="ctx-menu hidden" role="menu"></div>
     <!-- 菜单栏下拉 -->
-    <div id="menu-dropdown" class="ctx-menu hidden"></div>
+    <div id="menu-dropdown" class="ctx-menu hidden" role="menu"></div>
     <!-- 菜单栏级联子菜单（flyout，如「文件 → 最近的工作区」） -->
-    <div id="menu-submenu" class="ctx-menu hidden"></div>
+    <div id="menu-submenu" class="ctx-menu hidden" role="menu"></div>
     <!-- 确认模态：统一自绘消息框（TD-008），openConfirm/openAlert 共用 #confirm-modal -->
+    <!-- UI-16：dialog 语义。confirm/alert 的标题可省略（dialog.ts 动态隐藏 #confirm-title），
+         故 aria-labelledby 由 dialog.ts::openModal 按有无标题动态切换为 aria-label（消息首行） -->
     <div id="confirm-modal" class="modal hidden">
-      <div class="modal-card">
+      <div class="modal-card" role="dialog" aria-modal="true" aria-describedby="confirm-message">
         <div id="confirm-title" class="modal-title"></div>
         <div id="confirm-message" class="confirm-message"></div>
         <div class="modal-actions">
-          <button id="confirm-ok" class="primary">确定</button>
-          <button id="confirm-cancel">取消</button>
+          <!-- UI-08：primary/danger 形态由 dialog.ts::applyKind 动态切换 btn--primary / btn--danger -->
+          <button id="confirm-ok" class="btn btn--primary">确定</button>
+          <button id="confirm-cancel" class="btn">取消</button>
         </div>
       </div>
     </div>
     <!-- Python 环境面板（模态） -->
     <div id="env-modal" class="modal hidden">
-      <div class="modal-card env-card">
+      <div class="modal-card env-card" role="dialog" aria-modal="true" aria-labelledby="env-modal-title">
         <div class="env-header">
-          <span class="env-title">Python 环境</span>
+          <span id="env-modal-title" class="env-title">Python 环境</span>
           <span class="spacer"></span>
-          <button id="env-close" class="env-close"><i class="codicon codicon-close" aria-hidden="true"></i></button>
+          <button id="env-close" class="btn btn--ghost btn--icon"><i class="codicon codicon-close" aria-hidden="true"></i></button>
         </div>
         <div class="env-body">
           <div id="env-pyproject-banner" class="env-banner hidden">
             <span class="env-banner-text">当前工作区没有 <code>pyproject.toml</code>，<code>uv run</code> 语义不明确；生成后依赖管理与运行更可靠。</span>
-            <button id="env-pyproject-init" class="env-mini-btn">生成 pyproject.toml</button>
+            <button id="env-pyproject-init" class="btn btn--sm">生成 pyproject.toml</button>
           </div>
           <div class="env-section">
             <div class="env-section-title">解释器</div>
@@ -263,62 +321,64 @@
           </div>
           <div class="env-row">
             <select id="env-version-select" title="选择 Python 版本"></select>
-            <button id="env-create">创建 .venv</button>
+            <button id="env-create" class="btn">创建 .venv</button>
           </div>
           <div class="env-section">
             <div class="env-section-title">已安装包 <span id="env-pkg-count" class="env-pkg-count"></span></div>
             <div class="env-pkg-toolbar">
-              <button id="env-pkg-upgrade-all" class="env-mini-btn" title="升级全部过时包">升级全部</button>
-              <button id="env-pkg-uninstall-selected" class="env-mini-btn" title="卸载勾选的包" disabled>卸载所选</button>
+              <!-- UI-09 例外：两者均由 updatePkgToolbar() 动态禁用（无过时包 / 未勾选时），禁用态下
+                   data-tip 收不到鼠标事件，故保留原生 title——恰是解释「为何灰掉」的关键提示。 -->
+              <button id="env-pkg-upgrade-all" class="btn btn--sm" title="升级全部过时包">升级全部</button>
+              <button id="env-pkg-uninstall-selected" class="btn btn--sm" title="卸载勾选的包" disabled>卸载所选</button>
             </div>
             <div id="env-packages" class="env-packages"></div>
           </div>
           <div class="env-row">
             <input id="env-pkg-input" type="text" placeholder="requests==2.31" spellcheck="false" />
-            <button id="env-pkg-install">安装</button>
+            <button id="env-pkg-install" class="btn">安装</button>
           </div>
         </div>
       </div>
     </div>
     <!-- 首启数据落位提示（docs/disk-space-plan.md P2-a） -->
     <div id="storage-onboarding-modal" class="modal hidden">
-      <div class="modal-card new-project-card">
+      <div class="modal-card new-project-card" role="dialog" aria-modal="true" aria-labelledby="storage-ob-title" aria-describedby="storage-ob-hint">
         <div class="env-header">
-          <span class="env-title">选择数据存储位置</span>
+          <span id="storage-ob-title" class="env-title">选择数据存储位置</span>
         </div>
         <div class="settings-body">
-          <div class="settings-hint">请设置数据目录，之后随时可在「设置 → 存储」中迁移。</div>
+          <div id="storage-ob-hint" class="settings-hint">请设置数据目录，之后随时可在「设置 → 存储」中迁移。</div>
         </div>
         <div class="modal-actions">
-          <button id="storage-ob-default" class="primary">使用默认位置</button>
-          <button id="storage-ob-custom">自定义位置…</button>
+          <button id="storage-ob-default" class="btn btn--primary">使用默认位置</button>
+          <button id="storage-ob-custom" class="btn">自定义位置…</button>
         </div>
       </div>
     </div>
     <!-- 新建项目面板（模态） -->
     <div id="new-project-modal" class="modal hidden">
-      <div class="modal-card new-project-card">
+      <div class="modal-card new-project-card" role="dialog" aria-modal="true" aria-labelledby="new-project-title">
         <div class="env-header">
-          <span class="env-title">新建项目</span>
+          <span id="new-project-title" class="env-title">新建项目</span>
           <span class="spacer"></span>
-          <button id="new-project-close" class="env-close"><i class="codicon codicon-close" aria-hidden="true"></i></button>
+          <button id="new-project-close" class="btn btn--ghost btn--icon"><i class="codicon codicon-close" aria-hidden="true"></i></button>
         </div>
         <div class="settings-body">
           <div class="settings-row">
-            <label>项目名称</label>
+            <label for="new-project-name">项目名称</label>
             <input id="new-project-name" type="text" placeholder="my-project" spellcheck="false" />
           </div>
           <div class="settings-row">
-            <label>位置</label>
+            <label for="new-project-location">位置</label>
             <input id="new-project-location" type="text" placeholder="F:\path\to\parent" spellcheck="false" />
-            <button id="new-project-browse">浏览…</button>
+            <button id="new-project-browse" class="btn">浏览…</button>
           </div>
           <div class="settings-row">
-            <label>初始化 Git 仓库</label>
+            <label for="new-project-git">初始化 Git 仓库</label>
             <input id="new-project-git" type="checkbox" checked />
           </div>
           <div class="settings-row">
-            <label>Python 环境</label>
+            <label for="new-project-env-type">Python 环境</label>
             <select id="new-project-env-type">
               <option value="venv">venv（创建虚拟环境）</option>
               <option value="system">使用已安装的解释器</option>
@@ -326,33 +386,33 @@
             </select>
           </div>
           <div class="settings-row" id="new-project-version-row">
-            <label>Python 版本</label>
+            <label for="new-project-version">Python 版本</label>
             <select id="new-project-version"></select>
           </div>
           <div id="new-project-preview" class="new-project-preview"></div>
         </div>
         <div class="modal-actions">
-          <button id="new-project-create" class="primary">创建</button>
-          <button id="new-project-cancel">取消</button>
+          <button id="new-project-create" class="btn btn--primary">创建</button>
+          <button id="new-project-cancel" class="btn">取消</button>
         </div>
       </div>
     </div>
     <!-- 运行配置面板（模态，P3 建议 2：Parameters / 环境变量，持久化到工作区配置，不侵入项目） -->
     <div id="run-config-modal" class="modal hidden">
-      <div class="modal-card new-project-card">
+      <div class="modal-card new-project-card" role="dialog" aria-modal="true" aria-labelledby="run-config-title">
         <div class="env-header">
-          <span class="env-title">运行配置</span>
+          <span id="run-config-title" class="env-title">运行配置</span>
           <span class="spacer"></span>
-          <button id="run-config-close" class="env-close"><i class="codicon codicon-close" aria-hidden="true"></i></button>
+          <button id="run-config-close" class="btn btn--ghost btn--icon"><i class="codicon codicon-close" aria-hidden="true"></i></button>
         </div>
         <div class="settings-body">
           <div class="settings-hint" id="run-config-target"></div>
           <div class="settings-row">
-            <label>参数 (Parameters)</label>
+            <label for="run-config-args">参数 (Parameters)</label>
             <input id="run-config-args" type="text" placeholder="--flag value  含空格用引号" spellcheck="false" />
           </div>
           <div class="settings-row">
-            <label>标准输入 (stdin)</label>
+            <label for="run-config-stdin-mode">标准输入 (stdin)</label>
             <select id="run-config-stdin-mode" title="脚本读取标准输入时的来源">
               <option value="null">不接输入（input() 立即 EOF）</option>
               <option value="file">重定向自文件（Redirect input from）</option>
@@ -362,56 +422,62 @@
           <div class="settings-row hidden" id="run-config-stdin-path-row">
             <span class="settings-label-gap"></span>
             <input id="run-config-stdin-path" type="text" placeholder="F:\data\in.txt" spellcheck="false" />
-            <button id="run-config-stdin-browse">浏览…</button>
+            <button id="run-config-stdin-browse" class="btn">浏览…</button>
           </div>
           <div class="settings-row settings-row-col">
-            <label>环境变量（每行 KEY=VALUE）</label>
+            <label for="run-config-env">环境变量（每行 KEY=VALUE）</label>
             <textarea id="run-config-env" rows="5" placeholder="MY_VAR=1&#10;OTHER=abc" spellcheck="false"></textarea>
           </div>
         </div>
         <div class="modal-actions">
-          <button id="run-config-save" class="primary">保存</button>
-          <button id="run-config-cancel">取消</button>
+          <button id="run-config-save" class="btn btn--primary">保存</button>
+          <button id="run-config-cancel" class="btn">取消</button>
         </div>
       </div>
     </div>
     <!-- 设置面板（模态，P25-T09；P1 左右分栏 + Live Templates 内嵌） -->
     <div id="settings-modal" class="modal hidden">
-      <div class="modal-card settings-card">
+      <div class="modal-card settings-card" role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <div class="env-header">
           <!-- D4 品牌触点：设置头部 Charm Snake 品牌标 -->
           <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16"><path d="M6 19C6 15 17 16.5 17 12.5C17 8.5 8 9.5 8 5.8" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><path fill="currentColor" fill-rule="evenodd" d="M10.2 4.9a2.3 2.3 0 1 0-4.6 0a2.3 2.3 0 1 0 4.6 0ZM8 4.3a.7.7 0 1 0-1.4 0a.7.7 0 1 0 1.4 0Z"/><path fill="currentColor" d="M17.5 1.9Q17.5 4.6 20.2 4.6Q17.5 4.6 17.5 7.3Q17.5 4.6 14.8 4.6Q17.5 4.6 17.5 1.9Z"/></svg></span>
-          <span class="env-title">设置</span>
+          <span id="settings-title" class="env-title">设置</span>
           <span class="spacer"></span>
-          <button id="settings-close" class="env-close"><i class="codicon codicon-close" aria-hidden="true"></i></button>
+          <button id="settings-close" class="btn btn--ghost btn--icon"><i class="codicon codicon-close" aria-hidden="true"></i></button>
         </div>
         <div class="settings-layout">
-          <nav class="settings-nav">
-            <button class="settings-nav-item active" data-cat="appearance">外观</button>
-            <button class="settings-nav-item" data-cat="editor">编辑器</button>
-            <button class="settings-nav-item" data-cat="keybindings">快捷键</button>
-            <button class="settings-nav-item" data-cat="save">保存</button>
-            <button class="settings-nav-item" data-cat="python">Python / 运行时</button>
-            <button class="settings-nav-item" data-cat="templates">Live Templates</button>
-            <button class="settings-nav-item" data-cat="terminal">终端</button>
-            <button class="settings-nav-item" data-cat="logging">日志</button>
-            <button class="settings-nav-item" data-cat="storage">存储</button>
+          <!-- UI-16：分类导航是竖排 tabs 模式；aria-selected 由 settingsPanel.ts::switchCategory 与 .active 同源切换 -->
+          <nav class="settings-nav" role="tablist" aria-orientation="vertical" aria-label="设置分类">
+            <button class="settings-nav-item active" role="tab" aria-selected="true" aria-controls="settings-section-appearance" data-cat="appearance">外观</button>
+            <button class="settings-nav-item" role="tab" aria-selected="false" aria-controls="settings-section-editor" data-cat="editor">编辑器</button>
+            <button class="settings-nav-item" role="tab" aria-selected="false" aria-controls="settings-section-keybindings" data-cat="keybindings">快捷键</button>
+            <button class="settings-nav-item" role="tab" aria-selected="false" aria-controls="settings-section-save" data-cat="save">保存</button>
+            <button class="settings-nav-item" role="tab" aria-selected="false" aria-controls="settings-section-python" data-cat="python">Python / 运行时</button>
+            <button class="settings-nav-item" role="tab" aria-selected="false" aria-controls="settings-section-templates" data-cat="templates">Live Templates</button>
+            <button class="settings-nav-item" role="tab" aria-selected="false" aria-controls="settings-section-terminal" data-cat="terminal">终端</button>
+            <button class="settings-nav-item" role="tab" aria-selected="false" aria-controls="settings-section-logging" data-cat="logging">日志</button>
+            <button class="settings-nav-item" role="tab" aria-selected="false" aria-controls="settings-section-storage" data-cat="storage">存储</button>
           </nav>
           <div class="settings-content">
-            <div id="settings-section-appearance" class="settings-section">
+            <div id="settings-section-appearance" class="settings-section" role="tabpanel">
               <div class="settings-row">
-                <label>主题</label>
-                <select id="settings-theme">
-                  <option value="vs-dark">Dark</option>
-                  <option value="vs">Light</option>
-                </select>
+                <label id="settings-theme-label">主题</label>
+                <!-- UI-26：原生 <select> 的 <option> 内放不下色卡，改为自绘单选组（深/浅各一张迷你预览卡）。
+                     卡片由 themePicker.ts 渲染并接线键盘（←→↑↓ 移动即选中、Home/End 跳首尾）；
+                     role=radiogroup 的可访问名称取自左侧 label——radiogroup 是 div、非 labelable 元素，
+                     label 无法用 for 关联，aria-labelledby 是唯一正确方式（此行不设 for 属刻意保留）。
+                     值真源 = 卡片的 aria-checked，读写经 themePicker 的 get/setSelectedTheme；
+                     与原 select 一致，切换只改表单值，点「保存」才真正套用主题。 -->
+                <div id="settings-theme-picker" class="theme-picker" role="radiogroup" aria-labelledby="settings-theme-label"></div>
               </div>
               <div class="settings-row">
-                <label>字号</label>
+                <label for="settings-font">字号</label>
                 <input id="settings-font" type="number" min="8" max="32" />
               </div>
               <div class="settings-row">
-                <label>字体族</label>
+                <!-- 双控件行（预设下拉 + 自定义输入）：label 的 for 只能指向一个控件，取阅读顺序在前的预设下拉；
+                     自定义输入框另给 aria-label，保证两个控件聚焦时读屏都报得出名称 -->
+                <label for="settings-font-family-preset">字体族</label>
                 <!-- D3 P-14：常用等宽字体候选 + 自定义输入，改动即时预览 -->
                 <select id="settings-font-family-preset" title="常用等宽字体">
                   <option value='Consolas, "Cascadia Code", "JetBrains Mono", monospace'>默认（Consolas / Cascadia / JetBrains）</option>
@@ -421,49 +487,49 @@
                   <option value='"Fira Code"'>Fira Code</option>
                   <option value="__custom__">自定义…</option>
                 </select>
-                <input id="settings-font-family" type="text" placeholder="字体栈（逗号分隔多个）" spellcheck="false" />
+                <input id="settings-font-family" type="text" placeholder="字体栈（逗号分隔多个）" aria-label="自定义字体栈" spellcheck="false" />
               </div>
               <div class="settings-row">
-                <label>连字（ligatures）</label>
+                <label for="settings-font-ligatures">连字（ligatures）</label>
                 <input id="settings-font-ligatures" type="checkbox" />
               </div>
               <div class="settings-row">
-                <label>动效</label>
+                <label for="settings-reduce-motion">动效</label>
                 <input id="settings-reduce-motion" type="checkbox" />
               </div>
               <div class="settings-hint">勾选「动效」= 减少动画：禁用模态 / 面板 / 菜单的过渡动画（系统「减少动态效果」偏好自动生效）。</div>
             </div>
-            <div id="settings-section-editor" class="settings-section hidden">
+            <div id="settings-section-editor" class="settings-section hidden" role="tabpanel">
               <div class="settings-row">
-                <label>Tab 宽度</label>
+                <label for="settings-tab-size">Tab 宽度</label>
                 <input id="settings-tab-size" type="number" min="1" max="8" />
               </div>
               <div class="settings-row">
-                <label>空格缩进</label>
+                <label for="settings-insert-spaces">空格缩进</label>
                 <input id="settings-insert-spaces" type="checkbox" />
               </div>
               <div class="settings-row">
-                <label>自动换行</label>
+                <label for="settings-word-wrap">自动换行</label>
                 <select id="settings-word-wrap">
                   <option value="off">关闭</option>
                   <option value="on">开启</option>
                 </select>
               </div>
               <div class="settings-row">
-                <label>迷你地图</label>
+                <label for="settings-minimap">迷你地图</label>
                 <input id="settings-minimap" type="checkbox" />
               </div>
             </div>
-            <div id="settings-section-keybindings" class="settings-section hidden">
+            <div id="settings-section-keybindings" class="settings-section hidden" role="tabpanel">
               <div id="settings-keybinding-rows"></div>
               <div class="settings-hint">
                 格式：修饰键（Ctrl / Shift / Alt）+ 键名，如 <code>Ctrl+Shift+F</code>；支持字母、数字、F1–F24 与
                 <code>/ - , . ; [ ]</code> 等符号键；留空表示解绑。跳转定义的 F12 与 Ctrl+点击固定保留。
               </div>
             </div>
-            <div id="settings-section-save" class="settings-section hidden">
+            <div id="settings-section-save" class="settings-section hidden" role="tabpanel">
               <div class="settings-row">
-                <label>自动保存</label>
+                <label for="settings-autosave">自动保存</label>
                 <select id="settings-autosave">
                   <option value="off">关闭</option>
                   <option value="delay">延迟 1s</option>
@@ -471,28 +537,29 @@
                 </select>
               </div>
               <div class="settings-row">
-                <label>保存时格式化（ruff）</label>
+                <label for="settings-format-on-save">保存时格式化（ruff）</label>
                 <input id="settings-format-on-save" type="checkbox" />
               </div>
             </div>
-            <div id="settings-section-python" class="settings-section hidden">
+            <div id="settings-section-python" class="settings-section hidden" role="tabpanel">
               <div class="settings-row">
-                <label>LSP 引擎默认值</label>
+                <label for="settings-engine">LSP 引擎默认值</label>
                 <select id="settings-engine">
                   <option value="pyrefly">pyrefly</option>
                   <option value="basedpyright">basedpyright</option>
                 </select>
               </div>
               <div class="settings-row">
-                <label>运行时采集（探针）</label>
+                <label for="settings-probe">运行时采集（探针）</label>
                 <input id="settings-probe" type="checkbox" />
               </div>
               <div class="settings-row">
-                <label>运行时智能层（intel）</label>
+                <label for="settings-intel">运行时智能层（intel）</label>
                 <input id="settings-intel" type="checkbox" />
               </div>
               <div class="settings-row">
-                <label>PyPI 镜像源</label>
+                <!-- 双控件行：for 指向阅读顺序在前的预设下拉，自定义输入框另给 aria-label（同「字体族」行） -->
+                <label for="settings-pypi-index-preset">PyPI 镜像源</label>
                 <!-- uv 拉取依赖的包源：预设下拉 + 自定义输入，默认官方源 -->
                 <select id="settings-pypi-index-preset" title="PyPI 包源（uv 拉取依赖）">
                   <option value="https://pypi.org/simple">官方源（pypi.org）</option>
@@ -502,10 +569,10 @@
                   <option value="https://pypi.mirrors.ustc.edu.cn/simple/">中国科学技术大学</option>
                   <option value="__custom__">自定义…</option>
                 </select>
-                <input id="settings-pypi-index" type="text" placeholder="https://pypi.org/simple" spellcheck="false" />
+                <input id="settings-pypi-index" type="text" placeholder="https://pypi.org/simple" aria-label="自定义包源地址" spellcheck="false" />
               </div>
             </div>
-            <div id="settings-section-templates" class="settings-section settings-section-templates hidden">
+            <div id="settings-section-templates" class="settings-section settings-section-templates hidden" role="tabpanel">
               <div class="lt-toolbar">
                 <select id="lt-layer" title="编辑/保存的目标配置层">
                   <option value="user">用户全局层</option>
@@ -515,13 +582,15 @@
                 <select id="lt-group-filter" title="按分组筛选模板">
                   <option value="__all__">全部分组</option>
                 </select>
-                <button id="lt-group-rename" title="重命名当前选中的分组" disabled>重命名</button>
-                <button id="lt-batch-enable" title="启用当前筛选出的全部模板">批量启用</button>
-                <button id="lt-batch-disable" title="禁用当前筛选出的全部模板">批量禁用</button>
+                <!-- UI-09 例外：三者均由 manager.ts::updateToolbar 动态禁用（无筛选结果 / 分组不可改名），
+                     禁用态下 data-tip 收不到鼠标事件，保留原生 title 以继续解释用途。 -->
+                <button id="lt-group-rename" class="btn" title="重命名当前选中的分组" disabled>重命名</button>
+                <button id="lt-batch-enable" class="btn" title="启用当前筛选出的全部模板">批量启用</button>
+                <button id="lt-batch-disable" class="btn" title="禁用当前筛选出的全部模板">批量禁用</button>
                 <span class="spacer"></span>
-                <button id="lt-import">导入…</button>
-                <button id="lt-export">导出…</button>
-                <button id="lt-new" class="primary">新建模板</button>
+                <button id="lt-import" class="btn">导入…</button>
+                <button id="lt-export" class="btn">导出…</button>
+                <button id="lt-new" class="btn btn--primary">新建模板</button>
               </div>
               <div class="lt-body">
                 <div id="lt-list" class="lt-list"></div>
@@ -531,16 +600,16 @@
                 <span id="lt-status" class="lt-status"></span>
               </div>
             </div>
-            <div id="settings-section-terminal" class="settings-section hidden">
+            <div id="settings-section-terminal" class="settings-section hidden" role="tabpanel">
               <div class="settings-row">
-                <label>终端默认目录</label>
+                <label for="settings-terminal-cwd">终端默认目录</label>
                 <select id="settings-terminal-cwd">
                   <option value="workspace">工作区根目录</option>
                   <option value="file">活动文件所在目录</option>
                 </select>
               </div>
               <div class="settings-row">
-                <label>终端 Shell</label>
+                <label for="settings-terminal-shell">终端 Shell</label>
                 <select id="settings-terminal-shell">
                   <option value="auto">自动（PowerShell 优先，回退 cmd）</option>
                   <option value="pwsh">PowerShell 7（pwsh）</option>
@@ -549,13 +618,13 @@
                 </select>
               </div>
             </div>
-            <div id="settings-section-logging" class="settings-section hidden">
+            <div id="settings-section-logging" class="settings-section hidden" role="tabpanel">
               <div class="settings-row">
-                <label>启用日志</label>
+                <label for="settings-log-enabled">启用日志</label>
                 <input id="settings-log-enabled" type="checkbox" />
               </div>
               <div class="settings-row">
-                <label>日志级别</label>
+                <label for="settings-log-level">日志级别</label>
                 <select id="settings-log-level">
                   <option value="error">仅错误</option>
                   <option value="warn">错误 + 警告</option>
@@ -564,79 +633,85 @@
                 </select>
               </div>
               <div class="settings-row">
-                <label>保留轮转份数</label>
+                <label for="settings-log-keep">保留轮转份数</label>
                 <input id="settings-log-keep" type="number" min="1" max="10" />
               </div>
               <div class="settings-row">
-                <label>同时输出到终端（stdout）</label>
+                <label for="settings-log-stdout">同时输出到终端（stdout）</label>
                 <input id="settings-log-stdout" type="checkbox" />
               </div>
+              <!-- label 无 for 的例外行（数据目录 / 日志目录，及存储页的按钮行）：行内「控件」是按钮，
+                   按钮自身文本已是完整可访问名称（labelable 元素虽含 button，但关联后读屏会把
+                   label 文本拼接进名称/描述，反成冗余）；此类 label 只作视觉行标题，属刻意保留 -->
               <div class="settings-row">
                 <label>数据目录</label>
-                <button id="settings-data-open">打开数据目录…</button>
+                <button id="settings-data-open" class="btn">打开数据目录…</button>
               </div>
               <div class="settings-row">
                 <label>日志目录</label>
-                <button id="settings-log-open">打开日志目录…</button>
+                <button id="settings-log-open" class="btn">打开日志目录…</button>
               </div>
               <div class="settings-hint">日志写入数据根的 <code>logs/opencharm.log</code>，单文件超过 1 MiB 自动轮转。关闭「启用日志」后仍会记录错误级日志。</div>
             </div>
-            <div id="settings-section-storage" class="settings-section hidden">
+            <div id="settings-section-storage" class="settings-section hidden" role="tabpanel">
               <div class="settings-row">
                 <label>数据根目录</label>
                 <span id="storage-root-path" class="storage-path" title=""></span>
-                <button id="storage-open">打开…</button>
+                <button id="storage-open" class="btn">打开…</button>
               </div>
               <div class="settings-row">
                 <label>磁盘占用</label>
-                <button id="storage-refresh">刷新</button>
+                <button id="storage-refresh" class="btn">刷新</button>
               </div>
               <div id="storage-usage" class="storage-usage"></div>
               <div class="settings-row">
                 <label>可再生清理</label>
-                <button id="storage-clean-webview">清理 WebView 缓存…</button>
-                <button id="storage-clean-logs">清理轮转日志</button>
+                <button id="storage-clean-webview" class="btn">清理 WebView 缓存…</button>
+                <button id="storage-clean-logs" class="btn">清理轮转日志</button>
               </div>
               <div class="settings-row">
                 <label>uv 缓存</label>
-                <button id="storage-uv-prune">清理无效条目…</button>
-                <button id="storage-uv-clean">深度清理…</button>
+                <button id="storage-uv-prune" class="btn">清理无效条目…</button>
+                <button id="storage-uv-clean" class="btn">深度清理…</button>
               </div>
               <div class="settings-hint">uv 缓存默认与其他项目通过硬链接共享；深度清理后已装环境不受影响，但重装包将重新落盘。uv 位置由用户自有环境变量（<code>UV_CACHE_DIR</code> 等）决定，OpenCharm 不代管。</div>
               <div class="settings-row">
-                <label>迁移数据到其他盘</label>
+                <label for="storage-migrate-path">迁移数据到其他盘</label>
                 <input id="storage-migrate-path" type="text" placeholder="D:\opencharm-data" spellcheck="false" />
-                <button id="storage-migrate-browse">浏览…</button>
+                <button id="storage-migrate-browse" class="btn">浏览…</button>
               </div>
               <div class="settings-row">
                 <span class="settings-label-gap" aria-hidden="true"></span>
-                <button id="storage-migrate" class="primary">开始迁移…</button>
+                <button id="storage-migrate" class="btn btn--primary">开始迁移…</button>
               </div>
               <div class="settings-hint">迁移 = 复制数据到目标并写入数据根指针文件（位于系统配置目录，仅几十字节），重启后生效。uv 缓存/工具目录由你的环境变量（<code>UV_CACHE_DIR</code> / <code>UV_TOOL_DIR</code>）自行管理，OpenCharm 不代管。旧目录不会被自动删除，重启确认无误后可手工删除。</div>
             </div>
           </div>
         </div>
         <div class="modal-actions">
-          <button id="settings-reset">恢复默认</button>
+          <button id="settings-reset" class="btn">恢复默认</button>
           <span class="spacer"></span>
-          <button id="settings-save" class="primary">保存</button>
-          <button id="settings-cancel">取消</button>
+          <button id="settings-save" class="btn btn--primary">保存</button>
+          <button id="settings-cancel" class="btn">取消</button>
         </div>
       </div>
     </div>
     <!-- 模板面板（模态，M4：Ctrl+J） -->
+    <!-- UI-16：无标题行，用 aria-label 提供可访问名称（输入框 placeholder 不是名称来源） -->
     <div id="palette-modal" class="modal hidden">
-      <div class="modal-card palette-card">
+      <div class="modal-card palette-card" role="dialog" aria-modal="true" aria-label="插入模板">
         <input id="palette-search" type="text" placeholder="过滤模板（缩写 / 描述），↑↓ 选择，Enter 插入，Esc 关闭" spellcheck="false" />
         <div id="palette-list" class="palette-list"></div>
       </div>
     </div>
     <!-- 环绕模板选择器（模态，M3：Ctrl+Alt+T） -->
     <div id="surround-modal" class="modal hidden">
-      <div class="modal-card surround-card">
+      <div class="modal-card surround-card" role="dialog" aria-modal="true" aria-labelledby="surround-title">
         <div class="env-header">
-          <span class="env-title">环绕模板</span>
+          <span id="surround-title" class="env-title">环绕模板</span>
           <span class="spacer"></span>
+          <!-- UI-02：补齐关闭按钮，与 env-modal / new-project-modal / run-config-modal / settings-modal 的模态头部一致 -->
+          <button id="surround-close" class="btn btn--ghost btn--icon"><i class="codicon codicon-close" aria-hidden="true"></i></button>
         </div>
         <div id="surround-list" class="surround-list"></div>
       </div>

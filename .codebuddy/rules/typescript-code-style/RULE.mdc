@@ -3,7 +3,7 @@ description: shell/src 前端 TypeScript 代码规范（Vite + Monaco + LSP 桥 
 globs: "**/*.ts"
 alwaysApply: false
 enabled: true
-updatedAt: 2026-09-10T10:00:00.000Z
+updatedAt: 2026-09-11T18:40:00.000Z
 provider:
 ---
 
@@ -36,6 +36,22 @@ provider:
 - `dap/client.ts` — DAP 桥 TS 侧（与 `lsp/client.ts` 对称）：DAP 请求/响应关联（单序号域，`id` 作出站 `seq`，响应按 `request_seq` 回显）+ 事件分发 + 会话状态机（`idle/starting/running/stopped/exited`）+ `startDebug` 握手时序（`initialize → attach{listen} → debugpyWaitingForServer → debug_attach_debuggee → initialized → setBreakpoints → configurationDone`）。
 - `debugGutter.ts` — 断点 gutter（复用 `runGutter.ts` glyphMargin 装饰/命中范式，独立一套装饰集合勿冲突）：断点表 `Map<path, Set<line>>` 模块级持久（跨会话保留，`pushAllBreakpoints` 重放）+ `setBreakpoints` 同步 + 当前行高亮（`stopped → highlightCurrentLine`，`continued` 清除）；仅 `.py`/`.pyw` 生效。
 - `debugView.ts` — 调试侧栏（对标 `runWidget.ts` handlers 注入模式，避免循环导入）：工具栏 / 调用栈 / 变量 / 断点列表；`onPhase` 驱动渲染，`stopped → threads/stackTrace/scopes/variables` 刷新；MVP 忽略 `output` 事件（stdout 已走输出面板，避免双份）。
+- `markdownPreview.ts` — Markdown 预览域（markdown preview dev plan）：marked + DOMPurify 渲染 / 图片 asset 改写 / monaco colorize 高亮 / 点击委托 / 分栏显隐 / 右上角开关按钮与一次性引导（方案A/D）/ 导出 HTML（base64 内联图片 + 固定浅色主题 + 系统保存对话框）；打开相对 md 链接经 `setMarkdownLinkHandler` 回调注入，避免与 main.ts 循环依赖。
+- `anim.ts` — 动效与「减少动画」开关：`showEl`/`hideEl`（两阶段显隐，`motionDisabled()` 短路）/ `applyReduceMotion` / `restoreReduceMotion`；零依赖，任何模块可导入不成环。
+- `tooltip.ts` — 自绘 tooltip（`data-tip`，document 级 mouseover 委托 + role=tooltip + aria-describedby 生命周期）；**头部「五条判定规则」是原生 title 与 data-tip 分工的唯一依据**（UI-09，改双轨行为先读它）。
+- `focusTrap.ts` — 模态焦点陷阱（UI-05）：支持模态叠加的陷阱栈；所有 `.modal` 在 showEl 后启用、hideEl 前解除（句柄模块级持有，防御性先解除再启用）。
+- `layout.ts` — 面板布局域：侧栏 / 底部面板 / 右面板 / 大纲四条分隔条的拖拽 + localStorage 持久化 + 双击重置；拖拽上限随窗口宽动态收口（UI-23）；**高度类拖拽写自定义属性而非内联 height**（见「UI 与样式约定」）。
+- `menu.ts` — 通用扁平弹出菜单（`#ctx-menu` 容器，`showMenu`/`hideMenu`/`isMenuOpen`）：文件树右键 / 引擎切换 / shell 选择 / 运行 ▾ 共用；与 main.ts 菜单栏 flyout 渲染器**刻意不合并**（分工见文件头部注释）。
+- `menuKeys.ts` — 弹出菜单键盘导航（UI-30，APG menu 模式）：`menuItemsOf` / `moveMenuFocus` / `wireMenuKeyNav`，menu.ts 与 main.ts 菜单栏两套渲染器共享同一套规则。
+- `engineChip.ts` — 状态栏「静态语义引擎」chip：真值统一在 `app.settings.lsp_engine`；startLsp/saveSettings 经 handlers 注入（不反向依赖 main.ts）。
+- `runWidget.ts` — 标题栏运行组（▶/⏹/▾）：状态渲染 + tooltip 快捷键副文本走 `kb.bindingLabel()`；handlers 注入模式。
+- `runGutter.ts` — 编辑器 gutter 运行按钮（glyphMargin 装饰 + 右键运行菜单，坐标 anchor）。
+- `storagePanel.ts` — 设置「存储」页：占用可视化 / 可再生清理 / uv 缓存 / 数据迁移 + 首启落位提示模态；点击委托用 `[data-trace]` 属性钩子（禁止拿样式类名当 JS 钩子，UI-08 教训）。
+- `themePicker.ts` — 设置面板主题预览色卡（UI-26）：自绘 radiogroup（漫游 tabindex + ←→↑↓ 移动即选中）；**值真源 = DOM 的 aria-checked**，不另设模块级变量。
+- `welcomeShortcuts.ts` — 欢迎页快捷键网格动态渲染（UI-25）：条目分 `kb`（读键位系统）/ `fixed`（Monaco 内建）两类；渲染点在 init 首个 await 之前（防首屏露空）。
+- `devtools/` — 右侧开发工具面板：`panel.ts`（单实例挂载，激活即 dispose 旧实例）/ `registry.ts` / `types.ts`（ToolHost/ToolInstance）/ `feedback.ts`（`flashSuccess`/`flashError`，依赖 `.btn` 类）/ `jsonpath/` / `curl2python/`。
+- `stdlib.ts` — Python 标准库顶层模块名集合：missing-import 提示排除用（防「安装 os」类误报）。
+- `toolchain.ts` — 工具链引导底层 invoke 封装（uv / 静态引擎探测与一键安装；确认与输出渲染在 main.ts）。
 
 ## 补全三层合并（sortText 段，顺序固定）
 
@@ -71,6 +87,7 @@ provider:
 | `F10` | 单步跳过（next） | 是（window 级） |
 | `F11` | 单步进入（stepIn） | 是（window 级） |
 | `Shift+F11` | 单步退出（stepOut） | 是（window 级） |
+| `Ctrl+Shift+V` | Markdown 预览开关 | 是（window 级） |
 
 - 调试五件套为 **window 级**（调试中编辑器可能失焦）；新增/改键须**三处同步**：`keybindings.ts` `KEYBINDING_META.def` / `state.ts` `DEFAULT_SETTINGS.keybindings` / Rust `settings.rs` `default_keybindings`（`settings.rs` 单测断言键位数，漏改会红）。
 - window 级键经 `matchWindowBinding` 实时匹配（改键即生效）；editor 级键经
@@ -82,6 +99,18 @@ provider:
 - 禁止使用 `@tauri-apps/plugin-dialog` 的 `confirm` / `ask` / `message`；该插件的 `open` / `save`（文件选择对话框）除外。
 - 确认与提示统一经 `dialog.ts` 的 `openConfirm` / `openAlert` 自绘弹窗；文本输入类交互走文件树 `inlineInput` 等自绘输入，不落地原生 `prompt`。
 - `kind` 语义：破坏性操作用 `danger`，安装/设置等正向操作用 `primary`。新增确认/提示交互时默认接入 `openConfirm`/`openAlert`，不得新增原生消息框调用。
+
+## UI 与样式约定（2026-09-11 UI 改进计划十批收官后固化；完整依据见 `docs/ui_design_improvement_plan.md` §7）
+
+- **`main.ts` 不堆逻辑**（TD-014）：新交互一律落功能域模块（参照 TD-007 域拆分模式）；main.ts 只允许对既有函数就地扩展，不新增功能域函数/模块级状态。
+- **style.css token 纪律**：一切色值走语义 token（唯一例外：`--theme-pv-*` 8 个预览色卡色，刻意固定不随主题翻转）；字号/间距/圆角走 `--text-* / --space-* / --radius-*` scale token（**最小字号 11px**，禁止引入 10px 与半像素档）；transition 走 `--transition-fast/base`（已内置 `--motion` 倍率）。裸值例外仅 token 注释里登记的两处（1px 指示条圆角、欢迎页版式留白）。index.html 首屏防 FOUC 内联样式是必要例外，但与 token 有隐式同步义务（就地注释已登记对应关系，改 token 必须同步它）。
+- **按钮走 `.btn` 体系**（UI-08）：变体（primary/danger/danger-outline/ghost/icon）× 尺寸（sm/md/lg）× 状态（disabled/active/busy/flash-ok/flash-error）组合，禁止新增一次性按域按钮选择器；固定尺寸的特定组件图标按钮（`.win-btn`/`.activity-item`/`.debug-toolbar-btn` 等，排除清单见计划 §7 第三批）不纳入体系。**删任何样式类名前必须先搜 TS 侧是否拿它当选择器钩子**。
+- **Tooltip 双轨五条判定规则**（UI-09，单一依据 = `tooltip.ts` 头部注释）：不会禁用的图标/工具栏按钮 → `data-tip` + **必须同时补 `aria-label`**；可能被禁用的控件保留原生 `title`（Chromium 不向禁用控件派发鼠标事件，data-tip 会静默失效）；表单控件、纯截断披露保留 `title`；祖先保留 `title` 时后代禁用 `data-tip`（父子必须同轨，否则双重提示）。
+- **图标按钮禁用态用 `.is-disabled` 类 + `aria-disabled`**（不用 `disabled` 属性，点击守卫移入回调）：`disabled` 会让 data-tip 失效且把元素移出 tab 序列（debugView 工具栏模式）。
+- **ARIA 状态单一写入点**：`aria-selected` / `aria-pressed` / `aria-expanded` 必须与对应视觉类（`.active` / `.open` / 折叠态）在同一写入点同源切换（`setSidebarTab` / `setTreeItemSelected` / `syncHiddenFilesBtn` 范式）——散落两写必然漂移。可点击 span/div 补 `role=button` + `tabindex=0` + Enter/Space 激活（`termUi::makeSpanButton` 范式）；弹出菜单遵循 APG menu 模式（`menuKeys.ts`）。
+- **面板拖拽高度写自定义属性，禁写内联 `height`**：`#outline-section` 用 `--outline-h`/`--outline-max`、`#bottom` 用 `--bottom-h`——内联样式特异性最高，会压过样式表的折叠态（`.collapsed`），拖过一次就静默丧失折叠能力；`layout.test.ts` 已钉死该不变量。新增可折叠+可拖拽面板照此模式。
+- **表单 label 必须关联控件**：静态行 `for`/`id`；动态生成的行同样要 `label.htmlFor`；双控件行 `for` 指阅读顺序在前的控件、另一个补 `aria-label`；非 labelable 目标（radiogroup div）用 `aria-labelledby`；纯按钮/文本行的 label 只作视觉标题（例外已就地注释）。
+- **设置的运行时刷新三层接线**（UI-11/29 范式）：影响已存在实例的设置（主题/减少动画/字号字体族）须「实例构造时读取 + 实例级 `apply*()` 方法 + 域级 `refresh*()` 遍历」，并在 `saveSettingsPanel()` 保存路径挂一次 refresh——「恢复默认」直接给控件赋值、不派发 change 事件，即时生效监听器覆盖不到它。改字体度量后必须 refit（终端还要同步 PTY cols/rows）。
 
 ## 异步与竞态约定（2026-09-10 整改固化）
 

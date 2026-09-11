@@ -88,7 +88,8 @@ describe("CR-04 storagePanel 渲染安全（DOM API，无 innerHTML 注入）", 
     expect(label.textContent).toBe("<script>window.__pwned=1</script>");
 
     // ⑤ trace 删除按钮 data-trace 如实携带 hash 字面值
-    const del = usageEl.querySelector<HTMLButtonElement>(".storage-del")!;
+    // （UI-08 后按钮外观走通用 .btn 体系，选择器改用属性钩子 [data-trace]，与生产代码的事件委托同口径）
+    const del = usageEl.querySelector<HTMLButtonElement>("[data-trace]")!;
     expect(del.dataset.trace).toBe('"><svg onload=window.__pwned=1>');
 
     // ⑥ 尺寸徽章等正常渲染

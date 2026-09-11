@@ -201,6 +201,20 @@ pub(crate) fn resource_candidates(app: &tauri::AppHandle) -> Vec<PathBuf> {
     dirs
 }
 
+/// 动态授权 asset 协议读取目录（Markdown 预览渲染本地图片用）。
+///
+/// 前端在打开 / 切换工作区（含启动恢复上次工作区）时调用，把 asset scope 收紧到
+/// 当前工作区根（递归），而非在 tauri.conf.json 写死一个宽泛路径；越权路径仍由
+/// 该 scope 拦截。asset 协议本身需在 tauri.conf.json 的 `app.security.assetProtocol`
+/// 置为 `enable: true`（scope 留空，全走这里动态授权）。
+#[tauri::command]
+pub fn allow_asset_dir(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    use tauri::Manager;
+    app.asset_protocol_scope()
+        .allow_directory(std::path::Path::new(&path), true)
+        .map_err(|e| format!("asset 目录授权失败：{e}"))
+}
+
 /// 字节流增量 UTF-8 解码器（S3/S4 公共基建：按块读取子进程输出时避免多字节字符跨块乱码）。
 ///
 /// 按块读取子进程输出时，多字节字符（中文提示符、跨块 traceback）可能正好落在块边界上；

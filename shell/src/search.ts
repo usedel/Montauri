@@ -191,7 +191,8 @@ export async function runSearch(
 
 function appendHint(el: HTMLElement, text: string): void {
   const hint = document.createElement("div");
-  hint.className = "env-empty";
+  // UI-12：原借用环境面板的 .env-empty（类名带 env 业务前缀，属命名泄漏），改用中性的 .hint-text
+  hint.className = "hint-text";
   hint.textContent = text;
   el.appendChild(hint);
 }

@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 import {
   KEYBINDING_META,
+  bindingChord,
   normalizeBinding,
   parseBinding,
   validateKeybindingMap,
@@ -92,5 +93,30 @@ describe("三处默认值漂移锁", () => {
     for (const m of KEYBINDING_META) {
       expect(parseBinding(m.def), m.id).not.toBeNull();
     }
+  });
+});
+
+describe("bindingChord 键位分段（UI-25 欢迎页 <kbd> 渲染）", () => {
+  it("按 + 拆段，修饰键归一大小写", () => {
+    expect(bindingChord("Ctrl+Shift+F")).toEqual(["Ctrl", "Shift", "F"]);
+    expect(bindingChord("ctrl+alt+t")).toEqual(["Ctrl", "Alt", "T"]);
+    expect(bindingChord("Control+S")).toEqual(["Ctrl", "S"]);
+  });
+
+  it("末位主键单字符转大写，功能键与符号原样保留", () => {
+    expect(bindingChord("ctrl+s")).toEqual(["Ctrl", "S"]);
+    expect(bindingChord("Ctrl+F10")).toEqual(["Ctrl", "F10"]);
+    expect(bindingChord("Shift+F12")).toEqual(["Shift", "F12"]);
+    expect(bindingChord("Ctrl+/")).toEqual(["Ctrl", "/"]);
+  });
+
+  it("空串返回空数组（调用方据此显示「未绑定」占位，而非渲染空 kbd 框）", () => {
+    expect(bindingChord("")).toEqual([]);
+    expect(bindingChord("   ")).toEqual([]);
+  });
+
+  it("非法串整串作一段返回：不猜拆法，也不丢信息", () => {
+    expect(bindingChord("Ctrl+X+Y")).toEqual(["Ctrl+X+Y"]);
+    expect(bindingChord("Win+D")).toEqual(["Win+D"]);
   });
 });

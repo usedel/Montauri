@@ -40,6 +40,7 @@ import { checkFirstRunStorage } from "./storagePanel";
 import { basename, codicon, DisposableStore, emptyState, joinPath, languageOf, parentDirOf, renderFileIcon, samePath, setBusy as utilSetBusy, spinIcon as utilSpinIcon, SNAKE_SVG, symbolIcon } from "./util";
 import { restoreLayout, wireSplitters } from "./layout";
 import { hideEl, motionDisabled, restoreReduceMotion, showEl } from "./anim";
+import { trapFocus } from "./focusTrap";
 import { wireTooltip } from "./tooltip";
 import { renderEngineChip, setEngineChipHandlers, wireEngineChip } from "./engineChip";
 import { getRunMenuItems, renderRunWidget, setRunWidgetHandlers, setRunWidgetRepaint, wireRunWidget, type RunWidgetState } from "./runWidget";
@@ -47,6 +48,9 @@ import { clearRunGutter, refreshRunGutter, setRunGutterHandlers, wireRunGutter }
 import * as dap from "./dap/client";
 import { clearCurrentLine, pushAllBreakpoints, refreshDebugGutter, wireDebugGutter } from "./debugGutter";
 import { initDebugView, notifyDepFound, renderDebugView, setDebugViewHandlers, wireDebugViewEvents } from "./debugView";
+import { renderWelcomeShortcuts } from "./welcomeShortcuts"; // UI-25：欢迎页快捷键跟随键位系统
+import { moveMenuFocus, wireMenuKeyNav } from "./menuKeys"; // UI-30：菜单键盘导航（与 menu.ts 共享同一套 APG 规则）
+import * as mdPreview from "./markdownPreview"; // Markdown 预览（markdown preview dev plan）
 
 // ---------- 模块级状态（本层私有） ----------
 
@@ -78,6 +82,10 @@ let lastRun: { path: string; channel: "output" | "terminal" } | null = null;
 const runTranscript = new RunTranscript(outputEl, gotoFromLink);
 /** 文件监听防抖定时器 */
 let fsWatchTimer: number | undefined;
+/** UI-05：三个模态（环境面板 / 新建项目 / 运行配置）的焦点陷阱解除句柄，关闭时置 null */
+let releaseEnvFocus: (() => void) | null = null;
+let releaseNewProjectFocus: (() => void) | null = null;
+let releaseRunConfigFocus: (() => void) | null = null;
 
 // ---------- DOM ----------
 
@@ -212,6 +220,8 @@ async function openWorkspace(root: string): Promise<void> {
   }
   app.workspaceRoot = root;
   $("tree-header-text").textContent = root;
+  // Markdown 预览：动态授权 asset 协议读取当前工作区根（本地图片渲染）
+  await invoke("allow_asset_dir", { path: root }).catch(console.error);
   await invoke("add_recent_workspace", { path: root }).catch(console.error);
   await refreshTree();
   await loadTemplatesConfig();
@@ -233,7 +243,7 @@ async function closeWorkspace(): Promise<void> {
   resetWorkspaceUiState();
   app.workspaceRoot = null;
   resetTreeState();
-  $("tree-header-text").textContent = "FILES";
+  $("tree-header-text").textContent = "文件"; // UI-13：与 index.html 的静态文案保持一致（分组标题统一中文）
   statusFileEl.textContent = "";
   statusInterpreterEl.textContent = "";
   updateEditorOverlay();
@@ -254,6 +264,8 @@ function updateEditorOverlay(): void {
   }
 
   overlayEl.classList.remove("hidden");
+  // UI-25：覆盖层要显示了才重绘快捷键网格（改键后 / 设置加载完成后经此路径刷新为真实键位）
+  renderWelcomeShortcuts();
 
   if (app.workspaceRoot) {
     actionsEl.classList.add("hidden");
@@ -289,12 +301,16 @@ async function renderEditorWelcomeRecents(): Promise<void> {
     path.className = "path";
     path.textContent = p;
     item.append(folder, name, path);
-    item.title = p;
+    // UI-09：整行与行内「×」按钮同轨迁到 data-tip。原生 title 会沿祖先链继承解析，
+    // 若父行保留 title、子按钮改用 data-tip，悬停按钮时两个提示会同时出现。
+    item.dataset.tip = p;
     item.addEventListener("click", () => openWorkspace(p).catch(console.error));
     // 单条删除（× 按钮，hover 时显示）
     const remove = document.createElement("button");
     remove.className = "ew-recent-remove";
-    remove.title = "从列表移除";
+    remove.dataset.tip = "从列表移除";
+    // 图标按钮：内部 <i> 带 aria-hidden，可访问名称原先仅由 title 提供，须同步补 aria-label
+    remove.setAttribute("aria-label", "从列表移除");
     remove.appendChild(codicon("close"));
     remove.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -390,10 +406,14 @@ async function openNewProjectPanel(): Promise<void> {
   updateNewProjectEnvFields();
   void populateNewProjectVersions();
   showEl(newProjectModalEl);
+  releaseNewProjectFocus?.();
+  releaseNewProjectFocus = trapFocus(newProjectModalEl);
   newProjectNameEl.focus();
 }
 
 function closeNewProjectPanel(): void {
+  releaseNewProjectFocus?.();
+  releaseNewProjectFocus = null;
   hideEl(newProjectModalEl);
 }
 
@@ -541,6 +561,16 @@ function showTabContextMenu(tab: Tab, x: number, y: number): void {
       { label: "运行", action: () => void runActive() },
       { label: "在终端中运行", action: () => void runActiveInTerminal() },
       { label: "运行配置…", action: () => void openRunConfig(tab.path) },
+      { sep: true },
+    );
+  }
+  // Markdown 预览（markdown preview dev plan §5-T4）：.md tab 右键开关分栏预览
+  if (mdPreview.isMarkdownPath(tab.path)) {
+    const open = mdPreview.isPreviewOpen();
+    items.splice(
+      5,
+      0,
+      { label: open ? "关闭预览" : "打开预览", action: () => mdPreview.setPreviewOpen(!open) },
       { sep: true },
     );
   }
@@ -706,11 +736,18 @@ async function refreshInterpreterStatus(): Promise<void> {
 async function openEnvPanel(): Promise<void> {
   if (!app.workspaceRoot) return;
   showEl(envModalEl);
+  // UI-30：解释器芯片（aria-haspopup=dialog）的开合态，与 envModal 显隐同源切换（第七批留给本批的待办）
+  statusInterpreterEl.setAttribute("aria-expanded", "true");
+  releaseEnvFocus?.();
+  releaseEnvFocus = trapFocus(envModalEl);
   await renderEnvPanel();
 }
 
 function closeEnvPanel(): void {
+  releaseEnvFocus?.();
+  releaseEnvFocus = null;
   hideEl(envModalEl);
+  statusInterpreterEl.setAttribute("aria-expanded", "false"); // UI-30
 }
 
 async function renderEnvPanel(): Promise<void> {
@@ -762,7 +799,7 @@ async function renderEnvPanel(): Promise<void> {
   }
   if (pythons.length === 0) {
     const empty = document.createElement("div");
-    empty.className = "env-empty";
+    empty.className = "hint-text"; // UI-12：.env-empty 更名为中性的 .hint-text（样式不变）
     empty.textContent = "未检测到 Python（请安装 uv 或手动指定解释器路径）";
     envListEl.appendChild(empty);
   }
@@ -826,7 +863,7 @@ function updatePkgToolbar(): void {
 function renderPkgLoading(msg: string): void {
   envPackagesEl.textContent = "";
   const line = document.createElement("div");
-  line.className = "env-empty";
+  line.className = "hint-text"; // UI-12：.env-empty 更名为中性的 .hint-text（此处是加载态提示）
   line.appendChild(utilSpinIcon());
   line.append(` ${msg}`);
   envPackagesEl.appendChild(line);
@@ -837,7 +874,7 @@ function renderPkgLines(): void {
   envPackagesEl.textContent = "";
   if (currentPackages.length === 0) {
     const empty = document.createElement("div");
-    empty.className = "env-empty";
+    empty.className = "hint-text"; // UI-12：.env-empty 更名为中性的 .hint-text（样式不变）
     empty.textContent = "（无已安装包）";
     envPackagesEl.appendChild(empty);
     updatePkgToolbar();
@@ -880,13 +917,17 @@ function renderPkgLines(): void {
     if (od) {
       const upBtn = document.createElement("button");
       upBtn.className = "codicon codicon-arrow-up";
-      upBtn.title = `升级 ${p.name} 到 ${od.latest}`;
+      // UI-09：这两个按钮的 className 本身就是 codicon（无内部 <i>、无任何文本内容），
+      // 可访问名称此前完全依赖 title，迁移后必须由 aria-label 承担，否则读屏读到空按钮。
+      upBtn.dataset.tip = `升级 ${p.name} 到 ${od.latest}`;
+      upBtn.setAttribute("aria-label", `升级 ${p.name} 到 ${od.latest}`);
       upBtn.addEventListener("click", () => { void upgradePackage(p.name); });
       actions.append(upBtn);
     }
     const rmBtn = document.createElement("button");
     rmBtn.className = "codicon codicon-trash danger";
-    rmBtn.title = `卸载 ${p.name}`;
+    rmBtn.dataset.tip = `卸载 ${p.name}`;
+    rmBtn.setAttribute("aria-label", `卸载 ${p.name}`);
     rmBtn.addEventListener("click", () => { void uninstallPackages([p.name]); });
     actions.append(rmBtn);
     line.append(actions);
@@ -904,7 +945,7 @@ async function renderPackages(): Promise<void> {
   if (!currentInterpreter) {
     envPackagesEl.textContent = "";
     const empty = document.createElement("div");
-    empty.className = "env-empty";
+    empty.className = "hint-text"; // UI-12：.env-empty 更名为中性的 .hint-text（样式不变）
     empty.textContent = "选择解释器后查看已安装包";
     envPackagesEl.appendChild(empty);
     currentPackages = [];
@@ -1305,6 +1346,7 @@ function activateTab(tab: Tab): void {
   updateEditorOverlay();
   refreshRunGutter(); // C5：切换 tab 重算 __main__ 守卫行的 ▶
   refreshDebugGutter(); // D3：切换 tab 重算断点红点
+  mdPreview.updatePreviewVisibility(); // Markdown 预览：切换 tab 后按「是否 md + 开关」刷新显隐
 }
 
 async function closeTab(tab: Tab): Promise<void> {
@@ -1336,13 +1378,28 @@ export function closeTabSilent(tab: Tab): void {
   renderTabs();
   refreshRunGutter(); // C5：关闭 tab 后重算/清空 ▶
   refreshDebugGutter(); // D3：关闭 tab 后重算/清空断点红点
+  mdPreview.updatePreviewVisibility(); // Markdown 预览：关闭 tab 后刷新显隐
 }
 
 export function renderTabs(): void {
+  // UI-16：重绘会销毁正在聚焦的 tab 元素，先记录焦点、渲染后按路径恢复，
+  // 否则键盘用户每次激活/关闭标签后焦点都掉回 body（与 termUi 终端 tab 同款处理）。
+  // 用 closest(".tab")：焦点也可能在 tab 内部的关闭按钮上
+  const focusedPath = tabbarEl.contains(document.activeElement)
+    ? ((document.activeElement as HTMLElement | null)?.closest(".tab") as HTMLElement | null)?.dataset?.path ?? null
+    : null;
   tabbarEl.textContent = "";
   for (const t of app.tabs) {
+    const active = t === app.activeTab;
     const el = document.createElement("div");
-    el.className = `tab ${t === app.activeTab ? "active" : ""}`;
+    el.className = `tab ${active ? "active" : ""}`;
+    // UI-16：tabs 模式（#tabbar 的 role=tablist 在 index.html 静态声明）。
+    // 所有 tab 共享同一个 Monaco 面板，故不设 aria-controls/tabpanel（与事实不符的声明不如不声明）；
+    // 漫游 tabindex：激活项 0、其余 -1；←→ 在 tab 间移动焦点，Enter/Space 激活。
+    el.setAttribute("role", "tab");
+    el.setAttribute("aria-selected", String(active));
+    el.tabIndex = active ? 0 : -1;
+    el.dataset.path = t.path;
     el.appendChild(renderFileIcon(basename(t.path))); // D2 P-08：标签页文件类型图标
     const name = document.createElement("span");
     name.className = "name";
@@ -1350,33 +1407,71 @@ export function renderTabs(): void {
     const dirty = document.createElement("span");
     dirty.className = "dirty";
     if (t.dirty) dirty.appendChild(codicon("circle-filled"));
+    const isRunningHere = running && t.path === runningPath;
+    // UI-16：脏标记/运行指示的圆点是纯视觉装饰（aria-hidden），状态并入 tab 的可访问名称，
+    // 读屏聚焦该 tab 时直接听到「已修改 / 运行中」（承接 UI-09 对 .tab-running 的遗留说明）
+    const labelParts = [basename(t.path)];
+    if (t.dirty) labelParts.push("已修改");
+    if (isRunningHere) labelParts.push("运行中");
+    el.setAttribute("aria-label", labelParts.join("，"));
     // 被动运行指示（C3）：动作已集中到菜单栏运行组，tab 只显示状态（不可点，避免第二个动作入口）
     const close = document.createElement("span");
     close.className = "close";
     close.appendChild(codicon("close"));
+    // UI-16：span 充当按钮 → 补 role/aria-label/tabindex + Enter/Space 键盘激活（第四批待办同款）
+    close.setAttribute("role", "button");
+    close.setAttribute("aria-label", `关闭 ${basename(t.path)}`);
+    close.tabIndex = 0;
+    close.addEventListener("keydown", (ev) => {
+      ev.stopPropagation(); // 不冒泡到 tab 本体的 Enter/方向键处理
+      if (ev.key === "Enter" || ev.key === " ") {
+        ev.preventDefault();
+        void closeTab(t);
+      }
+    });
     close.addEventListener("click", (ev) => {
       ev.stopPropagation();
       void closeTab(t);
     });
-    const isRunningHere = running && t.path === runningPath;
     if (isRunningHere) {
       const ind = document.createElement("span");
       ind.className = "tab-running";
+      ind.setAttribute("aria-hidden", "true"); // UI-16：运行态已并入 tab 的 aria-label
       const spin = codicon(motionDisabled() ? "circle-filled" : "loading");
       if (!motionDisabled()) spin.classList.add("codicon-modifier-spin");
       ind.appendChild(spin);
-      ind.title = "正在运行";
+      // UI-09：删除死代码。.tab .tab-running 带 pointer-events:none（被动指示，动作集中在菜单栏运行组），
+      // 浏览器命中测试不会落到它身上，原生 title 从来不显示；改 data-tip 同样无效（委托依赖 mouseover 命中）。
       el.append(name, dirty, ind, close);
     } else {
       el.append(name, dirty, close);
     }
     el.addEventListener("click", () => activateTab(t));
+    el.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter" || ev.key === " ") {
+        ev.preventDefault();
+        activateTab(t);
+      } else if (ev.key === "ArrowRight" || ev.key === "ArrowLeft") {
+        ev.preventDefault();
+        const tabs = Array.from(tabbarEl.querySelectorAll<HTMLElement>(".tab"));
+        if (tabs.length < 2) return;
+        const dir = ev.key === "ArrowRight" ? 1 : -1;
+        tabs[(tabs.indexOf(el) + dir + tabs.length) % tabs.length].focus();
+      }
+    });
     el.addEventListener("contextmenu", (ev) => {
       ev.preventDefault();
       ev.stopPropagation();
       showTabContextMenu(t, ev.clientX, ev.clientY);
     });
     tabbarEl.appendChild(el);
+  }
+  // UI-16：焦点恢复（原焦点 tab 已被关闭时落到激活项，与鼠标行为一致）
+  if (focusedPath) {
+    const target =
+      tabbarEl.querySelector<HTMLElement>(`.tab[data-path="${CSS.escape(focusedPath)}"]`) ??
+      tabbarEl.querySelector<HTMLElement>(".tab.active");
+    target?.focus();
   }
   // 运行组按钮随 tab / 运行态一起重绘（renderTabs 覆盖了大多数状态变化点）
   renderRunWidget(runWidgetState());
@@ -1891,6 +1986,8 @@ async function openRunConfig(path: string): Promise<void> {
   runConfigStdinPathEl.value = cfg.stdin.path;
   syncStdinPathRow();
   showEl(runConfigModalEl);
+  releaseRunConfigFocus?.();
+  releaseRunConfigFocus = trapFocus(runConfigModalEl);
   runConfigArgsEl.focus();
 }
 
@@ -1901,6 +1998,8 @@ function syncStdinPathRow(): void {
 
 function closeRunConfig(): void {
   runConfigPath = null;
+  releaseRunConfigFocus?.();
+  releaseRunConfigFocus = null;
   hideEl(runConfigModalEl);
 }
 
@@ -2007,6 +2106,8 @@ let activeMenuBtn: HTMLElement | null = null;
 let activeSubmenuParent: HTMLElement | null = null;
 /** hover 延时展开 / 延时关闭定时器 */
 let submenuTimer: number | undefined;
+/** UI-30：父项元素 → 子菜单解析器（键盘 → 键展开子菜单时取用；渲染时写入，随元素销毁自动回收） */
+const submenuResolvers = new WeakMap<HTMLElement, () => MenuEntry[] | Promise<MenuEntry[]>>();
 
 interface MenuEntry {
   label: string;
@@ -2064,6 +2165,7 @@ function getMenuItems(menu: string): MenuEntry[] {
       { label: "文件树", action: () => setSidebarTab("files") },
       { label: "搜索", shortcut: kb.bindingLabel("global_search") || undefined, action: () => setSidebarTab("search") },
       { sep: true, label: "" },
+      { label: "Markdown 预览", shortcut: kb.bindingLabel("markdown_preview") || undefined, action: () => mdPreview.togglePreview() },
       { label: "输出面板", action: () => { $("bottom").classList.toggle("collapsed"); } },
       { label: "设置", action: () => openSettingsPanel() },
       { label: "Live Templates", action: () => openSettingsPanel("templates") },
@@ -2083,12 +2185,18 @@ function showMenuDropdown(btn: HTMLElement, menu: string): void {
     const el = document.createElement("div");
     if (it.sep) {
       el.className = "ctx-menu-item sep-item";
+      el.setAttribute("role", "separator"); // UI-30
       const line = document.createElement("div");
       line.className = "sep";
       el.appendChild(line);
     } else if (it.submenu) {
       // 有子菜单的父项：右侧 ▸，悬停延时展开、点击切换
       el.className = "ctx-menu-item with-submenu";
+      // UI-30：APG menu 模式——父项声明 haspopup，aria-expanded 由 openSubmenu/hideSubmenu 同源切换
+      el.setAttribute("role", "menuitem");
+      el.setAttribute("aria-haspopup", "menu");
+      el.setAttribute("aria-expanded", "false");
+      el.tabIndex = -1;
       const labelSpan = document.createElement("span");
       labelSpan.textContent = it.label;
       el.appendChild(labelSpan);
@@ -2096,6 +2204,7 @@ function showMenuDropdown(btn: HTMLElement, menu: string): void {
       arrow.className = "sub-arrow";
       arrow.textContent = "▸";
       el.appendChild(arrow);
+      submenuResolvers.set(el, it.submenu); // UI-30：供键盘 → 键展开时取用
       el.addEventListener("mouseenter", () => scheduleSubmenu(el, it.submenu!));
       el.addEventListener("mouseleave", scheduleSubmenuClose);
       el.addEventListener("click", () => {
@@ -2104,6 +2213,8 @@ function showMenuDropdown(btn: HTMLElement, menu: string): void {
       });
     } else {
       el.className = "ctx-menu-item";
+      el.setAttribute("role", "menuitem"); // UI-30
+      el.tabIndex = -1;
       const labelSpan = document.createElement("span");
       labelSpan.textContent = it.label;
       el.appendChild(labelSpan);
@@ -2126,14 +2237,28 @@ function showMenuDropdown(btn: HTMLElement, menu: string): void {
   menuDropdownEl.style.left = `${rect.left}px`;
   menuDropdownEl.style.top = `${rect.bottom + 2}px`;
   activeMenuBtn?.classList.remove("active");
+  activeMenuBtn?.setAttribute("aria-expanded", "false"); // UI-30：直接切换菜单时旧按钮的开合态复位
   activeMenuBtn = btn;
   btn.classList.add("active");
+  btn.setAttribute("aria-expanded", "true"); // UI-30
+  // UI-30：打开即把焦点移入菜单首项（APG menu 模式），↑↓/Home/End/Enter 从此可用
+  moveMenuFocus(menuDropdownEl, "first");
 }
 
 function hideMenuDropdown(): void {
   hideSubmenu();
   menuDropdownEl.classList.add("hidden");
   activeMenuBtn?.classList.remove("active");
+  activeMenuBtn?.setAttribute("aria-expanded", "false"); // UI-30
+  // UI-30：焦点尚未离开（仍在菜单内或掉到 body——如 Esc 关闭）时归还菜单按钮；
+  // 用户已点击别处（含另一个菜单按钮）时焦点在点击目标上，不抢回
+  const ae = document.activeElement;
+  if (
+    activeMenuBtn?.isConnected &&
+    (ae === null || ae === document.body || menuDropdownEl.contains(ae) || submenuEl.contains(ae))
+  ) {
+    activeMenuBtn.focus();
+  }
   activeMenuBtn = null;
 }
 
@@ -2147,6 +2272,7 @@ function cancelSubmenuTimer(): void {
 function hideSubmenu(): void {
   cancelSubmenuTimer();
   activeSubmenuParent?.classList.remove("open");
+  activeSubmenuParent?.setAttribute("aria-expanded", "false"); // UI-30：与 .open 类同源切换
   activeSubmenuParent = null;
   submenuEl.classList.add("hidden");
   submenuEl.textContent = "";
@@ -2164,11 +2290,18 @@ function scheduleSubmenuClose(): void {
   submenuTimer = window.setTimeout(hideSubmenu, 250);
 }
 
-async function openSubmenu(parentEl: HTMLElement, resolve: () => MenuEntry[] | Promise<MenuEntry[]>): Promise<void> {
+/** @param focusFirst UI-30：键盘（→ 键）展开时把焦点移入子菜单首项；鼠标悬停/点击展开不抢焦点 */
+async function openSubmenu(
+  parentEl: HTMLElement,
+  resolve: () => MenuEntry[] | Promise<MenuEntry[]>,
+  focusFirst = false,
+): Promise<void> {
   cancelSubmenuTimer();
   activeSubmenuParent?.classList.remove("open");
+  activeSubmenuParent?.setAttribute("aria-expanded", "false"); // UI-30：切换父项时旧父项复位
   activeSubmenuParent = parentEl;
   parentEl.classList.add("open");
+  parentEl.setAttribute("aria-expanded", "true"); // UI-30：与 .open 类同源切换
 
   let children: MenuEntry[];
   try {
@@ -2186,6 +2319,7 @@ async function openSubmenu(parentEl: HTMLElement, resolve: () => MenuEntry[] | P
     if (it.sep) {
       const el = document.createElement("div");
       el.className = "ctx-menu-item sep-item";
+      el.setAttribute("role", "separator"); // UI-30
       const line = document.createElement("div");
       line.className = "sep";
       el.appendChild(line);
@@ -2193,6 +2327,8 @@ async function openSubmenu(parentEl: HTMLElement, resolve: () => MenuEntry[] | P
     } else {
       const el = document.createElement("div");
       el.className = "ctx-menu-item";
+      el.setAttribute("role", "menuitem"); // UI-30
+      el.tabIndex = -1;
       const labelSpan = document.createElement("span");
       labelSpan.className = "sub-label";
       labelSpan.textContent = it.label;
@@ -2213,6 +2349,7 @@ async function openSubmenu(parentEl: HTMLElement, resolve: () => MenuEntry[] | P
   }
   submenuEl.classList.remove("hidden");
   positionSubmenu(parentEl);
+  if (focusFirst) moveMenuFocus(submenuEl, "first"); // UI-30
 }
 
 function positionSubmenu(parentEl: HTMLElement): void {
@@ -2263,6 +2400,40 @@ function wireMenuBar(): void {
   window.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && !menuDropdownEl.classList.contains("hidden")) hideMenuDropdown();
   });
+  // UI-30：下拉菜单的键盘导航（↑↓/Home/End 漫游、Enter/Space 激活、Tab 退出，见 menuKeys.ts）。
+  // Esc 走级联语义：子菜单开着先关子菜单、焦点回父项；否则关整个下拉（焦点归还菜单按钮）。
+  // 两者都 stopPropagation，不再触发上面 window 级 Escape 的整体关闭。
+  wireMenuKeyNav(menuDropdownEl, {
+    onArrowRight: (item) => {
+      if (!item.classList.contains("with-submenu")) return;
+      const resolve = submenuResolvers.get(item);
+      if (resolve) void openSubmenu(item, resolve, true); // 键盘展开 → 焦点移入子菜单
+    },
+    onEscape: () => {
+      if (activeSubmenuParent) {
+        const p = activeSubmenuParent;
+        hideSubmenu();
+        p.focus();
+      } else {
+        hideMenuDropdown();
+      }
+    },
+    onTab: () => hideMenuDropdown(),
+  });
+  // 子菜单：← / Esc 折叠回父项（APG 级联菜单的退出方向）；Tab 关整个下拉
+  wireMenuKeyNav(submenuEl, {
+    onArrowLeft: () => {
+      const p = activeSubmenuParent;
+      hideSubmenu();
+      p?.focus();
+    },
+    onEscape: () => {
+      const p = activeSubmenuParent;
+      hideSubmenu();
+      p?.focus();
+    },
+    onTab: () => hideMenuDropdown(),
+  });
 }
 
 // Monaco standalone 无文件系统：Ctrl+hover 定义预览（goToDefinitionAtPosition）会 createModelReference
@@ -2277,6 +2448,10 @@ window.addEventListener("unhandledrejection", (e) => {
 // ---------- 初始化 ----------
 
 async function init(): Promise<void> {
+  // UI-25：欢迎页快捷键网格改由键位系统渲染，必须在首个 await（Monaco 动态包，首屏最慢的一步）
+  // 之前同步画一次，否则覆盖层会露出空的「快捷键」区。此刻 app.settings 仍是 DEFAULT_SETTINGS，
+  // 画的是出厂键位；loadSettings 完成后由 updateEditorOverlay 刷成真实值（多数用户二者相同）。
+  renderWelcomeShortcuts();
   // Monaco 动态加载（首屏 UI 先渲染，编辑器包并行下载）
   app.monaco = (await import("./monaco")).default;
   lsp.setMonaco(app.monaco);
@@ -2406,6 +2581,7 @@ async function init(): Promise<void> {
     else if (id === "run") void runActive();
     else if (id === "stop") void stopRun();
     else if (id === "global_search") setSidebarTab("search");
+    else if (id === "markdown_preview") mdPreview.togglePreview();
     // 调试五件套（debug dev plan §6.6）：F5 启动/继续、Shift+F5 停止、F10/F11/Shift+F11 步进
     else if (id === "debug") {
       const phase = dap.currentPhase();
@@ -2420,6 +2596,8 @@ async function init(): Promise<void> {
   // didChange 全量同步（200ms 防抖，技术方案 §2.4）
   app.editor.onDidChangeModelContent(() => {
     if (!app.activeTab) return;
+    // Markdown 预览：预览开启时才挂防抖渲染（关闭时零开销；仅活动 md tab 实际重渲染）
+    if (mdPreview.isPreviewOpen()) mdPreview.schedulePreviewRender();
     window.clearTimeout(editorTimers.change);
     // C5：▶ 位置随内容变化 300ms 防抖重算（与 didChange 的 changeTimer 各管各的，不复用）
     window.clearTimeout(editorTimers.gutter);
@@ -2456,17 +2634,28 @@ async function init(): Promise<void> {
   $("ew-open-folder").addEventListener("click", () => void openFolderFromToolbar());
   $("ew-new-project").addEventListener("click", () => openNewProjectPanel());
   $("ew-recent-clear").addEventListener("click", () => void clearRecentWorkspaces());
+  mdPreview.setMarkdownLinkHandler((path) => void openFile(path)); // 相对 .md 链接 → openFile（注入回调，避免循环依赖）
+  mdPreview.wireMarkdownClicks(); // 预览点击委托（#锚点 / 相对 .md / http(s)）
+  mdPreview.wireMarkdownControls(); // 方案A：右上角开关按钮 + 方案D：一次性引导关闭
   wireMenuBar();
   void checkFirstRunStorage(); // 首启数据落位提示（disk-space-plan.md P2-a；内部判断触发条件，多数启动为 no-op）
 
   // 自绘标题栏（decorations: false）：窗口控制按钮 + 拖拽区 + 边缘 resize 兜底
   const appWindow = getCurrentWindow();
   const winMaxBtn = $("win-max") as HTMLButtonElement;
+  // UI-01：切换 codicon 类名而非覆盖 textContent——保住 HTML 里的 <i aria-hidden> 节点，
+  // 与最小化/关闭按钮（同为 codicon）风格一致，也不再依赖 "Segoe UI Symbol" 字体渲染裸字符。
+  const winMaxIcon = winMaxBtn.querySelector("i.codicon");
   const syncMaxIcon = async (): Promise<void> => {
     try {
       const max = await appWindow.isMaximized();
-      winMaxBtn.textContent = max ? "❐" : "□";
-      winMaxBtn.title = max ? "还原" : "最大化";
+      winMaxIcon?.classList.toggle("codicon-chrome-maximize", !max);
+      winMaxIcon?.classList.toggle("codicon-chrome-restore", max);
+      // UI-09：与 index.html 的静态 data-tip 同轨。动态改写必须同时更新 aria-label——
+      // 只改 tip 的话，最大化后读屏仍会报「最大化」，与已切换成还原态的图标不符。
+      const label = max ? "还原" : "最大化";
+      winMaxBtn.dataset.tip = label;
+      winMaxBtn.setAttribute("aria-label", label);
     } catch { /* 忽略 */ }
   };
   $("win-min").addEventListener("click", () => void appWindow.minimize());
@@ -2572,6 +2761,13 @@ async function init(): Promise<void> {
 
   // 环境面板（P25-T05）——状态栏解释器点击打开
   statusInterpreterEl.addEventListener("click", () => openEnvPanel());
+  // 状态栏芯片语义（第七批）：解释器芯片补了 role=button + tabindex，键盘 Enter/Space 亦可打开（对齐 engineChip）
+  statusInterpreterEl.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      openEnvPanel();
+    }
+  });
   $btn("env-close").addEventListener("click", closeEnvPanel);
   $btn("env-create").addEventListener("click", createVenv);
   $btn("env-pkg-install").addEventListener("click", installPackage);
@@ -2620,8 +2816,19 @@ async function init(): Promise<void> {
   $("tab-git").addEventListener("click", () => setSidebarTab("git"));
   $("tab-debug").addEventListener("click", () => setSidebarTab("debug"));
   // 大纲折叠 / 展开（OUTLINE 并入文件视图，TD-001 附带考虑）
-  $("outline-header").addEventListener("click", () => {
-    $("outline-section").classList.toggle("collapsed");
+  // UI-16：disclosure 语义——aria-expanded 与 .collapsed 类同源切换（单一写入点），
+  // 并给这个可点击 div 补键盘激活（role=button + tabindex 已在 index.html 静态声明）
+  const outlineHeader = $("outline-header");
+  const toggleOutline = () => {
+    const collapsed = $("outline-section").classList.toggle("collapsed");
+    outlineHeader.setAttribute("aria-expanded", String(!collapsed));
+  };
+  outlineHeader.addEventListener("click", toggleOutline);
+  outlineHeader.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      toggleOutline();
+    }
   });
   // 初始化默认激活视图（files 默认显示，使 activeView() 非 null，outline 随文件打开刷新）
   setSidebarTab("files");
@@ -2643,6 +2850,8 @@ async function init(): Promise<void> {
   $("search-case").addEventListener("click", () => {
     searchCaseSensitive = !searchCaseSensitive;
     $("search-case").classList.toggle("active", searchCaseSensitive);
+    // UI-16：开关按钮的按下态用 aria-pressed 表达，与 .active 类同源切换
+    $("search-case").setAttribute("aria-pressed", String(searchCaseSensitive));
     if (searchInputEl.value.trim()) executeSearch().catch(console.error);
   });
 

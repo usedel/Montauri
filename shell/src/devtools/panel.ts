@@ -22,7 +22,13 @@ function renderTabs(): void {
     const btn = document.createElement("button");
     btn.className = "devtools-tab";
     btn.dataset.toolId = tool.id;
-    btn.title = tool.description;
+    // UI-16：tabs 模式——所有 tab 共享 #devtools-body 这一个面板（同一时刻只挂载一个工具实例），
+    // aria-selected 由 activateTool 与 .active 类同源切换
+    btn.setAttribute("role", "tab");
+    btn.setAttribute("aria-selected", "false");
+    btn.setAttribute("aria-controls", "devtools-body");
+    // UI-09：tab 已有可见文本（tool.title）作为可访问名称，description 是补充说明，只需 data-tip
+    btn.dataset.tip = tool.description;
     btn.appendChild(codicon(tool.icon));
     const label = document.createElement("span");
     label.textContent = tool.title;
@@ -43,7 +49,9 @@ function activateTool(id: string): void {
   activeToolId = id;
   activeInstance = tool.mount(host) ?? null;
   document.querySelectorAll<HTMLElement>(".devtools-tab").forEach((b) => {
-    b.classList.toggle("active", b.dataset.toolId === id);
+    const sel = b.dataset.toolId === id;
+    b.classList.toggle("active", sel);
+    b.setAttribute("aria-selected", String(sel)); // UI-16
   });
 }
 

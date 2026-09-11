@@ -9,6 +9,10 @@ import { compileTemplate } from "./compiler";
 import type { EngineContext } from "./engine";
 import { insertSnippet } from "./snippet";
 import { hideEl, showEl } from "../anim";
+import { trapFocus } from "../focusTrap";
+
+/** UI-05：环绕模板选择器模态的焦点陷阱解除句柄 */
+let releaseSurroundFocus: (() => void) | null = null;
 
 export interface SurroundHost {
   buildEngineContext(
@@ -95,9 +99,14 @@ async function openSurroundPicker(
 
   listEl.textContent = "";
   const close = (): void => {
+    releaseSurroundFocus?.();
+    releaseSurroundFocus = null;
     hideEl(modal);
     window.removeEventListener("keydown", onKey, true);
   };
+  // UI-02：头部关闭按钮（onclick 赋值而非 addEventListener，重复打开不会叠加监听）
+  const closeBtn = document.getElementById("surround-close");
+  if (closeBtn) closeBtn.onclick = close;
   const apply = (tpl: TemplateDef): void => {
     close();
     void applySurround(editor, tpl, sel, host);
@@ -144,6 +153,8 @@ async function openSurroundPicker(
     { once: true },
   );
   showEl(modal);
+  releaseSurroundFocus?.();
+  releaseSurroundFocus = trapFocus(modal);
 }
 
 async function applySurround(

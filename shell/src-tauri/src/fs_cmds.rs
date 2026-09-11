@@ -51,6 +51,15 @@ pub fn read_file(path: &str) -> Result<String, String> {
     fs::read_to_string(path).map_err(|e| e.to_string())
 }
 
+/// 读取文件字节并 base64 编码（Markdown 导出 HTML 时把本地图片内联为 data URI）。
+/// 图片是二进制，read_file 的 read_to_string 对非 UTF-8 会失败，故单独走字节读取。
+#[tauri::command]
+pub fn read_file_base64(path: &str) -> Result<String, String> {
+    let bytes = fs::read(path).map_err(|e| e.to_string())?;
+    use base64::Engine;
+    Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
+}
+
 #[tauri::command]
 pub fn write_file(path: &str, content: &str) -> Result<(), String> {
     fs::write(path, content).map_err(|e| e.to_string())

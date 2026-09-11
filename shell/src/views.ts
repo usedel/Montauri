@@ -41,7 +41,10 @@ export function setSidebarTab(id: SidebarViewId): void {
   for (const v of views) {
     const show = v.id === id;
     document.getElementById(v.rootId)?.classList.toggle("hidden", !show);
-    document.getElementById(v.tabId)?.classList.toggle("active", show);
+    const tabEl = document.getElementById(v.tabId);
+    tabEl?.classList.toggle("active", show);
+    // UI-16：tab 语义的选中态与 .active 类同源切换（单一写入点，避免二者漂移）
+    tabEl?.setAttribute("aria-selected", String(show));
   }
   views.find((v) => v.id === activeId)?.onHide?.();
   activeId = id;
