@@ -426,6 +426,7 @@ name = "opencharm-intel"
 version = "0.1.0"
 dependencies = [
  "opencharm-intel-index",
+ "parking_lot",
  "rusqlite",
  "serde_json",
  "tempfile",
@@ -439,6 +440,16 @@ version = "0.1.0"
 dependencies = [
  "rusqlite",
  "tempfile",
+]
+
+[[package]]
+name = "parking_lot"
+version = "0.12.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "93857453250e3077bd71ff98b6a65ea6621a19bb0f559a85248955ac12c45a1a"
+dependencies = [
+ "lock_api",
+ "parking_lot_core",
 ]
 
 [[package]]

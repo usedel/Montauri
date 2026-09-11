@@ -5,7 +5,7 @@
 
 use opencharm_intel_index::TraceIndex;
 
-use crate::completion::parse_jmespath_segments;
+use crate::completion::{is_jmespath_call_prefix, parse_jmespath_segments};
 use crate::type_infer;
 
 /// 一条运行时诊断（LSP 0 基坐标）。
@@ -50,13 +50,8 @@ fn scan_line(
         let close = i + 1 + rel_close;
         let path = &line[i + 1..close];
         let before = line[..i].trim_end();
-        let is_call = before.ends_with("jmespath.search(")
-            || before.ends_with("jmespath.compile(")
-            || before.ends_with(".search(")
-            || before.ends_with(".compile(")
-            || before.ends_with("search(")
-            || before.ends_with("compile(");
-        if is_call && !path.trim().is_empty() {
+        // CR-12：复用补全侧的收窄判定（jmespath.xxx( / .search( / .compile(，排除 re.*）
+        if is_jmespath_call_prefix(before) && !path.trim().is_empty() {
             // 数据变量 = 字符串结束引号后的第一个标识符
             let after = line[close + 1..].trim_start();
             let rest = after.strip_prefix(',').unwrap_or(after).trim_start();
@@ -148,5 +143,33 @@ mod tests {
         let text = "quotes = get_quotes()\nresult = jmespath.search(\"data.diff[0].code\", quotes)";
         let diags = diagnose(&idx, text);
         assert!(diags.is_empty(), "{diags:?}");
+    }
+
+    /// CR-12：`re.search(...)` 不再被误判为 jmespath 调用（曾产生假诊断）。
+    #[test]
+    fn no_diag_for_re_search() {
+        let idx = fixture();
+        let text = "quotes = get_quotes()\nresult = re.search(\"data.dff\", quotes)";
+        let diags = diagnose(&idx, text);
+        assert!(
+            diags.is_empty(),
+            "re.search 不应产生 jmespath 诊断，实际 {diags:?}"
+        );
+        // `import re` 后的裸 search 同理（数据变量解析得到 quotes 也不触发）
+        let text2 = "quotes = get_quotes()\nfrom re import search\nresult = search(\"data.dff\", quotes)";
+        let diags2 = diagnose(&idx, text2);
+        assert!(diags2.is_empty(), "裸 search( 不应产生 jmespath 诊断，实际 {diags2:?}");
+    }
+
+    /// CR-12：链式形态 `jmespath.compile("...").search("...", data)`（`.search(` 前缀）仍识别。
+    #[test]
+    fn diag_for_chained_compile_search() {
+        let idx = fixture();
+        let text = "quotes = get_quotes()\nresult = jmespath.compile(\"data\").search(\"dff\", quotes)";
+        let diags = diagnose(&idx, text);
+        assert!(
+            diags.iter().any(|d| d.message.contains("dff")),
+            "链式 .search( 应识别为 jmespath 调用，实际 {diags:?}"
+        );
     }
 }

@@ -117,3 +117,66 @@ fn shape_empty_string_becomes_none_even_when_named_column_nullable() {
     let f: Vec<_> = idx.by_qualname("C.z").collect();
     assert_eq!(f[0].rets[0].shape, None);
 }
+
+/// CR-16：不存在的路径必须报错且**不得创建空 .db 文件**（原 Connection::open 会创建）。
+#[test]
+fn missing_db_errors_without_creating_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("never-exists.db");
+    assert!(TraceIndex::open(&path).is_err());
+    assert!(!path.exists(), "open 不得创建垃圾 .db 文件");
+}
+
+/// CR-17：最后段倒排查询（hover/definition/推断的查询路径）。
+#[test]
+fn by_last_segment_queries() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("ls.db");
+    {
+        let conn = Connection::open(&path).unwrap();
+        seed(&conn);
+    }
+    let idx = TraceIndex::open(&path).unwrap();
+    // `A.foo` 的最后段 `foo`
+    let foo: Vec<_> = idx.by_last_segment("foo").collect();
+    assert_eq!(foo.len(), 1);
+    assert_eq!(foo[0].qualname, "A.foo");
+    // `B.bar` 的最后段 `bar`
+    let bar: Vec<_> = idx.by_last_segment("bar").collect();
+    assert_eq!(bar.len(), 1);
+    assert!(bar[0].stale);
+    // 未命中返回空
+    assert_eq!(idx.by_last_segment("nope").count(), 0);
+    // 倒数第二段：A.foo 的倒数第二段是 A
+    let in_a: Vec<_> = idx.by_second_last_segment("A").collect();
+    assert_eq!(in_a.len(), 1);
+    // 前缀迭代：`f` 开头的最后段（foo）
+    let pref: Vec<_> = idx.functions_by_last_segment_prefix("f").collect();
+    assert_eq!(pref.len(), 1);
+    assert_eq!(pref[0].qualname, "A.foo");
+}
+
+/// CR-17：type_label 倒排观测查询（members/chain/first_shape 的查询路径）。
+#[test]
+fn observations_of_type_merges_args_and_rets() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("ty.db");
+    {
+        let conn = Connection::open(&path).unwrap();
+        seed(&conn);
+    }
+    let idx = TraceIndex::open(&path).unwrap();
+    // int：args 里的 x（非 ret）；str：rets（is_ret = true）
+    let ints: Vec<_> = idx.observations_of_type("int").collect();
+    assert_eq!(ints.len(), 1);
+    assert_eq!(ints[0].1.arg, "x");
+    assert!(!ints[0].2);
+    let strs: Vec<_> = idx.observations_of_type("str").collect();
+    assert_eq!(strs.len(), 1);
+    assert!(strs[0].2);
+    // dict 类型带 shape
+    let dicts: Vec<_> = idx.observations_of_type("dict[str,int]").collect();
+    assert_eq!(dicts.len(), 1);
+    assert_eq!(dicts[0].1.shape.as_deref(), Some("[\"a\",\"b\"]"));
+    assert_eq!(idx.observations_of_type("nope").count(), 0);
+}

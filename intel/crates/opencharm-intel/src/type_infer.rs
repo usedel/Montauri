@@ -62,57 +62,52 @@ fn infer_upward(
 }
 
 /// 给定类型标签，聚合该类型所有 shape 字段 → `(字段名, 证据计数)`，按计数降序。
+/// CR-17：走 `(type_label, fid)` 倒排（原全量函数扫描 × 每观测重复 parse_shape）。
+/// CR-27：`members_for_type` 实现为 `chain_keys(index, ty, &[])` 的薄封装（两者原本 ~90% 重复）。
 pub fn members_for_type(index: &TraceIndex, type_label: &str) -> Vec<(String, i64)> {
-    let mut counts: HashMap<String, i64> = HashMap::new();
-    for f in index.functions() {
-        if f.stale {
-            continue; // P3-T08：陈旧观测（代码已变更）降权丢弃
-        }
-        for obs in f.args.iter().chain(f.rets.iter()) {
-            if obs.type_label != type_label {
-                continue;
-            }
-            let Some(shape) = &obs.shape else { continue };
-            if let Ok(parsed) = parse_shape(shape, &obs.type_label) {
-                for field in parsed.keys() {
-                    *counts.entry(field.to_owned()).or_insert(0) += obs.count.max(1);
-                }
-            }
-        }
-    }
-    let mut v: Vec<(String, i64)> = counts.into_iter().collect();
-    v.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
-    v
+    chain_keys(index, type_label, &[])
 }
 
 /// 沿访问链解析 type_label 的 shape，返回最终层的键集合（带证据计数），供链式下标补全。
 /// 空链 → 顶层键集合（等价 `members_for_type`）。
+/// CR-17：走 `(type_label, fid)` 倒排迭代（原全量函数扫描）；shape 解析结果
+/// 经 `shape_cache` 复用（同 (type_label,shape) 字符串只解析一次）。
 pub(crate) fn chain_keys(
     index: &TraceIndex,
     type_label: &str,
     chain: &[Access],
 ) -> Vec<(String, i64)> {
+    thread_local! {
+        /// (type_label, shape 字符串) → 解析结果。单次查询后即清空（见函数末尾），
+        /// 不跨请求累积——同一请求内 members/chain 多次命中同 shape 的重复解析被消除。
+        static SHAPE_CACHE: std::cell::RefCell<HashMap<(String, String), Option<ParsedShape>>> =
+            std::cell::RefCell::new(HashMap::new());
+    }
     let mut counts: HashMap<String, i64> = HashMap::new();
-    for f in index.functions() {
+    for (f, obs, _is_ret) in index.observations_of_type(type_label) {
         if f.stale {
-            continue;
+            continue; // P3-T08：陈旧观测（代码已变更）降权丢弃
         }
-        for obs in f.args.iter().chain(f.rets.iter()) {
-            if obs.type_label != type_label {
-                continue;
+        let Some(shape) = &obs.shape else { continue };
+        let parsed = SHAPE_CACHE.with(|c| {
+            let key = (type_label.to_string(), shape.clone());
+            if let Some(v) = c.borrow().get(&key) {
+                return v.clone();
             }
-            let Some(shape) = &obs.shape else { continue };
-            if let Ok(parsed) = parse_shape(shape, &obs.type_label) {
-                if let Some(node) = resolve_node(parsed, chain) {
-                    if let ShapeNode::Dict(map) = node {
-                        for key in map.keys() {
-                            *counts.entry(key.clone()).or_insert(0) += obs.count.max(1);
-                        }
-                    }
+            let v = parse_shape(shape, type_label).ok();
+            c.borrow_mut().insert(key, v.clone());
+            v
+        });
+        let Some(parsed) = parsed else { continue };
+        if let Some(node) = resolve_node(parsed, chain) {
+            if let ShapeNode::Dict(map) = node {
+                for key in map.keys() {
+                    *counts.entry(key.clone()).or_insert(0) += obs.count.max(1);
                 }
             }
         }
     }
+    SHAPE_CACHE.with(|c| c.borrow_mut().clear()); // 查询结束即清空，防跨请求累积
     let mut v: Vec<(String, i64)> = counts.into_iter().collect();
     v.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
     v
@@ -169,25 +164,21 @@ pub(crate) fn validate_chain(index: &TraceIndex, type_label: &str, chain: &[Acce
 }
 
 /// 取 type_label 的第一个可解析结构（dict 顶层 / list 顶层 / 旧 Keys 视作扁平 dict）。
+/// CR-17：走 `(type_label, fid)` 倒排（原全量函数扫描）。
 fn first_shape_node(index: &TraceIndex, type_label: &str) -> Option<ShapeNode> {
-    for f in index.functions() {
+    for (f, obs, _is_ret) in index.observations_of_type(type_label) {
         if f.stale {
             continue;
         }
-        for obs in f.args.iter().chain(f.rets.iter()) {
-            if obs.type_label != type_label {
-                continue;
-            }
-            let Some(shape) = obs.shape.as_deref() else { continue };
-            if let Ok(parsed) = parse_shape(shape, type_label) {
-                return match parsed {
-                    ParsedShape::Dict(map) => Some(ShapeNode::Dict(map)),
-                    ParsedShape::List(elem) => Some(elem),
-                    ParsedShape::Keys(keys) => Some(ShapeNode::Dict(
-                        keys.into_iter().map(|k| (k, ShapeNode::Scalar)).collect(),
-                    )),
-                };
-            }
+        let Some(shape) = obs.shape.as_deref() else { continue };
+        if let Ok(parsed) = parse_shape(shape, type_label) {
+            return match parsed {
+                ParsedShape::Dict(map) => Some(ShapeNode::Dict(map)),
+                ParsedShape::List(elem) => Some(elem),
+                ParsedShape::Keys(keys) => Some(ShapeNode::Dict(
+                    keys.into_iter().map(|k| (k, ShapeNode::Scalar)).collect(),
+                )),
+            };
         }
     }
     None
@@ -270,18 +261,17 @@ fn call_name(rhs: &str) -> Option<&str> {
 
 /// 聚合 `name` 的返回类型观测（count 最高者）。`name` 可能与 qualname 仅最后一段对齐
 /// （调用点写短名 `parse_page()` 或全限定名 `scraper.parse_page()` 均按最后一段匹配）。
+/// CR-17：走 `by_last_segment` 倒排（原全量函数扫描 + 每函数 rsplit）。
 fn ret_type_of(index: &TraceIndex, name: &str) -> Option<String> {
     let seg = last_segment(name);
     let mut best: Option<(String, i64)> = None;
-    for f in index.functions() {
+    for f in index.by_last_segment(seg) {
         if f.stale {
             continue; // P3-T08
         }
-        if last_segment(&f.qualname) == seg {
-            if let Some(r) = f.rets.iter().max_by_key(|r| r.count) {
-                if best.as_ref().map_or(true, |(_, c)| r.count > *c) {
-                    best = Some((r.type_label.clone(), r.count));
-                }
+        if let Some(r) = f.rets.iter().max_by_key(|r| r.count) {
+            if best.as_ref().map_or(true, |(_, c)| r.count > *c) {
+                best = Some((r.type_label.clone(), r.count));
             }
         }
     }
@@ -303,16 +293,14 @@ fn infer_param_type(index: &TraceIndex, def_line: &str, receiver: &str) -> Optio
         return None;
     }
     let mut best: Option<(String, i64)> = None;
-    for f in index.functions() {
+    for f in index.by_last_segment(fn_name) {
         if f.stale {
             continue; // P3-T08
         }
-        if last_segment(&f.qualname) == fn_name {
-            for a in &f.args {
-                if a.arg == receiver {
-                    if best.as_ref().map_or(true, |(_, c)| a.count > *c) {
-                        best = Some((a.type_label.clone(), a.count));
-                    }
+        for a in &f.args {
+            if a.arg == receiver {
+                if best.as_ref().map_or(true, |(_, c)| a.count > *c) {
+                    best = Some((a.type_label.clone(), a.count));
                 }
             }
         }
@@ -408,7 +396,8 @@ pub(crate) enum ParsedShape {
 }
 
 impl ParsedShape {
-    /// 键名集合（顶层补全候选）。
+    /// 键名集合（顶层补全候选）。CR-27：members_for_type 改走 chain_keys 后仅测试使用。
+    #[cfg(test)]
     pub(crate) fn keys(&self) -> Vec<&str> {
         match self {
             ParsedShape::Keys(v) => v.iter().map(|s| s.as_str()).collect(),

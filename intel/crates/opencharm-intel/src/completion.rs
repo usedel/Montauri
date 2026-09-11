@@ -136,9 +136,21 @@ pub fn complete(index: &TraceIndex, text: &str, line: u32, character: u32) -> Ve
 }
 
 /// 符号补全：qualname 命名空间链匹配。
+/// CR-17：不再全量扫描 + 每函数 split('.')——
+/// - parent 为空（顶级符号）：按最后段前缀倒排迭代；
+/// - parent 非空：qualname 倒数第二段必须 == parent 末段，用倒排粗筛后再完整校验段链。
 fn symbol_candidates(index: &TraceIndex, parent: &[String], prefix: &str) -> Vec<Candidate> {
     let mut by_label: HashMap<String, Candidate> = HashMap::new();
-    for f in index.functions() {
+
+    let iter: Box<dyn Iterator<Item = &Function>> = if parent.is_empty() {
+        Box::new(index.functions_by_last_segment_prefix(prefix))
+    } else {
+        // 倒数第二段 == parent 末段（matches_chain 的必要条件）
+        let last_parent = &parent[parent.len() - 1];
+        Box::new(index.by_second_last_segment(last_parent))
+    };
+
+    for f in iter {
         let qsegs: Vec<&str> = f.qualname.split('.').collect();
         if let Some(member) = matches_chain(&qsegs, parent, prefix) {
             let ret = top_ret(f);
@@ -211,6 +223,23 @@ struct JmCtx {
     prefix: String,
 }
 
+/// CR-12：识别 jmespath 一行式调用的接收者前缀（`quote 前的文本 trimmed）。
+/// 收窄规则：
+/// - `jmespath.search(` / `jmespath.compile(`：模块限定全名（最精确）；
+/// - `).search(`：链式形态 `jmespath.compile("a").search("path", data)`——前面的
+///   `)` 表明 receiver 是另一调用的返回值，jmespath 风格的链式用法；
+/// - 裸 `search(` / `compile(` 与任意标识符同名调用（`re.search(` / `myobj.search(`
+///   等）误判，已移除。
+pub(crate) fn is_jmespath_call_prefix(before: &str) -> bool {
+    if before.ends_with("jmespath.search(") || before.ends_with("jmespath.compile(") {
+        return true;
+    }
+    if before.ends_with("re.search(") {
+        return false;
+    }
+    before.ends_with(").search(")
+}
+
 /// 检测 `xxx.search("path…", data)` / `xxx.compile("path…", data)` 一行式调用，
 /// 光标在路径字符串内时提取数据变量、解析访问链与未完成前缀。
 fn jmespath_ctx_at(text: &str, line: u32, character: u32) -> Option<JmCtx> {
@@ -231,19 +260,13 @@ fn jmespath_ctx_at(text: &str, line: u32, character: u32) -> Option<JmCtx> {
     }
     let path_text = &target[i..byte];
 
-    // 2. 路径文本前必须是开引号，且引号前是 search(/compile(/parse(
+    // 2. 路径文本前必须是开引号，且引号前是 jmespath 调用（收窄后的判定）
     if i == 0 || (bytes[i - 1] != b'"' && bytes[i - 1] != b'\'') {
         return None;
     }
     let open = i - 1;
     let before = target[..open].trim_end();
-    let is_jmespath_call = before.ends_with("jmespath.search(")
-        || before.ends_with("jmespath.compile(")
-        || before.ends_with(".search(")
-        || before.ends_with(".compile(")
-        || before.ends_with("search(")
-        || before.ends_with("compile(");
-    if !is_jmespath_call {
+    if !is_jmespath_call_prefix(before) {
         return None;
     }
 
@@ -842,5 +865,64 @@ mod tests {
             "运行时补全准确率 {:.1}% 低于 85% 红线",
             rate * 100.0
         );
+    }
+
+    /// CR-12：jmespath 调用识别收窄——re.search 不再误判，正常补全不被吞。
+    #[test]
+    fn jmespath_detection_narrowed() {
+        // 判定函数本身：正例
+        assert!(is_jmespath_call_prefix("result = jmespath.search("));
+        assert!(is_jmespath_call_prefix("result = jmespath.compile("));
+        assert!(is_jmespath_call_prefix("result = jmespath.compile(\"a\").search("));
+        assert!(is_jmespath_call_prefix("result = compile(\"a\").search("));
+        // 判定函数本身：负例（曾误命中）
+        assert!(!is_jmespath_call_prefix("result = re.search("));
+        assert!(!is_jmespath_call_prefix("result = re.compile("));
+        assert!(!is_jmespath_call_prefix("result = search("));
+        assert!(!is_jmespath_call_prefix("result = compile("));
+        assert!(!is_jmespath_call_prefix("x = myobj.compile("));
+        assert!(!is_jmespath_call_prefix("x = myobj.search("));
+
+        // 端到端（补全）：re.search 路径串内不触发 jmespath 补全（原被吞，正常补全失效）
+        let idx = jmespath_fixture();
+        let text = "quotes = get_quotes()\nresult = re.search(\"data.dff\", quotes)";
+        let l2 = text.lines().nth(1).unwrap();
+        let col = l2.find("dff").unwrap() as u32 + 2;
+        let cands = complete(&idx, text, 1, col);
+        assert!(
+            !cands.iter().any(|c| c.label == "diff"),
+            "re.search 不应触发 jmespath 补全，实际 {cands:?}"
+        );
+
+        // 端到端（补全）：jmespath.search 正常触发
+        let text2 = "quotes = get_quotes()\nresult = jmespath.search(\"data.d\", quotes)";
+        let l2b = text2.lines().nth(1).unwrap();
+        let col2 = l2b.find("data.d").unwrap() as u32 + 6;
+        let cands2 = complete(&idx, text2, 1, col2);
+        assert!(
+            cands2.iter().any(|c| c.label == "diff"),
+            "jmespath.search 应补 diff，实际 {cands2:?}"
+        );
+    }
+
+    /// jmespath 测试索引：get_quotes() → dict{data: dict{k: diff: list{e: dict{k: code}}}}。
+    fn jmespath_fixture() -> TraceIndex {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.db");
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(SCHEMA).unwrap();
+            conn.execute(
+                "INSERT INTO functions(filename,qualname,lineno,hits,stale) VALUES('m.py','get_quotes',1,10,0)",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                r#"INSERT INTO ret_types(fid,type_label,shape,count) VALUES(1,'dict[str, object]','{"data":{"t":"dict","k":{"diff":{"t":"list","e":{"t":"dict","k":{"code":"str"}}}}}}',7)"#,
+                [],
+            )
+            .unwrap();
+        }
+        TraceIndex::open(&path).unwrap()
     }
 }

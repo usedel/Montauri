@@ -60,15 +60,14 @@ pub fn hover(index: &TraceIndex, text: &str, line: u32, character: u32) -> Optio
 }
 
 /// 取 qualname 最后段 == name 最后段的函数中 hits 最高者，聚合观测（按 count 降序）。
+/// CR-17：走 `by_last_segment` 倒排（原全量函数扫描 + 每函数 rsplit）。
 fn find_function(index: &TraceIndex, name: &str) -> Option<FunctionHover> {
     let seg = name.rsplit('.').next().unwrap_or(name);
     let mut best: Option<&Function> = None;
-    for f in index.functions() {
-        if f.qualname.rsplit('.').next() == Some(seg) {
-            // P3-T08 新鲜度：非 stale 优先，再按 hits 降序
-            if best.map_or(true, |b| (!f.stale, f.hits) > (!b.stale, b.hits)) {
-                best = Some(f);
-            }
+    for f in index.by_last_segment(seg) {
+        // P3-T08 新鲜度：非 stale 优先，再按 hits 降序
+        if best.map_or(true, |b| (!f.stale, f.hits) > (!b.stale, b.hits)) {
+            best = Some(f);
         }
     }
     let f = best?;

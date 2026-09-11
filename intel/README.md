@@ -35,7 +35,7 @@ cargo build --release  # P3-T02 性能验收用
 | 编号 | 任务 | 状态 |
 |---|---|---|
 | P3-T01 | 骨架（cargo workspace + tower-lsp stdio） | 已完成 |
-| P3-T02 | trace 索引层（读 SQLite，10 万条 < 2s） | 已完成 |
+| P3-T02 | trace 索引层（读 SQLite，10 万条 < 2s） | 已完成（2026-09-10 整改后实测 **429.9ms**，bench_load PASS） |
 | P3-T03 | 补全 provider（符号补全） | 已完成（见下） |
 | P3-T03b | 属性访问补全（局部类型推断） | 已完成（见下） |
 | P3-T04 | 跳转 provider | 已完成（见下） |
@@ -45,6 +45,12 @@ cargo build --release  # P3-T02 性能验收用
 | P3-T08 | 类型推断补强（for 循环变量）+ stale 新鲜度降权 | 已完成（`type_infer` + 全链路降权） |
 | P3-T09 | 运行时层一键关闭全局开关 | 已完成（设置 `runtime_intel_enabled` + `stopIntel`） |
 | P3-T10 | bench 补全准确率评测 + Gate D 验收 | 确定性评测 23/23 通过；PyCharm 同场景人工对标待复核 |
+
+## 索引与并发模型（2026-09-10 整改后）
+
+- **倒排索引**（`opencharm-intel-index/src/trace.rs`）：加载期预建 `by_qualname` / `by_location` / `by_file` / `by_last_segment`（qualname 最后段）/ `by_second_last_segment` / `by_type_label`（类型 → 观测定位）；消费端 7 处全量线性扫描全部改为索引查询，shape 解析带请求级缓存。
+- **只读打开**：`TraceIndex::open` 用 `SQLITE_OPEN_READ_ONLY` + 路径不存在直接报错（不创建垃圾 .db）+ `busy_timeout(2s)`。
+- **server.rs 并发**：`parking_lot::RwLock`（无中毒）+ `Option<Arc<TraceIndex>>` 快照（读锁内只 clone，重计算锁外）+ 补全/hover/definition/inlay/诊断全部 `spawn_blocking`；didChange 带 **version 校验**（旧版本后到不覆盖新文本）；索引加载失败**指数退避**（连续失败后按 2 的幂间隔重试，不再每键重试刷 stderr）。
 
 ### P3-T03 运行时补全（已交付部分）
 

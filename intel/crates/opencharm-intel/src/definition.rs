@@ -30,11 +30,8 @@ pub fn definition(
     };
     let seg = name.rsplit('.').next().unwrap_or(&name);
 
-    let mut funcs: Vec<&Function> = index
-        .functions()
-        .iter()
-        .filter(|f| f.qualname.rsplit('.').next() == Some(seg))
-        .collect();
+    // CR-17：走 by_last_segment 倒排（原全量函数扫描 + 每函数 rsplit）
+    let mut funcs: Vec<&Function> = index.by_last_segment(seg).collect();
     // P3-T08 新鲜度：非 stale 优先，再按 hits 降序（stale 代码变更后的旧位置排后）
     funcs.sort_by(|a, b| a.stale.cmp(&b.stale).then_with(|| b.hits.cmp(&a.hits)));
 

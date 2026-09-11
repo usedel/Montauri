@@ -115,18 +115,44 @@ impl From<rusqlite::Error> for TraceError {
 }
 
 /// 内存索引。加载一次性完成，之后全部走 `HashMap` 查询，不再命中 SQLite。
+///
+/// CR-17：消费端（补全/hover/definition/推断）原本按「qualname 最后段」与「type_label」
+/// 两个维度做**全量线性扫描**（10 万函数下每键数十~数百 ms）。加载期预建倒排：
+/// - `by_last_segment`：最后段 → 函数下标（ret_type_of / find_function / definition / infer_param_type）；
+/// - `by_type_label`：type_label → (函数下标, 观测来源, 观测下标)（members/chain/first_shape）。
 #[derive(Debug, Default)]
 pub struct TraceIndex {
     functions: Vec<Function>,
     by_qualname: HashMap<String, Vec<usize>>,
     by_location: HashMap<String, HashMap<i64, Vec<usize>>>,
     by_file: HashMap<String, Vec<usize>>,
+    by_last_segment: HashMap<String, Vec<usize>>,
+    /// CR-17：qualname 倒数第二段 → 函数下标（符号补全 parent 段链匹配的粗筛）。
+    by_second_last_segment: HashMap<String, Vec<usize>>,
+    /// (type_label, 函数下标) → 该函数内此类型观测的 (是否在 rets, 观测下标) 列表。
+    /// args 与 rets 合并登记（观测来源用 flag 区分，消费端按需过滤 stale 函数）。
+    by_type_label: HashMap<(String, usize), Vec<(bool, usize)>>,
 }
 
 impl TraceIndex {
     /// 打开并加载 trace 库。
+    ///
+    /// CR-16：只读消费——`SQLITE_OPEN_READ_ONLY` + 路径不存在直接报错（原 `Connection::open`
+    /// 对不存在路径会**创建空 .db**（资源污染），随后报误导性 `no such table`）；
+    /// `busy_timeout(2s)` 与 probe 写库争锁时等待而非立即失败。
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, TraceError> {
-        let conn = Connection::open(path)?;
+        use rusqlite::OpenFlags;
+        let path = path.as_ref();
+        if !path.exists() {
+            return Err(TraceError::Sqlite(rusqlite::Error::InvalidParameterName(
+                format!("trace 库不存在: {}", path.display()),
+            )));
+        }
+        let conn = Connection::open_with_flags(
+            path,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )?;
+        conn.busy_timeout(std::time::Duration::from_secs(2))?;
         Self::from_conn(&conn)
     }
 
@@ -164,6 +190,9 @@ impl TraceIndex {
         let mut by_qualname: HashMap<String, Vec<usize>> = HashMap::new();
         let mut by_location: HashMap<String, HashMap<i64, Vec<usize>>> = HashMap::new();
         let mut by_file: HashMap<String, Vec<usize>> = HashMap::new();
+        // CR-17：最后段倒排（消费端 hover/definition/ret_type_of/infer_param_type 的查询键）
+        let mut by_last_segment: HashMap<String, Vec<usize>> = HashMap::new();
+        let mut by_second_last_segment: HashMap<String, Vec<usize>> = HashMap::new();
         for (i, f) in functions.iter().enumerate() {
             by_qualname.entry(f.qualname.clone()).or_default().push(i);
             by_location
@@ -173,6 +202,35 @@ impl TraceIndex {
                 .or_default()
                 .push(i);
             by_file.entry(f.filename.clone()).or_default().push(i);
+            let mut it = f.qualname.rsplitn(3, '.');
+            let last = it.next().unwrap_or(&f.qualname);
+            by_last_segment.entry(last.to_string()).or_default().push(i);
+            // 倒数第二段（无则空串键，顶级函数对 parent 非空的补全天然不匹配）
+            if let Some(second) = it.next() {
+                by_second_last_segment
+                    .entry(second.to_string())
+                    .or_default()
+                    .push(i);
+            }
+        }
+
+        // CR-17：type_label 倒排——(type_label, 函数下标) → 观测定位列表（args+rets 合并）。
+        // members_for_type / chain_keys / first_shape_node 原本全表扫描 × 每观测重复
+        // serde_json 解析，现在只遍历命中类型的观测。
+        let mut by_type_label: HashMap<(String, usize), Vec<(bool, usize)>> = HashMap::new();
+        for (i, f) in functions.iter().enumerate() {
+            for (j, obs) in f.args.iter().enumerate() {
+                by_type_label
+                    .entry((obs.type_label.clone(), i))
+                    .or_default()
+                    .push((false, j));
+            }
+            for (j, obs) in f.rets.iter().enumerate() {
+                by_type_label
+                    .entry((obs.type_label.clone(), i))
+                    .or_default()
+                    .push((true, j));
+            }
         }
 
         Ok(TraceIndex {
@@ -180,6 +238,9 @@ impl TraceIndex {
             by_qualname,
             by_location,
             by_file,
+            by_last_segment,
+            by_second_last_segment,
+            by_type_label,
         })
     }
 
@@ -295,6 +356,71 @@ impl TraceIndex {
     /// 全部 qualified name（去重不保证，仅遍历 key；P3-T03 前缀补全再决定排序结构）。
     pub fn qualnames(&self) -> impl Iterator<Item = &String> {
         self.by_qualname.keys()
+    }
+
+    /// CR-17：按 qualname **最后段**查询（调用点写短名 `parse_page()` 与全限定名
+    /// `scraper.parse_page()` 都命中）。hover/definition/推断原全量扫描的替代。
+    pub fn by_last_segment(&self, last: &str) -> impl Iterator<Item = &Function> {
+        self.by_last_segment
+            .get(last)
+            .into_iter()
+            .flatten()
+            .map(|&i| &self.functions[i])
+    }
+
+    /// CR-17：按 type_label 拉出全部观测（args+rets 合并）。
+    /// 返回迭代器元素：`(函数, 观测, 是否来自 rets)`；消费端自行过滤 stale。
+    pub fn observations_of_type<'a>(
+        &'a self,
+        type_label: &'a str,
+    ) -> impl Iterator<Item = (&'a Function, &'a TypeObs, bool)> + 'a {
+        self.by_type_label
+            .iter()
+            .filter_map(move |((label, fi), locs)| {
+                (label.as_str() == type_label).then(|| {
+                    locs.iter().filter_map(move |&(is_ret, oi)| {
+                        let f = self.functions.get(*fi)?;
+                        let obs = if is_ret { f.rets.get(oi)? } else { f.args.get(oi)? };
+                        Some((f, obs, is_ret))
+                    })
+                })
+            })
+            .flatten()
+    }
+
+    /// CR-17：符号补全迭代入口——只遍历「最后段以 prefix 开头」的函数
+    /// （原全量扫描 + 每函数 split('.')）。
+    pub fn functions_by_last_segment_prefix<'a>(
+        &'a self,
+        prefix: &'a str,
+    ) -> impl Iterator<Item = &'a Function> + 'a {
+        self.by_last_segment
+            .iter()
+            .filter(move |(last, _)| last.starts_with(prefix))
+            .flat_map(|(_, idxs)| idxs.iter().map(|&i| &self.functions[i]))
+    }
+
+    /// CR-17：qualname 前缀迭代（`parent` 段链 + 最后段前缀过滤交给消费端）。
+    pub fn qualnames_by_prefix<'a>(
+        &'a self,
+        prefix: &'a str,
+    ) -> impl Iterator<Item = (&'a str, &'a Function)> + 'a {
+        self.by_qualname
+            .iter()
+            .filter(move |(q, _)| q.starts_with(prefix))
+            .flat_map(move |(q, idxs)| {
+                idxs.iter().map(move |&i| (q.as_str(), &self.functions[i]))
+            })
+    }
+
+    /// CR-17：按 qualname 倒数第二段查询（符号补全 parent 段链匹配的粗筛，
+    /// 命中候选再由消费端做完整段链校验）。
+    pub fn by_second_last_segment(&self, second_last: &str) -> impl Iterator<Item = &Function> {
+        self.by_second_last_segment
+            .get(second_last)
+            .into_iter()
+            .flatten()
+            .map(|&i| &self.functions[i])
     }
 }
 
