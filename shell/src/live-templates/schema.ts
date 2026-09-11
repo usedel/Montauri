@@ -1,5 +1,5 @@
 // Live Templates Schema v2：数据模型 + 宽松校验 + v1 配置迁移
-// 方案文档：docs/live_templates重构方案1.md §5
+// 位置轴（positions）语义见 live_templates上下文轴修订稿（v1.1）§2
 
 export type TemplateKind = "normal" | "surround" | "postfix";
 

@@ -46,7 +46,12 @@ let nextRequestId = 1;
 interface EngineSession {
   engine: string;
   status: EngineStatus;
-  pending: Map<number, { resolve: (v: any) => void; reject: (e: any) => void }>;
+  /** CR-11：pending 条目带超时句柄，settle 时 clearTimeout + delete，杜绝无界泄漏 */
+  pending: Map<number, {
+    resolve: (v: any) => void;
+    reject: (e: any) => void;
+    timer: ReturnType<typeof setTimeout>;
+  }>;
 }
 const sessions = new Map<string, EngineSession>();
 
@@ -59,12 +64,19 @@ function session(engine: string): EngineSession {
   return s;
 }
 
+/** pending 条目 settle（resolve 或 reject 都走这里）：清定时器 + 删条目，幂等 */
+function settlePending(s: EngineSession, id: number, fn: (p: { resolve: (v: any) => void; reject: (e: any) => void }) => void): void {
+  const p = s.pending.get(id);
+  if (!p) return;
+  clearTimeout(p.timer);
+  s.pending.delete(id);
+  fn(p);
+}
+
 const notificationHandlers = new Map<string, (params: any, engine?: string) => void>();
 let unlistenMessage: UnlistenFn | null = null;
 let unlistenExit: UnlistenFn | null = null;
 let unlistenStderr: UnlistenFn | null = null;
-void unlistenExit;
-void unlistenStderr;
 
 // 静态引擎状态（UI 展示用；intel 状态只影响补全/hover/definition 合并，不主导 UI）
 let engineStatus: EngineStatus = "off";
@@ -88,13 +100,26 @@ export function request(method: string, params: unknown): Promise<any> {
   return requestEngine("static", method, params);
 }
 
+/** CR-11：请求超时（ms）。默认覆盖 pyrefly 大仓库首索引的慢请求；initialize 走更长时限。 */
+const REQUEST_TIMEOUT_MS = 15_000;
+const INITIALIZE_TIMEOUT_MS = 60_000;
+
 /** 发送 LSP 请求到指定引擎 */
 export function requestEngine(engine: string, method: string, params: unknown): Promise<any> {
   const s = session(engine);
   const id = nextRequestId++;
+  const timeout = method === "initialize" ? INITIALIZE_TIMEOUT_MS : REQUEST_TIMEOUT_MS;
   return new Promise((resolve, reject) => {
-    s.pending.set(id, { resolve, reject });
-    invoke("lsp_send_request", { engine, id, method, params }).catch(reject);
+    // CR-11：引擎假死（丢帧/内部死锁）时 Promise 永不 settle，闭包与 pending 条目无界泄漏，
+    // 补全 widget 永久转圈。超时 reject 兜底；响应到达时 settlePending 清定时器。
+    const timer = setTimeout(() => {
+      settlePending(s, id, (p) => p.reject(new Error(`LSP 请求超时（${timeout / 1000}s）: ${method}`)));
+    }, timeout);
+    s.pending.set(id, { resolve, reject, timer });
+    invoke("lsp_send_request", { engine, id, method, params }).catch((e) => {
+      // CR-11：invoke 失败（IPC 层）也要删条目，否则泄漏且超时定时器空转
+      settlePending(s, id, (p) => p.reject(e));
+    });
   });
 }
 
@@ -110,10 +135,43 @@ export function notifyEngine(engine: string, method: string, params: unknown): P
   });
 }
 
-/** 通知广播给所有就绪引擎（文档同步类方法：didOpen/didChange/didClose/didSave） */
+/** CR-23：intel 处于 "starting"（加载 trace DB 可达数秒）时，用户新打开文件的 didOpen
+ * 被 broadcast 过滤丢弃 → intel 永不知道该文件，运行时补全/hover/inlay 失效直到重启。
+ * 对 starting 引擎排队，ready 时冲刷。 */
+const startingQueues = new Map<string, Array<{ method: string; params: unknown }>>();
+
+/** 通知广播给所有就绪引擎（文档同步类方法：didOpen/didChange/didClose/didSave）。
+ * CR-23：starting 引擎入队而非丢弃，ready 时按序冲刷。 */
 function broadcast(method: string, params: unknown): Promise<void> {
-  const engines = [...sessions.entries()].filter(([, s]) => s.status === "ready").map(([e]) => e);
-  return Promise.all(engines.map((e) => notifyEngine(e, method, params))).then(() => undefined);
+  const jobs: Promise<void>[] = [];
+  for (const [engine, s] of sessions) {
+    if (s.status === "ready") {
+      jobs.push(notifyEngine(engine, method, params));
+    } else if (s.status === "starting") {
+      let q = startingQueues.get(engine);
+      if (!q) {
+        q = [];
+        startingQueues.set(engine, q);
+      }
+      q.push({ method, params });
+      // 队列上限防御：极端情况下（引擎永远不 ready）不无界增长
+      if (q.length > 500) q.splice(0, q.length - 500);
+    }
+  }
+  return Promise.all(jobs).then(() => undefined);
+}
+
+/** CR-23：引擎就绪时冲刷排队中的文档同步通知（didOpen/didChange 按到达序） */
+function flushStartingQueue(engine: string): void {
+  const q = startingQueues.get(engine);
+  if (!q) return;
+  startingQueues.delete(engine);
+  for (const { method, params } of q) void notifyEngine(engine, method, params);
+}
+
+/** CR-23：引擎确定不会就绪（退出/错误/停止）时丢弃排队，防泄漏 */
+function dropStartingQueue(engine: string): void {
+  startingQueues.delete(engine);
 }
 
 // ---------- 位置换算（LSP UTF-16 0 基 ↔ Monaco 1 基） ----------
@@ -139,6 +197,13 @@ function pathToFileUri(path: string): string {
   return "file:///" + encodeURI(normalized).replace(/#/g, "%23");
 }
 
+/** CR-29：工作区 rootUri 构造（导出供 main.ts / settingsPanel.ts 复用）。
+ * 原两处手拼 `file:///${root.replace(/\\/g,"/")}` 不做百分号编码——工作区路径含
+ * 空格/中文时与 didOpen.uri（pathToFileUri 已正确编码）前缀不一致，引擎无法关联工作区。 */
+export function workspaceRootUri(root: string): string {
+  return pathToFileUri(root);
+}
+
 // ---------- 生命周期 ----------
 
 interface EngineInfo { name: string; command: string; args: string[] }
@@ -147,8 +212,31 @@ interface EngineInfo { name: string; command: string; args: string[] }
 let currentEngine = "pyrefly";
 let currentInterpreter: string | null = null;
 
+/** CR-21：ensureListeners 的 in-flight Promise 缓存。
+ * 原守卫在 `await listen()` 之后才赋值 unlistenMessage，并发调用（startEngine+startIntel）
+ * 都过守卫 → 注册两套监听器（前一套 unlisten 泄漏），服务端请求被 lsp_send_response 响应两次。 */
+let listenersPromise: Promise<void> | null = null;
+
+/** CR-24：监听器句柄不再 `void x;` 骗编译器丢弃——统一提供销毁入口。
+ * 监听器与 WebView 同生命周期，正常运行不销毁；此导出供测试 teardown /
+ * 未来多窗口场景使用（语义显式化而非假装使用过）。 */
+export function disposeListeners(): void {
+  unlistenMessage?.();
+  unlistenExit?.();
+  unlistenStderr?.();
+  unlistenMessage = null;
+  unlistenExit = null;
+  unlistenStderr = null;
+  listenersPromise = null;
+}
+
 /** 事件监听（幂等：只挂一次；payload 带 engine 字段，按引擎分发） */
 async function ensureListeners(): Promise<void> {
+  listenersPromise ??= doEnsureListeners();
+  return listenersPromise;
+}
+
+async function doEnsureListeners(): Promise<void> {
   if (unlistenMessage) return;
 
   unlistenMessage = await listen<{ engine?: string; id?: number; method?: string; params?: any; result?: any; error?: any }>(
@@ -158,12 +246,10 @@ async function ensureListeners(): Promise<void> {
       const eng = typeof msg.engine === "string" ? msg.engine : "static";
       const s = session(eng);
       if (msg.id !== undefined && msg.id !== null && (msg.result !== undefined || msg.error !== undefined || msg.method === undefined)) {
-        const p = s.pending.get(msg.id);
-        if (p) {
-          s.pending.delete(msg.id);
+        settlePending(s, msg.id, (p) => {
           if (msg.error) p.reject(new Error(msg.error.message ?? JSON.stringify(msg.error)));
           else p.resolve(msg.result);
-        }
+        });
       } else if (msg.method) {
         const h = notificationHandlers.get(msg.method);
         if (h) h(msg.params, eng);
@@ -183,9 +269,13 @@ async function ensureListeners(): Promise<void> {
     const eng = e.payload?.engine ?? "static";
     const s = session(eng);
     const err = new Error(`LSP 进程退出（code=${e.payload?.code}）`);
-    for (const [, p] of s.pending) p.reject(err);
+    for (const [, p] of s.pending) {
+      clearTimeout(p.timer);
+      p.reject(err);
+    }
     s.pending.clear();
     s.status = "exited";
+    dropStartingQueue(eng); // CR-23：进程已退，排队通知永不送达
     if (eng === "static") setEngineStatus("exited");
   });
   unlistenStderr = await listen<{ engine?: string; data: string }>("lsp-stderr", (e) => {
@@ -235,6 +325,7 @@ export async function startEngine(engine: string, rootUri: string, interpreter: 
   });
   notify("initialized", {});
   session("static").status = "ready";
+  flushStartingQueue("static"); // CR-23：冲刷 starting 期间排队的文档同步
   setEngineStatus("ready");
   return initResult;
 }
@@ -244,8 +335,12 @@ interface IntelInfo { command: string | null; traceDbPath: string }
 /** 启动 opencharm-intel（运行时引擎）。失败/未构建仅静默降级，静态引擎照常工作。 */
 export async function startIntel(workspaceRoot: string, rootUri: string): Promise<boolean> {
   const s = session("intel");
-  for (const [, p] of s.pending) p.reject(new Error("intel 重启"));
+  for (const [, p] of s.pending) {
+    clearTimeout(p.timer); // CR-11
+    p.reject(new Error("intel 重启"));
+  }
   s.pending.clear();
+  dropStartingQueue("intel"); // CR-23：旧实例的排队作废
 
   let info: IntelInfo;
   try {
@@ -278,10 +373,12 @@ export async function startIntel(workspaceRoot: string, rootUri: string): Promis
     });
     notifyEngine("intel", "initialized", {});
     s.status = "ready";
+    flushStartingQueue("intel"); // CR-23：冲刷 starting 期间排队的文档同步
     return true;
   } catch (e) {
     console.warn("[intel] 启动失败，仅静态引擎工作:", e);
     s.status = "error";
+    dropStartingQueue("intel");
     return false;
   }
 }
@@ -292,9 +389,13 @@ export async function stopEngine(): Promise<void> {
   } catch { /* 未启动时忽略 */ }
   const err = new Error("LSP 已停止");
   for (const [, s] of sessions) {
-    for (const [, p] of s.pending) p.reject(err);
+    for (const [, p] of s.pending) {
+      clearTimeout(p.timer); // CR-11：清超时句柄
+      p.reject(err);
+    }
     s.pending.clear();
     s.status = "off";
+    dropStartingQueue(s.engine); // CR-23
   }
   sessions.clear();
   setEngineStatus("off");
@@ -307,9 +408,13 @@ export async function stopIntel(): Promise<void> {
   } catch { /* 未启动时忽略 */ }
   const s = session("intel");
   const err = new Error("运行时智能已关闭");
-  for (const [, p] of s.pending) p.reject(err);
+  for (const [, p] of s.pending) {
+    clearTimeout(p.timer); // CR-11
+    p.reject(err);
+  }
   s.pending.clear();
   s.status = "off";
+  dropStartingQueue("intel"); // CR-23
 }
 
 /**
@@ -343,7 +448,7 @@ export function didOpen(path: string, model: MonacoApi.editor.ITextModel): void 
 /**
  * 全量同步：防抖窗口结束时发送当前全文。
  * 注意：不用 range-based 增量——pyrefly 的 contentChanges 语义是「替换文档状态」，
- * 多次独立增量会与服务端状态错位（实测补全丢失，见 phase1-acceptance.md）。
+ * 多次独立增量会与服务端状态错位（实测补全丢失）。
  * 全量对小文件开销可忽略，正确性优先。
  */
 export function didChangeFull(path: string, model: MonacoApi.editor.ITextModel): Promise<void> {
@@ -1054,8 +1159,15 @@ export function registerLspInlayHints(): MonacoApi.IDisposable {
 
 // ---------- 诊断 ----------
 
-/** 诊断缓存：uri → (owner → markers)。不同引擎（pyrefly / opencharm-intel）分 owner 并存显示 */
-const diagnosticsCache = new Map<string, Map<string, MonacoApi.editor.IMarkerData[]>>();
+/** CR-22：诊断缓存 key 归一化（\→/ + lowercase）。
+ * 原来 key 用 `fileUriToPath` 结果与 `tab.path` 严格 `===`，Windows 大小写/分隔符
+ * 不一致时红波浪线静默不显示（极难排查）。归一化 key + 存原始 path 供回放。 */
+function normPath(p: string): string {
+  return p.replace(/\\/g, "/").toLowerCase();
+}
+
+/** 诊断缓存：normPath → (owner → { 原始 path, markers })。不同引擎（pyrefly / opencharm-intel）分 owner 并存显示 */
+const diagnosticsCache = new Map<string, Map<string, { path: string; markers: MonacoApi.editor.IMarkerData[] }>>();
 
 export function handleDiagnostics(
   params: { uri: string; diagnostics: LspDiagnostic[] },
@@ -1074,15 +1186,15 @@ export function handleDiagnostics(
       d.severity === 1 ? monaco.MarkerSeverity.Error :
       d.severity === 2 ? monaco.MarkerSeverity.Warning :
       monaco.MarkerSeverity.Info,
-    source: d.source ?? "pyrefly",
+    source: d.source ?? currentEngine,
     code: typeof d.code === "string" ? d.code : d.code !== undefined ? String(d.code) : undefined,
   }));
-  let byOwner = diagnosticsCache.get(path);
+  let byOwner = diagnosticsCache.get(normPath(path));
   if (!byOwner) {
     byOwner = new Map();
-    diagnosticsCache.set(path, byOwner);
+    diagnosticsCache.set(normPath(path), byOwner);
   }
-  byOwner.set(owner, markers);
+  byOwner.set(owner, { path, markers });
   setMarkers(path, markers, owner);
 }
 
@@ -1091,16 +1203,21 @@ export function applyCachedDiagnostics(
   path: string,
   setMarkers: (path: string, markers: MonacoApi.editor.IMarkerData[], owner?: string) => void,
 ): void {
-  const byOwner = diagnosticsCache.get(path);
+  const byOwner = diagnosticsCache.get(normPath(path));
   if (!byOwner) return;
-  for (const [owner, markers] of byOwner) setMarkers(path, markers, owner);
+  for (const [owner, entry] of byOwner) setMarkers(entry.path, entry.markers, owner);
 }
 
-/** 诊断缓存 key 迁移（P25-T03 重命名联动：旧路径 → 新路径） */
+/** CR-22：didClose 删对应缓存条目（关文件即释放，不再等引擎重启才清） */
+export function discardCachedDiagnostics(path: string): void {
+  diagnosticsCache.delete(normPath(path));
+}
+
+/** CR-22：诊断缓存 key 迁移（P25-T03 重命名联动：旧路径 → 新路径） */
 export function migrateDiagnostics(oldPath: string, newPath: string): void {
-  const cached = diagnosticsCache.get(oldPath);
+  const cached = diagnosticsCache.get(normPath(oldPath));
   if (cached !== undefined) {
-    diagnosticsCache.delete(oldPath);
-    diagnosticsCache.set(newPath, cached);
+    diagnosticsCache.delete(normPath(oldPath));
+    diagnosticsCache.set(normPath(newPath), cached);
   }
 }

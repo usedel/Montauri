@@ -1,6 +1,38 @@
 // 无状态纯工具函数：从 main.ts 拆出（消除「上帝文件」的第一步）。
 // 仅包含不依赖 DOM / 全局状态的路径、展示类纯函数，便于单测与复用。
 
+/** CR-24：IDisposable 集中管理（范本 devtools/panel.ts / keybindings.ts 的推广）。
+ * 应用/工作区生命周期内注册的 provider / command / 事件监听统一入 store，
+ * 对应生命周期结束时 `dispose()` 一次清理，不再丢弃句柄。 */
+export class DisposableStore {
+  private items: Array<{ dispose(): void }> = [];
+
+  /** 登记一个 disposable（如 registerLspCompletion() 的返回值）；直接返回入参便于链式 */
+  add<T extends { dispose(): void }>(d: T): T {
+    this.items.push(d);
+    return d;
+  }
+
+  /** 包装一个裸清理回调（如 window.removeEventListener） */
+  addCallback(fn: () => void): void {
+    this.items.push({ dispose: fn });
+  }
+
+  /** 全部清理（幂等） */
+  dispose(): void {
+    for (const d of this.items) {
+      try {
+        d.dispose();
+      } catch { /* 单个失败不阻断其余清理 */ }
+    }
+    this.items = [];
+  }
+
+  get size(): number {
+    return this.items.length;
+  }
+}
+
 /** 取文件名（去除目录前缀） */
 export function basename(p: string): string {
   return p.split(/[\\/]/).pop() ?? p;
@@ -176,10 +208,29 @@ export function stripPyExtension(name: string): string {
   return name;
 }
 
-/** 计算相对路径（用于 git 状态匹配） */
+/** 计算相对路径（用于 git 状态匹配）。
+ * CR-28：前缀匹配改大小写无关（Windows 盘符/目录大小写与 git 输出不一致时，
+ * relativePath 返回整条绝对路径 → 徽标失配消失）。 */
 export function relativePath(root: string, full: string): string {
-  if (!full.startsWith(root)) return full;
-  return full.slice(root.length).replace(/^[\\/]/, "").replace(/\\/g, "/");
+  const normRoot = normalizePath(root).replace(/\/+$/, "");
+  const normFull = normalizePath(full);
+  if (!normFull.startsWith(normRoot)) return full;
+  const rel = normFull.slice(normRoot.length).replace(/^\//, "");
+  return rel || full;
+}
+
+// ---------- CR-28：路径归一化统一（唯一权威实现，全项目引用） ----------
+// 原本项目内有五套实现（relativePath / samePath / fileTree / git / lsp client），
+// Windows 大小写/分隔符不一致时 Git 徽标消失、诊断失配（关联 CR-22）。
+
+/** 路径归一化：反斜杠 → 正斜杠 + 小写（比较用；不修改磁盘语义） */
+export function normalizePath(p: string): string {
+  return p.replace(/\\/g, "/").toLowerCase();
+}
+
+/** 路径等价比较（斜杠与大小写无关）——原 main.ts/fileTree/git 各自的同名实现统一到这 */
+export function samePath(a: string, b: string): boolean {
+  return normalizePath(a) === normalizePath(b);
 }
 
 /** Git 状态码 → 可读描述 */
@@ -208,16 +259,87 @@ export function gitLineClass(line: string): string {
   return "stdout";
 }
 
-/** 大纲符号 kind → codicon 图标名（D2：替换单字符图标） */
+// ---------- CR-27：跨域共享 UI 工具（原 main.ts/storagePanel.ts 两套 setBusy 收敛） ----------
+
+/** 转圈图标：codicon 的 loading 图标默认静止，需叠加 codicon-modifier-spin 才转动 */
+export function spinIcon(): HTMLElement {
+  const el = codicon("loading");
+  el.classList.add("codicon-modifier-spin");
+  return el;
+}
+
+/** 按钮忙碌态：内联转圈 + 禁用，用于耗时动作（装包/卸载/升级/建环境/建项目/存储迁移） */
+export function setBusy(btn: HTMLButtonElement, busy: boolean, busyText = "处理中…"): void {
+  if (busy) {
+    if (btn.dataset.label === undefined) btn.dataset.label = btn.textContent ?? "";
+    btn.textContent = "";
+    btn.appendChild(spinIcon());
+    btn.append(` ${busyText}`);
+    btn.disabled = true;
+    btn.classList.add("busy");
+  } else {
+    const label = btn.dataset.label;
+    if (label !== undefined) {
+      btn.textContent = label;
+      delete btn.dataset.label;
+    }
+    btn.disabled = false;
+    btn.classList.remove("busy");
+  }
+}
+
+/** LSP SymbolKind（完整枚举，CR-29：消裸数字；与 lsp/client.ts KIND_MAP 同源对齐） */
+export const enum LspSymbolKind {
+  File = 1,
+  Module = 2,
+  Namespace = 3,
+  Package = 4,
+  Class = 5,
+  Method = 6,
+  Property = 7,
+  Field = 8,
+  Constructor = 9,
+  Enum = 10,
+  Interface = 11,
+  Function = 12,
+  Variable = 13,
+  Constant = 14,
+  String = 15,
+  Number = 16,
+  Boolean = 17,
+  Array = 18,
+  Object = 19,
+  Key = 20,
+  Null = 21,
+  EnumMember = 22,
+  Struct = 23,
+  Event = 24,
+  Operator = 25,
+  TypeParameter = 26,
+}
+
+/** 大纲符号 kind → codicon 图标名（D2：替换单字符图标；CR-29：用 LspSymbolKind 消裸数字，
+ * 补 Interface/Enum/EnumMember/Struct/Event/TypeParameter 等此前全落 misc 的 kind） */
 export function symbolIcon(kind: number): string {
   switch (kind) {
-    case 5: return "symbol-class";
-    case 6: case 12: case 9: return "symbol-method"; // method/function/constructor
-    case 13: return "symbol-variable";
-    case 14: return "symbol-constant";
-    case 7: return "symbol-property";
-    case 8: return "symbol-field";
-    case 2: return "symbol-namespace"; // module
+    case LspSymbolKind.Class: return "symbol-class";
+    case LspSymbolKind.Method:
+    case LspSymbolKind.Function:
+    case LspSymbolKind.Constructor: return "symbol-method";
+    case LspSymbolKind.Variable: return "symbol-variable";
+    case LspSymbolKind.Constant: return "symbol-constant";
+    case LspSymbolKind.Property: return "symbol-property";
+    case LspSymbolKind.Field: return "symbol-field";
+    case LspSymbolKind.Module: return "symbol-namespace";
+    case LspSymbolKind.Namespace:
+    case LspSymbolKind.Package: return "symbol-namespace";
+    case LspSymbolKind.Interface: return "symbol-interface";
+    case LspSymbolKind.Enum: return "symbol-enum";
+    case LspSymbolKind.EnumMember: return "symbol-enumerator";
+    case LspSymbolKind.Struct: return "symbol-structure";
+    case LspSymbolKind.Event: return "symbol-event";
+    case LspSymbolKind.Operator: return "symbol-operator";
+    case LspSymbolKind.TypeParameter: return "symbol-parameter";
     default: return "symbol-misc";
   }
 }

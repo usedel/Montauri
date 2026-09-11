@@ -85,6 +85,7 @@ describe("三处默认值漂移锁", () => {
     expect(kb.comment_line).toBe("Ctrl+/");
     expect(kb.comment_block).toBe("Ctrl+Shift+/");
     expect(kb.goto_definition).toBe("Ctrl+B");
+    expect(kb.stop).toBe("Ctrl+F2");
   });
 
   it("所有默认键均可解析", () => {

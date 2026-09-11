@@ -35,12 +35,15 @@
         <button class="menubar-item" data-menu="edit">编辑</button>
         <button class="menubar-item" data-menu="view">视图</button>
         <button class="menubar-item" data-menu="tools">工具</button>
+        <!-- 运行组（C3）：紧跟在「工具」菜单之后、spacer 之前。三独立按钮 ▶/⏹/▾ -->
+        <div id="run-group">
+          <button id="btn-run" class="menubar-icon" data-tip="运行"><i class="codicon codicon-run" aria-hidden="true"></i></button>
+          <button id="btn-stop" class="menubar-icon" data-tip="停止运行"><i class="codicon codicon-debug-stop" aria-hidden="true"></i></button>
+          <button id="btn-run-menu" class="menubar-icon" data-tip="更多运行选项"><i class="codicon codicon-chevron-down" aria-hidden="true"></i></button>
+        </div>
+        <!-- 调试按钮（debug dev plan §6.1）：运行组旁新增「调试」入口 -->
+        <button id="btn-debug" class="menubar-icon" data-tip="调试"><i class="codicon codicon-debug" aria-hidden="true"></i></button>
         <span class="spacer"></span>
-        <select id="engine-select" title="静态语义引擎（切换后自动重启 LSP）">
-          <option value="pyrefly">pyrefly</option>
-          <option value="basedpyright">basedpyright</option>
-        </select>
-        <span id="status-engine"></span>
         <button id="btn-settings" class="menubar-icon" data-tip="设置"><i class="codicon codicon-gear" aria-hidden="true"></i></button>
         <div id="win-controls">
           <button id="win-min" class="win-btn" title="最小化"><i class="codicon codicon-chrome-minimize" aria-hidden="true"></i></button>
@@ -55,6 +58,7 @@
             <button id="tab-files" class="activity-item active" data-tip="资源管理器"><i class="codicon codicon-files" aria-hidden="true"></i></button>
             <button id="tab-search" class="activity-item" data-tip="搜索"><i class="codicon codicon-search" aria-hidden="true"></i></button>
             <button id="tab-git" class="activity-item" data-tip="源代码管理"><i class="codicon codicon-source-control" aria-hidden="true"></i></button>
+            <button id="tab-debug" class="activity-item" data-tip="调试"><i class="codicon codicon-debug-alt" aria-hidden="true"></i></button>
           </div>
           <div id="view-container">
             <!-- TD-001：每个视图单一根节点，切换只操作根（见 src/views.ts 注册表） -->
@@ -110,6 +114,8 @@
                 <div id="git-history" class="hidden"></div>
               </div>
             </div>
+            <!-- 调试侧栏（debug dev plan §6.1）：工具栏/调用栈/变量/断点，initDebugView 构建内容 -->
+            <div id="view-debug" class="sidebar-view hidden"></div>
           </div>
           <!-- D2 P-03：侧栏宽度拖拽热区（双击重置） -->
           <div id="sidebar-splitter" class="splitter splitter-col" title="拖动调整侧栏宽度（双击重置）"></div>
@@ -190,6 +196,14 @@
           <button id="btn-toggle-output" data-tip="收起/展开面板"><i class="codicon codicon-chevron-down" aria-hidden="true"></i></button>
         </div>
         <div id="output"></div>
+        <!-- S4：交互式运行的输入行（仅 stdin=「交互式」且运行中可见）。
+             提示符经 chunk 转发即时显示在上方输出里，用户在此逐行应答（Enter 发送，Esc 交回焦点） -->
+        <div id="run-stdin-row" class="hidden">
+          <span id="run-stdin-label">stdin&gt;</span>
+          <input id="run-stdin-input" type="text" spellcheck="false" autocomplete="off"
+                 placeholder="输入一行后回车发送给脚本（Esc 把焦点交回编辑器）" />
+          <span id="run-stdin-status">等待输入…</span>
+        </div>
         <div id="git-diff-panel" class="hidden">
           <div id="git-diff-header">
             <span id="git-diff-label">—</span>
@@ -209,6 +223,7 @@
         <span class="spacer"></span>
         <span id="status-font" style="cursor:default"></span>
         <span id="status-interpreter" data-tip="点击管理 Python 环境" style="cursor:pointer"></span>
+        <span id="status-engine" data-tip="点击切换静态语义引擎" style="cursor:pointer" tabindex="0"></span>
         <span id="status-lsp"></span>
       </footer>
     </div>
@@ -238,6 +253,10 @@
           <button id="env-close" class="env-close"><i class="codicon codicon-close" aria-hidden="true"></i></button>
         </div>
         <div class="env-body">
+          <div id="env-pyproject-banner" class="env-banner hidden">
+            <span class="env-banner-text">当前工作区没有 <code>pyproject.toml</code>，<code>uv run</code> 语义不明确；生成后依赖管理与运行更可靠。</span>
+            <button id="env-pyproject-init" class="env-mini-btn">生成 pyproject.toml</button>
+          </div>
           <div class="env-section">
             <div class="env-section-title">解释器</div>
             <div id="env-list" class="env-list"></div>
@@ -315,6 +334,44 @@
         <div class="modal-actions">
           <button id="new-project-create" class="primary">创建</button>
           <button id="new-project-cancel">取消</button>
+        </div>
+      </div>
+    </div>
+    <!-- 运行配置面板（模态，P3 建议 2：Parameters / 环境变量，持久化到工作区配置，不侵入项目） -->
+    <div id="run-config-modal" class="modal hidden">
+      <div class="modal-card new-project-card">
+        <div class="env-header">
+          <span class="env-title">运行配置</span>
+          <span class="spacer"></span>
+          <button id="run-config-close" class="env-close"><i class="codicon codicon-close" aria-hidden="true"></i></button>
+        </div>
+        <div class="settings-body">
+          <div class="settings-hint" id="run-config-target"></div>
+          <div class="settings-row">
+            <label>参数 (Parameters)</label>
+            <input id="run-config-args" type="text" placeholder="--flag value  含空格用引号" spellcheck="false" />
+          </div>
+          <div class="settings-row">
+            <label>标准输入 (stdin)</label>
+            <select id="run-config-stdin-mode" title="脚本读取标准输入时的来源">
+              <option value="null">不接输入（input() 立即 EOF）</option>
+              <option value="file">重定向自文件（Redirect input from）</option>
+              <option value="interactive">交互式（在输出面板逐行应答）</option>
+            </select>
+          </div>
+          <div class="settings-row hidden" id="run-config-stdin-path-row">
+            <span class="settings-label-gap"></span>
+            <input id="run-config-stdin-path" type="text" placeholder="F:\data\in.txt" spellcheck="false" />
+            <button id="run-config-stdin-browse">浏览…</button>
+          </div>
+          <div class="settings-row settings-row-col">
+            <label>环境变量（每行 KEY=VALUE）</label>
+            <textarea id="run-config-env" rows="5" placeholder="MY_VAR=1&#10;OTHER=abc" spellcheck="false"></textarea>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button id="run-config-save" class="primary">保存</button>
+          <button id="run-config-cancel">取消</button>
         </div>
       </div>
     </div>
@@ -480,6 +537,15 @@
                 <select id="settings-terminal-cwd">
                   <option value="workspace">工作区根目录</option>
                   <option value="file">活动文件所在目录</option>
+                </select>
+              </div>
+              <div class="settings-row">
+                <label>终端 Shell</label>
+                <select id="settings-terminal-shell">
+                  <option value="auto">自动（PowerShell 优先，回退 cmd）</option>
+                  <option value="pwsh">PowerShell 7（pwsh）</option>
+                  <option value="powershell">Windows PowerShell</option>
+                  <option value="cmd">命令提示符（cmd）</option>
                 </select>
               </div>
             </div>

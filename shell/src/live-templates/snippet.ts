@@ -10,9 +10,10 @@ export interface SnippetControllerLike {
 /** 贡献 ID 为多年稳定的内部常量；Monaco 已锁 0.52.2（ci/versions.toml），升级回归覆盖 */
 export const SNIPPET_CTRL_ID = "snippetController2";
 
-/** 在当前选区插入 snippet 并进入占位符会话；贡献缺失返回 false（调用方兜底） */
+/** 在当前选区插入 snippet 并进入占位符会话；贡献缺失返回 false（调用方兜底）。
+ * CR-24：editor 放宽为 ICodeEditor（getContribution 是基础 API，非 standalone 专属） */
 export function insertSnippet(
-  editor: MonacoApi.editor.IStandaloneCodeEditor,
+  editor: MonacoApi.editor.ICodeEditor,
   snippet: string,
 ): boolean {
   const ctrl = editor.getContribution(SNIPPET_CTRL_ID) as unknown as SnippetControllerLike | null;

@@ -14,6 +14,7 @@ import { app, type MonacoModule } from "./state";
 export type KeybindingId =
   | "save"
   | "run"
+  | "stop"
   | "run_selection"
   | "global_search"
   | "goto_definition"
@@ -21,7 +22,12 @@ export type KeybindingId =
   | "comment_line"
   | "comment_block"
   | "template_palette"
-  | "surround";
+  | "surround"
+  | "debug"
+  | "debug_stop"
+  | "debug_step_over"
+  | "debug_step_into"
+  | "debug_step_out";
 
 export interface KeybindingMeta {
   id: KeybindingId;
@@ -36,6 +42,7 @@ export interface KeybindingMeta {
 export const KEYBINDING_META: KeybindingMeta[] = [
   { id: "save", label: "保存", def: "Ctrl+S", scope: "window" },
   { id: "run", label: "运行当前文件", def: "Ctrl+F10", scope: "window" },
+  { id: "stop", label: "停止运行", def: "Ctrl+F2", scope: "window" },
   { id: "run_selection", label: "运行选区 / 行", def: "Alt+Shift+E", scope: "editor" },
   { id: "global_search", label: "全局搜索", def: "Ctrl+Shift+F", scope: "window" },
   { id: "goto_definition", label: "跳转定义（F12 / Ctrl+点击固定保留）", def: "Ctrl+B", scope: "editor" },
@@ -44,6 +51,12 @@ export const KEYBINDING_META: KeybindingMeta[] = [
   { id: "comment_block", label: "块注释开关", def: "Ctrl+Shift+/", scope: "editor" },
   { id: "template_palette", label: "Live Templates 面板", def: "Ctrl+J", scope: "editor" },
   { id: "surround", label: "环绕模板（需选区）", def: "Ctrl+Alt+T", scope: "editor" },
+  // 调试五件套（debug dev plan §6.6；window 级——调试中编辑器可能失焦）
+  { id: "debug", label: "启动调试 / 继续", def: "F5", scope: "window" },
+  { id: "debug_stop", label: "停止调试", def: "Shift+F5", scope: "window" },
+  { id: "debug_step_over", label: "单步跳过", def: "F10", scope: "window" },
+  { id: "debug_step_into", label: "单步进入", def: "F11", scope: "window" },
+  { id: "debug_step_out", label: "单步退出", def: "Shift+F11", scope: "window" },
 ];
 
 // ---------- 解析 ----------

@@ -270,6 +270,37 @@ fn git_show_blob(root: &str, spec: &str, path: &str) -> Option<String> {
     exec_git(root, cmd).ok()
 }
 
+/// 校验仓库相对路径（CR-06：防路径穿越）——拒绝绝对路径与含 `..` 的组件，
+/// 防止 `Path::join` 丢弃 root 逃逸仓库读取任意文件。空路径同样拒绝。
+fn validate_repo_relative(root: &str, path: &str) -> Result<(), String> {
+    if path.is_empty() {
+        return Err("路径不能为空".to_string());
+    }
+    let p = Path::new(path);
+    // 绝对路径（含盘符）与「有根路径」（Windows 下 `/x` / `\x` 无盘符但锚定盘根，
+    // join 后丢弃 root 落到当前盘根——同为穿越面）都拒绝
+    if p.is_absolute() || path.starts_with('/') || path.starts_with('\\') {
+        return Err(format!("拒绝绝对路径：{path}"));
+    }
+    // 组件级校验：`..` 直接拒绝（含 `a/../../b` 混入形式）
+    let suspicious = p.components().any(|c| matches!(c, std::path::Component::ParentDir));
+    if suspicious {
+        return Err(format!("路径不得包含 ..：{path}"));
+    }
+    // 双保险：文件存在时 canonicalize 后必须仍在仓库根内（符号链接逃逸兜底）。
+    // 不存在的路径放行——diff 视图需要渲染「新文件/已删除」的空侧，且读侧有
+    // is_file() 守卫，不存在的路径读不出任何内容，无穿越面。
+    let full = Path::new(root).join(path);
+    if let Ok(canon_full) = std::fs::canonicalize(&full) {
+        let canon_root = std::fs::canonicalize(root)
+            .map_err(|e| format!("无法解析仓库根：{root}（{e}）"))?;
+        if !canon_full.starts_with(&canon_root) {
+            return Err(format!("路径越出仓库范围：{path}"));
+        }
+    }
+    Ok(())
+}
+
 /// 取左右对照内容：staged=true 为 HEAD vs Index；否则 Index vs 工作区。
 /// 缺失一侧（新文件 / 删除 / 未跟踪）以空字符串表示，供 diff 编辑器渲染为空。
 #[tauri::command]
@@ -279,6 +310,7 @@ pub async fn git_diff_versions(
     staged: bool,
 ) -> Result<GitDiffVersions, String> {
     spawn_blocking(move || {
+        validate_repo_relative(&root, &path)?;
         if staged {
             Ok(GitDiffVersions {
                 old: git_show_blob(&root, "HEAD", &path).unwrap_or_default(),
@@ -583,5 +615,83 @@ mod tests {
         let msg = "   ";
         let trimmed = msg.trim();
         assert!(trimmed.is_empty());
+    }
+
+    /// CR-06：validate_repo_relative 三类路径——`..` 穿越与绝对路径拒绝，正常相对路径放行。
+    #[test]
+    fn test_validate_repo_relative_rejects_traversal() {
+        let tmp = std::env::temp_dir().join("opencharm-path-guard-test");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(tmp.join("sub")).unwrap();
+        std::fs::write(tmp.join("secret.txt"), "top-secret").unwrap();
+        std::fs::write(tmp.join("sub").join("a.py"), "print(1)\n").unwrap();
+        let root = tmp.to_string_lossy().to_string();
+
+        // ① 正常相对路径：放行
+        assert!(validate_repo_relative(&root, "sub/a.py").is_ok(), "正常相对路径应放行");
+        // 文件不存在但路径合法：允许（diff 视图渲染空内容用）
+        assert!(validate_repo_relative(&root, "not_exists.py").is_ok());
+
+        // ② 含 `..`：拒绝（含混入形式）
+        assert!(validate_repo_relative(&root, "../secret.txt").is_err());
+        assert!(validate_repo_relative(&root, "sub/../../secret.txt").is_err());
+        assert!(validate_repo_relative(&root, "..\\secret.txt").is_err());
+
+        // ③ 绝对路径：拒绝（Unix 与 Windows 形态都拦）
+        assert!(validate_repo_relative(&root, "/etc/passwd").is_err());
+        let abs = tmp.join("secret.txt").to_string_lossy().to_string();
+        assert!(validate_repo_relative(&root, &abs).is_err());
+
+        // 空路径：拒绝
+        assert!(validate_repo_relative(&root, "").is_err());
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// CR-06 端到端：git_diff_versions 对穿越路径返回 Err，正常路径返回内容。
+    #[test]
+    fn test_git_diff_versions_rejects_traversal() {
+        let tmp = std::env::temp_dir().join("opencharm-git-diff-guard-test");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let root = tmp.to_string_lossy().to_string();
+
+        let init = exec_git(&root, {
+            let mut c = tool_command("git", ENV_GIT);
+            c.arg("init").arg("--quiet");
+            c
+        });
+        if init.is_err() {
+            let _ = std::fs::remove_dir_all(&tmp);
+            return; // 环境无 git 时跳过
+        }
+        std::fs::write(tmp.join("a.py"), "print(1)\n").unwrap();
+        let secret = tmp.parent().unwrap().join("opencharm-git-diff-guard-secret.txt");
+        std::fs::write(&secret, "TOP-SECRET").unwrap();
+
+        // 穿越路径：拒绝（绝不读出仓库外内容）
+        let bad = tauri::async_runtime::block_on(git_diff_versions(
+            root.clone(),
+            "../opencharm-git-diff-guard-secret.txt".into(),
+            false,
+        ));
+        assert!(bad.is_err(), "穿越路径必须被拒绝");
+        if let Err(e) = &bad {
+            assert!(e.contains("..") || e.contains("越出"), "错误信息应指明拒绝原因：{e}");
+        }
+
+        // 绝对路径：拒绝
+        let abs = secret.to_string_lossy().to_string();
+        let bad2 = tauri::async_runtime::block_on(git_diff_versions(root.clone(), abs, false));
+        assert!(bad2.is_err(), "绝对路径必须被拒绝");
+
+        // 正常路径（未跟踪新文件）：左空右为工作区内容
+        let ok = tauri::async_runtime::block_on(git_diff_versions(root, "a.py".into(), false));
+        assert!(ok.is_ok());
+        let v = ok.unwrap();
+        assert_eq!(v.new, "print(1)\n");
+
+        let _ = std::fs::remove_dir_all(&tmp);
+        let _ = std::fs::remove_file(&secret);
     }
 }

@@ -3,18 +3,22 @@
 // 域内私有状态留在本模块；跨域共享状态经 state.ts 的 app 读写。
 
 import { invoke } from "@tauri-apps/api/core";
-import { app, $, statusFileEl, type Entry } from "./state";
+import { app, $, lazyEl, statusFileEl, type Entry } from "./state";
 import { basename, codicon, ensurePyExtension, stripPyExtension, gitBadgeClass, gitStatusLabel, joinPath, parentDirOf, relativePath, renderFileIcon } from "./util";
-import { refreshGitStatus, gitStatusOf, isGitRepoActive, isGitDirtyDir } from "./git";
+// CR-25：状态读取改从零依赖的 gitStatusState（切断 fileTree ↔ git 的状态耦合）；
+// refreshGitStatus 是运行时才调用的函数（无初始化期循环风险），保留从 git.ts 导入
+import { refreshGitStatus } from "./git";
+import { gitStatusOf, isGitRepoActive, isGitDirtyDir } from "./gitStatusState";
 import { openTerminalAt } from "./termUi";
 import { openFile, renderTabs, closeTabSilent, insertHeaderTemplate } from "./main";
 import { openConfirm } from "./dialog";
 import * as lsp from "./lsp/client";
+import { hideMenu, showMenu, type MenuItem } from "./menu";
 
 // ---------- 域内状态 ----------
 
-const treeEl = $("tree");
-const ctxMenuEl = $("ctx-menu");
+// CR-26：顶层 DOM 快照改惰性（测试环境无完整 DOM 时模块仍可被 import）
+const treeEl = lazyEl("tree");
 
 /** 内部文件剪贴板（复制/剪切） */
 let fileClipboard: { paths: string[]; mode: "copy" | "cut" } | null = null;
@@ -353,43 +357,27 @@ function showContextMenu(entry: Entry, x: number, y: number): void {
   renderCtxMenu(items, x, y);
 }
 
-/** 渲染右键菜单（通用：树/标签共用） */
+/** 渲染右键菜单（通用：树/标签/分支共用）。C1 起为 menu.ts 的薄封装：
+ *  CtxItem → MenuItem 映射后交给 showMenu，关闭接线已随渲染器收编到 menu.ts。 */
 export function renderCtxMenu(items: CtxItem[], x: number, y: number): void {
-  ctxMenuEl.textContent = "";
-  for (const it of items) {
-    const el = document.createElement("div");
-    if (it.sep) {
-      el.className = "ctx-menu-item sep-item";
-      const line = document.createElement("div");
-      line.className = "sep";
-      el.appendChild(line);
-    } else {
-      el.className = `ctx-menu-item${it.danger ? " danger" : ""}`;
-      el.textContent = it.label!;
-      el.addEventListener("click", () => {
-        hideContextMenu();
-        it.action?.();
-      });
-    }
-    ctxMenuEl.appendChild(el);
-  }
-  ctxMenuEl.classList.remove("hidden");
-  // 位置校正（防溢出视口）
-  const { innerWidth, innerHeight } = window;
-  ctxMenuEl.style.left = "0px";
-  ctxMenuEl.style.top = "0px";
-  const rect = ctxMenuEl.getBoundingClientRect();
-  ctxMenuEl.style.left = `${Math.min(x, innerWidth - rect.width - 6)}px`;
-  ctxMenuEl.style.top = `${Math.min(y, innerHeight - rect.height - 6)}px`;
+  const mapped: MenuItem[] = items.map((it) => ({
+    label: it.label,
+    sep: it.sep,
+    danger: it.danger,
+    action: it.action,
+  }));
+  showMenu(mapped, { x, y });
 }
 
 export function hideContextMenu(): void {
-  ctxMenuEl.classList.add("hidden");
+  hideMenu();
 }
 
 // ---------- 输入模态（新建/重命名） ----------
 
-/** 是否有任一模态框打开（打开时禁用文件树 F2/Del 快捷键） */
+/** 是否有任一模态框打开（打开时禁用文件树 F2/Del 快捷键）。
+ * 模态多为懒创建（lt-modal 等随首次打开才建 DOM），必须用 getElementById——
+ * $ 在元素缺失时抛「缺少元素」错（E2E 实测：未打开过 live-templates 时 F2 触发即崩）。 */
 function anyModalOpen(): boolean {
   return [
     "confirm-modal",
@@ -400,7 +388,7 @@ function anyModalOpen(): boolean {
     "surround-modal",
     "palette-modal",
   ].some((id) => {
-    const m = $(id);
+    const m = document.getElementById(id);
     return m !== null && !m.classList.contains("hidden");
   });
 }
@@ -765,12 +753,8 @@ function wireFileTreeEvents(): void {
       void dropMoveFile(srcPath, app.workspaceRoot);
     }
   });
-  // 点击任意处关闭右键菜单；ESC 关闭菜单
-  document.addEventListener("click", () => {
-    if (!ctxMenuEl.classList.contains("hidden")) hideContextMenu();
-  });
+  // 右键菜单的关闭接线已随渲染器收编到 menu.ts（document click + Escape），此处不再重复接线。
   window.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") hideContextMenu();
     // 模态/内联输入框打开时不处理文件树快捷键
     if (anyModalOpen() || inlineInputActive) return;
     const inEditor = !!document.activeElement?.closest(".monaco-editor");

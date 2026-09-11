@@ -1,3 +1,4 @@
+mod dap;
 mod env_cmds;
 mod file_ops;
 mod fs_cmds;
@@ -5,6 +6,7 @@ mod git_cmds;
 mod git_status;
 mod logging;
 mod lsp;
+mod run_env;
 mod settings;
 mod storage_cmds;
 mod terminal;
@@ -18,8 +20,7 @@ use tauri::WebviewUrl;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
-        .setup(|app| {
+    tauri::Builder::default()        .setup(|app| {
             // 手动创建主窗口：初始隐藏（visible:false），待页面加载完成（DOM/CSS 就绪）后再显示，
             // 消除启动白屏 / 无样式闪烁（FOUC）。相比前端 JS 调用 show()，此处由 Rust 侧监听
             // WebView 的页面加载事件可靠触发，不依赖 WebView 内脚本是否执行到位。
@@ -61,6 +62,7 @@ pub fn run() {
             fs_cmds::read_dir,
             fs_cmds::read_file,
             fs_cmds::write_file,
+            fs_cmds::delete_file,
             fs_cmds::read_templates_config,
             fs_cmds::write_templates_config,
             fs_cmds::get_user_name,
@@ -69,6 +71,7 @@ pub fn run() {
             fs_cmds::clear_recent_workspaces,
             fs_cmds::remove_recent_workspace,
             fs_cmds::pick_folder,
+            fs_cmds::pick_file,
             fs_cmds::create_project,
             fs_cmds::format_python,
             fs_cmds::search_workspace,
@@ -91,6 +94,11 @@ pub fn run() {
             env_cmds::create_venv,
             env_cmds::get_interpreter,
             env_cmds::set_interpreter,
+            env_cmds::interpreter_version,
+            env_cmds::has_pyproject,
+            env_cmds::init_pyproject,
+            env_cmds::get_run_config,
+            env_cmds::set_run_config,
             env_cmds::list_packages,
             env_cmds::list_outdated,
             env_cmds::pip_install,
@@ -127,12 +135,24 @@ pub fn run() {
             // 运行
             lsp::run_script,
             lsp::stop_script,
+            lsp::run_stdin,
             // 集成终端（Phase 4）
             terminal::term_spawn,
+            terminal::list_shells,
             terminal::term_write,
             terminal::term_resize,
             terminal::term_kill,
             terminal::term_kill_all,
+            // S3：在终端中运行（真 TTY：getpass / tqdm / rich / 彩色 / Ctrl+C）
+            terminal::run_in_terminal,
+            // 调试（DAP / debugpy，docs/python_debug_dev_plan.md）
+            dap::debug_detect,
+            dap::debug_start,
+            dap::debug_attach_debuggee,
+            dap::debug_stop,
+            dap::dap_send_request,
+            dap::dap_send_notification,
+            dap::dap_send_response,
             // 文件监听（体验优化）
             watcher::watch_start,
             watcher::watch_stop,
@@ -158,6 +178,21 @@ pub fn run() {
             git_cmds::git_blame,
             git_cmds::git_show,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app, event| {
+            // CR-14：应用退出统一清理——直接关窗/崩溃时 LSP 引擎、终端 PTY、运行中脚本、
+            // 文件监听不再依赖前端主动调用（前端可能已死），防子进程成孤儿。
+            if let tauri::RunEvent::Exit = event {
+                crate::logging::log_line(
+                    crate::logging::Level::Info,
+                    "[exit] 清理子进程与监听：lsp / terminal / run / dap / watcher",
+                );
+                watcher::watch_stop().ok();
+                dap::debug_stop_for_exit();
+                terminal::term_kill_all_for_exit();
+                lsp::stop_script_for_exit();
+                lsp::lsp_stop_all_for_exit();
+            }
+        });
 }

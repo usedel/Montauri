@@ -32,21 +32,26 @@ export function registerTabExpand(
   registry: TemplateRegistry,
   host: TabExpandHost,
 ): MonacoApi.IDisposable {
-  const disposable = editor.addCommand(
-    monaco.KeyCode.Tab,
-    () => {
-      const match = matchAbbreviation(monaco, editor, registry, host);
+  // CR-24：原 `{ dispose: () => void disposable }` 把 void 求值当 dispose——空操作，
+  // 命令从未真正释放。改用 addAction：同样支持 keybindings + precondition（语义不变），
+  // 且返回真 IDisposable（dispose 即解绑）。副作用：命令面板（F1）可按名触发，可接受。
+  return editor.addAction({
+    id: "opencharm.liveTemplates.tabExpand",
+    label: "Live Templates: 展开缩写",
+    keybindings: [monaco.KeyCode.Tab],
+    // 补全弹窗接受 / snippet 占位符跳转 / 重命名 / 快速修复 / 参数提示 / 无障碍焦点模式 全部优先
+    precondition:
+      "!suggestWidgetVisible && !inSnippetMode && !renameInputVisible && !quickFixWidgetVisible && !parameterHintsVisible && !editorTabMovesFocus",
+    run: (ed) => {
+      const match = matchAbbreviation(monaco, ed, registry, host);
       if (!match) {
         // 未命中：放行默认 Tab（缩进/选区缩进等原生行为）
-        editor.trigger("keyboard", "tab", null);
+        ed.trigger("keyboard", "tab", null);
         return;
       }
-      void expand(monaco, editor, match, host);
+      void expand(monaco, ed, match, host);
     },
-    // 补全弹窗接受 / snippet 占位符跳转 / 重命名 / 快速修复 / 参数提示 / 无障碍焦点模式 全部优先
-    "!suggestWidgetVisible && !inSnippetMode && !renameInputVisible && !quickFixWidgetVisible && !parameterHintsVisible && !editorTabMovesFocus",
-  );
-  return { dispose: () => void disposable };
+  });
 }
 
 interface TabMatch {
@@ -57,10 +62,12 @@ interface TabMatch {
   startColumn: number;
 }
 
-/** 同步门控：组合输入/选区/成员访问/词法环境/缩写匹配，全部通过才进入异步展开 */
+/** 同步门控：组合输入/选区/成员访问/词法环境/缩写匹配，全部通过才进入异步展开。
+ * CR-24：editor 参数放宽为 ICodeEditor（addAction 回调给的是 ICodeEditor，
+ * 本函数只用 getModel/getPosition/getSelection 等基础 API） */
 function matchAbbreviation(
   monaco: Monaco,
-  editor: MonacoApi.editor.IStandaloneCodeEditor,
+  editor: MonacoApi.editor.ICodeEditor,
   registry: TemplateRegistry,
   host: TabExpandHost,
 ): TabMatch | null {
@@ -91,7 +98,7 @@ function matchAbbreviation(
 
 async function expand(
   monaco: Monaco,
-  editor: MonacoApi.editor.IStandaloneCodeEditor,
+  editor: MonacoApi.editor.ICodeEditor, // CR-24：同 matchAbbreviation 放宽
   match: TabMatch,
   host: TabExpandHost,
 ): Promise<void> {

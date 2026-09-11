@@ -15,15 +15,26 @@ use crate::util::{opencharm_home, unpoison};
 /// 忽略的目录名（与 fs_cmds::read_dir 的 IGNORED 保持一致）
 const WATCH_IGNORED: [&str; 6] = [".git", ".venv", "node_modules", "__pycache__", ".idea", ".vscode"];
 
+/// 忽略的文件名前缀（CR-05：选区运行临时文件，写删都不触发树刷新/Git 幽灵变更）
+const WATCH_IGNORED_PREFIXES: [&str; 1] = ["__opencharm_selection__"];
+
 /// 全局 watcher 实例（同一时刻只监听一个工作区）
 static WATCHER: Mutex<Option<Debouncer<notify_debouncer_mini::notify::RecommendedWatcher>>> = Mutex::new(None);
 
-/// 判断路径是否应被忽略（任一层级命中忽略目录即跳过）
+/// 判断路径是否应被忽略（任一层级命中忽略目录或忽略文件名前缀即跳过）
 fn should_ignore(path: &Path) -> bool {
-    path.components().any(|c| {
+    if path.components().any(|c| {
         let name = c.as_os_str().to_string_lossy();
         WATCH_IGNORED.contains(&name.as_ref())
-    })
+    }) {
+        return true;
+    }
+    path.file_name()
+        .map(|n| {
+            let name = n.to_string_lossy();
+            WATCH_IGNORED_PREFIXES.iter().any(|p| name.starts_with(p))
+        })
+        .unwrap_or(false)
 }
 
 /// 启动文件监听（停止旧监听 → 新建 debouncer → 监听工作区根目录）
@@ -92,4 +103,30 @@ pub fn watch_stop() -> Result<(), String> {
 fn watch_stop_impl() {
     let mut guard = unpoison(WATCHER.lock());
     *guard = None; // drop debouncer → 自动停止监听
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// CR-05：选区运行临时文件（随机后缀）与忽略目录都不得触发树刷新。
+    #[test]
+    fn test_should_ignore_selection_temp_and_noise_dirs() {
+        // 选区临时文件：任意随机后缀都被前缀规则忽略
+        assert!(should_ignore(Path::new(
+            r"C:\ws\proj\__opencharm_selection__lx2k-a1b2c3.py"
+        )));
+        assert!(should_ignore(Path::new(
+            r"C:\ws\proj\pkg\__opencharm_selection__9f8e7d-x0y9.py"
+        )));
+        // 噪声目录：任一层级命中即忽略
+        assert!(should_ignore(Path::new(r"C:\ws\proj\.git\HEAD")));
+        assert!(should_ignore(Path::new(r"C:\ws\proj\.venv\Scripts\python.exe")));
+        assert!(should_ignore(Path::new(r"C:\ws\proj\sub\node_modules\x.js")));
+        // 正常项目文件：不忽略
+        assert!(!should_ignore(Path::new(r"C:\ws\proj\main.py")));
+        assert!(!should_ignore(Path::new(r"C:\ws\proj\pkg\util.py")));
+        // 前缀相似但不同的文件：不忽略（避免误伤用户以 __opencharm 开头的文件）
+        assert!(!should_ignore(Path::new(r"C:\ws\proj\__opencharm_config__.py")));
+    }
 }

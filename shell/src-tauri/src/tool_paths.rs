@@ -89,7 +89,7 @@ pub fn resolve_tool(name: &str, env_override: &str) -> Option<PathBuf> {
 }
 
 /// 在系统 PATH 中查找工具二进制（用于探测；较目录探测慢，仅首次启动/引导时调用）。
-fn find_on_path(name: &str) -> Option<PathBuf> {
+pub(crate) fn find_on_path(name: &str) -> Option<PathBuf> {
     let path_var = std::env::var("PATH").ok()?;
     let sep = if cfg!(windows) { ';' } else { ':' };
     for dir in path_var.split(sep) {

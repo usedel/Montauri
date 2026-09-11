@@ -1,4 +1,4 @@
-// 跨模块共享工具：用户目录定位 + Windows 无窗口子进程启动。
+// 跨模块共享工具：用户目录定位 + Windows 无窗口子进程启动 + 字节流增量 UTF-8 解码。
 // 消除 file_ops / env_cmds / lsp / settings 中重复的 data_root 与 no_window 实现。
 
 use std::path::PathBuf;
@@ -186,4 +186,159 @@ pub(crate) fn kill_process_tree_async(child: std::process::Child) {
             &format!("[kill_async] pid={pid} timeout(~1s), gave up"),
         );
     });
+}
+
+/// 打包后 Tauri 资源目录候选：`bundle.resources` 的落地位置跨平台有差异，
+/// 列出多个常见位置（`resource_dir()` 本身与其 `resources/` 子目录），命中即用。
+/// 供 `lsp::locate_intel_binary` / `run_env::locate_probe_src` 复用（第 2 步：资源目录支持）。
+pub(crate) fn resource_candidates(app: &tauri::AppHandle) -> Vec<PathBuf> {
+    use tauri::Manager;
+    let mut dirs = Vec::new();
+    if let Ok(d) = app.path().resource_dir() {
+        dirs.push(d.clone());
+        dirs.push(d.join("resources"));
+    }
+    dirs
+}
+
+/// 字节流增量 UTF-8 解码器（S3/S4 公共基建：按块读取子进程输出时避免多字节字符跨块乱码）。
+///
+/// 按块读取子进程输出时，多字节字符（中文提示符、跨块 traceback）可能正好落在块边界上；
+/// 直接 `from_utf8_lossy` 会把尾部不完整序列替换成 U+FFFD 乱码。终端平时输出量大不显眼，
+/// 但交互式一问一答（每块就几个字）必然暴露。
+///
+/// 本解码器只输出「完整字符」，把尾部 1–3 个不完整字节 carry 到下一轮；
+/// 流结束时用 [`finish`](Self::finish) 冲刷（残留字节按 lossy 输出，不静默吞字节）。
+/// 中间出现非法字节时替换为 U+FFFD 并继续扫描，保证 carry 恒定有界（≤3 字节）。
+#[derive(Default)]
+pub(crate) struct IncrementalUtf8Decoder {
+    carry: Vec<u8>,
+}
+
+impl IncrementalUtf8Decoder {
+    /// 送入一块字节，返回可安全输出的文本（空串 = 本块全是不完整尾巴，尚无可输出内容）。
+    pub(crate) fn push(&mut self, bytes: &[u8]) -> String {
+        if bytes.is_empty() && self.carry.is_empty() {
+            return String::new();
+        }
+        self.carry.extend_from_slice(bytes);
+        let mut out = String::new();
+        let mut pos = 0;
+        loop {
+            match std::str::from_utf8(&self.carry[pos..]) {
+                Ok(s) => {
+                    out.push_str(s);
+                    pos = self.carry.len();
+                    break;
+                }
+                Err(e) => {
+                    let valid = e.valid_up_to();
+                    // valid_up_to 之前的字节已确认合法，直接取出（lossy 在此不会替换）
+                    out.push_str(&String::from_utf8_lossy(&self.carry[pos..pos + valid]));
+                    pos += valid;
+                    match e.error_len() {
+                        // 非法字节序列：替换为一个 U+FFFD 后继续扫描（与 from_utf8_lossy 同语义）
+                        Some(len) => {
+                            out.push(char::REPLACEMENT_CHARACTER);
+                            pos += len;
+                        }
+                        // None = 尾部不完整（被块边界截断）：留给下一轮
+                        None => break,
+                    }
+                }
+            }
+        }
+        self.carry.drain(..pos);
+        out
+    }
+
+    /// 流结束冲刷：残留的不完整字节已不可能拼成完整字符，按 lossy 输出。
+    pub(crate) fn finish(&mut self) -> String {
+        if self.carry.is_empty() {
+            return String::new();
+        }
+        let out = String::from_utf8_lossy(&self.carry).into_owned();
+        self.carry.clear();
+        out
+    }
+
+    /// 是否仍有未输出的残留字节（仅测试用于断言 carry 状态）
+    #[cfg(test)]
+    pub(crate) fn pending(&self) -> usize {
+        self.carry.len()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn decoder_passes_ascii_through() {
+        let mut d = IncrementalUtf8Decoder::default();
+        assert_eq!(d.push(b"hello"), "hello");
+        assert_eq!(d.push(b" world\n"), " world\n");
+        assert_eq!(d.pending(), 0);
+        assert_eq!(d.finish(), "");
+    }
+
+    #[test]
+    fn decoder_carries_multibyte_across_chunks() {
+        // 「你好」= 6 字节；在第 4 字节处切开（第二个汉字只到一半）
+        let bytes = "你好".as_bytes();
+        let mut d = IncrementalUtf8Decoder::default();
+        assert_eq!(d.push(&bytes[..4]), "你");
+        assert_eq!(d.pending(), 1); // 尾部 1 字节被 carry
+        assert_eq!(d.push(&bytes[4..]), "好");
+        assert_eq!(d.pending(), 0);
+    }
+
+    #[test]
+    fn decoder_carries_each_truncation_width() {
+        // 4 字节 emoji 逐字节喂入：前 3 次无可输出，第 4 次一次性产出完整字符
+        let bytes = "🐍".as_bytes();
+        assert_eq!(bytes.len(), 4);
+        let mut d = IncrementalUtf8Decoder::default();
+        for (i, b) in bytes.iter().enumerate() {
+            let out = d.push(std::slice::from_ref(b));
+            if i < 3 {
+                assert_eq!(out, "", "第 {i} 字节不应产出文本");
+            } else {
+                assert_eq!(out, "🐍");
+            }
+        }
+        assert_eq!(d.pending(), 0);
+    }
+
+    #[test]
+    fn decoder_replaces_invalid_bytes_and_keeps_scanning() {
+        // 中间非法字节不得让 carry 无限增长：替换后继续解码后续合法内容
+        let mut d = IncrementalUtf8Decoder::default();
+        let out = d.push(&[0xff, b'a', b'b']);
+        assert_eq!(out, format!("{}ab", char::REPLACEMENT_CHARACTER));
+        assert_eq!(d.pending(), 0);
+    }
+
+    #[test]
+    fn decoder_finish_flushes_dangling_tail() {
+        let bytes = "你".as_bytes();
+        let mut d = IncrementalUtf8Decoder::default();
+        assert_eq!(d.push(&bytes[..1]), "");
+        assert_eq!(d.pending(), 1);
+        assert_eq!(d.finish(), char::REPLACEMENT_CHARACTER.to_string());
+        assert_eq!(d.pending(), 0);
+    }
+
+    #[test]
+    fn decoder_keeps_traceback_frame_intact_across_chunks() {
+        // 坑 5 的真实场景：中文路径的 traceback 帧跨块到达，拼接后必须逐字一致
+        let line = r#"  File "F:\项目\主程序.py", line 42, in <module>"#;
+        let bytes = line.as_bytes();
+        let cut = bytes.len() / 2;
+        let mut d = IncrementalUtf8Decoder::default();
+        let mut got = d.push(&bytes[..cut]);
+        got.push_str(&d.push(&bytes[cut..]));
+        got.push_str(&d.finish());
+        assert_eq!(got, line);
+    }
 }

@@ -1,5 +1,5 @@
 // 全局设置（P25-T08/T09）：<data_root>/config/settings.json。
-// 读取链：settings.json → 前端内存 → Monaco/editor.updateOptions（见 docs/phase2.5-ide-basics-plan.md §5.3）。
+// 读取链：settings.json → 前端内存 → Monaco/editor.updateOptions。
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -13,6 +13,7 @@ fn default_keybindings() -> HashMap<String, String> {
     let mut m = HashMap::new();
     m.insert("save".into(), "Ctrl+S".into());
     m.insert("run".into(), "Ctrl+F10".into());
+    m.insert("stop".into(), "Ctrl+F2".into());
     m.insert("run_selection".into(), "Alt+Shift+E".into());
     m.insert("global_search".into(), "Ctrl+Shift+F".into());
     m.insert("goto_definition".into(), "Ctrl+B".into());
@@ -21,6 +22,12 @@ fn default_keybindings() -> HashMap<String, String> {
     m.insert("comment_block".into(), "Ctrl+Shift+/".into());
     m.insert("template_palette".into(), "Ctrl+J".into());
     m.insert("surround".into(), "Ctrl+Alt+T".into());
+    // 调试五件套（debug dev plan §6.6；与前端 KEYBINDING_META / DEFAULT_SETTINGS 三处同步）
+    m.insert("debug".into(), "F5".into());
+    m.insert("debug_stop".into(), "Shift+F5".into());
+    m.insert("debug_step_over".into(), "F10".into());
+    m.insert("debug_step_into".into(), "F11".into());
+    m.insert("debug_step_out".into(), "Shift+F11".into());
     m
 }
 
@@ -61,6 +68,9 @@ pub struct Settings {
     pub runtime_intel_enabled: bool,
     /// 终端默认启动目录："workspace"（工作区根）| "file"（活动文件所在目录）
     pub terminal_cwd: String,
+    /// 集成终端默认 shell："auto" | "pwsh" | "powershell" | "cmd"
+    /// （"auto" 按 pwsh → powershell → cmd 依次回退；Unix 忽略该项用 $SHELL）
+    pub terminal_shell: String,
     /// PyPI 包源（uv 拉取依赖用；默认官方源，国内网络可在设置面板切镜像）
     pub pypi_index: String,
     /// 快捷键自定义（id → 键位串如 "Ctrl+D"；空串 = 解绑）。
@@ -96,6 +106,7 @@ impl Default for Settings {
             format_on_save: false,
             runtime_intel_enabled: true,
             terminal_cwd: "workspace".into(),
+            terminal_shell: "auto".into(),
             pypi_index: "https://pypi.org/simple".into(),
             keybindings: default_keybindings(),
             log_enabled: true,
@@ -163,13 +174,20 @@ mod tests {
         assert_eq!(d.format_on_save, false);
         assert_eq!(d.runtime_intel_enabled, true);
         assert_eq!(d.terminal_cwd, "workspace");
+        assert_eq!(d.terminal_shell, "auto");
         // 快捷键默认值（PyCharm 风格）
         assert_eq!(d.keybindings.get("save").map(String::as_str), Some("Ctrl+S"));
         assert_eq!(d.keybindings.get("duplicate_line").map(String::as_str), Some("Ctrl+D"));
         assert_eq!(d.keybindings.get("comment_line").map(String::as_str), Some("Ctrl+/"));
         assert_eq!(d.keybindings.get("comment_block").map(String::as_str), Some("Ctrl+Shift+/"));
         assert_eq!(d.keybindings.get("goto_definition").map(String::as_str), Some("Ctrl+B"));
-        assert_eq!(d.keybindings.len(), 10);
+        assert_eq!(d.keybindings.get("stop").map(String::as_str), Some("Ctrl+F2"));
+        assert_eq!(d.keybindings.get("debug").map(String::as_str), Some("F5"));
+        assert_eq!(d.keybindings.get("debug_stop").map(String::as_str), Some("Shift+F5"));
+        assert_eq!(d.keybindings.get("debug_step_over").map(String::as_str), Some("F10"));
+        assert_eq!(d.keybindings.get("debug_step_into").map(String::as_str), Some("F11"));
+        assert_eq!(d.keybindings.get("debug_step_out").map(String::as_str), Some("Shift+F11"));
+        assert_eq!(d.keybindings.len(), 16);
     }
 
     #[test]
@@ -192,6 +210,7 @@ mod tests {
         assert_eq!(s.probe_enabled, true);
         assert_eq!(s.format_on_save, false); // 旧配置文件无此字段 → 默认关闭
         assert_eq!(s.terminal_cwd, "workspace"); // 旧配置文件无此字段 → 默认工作区根
+        assert_eq!(s.terminal_shell, "auto"); // 旧配置文件无此字段 → 默认自动回退
         assert_eq!(s.pypi_index, "https://pypi.org/simple"); // 旧配置文件无此字段 → 默认官方源
         // 编辑器新增项（P1）：旧配置文件无此字段 → 回落默认
         assert_eq!(s.tab_size, 4);
@@ -201,6 +220,7 @@ mod tests {
         assert_eq!(s.font_ligatures, false);
         // 快捷键：旧配置文件无此字段 → 整体回落默认键位表
         assert_eq!(s.keybindings.get("duplicate_line").map(String::as_str), Some("Ctrl+D"));
-        assert_eq!(s.keybindings.len(), 10);
+        assert_eq!(s.keybindings.get("debug").map(String::as_str), Some("F5"));
+        assert_eq!(s.keybindings.len(), 16);
     }
 }

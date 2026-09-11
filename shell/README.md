@@ -1,6 +1,6 @@
 # OpenCharm Shell
 
-Tauri 2 + Monaco 外壳（技术方案 v3 / ADR-0002 / ADR-0003）。
+Tauri 2 + Monaco 外壳（技术方案 v3 / ADR-0003）。
 
 ## 开发
 
@@ -45,7 +45,7 @@ src/                      # 前端（Vanilla TS + Vite）
 ├── monaco.ts             # Monaco 本地 worker 配置（去 CDN）
 ├── output.ts             # 输出面板 + traceback File "…", line N 点击跳转
 ├── dialog.ts / anim.ts / tooltip.ts / layout.ts / keybindings.ts / util.ts / format.ts / stdlib.ts / toolchain.ts
-├── live-templates/       # Live Templates（M1–M4 + 上下文位置轴，docs/live_templates重构方案1.md）
+├── live-templates/       # Live Templates（M1–M4 + 上下文位置轴）
 │   ├── index.ts          #   入口：三层配置加载 + registry + 触发器注册 + 面板 API
 │   ├── schema.ts         #   Schema v2 + 校验 + v1 迁移 + positions（位置轴）
 │   ├── builtin.ts        #   内置模板库（含爬虫组）+ 默认排序
@@ -130,7 +130,7 @@ src-tauri/src/
 
 - ~~didChange 为全量同步~~ → 曾改 range-based 增量，实测 pyrefly `contentChanges` 语义为「替换文档状态」，多次独立增量会错位（补全丢失），**已回退全量**（200ms 防抖 + `didSave`）；
 - ~~诊断 markers 仅对已打开 tab 生效~~ → 已加**诊断缓存**，打开文件时应用已发布的诊断；
-- ~~集成终端（xterm.js）/ Git 状态 / 全局搜索：Phase 1 后置项~~ → 均已提前交付：`terminal.ts` + `terminal.rs`（xterm.js + portable-pty 多会话）、`git_status.rs`（`git status --porcelain` 装饰）、`search.ts`（ripgrep 引擎，phase2.5 §11）。
+- ~~集成终端（xterm.js）/ Git 状态 / 全局搜索：Phase 1 后置项~~ → 均已提前交付：`terminal.ts` + `terminal.rs`（xterm.js + portable-pty 多会话）、`git_status.rs`（`git status --porcelain` 装饰）、`search.ts`（ripgrep 引擎）。
 
 ## 键位
 

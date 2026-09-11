@@ -6,21 +6,24 @@
 
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Child, Command, Stdio};
-use std::sync::{LazyLock, Mutex};
-use tauri::{AppHandle, Emitter, Manager};
+use std::sync::{Arc, LazyLock, Mutex};
+use tauri::{AppHandle, Emitter};
 
 use crate::file_ops::project_hash;
-use crate::tool_paths::{resolve_lsp_command, tool_command, ENV_UV};
+use crate::tool_paths::resolve_lsp_command;
 use crate::logging::{log_line, Level};
-use crate::util::{kill_process_tree, kill_process_tree_async, no_window, opencharm_home, unpoison};
+use crate::util::{kill_process_tree, kill_process_tree_async, no_window, opencharm_home, unpoison, IncrementalUtf8Decoder};
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
 struct LspInstance {
     child: Option<Child>,
-    stdin: Option<std::process::ChildStdin>,
+    /// CR-03：stdin 独立加锁持有——send_message 取 Arc 克隆后**释放全局锁再写**。
+    /// 持全局锁做阻塞写（大文件 didOpen >64KB 管道满 / 引擎假死）时，
+    /// lsp_stop 与退出监视线程均拿不到锁 → 无法 kill，子系统死锁。
+    stdin: Option<Arc<Mutex<std::process::ChildStdin>>>,
     /// 实例序号（单调递增）：退出监视线程据此判断所监视实例是否已被重启替换。
     seq: u64,
 }
@@ -33,10 +36,11 @@ static LSP_SEQ: AtomicU64 = AtomicU64::new(0);
 #[tauri::command]
 pub fn lsp_start(app: AppHandle, engine: String, command: String, args: Vec<String>) -> Result<(), String> {
     {
-        let mut map = unpoison(LSP.lock());
-        if let Some(mut inst) = map.remove(&engine) {
-            if let Some(mut child) = inst.child.take() {
-                kill_process_tree(&mut child); // 连同可能的子进程一并终止
+        let inst = unpoison(LSP.lock()).remove(&engine);
+        if let Some(mut inst) = inst {
+            if let Some(child) = inst.child.take() {
+                // CR-10：异步终止——同步 taskkill 对庞杂进程树可耗时数秒，会卡住启动调用方（UI）
+                kill_process_tree_async(child); // 连同可能的子进程一并终止
             }
         }
     }
@@ -58,7 +62,7 @@ pub fn lsp_start(app: AppHandle, engine: String, command: String, args: Vec<Stri
     let seq = LSP_SEQ.fetch_add(1, Ordering::Relaxed);
     {
         let mut map = unpoison(LSP.lock());
-        map.insert(engine.clone(), LspInstance { child: Some(child), stdin: Some(stdin), seq });
+        map.insert(engine.clone(), LspInstance { child: Some(child), stdin: Some(Arc::new(Mutex::new(stdin))), seq });
     }
 
     // stdout 读线程：Content-Length 帧解析 → lsp-message 事件（payload 带 engine）
@@ -141,6 +145,10 @@ pub fn lsp_start(app: AppHandle, engine: String, command: String, args: Vec<Stri
     Ok(())
 }
 
+/// 单帧 payload 上限（CR-09）：正常 LSP 消息（补全/诊断/hover）远小于此；
+/// `Content-Length` 完全来自对端，异常/被攻陷引擎发超大值会触发巨额分配，超限即断开。
+const MAX_FRAME_LEN: usize = 64 * 1024 * 1024;
+
 /// 读取一个 LSP 帧（Content-Length 头 + JSON payload）
 fn read_frame(reader: &mut impl BufRead) -> Result<Option<Value>, String> {
     let mut content_length: Option<usize> = None;
@@ -159,6 +167,9 @@ fn read_frame(reader: &mut impl BufRead) -> Result<Option<Value>, String> {
         }
     }
     let len = content_length.ok_or("缺少 Content-Length 头")?;
+    if len > MAX_FRAME_LEN {
+        return Err(format!("Content-Length 超上限（{len} > {MAX_FRAME_LEN}）"));
+    }
     let mut buf = vec![0u8; len];
     reader.read_exact(&mut buf).map_err(|e| e.to_string())?;
     serde_json::from_slice(&buf).map(Some).map_err(|e| e.to_string())
@@ -185,12 +196,16 @@ pub fn lsp_send_response(engine: String, id: i64, result: Value) -> Result<(), S
 }
 
 fn send_message(engine: &str, msg: &Value) -> Result<(), String> {
-    let mut map = unpoison(LSP.lock());
-    let stdin = map
-        .get_mut(engine)
-        .and_then(|i| i.stdin.as_mut())
-        .ok_or("LSP 未启动")?;
+    // CR-03：全局锁只保护 map 增删查——取出 Arc 克隆后立即释放再写。
+    // 写阻塞不再持全局锁，lsp_stop / 退出监视线程始终可以拿到 map 完成清理。
+    let stdin = {
+        let map = unpoison(LSP.lock());
+        map.get(engine)
+            .and_then(|i| i.stdin.clone())
+            .ok_or("LSP 未启动")?
+    };
     let payload = serde_json::to_string(msg).map_err(|e| e.to_string())?;
+    let mut stdin = unpoison(stdin.lock());
     write!(stdin, "Content-Length: {}\r\n\r\n{}", payload.len(), payload).map_err(|e| e.to_string())?;
     stdin.flush().map_err(|e| e.to_string())
 }
@@ -218,18 +233,6 @@ pub fn lsp_stop(engine: String) -> Result<(), String> {
     Ok(())
 }
 
-/// 打包后 Tauri 资源目录候选：bundle.resources 的落地位置跨平台有差异，
-/// 列出多个常见位置（resource_dir() 本身与其 resources/ 子目录），命中即用。
-/// 供 locate_intel_binary / locate_probe_src 复用（第 2 步：资源目录支持）。
-fn resource_candidates(app: &AppHandle) -> Vec<std::path::PathBuf> {
-    let mut dirs = Vec::new();
-    if let Ok(d) = app.path().resource_dir() {
-        dirs.push(d.clone());
-        dirs.push(d.join("resources"));
-    }
-    dirs
-}
-
 /// 定位 opencharm-intel 二进制，优先顺序：
 /// 1) 环境变量 OPENCHARM_INTEL_BIN；
 /// 2) 托管目录 <data_root>/runtime/；
@@ -248,7 +251,7 @@ fn locate_intel_binary(app: &AppHandle) -> Option<std::path::PathBuf> {
     if runtime.is_file() {
         return Some(runtime);
     }
-    for dir in resource_candidates(app) {
+    for dir in crate::util::resource_candidates(app) {
         let cand = dir.join(exe_name);
         if cand.is_file() {
             return Some(cand);
@@ -281,63 +284,42 @@ pub fn get_intel_info(app: AppHandle, workspace_root: String) -> Result<Value, S
 }
 
 // ---------- 运行脚本（uv run，cwd 锚定文件目录，spike 已验证） ----------
+//
+// S3/S4 公共基建：运行命令解析与环境装配统一走 `run_env`（偿还 tech-debt 第 8 条）。
+// `run_script`（本文件，输出面板路径）与 `terminal::run_in_terminal`（PTY 路径）共用同一份装配，
+// 两条路径的 sys.path / 编码 / probe 注入不再有第二套实现（handoff §4.2 坑 6）。
 
 static RUN_CHILD: Mutex<Option<Child>> = Mutex::new(None);
 
-/// 定位 probe/src 注入目录（含 sitecustomize.py 顶层模块），优先顺序：
-/// 1) 环境变量 OPENCHARM_PROBE_SRC；
-/// 2) 托管目录 <data_root>/runtime/probe/src（及 /probe 兼容）；
-/// 3) Tauri 资源目录（打包分发）；
-/// 4) dev 相对 exe 上溯仓库布局（probe/src）。
-/// 找不到返回 None——运行照常，仅无采集（探针缺席绝不拖垮用户脚本）。
-fn locate_probe_src(app: &AppHandle) -> Option<std::path::PathBuf> {
-    let is_probe = |p: &std::path::Path| p.join("sitecustomize.py").is_file();
+/// S4：交互式运行（`stdin.mode == "interactive"`）的子进程 stdin 槽位。
+/// 退出监视线程与 `stop_script` **两处都要清空**，否则残留句柄会让下次运行拿不到槽位。
+static RUN_STDIN: Mutex<Option<std::process::ChildStdin>> = Mutex::new(None);
 
-    if let Ok(p) = std::env::var("OPENCHARM_PROBE_SRC") {
-        let p = std::path::PathBuf::from(p);
-        if is_probe(&p) {
-            return Some(p);
-        }
-    }
-
-    let runtime = crate::tool_paths::runtime_dir();
-    for cand in [runtime.join("probe").join("src"), runtime.join("probe")] {
-        if is_probe(&cand) {
-            return Some(cand);
-        }
-    }
-
-    for dir in resource_candidates(app) {
-        for cand in [
-            dir.join("probe").join("src"),
-            dir.join("resources").join("probe").join("src"),
-        ] {
-            if is_probe(&cand) {
-                return Some(cand);
-            }
-        }
-    }
-
-    let mut dir = std::env::current_exe().ok()?;
-    for _ in 0..5 {
-        dir.pop();
-        let cand = dir.join("probe").join("src");
-        if is_probe(&cand) {
-            return Some(cand);
-        }
-    }
-    None
+/// 运行槽位是否被占用（供 `terminal::run_in_terminal` 做单实例守卫，§4.7 结论 3）
+pub(crate) fn run_slot_busy() -> bool {
+    unpoison(RUN_CHILD.lock()).is_some()
 }
 
 /// 运行脚本：立即返回，输出经 run-stdout / run-stderr / run-exit 事件流式转发。
-/// P25-T06：选中解释器 → 直接 <解释器> <file>；未选中 → uv run 兜底。
+/// P25-T06：选中解释器 → 直接 <解释器> <file>；未选中 → uv run 兜底（解析见 `run_env::resolve_run_command`）。
 /// P25-T09：probe 开关——false 时不注入运行时探针（probe 注入对两种运行方式同样生效，仅在 probe=true 时）。
+/// S4：`stdin.mode == "interactive"` 时子进程 stdin 走 piped 并登记 `RUN_STDIN`，
+/// 前端输出面板的输入行经 [`run_stdin`] 逐行喂入（默认仍是 null，见坑 2：piped 无人写入会永久阻塞）。
 #[tauri::command]
 pub fn run_script(app: AppHandle, path: String, workspace_root: Option<String>, probe: bool) -> Result<(), String> {
     {
         let rc = unpoison(RUN_CHILD.lock());
         if rc.is_some() {
             return Err("已有脚本在运行".into());
+        }
+        // 单实例统一模型（§4.7 结论 3）：PTY 运行占用时同样拒绝——两条路径共用同一个「运行中」状态，
+        // 并发会让输出面板与运行终端争抢 traceback 落点，且用户无从判断该按哪个停止。
+        if crate::terminal::run_terminal_busy() {
+            return Err("已有脚本在终端中运行".into());
+        }
+        // 三态互斥（debug dev plan §3.2）：调试占用时拒绝普通运行
+        if crate::dap::debug_busy() {
+            return Err("已有调试会话在运行".into());
         }
     }
 
@@ -359,46 +341,59 @@ pub fn run_script(app: AppHandle, path: String, workspace_root: Option<String>, 
         .as_deref()
         .and_then(|r| crate::env_cmds::get_interpreter(r.to_string()).ok().flatten());
 
-    let mut cmd = if let Some(interp) = &interpreter {
-        let mut c = Command::new(interp);
-        c.arg(&script_abs);
-        c
+    // P3（建议 2）：读取该脚本的轻量运行配置（Parameters / 环境变量 / stdin），存于工作区配置而非用户项目。
+    let run_config = workspace_root
+        .as_deref()
+        .map(|r| crate::env_cmds::read_run_config(r, &path))
+        .unwrap_or_default();
+
+    // 阶段 0 公共基建：运行命令与环境装配统一走 run_env（与 PTY 路径共用，杜绝 §4.2 坑 6 的漂移）
+    let run_cmd = crate::run_env::resolve_run_command(&script_abs, &fname, interpreter.as_deref());
+    let run_env =
+        crate::run_env::build_run_env(&app, &script_abs, workspace_root.as_deref(), &run_config, probe);
+
+    // S1/S4：标准输入来源。file 模式在 spawn **之前**打开文件——失败即 fail fast 并回传明确原因，
+    // 不留“已进入运行态却读不到输入”的僵尸运行（对齐 §4.4 的“用户无从感知原因”）。
+    let stdin_mode = run_config.stdin.effective_mode();
+    let interactive = stdin_mode == "interactive";
+    let stdin_stdio = if stdin_mode == "file" {
+        let fp = run_config.stdin.path.trim();
+        let f = std::fs::File::open(fp).map_err(|e| format!("标准输入文件无法打开：{fp}（{e}）"))?;
+        Stdio::from(f)
+    } else if interactive {
+        Stdio::piped()
     } else {
-        let mut c = tool_command("uv", ENV_UV);
-        c.args(["run", &fname]);
-        c
+        Stdio::null()
     };
 
+    let mut cmd = Command::new(&run_cmd.program);
+    cmd.args(&run_cmd.args);
+    // P3：脚本参数（shell-words 拆分，支持引号/转义），追加在脚本名之后（两分支通用）
+    cmd.args(&run_env.args);
+    for (k, v) in &run_cmd.env {
+        cmd.env(k, v);
+    }
+    // P0（建议 3）默认注入（PYTHONUNBUFFERED/PYTHONIOENCODING/PYTHONUTF8）+ PYTHONPATH 四段合并
+    // + 用户 env（用户值优先）+ probe 三件套，全部来自 run_env（§2.1 固化的顺序即优先级）
+    for (k, v) in &run_env.env {
+        cmd.env(k, v);
+    }
     cmd
-        .env("PYTHONIOENCODING", "utf-8")
-        .env("PYTHONUTF8", "1")
         .current_dir(&dir)
-        .stdin(Stdio::null())
+        .stdin(stdin_stdio)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
-    // P2-T06 探针注入（probe 开关关闭时不注入，P25-T09）：
-    let probe_src = if probe { locate_probe_src(&app) } else { None };
-    if let Some(src) = &probe_src {
-        let src_str = src.to_string_lossy().to_string();
-        let sep = if cfg!(windows) { ";" } else { ":" };
-        let existing = std::env::var("PYTHONPATH").unwrap_or_default();
-        let pythonpath = if existing.is_empty() {
-            src_str
-        } else {
-            format!("{src_str}{sep}{existing}")
-        };
-        cmd.env("PYTHONPATH", pythonpath)
-            .env("OPENCHARM_PROBE_AUTOSTART", "1")
-            .env("OPENCHARM_PROBE_SCRIPT", &script_abs)
-            .env("OPENCHARM_PROBE_HOME", crate::util::opencharm_home());
+    // 非致命告警（如 Parameters 解析失败）：回显但不中断运行
+    for w in &run_env.warnings {
+        let _ = app.emit("run-stderr", json!({ "data": w }));
     }
 
     let mut child = no_window(&mut cmd)
         .spawn()
         .map_err(|e| format!("无法启动运行命令: {e}"))?;
 
-    if probe && probe_src.is_none() {
+    if probe && run_env.probe_src.is_none() {
         let _ = app.emit(
             "run-stderr",
             json!({ "data": "[opencharm-probe] 未找到 probe/src，本次运行不采集（可用环境变量 OPENCHARM_PROBE_SRC 指定）\n" }),
@@ -407,45 +402,31 @@ pub fn run_script(app: AppHandle, path: String, workspace_root: Option<String>, 
 
     let stdout = child.stdout.take().ok_or("无法获取 stdout")?;
     let stderr = child.stderr.take().ok_or("无法获取 stderr")?;
-
+    // S4：交互式运行登记 stdin 槽位；非交互时写入 None，顺带清掉上一次异常退出可能残留的句柄
+    let child_stdin = if interactive { child.stdin.take() } else { None };
+    {
+        let mut slot = unpoison(RUN_STDIN.lock());
+        *slot = child_stdin;
+    }
     {
         let mut rc = unpoison(RUN_CHILD.lock());
         rc.replace(child);
     }
 
-    // stdout 流式转发
+    // stdout 流式转发：非交互按行（历史行为原样保留，坑 1 的零回归解法）；交互按 chunk——
+    // `input("姓名: ")` 的提示符没有换行，按行转发会让它一直卡在 reader 里，用户看不到提示 → 死锁。
     let app_out = app.clone();
     std::thread::spawn(move || {
-        let mut reader = BufReader::new(stdout);
-        let mut buf = Vec::new();
-        loop {
-            buf.clear();
-            match reader.read_until(b'\n', &mut buf) {
-                Ok(0) => break,
-                Ok(_) => {
-                    let _ = app_out.emit("run-stdout", json!({ "data": String::from_utf8_lossy(&buf) }));
-                }
-                Err(_) => break,
-            }
+        if interactive {
+            forward_chunks(stdout, app_out, "run-stdout");
+        } else {
+            forward_lines(stdout, app_out, "run-stdout");
         }
     });
 
-    // stderr 流式转发
+    // stderr 流式转发（两种模式都按行：traceback 每行自带换行，不存在提示符可见性问题）
     let app_err = app.clone();
-    std::thread::spawn(move || {
-        let mut reader = BufReader::new(stderr);
-        let mut buf = Vec::new();
-        loop {
-            buf.clear();
-            match reader.read_until(b'\n', &mut buf) {
-                Ok(0) => break,
-                Ok(_) => {
-                    let _ = app_err.emit("run-stderr", json!({ "data": String::from_utf8_lossy(&buf) }));
-                }
-                Err(_) => break,
-            }
-        }
-    });
+    std::thread::spawn(move || forward_lines(stderr, app_err, "run-stderr"));
 
     // 退出监视线程
     std::thread::spawn(move || loop {
@@ -467,6 +448,8 @@ pub fn run_script(app: AppHandle, path: String, workspace_root: Option<String>, 
                 None => return,
             }
         };
+        // S4：子进程已退出 → 清空 stdin 槽位，否则残留句柄让下次运行拿不到槽位
+        unpoison(RUN_STDIN.lock()).take();
         let _ = app.emit("run-exit", json!({ "code": code }));
         return;
     });
@@ -474,14 +457,111 @@ pub fn run_script(app: AppHandle, path: String, workspace_root: Option<String>, 
     Ok(())
 }
 
+/// 非交互路径的输出转发：按行（`read_until(b'\n')`）+ lossy 解码，历史行为一字未改。
+fn forward_lines(stream: impl Read + Send + 'static, app: AppHandle, event: &'static str) {
+    let mut reader = BufReader::new(stream);
+    let mut buf = Vec::new();
+    loop {
+        buf.clear();
+        match reader.read_until(b'\n', &mut buf) {
+            Ok(0) => break,
+            Ok(_) => {
+                let _ = app.emit(event, json!({ "data": String::from_utf8_lossy(&buf) }));
+            }
+            Err(_) => break,
+        }
+    }
+}
+
+/// 交互路径（S4）的输出转发：按 chunk + **增量 UTF-8 解码**（坑 5：中文跨 chunk 不得截断成乱码）。
+/// `partial: true` 表示末段尚无换行（典型是 `input()` 的提示符），前端据此做「部分行累积」：
+/// 先把提示符落到 DOM 让用户看见，等换行到达才把整行定型并匹配 traceback 链接（§4.7 结论 6）。
+fn forward_chunks(stream: impl Read + Send + 'static, app: AppHandle, event: &'static str) {
+    let mut reader = BufReader::new(stream);
+    let mut buf = [0u8; 4096];
+    let mut decoder = IncrementalUtf8Decoder::default();
+    loop {
+        match reader.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => {
+                let data = decoder.push(&buf[..n]);
+                if data.is_empty() {
+                    continue; // 整块都是被截断的多字节尾巴，等下一块拼完整
+                }
+                let partial = !data.ends_with('\n');
+                let _ = app.emit(event, json!({ "data": data, "partial": partial }));
+            }
+            Err(_) => break,
+        }
+    }
+    // 流结束：冲刷残留字节（脚本以无换行半行收尾时不吞字），仍标 partial 交由前端定型
+    let tail = decoder.finish();
+    if !tail.is_empty() {
+        let _ = app.emit(event, json!({ "data": tail, "partial": true }));
+    }
+}
+
+/// S4：向交互式运行的子进程写入一行输入（前端输出面板输入行 Enter 触发）。
+/// - 槽位为空（非交互运行 / 已结束）→ 返回可读错误而非 panic；
+/// - BrokenPipe（脚本已退但监视线程尚未清槽）→ 优雅返回「运行已结束」。
+#[tauri::command]
+pub fn run_stdin(data: String) -> Result<(), String> {
+    let mut slot = unpoison(RUN_STDIN.lock());
+    // 写入放在独立作用域内：借用结束后才允许改槽位（清理已断管道的残留句柄）
+    let res = {
+        let Some(stdin) = slot.as_mut() else {
+            return Err("当前运行不接受输入（标准输入需在运行配置中选「交互式」）".into());
+        };
+        stdin
+            .write_all(data.as_bytes())
+            .and_then(|_| stdin.write_all(b"\n"))
+            .and_then(|_| stdin.flush())
+    };
+    match res {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            *slot = None;
+            if e.kind() == std::io::ErrorKind::BrokenPipe {
+                Err("运行已结束，输入未送达".into())
+            } else {
+                Err(format!("写入标准输入失败：{e}"))
+            }
+        }
+    }
+}
+
 /// 停止运行中的脚本
 #[tauri::command]
 pub fn stop_script() -> Result<(), String> {
-    let mut rc = unpoison(RUN_CHILD.lock());
-    if let Some(mut child) = rc.take() {
-        kill_process_tree(&mut child); // 杀 uv/解释器连带其 python 脚本子树
+    // S4：先 drop stdin——关闭管道常能直接唤醒阻塞中的 input()（脚本收到 EOF 自行退出），
+    // 再杀进程树兜底；顺序反了会让「正在等输入的脚本」白挨一次 taskkill /T /F。
+    unpoison(RUN_STDIN.lock()).take();
+    let child = unpoison(RUN_CHILD.lock()).take();
+    if let Some(child) = child {
+        // CR-10：异步终止——同步 taskkill 对庞杂进程树可耗时数秒，点「停止」会卡 UI 数秒
+        kill_process_tree_async(child); // 杀 uv/解释器连带其 python 脚本子树
     }
     Ok(())
+}
+
+/// CR-14：应用退出（RunEvent::Exit）清理——同步终止全部 LSP 引擎进程树。
+/// 退出路径不能用 `kill_process_tree_async`：后台线程会被进程退出截断，taskkill 半途而废、
+/// 子进程照样成孤儿；退出时短暂同步阻塞可接受。
+pub(crate) fn lsp_stop_all_for_exit() {
+    let insts: Vec<LspInstance> = unpoison(LSP.lock()).drain().map(|(_, i)| i).collect();
+    for mut inst in insts {
+        if let Some(mut child) = inst.child.take() {
+            kill_process_tree(&mut child);
+        }
+    }
+}
+
+/// CR-14：应用退出清理——同步终止运行中脚本（理由同上，不能被进程退出截断）。
+pub(crate) fn stop_script_for_exit() {
+    unpoison(RUN_STDIN.lock()).take();
+    if let Some(mut child) = unpoison(RUN_CHILD.lock()).take() {
+        kill_process_tree(&mut child);
+    }
 }
 
 #[cfg(test)]
@@ -520,6 +600,14 @@ mod tests {
     fn errors_without_content_length() {
         // 头部无 Content-Length 行 → 缺头错误
         let mut cursor = Cursor::new(b"Header: 1\r\n\r\n{}".to_vec());
+        assert!(read_frame(&mut cursor).is_err());
+    }
+
+    #[test]
+    fn rejects_oversized_content_length() {
+        // CR-09：超大 Content-Length 帧必须被拒（防异常/被攻陷引擎触发巨额分配 OOM）
+        let header = format!("Content-Length: {}\r\n\r\n", MAX_FRAME_LEN + 1);
+        let mut cursor = Cursor::new(header.into_bytes());
         assert!(read_frame(&mut cursor).is_err());
     }
 }

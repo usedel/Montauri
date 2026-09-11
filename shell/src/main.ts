@@ -22,7 +22,7 @@ import { registerSidebarView, setSidebarTab, activeView } from "./views";
 import * as lsp from "./lsp/client";
 import * as kb from "./keybindings";
 import * as toolchain from "./toolchain";
-import { appendOutputLine, clearOutput, type OutputLink } from "./output";
+import { appendOutputLine, clearOutput, RunTranscript, type OutputLink } from "./output";
 import { openConfirm } from "./dialog";
 import { app, $, $btn, outputEl, statusFileEl, type Entry, type Tab } from "./state";
 import {
@@ -30,13 +30,23 @@ import {
   renderCtxMenu, resetTreeState, wireFileTree, type CtxItem,
 } from "./fileTree";
 import { refreshGitStatus, renderGitPanel, refreshBranchPanel, resetGitState, wireGitUI } from "./git";
-import { disposeTerminal, openTerminalAt, wireBottomPanel, wireTerminalEvents } from "./termUi";
+import {
+  disposeTerminal, openTerminalAt, runScriptInTerminal, setOutputPanelHooks,
+  stopRunTerminal, wireBottomPanel, wireTerminalEvents,
+} from "./termUi";
+import { setTerminalLinkHandler } from "./terminal";
 import { loadSettings, saveSettings, applyFontStatus, openSettingsPanel, wireSettingsPanel, buildEditorOptions } from "./settingsPanel";
 import { checkFirstRunStorage } from "./storagePanel";
-import { basename, codicon, emptyState, joinPath, languageOf, parentDirOf, renderFileIcon, SNAKE_SVG, symbolIcon } from "./util";
+import { basename, codicon, DisposableStore, emptyState, joinPath, languageOf, parentDirOf, renderFileIcon, samePath, setBusy as utilSetBusy, spinIcon as utilSpinIcon, SNAKE_SVG, symbolIcon } from "./util";
 import { restoreLayout, wireSplitters } from "./layout";
-import { hideEl, restoreReduceMotion, showEl } from "./anim";
+import { hideEl, motionDisabled, restoreReduceMotion, showEl } from "./anim";
 import { wireTooltip } from "./tooltip";
+import { renderEngineChip, setEngineChipHandlers, wireEngineChip } from "./engineChip";
+import { getRunMenuItems, renderRunWidget, setRunWidgetHandlers, setRunWidgetRepaint, wireRunWidget, type RunWidgetState } from "./runWidget";
+import { clearRunGutter, refreshRunGutter, setRunGutterHandlers, wireRunGutter } from "./runGutter";
+import * as dap from "./dap/client";
+import { clearCurrentLine, pushAllBreakpoints, refreshDebugGutter, wireDebugGutter } from "./debugGutter";
+import { initDebugView, notifyDepFound, renderDebugView, setDebugViewHandlers, wireDebugViewEvents } from "./debugView";
 
 // ---------- 模块级状态（本层私有） ----------
 
@@ -47,10 +57,25 @@ let currentInterpreter: string | null = null;
 const venvPrompted = new Set<string>();
 let searchCaseSensitive = false;
 let running = false;
+/** CR-07：运行准备期闸门——检查与置位之间不得有 await，杜绝连按触发并发启动。
+ * `running` 在 `prepareRun`（含保存、依赖预检、确认框）之后才置位，此前连点 Ctrl+F10
+ * 会并发拉起两个 `run_script`，后端单实例槽被顶掉、状态错乱。 */
+let runPreparing = false;
 /** 当前正在运行的文件路径（用于 tab 上显示停止图标） */
 let runningPath: string | null = null;
 /** 选区运行的元信息：临时文件路径 → 源文件 + 起始行（traceback 跳转映射用） */
 let selectionRunMeta: { tempPath: string; sourcePath: string; startLine: number } | null = null;
+/** 本次运行的 stdin 模式（S2：EOFError 归因提示需要知道“是不是根本没接输入”；S4 增 interactive） */
+let runningStdinMode: StdinMode = "null";
+/** 本次运行是否已提示过 EOF 归因（一次运行只提示一次，避免多行 EOFError 刷屏） */
+let runningStdinEofHinted = false;
+/** 本次运行走哪条路径（S3/S4 统一运行态模型，§4.7 结论 3）：输出面板 or 运行终端。
+ * 停止按钮 / tab 运行图标共用同一份 `running` 状态，按此路由到 stop_script 或 term_kill。 */
+let runChannel: "output" | "terminal" | null = null;
+/** 上次运行的路径与通道（「停止并重新运行」用）。resetRunState 不清，切换/关闭工作区清。 */
+let lastRun: { path: string; channel: "output" | "terminal" } | null = null;
+/** 运行输出转录器（S4）：把流式 chunk 还原成行——提示符立即可见，traceback 链接不被切碎 */
+const runTranscript = new RunTranscript(outputEl, gotoFromLink);
 /** 文件监听防抖定时器 */
 let fsWatchTimer: number | undefined;
 
@@ -68,6 +93,8 @@ const envPkgInputEl = $("env-pkg-input") as HTMLInputElement;
 const envPkgCountEl = $("env-pkg-count");
 const envPkgUpgradeAllBtn = $btn("env-pkg-upgrade-all");
 const envPkgUninstallSelectedBtn = $btn("env-pkg-uninstall-selected");
+const envPyprojectBannerEl = $("env-pyproject-banner");
+const envPyprojectInitBtn = $btn("env-pyproject-init");
 const newProjectModalEl = $("new-project-modal");
 const newProjectNameEl = $("new-project-name") as HTMLInputElement;
 const newProjectLocationEl = $("new-project-location") as HTMLInputElement;
@@ -76,8 +103,36 @@ const newProjectEnvTypeEl = $("new-project-env-type") as HTMLSelectElement;
 const newProjectVersionEl = $("new-project-version") as HTMLSelectElement;
 const newProjectVersionRowEl = $("new-project-version-row");
 const newProjectPreviewEl = $("new-project-preview");
+const runConfigModalEl = $("run-config-modal");
+const runConfigTargetEl = $("run-config-target");
+const runConfigArgsEl = $("run-config-args") as HTMLInputElement;
+const runConfigEnvEl = $("run-config-env") as HTMLTextAreaElement;
+const runConfigStdinModeEl = $("run-config-stdin-mode") as HTMLSelectElement;
+const runConfigStdinPathEl = $("run-config-stdin-path") as HTMLInputElement;
+const runConfigStdinPathRowEl = $("run-config-stdin-path-row");
+// S4：输出面板内的交互输入行（仅 running && stdin=interactive 时可见）
+const runStdinRowEl = $("run-stdin-row");
+const runStdinInputEl = $("run-stdin-input") as HTMLInputElement;
+const runStdinStatusEl = $("run-stdin-status");
 
 // ---------- 工作区 ----------
+
+/** CR-13：编辑器防抖 timer 集中管理（原为 init() 局部闭包，工作区切换/关闭无法清理，
+ * autosave 会在 tab 已 dispose 后触发，旧工作区未存修改被静默丢弃） */
+const editorTimers = {
+  change: undefined as number | undefined,
+  outline: undefined as number | undefined,
+  autosave: undefined as number | undefined,
+  gutter: undefined as number | undefined,
+  /** 全部 clearTimeout（切换/关闭工作区时调用，防旧工作区回调跨生命周期触发） */
+  clearAll(): void {
+    window.clearTimeout(this.change);
+    window.clearTimeout(this.outline);
+    window.clearTimeout(this.autosave);
+    window.clearTimeout(this.gutter);
+    this.change = this.outline = this.autosave = this.gutter = undefined;
+  },
+};
 
 /** 复位环境包面板状态（清空包列表状态 + 面板块 DOM；不主动触发 renderPackages，避免切换瞬间联网查询） */
 function resetEnvPackages(): void {
@@ -90,14 +145,26 @@ function resetEnvPackages(): void {
 
 /** 切换/关闭工作区时的共享 UI 复位：清理旧工作区残留的可视内容与内存状态 */
 function resetWorkspaceUiState(): void {
+  editorTimers.clearAll();      // CR-13：防抖 timer 全清（autosave 不再跨工作区触发）
+  app.pendingChanges.clear();   // CR-13：在途文档同步一并作废
+  outlineToken++;               // CR-20：作废在途大纲请求
+  runTranscript.discard();      // S4：先丢弃未完结行状态，否则会往已被清空的游离元素里写
   clearOutput(outputEl);        // 输出面板（运行输出 / traceback）
   resetGitState();              // git 状态 + diff 视图 + 分支列表
   outlineEl.textContent = "";   // 大纲符号树
   resetSearch();                // 搜索结果 + 作废在途请求
   resetEnvPackages();           // 环境包面板状态
+  pkgToken++;                   // CR-20：作废在途包列表请求
   currentInterpreter = null;    // 防切换瞬间误用旧解释器
   venvPrompted.clear();
   ($("search-input") as HTMLInputElement).value = ""; // 清空搜索关键词
+  // S4：运行态与交互输入行一并复位（旧运行已由 teardownCurrent 停止）
+  runStdinInputEl.value = "";
+  resetRunState();
+  lastRun = null; // 「停止并重新运行」的目标随工作区切换作废
+  clearRunGutter(); // C5：切换/关闭工作区清空 gutter ▶
+  clearCurrentLine(); // D4：清调试当前行高亮
+  renderDebugView(); // D4：调试侧栏复位到 idle 呈现
 }
 
 /** 清理当前工作区（关闭标签 + 停 LSP + 销毁终端）；有未保存修改时先确认，取消则返回 false */
@@ -106,20 +173,32 @@ async function teardownCurrent(): Promise<boolean> {
     if (app.tabs.some((t) => t.dirty) && !(await openConfirm({ message: "存在未保存的修改，继续将丢失，确认关闭工作区？", kind: "danger" }))) {
       return false;
     }
+    // S3/S4：切换/关闭工作区前先停掉在跑的脚本（按 runChannel 路由，两条路径都覆盖）。
+    // 否则后端进程会变成孤儿继续跑，而前端运行态随后被 resetWorkspaceUiState 复位，
+    // 用户就再也没有停止入口了（统一运行态模型要求「状态与进程同生共死」）。
+    if (running) await stopRun();
+
+    // 调试会话同理（§8 坑 7）：关闭工作区必须停调试，否则 debugpy 进程树成孤儿。
+    if (dap.currentPhase() !== "idle" && dap.currentPhase() !== "exited") {
+      await dap.stopDebug();
+      dap.resetDebugState();
+    }
+
+    // CR-30：teardown 计时改 console.debug（绕过日志系统的 console.log 清理；release 默认不显示）
     let t0 = performance.now();
-    console.log("[teardown] closeTabs begin, tabs=", app.tabs.length);
+    console.debug("[teardown] closeTabs begin, tabs=", app.tabs.length);
     for (const t of [...app.tabs]) closeTabSilent(t);
-    console.log("[teardown] closeTabs done, took=", (performance.now() - t0).toFixed(0), "ms");
+    console.debug("[teardown] closeTabs done, took=", (performance.now() - t0).toFixed(0), "ms");
 
     t0 = performance.now();
-    console.log("[teardown] lsp.stopEngine begin");
+    console.debug("[teardown] lsp.stopEngine begin");
     await lsp.stopEngine();
-    console.log("[teardown] lsp.stopEngine done, took=", (performance.now() - t0).toFixed(0), "ms");
+    console.debug("[teardown] lsp.stopEngine done, took=", (performance.now() - t0).toFixed(0), "ms");
 
     t0 = performance.now();
-    console.log("[teardown] disposeTerminal begin");
+    console.debug("[teardown] disposeTerminal begin");
     await disposeTerminal();
-    console.log("[teardown] disposeTerminal done, took=", (performance.now() - t0).toFixed(0), "ms");
+    console.debug("[teardown] disposeTerminal done, took=", (performance.now() - t0).toFixed(0), "ms");
   }
   return true;
 }
@@ -147,10 +226,10 @@ async function openWorkspace(root: string): Promise<void> {
 async function closeWorkspace(): Promise<void> {
   if (!app.workspaceRoot) return;
   if (!(await teardownCurrent())) return;
-  let t0 = performance.now();
-  console.log("[closeWorkspace] stopFileWatcher begin");
+  const t0 = performance.now();
+  console.debug("[closeWorkspace] stopFileWatcher begin");
   await stopFileWatcher();
-  console.log("[closeWorkspace] stopFileWatcher done, took=", (performance.now() - t0).toFixed(0), "ms");
+  console.debug("[closeWorkspace] stopFileWatcher done, took=", (performance.now() - t0).toFixed(0), "ms");
   resetWorkspaceUiState();
   app.workspaceRoot = null;
   resetTreeState();
@@ -277,6 +356,8 @@ interface CreateProjectResult {
   path: string;
   git_ok: boolean;
   git_message: string;
+  /** pyproject.toml 生成说明（uv 官方脚手架 or 模板回退，P2 建议 1） */
+  pyproject_note: string;
 }
 
 /** 拼接父目录 + 项目名（沿用 joinPath 的分隔符规则） */
@@ -370,7 +451,12 @@ async function createProject(): Promise<void> {
 
   let result: CreateProjectResult;
   try {
-    result = await invoke<CreateProjectResult>("create_project", { parentDir: parent, name, gitInit: wantGit });
+    result = await invoke<CreateProjectResult>("create_project", {
+      parentDir: parent,
+      name,
+      gitInit: wantGit,
+      pythonVersion: version || null, // P2（建议 1）：所选版本写入 pyproject.toml 的 requires-python
+    });
   } catch (e) {
     newProjectPreviewEl.textContent = `创建失败：${e}`;
     setBusy(createBtn, false);
@@ -378,6 +464,10 @@ async function createProject(): Promise<void> {
   }
   if (!result.git_ok) {
     appendOutputLine(outputEl, `git init 失败（项目已创建）：${result.git_message}`, "stderr", gotoFromLink);
+  }
+  // P2（建议 1）：回显 pyproject.toml 的生成路径（uv 脚手架 / 模板回退），让“裸目录 uv run 语义不明”可见地收敛
+  if (result.pyproject_note) {
+    appendOutputLine(outputEl, result.pyproject_note, "stdout", gotoFromLink);
   }
   await openWorkspace(result.path);
   await openFile(joinPath(result.path, "main.py"));
@@ -395,7 +485,16 @@ async function createProject(): Promise<void> {
         await invoke("set_interpreter", { workspaceRoot: result.path, path: interp }).catch(console.error);
         appendOutputLine(outputEl, `已选用系统解释器：${interp}`, "stdout", gotoFromLink);
       } else {
-        appendOutputLine(outputEl, "未检测到已安装的解释器，将使用 uv run 兜底", "stderr", gotoFromLink);
+        // P1（建议 4）：未检测到解释器时给出可执行引导，而非静默兜底
+        appendOutputLine(
+          outputEl,
+          "未检测到已安装的 Python 解释器，可任选其一：\n" +
+            "  1) 用 uv 安装托管 Python（环境面板或终端执行：uv python install 3.13）\n" +
+            "  2) 手动指定已安装的 python 可执行文件路径（环境面板 → 解释器）\n" +
+            "  在完成前将使用 uv run 兜底运行（首次运行可能联网下载 Python）。",
+          "stderr",
+          gotoFromLink,
+        );
       }
     }
   } catch (e) {
@@ -408,7 +507,7 @@ async function createProject(): Promise<void> {
 }
 
 async function loadTemplatesConfig(): Promise<void> {
-  // live templates M1 重构：重读用户/工作区配置并重建 registry（docs/live_templates重构方案1.md）
+  // live templates M1 重构：重读用户/工作区配置并重建 registry
   await liveTemplatesHandle?.reload();
 }
 
@@ -422,6 +521,7 @@ export async function insertHeaderTemplate(): Promise<boolean> {
 /** 标签右键菜单（P25-T08） */
 function showTabContextMenu(tab: Tab, x: number, y: number): void {
   activateTab(tab);
+  const isPy = tab.path.endsWith(".py") || tab.path.endsWith(".pyw");
   const items: CtxItem[] = [
     { label: "关闭", action: () => void closeTab(tab) },
     { label: "关闭其他", action: () => void closeOthersExcept(tab) },
@@ -432,6 +532,18 @@ function showTabContextMenu(tab: Tab, x: number, y: number): void {
     { label: "在终端中打开", action: () => void openTerminalAt(parentDirOf(tab.path)) },
     { label: "在资源管理器中显示", action: () => invoke("reveal_in_explorer", { path: tab.path }).catch(console.error) },
   ];
+  // P3（建议 2）：Python 脚本可编辑持久化运行配置（Parameters / 环境变量）
+  // S3（建议 4）：新增「在终端中运行」——真 TTY 才能满足 getpass / tqdm / rich / 彩色 / Ctrl+C（坑 3）
+  if (isPy) {
+    items.splice(
+      5,
+      0,
+      { label: "运行", action: () => void runActive() },
+      { label: "在终端中运行", action: () => void runActiveInTerminal() },
+      { label: "运行配置…", action: () => void openRunConfig(tab.path) },
+      { sep: true },
+    );
+  }
   renderCtxMenu(items, x, y);
 }
 
@@ -514,38 +626,34 @@ interface PackageInfo { name: string; version: string }
 interface PythonVersionOption { version: string; spec: string; path: string | null; installed: boolean }
 interface OutdatedInfo { name: string; version: string; latest: string; filetype: string }
 interface CreateVenvResult { output: string; python: string }
+/** P3（建议 2）：脚本运行配置（持久化到工作区配置，不侵入项目） */
+interface EnvVar { key: string; value: string }
+/** stdin 来源：
+ * - "null" 不接输入（历史行为，也是**默认**——坑 2 铁律：piped 无人写入会永久阻塞）
+ * - "file" 重定向自文件（S1，可复现）
+ * - "interactive" 输出面板交互（S4，用户在输入行逐行应答） */
+type StdinMode = "null" | "file" | "interactive";
+interface StdinConfig { mode: StdinMode; path: string }
+interface RunConfig { args: string; env: EnvVar[]; stdin: StdinConfig }
+
+/** 缺省运行配置（与后端 RunConfig::default 一致） */
+const EMPTY_RUN_CONFIG: RunConfig = { args: "", env: [], stdin: { mode: "null", path: "" } };
+
+/** 归一化后端返回的 stdin 模式：与后端 `StdinConfig::effective_mode()` 同口径
+ * （选了 file 却没给路径 → 视作 null；存量配置无该字段 → null） */
+function stdinModeOf(rc: Partial<RunConfig> | undefined): StdinMode {
+  const m = rc?.stdin?.mode;
+  if (m === "file") return rc?.stdin?.path?.trim() ? "file" : "null";
+  return m === "interactive" ? "interactive" : "null";
+}
 
 /** 环境面板包列表状态 */
 let currentPackages: PackageInfo[] = [];
 let outdatedPackages: Map<string, OutdatedInfo> = new Map();
 let selectedPkgs: Set<string> = new Set();
 
-/** 转圈图标：codicon 的 loading 图标默认静止，需叠加 codicon-modifier-spin 才转动 */
-function spinIcon(): HTMLElement {
-  const el = codicon("loading");
-  el.classList.add("codicon-modifier-spin");
-  return el;
-}
-
-/** 按钮忙碌态：内联转圈 + 禁用，用于耗时动作（装包/卸载/升级/建环境/建项目） */
-function setBusy(btn: HTMLButtonElement, busy: boolean, busyText = "处理中…"): void {
-  if (busy) {
-    if (btn.dataset.label === undefined) btn.dataset.label = btn.textContent ?? "";
-    btn.textContent = "";
-    btn.appendChild(spinIcon());
-    btn.append(` ${busyText}`);
-    btn.disabled = true;
-    btn.classList.add("busy");
-  } else {
-    const label = btn.dataset.label;
-    if (label !== undefined) {
-      btn.textContent = label;
-      delete btn.dataset.label;
-    }
-    btn.disabled = false;
-    btn.classList.remove("busy");
-  }
-}
+/** 按钮忙碌态：内联转圈 + 禁用——CR-27 已收敛到 util.ts（此处再导出供本文件旧调用点使用） */
+const setBusy = utilSetBusy;
 
 function shortInterpreter(p: string): string {
   if (app.workspaceRoot && p.startsWith(app.workspaceRoot)) {
@@ -574,7 +682,21 @@ async function refreshInterpreterStatus(): Promise<void> {
     currentInterpreter = null;
   }
   // D2：品牌蛇形单色图标 + 解释器标签（textContent 拼接防注入）
-  const label = currentInterpreter ? shortInterpreter(currentInterpreter) : "uv run";
+  // P1（建议 2）：状态栏升级为“解释器来源 + 版本”（(.venv) 3.13.x / uv run），运行前即可感知用哪套环境。
+  let label: string;
+  if (currentInterpreter) {
+    const short = shortInterpreter(currentInterpreter);
+    const srcTag = short === ".venv" ? "(.venv)" : short;
+    let ver = "";
+    try {
+      ver = await invoke<string>("interpreter_version", { path: currentInterpreter });
+    } catch {
+      ver = ""; // 版本查询失败降级为仅显示来源，不阻断
+    }
+    label = ver ? `${srcTag} ${ver}` : srcTag;
+  } else {
+    label = "uv run";
+  }
   const snake = document.createElement("span");
   snake.className = "status-snake";
   snake.innerHTML = SNAKE_SVG; // 常量 SVG
@@ -599,6 +721,15 @@ async function renderEnvPanel(): Promise<void> {
   } catch (e) {
     console.error("list_pythons 失败", e);
   }
+
+  // P2（建议 5）：裸目录（无 pyproject.toml）时显示横幅，一键幂等生成，收敛 uv run 语义
+  try {
+    const has = await invoke<boolean>("has_pyproject", { workspaceRoot: app.workspaceRoot });
+    envPyprojectBannerEl.classList.toggle("hidden", has);
+  } catch {
+    envPyprojectBannerEl.classList.add("hidden");
+  }
+
   envListEl.textContent = "";
 
   // 「默认」uv run 兜底项
@@ -658,6 +789,20 @@ async function renderEnvPanel(): Promise<void> {
   await renderPackages();
 }
 
+/** P2（建议 5）：为裸目录一键生成最小 pyproject.toml（幂等，已存在则不覆盖） */
+async function generatePyproject(): Promise<void> {
+  if (!app.workspaceRoot) return;
+  setBusy(envPyprojectInitBtn, true, "生成中…");
+  try {
+    const msg = await invoke<string>("init_pyproject", { workspaceRoot: app.workspaceRoot });
+    appendOutputLine(outputEl, msg, "stdout", gotoFromLink);
+  } catch (e) {
+    appendOutputLine(outputEl, `生成 pyproject.toml 失败：${e}`, "stderr", gotoFromLink);
+  }
+  setBusy(envPyprojectInitBtn, false);
+  await renderEnvPanel(); // 重新检测 → 横幅消失
+}
+
 async function selectInterpreter(path: string | null): Promise<void> {
   if (!app.workspaceRoot) return;
   try {
@@ -682,7 +827,7 @@ function renderPkgLoading(msg: string): void {
   envPackagesEl.textContent = "";
   const line = document.createElement("div");
   line.className = "env-empty";
-  line.appendChild(spinIcon());
+  line.appendChild(utilSpinIcon());
   line.append(` ${msg}`);
   envPackagesEl.appendChild(line);
 }
@@ -751,6 +896,9 @@ function renderPkgLines(): void {
   updatePkgToolbar();
 }
 
+/** CR-20：包列表刷新令牌——快速切解释器时，解释器 A 的 outdated 不得标到 B 的包上 */
+let pkgToken = 0;
+
 async function renderPackages(): Promise<void> {
   updatePkgToolbar();
   if (!currentInterpreter) {
@@ -765,16 +913,18 @@ async function renderPackages(): Promise<void> {
     updatePkgToolbar();
     return;
   }
+  const interp = currentInterpreter;
+  const token = ++pkgToken;
   renderPkgLoading("正在加载已安装包…");
   // 先快速加载已装包并渲染：outdated 查询可能联网较慢，后台补齐不阻塞列表展示
-  const pkgs = await invoke<PackageInfo[]>("list_packages", { interpreter: currentInterpreter }).catch(() => [] as PackageInfo[]);
-  if (!currentInterpreter) return;
+  const pkgs = await invoke<PackageInfo[]>("list_packages", { interpreter: interp }).catch(() => [] as PackageInfo[]);
+  if (token !== pkgToken || currentInterpreter !== interp) return; // 已切解释器，丢弃旧结果
   currentPackages = pkgs;
   selectedPkgs = new Set([...selectedPkgs].filter((n) => pkgs.some((p) => p.name === n)));
   renderPkgLines();
 
-  const outdated = await invoke<OutdatedInfo[]>("list_outdated", { interpreter: currentInterpreter }).catch(() => [] as OutdatedInfo[]);
-  if (!currentInterpreter) return;
+  const outdated = await invoke<OutdatedInfo[]>("list_outdated", { interpreter: interp }).catch(() => [] as OutdatedInfo[]);
+  if (token !== pkgToken || currentInterpreter !== interp) return;
   outdatedPackages = new Map(outdated.map((o) => [o.name, o]));
   renderPkgLines();
 }
@@ -811,7 +961,7 @@ async function installPackage(): Promise<void> {
   setBusy(btn, true, "安装中…");
   try {
     const code = await invoke<number>("pip_install", { workspaceRoot: app.workspaceRoot, interpreter: currentInterpreter, spec });
-    console.log(`[opencharm-install] 环境面板安装结束 code=${code} spec=${spec}`);
+    console.debug(`[opencharm-install] 环境面板安装结束 code=${code} spec=${spec}`);
     if (code !== 0) appendOutputLine(outputEl, `安装失败（exit ${code}），详见上方输出`, "stderr", gotoFromLink);
   } catch (e) {
     appendOutputLine(outputEl, `安装失败：${e}`, "stderr", gotoFromLink);
@@ -902,9 +1052,9 @@ async function installMissingPackage(pkg: string): Promise<void> {
   if (!app.workspaceRoot) return;
   const spec = PACKAGE_ALIASES[pkg] ?? pkg.trim();
   if (!spec) return;
-  console.log(`[opencharm-install] 请求安装 pkg=${pkg} spec=${spec}`);
+  console.debug(`[opencharm-install] 请求安装 pkg=${pkg} spec=${spec}`);
   if (!currentInterpreter) {
-    console.log("[opencharm-install] 未选择解释器，中止");
+    console.debug("[opencharm-install] 未选择解释器，中止");
     appendOutputLine(outputEl, "尚未选择解释器，无法自动安装包（点状态栏解释器图标选择后再试）", "stderr", gotoFromLink);
     return;
   }
@@ -914,17 +1064,17 @@ async function installMissingPackage(pkg: string): Promise<void> {
     message: `将安装 "${spec}" 到当前解释器：\n${currentInterpreter}\n\n是否继续？`,
     okLabel: "安装", cancelLabel: "取消", kind: "primary",
   });
-  console.log(`[opencharm-install] 确认结果=${proceed}`);
+  console.debug(`[opencharm-install] 确认结果=${proceed}`);
   if (!proceed) {
     appendOutputLine(outputEl, `已取消安装 ${spec}`, "stderr", gotoFromLink);
     return;
   }
 
   appendOutputLine(outputEl, `> uv pip install ${spec}  (${shortInterpreter(currentInterpreter)})`, "cmd", gotoFromLink);
-  console.log("[opencharm-install] 开始 pip_install invoke");
+  console.debug("[opencharm-install] 开始 pip_install invoke");
   try {
     const code = await invoke<number>("pip_install", { workspaceRoot: app.workspaceRoot, interpreter: currentInterpreter, spec });
-    console.log(`[opencharm-install] pip_install 结束 code=${code}`);
+    console.debug(`[opencharm-install] pip_install 结束 code=${code}`);
     if (code === 0) {
       appendOutputLine(outputEl, `已安装 ${spec}，重新检查诊断…`, "stdout", gotoFromLink);
       await startLsp();
@@ -932,7 +1082,7 @@ async function installMissingPackage(pkg: string): Promise<void> {
       appendOutputLine(outputEl, `安装失败（exit ${code}），详见上方输出`, "stderr", gotoFromLink);
     }
   } catch (e) {
-    console.log("[opencharm-install] 安装异常:", e);
+    console.debug("[opencharm-install] 安装异常:", e);
     appendOutputLine(outputEl, `安装失败：${e}`, "stderr", gotoFromLink);
   }
 }
@@ -1004,6 +1154,9 @@ async function executeSearch(): Promise<void> {
   await runSearch(app.workspaceRoot, input.value, searchCaseSensitive, $("search-results"));
 }
 
+/** CR-20：本批大纲符号所属 tab（点击回调校验用，渲染时记录） */
+let outlineOwnerTab: Tab | null = null;
+
 function renderOutlineSymbols(container: HTMLElement, symbols: lsp.LspDocumentSymbol[], depth: number): void {
   for (const s of symbols) {
     const line = (s.selectionRange?.start?.line ?? s.range?.start?.line ?? 0) + 1;
@@ -1019,6 +1172,8 @@ function renderOutlineSymbols(container: HTMLElement, symbols: lsp.LspDocumentSy
     item.append(icon, name);
     item.title = `${s.name}:${line}`;
     item.addEventListener("click", () => {
+      // CR-20：响应渲染时所在 tab 已可能被切换，点击前校验仍在该 tab 才跳转
+      if (app.activeTab !== outlineOwnerTab) return;
       app.editor.setPosition({ lineNumber: line, column: 1 });
       app.editor.revealLineInCenter(line);
       app.editor.focus();
@@ -1028,18 +1183,38 @@ function renderOutlineSymbols(container: HTMLElement, symbols: lsp.LspDocumentSy
   }
 }
 
+/** CR-20：大纲刷新令牌——响应乱序时旧结果不得覆盖新结果（照搬 search.ts 的令牌模式） */
+let outlineToken = 0;
+
 async function refreshOutline(): Promise<void> {
   if (!app.activeTab) {
     outlineEl.textContent = "";
     return;
   }
-  const symbols = await lsp.documentSymbols(app.activeTab.path);
+  const tab = app.activeTab;
+  const token = ++outlineToken;
+  const symbols = await lsp.documentSymbols(tab.path);
+  if (token !== outlineToken) return; // 已有更新一轮的请求（或工作区已切换），丢弃旧结果
+  outlineOwnerTab = tab; // CR-20：记录本批符号所属 tab
   outlineEl.textContent = "";
   if (symbols.length === 0) {
     outlineEl.appendChild(emptyState("symbol-misc", "无符号", undefined, true));
     return;
   }
   renderOutlineSymbols(outlineEl, symbols, 0);
+}
+
+/** CR-13：串行冲刷待同步的文档变更——changeTimer 回调与补全前钩子共用。
+ * 原来 for 循环内并发 fire-and-forget 多条 didChangeFull，invoke 到达顺序不保证 →
+ * version 乱序，引擎文档状态错乱。此处逐条 await 保证 version 单调递增送达。 */
+async function syncPendingChanges(): Promise<void> {
+  for (const path of [...app.pendingChanges]) {
+    const t = app.tabs.find((x) => x.path === path);
+    if (t) {
+      await lsp.didChangeFull(path, t.model);
+    }
+    app.pendingChanges.delete(path);
+  }
 }
 
 // ---------- 最近文件（P25-T09） ----------
@@ -1055,11 +1230,40 @@ async function recordRecent(path: string): Promise<void> {
 
 // ---------- 标签页 / 编辑器 ----------
 
+/** CR-24：LSP provider 注册句柄集中管理（应用生命周期；startLsp 重建时 dispose 再注册） */
+const lspProviders = new DisposableStore();
+
+/** CR-08：openFile 进行中去重表（path → 未完成的打开 Promise），防并发双开同文件 */
+const openFileInflight = new Map<string, Promise<void>>();
+
 export async function openFile(path: string, revealLine?: number): Promise<void> {
+  // CR-08：in-flight 去重——双击/多入口并发打开同一文件时，两次调用都查不到 tab、
+  // 都进 read_file → createModel 对重复 URI 返回既有 model → 两 Tab 持同一 model，
+  // closeTabSilent dispose 掉另一个仍在用的 model。以 path 为键串行化，
+  // 后续调用 await 同一个 Promise（含 gotoFromLink / openSearchMatch / restartRun 双击路径）。
+  const inflight = openFileInflight.get(path);
+  if (inflight) {
+    await inflight;
+    await revealAfterOpen(path, revealLine);
+    return;
+  }
+  const p = doOpenFile(path, revealLine);
+  openFileInflight.set(path, p);
+  try {
+    await p;
+  } finally {
+    openFileInflight.delete(path);
+  }
+}
+
+/** CR-08：openFile 的实际执行体（由 in-flight 去重表保证同一 path 串行） */
+async function doOpenFile(path: string, revealLine?: number): Promise<void> {
   let tab = app.tabs.find((t) => t.path === path);
   if (!tab) {
     const content = await invoke<string>("read_file", { path });
-    const model = app.monaco.editor.createModel(content, languageOf(path), app.monaco.Uri.file(path));
+    // CR-08：并发防线二——创建前再查既有 model 命中则复用（防其它入口已建）
+    const uri = app.monaco.Uri.file(path);
+    const model = app.monaco.editor.getModel(uri) ?? app.monaco.editor.createModel(content, languageOf(path), uri);
     model.updateOptions({ tabSize: app.settings.tab_size, insertSpaces: app.settings.insert_spaces }); // P1 缩进设置
     lsp.markModelPath(model, path);
     model.onDidChangeContent(() => {
@@ -1079,7 +1283,14 @@ export async function openFile(path: string, revealLine?: number): Promise<void>
   }
   activateTab(tab);
   void recordRecent(path);
-  if (revealLine !== undefined) {
+  revealAfterOpen(path, revealLine);
+}
+
+/** CR-08：打开完成后按需跳行（去重等待路径也要走，故独立成函数） */
+function revealAfterOpen(path: string, revealLine?: number): void {
+  if (revealLine === undefined) return;
+  const tab = app.tabs.find((t) => t.path === path);
+  if (tab && app.activeTab === tab) {
     app.editor.revealLineInCenter(revealLine);
     app.editor.setPosition({ lineNumber: revealLine, column: 1 });
   }
@@ -1092,6 +1303,8 @@ function activateTab(tab: Tab): void {
   statusFileEl.textContent = tab.path;
   if (activeView() === "files") refreshOutline();
   updateEditorOverlay();
+  refreshRunGutter(); // C5：切换 tab 重算 __main__ 守卫行的 ▶
+  refreshDebugGutter(); // D3：切换 tab 重算断点红点
 }
 
 async function closeTab(tab: Tab): Promise<void> {
@@ -1107,6 +1320,7 @@ export function closeTabSilent(tab: Tab): void {
   if (idx === -1) return;
   app.tabs.splice(idx, 1);
   lsp.didClose(tab.path);
+  lsp.discardCachedDiagnostics(tab.path); // CR-22：关文件即释放诊断缓存
   app.monaco.editor.setModelMarkers(tab.model, "opencharm-lsp", []);
   tab.model.dispose();
   if (app.activeTab === tab) {
@@ -1120,6 +1334,8 @@ export function closeTabSilent(tab: Tab): void {
     }
   }
   renderTabs();
+  refreshRunGutter(); // C5：关闭 tab 后重算/清空 ▶
+  refreshDebugGutter(); // D3：关闭 tab 后重算/清空断点红点
 }
 
 export function renderTabs(): void {
@@ -1134,25 +1350,7 @@ export function renderTabs(): void {
     const dirty = document.createElement("span");
     dirty.className = "dirty";
     if (t.dirty) dirty.appendChild(codicon("circle-filled"));
-    // .py/.pyw 文件显示运行/停止图标
-    const isPython = t.path.endsWith(".py") || t.path.endsWith(".pyw");
-    if (isPython) {
-      const isRunning = running && t.path === runningPath;
-      const runIcon = document.createElement("span");
-      runIcon.className = `tab-run${isRunning ? " running" : ""}`;
-      runIcon.appendChild(codicon(isRunning ? "stop" : "play"));
-      runIcon.title = isRunning ? "停止运行" : "运行此文件";
-      runIcon.addEventListener("click", (ev) => {
-        ev.stopPropagation();
-        if (isRunning) {
-          void stopRun();
-        } else {
-          activateTab(t);
-          void runActive();
-        }
-      });
-      el.appendChild(runIcon);
-    }
+    // 被动运行指示（C3）：动作已集中到菜单栏运行组，tab 只显示状态（不可点，避免第二个动作入口）
     const close = document.createElement("span");
     close.className = "close";
     close.appendChild(codicon("close"));
@@ -1160,7 +1358,18 @@ export function renderTabs(): void {
       ev.stopPropagation();
       void closeTab(t);
     });
-    el.append(name, dirty, close);
+    const isRunningHere = running && t.path === runningPath;
+    if (isRunningHere) {
+      const ind = document.createElement("span");
+      ind.className = "tab-running";
+      const spin = codicon(motionDisabled() ? "circle-filled" : "loading");
+      if (!motionDisabled()) spin.classList.add("codicon-modifier-spin");
+      ind.appendChild(spin);
+      ind.title = "正在运行";
+      el.append(name, dirty, ind, close);
+    } else {
+      el.append(name, dirty, close);
+    }
     el.addEventListener("click", () => activateTab(t));
     el.addEventListener("contextmenu", (ev) => {
       ev.preventDefault();
@@ -1169,6 +1378,8 @@ export function renderTabs(): void {
     });
     tabbarEl.appendChild(el);
   }
+  // 运行组按钮随 tab / 运行态一起重绘（renderTabs 覆盖了大多数状态变化点）
+  renderRunWidget(runWidgetState());
 }
 
 async function saveActive(): Promise<void> {
@@ -1188,15 +1399,31 @@ async function saveActive(): Promise<void> {
 }
 
 // ---------- 运行 ----------
+//
+// 两条运行路径共用一套「运行态」（§4.7 结论 3，S3/S4 首版单实例）：
+// - **输出面板**（runActive → `lsp::run_script`）：默认路径，traceback 天然可点击；
+//   stdin=interactive（S4）时输出面板下方亮出输入行，用户逐行应答。
+// - **运行终端**（runActiveInTerminal → `terminal::run_in_terminal`）：真 TTY，覆盖
+//   getpass / tqdm / rich / 彩色输出 / Ctrl+C（坑 3：管道模式下 isatty() 为假，这些全都退化）。
+// `running` / `runningPath` / 停止按钮 / tab 运行图标对两条路径一致，按 `runChannel` 路由停止动作。
 
-async function runActive(): Promise<void> {
-  if (!app.activeTab || running) return;
-  const path = app.activeTab.path;
+/** 运行前公共准备的产物 */
+interface RunPrep {
+  /** 归一化后的 stdin 模式（决定回显后缀 / 输入行可见性 / EOF 归因口径） */
+  stdinMode: StdinMode;
+  /** 运行回显行：`> [venv] <解释器> <脚本> <args> < <file>  (<路径>)` */
+  echo: string;
+}
+
+/** 运行前公共准备：Python 文件校验 → 自动保存 → 依赖预检 → 读运行配置 → 组装回显。
+ * 返回 null 表示不应运行（不是 Python 文件，或用户在预检对话框里选了取消）。
+ * 两条运行路径共用，避免「预检只在输出面板路径生效」这类漂移。 */
+async function prepareRun(path: string): Promise<RunPrep | null> {
   if (!path.endsWith(".py") && !path.endsWith(".pyw")) {
     appendOutputLine(outputEl, `不是 Python 文件：${path}`, "stderr", gotoFromLink);
-    return;
+    return null;
   }
-  if (app.activeTab.dirty) await saveActive(); // 运行前自动保存
+  if (app.activeTab?.dirty) await saveActive(); // 运行前自动保存
   // 运行前依赖预检：文件顶层 import 的第三方模块须在当前解释器中可解析，否则提前提示（避免「补全可用但运行 ImportError」）
   if (currentInterpreter) {
     const missing = await invoke<Array<{ name: string; line: number; stmt: string }>>(
@@ -1213,25 +1440,258 @@ async function runActive(): Promise<void> {
         message: `以下导入在当前解释器中未找到，运行可能出现 ImportError：\n\n${lines}\n\n仍要运行吗？`,
         okLabel: "仍要运行", cancelLabel: "取消", kind: "danger",
       });
-      if (!proceed) return;
+      if (!proceed) return null;
     }
+  }
+  // P3：读取持久化的运行配置（后端同样读取并应用，此处仅为运行前显式化 + 决定 stdin 形态）
+  const rc = app.workspaceRoot
+    ? await invoke<Partial<RunConfig>>("get_run_config", { workspaceRoot: app.workspaceRoot, scriptPath: path }).catch(() => ({} as Partial<RunConfig>))
+    : ({} as Partial<RunConfig>);
+  // S1/S4：记下本次运行的 stdin 模式（回显后缀 + S2 的 EOF 归因 + 输入行可见性都依赖它）
+  const stdinMode = stdinModeOf(rc);
+  const args = rc.args?.trim() ?? "";
+  const argsSuffix = args ? ` ${args}` : "";
+  const stdinSuffix =
+    stdinMode === "file" ? ` < ${rc.stdin?.path}` : stdinMode === "interactive" ? "  [交互输入]" : "";
+  // P1（建议 2）：回显含来源前缀（[venv]/[system]/[uv run]）+ 实际解释器完整路径，
+  // 让用户运行前明确知道“这次用哪套环境跑”。
+  const source = currentInterpreter
+    ? shortInterpreter(currentInterpreter) === ".venv"
+      ? "venv"
+      : "system"
+    : "uv run";
+  const cmd = currentInterpreter
+    ? `${currentInterpreter} ${basename(path)}${argsSuffix}${stdinSuffix}`
+    : `uv run ${basename(path)}${argsSuffix}${stdinSuffix}`;
+  return { stdinMode, echo: `> [${source}] ${cmd}  (${path})` };
+}
+
+/** 复位运行态（两条路径共用：run-exit / 运行终端退出 / 启动失败 / 停止都走这里）。
+ * CR-05：选区运行的临时文件在复位时删除（run-exit / 停止 / 失败全路径覆盖），meta 一并清空。 */
+function resetRunState(): void {
+  running = false;
+  runningPath = null;
+  runChannel = null;
+  runningStdinMode = "null";
+  runningStdinEofHinted = false;
+  cleanupSelectionRunMeta();
+  syncRunStdinRow();
+  renderTabs();
+}
+
+/** CR-05：清理选区运行临时文件与元信息（幂等；失败仅提示不阻断状态复位） */
+function cleanupSelectionRunMeta(): void {
+  const meta = selectionRunMeta;
+  selectionRunMeta = null;
+  if (!meta) return;
+  invoke("delete_file", { path: meta.tempPath }).catch((e) => {
+    appendOutputLine(outputEl, `清理选区临时文件失败（可手工删除）: ${meta.tempPath} — ${e}`, "hint", gotoFromLink);
+  });
+}
+
+/** 组装运行组状态（从现有模块级状态 + app 派生，不新增第二份真值） */
+function runWidgetState(): RunWidgetState {
+  const hasWs = !!app.workspaceRoot;
+  const tab = app.activeTab;
+  const isPy = !!tab && (tab.path.endsWith(".py") || tab.path.endsWith(".pyw"));
+  const canRun = hasWs && !!tab && isPy;
+  // D4「调试态与运行态 UI 不混淆」：调试中 ⏹ 必须可用（点击路由到 debug_stop），
+  // 否则用户在调试中失去了菜单栏停止入口（E2E 实测：调试中 #btn-stop disabled）。
+  const dbgPhase = dap.currentPhase();
+  const debugging = dbgPhase === "starting" || dbgPhase === "running" || dbgPhase === "stopped";
+  let disabledReason: string;
+  if (!hasWs) disabledReason = "未打开工作区";
+  else if (!tab) disabledReason = "没有打开的文件";
+  else disabledReason = "当前文件不是 Python 文件";
+  return {
+    canRun,
+    disabledReason,
+    running: running || runPreparing || debugging,
+    channel: runChannel,
+    targetName: tab ? basename(tab.path) : "",
+    runShortcut: kb.bindingLabel("run"),
+    stopShortcut: kb.bindingLabel("stop"),
+    selectionShortcut: kb.bindingLabel("run_selection"),
+    canOpenConfig: canRun,
+  };
+}
+
+/** CR-07：运行闸门——同步检查并置位（检查与置位间无 await）。
+ * 返回 false 表示已有运行（准备中或进行中）。三条运行路径（输出面板 / 终端 / 选区）共用。 */
+function beginRunPreparing(): boolean {
+  if (running || runPreparing) return false;
+  runPreparing = true;
+  renderTabs(); // 准备期即置灰 ▶，给用户即时反馈
+  return true;
+}
+
+/** CR-07：准备结束（成功进入运行态或放弃），释放闸门 */
+function endRunPreparing(): void {
+  runPreparing = false;
+  renderTabs();
+}
+
+/** 「停止并重新运行」：按上次通道重跑 lastRun.path。目标文件已不在 tabs 时先打开，
+ *  若打开失败（磁盘文件已删）则置灰不跑——绝不静默跑错文件（T11）。 */
+async function restartRun(): Promise<void> {
+  if (!lastRun) return;
+  const { path, channel } = lastRun;
+  await stopRun();
+  const tab = app.tabs.find((t) => t.path === path);
+  if (tab) {
+    activateTab(tab);
+  } else {
+    try {
+      await openFile(path);
+    } catch (e) {
+      appendOutputLine(outputEl, `无法重新运行：${path}（文件可能已不存在）`, "stderr", gotoFromLink);
+      return;
+    }
+  }
+  if (channel === "terminal") await runActiveInTerminal();
+  else await runActive();
+}
+
+/** 在输出面板运行（默认路径） */
+async function runActive(): Promise<void> {
+  if (!app.activeTab) return;
+  if (!beginRunPreparing()) return; // CR-07：准备期闸门（同步检查并置位）
+  const path = app.activeTab.path;
+  let prep: RunPrep | null = null;
+  try {
+    prep = await prepareRun(path);
+  } finally {
+    if (!prep) endRunPreparing(); // 预检取消/失败 → 释放闸门（成功路径在下方置 running 后释放）
+  }
+  if (!prep) return;
+  if (running) {
+    endRunPreparing(); // 准备期间已有运行启动（如 run-exit 重入）→ 放弃
+    return;
   }
   running = true;
   runningPath = path;
-  renderTabs();
-  const cmd = currentInterpreter
-    ? `${shortInterpreter(currentInterpreter)} ${basename(path)}`
-    : `uv run ${basename(path)}`;
-  appendOutputLine(outputEl, `> ${cmd}  (${path})`, "cmd", gotoFromLink);
+  runChannel = "output";
+  lastRun = { path, channel: "output" };
+  runningStdinMode = prep.stdinMode;
+  runningStdinEofHinted = false;
+  runTranscript.flush(); // 上一轮残留的半行先定型，避免与本次输出粘成一行
+  endRunPreparing(); // 状态就绪后释放闸门（内含 renderTabs）
+  appendOutputLine(outputEl, prep.echo, "cmd", gotoFromLink);
+  // S4：交互式运行 → 亮出输入行并聚焦，把「等待输入…」显式化（缓解坑 2 的单实例阻塞焦虑）
+  syncRunStdinRow();
   try {
     await invoke("run_script", { path, workspaceRoot: app.workspaceRoot, probe: app.settings.probe_enabled });
     // 输出经 run-stdout / run-stderr / run-exit 事件流式到达
   } catch (e) {
+    // S1：stdin 重定向文件打不开时后端 fail fast，错误原因在此可见（不留僵尸运行态）
     appendOutputLine(outputEl, `运行失败: ${e}`, "stderr", gotoFromLink);
-    running = false;
-    runningPath = null;
-    renderTabs();
+    resetRunState();
   }
+}
+
+/** S3：在终端中运行（真 TTY）。输出落点=专用「运行终端」tab（§4.7 结论 2）：
+ * 独立标签样式与普通 shell 区分，生命周期也不同——脚本跑完即结束会话，
+ * tab 保留供阅读输出与点击 traceback（坑 4 由 xterm link provider 补齐）。 */
+async function runActiveInTerminal(): Promise<void> {
+  if (!app.activeTab) return;
+  if (!beginRunPreparing()) return; // CR-07：准备期闸门（同步检查并置位）
+  const path = app.activeTab.path;
+  let prep: RunPrep | null = null;
+  try {
+    prep = await prepareRun(path);
+  } finally {
+    if (!prep) endRunPreparing();
+  }
+  if (!prep) return;
+  // PTY 无法直接接管重定向文件（§4.4 末行）：不静默降级成手工输入——
+  // 那会破坏 file 模式「可复现」的核心诉求，因此明确拒绝并给出两条出路。
+  if (prep.stdinMode === "file") {
+    endRunPreparing();
+    appendOutputLine(
+      outputEl,
+      "「在终端中运行」不支持标准输入重定向自文件（PTY 无法直接接管文件）。可在标签右键 →「运行配置…」中改为「不接输入」或「交互式」，或改用普通「运行」。",
+      "hint",
+      gotoFromLink,
+    );
+    return;
+  }
+  if (running) {
+    endRunPreparing();
+    return;
+  }
+  running = true;
+  runningPath = path;
+  runChannel = "terminal";
+  lastRun = { path, channel: "terminal" };
+  // PTY 下 stdin 天然是 TTY：交互由终端自身承载，输出面板的输入行与 S2 的 EOF 归因都不适用
+  runningStdinMode = "null";
+  runningStdinEofHinted = false;
+  endRunPreparing(); // 状态就绪后释放闸门（内含 renderTabs）
+  syncRunStdinRow();
+  try {
+    await runScriptInTerminal(path, prep.echo, resetRunState);
+  } catch (e) {
+    appendOutputLine(outputEl, `在终端中运行失败: ${e}`, "stderr", gotoFromLink);
+    resetRunState();
+  }
+}
+
+// ---------- S4：输出面板内的交互式输入 ----------
+
+/** 输入行可见性：仅「输出面板路径 + 运行中 + stdin=interactive + 输出标签可见」时亮出并聚焦。
+ * 底部面板切标签时也要重新同步（输入行只在「输出」标签下有意义）。 */
+function syncRunStdinRow(): void {
+  const show =
+    running &&
+    runChannel === "output" &&
+    runningStdinMode === "interactive" &&
+    !outputEl.classList.contains("hidden");
+  runStdinRowEl.classList.toggle("hidden", !show);
+  if (show) {
+    updateRunStdinStatus();
+    runStdinInputEl.focus();
+  }
+}
+
+/** 「等待输入…」状态文案（每次输出到达时刷新，**不抢焦点**——用户可能正在别处输入） */
+function updateRunStdinStatus(): void {
+  if (!running || runningStdinMode !== "interactive") return;
+  // 有未完结行 = 脚本写了提示符正在等回答；无未完结行 = 脚本还在跑别的
+  runStdinStatusEl.textContent = runTranscript.hasPending() ? "脚本正在等待输入…" : "运行中（交互模式）";
+}
+
+/** 提交一行输入给运行中的脚本（Enter）：先把未完结的提示符行定型，再以 `.input` 行回显用户输入，
+ * 让 transcript 读起来像真控制台。 */
+async function submitRunStdin(): Promise<void> {
+  if (!running || runningStdinMode !== "interactive") return;
+  const text = runStdinInputEl.value;
+  runStdinInputEl.value = "";
+  // 提示符（半行）先定型、用户输入另起一行回显：若把输入并进提示符同一行，
+  // 定型时的 traceback 匹配会把用户输入也当成脚本输出去扫（且两种样式无法分段）
+  runTranscript.flush();
+  appendOutputLine(outputEl, text, "input", gotoFromLink);
+  try {
+    await invoke("run_stdin", { data: text });
+  } catch (e) {
+    // 槽位为空（非交互/已结束）或 BrokenPipe（脚本已退）→ 后端返回可读原因，不 panic
+    appendOutputLine(outputEl, `${e}`, "stderr", gotoFromLink);
+  }
+  updateRunStdinStatus();
+}
+
+/** S2：EOFError 归因提示。只认 traceback 末行的 `EOFError`（**列首**匹配，避免把脚本自己打印的
+ * 普通文本误判），一次运行只提示一次。
+ * `interactive` 模式下**抑制**——用户主动交互时收到 EOF 属正常结束，弹「stdin 为不接输入」
+ * 反而是错误归因（§4.5 跨流顺序评审结论）。 */
+function maybeHintEof(line: string): void {
+  if (runningStdinEofHinted || runningStdinMode === "interactive") return;
+  if (!/^EOFError\b/.test(line.trim())) return;
+  runningStdinEofHinted = true;
+  const hint =
+    runningStdinMode === "file"
+      ? "提示：重定向的输入文件已读完，但脚本仍在请求更多输入。请补充文件内容，或在标签右键 →「运行配置…」中调整标准输入。"
+      : "提示：脚本尝试读取标准输入，但本次运行的 stdin 为「不接输入」，因此立即收到 EOF。可在标签右键 →「运行配置…」中改为「重定向自文件」（可复现）或「交互式」（在输出面板直接应答）。";
+  appendOutputLine(outputEl, hint, "hint", gotoFromLink);
 }
 
 /** 运行选区（无选区时运行光标所在行）：写入源文件同目录的临时文件后运行（不挂 probe 采样） */
@@ -1264,43 +1724,226 @@ async function runSelection(): Promise<void> {
     appendOutputLine(outputEl, "选区为空，无可运行代码", "stderr", gotoFromLink);
     return;
   }
-  if (app.activeTab.dirty) await saveActive(); // 运行前保存（与整文件运行一致）
-
-  // 临时文件写到源文件同目录：保证 import 相对导入 / 相对路径资源与源文件一致
-  const tempPath = joinPath(parentDirOf(path), "__opencharm_selection__.py");
+  // CR-07：准备期闸门——保存 / 写临时文件都是 await，期间连点不得并发进入
+  if (!beginRunPreparing()) return;
   try {
-    await invoke("write_file", { path: tempPath, content: code });
-  } catch (e) {
-    appendOutputLine(outputEl, `写入选区临时文件失败: ${e}`, "stderr", gotoFromLink);
-    return;
-  }
+    if (app.activeTab.dirty) await saveActive(); // 运行前保存（与整文件运行一致）
 
-  selectionRunMeta = { tempPath, sourcePath: path, startLine };
+    // 临时文件写到源文件同目录：保证 import 相对导入 / 相对路径资源与源文件一致。
+    // CR-05：文件名带进程内随机后缀——并发运行选区 / 跨目录源文件互不覆盖；
+    // 结束后由 resetRunState → cleanupSelectionRunMeta 删除；watcher 侧按前缀忽略。
+    const tempPath = joinPath(
+      parentDirOf(path),
+      `__opencharm_selection__${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}.py`,
+    );
+    try {
+      await invoke("write_file", { path: tempPath, content: code });
+    } catch (e) {
+      appendOutputLine(outputEl, `写入选区临时文件失败: ${e}`, "stderr", gotoFromLink);
+      return;
+    }
 
-  running = true;
-  runningPath = tempPath;
-  renderTabs();
-  const rangeLabel = startLine === endLine ? `行 ${startLine}` : `行 ${startLine}-${endLine}`;
-  appendOutputLine(outputEl, `> 运行选区  ${path}:${rangeLabel}`, "cmd", gotoFromLink);
-  try {
-    // probe=false：选区是临时代码，不采样（避免污染项目 trace 库）
-    await invoke("run_script", { path: tempPath, workspaceRoot: app.workspaceRoot, probe: false });
-  } catch (e) {
-    appendOutputLine(outputEl, `运行失败: ${e}`, "stderr", gotoFromLink);
-    running = false;
-    runningPath = null;
+    if (running) return; // 准备期间已有运行启动 → 放弃（闸门在 finally 释放）
+    selectionRunMeta = { tempPath, sourcePath: path, startLine };
+
+    running = true;
+    runningPath = tempPath;
+    runChannel = "output";
+    // 选区运行用临时文件、**刻意不套运行配置**（含 args / env / stdin 重定向与交互）：
+    // 语义上是一次性片段，保持最简 = 不接输入
+    runningStdinMode = "null";
+    runningStdinEofHinted = false;
     renderTabs();
+    const rangeLabel = startLine === endLine ? `行 ${startLine}` : `行 ${startLine}-${endLine}`;
+    appendOutputLine(outputEl, `> 运行选区  ${path}:${rangeLabel}`, "cmd", gotoFromLink);
+    try {
+      // probe=false：选区是临时代码，不采样（避免污染项目 trace 库）
+      await invoke("run_script", { path: tempPath, workspaceRoot: app.workspaceRoot, probe: false });
+    } catch (e) {
+      appendOutputLine(outputEl, `运行失败: ${e}`, "stderr", gotoFromLink);
+      resetRunState();
+    }
+  } finally {
+    // 无论是否进入运行态都释放闸门：成功路径 running 已接管守卫，失败/放弃路径恢复可运行
+    endRunPreparing();
   }
 }
 
+/** 停止运行（§4.7 结论 3：按当前路径路由——输出面板 → stop_script；运行终端 → term_kill） */
 async function stopRun(): Promise<void> {
-  try {
-    await invoke("stop_script");
-  } catch { /* 忽略 */ }
+  if (runChannel === "terminal") {
+    // term_kill 不发 term-exit（只有「自然退出」才 notify），故由 stopRunTerminal 内部触发退出回调
+    await stopRunTerminal();
+  } else {
+    try {
+      await invoke("stop_script");
+    } catch { /* 忽略 */ }
+  }
   // 立即更新状态（run-exit 事件也会更新，但可能有延迟）
-  running = false;
-  runningPath = null;
-  renderTabs();
+  runTranscript.flush();
+  resetRunState();
+}
+
+// ---------- 调试（debug dev plan §6.7：调试运行入口） ----------
+
+/** 调试运行入口：prepareRun 复用 → debug_detect（debugpy 定位 + 依赖提示）→
+ * debug_start（后端拉起 debugpy + TCP）→ DAP 握手（initialize → setBreakpoints →
+ * configurationDone）→ 切调试侧栏 + 终端承载 stdout。 */
+async function runDebug(): Promise<void> {
+  if (!app.activeTab) return;
+  const path = app.activeTab.path;
+  if (!path.endsWith(".py") && !path.endsWith(".pyw")) {
+    appendOutputLine(outputEl, `不是 Python 文件：${path}`, "stderr", gotoFromLink);
+    return;
+  }
+  // 调试态与运行态互斥（后端强制）：正在运行时提示先停止
+  if (running || runPreparing) {
+    appendOutputLine(outputEl, "已有脚本在运行，请先停止再调试", "hint", gotoFromLink);
+    return;
+  }
+  const phase = dap.currentPhase();
+  if (phase === "starting" || phase === "running" || phase === "stopped") {
+    appendOutputLine(outputEl, "已有调试会话在运行，请先停止（Shift+F5）", "hint", gotoFromLink);
+    return;
+  }
+
+  // prepareRun 复用（自动保存 / 依赖预检 / 读运行配置；stdin=file 场景由后端 fail fast）
+  const prep = await prepareRun(path);
+  if (!prep) return;
+
+  // debug_detect：debugpy 定位 + 依赖声明提示（§5.1.6：提示性质，不阻断）
+  interface DebugDetectResult { debugpyOk: boolean; debugpyDir: string | null; depFound: boolean; depFiles: string[] }
+  let detect: DebugDetectResult;
+  try {
+    detect = await invoke<DebugDetectResult>("debug_detect", { workspaceRoot: app.workspaceRoot });
+  } catch (e) {
+    appendOutputLine(outputEl, `调试环境检测失败: ${e}`, "stderr", gotoFromLink);
+    return;
+  }
+  if (!detect.debugpyOk) {
+    appendOutputLine(
+      outputEl,
+      "未找到自带 debugpy（应用资源目录损坏，或开发环境未运行 tools/fetch-debugpy.ps1 拉取）。请重新安装应用或在仓库根目录执行：powershell -ExecutionPolicy Bypass -File tools/fetch-debugpy.ps1",
+      "stderr",
+      gotoFromLink,
+    );
+    return;
+  }
+  // §3.5：依赖清单命中 → 输出面板一次性提示（自带副本不冲突），不弹窗不阻断
+  if (detect.depFound) {
+    notifyDepFound(detect.depFiles);
+    appendOutputLine(
+      outputEl,
+      `提示：${detect.depFiles.join("、")} 声明了 debugpy —— OpenCharm 调试使用自带副本，二者互不影响，可按需移除声明。`,
+      "hint",
+      gotoFromLink,
+    );
+  }
+
+  appendOutputLine(outputEl, `> [debug] ${basename(path)}  (${path})`, "cmd", gotoFromLink);
+  try {
+    await dap.startDebug(path, app.workspaceRoot, pushAllBreakpoints);
+  } catch (e) {
+    appendOutputLine(outputEl, `调试启动失败: ${e}`, "stderr", gotoFromLink);
+    dap.resetDebugState();
+    return;
+  }
+  // 切到调试侧栏（§6.7）；终端 tab 承载调试进程 stdout（后端已落 PTY）
+  setSidebarTab("debug");
+}
+
+/** 停止调试（Shift+F5 / 工具栏停止 / 调试态下的停止按钮路由） */
+async function stopDebugSession(): Promise<void> {
+  await dap.stopDebug();
+  dap.resetDebugState();
+  clearCurrentLine();
+}
+
+// ---------- 运行配置（P3 建议 2）----------
+
+/** 当前正在编辑运行配置的脚本路径（null = 面板关闭） */
+let runConfigPath: string | null = null;
+
+/** 打开某脚本的运行配置面板：加载已持久化的 Parameters / 环境变量 / stdin */
+async function openRunConfig(path: string): Promise<void> {
+  if (!app.workspaceRoot) {
+    appendOutputLine(outputEl, "运行配置需先打开一个工作区", "stderr", gotoFromLink);
+    return;
+  }
+  runConfigPath = path;
+  runConfigTargetEl.textContent = path;
+  let cfg: RunConfig = EMPTY_RUN_CONFIG;
+  try {
+    // 后端对存量配置（无 stdin 字段）已用 serde default 补齐，此处再兜一层防御
+    const raw = await invoke<Partial<RunConfig>>("get_run_config", { workspaceRoot: app.workspaceRoot, scriptPath: path });
+    cfg = {
+      args: raw.args ?? "",
+      env: raw.env ?? [],
+      stdin: { mode: raw.stdin?.mode ?? "null", path: raw.stdin?.path ?? "" },
+    };
+  } catch (e) {
+    console.error("get_run_config 失败", e);
+  }
+  runConfigArgsEl.value = cfg.args;
+  runConfigEnvEl.value = cfg.env.map((kv) => `${kv.key}=${kv.value}`).join("\n");
+  // 未知/存量值一律回落到 null（与后端 effective_mode 同口径，坑 2：默认值绝不能是交互）
+  runConfigStdinModeEl.value = cfg.stdin.mode === "file" || cfg.stdin.mode === "interactive" ? cfg.stdin.mode : "null";
+  runConfigStdinPathEl.value = cfg.stdin.path;
+  syncStdinPathRow();
+  showEl(runConfigModalEl);
+  runConfigArgsEl.focus();
+}
+
+/** stdin 选 file 时才显示文件路径行（interactive 由输出面板的输入行承载，无需路径） */
+function syncStdinPathRow(): void {
+  runConfigStdinPathRowEl.classList.toggle("hidden", runConfigStdinModeEl.value !== "file");
+}
+
+function closeRunConfig(): void {
+  runConfigPath = null;
+  hideEl(runConfigModalEl);
+}
+
+/** 解析环境变量文本（每行 KEY=VALUE，忽略空行与无 '=' 的行）为 EnvVar[] */
+function parseEnvText(text: string): EnvVar[] {
+  const out: EnvVar[] = [];
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (!line) continue;
+    const eq = line.indexOf("=");
+    if (eq <= 0) continue; // 无 '=' 或空键 → 跳过
+    out.push({ key: line.slice(0, eq).trim(), value: line.slice(eq + 1) });
+  }
+  return out;
+}
+
+async function saveRunConfig(): Promise<void> {
+  if (!app.workspaceRoot || !runConfigPath) return;
+  // S4：三态（null / file / interactive）；下拉里的未知值一律回落 null
+  const rawMode = runConfigStdinModeEl.value;
+  const stdinMode: StdinMode = rawMode === "file" || rawMode === "interactive" ? rawMode : "null";
+  const stdinPath = runConfigStdinPathEl.value.trim();
+  // S1：选了重定向却没给文件 → 拦住并提示，避免保存出一个后端会归一化成 null 的“假配置”
+  if (stdinMode === "file" && !stdinPath) {
+    appendOutputLine(outputEl, "已选择「重定向自文件」，请先指定输入文件", "stderr", gotoFromLink);
+    runConfigStdinPathEl.focus();
+    return;
+  }
+  const config: RunConfig = {
+    args: runConfigArgsEl.value,
+    env: parseEnvText(runConfigEnvEl.value),
+    stdin: { mode: stdinMode, path: stdinMode === "file" ? stdinPath : "" },
+  };
+  const saveBtn = $btn("run-config-save");
+  setBusy(saveBtn, true, "保存中…");
+  try {
+    await invoke("set_run_config", { workspaceRoot: app.workspaceRoot, scriptPath: runConfigPath, config });
+    appendOutputLine(outputEl, `已保存运行配置：${basename(runConfigPath)}`, "stdout", gotoFromLink);
+    closeRunConfig();
+  } catch (e) {
+    appendOutputLine(outputEl, `保存运行配置失败：${e}`, "stderr", gotoFromLink);
+  }
+  setBusy(saveBtn, false);
 }
 
 // ---------- traceback 跳转 ----------
@@ -1314,24 +1957,22 @@ export function gotoFromLink(link: OutputLink): void {
     line = selectionRunMeta.startLine + link.line - 1;
   }
   if (!/^[a-zA-Z]:[\\/]/.test(path) && app.workspaceRoot) {
-    path = `${app.workspaceRoot}\\${path}`;
+    // CR-28：joinPath 而非硬编码 \\ 拼接（跨平台一致性）
+    path = joinPath(app.workspaceRoot, path);
   }
   openFile(path, line).catch(() => {
     appendOutputLine(outputEl, `无法打开: ${link.path}`, "stderr", gotoFromLink);
   });
 }
 
-/** 路径规范化比较（斜杠/大小写无关），用于选区临时文件匹配 */
-function samePath(a: string, b: string): boolean {
-  return a.replace(/\\/g, "/").toLowerCase() === b.replace(/\\/g, "/").toLowerCase();
-}
-
 // ---------- LSP ----------
 
 export async function startLsp(): Promise<void> {
   if (!app.workspaceRoot) return;
-  const engine = ($("engine-select") as HTMLSelectElement).value;
-  const rootUri = `file:///${app.workspaceRoot.replace(/\\/g, "/")}`;
+  // 引擎真值统一读 app.settings.lsp_engine（C2 修 bug：不再读 menubar 的 DOM select，
+  // 避免「界面显示 A、实际跑 B」的永久分叉）
+  const engine = app.settings.lsp_engine || "pyrefly";
+  const rootUri = lsp.workspaceRootUri(app.workspaceRoot); // CR-29：正确百分号编码（空格/中文路径）
   try {
     await lsp.startEngine(engine, rootUri, currentInterpreter);
   } catch (e) {
@@ -1696,20 +2337,24 @@ async function init(): Promise<void> {
   kb.setKeybindingHandler("surround", () => liveTemplatesHandle?.openSurround());
   // 运行选区 / 行（默认 Alt+Shift+E）
   kb.setKeybindingHandler("run_selection", () => void runSelection());
-  lsp.registerLspCompletion();
-  lsp.registerLspHover();
-  lsp.registerLspDefinition();
-  lsp.registerLspRename(); // F2 编辑器内重命名
-  lsp.registerLspReferences(); // Shift+F12 查找引用（peek 视图）
-  lsp.registerLspSignatureHelp(); // 签名帮助（参数提示）
-  lsp.registerLspCodeAction(); // Ctrl+. 快速修复
-  lsp.registerLspInlayHints(); // 运行时类型标注（opencharm-intel）
+  // CR-24：LSP providers 统一入应用级 DisposableStore——不再丢弃句柄。
+  // providers 与引擎实例无关（内部按 engineStatus 短路），init 只注册一次；
+  // store 便于应用级 teardown / 测试中整体清理，防句柄泄漏累积。
+  lspProviders.dispose();
+  lspProviders.add(lsp.registerLspCompletion());
+  lspProviders.add(lsp.registerLspHover());
+  lspProviders.add(lsp.registerLspDefinition());
+  lspProviders.add(lsp.registerLspRename()); // F2 编辑器内重命名
+  lspProviders.add(lsp.registerLspReferences()); // Shift+F12 查找引用（peek 视图）
+  lspProviders.add(lsp.registerLspSignatureHelp()); // 签名帮助（参数提示）
+  lspProviders.add(lsp.registerLspCodeAction()); // Ctrl+. 快速修复
+  lspProviders.add(lsp.registerLspInlayHints()); // 运行时类型标注（opencharm-intel）
   // 缺失包安装：注册全局命令供 CodeAction 的 command 引用（灯泡「安装 X」→ pip install）。
   // CodeAction 的 command 走 commandService.executeCommand(id)，必须用 registerCommand 全局注册 id；
   // 不能用 editor.addAction——addAction 内部会把 id 加 editorId 前缀（`editorId:id`），导致 executeCommand 找不到。
   app.monaco.editor.registerCommand(lsp.INSTALL_PACKAGE_COMMAND, (_accessor, ...args: unknown[]) => {
     const pkg = args[0];
-    console.log(`[opencharm-install] 命令触发 pkg=${String(pkg)}`);
+    console.debug(`[opencharm-install] 命令触发 pkg=${String(pkg)}`);
     if (typeof pkg === "string" && pkg) void installMissingPackage(pkg);
   });
   registerRuffFormatter(app.monaco); // Shift+Alt+F / 右键「Format Document」
@@ -1720,8 +2365,7 @@ async function init(): Promise<void> {
   lsp.setBeforeCompletionHook(async (model) => {
     const t = app.tabs.find((x) => x.model === model);
     if (t && app.pendingChanges.has(t.path)) {
-      app.pendingChanges.delete(t.path);
-      await lsp.didChangeFull(t.path, t.model);
+      await syncPendingChanges(); // CR-13：串行冲刷（含本文件在内的全部待同步变更，保 FIFO）
     }
   });
   lsp.wireGotoTriggers(app.editor); // F12 / Ctrl+点击 显式跳转（Ctrl+悬停不跳）
@@ -1748,7 +2392,7 @@ async function init(): Promise<void> {
     statusLspEl.replaceChildren(dot, map[s]);
   });
 
-  // window 级快捷键（保存 / 运行 / 全局搜索，PyCharm 默认）：经键位表实时匹配，可在设置中自定义
+  // window 级快捷键（保存 / 运行 / 全局搜索 / 调试五件套，PyCharm 风格）：经键位表实时匹配，可在设置中自定义
   window.addEventListener("keydown", (e) => {
     // 焦点在表单控件时不触发全局键（搜索框 / 提交框等）；
     // Monaco 编辑器内部也是 textarea，经 .monaco-editor 判定排除
@@ -1760,32 +2404,42 @@ async function init(): Promise<void> {
     e.preventDefault();
     if (id === "save") void saveActive();
     else if (id === "run") void runActive();
+    else if (id === "stop") void stopRun();
     else if (id === "global_search") setSidebarTab("search");
+    // 调试五件套（debug dev plan §6.6）：F5 启动/继续、Shift+F5 停止、F10/F11/Shift+F11 步进
+    else if (id === "debug") {
+      const phase = dap.currentPhase();
+      if (phase === "stopped") import("./dap/client").then((m) => void m.dapContinue(1));
+      else if (phase === "idle" || phase === "exited") void runDebug();
+    } else if (id === "debug_stop") void stopDebugSession();
+    else if (id === "debug_step_over") import("./dap/client").then((m) => void m.dapNext(1));
+    else if (id === "debug_step_into") import("./dap/client").then((m) => void m.dapStepIn(1));
+    else if (id === "debug_step_out") import("./dap/client").then((m) => void m.dapStepOut(1));
   });
 
   // didChange 全量同步（200ms 防抖，技术方案 §2.4）
-  let changeTimer: number | undefined;
-  let outlineTimer: number | undefined;
-  let autosaveTimer: number | undefined;
   app.editor.onDidChangeModelContent(() => {
     if (!app.activeTab) return;
-    window.clearTimeout(changeTimer);
-    changeTimer = window.setTimeout(() => {
-      for (const path of app.pendingChanges) {
-        const t = app.tabs.find((x) => x.path === path);
-        if (t) lsp.didChangeFull(path, t.model);
-      }
-      app.pendingChanges.clear();
+    window.clearTimeout(editorTimers.change);
+    // C5：▶ 位置随内容变化 300ms 防抖重算（与 didChange 的 changeTimer 各管各的，不复用）
+    window.clearTimeout(editorTimers.gutter);
+    editorTimers.gutter = window.setTimeout(() => refreshRunGutter(), 300);
+    // D3：断点行随内容变化防抖重算（行增删后断点按 Monaco 当前行号定位，不随行迁移）
+    window.setTimeout(() => refreshDebugGutter(), 300);
+    // CR-13：changeTimer 回调改串行 await——原来循环内并发 fire-and-forget，多 invoke
+    // 到达顺序不保证 → version 乱序，引擎状态错乱
+    editorTimers.change = window.setTimeout(() => {
+      void syncPendingChanges();
     }, 200);
     // 大纲随编辑防抖刷新（500ms，P25-T07）
-    window.clearTimeout(outlineTimer);
-    outlineTimer = window.setTimeout(() => {
+    window.clearTimeout(editorTimers.outline);
+    editorTimers.outline = window.setTimeout(() => {
       if (activeView() === "files") refreshOutline();
     }, 500);
     // 自动保存（delay 模式，P25-T08）
     if (app.settings.autosave === "delay") {
-      window.clearTimeout(autosaveTimer);
-      autosaveTimer = window.setTimeout(() => {
+      window.clearTimeout(editorTimers.autosave);
+      editorTimers.autosave = window.setTimeout(() => {
         if (app.activeTab?.dirty) void saveActive();
       }, app.settings.autosave_delay);
     }
@@ -1855,9 +2509,66 @@ async function init(): Promise<void> {
     });
     document.body.appendChild(h);
   }
-  ($("engine-select") as HTMLSelectElement).addEventListener("change", () => {
-    startLsp().catch((e) => console.error(e));
+  // 引擎 chip（C2）：状态栏身份展示 + 切换入口；真值已收敛到 app.settings.lsp_engine
+  setEngineChipHandlers({ startLsp, saveSettings });
+  wireEngineChip();
+  renderEngineChip();
+
+  // 运行组（C3）：菜单栏 ▶/⏹/▾。main 拥有运行动作，runWidget 只负责渲染与派发
+  setRunWidgetHandlers({
+    run: () => void runActive(),
+    runInTerminal: () => void runActiveInTerminal(),
+    runSelection: () => void runSelection(),
+    // 调试态联动（D4）：运行组 ⏹ 在调试中路由到 debug_stop，避免「调试中误触停止脚本」
+    stop: () => {
+      const phase = dap.currentPhase();
+      if (phase === "starting" || phase === "running" || phase === "stopped") void stopDebugSession();
+      else void stopRun();
+    },
+    restart: () => void restartRun(),
+    openRunConfig: () => { if (app.activeTab) void openRunConfig(app.activeTab.path); },
   });
+  wireRunWidget();
+  setRunWidgetRepaint(() => renderRunWidget(runWidgetState()));
+
+  // gutter 运行图标（C5）：__main__ 守卫行的 ▶，点击运行整个文件、右键弹出与 ▾ 同源菜单
+  wireRunGutter(app.editor, app.monaco);
+  setRunGutterHandlers({
+    run: () => void runActive(),
+    menuItems: () => getRunMenuItems(),
+    state: () => {
+      const tab = app.activeTab;
+      const isPy = !!tab && (tab.path.endsWith(".py") || tab.path.endsWith(".pyw"));
+      return { canRun: !!app.workspaceRoot && !!tab && isPy, running, targetName: tab ? basename(tab.path) : "" };
+    },
+  });
+
+  // 调试域接线（debug dev plan §6.7）：DAP 事件 + gutter 断点 + 侧栏视图 + 工具栏按钮。
+  // 隔离性：任何一步失败只放弃调试功能，**不得中断 init 后续接线**——wireDebugGutter
+  // 若未执行，行号断点点击将整体失效（用户实测坑：init 中途抛错 → 断点不出现）。
+  try {
+    void dap.wireDapEvents().catch((e) => console.error("[debug] DAP 事件监听失败:", e));
+    wireDebugGutter(app.editor, app.monaco);
+    initDebugView();
+    wireDebugViewEvents();
+    // 调试 phase 变化 → 运行组按钮同步（调试中 ⏹ 可用并路由 debug_stop，D4）
+    dap.onPhase(() => {
+      renderRunWidget(runWidgetState());
+    });
+    setDebugViewHandlers({
+      start: () => void runDebug(),
+      stop: () => void stopDebugSession(),
+      openFile: (path, line) => { void openFile(path, line); },
+      refreshGutter: () => refreshDebugGutter(),
+    });
+    $("btn-debug").addEventListener("click", () => {
+      // 调试中点击 = 无操作（停止走工具栏/快捷键）；空闲 = 启动调试
+      const phase = dap.currentPhase();
+      if (phase === "idle" || phase === "exited") void runDebug();
+    });
+  } catch (e) {
+    console.error("[debug] 调试域接线失败（调试功能不可用，其余功能不受影响）:", e);
+  }
 
   // 环境面板（P25-T05）——状态栏解释器点击打开
   statusInterpreterEl.addEventListener("click", () => openEnvPanel());
@@ -1866,6 +2577,7 @@ async function init(): Promise<void> {
   $btn("env-pkg-install").addEventListener("click", installPackage);
   $btn("env-pkg-uninstall-selected").addEventListener("click", () => uninstallSelectedPackages());
   $btn("env-pkg-upgrade-all").addEventListener("click", () => upgradeAllPackages());
+  envPyprojectInitBtn.addEventListener("click", () => void generatePyproject());
   envModalEl.addEventListener("click", (e) => {
     if (e.target === envModalEl) closeEnvPanel();
   });
@@ -1895,11 +2607,18 @@ async function init(): Promise<void> {
       });
     },
   });
+  registerSidebarView({
+    id: "debug",
+    rootId: "view-debug",
+    tabId: "tab-debug",
+    onShow: () => renderDebugView(),
+  });
 
-  // Activity Bar 图标（FILES / SEARCH / GIT）
+  // Activity Bar 图标（FILES / SEARCH / GIT / DEBUG）
   $("tab-files").addEventListener("click", () => setSidebarTab("files"));
   $("tab-search").addEventListener("click", () => setSidebarTab("search"));
   $("tab-git").addEventListener("click", () => setSidebarTab("git"));
+  $("tab-debug").addEventListener("click", () => setSidebarTab("debug"));
   // 大纲折叠 / 展开（OUTLINE 并入文件视图，TD-001 附带考虑）
   $("outline-header").addEventListener("click", () => {
     $("outline-section").classList.toggle("collapsed");
@@ -1954,23 +2673,76 @@ async function init(): Promise<void> {
     if (e.target === newProjectModalEl) closeNewProjectPanel();
   });
 
+  // 运行配置面板（P3 建议 2；stdin 重定向 S1）
+  $btn("run-config-close").addEventListener("click", closeRunConfig);
+  $btn("run-config-cancel").addEventListener("click", closeRunConfig);
+  $btn("run-config-save").addEventListener("click", () => void saveRunConfig());
+  runConfigArgsEl.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") void saveRunConfig();
+  });
+  runConfigStdinModeEl.addEventListener("change", syncStdinPathRow);
+  runConfigStdinPathEl.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") void saveRunConfig();
+  });
+  $btn("run-config-stdin-browse").addEventListener("click", async () => {
+    const p = await invoke<string | null>("pick_file").catch((e) => {
+      appendOutputLine(outputEl, `打开文件选择器失败：${e}`, "stderr", gotoFromLink);
+      return null;
+    });
+    if (p) runConfigStdinPathEl.value = p;
+  });
+  runConfigModalEl.addEventListener("click", (e) => {
+    if (e.target === runConfigModalEl) closeRunConfig();
+  });
+
+  // S4：输出面板内的交互输入行（Enter 发送一行 / Escape 失焦逃生）
+  runStdinInputEl.addEventListener("keydown", (e) => {
+    // window 级快捷键已有「焦点在 INPUT 时不触发」守卫，此处仍 stopPropagation 双保险：
+    // 输入行里敲的字符不应被任何全局键位（如 Ctrl+F10 之外的组合）截走
+    e.stopPropagation();
+    if (e.key === "Enter") {
+      e.preventDefault();
+      void submitRunStdin();
+    } else if (e.key === "Escape") {
+      // 逃生口：焦点还给编辑器，避免用户被「困」在输入行里（全局 keydown 守卫会因焦点在 INPUT 而失效）
+      runStdinInputEl.blur();
+      app.editor.focus();
+    }
+  });
+
+  // 输出面板跨域回调：切标签 → 重新同步输入行可见性（输入行只在「输出」标签下有意义）；
+  // 清空输出 → 先丢弃未完结行状态，否则转录器会往已被清空的游离元素里写
+  setOutputPanelHooks({
+    onTabChange: () => syncRunStdinRow(),
+    onClear: () => runTranscript.discard(),
+  });
+  // S3：终端里的 traceback 也可点击（坑 4）——复用输出面板同一个正则与跳转逻辑；
+  // 顺带让在 shell 终端里手敲 `uv run` 产生的 traceback 同样可点（PTY 路线的额外收益）
+  setTerminalLinkHandler(gotoFromLink);
+
   // 文件监听事件（增量刷新树）
   await listen<string[]>("fs-changed", (e) => {
     handleFsChanged(e.payload);
   });
 
-  // 运行事件（流式输出）
-  await listen<{ data: string }>("run-stdout", (e) => {
-    for (const line of e.payload.data.split("\n")) appendOutputLine(outputEl, line, "stdout", gotoFromLink);
+  // 运行事件（流式输出）。S4：交互式运行的 payload 带 `partial`（后端按 chunk 转发），
+  // 统一交给 RunTranscript 还原成行——提示符立即可见（坑 1），traceback 链接不被 chunk 切碎（结论 6）。
+  // 非交互路径没有 partial 字段，走同一套逻辑等价于旧的按行追加（且不再每行多出一个空白行）。
+  await listen<{ data: string; partial?: boolean }>("run-stdout", (e) => {
+    runTranscript.write("stdout", e.payload.data, e.payload.partial === true);
+    updateRunStdinStatus();
   });
-  await listen<{ data: string }>("run-stderr", (e) => {
-    for (const line of e.payload.data.split("\n")) appendOutputLine(outputEl, line, "stderr", gotoFromLink);
+  await listen<{ data: string; partial?: boolean }>("run-stderr", (e) => {
+    // S2：只对**定型**的整行做 EOFError 归因（半行提示符不参与判定，避免误判）
+    for (const line of runTranscript.write("stderr", e.payload.data, e.payload.partial === true)) {
+      maybeHintEof(line);
+    }
   });
   await listen<{ code: number | null }>("run-exit", (e) => {
+    // 收尾：把残留半行定型（脚本以无换行输出结束时不吞字），并让它同样参与 EOF 归因
+    for (const line of runTranscript.flush()) maybeHintEof(line);
     appendOutputLine(outputEl, `[进程退出 code=${e.payload.code ?? "null"}]`, "exit", gotoFromLink);
-    running = false;
-    runningPath = null;
-    renderTabs();
+    resetRunState();
   });
 
   // 包安装事件（流式输出，确认安装后由 pip_install 逐行推送）
@@ -1998,6 +2770,7 @@ async function init(): Promise<void> {
   // 启动即自动恢复最近工作区；无记录则保持 Welcome 页
   await autoOpenRecentWorkspace();
   updateEditorOverlay();
+  renderRunWidget(runWidgetState()); // 首次渲染（无工作区时 renderTabs 不被调用，需显式补一次）
 }
 
 init().catch((e) => console.error("init 失败", e));

@@ -4,7 +4,7 @@
 // 复用 #confirm-modal（遮罩 + showEl/hideEl + 品牌按钮），提供 confirm 与 alert 两种形态。
 
 import { hideEl, showEl } from "./anim";
-import { $, $btn } from "./state";
+import { lazyEl } from "./state";
 
 export type DialogKind = "danger" | "primary";
 
@@ -27,11 +27,12 @@ export interface AlertOptions {
   kind?: DialogKind;
 }
 
-const modalEl = $("confirm-modal");
-const titleEl = $("confirm-title");
-const messageEl = $("confirm-message");
-const okBtn = $btn("confirm-ok");
-const cancelBtn = $btn("confirm-cancel");
+// CR-26：顶层 DOM 快照改惰性（测试环境无完整 DOM 时模块仍可被 import）
+const modalEl = lazyEl("confirm-modal");
+const titleEl = lazyEl("confirm-title");
+const messageEl = lazyEl("confirm-message");
+const okBtn = lazyEl<HTMLButtonElement>("confirm-ok");
+const cancelBtn = lazyEl<HTMLButtonElement>("confirm-cancel");
 
 function applyKind(kind: DialogKind): void {
   okBtn.classList.toggle("danger", kind === "danger");

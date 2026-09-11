@@ -1,5 +1,5 @@
 // 文件管理写操作（P25-T01）：增/删/改名/复制粘贴/回收站/资源管理器/剪贴板。
-// 设计要点（见 docs/phase2.5-ide-basics-plan.md §3）：
+// 设计要点：
 // - 删除走系统回收站（trash crate，Windows SHFileOperation），绝不 std::fs::remove_dir_all；
 // - 粘贴同名自动加「 - 副本」后缀；
 // - 重命名联动逻辑（标签/LSP/诊断/树）在 T03 由前端负责，这里只做磁盘层面 rename 并返回结果。
@@ -389,12 +389,17 @@ mod tests {
     }
 
     /// 本机对齐验证：probe 对 bench/sample/unannotated_scraper 的 trace 库 hash 为 dc7d8df083c6。
-    /// 路径不存在（CI/异机）时跳过。
+    /// 路径不存在（CI/异机）时跳过。相对 CARGO_MANIFEST_DIR（shell/src-tauri）回溯到仓库根。
     #[test]
     fn test_project_hash_aligns_with_probe() {
-        let root = r"F:\ai-pro\open-charm\bench\sample\unannotated_scraper";
-        if std::path::Path::new(root).exists() {
-            assert_eq!(project_hash(root), "dc7d8df083c6");
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("bench")
+            .join("sample")
+            .join("unannotated_scraper");
+        if root.exists() {
+            assert_eq!(project_hash(&root.to_string_lossy()), "dc7d8df083c6");
         }
     }
 }

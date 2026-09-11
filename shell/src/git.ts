@@ -10,24 +10,20 @@ import { appendOutputLine, clearOutput } from "./output";
 import { refreshTreeWithExpandedState } from "./fileTree";
 import { setBottomTab } from "./termUi";
 import { gotoFromLink } from "./main";
+// CR-25：状态存储下沉到零依赖的 gitStatusState（fileTree 装饰只读，不再 import 本模块）
+import { gitStatuses, gitDirtyDirs, gitRepoActive } from "./gitStatusState";
 
 // ---------- 域内状态 ----------
 
 /** Git 变更文件条目（后端 git_status 返回） */
 export interface GitStatusFile { path: string; x: string; y: string; code: string }
 
-/** Git 状态缓存：相对路径 → 展示状态码（M/A/D/R/?/!） */
-let gitStatuses = new Map<string, string>();
 /** Git 变更文件列表（SCM 面板用） */
 let gitFiles: GitStatusFile[] = [];
 /** 当前分支名（非 git 仓库或 detached 时为 null） */
 let currentBranch: string | null = null;
 /** 本地分支列表（SCM 分支条用） */
 let gitBranches: { name: string; current: boolean }[] = [];
-/** 有变更的目录集合（相对路径，用于文件树目录高亮） */
-const gitDirtyDirs = new Set<string>();
-/** 是否为 git 仓库 */
-let isGitRepo = false;
 
 let diffEditor: MonacoApi.editor.IStandaloneDiffEditor | null = null;
 let diffOriginalModel: MonacoApi.editor.ITextModel | null = null;
@@ -39,26 +35,32 @@ const gitDiffEditorEl = $("git-diff-editor");
 
 // ---------- Git 状态 ----------
 
+/** CR-20：git 状态刷新令牌——响应乱序时旧结果不得覆盖新结果（SCM 面板显示过时暂存态） */
+let gitStatusToken = 0;
+
 /** 刷新 git 状态（非 git 仓库时静默跳过）；传入 paths 时按子集增量刷新（TD-002） */
 export async function refreshGitStatus(paths?: string[]): Promise<void> {
   if (!app.workspaceRoot) {
+    gitStatusToken++; // 作废在途请求
     gitStatuses.clear();
     gitFiles = [];
-    isGitRepo = false;
+    gitRepoActive.value = false;
     currentBranch = null;
     gitDirtyDirs.clear();
     updateGitStatusBar();
     return;
   }
+  const token = ++gitStatusToken;
   try {
     const scoped = paths && paths.length > 0 ? paths : null;
     const result = await invoke<{ files: GitStatusFile[]; is_git: boolean; current_branch: string | null }>(
       "git_status",
       { root: app.workspaceRoot, paths: scoped },
     );
-    isGitRepo = result.is_git;
+    if (token !== gitStatusToken) return; // 已有更新一轮的刷新，丢弃旧结果
+    gitRepoActive.value = result.is_git;
     currentBranch = result.current_branch ?? null;
-    if (scoped && isGitRepo && gitFiles.length > 0) {
+    if (scoped && gitRepoActive.value && gitFiles.length > 0) {
       // 增量：移除命中查询路径（目录前缀）的旧记录，再合并最新结果
       const kept = gitFiles.filter(
         (f) => !scoped.some((p) => f.path === p || f.path.startsWith(p + "/")),
@@ -69,16 +71,18 @@ export async function refreshGitStatus(paths?: string[]): Promise<void> {
         if (!keptPaths.has(f.path)) gitFiles.push(f);
       }
       gitFiles.sort((a, b) => a.path.localeCompare(b.path));
-      gitStatuses = new Map(gitFiles.map((f) => [f.path, f.code] as [string, string]));
+      gitStatuses.clear();
+      for (const f of gitFiles) gitStatuses.set(f.path, f.code);
     } else {
       gitFiles = result.files;
-      gitStatuses = new Map(result.files.map((f) => [f.path, f.code] as [string, string]));
+      gitStatuses.clear();
+      for (const f of gitFiles) gitStatuses.set(f.path, f.code);
     }
     rebuildGitDirtyDirs();
   } catch {
     gitStatuses.clear();
     gitFiles = [];
-    isGitRepo = false;
+    gitRepoActive.value = false;
     currentBranch = null;
     gitDirtyDirs.clear();
   }
@@ -89,7 +93,7 @@ export async function refreshGitStatus(paths?: string[]): Promise<void> {
 export function updateGitStatusBar(): void {
   const el = $("status-git");
   if (!el) return;
-  if (isGitRepo && currentBranch) {
+  if (gitRepoActive.value && currentBranch) {
     el.replaceChildren(codicon("git-branch"), ` ${currentBranch}`);
   } else {
     el.textContent = "";
@@ -108,20 +112,7 @@ function rebuildGitDirtyDirs(): void {
   }
 }
 
-/** 当前是否为 git 仓库（文件树装饰判定用） */
-export function isGitRepoActive(): boolean {
-  return isGitRepo;
-}
-
-/** 相对路径的展示状态码（文件树 badge 用；无变更返回 undefined） */
-export function gitStatusOf(relPath: string): string | undefined {
-  return gitStatuses.get(relPath);
-}
-
-/** 相对路径目录是否含变更（文件树目录高亮用） */
-export function isGitDirtyDir(relPath: string): boolean {
-  return gitDirtyDirs.has(relPath);
-}
+// isGitRepoActive / gitStatusOf / isGitDirtyDir 已下沉到 gitStatusState.ts（CR-25）
 
 // ---------- SCM 面板（Git 变更列表 / 暂存 / 提交 / diff） ----------
 
@@ -140,7 +131,7 @@ export function renderGitPanel(): void {
     box.appendChild(emptyState("source-control", "尚未打开工作区", "打开后此处显示 Git 变更"));
     return;
   }
-  if (!isGitRepo) {
+  if (!gitRepoActive.value) {
     box.appendChild(emptyState("source-control", "不是 Git 仓库", "初始化仓库后启用源代码管理"));
     return;
   }
@@ -234,7 +225,7 @@ async function unstageFiles(paths: string[]): Promise<void> {
 
 /** 提交已暂存更改 */
 async function commitChanges(): Promise<void> {
-  if (!app.workspaceRoot || !isGitRepo) return;
+  if (!app.workspaceRoot || !gitRepoActive.value) return;
   const msgEl = $("git-commit-msg") as HTMLTextAreaElement;
   const message = msgEl.value.trim();
   if (!message) {
@@ -309,7 +300,7 @@ function closeDiffPanel(): void {
 
 /** 执行远程操作（push/pull/fetch），输出写入输出面板后刷新状态 */
 async function gitRemoteOp(op: "push" | "pull" | "fetch"): Promise<void> {
-  if (!app.workspaceRoot || !isGitRepo) return;
+  if (!app.workspaceRoot || !gitRepoActive.value) return;
   const label = `git ${op}`;
   appendOutputLine(outputEl, `> ${label}`, "cmd", gotoFromLink);
   try {
@@ -325,7 +316,7 @@ async function gitRemoteOp(op: "push" | "pull" | "fetch"): Promise<void> {
 
 /** 暂存当前更改（git stash push）后刷新 */
 async function gitStash(): Promise<void> {
-  if (!app.workspaceRoot || !isGitRepo) return;
+  if (!app.workspaceRoot || !gitRepoActive.value) return;
   appendOutputLine(outputEl, "> git stash push", "cmd", gotoFromLink);
   try {
     const out = await invoke<string>("git_stash_push", { root: app.workspaceRoot, message: "" });
@@ -339,7 +330,7 @@ async function gitStash(): Promise<void> {
 
 /** 弹出最近一次 stash（git stash pop）后刷新 */
 async function gitStashPop(): Promise<void> {
-  if (!app.workspaceRoot || !isGitRepo) return;
+  if (!app.workspaceRoot || !gitRepoActive.value) return;
   appendOutputLine(outputEl, "> git stash pop", "cmd", gotoFromLink);
   try {
     const out = await invoke<string>("git_stash_pop", { root: app.workspaceRoot });
@@ -411,7 +402,7 @@ async function renderHistory(): Promise<void> {
   back.textContent = "← 返回更改列表";
   back.addEventListener("click", () => toggleHistory());
   box.appendChild(back);
-  if (!app.workspaceRoot || !isGitRepo) {
+  if (!app.workspaceRoot || !gitRepoActive.value) {
     box.appendChild(emptyState("source-control", "不是 Git 仓库"));
     return;
   }
@@ -452,7 +443,7 @@ function renderCommitItem(c: GitCommitInfo): HTMLElement {
 
 /** 刷新 SCM 分支条（当前分支 + 分支列表） */
 export async function refreshBranchPanel(): Promise<void> {
-  if (!app.workspaceRoot || !isGitRepo) {
+  if (!app.workspaceRoot || !gitRepoActive.value) {
     gitBranches = [];
     $("git-branch-current").textContent = "—";
     closeBranchList();
@@ -621,7 +612,7 @@ export function wireGitUI(): void {
 export function resetGitState(): void {
   gitStatuses.clear();
   gitFiles = [];
-  isGitRepo = false;
+  gitRepoActive.value = false;
   currentBranch = null;
   gitDirtyDirs.clear();
   gitBranches = [];

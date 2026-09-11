@@ -186,7 +186,8 @@ button:focus-visible,
 .surround-item:focus-visible,
 .outline-item:focus-visible,
 .search-match:focus-visible,
-.lt-row:focus-visible {
+.lt-row:focus-visible,
+#status-engine:focus-visible {
   outline: 1px solid var(--focus-ring);
   outline-offset: 2px;
 }
@@ -207,7 +208,6 @@ button:focus-visible,
 .term-tab-close .codicon { font-size: 12px; }
 .term-tab-add .codicon { font-size: 13px; }
 .tab .close .codicon { font-size: 13px; }
-.tab .tab-run .codicon { font-size: 12px; }
 .tab .dirty { display: flex; align-items: center; }
 .tab .dirty .codicon { font-size: 12px; }
 .ew-recent-item .folder .codicon { font-size: 14px; }
@@ -272,14 +272,6 @@ button:focus-visible,
   color: var(--on-accent);
 }
 #menubar .spacer { flex: 1; }
-#menubar select {
-  background: var(--bg);
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  padding: 2px 6px;
-  font-size: 11px;
-}
 .menubar-icon {
   background: transparent;
   border: none;
@@ -290,7 +282,15 @@ button:focus-visible,
   border-radius: 3px;
 }
 .menubar-icon:hover { color: var(--fg); background: var(--hover); }
-#menubar #status-engine { color: var(--fg-dim); font-size: 11px; margin-left: 4px; }
+.menubar-icon:disabled { opacity: 0.4; cursor: default; }
+.menubar-icon:disabled:hover { color: var(--fg-dim); background: transparent; }
+
+/* 运行组（C3）：三独立按钮，紧跟「工具」菜单后。按钮均为 <button>，天然不受拖窗区影响 */
+#run-group { display: flex; align-items: center; gap: 2px; margin-left: 6px; flex: none; }
+#run-group #btn-run { color: var(--brand); }
+#run-group #btn-run:disabled { color: var(--fg-dim); }
+#run-group #btn-stop { color: var(--fg-dim); }
+#run-group #btn-stop:not(:disabled) { color: var(--danger); }
 
 /* ---------- 标题栏窗口控制按钮（自绘，VS Code 风） ---------- */
 #win-controls {
@@ -323,17 +323,6 @@ button:focus-visible,
 .rs-sw { bottom: 0; left: 0; width: 8px; height: 8px; cursor: sw-resize; }
 
 #output-header .spacer, #statusbar .spacer { flex: 1; }
-
-#engine-select {
-  background: var(--bg);
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  padding: 3px 6px;
-  font-size: 12.5px;
-}
-
-#status-engine { color: var(--fg-dim); font-size: 12.5px; margin-left: 6px; }
 
 /* ---------- 主区域 ---------- */
 #main { display: flex; flex: 1; min-height: 0; }
@@ -525,16 +514,169 @@ button:focus-visible,
 .tab .icon svg { display: block; }
 .tab .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tab .dirty { color: var(--warn); }
-.tab .tab-run {
-  width: 16px; height: 16px;
-  display: flex; align-items: center; justify-content: center;
-  border-radius: 3px;
-  color: var(--ok);
-  font-size: 10px;
+.tab .tab-running {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: var(--brand);
+  pointer-events: none; /* 被动指示：动作已集中在菜单栏运行组，tab 不再提供第二入口 */
+}
+.tab .tab-running .codicon { font-size: 12px; }
+/* gutter 运行图标（C5）：__main__ 守卫行的 glyph margin ▶（codicon-play，码点 \eb2c） */
+.gutter-run { cursor: pointer; }
+.gutter-run::after { font-family: "codicon"; content: "\eb2c"; }
+.gutter-run.disabled { opacity: 0.4; cursor: default; }
+
+/* ---------- 调试（debug dev plan §6.1/§6.4/§6.5） ---------- */
+
+/* 断点红点（glyphMargin 装饰，debugGutter.ts） */
+.gutter-breakpoint {
   cursor: pointer;
 }
-.tab .tab-run:hover { background: var(--control-hover); }
-.tab .tab-run.running { color: var(--danger); }
+.gutter-breakpoint::after {
+  font-family: "codicon";
+  content: "\ea71"; /* codicon-debug-breakpoint */
+  color: #e51400;
+}
+
+/* 当前行高亮（stopped 后标示执行行，debugGutter.ts） */
+.debug-current-line {
+  background: rgba(245, 197, 24, 0.18);
+  outline: 1px solid rgba(245, 197, 24, 0.5);
+}
+.debug-current-line-margin {
+  border-left: 3px solid #f5c518;
+}
+
+/* 调试侧栏 */
+#view-debug {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+#debug-toolbar {
+  display: flex;
+  gap: 4px;
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.debug-toolbar-btn {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+  font-size: 15px;
+}
+.debug-toolbar-btn:hover:not(:disabled) {
+  background: var(--hover, rgba(128, 128, 128, 0.15));
+}
+.debug-toolbar-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.debug-section-header {
+  padding: 6px 10px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+  user-select: none;
+}
+#debug-stack,
+#debug-vars,
+#debug-breakpoints {
+  padding: 0 6px 8px;
+}
+.debug-empty {
+  padding: 4px 6px;
+  font-size: 12px;
+  color: var(--fg-dim);
+}
+.debug-stack-frame {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.debug-stack-frame:hover {
+  background: var(--hover, rgba(128, 128, 128, 0.15));
+}
+.debug-stack-frame.active {
+  background: rgba(84, 116, 224, 0.2);
+}
+.debug-frame-loc {
+  color: var(--fg-dim);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.debug-var-row {
+  display: flex;
+  gap: 8px;
+  padding: 2px 6px;
+  font-size: 12px;
+  font-family: Consolas, "Cascadia Code", monospace;
+  overflow: hidden;
+}
+.debug-var-name {
+  color: #9cdcfe;
+  flex-shrink: 0;
+}
+.debug-var-value {
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.debug-bp-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px;
+  font-size: 12px;
+}
+.debug-bp-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #e51400;
+  flex-shrink: 0;
+}
+.debug-bp-label {
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.debug-bp-label:hover {
+  text-decoration: underline;
+}
+.debug-bp-del {
+  margin-left: auto;
+  cursor: pointer;
+  color: var(--fg-dim);
+  flex-shrink: 0;
+}
+.debug-bp-del:hover {
+  color: var(--fg);
+}
 .tab .close {
   width: 16px; height: 16px;
   display: flex; align-items: center; justify-content: center;
@@ -706,6 +848,7 @@ button:focus-visible,
 }
 #bottom.collapsed { height: 28px; }
 #bottom.collapsed #output,
+#bottom.collapsed #run-stdin-row,
 #bottom.collapsed #terminal-panel { display: none; }
 
 /* 底部面板标签（输出 / 终端） */
@@ -781,6 +924,21 @@ button:focus-visible,
   flex: none;
 }
 .term-tab-add:hover { color: var(--fg); background: var(--hover); }
+/* S3：专用「运行终端」tab——与普通 shell 会话视觉区分（§4.7 结论 2：独立标签样式） */
+.term-tab.run { border-left: 2px solid var(--brand); }
+.term-tab.run .term-tab-name { color: var(--fg); }
+.term-tab-stop {
+  width: 14px;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  color: var(--danger);
+  flex: none;
+}
+.term-tab-stop:hover { background: var(--control-hover); color: var(--fg); }
+.term-tab-stop .codicon { font-size: 12px; }
 
 #terminal-views {
   flex: 1;
@@ -839,10 +997,47 @@ button:focus-visible,
   word-break: break-all;
 }
 
+/* ---------- S4：交互式运行的输入行（仅 stdin=「交互式」且运行中可见） ---------- */
+#run-stdin-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  padding: 4px 10px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel);
+  font-family: var(--mono);
+  font-size: 12.5px;
+}
+#run-stdin-row.hidden { display: none; }
+#run-stdin-label { color: var(--fg-dim); flex: none; }
+#run-stdin-input {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--fg);
+  padding: 3px 8px;
+  font-family: inherit;
+  font-size: inherit;
+}
+#run-stdin-input:focus { outline: none; border-color: var(--accent); }
+#run-stdin-input::placeholder { color: var(--fg-dim); }
+/* 「等待输入…」状态可见化：脚本正阻塞在 input() 时给用户一个明确信号（缓解坑 2 的单实例阻塞焦虑） */
+#run-stdin-status { color: var(--meta, var(--fg-dim)); font-style: italic; flex: none; font-size: 11.5px; }
+
 .out-line { min-height: 1.2em; }
 .out-line.stderr { color: var(--danger); }
 .out-line.probe { color: var(--fg-dim); }
 .out-line.exit { color: var(--fg-dim); font-style: italic; }
+/* S2：归因提示（如 stdin 未接输入导致的 EOFError）——区别于真实报错，用中性偏提示色 */
+.out-line.hint { color: var(--meta, var(--fg-dim)); font-style: italic; }
+/* S4：用户在输出面板提交的那一行输入（回显），与脚本自身输出区分开 */
+.out-line.input { color: var(--accent); }
+.out-line.input::before { content: "← "; color: var(--fg-dim); }
+/* S4：未完结行（脚本写了半行还没换行，典型是 input() 的提示符）——尾部挂光标暗示「还在等」 */
+.out-line.partial::after { content: "▌"; color: var(--fg-dim); }
 .out-line.cmd { color: var(--fg-dim); }
 .out-line.diff-meta { color: var(--meta); }
 .out-line.diff-hunk { color: var(--diff-hunk); }
@@ -884,7 +1079,11 @@ button:focus-visible,
   max-width: 42%;
 }
 #status-git { color: var(--git-branch); }
+#status-interpreter { overflow: hidden; text-overflow: ellipsis; max-width: 120px; }
 #status-interpreter:hover { color: var(--fg); }
+/* 引擎 chip（C2）：可点击身份/切换入口；状态点职责在 #status-lsp，两者分工不重复 */
+#status-engine { overflow: hidden; text-overflow: ellipsis; max-width: 110px; }
+#status-engine:hover { color: var(--fg); }
 /* LSP 状态点（● 灰未启动 / 黄启动中 / 绿就绪 / 红错误） */
 .lsp-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
 .lsp-dot.dot-off { background: var(--fg-dim); }
@@ -968,6 +1167,14 @@ button:focus-visible,
 }
 .ctx-menu-item.sep-item { padding: 0; cursor: default; }
 .ctx-menu-item.sep-item:hover { background: transparent; }
+
+/* C1 通用弹出菜单（menu.ts）：与菜单栏 flyout 那套分离，只作用于 #ctx-menu 容器 */
+#ctx-menu .ctx-menu-item { display: flex; align-items: center; gap: 8px; }
+.ctx-menu-item .mi-icon { width: 16px; flex: none; display: flex; align-items: center; justify-content: center; font-size: 13px; color: var(--fg-dim); }
+.ctx-menu-item .mi-label { white-space: nowrap; }
+.ctx-menu-item .mi-detail { color: var(--fg-dim); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ctx-menu-item.disabled { opacity: 0.45; cursor: default; }
+.ctx-menu-item.disabled:hover { background: transparent; color: var(--fg); }
 
 /* 菜单栏下拉：快捷键右对齐 */
 #menu-dropdown .ctx-menu-item { display: flex; align-items: center; min-width: 210px; }
@@ -1053,6 +1260,24 @@ button:focus-visible,
 .env-close:hover { color: var(--fg); }
 .env-body { overflow: auto; display: flex; flex-direction: column; gap: 10px; }
 .env-section-title { font-size: 11px; letter-spacing: 1px; color: var(--fg-dim); margin-bottom: 4px; }
+/* P2（建议 5）：裸目录 pyproject.toml 引导横幅 */
+.env-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent, #4a9eff);
+  border-radius: 4px;
+  background: var(--hover);
+  font-size: 12px;
+  color: var(--fg-dim);
+}
+.env-banner.hidden { display: none; }
+.env-banner-text { flex: 1; }
+.env-banner-text code { color: var(--fg); background: transparent; padding: 0 1px; }
+.env-banner .env-mini-btn { flex: none; white-space: nowrap; }
 .env-list, .env-packages {
   border: 1px solid var(--border);
   border-radius: 3px;
@@ -1528,6 +1753,21 @@ button:focus-visible,
   border-radius: 3px;
   padding: 0 4px;
   font-size: 11px;
+}
+/* P3（建议 2）：运行配置面板——纵向行（label 在上、多行文本域在下） */
+.settings-row-col { display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
+.settings-row-col label { width: auto; }
+.settings-row-col textarea {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--fg);
+  padding: 5px 8px;
+  font-size: 12.5px;
+  font-family: var(--font-mono, monospace);
+  resize: vertical;
 }
 
 /* ---------- 新建项目面板 ---------- */

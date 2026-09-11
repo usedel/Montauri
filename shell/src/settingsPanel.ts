@@ -7,6 +7,8 @@ import type * as MonacoApi from "monaco-editor/esm/vs/editor/editor.api";
 import { app, $, $btn, DEFAULT_SETTINGS, type Settings } from "./state";
 import * as lsp from "./lsp/client";
 import { startLsp } from "./main";
+import { renderEngineChip } from "./engineChip";
+import { repaintRunWidget } from "./runWidget";
 import * as ltUi from "./live-templates/ui/manager";
 import { KEYBINDING_META, validateKeybindingMap, applyEditorKeybindings } from "./keybindings";
 import { refreshTerminalThemes } from "./termUi";
@@ -32,6 +34,7 @@ const settingsIntelEl = $("settings-intel") as HTMLInputElement;
 const settingsEngineEl = $("settings-engine") as HTMLSelectElement;
 const settingsFormatOnSaveEl = $("settings-format-on-save") as HTMLInputElement;
 const settingsTerminalCwdEl = $("settings-terminal-cwd") as HTMLSelectElement;
+const settingsTerminalShellEl = $("settings-terminal-shell") as HTMLSelectElement;
 const settingsReduceMotionEl = $("settings-reduce-motion") as HTMLInputElement;
 const settingsFontFamilyPresetEl = $("settings-font-family-preset") as HTMLSelectElement;
 const settingsPypiIndexPresetEl = $("settings-pypi-index-preset") as HTMLSelectElement;
@@ -177,6 +180,36 @@ function previewFontFamily(): void {
   if (family) app.editor.updateOptions({ fontFamily: family });
 }
 
+/** 终端 shell 别名 → 展示名（与 index.html 初始下拉、termUi 菜单文案保持一致） */
+const TERMINAL_SHELL_LABELS: Record<string, string> = {
+  auto: "自动（PowerShell 优先，回退 cmd）",
+  pwsh: "PowerShell 7（pwsh）",
+  powershell: "Windows PowerShell",
+  cmd: "命令提示符（cmd）",
+};
+
+/** 按后端探测结果重建「终端 Shell」下拉（auto 恒保留，其余仅列出可用项）并回填当前值。
+ * 回填逻辑：优先保持 select 当前值（openSettingsPanel 先 fillForm、reset 先填默认），
+ * 若该值不在可用列表（如手改配置成机器上没有的 shell）则退为 "auto"。 */
+async function refreshTerminalShellSelect(): Promise<void> {
+  let avail: string[] = [];
+  try {
+    avail = await invoke<string[]>("list_shells");
+  } catch {
+    avail = [];
+  }
+  const keys = ["auto", ...avail.filter((k) => k !== "auto")];
+  const prev = settingsTerminalShellEl.value || "auto";
+  settingsTerminalShellEl.textContent = "";
+  for (const k of keys) {
+    const opt = document.createElement("option");
+    opt.value = k;
+    opt.textContent = TERMINAL_SHELL_LABELS[k] ?? k;
+    settingsTerminalShellEl.appendChild(opt);
+  }
+  settingsTerminalShellEl.value = keys.includes(prev) ? prev : "auto";
+}
+
 /** 用给定 settings 填充表单控件 */
 function fillForm(settings: Settings): void {
   settingsThemeEl.value = settings.theme;
@@ -195,6 +228,7 @@ function fillForm(settings: Settings): void {
   settingsEngineEl.value = settings.lsp_engine;
   settingsFormatOnSaveEl.checked = settings.format_on_save;
   settingsTerminalCwdEl.value = settings.terminal_cwd;
+  settingsTerminalShellEl.value = settings.terminal_shell ?? DEFAULT_SETTINGS.terminal_shell;
   // 旧配置缺 pypi_index 时兜底出厂默认（官方源）
   settingsPypiIndexEl.value = settings.pypi_index || DEFAULT_SETTINGS.pypi_index;
   syncPypiIndexPreset(settingsPypiIndexEl.value);
@@ -212,6 +246,7 @@ function fillForm(settings: Settings): void {
 /** 打开设置面板（可指定初始分类；「视图 → Live Templates」快捷入口复用） */
 export function openSettingsPanel(category: SettingsCategory = "appearance"): void {
   fillForm(app.settings);
+  void refreshTerminalShellSelect(); // 异步探测可用 shell，完成后重建下拉
   switchCategory(category);
   showEl(settingsModalEl);
 }
@@ -219,6 +254,7 @@ export function openSettingsPanel(category: SettingsCategory = "appearance"): vo
 /** 恢复默认：仅重置表单控件为出厂默认，待用户「保存」才持久化/应用（与「取消」语义对称） */
 function resetSettingsPanel(): void {
   fillForm(DEFAULT_SETTINGS);
+  void refreshTerminalShellSelect(); // 重建下拉并回填 auto（DEFAULT 值）
   settingsReduceMotionEl.checked = false; // 出厂默认不减少动画
 }
 
@@ -248,6 +284,7 @@ async function saveSettingsPanel(): Promise<void> {
   const formatOnSave = settingsFormatOnSaveEl.checked;
   const runtimeIntelEnabled = settingsIntelEl.checked;
   const terminalCwd = settingsTerminalCwdEl.value;
+  const terminalShell = settingsTerminalShellEl.value;
   const pypiIndex = settingsPypiIndexEl.value.trim();
   const logEnabled = settingsLogEnabledEl.checked;
   const logLevel = settingsLogLevelEl.value;
@@ -272,6 +309,7 @@ async function saveSettingsPanel(): Promise<void> {
     format_on_save: formatOnSave,
     runtime_intel_enabled: runtimeIntelEnabled,
     terminal_cwd: terminalCwd,
+    terminal_shell: terminalShell,
     pypi_index: pypiIndex,
     keybindings,
     log_enabled: logEnabled,
@@ -288,11 +326,12 @@ async function saveSettingsPanel(): Promise<void> {
   applyModelIndent(app.settings);
   applyFontStatus();
   applyEditorKeybindings(); // 编辑器级键位即时重建（window 级实时匹配无需处理）
+  repaintRunWidget(); // 改键后运行组 tooltip 副文本跟随新键位（window 级键位变化不走 renderTabs）
   await saveSettings();
   closeSettingsPanel();
 
   if (engineChanged) {
-    ($("engine-select") as HTMLSelectElement).value = lspEngine;
+    renderEngineChip(); // 真值已写入 app.settings.lsp_engine，chip 从 settings 读取（不再写 DOM select）
     await startLsp();
   } else if (intelChanged) {
     // 运行时智能层开关变化：只起停 intel，不重启静态引擎（P3-T09 一键关闭）
@@ -304,7 +343,7 @@ async function saveSettingsPanel(): Promise<void> {
 async function applyIntelToggle(enabled: boolean): Promise<void> {
   if (!app.workspaceRoot) return;
   if (enabled) {
-    const rootUri = `file:///${app.workspaceRoot.replace(/\\/g, "/")}`;
+    const rootUri = lsp.workspaceRootUri(app.workspaceRoot); // CR-29：正确百分号编码
     try {
       await lsp.startIntel(app.workspaceRoot, rootUri);
       for (const t of app.tabs) lsp.didOpen(t.path, t.model);

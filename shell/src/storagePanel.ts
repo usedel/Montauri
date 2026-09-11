@@ -8,6 +8,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { $, $btn } from "./state";
 import { hideEl, showEl } from "./anim";
 import { openAlert, openConfirm } from "./dialog";
+import { setBusy } from "./util"; // CR-27：按钮忙碌态收敛到 util
 
 // ---------- 类型（对应 storage_cmds.rs 的 serde 结构） ----------
 
@@ -53,22 +54,7 @@ const rootPathEl = $("storage-root-path") as HTMLElement;
 const migratePathEl = $("storage-migrate-path") as HTMLInputElement;
 const onboardingModalEl = $("storage-onboarding-modal");
 
-// ---------- 按钮忙碌态（与 main.ts setBusy 同款：转圈 + 禁用，防重复点击） ----------
-
-function setBusy(btn: HTMLButtonElement, busy: boolean, busyText = "处理中…"): void {
-  if (busy) {
-    if (btn.dataset.label === undefined) btn.dataset.label = btn.textContent ?? "";
-    btn.textContent = "";
-    const icon = document.createElement("i");
-    icon.className = "codicon codicon-loading codicon-modifier-spin";
-    btn.appendChild(icon);
-    btn.append(` ${busyText}`);
-    btn.disabled = true;
-  } else {
-    btn.textContent = btn.dataset.label ?? "";
-    btn.disabled = false;
-  }
-}
+// ---------- 按钮忙碌态（CR-27：已收敛到 util.ts 的 setBusy，本域直接 import 使用） ----------
 
 // ---------- 渲染 ----------
 
@@ -79,56 +65,101 @@ function formatBytes(n: number): string {
   return `${(n / 1024 ** 3).toFixed(2)} GB`;
 }
 
-function renewableBadge(r: string): string {
-  if (r === "yes") return `<span class="storage-badge storage-badge-ok">可再生</span>`;
-  if (r === "partial") return `<span class="storage-badge storage-badge-part">部分可再生</span>`;
-  return `<span class="storage-badge">不可删</span>`;
+function renewableBadge(r: string): HTMLElement {
+  const span = document.createElement("span");
+  if (r === "yes") {
+    span.className = "storage-badge storage-badge-ok";
+    span.textContent = "可再生";
+  } else if (r === "partial") {
+    span.className = "storage-badge storage-badge-part";
+    span.textContent = "部分可再生";
+  } else {
+    span.className = "storage-badge";
+    span.textContent = "不可删";
+  }
+  return span;
 }
 
-function sizeText(n: number): string {
-  return `<span class="storage-size">${formatBytes(n)}</span>`;
+function sizeText(n: number): HTMLElement {
+  const span = document.createElement("span");
+  span.className = "storage-size";
+  span.textContent = formatBytes(n);
+  return span;
+}
+
+/** 构造一行 storage-row（CR-04：全 DOM API + textContent，路径/错误串不再经 innerHTML 插值） */
+function storageRow(cls: string, title: string, ...children: Node[]): HTMLDivElement {
+  const row = document.createElement("div");
+  row.className = cls;
+  row.title = title; // 属性赋值：含 " < > & 的路径不会逃逸出属性边界
+  row.append(...children);
+  return row;
+}
+
+function labelSpan(text: string): HTMLSpanElement {
+  const span = document.createElement("span");
+  span.className = "storage-label";
+  span.textContent = text;
+  return span;
 }
 
 function renderUsage(u: StorageUsage): void {
   rootPathEl.textContent = u.data_root;
   rootPathEl.title = u.data_root;
-  const rows: string[] = [];
+  usageEl.textContent = "";
   for (const e of u.entries) {
-    rows.push(`<div class="storage-row" title="${e.path}">`);
-    rows.push(`  <span class="storage-label">${e.label}</span>${sizeText(e.size_bytes)}${renewableBadge(e.renewable)}`);
-    rows.push(`</div>`);
+    usageEl.appendChild(
+      storageRow("storage-row", e.path, labelSpan(e.label), sizeText(e.size_bytes), renewableBadge(e.renewable)),
+    );
     if (e.key === "traces" && u.traces.length > 0) {
       for (const t of u.traces) {
-        rows.push(
-          `<div class="storage-row storage-row-sub" title="${t.path}">` +
-            `<span class="storage-label">${t.hash}</span>${sizeText(t.size_bytes)}` +
-            `<button class="storage-del" data-trace="${t.hash}">删除</button>` +
-            `</div>`,
+        const del = document.createElement("button");
+        del.className = "storage-del";
+        del.dataset.trace = t.hash;
+        del.textContent = "删除";
+        usageEl.appendChild(
+          storageRow("storage-row storage-row-sub", t.path, labelSpan(t.hash), sizeText(t.size_bytes), del),
         );
       }
-      rows.push(
-        `<div class="storage-row storage-row-sub"><span class="storage-label">（全部 trace）</span>` +
-          `<button class="storage-del" data-trace="__all__">全部清理</button></div>`,
+      const allDel = document.createElement("button");
+      allDel.className = "storage-del";
+      allDel.dataset.trace = "__all__";
+      allDel.textContent = "全部清理";
+      usageEl.appendChild(
+        storageRow("storage-row storage-row-sub", "", labelSpan("（全部 trace）"), allDel),
       );
     }
   }
   if (u.uv.length > 0) {
-    rows.push(`<div class="storage-sep">uv（用户自有位置，OpenCharm 不代管）</div>`);
+    const sep = document.createElement("div");
+    sep.className = "storage-sep";
+    sep.textContent = "uv（用户自有位置，OpenCharm 不代管）";
+    usageEl.appendChild(sep);
     for (const v of u.uv) {
-      rows.push(`<div class="storage-row" title="${v.path}"><span class="storage-label">${v.label}</span>${sizeText(v.size_bytes)}</div>`);
+      usageEl.appendChild(
+        storageRow("storage-row", v.path, labelSpan(v.label), sizeText(v.size_bytes)),
+      );
     }
   }
-  usageEl.innerHTML = rows.join("");
 }
 
 export async function loadStorageUsage(): Promise<void> {
   // 递归扫目录（uv 缓存可达数万文件）需要时间，先给行内 loading 占位
-  usageEl.innerHTML = `<div class="storage-row"><span class="storage-label"><i class="codicon codicon-loading codicon-modifier-spin"></i> 统计中…</span></div>`;
+  usageEl.textContent = "";
+  const row = document.createElement("div");
+  row.className = "storage-row";
+  const loading = labelSpan("统计中…");
+  const icon = document.createElement("i");
+  icon.className = "codicon codicon-loading codicon-modifier-spin";
+  loading.prepend(icon);
+  row.appendChild(loading);
+  usageEl.appendChild(row);
   try {
     const u = await invoke<StorageUsage>("storage_usage");
     renderUsage(u);
   } catch (e) {
-    usageEl.innerHTML = `<div class="storage-row"><span class="storage-label">占用统计失败：${String(e)}</span></div>`;
+    usageEl.textContent = "";
+    usageEl.appendChild(storageRow("storage-row", "", labelSpan(`占用统计失败：${String(e)}`)));
   }
 }
 

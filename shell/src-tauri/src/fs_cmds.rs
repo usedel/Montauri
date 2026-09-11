@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use tauri_plugin_dialog::DialogExt;
 
-use crate::tool_paths::{tool_command, ENV_GIT, ENV_RUFF};
+use crate::tool_paths::{tool_command, ENV_GIT, ENV_RUFF, ENV_UV};
 use crate::util::{no_window, opencharm_home};
 
 #[derive(Serialize)]
@@ -54,6 +54,17 @@ pub fn read_file(path: &str) -> Result<String, String> {
 #[tauri::command]
 pub fn write_file(path: &str, content: &str) -> Result<(), String> {
     fs::write(path, content).map_err(|e| e.to_string())
+}
+
+/// 删除文件（CR-05：选区运行临时文件清理用）。文件不存在视为成功（幂等），
+/// 目录与其它 IO 错误透传字符串。
+#[tauri::command]
+pub fn delete_file(path: &str) -> Result<(), String> {
+    match fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e.to_string()),
+    }
 }
 
 /// 写入 Live Templates 配置（M2 管理面板 / 导入）
@@ -163,6 +174,17 @@ pub async fn pick_folder(app: tauri::AppHandle) -> Result<Option<String>, String
     Ok(rx.recv().map_err(|e| e.to_string())?)
 }
 
+/// 打开单文件选择对话框（返回所选路径或 null）。
+/// stdin 重定向（S1）选输入文件用；与 pick_folder 同构，仅换成 pick_file。
+#[tauri::command]
+pub async fn pick_file(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let (tx, rx) = std::sync::mpsc::channel::<Option<String>>();
+    app.clone().dialog().file().pick_file(move |file| {
+        let _ = tx.send(file.map(|p| p.to_string()));
+    });
+    Ok(rx.recv().map_err(|e| e.to_string())?)
+}
+
 // ---------- 新建项目 ----------
 
 #[derive(Serialize)]
@@ -173,6 +195,8 @@ pub struct CreateProjectResult {
     pub git_ok: bool,
     /// git init 失败原因（成功时为空）
     pub git_message: String,
+    /// pyproject.toml 生成说明（uv 官方脚手架 or 模板回退，P2 建议 1）
+    pub pyproject_note: String,
 }
 
 /// 项目名校验：非空（trim 后）、非 ./..、不含路径分隔符与 Windows 保留字符、不含控制字符
@@ -200,17 +224,132 @@ fn git_init_at(root: &Path) -> Result<(), String> {
     }
 }
 
-/// 新建项目：parent_dir/name 下创建 main.py 入口；git_init 时附 .gitignore 并初始化仓库。
+/// 项目名 → 合法 PEP 508 包名：转小写、非法字符折叠为 '-'、去首尾 '-'，空则回退 "app"。
+fn sanitize_pkg_name(name: &str) -> String {
+    let mut out = String::new();
+    for c in name.trim().chars() {
+        if c.is_ascii_alphanumeric() || c == '.' || c == '_' {
+            out.push(c.to_ascii_lowercase());
+        } else {
+            out.push('-');
+        }
+    }
+    // PEP 508 名须以字母/数字开头结尾：去掉首尾的分隔符（-_.）
+    let trimmed = out.trim_matches(|c| c == '-' || c == '_' || c == '.').to_string();
+    if trimmed.is_empty() {
+        "app".to_string()
+    } else {
+        trimmed
+    }
+}
+
+/// 从版本标识（uv spec 如 "cpython-3.13.7-windows-x86_64-none" 或纯版本号 "3.12"）提取
+/// 短版本 "3.MINOR"（uv `--python` 与 requires-python 共用）；无法解析返回 None。
+fn python_short_from(version: &str) -> Option<String> {
+    let chars: Vec<char> = version.chars().collect();
+    for i in 0..chars.len().saturating_sub(1) {
+        if chars[i] == '3' && chars[i + 1] == '.' {
+            let mut minor = String::new();
+            let mut j = i + 2;
+            while j < chars.len() && chars[j].is_ascii_digit() {
+                minor.push(chars[j]);
+                j += 1;
+            }
+            if !minor.is_empty() {
+                return Some(format!("3.{minor}"));
+            }
+        }
+    }
+    None
+}
+
+/// 写入最小 pyproject.toml（方案 B，回退路径）：仅 [project] 元数据 + 空依赖，
+/// 任何工具链都认、不含 IDE 私有配置。供 create_project 与 env_cmds::init_pyproject 共用。
+pub(crate) fn write_min_pyproject(root: &Path, name: &str, requires_python: &str) -> std::io::Result<()> {
+    let pkg = sanitize_pkg_name(name);
+    let content = format!(
+        "[project]\nname = \"{pkg}\"\nversion = \"0.1.0\"\nrequires-python = \"{requires_python}\"\ndependencies = []\n"
+    );
+    fs::write(root.join("pyproject.toml"), content)
+}
+
+/// 方案 A：用 uv 官方脚手架生成 pyproject.toml。
+/// `uv init --bare` 只写 pyproject.toml——实测 uv 0.10.11 在非空目录下不生成 main.py/README/.gitignore，
+/// 也不触碰既有文件，因此与 create_project 的 main.py/.gitignore 写入无双写冲突（调研报告 §5 建议 1 的顾虑）。
+/// `--vcs none` 让 git 初始化仍由现有 git_init 分支独占；`--no-workspace` 避免误并入父级 workspace；
+/// `--no-python-downloads --offline` 确保创建项目绝不触发联网下载（§9 网络风险）。
+/// python_arg 传给 `--python`（版本号如 "3.13"，或解释器路径）；None = 由 uv 自行决定。
+/// Err 表示 uv 缺席或失败，调用方须回退方案 B。
+fn uv_init_bare(root: &Path, python_arg: Option<&str>) -> Result<(), String> {
+    let mut cmd = tool_command("uv", ENV_UV);
+    cmd.arg("init")
+        .arg("--bare")
+        .arg("--vcs")
+        .arg("none")
+        .arg("--no-workspace")
+        .arg("--no-python-downloads")
+        .arg("--offline");
+    if let Some(v) = python_arg {
+        cmd.arg("--python").arg(v);
+    }
+    cmd.arg(root);
+    let out = no_window(&mut cmd)
+        .output()
+        .map_err(|e| format!("无法启动 uv（可能未安装）：{e}"))?;
+    if out.status.success() {
+        return Ok(());
+    }
+    let msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
+    Err(if msg.is_empty() {
+        format!("uv init 失败（exit {:?}）", out.status.code())
+    } else {
+        msg
+    })
+}
+
+/// 生成 pyproject.toml：方案 A（`uv init --bare`）为主，uv 缺席/失败时回退方案 B（最小模板），
+/// 保证「创建永不因 uv 缺席而失败」（调研报告 §9 回退约定）。
+/// fallback_requires 为回退模板写入的 requires-python。返回 (是否由 uv 生成, 面向用户的说明)。
+pub(crate) fn ensure_pyproject(
+    root: &Path,
+    name: &str,
+    python_arg: Option<String>,
+    fallback_requires: &str,
+) -> (bool, String) {
+    match uv_init_bare(root, python_arg.as_deref()) {
+        Ok(()) => (true, "已用 uv init --bare 生成 pyproject.toml".to_string()),
+        Err(e) => match write_min_pyproject(root, name, fallback_requires) {
+            Ok(()) => (
+                false,
+                format!("uv 不可用（{e}），已写入最小 pyproject.toml 模板（requires-python = \"{fallback_requires}\"）"),
+            ),
+            Err(we) => (false, format!("生成 pyproject.toml 失败：{we}")),
+        },
+    }
+}
+
+/// 新建项目：parent_dir/name 下创建 main.py 入口 + 最小 pyproject.toml；git_init 时附 .gitignore 并初始化仓库。
 /// .venv 创建复用既有 create_venv 命令（前端在打开工作区后调用，输出流式可见）。
+/// python_version：创建向导所选版本（uv spec 或版本号，可空），用于 pyproject 的 requires-python。
 /// async + spawn_blocking：git init 子进程可能耗时，同步 command 会卡死主线程 UI。
 #[tauri::command]
-pub async fn create_project(parent_dir: String, name: String, git_init: bool) -> Result<CreateProjectResult, String> {
-    tauri::async_runtime::spawn_blocking(move || create_project_impl(parent_dir, name, git_init))
+pub async fn create_project(
+    parent_dir: String,
+    name: String,
+    git_init: bool,
+    python_version: Option<String>,
+) -> Result<CreateProjectResult, String> {
+    tauri::async_runtime::spawn_blocking(move || create_project_impl(parent_dir, name, git_init, python_version))
         .await
         .map_err(|e| format!("任务执行异常：{e}"))?
 }
 
-fn create_project_impl(parent_dir: String, name: String, git_init: bool) -> Result<CreateProjectResult, String> {
+fn create_project_impl(
+    parent_dir: String,
+    name: String,
+    git_init: bool,
+    python_version: Option<String>,
+) -> Result<CreateProjectResult, String> {
     if !valid_project_name(&name) {
         return Err(format!("项目名称非法：{name:?}（不能为空，不能包含 \\ / : * ? \" < > | 等字符）"));
     }
@@ -227,6 +366,15 @@ fn create_project_impl(parent_dir: String, name: String, git_init: bool) -> Resu
     let main_py = "def main() -> None:\n    print(\"Hello from OpenCharm!\")\n\n\nif __name__ == \"__main__\":\n    main()\n";
     fs::write(root.join("main.py"), main_py).map_err(|e| e.to_string())?;
 
+    // P2（建议 1）：默认生成 pyproject.toml，让 uv run / 依赖管理语义明确（对应痛点①）。
+    // 方案 A（uv init --bare）为主、方案 B（最小模板）兜底：既用官方脚手架，又保证
+    // “创建永不因 uv 缺席而失败”（§9）。requires-python 反映创建向导所选版本；未选版本时统一
+    // 显式传 3.12 下限，避免 uv 依机器默认解释器产出不确定结果（两条路径产出一致）。
+    let python_arg = python_short_from(python_version.as_deref().unwrap_or(""))
+        .unwrap_or_else(|| "3.12".to_string());
+    let requires_python = format!(">={python_arg}");
+    let (_used_uv, pyproject_note) = ensure_pyproject(&root, &name, Some(python_arg), &requires_python);
+
     let mut git_ok = true;
     let mut git_message = String::new();
     if git_init {
@@ -242,6 +390,7 @@ fn create_project_impl(parent_dir: String, name: String, git_init: bool) -> Resu
         path: root.to_string_lossy().to_string(),
         git_ok,
         git_message,
+        pyproject_note,
     })
 }
 
@@ -626,23 +775,27 @@ mod tests {
     #[test]
     fn test_create_project_basic() {
         let base = tmpdir("proj");
-        let r = create_project_impl(base.to_string_lossy().to_string(), "demo".into(), false).unwrap();
+        let r = create_project_impl(base.to_string_lossy().to_string(), "demo".into(), false, None).unwrap();
         let root = Path::new(&r.path);
         assert!(root.is_dir());
         assert!(root.join("main.py").is_file());
+        // P2（建议 1）：默认生成最小 pyproject.toml，requires-python 回退 >=3.12
+        let pyproject = fs::read_to_string(root.join("pyproject.toml")).unwrap();
+        assert!(pyproject.contains("name = \"demo\""));
+        assert!(pyproject.contains("requires-python = \">=3.12\""));
         assert!(!root.join(".gitignore").exists()); // 未要求 git
         assert!(r.git_ok);
         // 重名 / 非法名 / 父目录不存在
-        assert!(create_project_impl(base.to_string_lossy().to_string(), "demo".into(), false).is_err());
-        assert!(create_project_impl(base.to_string_lossy().to_string(), "a/b".into(), false).is_err());
-        assert!(create_project_impl(base.join("nope").to_string_lossy().to_string(), "x".into(), false).is_err());
+        assert!(create_project_impl(base.to_string_lossy().to_string(), "demo".into(), false, None).is_err());
+        assert!(create_project_impl(base.to_string_lossy().to_string(), "a/b".into(), false, None).is_err());
+        assert!(create_project_impl(base.join("nope").to_string_lossy().to_string(), "x".into(), false, None).is_err());
         fs::remove_dir_all(&base).unwrap();
     }
 
     #[test]
     fn test_create_project_git_best_effort() {
         let base = tmpdir("proj-git");
-        let r = create_project_impl(base.to_string_lossy().to_string(), "demo".into(), true).unwrap();
+        let r = create_project_impl(base.to_string_lossy().to_string(), "demo".into(), true, None).unwrap();
         let root = Path::new(&r.path);
         // .gitignore 必写；git 是否成功取决于环境（未装 git 时 git_ok=false 但项目仍创建）
         assert!(root.join(".gitignore").is_file());
@@ -653,6 +806,36 @@ mod tests {
             assert!(!r.git_message.is_empty());
         }
         fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn test_create_project_version_reflects_in_pyproject() {
+        let base = tmpdir("proj-ver");
+        // 选 3.13（uv spec 形式）→ requires-python 反映所选版本
+        let r = create_project_impl(
+            base.to_string_lossy().to_string(),
+            "My Demo".into(),
+            false,
+            Some("cpython-3.13.7-windows-x86_64-none".into()),
+        )
+        .unwrap();
+        let root = Path::new(&r.path);
+        let pyproject = fs::read_to_string(root.join("pyproject.toml")).unwrap();
+        assert!(pyproject.contains("requires-python = \">=3.13\""));
+        assert!(pyproject.contains("name = \"my-demo\"")); // 非法字符折叠为 '-'
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn test_requires_python_and_pkg_name() {
+        // 版本标识 → "3.MINOR"（uv --python 与 requires-python 共用）；无法解析 → None（调用方回退 3.12）
+        assert_eq!(python_short_from(""), None);
+        assert_eq!(python_short_from("3.12").as_deref(), Some("3.12"));
+        assert_eq!(python_short_from("cpython-3.11.9-linux-x86_64-gnu").as_deref(), Some("3.11"));
+        assert_eq!(python_short_from("garbage"), None);
+        assert_eq!(sanitize_pkg_name("Hello World"), "hello-world");
+        assert_eq!(sanitize_pkg_name("__init__"), "init");
+        assert_eq!(sanitize_pkg_name("///"), "app");
     }
 
     #[test]

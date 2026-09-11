@@ -1,5 +1,5 @@
 // Python 环境管理（P25-T04）：uv 驱动 + 工作区配置存储。
-// 设计要点（见 docs/phase2.5-ide-basics-plan.md §4）：
+// 设计要点：
 // - 解释器选择存 <data_root>/workspaces/<project-hash>.json（不侵入用户项目，粒度与 probe 的 trace 库一致）；
 // - 优先级：工作区配置 > 工作区 .venv 自动检测 > 无（uv run 兜底）；
 // - uv 命令 120s 超时保护（创建环境/装包）；列表 15s 超时。
@@ -79,22 +79,179 @@ fn workspace_config_path(root: &str) -> PathBuf {
     workspaces_dir().join(format!("{}.json", project_hash(root)))
 }
 
-fn read_config(root: &str) -> Option<String> {
+/// 读取整份工作区配置（缺失/损坏时返回空对象，绝不 panic）
+fn load_config(root: &str) -> Value {
     let p = workspace_config_path(root);
-    let s = fs::read_to_string(p).ok()?;
-    let v: Value = serde_json::from_str(&s).ok()?;
-    v.get("interpreter").and_then(|x| x.as_str()).map(String::from)
+    fs::read_to_string(p)
+        .ok()
+        .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+        .filter(Value::is_object)
+        .unwrap_or_else(|| json!({}))
+}
+
+/// 写回整份工作区配置（保留未涉及字段，如 interpreter 与 run_configs 互不覆盖）
+fn save_config(root: &str, v: &Value) -> Result<(), String> {
+    let p = workspace_config_path(root);
+    fs::create_dir_all(p.parent().unwrap()).map_err(|e| e.to_string())?;
+    let payload = serde_json::to_string_pretty(v).map_err(|e| e.to_string())?;
+    fs::write(&p, payload).map_err(|e| e.to_string())
+}
+
+fn read_config(root: &str) -> Option<String> {
+    load_config(root)
+        .get("interpreter")
+        .and_then(|x| x.as_str())
+        .map(String::from)
 }
 
 fn write_config(root: &str, interpreter: Option<&str>) -> Result<(), String> {
-    let p = workspace_config_path(root);
-    fs::create_dir_all(p.parent().unwrap()).map_err(|e| e.to_string())?;
-    let v = match interpreter {
-        Some(i) => json!({ "interpreter": i }),
-        None => json!({}),
-    };
-    let payload = serde_json::to_string_pretty(&v).map_err(|e| e.to_string())?;
-    fs::write(&p, payload).map_err(|e| e.to_string())
+    let mut v = load_config(root);
+    let obj = v.as_object_mut().ok_or("工作区配置格式非法")?;
+    match interpreter {
+        Some(i) => {
+            obj.insert("interpreter".into(), json!(i));
+        }
+        None => {
+            obj.remove("interpreter");
+        }
+    }
+    save_config(root, &v)
+}
+
+// ---------- 轻量运行配置（P3 建议 2）----------
+//
+// 每个脚本可持久化 Parameters / 环境变量，存 <data_root>/workspaces/<hash>.json 的
+// run_configs 字段（键为相对工作区根、正斜杠规范化的脚本路径），不写入用户项目（架构铁律）。
+
+/// 单个环境变量键值对
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct EnvVar {
+    pub key: String,
+    pub value: String,
+}
+
+/// stdin 缺省模式：不接输入（等价于引入该字段前的 `.stdin(Stdio::null())` 行为）
+fn default_stdin_mode() -> String {
+    "null".to_string()
+}
+
+/// 标准输入配置（stdin 重定向 S1 + 输出面板交互 S4）。
+/// 用扁平 struct 而非 tagged enum：前端镜像成本最低，且 `#[serde(default)]` 保证
+/// 存量 run_configs（无 stdin 字段）无需迁移即反序列化为 null = 历史行为。
+#[derive(Serialize, Deserialize, Clone)]
+pub struct StdinConfig {
+    /// "null"（不接输入，input() 立即 EOF）
+    /// | "file"（重定向自文件，可复现）
+    /// | "interactive"（S4：管道交互，用户在输出面板逐行应答）
+    #[serde(default = "default_stdin_mode")]
+    pub mode: String,
+    /// mode == "file" 时的输入文件路径
+    #[serde(default)]
+    pub path: String,
+}
+
+impl Default for StdinConfig {
+    fn default() -> Self {
+        Self { mode: default_stdin_mode(), path: String::new() }
+    }
+}
+
+impl StdinConfig {
+    /// 归一化后的有效模式：
+    /// - 选了 `file` 但路径为空 → 视作 `null`（避免拿空路径去 open）；
+    /// - 未知/拼错的模式一律退回 `null`——绝不能让一个错字把运行变成
+    ///   「piped 且无人写入」的永久阻塞（handoff §4.2 坑 2：默认值铁律）。
+    pub fn effective_mode(&self) -> &str {
+        match self.mode.as_str() {
+            "file" if self.path.trim().is_empty() => "null",
+            "file" | "interactive" => self.mode.as_str(),
+            _ => "null",
+        }
+    }
+}
+
+/// 一个脚本的运行配置（临时配置自动生成、可持久化补充）
+#[derive(Serialize, Deserialize, Clone, Default)]
+pub struct RunConfig {
+    /// 脚本参数（原始字符串，运行时用 shell-words 拆分）
+    #[serde(default)]
+    pub args: String,
+    /// 自定义环境变量（用户值优先，见调研报告 §9 合并约定）
+    #[serde(default)]
+    pub env: Vec<EnvVar>,
+    /// 标准输入来源（S1 文件重定向；缺省 null 与历史行为一致）
+    #[serde(default)]
+    pub stdin: StdinConfig,
+}
+
+impl RunConfig {
+    /// 是否为「等于没配置」：args / env / stdin 全为缺省时，`set_run_config` 会移除该键保持文件精简。
+    /// 注意 stdin 判定用 `effective_mode()`——`file`（有路径）与 `interactive`（S4）都算**有配置**，
+    /// 不能被当空配置删掉；而 `file` 无路径会归一化成 `null`，仍视为空。
+    fn is_empty(&self) -> bool {
+        self.args.trim().is_empty() && self.env.is_empty() && self.stdin.effective_mode() == "null"
+    }
+}
+
+/// 运行配置存储键：相对工作区根、统一正斜杠（跨平台稳定，避免绝对路径漂移）
+fn run_config_key(workspace_root: &str, script_path: &str) -> String {
+    let norm_root = workspace_root.replace('\\', "/");
+    let norm_script = script_path.replace('\\', "/");
+    let r = norm_root.trim_end_matches('/');
+    if !r.is_empty() && norm_script.starts_with(r) {
+        let mut rel = norm_script[r.len()..].to_string();
+        if rel.starts_with('/') {
+            rel.remove(0);
+        }
+        if !rel.is_empty() {
+            return rel;
+        }
+    }
+    // 不在工作区根下：退化为文件名，保证仍有一个稳定键
+    norm_script
+        .rsplit('/')
+        .next()
+        .unwrap_or(&norm_script)
+        .to_string()
+}
+
+/// 读取某脚本的运行配置（供命令与 run_script 共用；无配置返回默认空值）
+pub fn read_run_config(workspace_root: &str, script_path: &str) -> RunConfig {
+    let key = run_config_key(workspace_root, script_path);
+    load_config(workspace_root)
+        .get("run_configs")
+        .and_then(|rc| rc.get(&key))
+        .and_then(|v| serde_json::from_value::<RunConfig>(v.clone()).ok())
+        .unwrap_or_default()
+}
+
+/// 获取运行配置（前端编辑面板加载用）
+#[tauri::command]
+pub fn get_run_config(workspace_root: String, script_path: String) -> RunConfig {
+    read_run_config(&workspace_root, &script_path)
+}
+
+/// 保存运行配置（空配置则移除该键，保持文件精简）
+#[tauri::command]
+pub fn set_run_config(workspace_root: String, script_path: String, config: RunConfig) -> Result<(), String> {
+    let key = run_config_key(&workspace_root, &script_path);
+    let mut v = load_config(&workspace_root);
+    let obj = v.as_object_mut().ok_or("工作区配置格式非法")?;
+    if config.is_empty() {
+        if let Some(rc) = obj.get_mut("run_configs").and_then(Value::as_object_mut) {
+            rc.remove(&key);
+            if rc.is_empty() {
+                obj.remove("run_configs");
+            }
+        }
+    } else {
+        let rc = obj
+            .entry("run_configs")
+            .or_insert_with(|| json!({}));
+        let rc_obj = rc.as_object_mut().ok_or("run_configs 字段格式非法")?;
+        rc_obj.insert(key, serde_json::to_value(&config).map_err(|e| e.to_string())?);
+    }
+    save_config(&workspace_root, &v)
 }
 
 /// 指定虚拟环境目录下的解释器路径（Windows Scripts/python.exe，Unix bin/python）
@@ -454,6 +611,51 @@ pub fn set_interpreter(workspace_root: String, path: Option<String>) -> Result<(
     write_config(&workspace_root, cleaned.as_deref())
 }
 
+/// 查询指定解释器版本号（`<path> --version`），供状态栏“解释器来源 + 版本”展示（P1 建议 2）。
+/// 失败（路径无效/超时）返回空串，前端降级为仅显示来源，不阻断运行。
+#[tauri::command]
+pub async fn interpreter_version(path: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || Ok(version_of(&path)))
+        .await
+        .map_err(|e| format!("任务执行异常：{e}"))?
+}
+
+/// 工作区根是否已有 pyproject.toml（驱动环境面板“建议生成 pyproject.toml”横幅，P2 建议 5）。
+/// 纯文件判断、无子进程，复用 pip_install 的同一口径。
+#[tauri::command]
+pub fn has_pyproject(workspace_root: String) -> bool {
+    Path::new(&workspace_root).join("pyproject.toml").is_file()
+}
+
+/// 在既有工作区根幂等生成最小 pyproject.toml（方案 B，纯文件写入，不依赖 uv 子进程）。
+/// 已存在时不覆盖，直接返回说明；解决“裸目录 uv run 语义不明”（§5 建议 5、§9 幂等要求）。
+#[tauri::command]
+pub async fn init_pyproject(workspace_root: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || init_pyproject_impl(workspace_root))
+        .await
+        .map_err(|e| format!("任务执行异常：{e}"))?
+}
+
+fn init_pyproject_impl(workspace_root: String) -> Result<String, String> {
+    let root = Path::new(&workspace_root);
+    // 幂等：已存在则不再触发任何生成动作，避免覆盖用户文件（§5 建议 5）
+    if root.join("pyproject.toml").is_file() {
+        return Ok("pyproject.toml 已存在，未作改动".to_string());
+    }
+    if !root.is_dir() {
+        return Err(format!("工作区不存在：{workspace_root}"));
+    }
+    let name = root
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "app".to_string());
+    // 存量裸目录：把工作区「当前解释器」交给 uv --python，让 requires-python 贴合真实环境；
+    // 未选解释器时交由 uv 自行决定（None），回退模板统一用 >=3.12。
+    let python_arg = get_interpreter(workspace_root.clone()).ok().flatten();
+    let (_used_uv, note) = crate::fs_cmds::ensure_pyproject(root, &name, python_arg, ">=3.12");
+    Ok(note)
+}
+
 // ---------- 运行前依赖预检 ----------
 //
 // 用「当前解释器」执行内联脚本：ast 收集文件顶层 import → importlib.util.find_spec
@@ -726,6 +928,79 @@ mod tests {
     fn test_is_freethreaded() {
         assert!(is_freethreaded("cpython-3.15.0a7+freethreaded-windows-x86_64-none"));
         assert!(!is_freethreaded("cpython-3.13.7-windows-x86_64-none"));
+    }
+
+    #[test]
+    fn test_run_config_key() {
+        // 相对工作区根、正斜杠规范化
+        assert_eq!(run_config_key("F:/proj", "F:/proj/main.py"), "main.py");
+        assert_eq!(run_config_key("F:\\proj", "F:\\proj\\sub\\a.py"), "sub/a.py");
+        assert_eq!(run_config_key("F:/proj/", "F:/proj/main.py"), "main.py");
+        // 不在根下 → 退化为文件名（仍有稳定键）
+        assert_eq!(run_config_key("F:/proj", "E:/other/b.py"), "b.py");
+    }
+
+    #[test]
+    fn test_run_config_is_empty() {
+        assert!(RunConfig::default().is_empty());
+        assert!(rc("  ", vec![], "null", "").is_empty());
+        assert!(!rc("--flag", vec![], "null", "").is_empty());
+        assert!(!rc("", vec![EnvVar { key: "K".into(), value: "V".into() }], "null", "").is_empty());
+        // stdin 重定向也算“有配置”，不能被当空配置删掉
+        assert!(!rc("", vec![], "file", "F:/data/in.txt").is_empty());
+        // 选了 file 但没给路径 → 归一化成 null，仍视为空
+        assert!(rc("", vec![], "file", "  ").is_empty());
+        // S4：interactive 无需路径，同样算“有配置”（否则保存后立刻被当空配置删掉）
+        assert!(!rc("", vec![], "interactive", "").is_empty());
+    }
+
+    /// 构造 RunConfig 的小工具（避免每处都写全字段）
+    fn rc(args: &str, env: Vec<EnvVar>, mode: &str, path: &str) -> RunConfig {
+        RunConfig { args: args.into(), env, stdin: StdinConfig { mode: mode.into(), path: path.into() } }
+    }
+
+    #[test]
+    fn test_stdin_effective_mode() {
+        assert_eq!(StdinConfig::default().effective_mode(), "null");
+        assert_eq!(StdinConfig { mode: "file".into(), path: "a.txt".into() }.effective_mode(), "file");
+        // 空路径不能拿去 open，归一化为 null
+        assert_eq!(StdinConfig { mode: "file".into(), path: "".into() }.effective_mode(), "null");
+        assert_eq!(StdinConfig { mode: "file".into(), path: "   ".into() }.effective_mode(), "null");
+        // S4：交互式无需路径
+        assert_eq!(StdinConfig { mode: "interactive".into(), path: "".into() }.effective_mode(), "interactive");
+        // 未知/拼错的模式必须退回 null（坑 2：绝不能意外落到 piped 永久阻塞）
+        assert_eq!(StdinConfig { mode: "pipe".into(), path: "".into() }.effective_mode(), "null");
+        assert_eq!(StdinConfig { mode: "".into(), path: "".into() }.effective_mode(), "null");
+    }
+
+    #[test]
+    fn test_run_config_backward_compat_without_stdin() {
+        // 存量配置（P3 上线时写入、无 stdin 字段）必须能反序列化为 null = 历史行为，无需迁移
+        let legacy = r#"{"args":"--x","env":[{"key":"K","value":"V"}]}"#;
+        let cfg: RunConfig = serde_json::from_str(legacy).unwrap();
+        assert_eq!(cfg.args, "--x");
+        assert_eq!(cfg.env.len(), 1);
+        assert_eq!(cfg.stdin.effective_mode(), "null");
+        assert!(cfg.stdin.path.is_empty());
+
+        // 完全空的配置对象同样落到缺省
+        let empty: RunConfig = serde_json::from_str("{}").unwrap();
+        assert_eq!(empty.stdin.effective_mode(), "null");
+        assert!(empty.is_empty());
+
+        // 带 stdin 的新格式往返一致
+        let full = rc("", vec![], "file", "F:/in.txt");
+        let json = serde_json::to_string(&full).unwrap();
+        let back: RunConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.stdin.mode, "file");
+        assert_eq!(back.stdin.path, "F:/in.txt");
+
+        // S4：interactive 同样零迁移往返（存量配置里没有该值，新增后也不影响反序列化）
+        let interactive = rc("", vec![], "interactive", "");
+        let json = serde_json::to_string(&interactive).unwrap();
+        let back: RunConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.stdin.effective_mode(), "interactive");
+        assert!(!back.is_empty());
     }
 
     #[test]

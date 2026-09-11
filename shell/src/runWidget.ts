@@ -1,0 +1,149 @@
+// 运行入口 UI 域（C3）：菜单栏全局运行组（▶ / ⏹ / ▾）+ 状态机 + ▾ 下拉菜单。
+// 与 main.ts 解耦：main.ts 拥有运行动作与运行态真值，本模块只负责「渲染 + 派发」——
+// handlers 注入（同 terminal.ts::setTerminalLinkHandler / termUi.ts::setOutputPanelHooks 先例），
+// 避免 runWidget → main → runWidget 的循环导入。所有状态变化点调用 renderRunWidget 重绘。
+// 本模块只更新按钮属性/类名，不重建按钮 DOM（renderTabs 高频调用，T10）。
+
+import { lazyEl } from "./state";
+import { showMenu, type MenuItem } from "./menu";
+
+export interface RunWidgetState {
+  /** 有工作区且有活动 .py/.pyw */
+  canRun: boolean;
+  /** canRun 为假时的原因文案 */
+  disabledReason: string;
+  running: boolean;
+  channel: "output" | "terminal" | null;
+  /** 活动文件名（basename），用于 tooltip */
+  targetName: string;
+  runShortcut: string;
+  stopShortcut: string;
+  selectionShortcut: string;
+  /** 有工作区且有活动 .py（运行配置入口可用性） */
+  canOpenConfig: boolean;
+}
+
+export interface RunWidgetHandlers {
+  run: () => void;
+  runInTerminal: () => void;
+  runSelection: () => void;
+  stop: () => void;
+  restart: () => void;
+  openRunConfig: () => void;
+}
+
+export interface RunButtonState {
+  disabled: boolean;
+  tip: string;
+  tipKey?: string;
+}
+
+export interface RunWidgetComputed {
+  run: RunButtonState;
+  stop: RunButtonState;
+  menu: RunButtonState;
+}
+
+// CR-26：顶层 DOM 快照改惰性（computeRunWidget 是纯函数，测试环境无 DOM 也要可 import）
+const btnRun = lazyEl<HTMLButtonElement>("btn-run");
+const btnStop = lazyEl<HTMLButtonElement>("btn-stop");
+const btnMenu = lazyEl<HTMLButtonElement>("btn-run-menu");
+
+let handlers: RunWidgetHandlers | null = null;
+let state: RunWidgetState | null = null;
+/** 设置保存后改键位不会走 renderTabs，由 main 注册一个「重新组装状态并重绘」的回调补那条路径 */
+let repaintFn: (() => void) | null = null;
+
+export function setRunWidgetHandlers(h: RunWidgetHandlers): void {
+  handlers = h;
+}
+
+export function setRunWidgetRepaint(fn: () => void): void {
+  repaintFn = fn;
+}
+
+/** 触发重绘（由 main 注册的回调组装最新状态；当前值有则可直接重绘） */
+export function repaintRunWidget(): void {
+  repaintFn?.();
+}
+
+/** 纯函数：把运行态映射为三按钮的亮/灰 + tooltip 文案（可单测，不碰 DOM）。 */
+export function computeRunWidget(s: RunWidgetState): RunWidgetComputed {
+  if (!s.canRun) {
+    // R0：不可运行
+    const reason = s.disabledReason;
+    return {
+      run: { disabled: true, tip: reason },
+      stop: { disabled: true, tip: "没有正在运行的脚本" },
+      menu: { disabled: true, tip: reason },
+    };
+  }
+  if (!s.running) {
+    // R1：可运行、未运行
+    return {
+      run: { disabled: false, tip: `运行 ${s.targetName}`, tipKey: s.runShortcut },
+      stop: { disabled: true, tip: "没有正在运行的脚本" },
+      menu: { disabled: false, tip: "更多运行选项" },
+    };
+  }
+  // R2 / R3：运行中
+  const channelTip = s.channel === "terminal" ? "运行终端" : "输出面板";
+  return {
+    run: { disabled: true, tip: "已有脚本在运行（先停止）" },
+    stop: { disabled: false, tip: `停止运行 · ${channelTip}`, tipKey: s.stopShortcut },
+    menu: { disabled: false, tip: "更多运行选项" },
+  };
+}
+
+/** 按状态重绘三按钮的亮/灰、tooltip、tip-key。所有状态变化点都要调它。 */
+export function renderRunWidget(s: RunWidgetState): void {
+  state = s;
+  const c = computeRunWidget(s);
+  applyButton(btnRun, c.run);
+  applyButton(btnStop, c.stop);
+  applyButton(btnMenu, c.menu);
+}
+
+function applyButton(btn: HTMLButtonElement, b: RunButtonState): void {
+  btn.disabled = b.disabled;
+  btn.dataset.tip = b.tip;
+  if (b.tipKey) btn.dataset.tipKey = b.tipKey;
+  else delete btn.dataset.tipKey;
+}
+
+/** ▾ 下拉菜单项（与 gutter 右键共用同源，保证两处菜单一致）。 */
+export function getRunMenuItems(): MenuItem[] {
+  const s = state;
+  const h = handlers;
+  if (!s || !h) return [];
+
+  if (s.running) {
+    return [
+      { label: "停止运行", icon: "debug-stop", shortcut: s.stopShortcut, action: h.stop },
+      { label: "停止并重新运行", icon: "debug-rerun", action: h.restart },
+      { sep: true },
+      { label: "在终端中运行", icon: "terminal", detail: "真 TTY（getpass / tqdm / 彩色 / Ctrl+C）", disabled: true, disabledReason: "已有脚本在运行" },
+      { label: "运行选区 / 行", icon: "run", shortcut: s.selectionShortcut, disabled: true, disabledReason: "已有脚本在运行" },
+      { sep: true },
+      { label: "运行配置…", icon: "gear", detail: "参数 / 环境变量 / 标准输入", disabled: !s.canOpenConfig, disabledReason: s.canOpenConfig ? undefined : "需先打开工作区", action: h.openRunConfig },
+    ];
+  }
+
+  // R0 / R1（未运行）
+  return [
+    { label: "在终端中运行", icon: "terminal", detail: "真 TTY（getpass / tqdm / 彩色 / Ctrl+C）", disabled: !s.canRun, disabledReason: s.canRun ? undefined : s.disabledReason, action: h.runInTerminal },
+    { label: "运行选区 / 行", icon: "run", shortcut: s.selectionShortcut, disabled: !s.canRun, disabledReason: s.canRun ? undefined : s.disabledReason, action: h.runSelection },
+    { sep: true },
+    { label: "运行配置…", icon: "gear", detail: "参数 / 环境变量 / 标准输入", disabled: !s.canOpenConfig, disabledReason: s.canOpenConfig ? undefined : "需先打开工作区", action: h.openRunConfig },
+  ];
+}
+
+/** 接线三按钮（init 调用一次） */
+export function wireRunWidget(): void {
+  btnRun.addEventListener("click", () => handlers?.run());
+  btnStop.addEventListener("click", () => handlers?.stop());
+  btnMenu.addEventListener("click", (e) => {
+    e.stopPropagation();
+    showMenu(getRunMenuItems(), btnMenu);
+  });
+}

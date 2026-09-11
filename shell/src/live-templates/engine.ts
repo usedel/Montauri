@@ -1,6 +1,5 @@
 // 表达式引擎：解析 + 求值（纯 TS，零依赖，可单测）
 // 语法：字符串常量（双引号）/ 变量引用 / 函数调用，如 concat(fileName(), " — ", date("yyyy-MM-dd"))
-// 方案文档：docs/live_templates重构方案1.md §7
 
 import type { TemplateDef } from "./schema";
 
