@@ -44,7 +44,7 @@ import { trapFocus } from "./focusTrap";
 import { wireTooltip } from "./tooltip";
 import { renderEngineChip, setEngineChipHandlers, wireEngineChip } from "./engineChip";
 import { getRunMenuItems, renderRunWidget, setRunWidgetHandlers, setRunWidgetRepaint, wireRunWidget, type RunWidgetState } from "./runWidget";
-import { clearRunGutter, refreshRunGutter, setRunGutterHandlers, wireRunGutter } from "./runGutter";
+import { clearRunGutter, isRunGutterLine, refreshRunGutter, setRunGutterHandlers, wireRunGutter } from "./runGutter";
 import * as dap from "./dap/client";
 import { clearCurrentLine, pushAllBreakpoints, refreshDebugGutter, wireDebugGutter } from "./debugGutter";
 import { initDebugView, notifyDepFound, renderDebugView, setDebugViewHandlers, wireDebugViewEvents } from "./debugView";
@@ -2737,7 +2737,9 @@ async function init(): Promise<void> {
   // 若未执行，行号断点点击将整体失效（用户实测坑：init 中途抛错 → 断点不出现）。
   try {
     void dap.wireDapEvents().catch((e) => console.error("[debug] DAP 事件监听失败:", e));
-    wireDebugGutter(app.editor, app.monaco);
+    // 注入「守卫行归属」判定：debugGutter 需让出 __main__ 行的 glyph（方案 A），
+    // 但不直接 import runGutter（会带进 menu 的顶层 document 监听），故由此注入。
+    wireDebugGutter(app.editor, app.monaco, isRunGutterLine);
     initDebugView();
     wireDebugViewEvents();
     // 调试 phase 变化 → 运行组按钮同步（调试中 ⏹ 可用并路由 debug_stop，D4）

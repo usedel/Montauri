@@ -30,6 +30,12 @@ export function setRunGutterHandlers(h: RunGutterHandlers): void {
   handlers = h;
 }
 
+/** 该行是否被 ▶ 占用的 `__main__` 守卫行（debugGutter 用于让出 glyph，避免同一次点击既运行又设断点）。
+ *  未显示 ▶ 时（非 .py / 无工作区 / 无守卫 / 已清空）恒为 false。 */
+export function isRunGutterLine(line: number): boolean {
+  return targetLine === line;
+}
+
 /** 纯函数：取**第一个** `if __name__ == "__main__":` 匹配行（1 基），无守卫返回 null。
  *  仅覆盖常规写法，不穷尽反写 `if '__main__' == __name__:` 等奇异变体（漏检无碍，见文件头）。 */
 export function findMainGuardLine(text: string): number | null {

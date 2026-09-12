@@ -15,6 +15,14 @@ let decorations: MonacoApi.editor.IEditorDecorationsCollection | null = null;
 let editorRef: MonacoApi.editor.IStandaloneCodeEditor | null = null;
 let monacoRef: MonacoModule | null = null;
 
+/**
+ * 「该行是否被 runGutter 的 ▶ 占用」判定，由 main.ts 注入（`runGutter.isRunGutterLine`）。
+ * 走注入而非直接 import runGutter：避免把 runGutter → menu 的传递依赖带进本模块
+ * （menu.ts 在模块顶层注册 document 级监听，测试环境会因缺 #ctx-menu 抛错）。
+ * 未注入时恒 false（不过滤），此时本模块的 glyph 点击也不会被 wire 上，行为不受影响。
+ */
+let isRunLine: (line: number) => boolean = () => false;
+
 /** 断点表变更回调（debugView 注册：gutter 点击 / 列表删除后刷新侧栏断点列表） */
 let onChange: (() => void) | null = null;
 
@@ -111,9 +119,14 @@ export async function pushAllBreakpoints(): Promise<void> {
   }
 }
 
-export function wireDebugGutter(editor: MonacoApi.editor.IStandaloneCodeEditor, monaco: MonacoModule): void {
+export function wireDebugGutter(
+  editor: MonacoApi.editor.IStandaloneCodeEditor,
+  monaco: MonacoModule,
+  isRunGutterLine: (line: number) => boolean,
+): void {
   editorRef = editor;
   monacoRef = monaco;
+  isRunLine = isRunGutterLine;
   // glyphMargin 点击切换断点（仅 .py/.pyw，与 runGutter 一致；§6.4）
   editor.onMouseDown((e) => {
     if (e.target.type !== monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN) return;
@@ -124,6 +137,9 @@ export function wireDebugGutter(editor: MonacoApi.editor.IStandaloneCodeEditor, 
     const isPy = tab.path.endsWith(".py") || tab.path.endsWith(".pyw");
     if (!isPy) return;
     if (e.event.rightButton) return; // 右键不触发（与 run gutter 菜单语义区分）
+    // ▶ 占用的守卫行由 runGutter 的同类 handler 处理；Monaco onMouseDown 多订阅不可阻断，
+    // 故此处显式让出，否则同一次点击会「既运行又设断点」，红点装饰还会盖掉 ▶（方案 A）。
+    if (isRunLine(line)) return;
     toggleBreakpoint(tab.path, line);
     refreshDebugGutter();
   });
@@ -139,7 +155,9 @@ export function refreshDebugGutter(): void {
   if (!tab) return;
   const isPy = tab.path.endsWith(".py") || tab.path.endsWith(".pyw");
   if (!isPy) return;
-  const lines = getBreakpointLines(tab.path);
+  // 过滤掉 ▶ 占用的守卫行：断点表跨会话持久，若有历史断点落在该行，
+  // 其红点装饰会压过 ▶（style.css 中 .gutter-breakpoint::after 书写在后），故不渲染。
+  const lines = getBreakpointLines(tab.path).filter((l) => !isRunLine(l));
   if (lines.length === 0) return;
   decorations = editor.createDecorationsCollection(
     lines.map((l) => ({
