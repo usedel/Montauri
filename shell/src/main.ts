@@ -45,6 +45,7 @@ import { wireTooltip } from "./tooltip";
 import { renderEngineChip, setEngineChipHandlers, wireEngineChip } from "./engineChip";
 import { getRunMenuItems, renderRunWidget, setRunWidgetHandlers, setRunWidgetRepaint, wireRunWidget, type RunWidgetState } from "./runWidget";
 import { clearRunGutter, isRunGutterLine, refreshRunGutter, setRunGutterHandlers, wireRunGutter } from "./runGutter";
+import { wireGutterHover } from "./gutterHover";
 import * as dap from "./dap/client";
 import { clearCurrentLine, pushAllBreakpoints, refreshDebugGutter, wireDebugGutter } from "./debugGutter";
 import { initDebugView, notifyDepFound, renderDebugView, setDebugViewHandlers, wireDebugViewEvents } from "./debugView";
@@ -2722,6 +2723,9 @@ async function init(): Promise<void> {
 
   // gutter 运行图标（C5）：__main__ 守卫行的 ▶，点击运行整个文件、右键弹出与 ▾ 同源菜单
   wireRunGutter(app.editor, app.monaco);
+  // gutter 悬停预示（方案 1/2）：把真正可点的 glyph 那一档画出来 + 悬停行显示淡化断点，
+  // 否则用户会点在行号两侧的空白上而以为「断点坏了」（CSS 侧见 style.css 同段注释）
+  wireGutterHover(app.editor, app.monaco);
   setRunGutterHandlers({
     run: () => void runActive(),
     menuItems: () => getRunMenuItems(),

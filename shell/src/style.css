@@ -125,6 +125,16 @@
   --text-lg: 16px;   /* 模态标题 / 活动栏与窗口控制图标字形 */
   --text-xl: 24px;   /* 展示级标题（欢迎页） */
 
+  /* ---------- 编辑器字号镜像（非字号档，登记用途见下）----------
+     值 = Settings.font_size，真源 state.ts::DEFAULT_SETTINGS.font_size（默认 14px）；
+     运行时由 settingsPanel.ts::applyFontStatus() 写到 documentElement 覆盖此兜底值，
+     故这里的裸值是「与真源同步」的镜像值，不是新增字号档。
+     用途：gutter 字形（断点红点 / 运行 ▶ / 悬停预示）须按编辑器字号等比缩放——
+     Monaco 的 glyph lane 宽 = 行高 = 1.5 × 字号，而字号设置范围 8–32（index.html），
+     lane 因此在 12–48px 之间变化，写死 px 会小字号档溢出、大字号档显小。
+     ⚠ 与 DEFAULT_SETTINGS.font_size 的一致性由 __tests__/gutterGlyphSize.test.ts 钉死。 */
+  --editor-font-size: 14px;
+
   /* ---------- 间距 scale（UI-18）----------
      2px 网格，覆盖现有全部常用值（6px/8px/10px/4px 为最高频，故网格取 2px 而非 4px）。
      奇数值就近向上归档：1→2 · 3→4 · 5→6 · 7→8 · 9→10；另 18→20 · 22→24。
@@ -795,6 +805,39 @@ button:focus-visible,
   font-family: "codicon";
   content: "\ea71"; /* codicon-debug-breakpoint */
   color: var(--debug-breakpoint); /* UI-15：原裸值 #e51400（该值两主题均达标，故 token 不分主题） */
+}
+
+/* ---------- gutter 可发现性（方案 1/2） ----------
+   断点只认 glyph margin 这一档（Monaco 按 x 把 gutter 分三档，默认宽度 ≈ 一个行高 ≈ 21px），
+   而整条 gutter 视觉上都是空白，用户常点在行号两侧的空白上（属行号档 / 行装饰档，点了不出断点）。
+   这里把真正可点的那一档画出来：光标进入 gutter 时给底色 + 右边界线，并只在该档给指针光标
+   （行号档保持默认光标，两者一眼可区分）。逐行的淡化预示见 gutterHover.ts。 */
+.monaco-editor .margin .glyph-margin {
+  cursor: pointer;
+  box-shadow: inset -1px 0 0 var(--border-soft); /* 用 inset 阴影而非 border：不改变布局宽度 */
+  transition: background-color var(--transition-fast);
+}
+.monaco-editor .margin:hover .glyph-margin { background: var(--hover-subtle); }
+
+/* 悬停行的断点预示（gutterHover.ts）：与 .gutter-breakpoint 同形、仅低透明度 */
+.gutter-hover { cursor: pointer; }
+.gutter-hover::after {
+  font-family: "codicon";
+  content: "\ea71"; /* codicon-debug-breakpoint（同形便于理解「点这里会在该行下断点」） */
+  color: var(--debug-breakpoint);
+  opacity: 0.45;
+}
+
+/* gutter 字形尺寸（三个字形单一改动点，新增 gutter 图标必须加进这条选择器）
+   字体族由各自的 ::after 给（codicon），字号统一在这里给，避免逐条规则各写一遍而漂移。
+   倍率推导：lane 宽 = 行高 = 1.5 × 编辑器字号（Monaco fontInfo.js 的 GOLDEN_LINE_HEIGHT_RATIO），
+   字形取行高的 0.75 → 1.5 × 0.75 = 1.125 × 字号；默认 14px 字号 → 15.75px ≈ 16px，
+   即 codicon 的设计尺寸（VS Code 的断点也是该尺寸——它的类名含 codicon- 命中基础规则，
+   我们用的是自命名类，不显式给字号会掉回继承的 13px，这正是红点偏小的原因）。 */
+.gutter-breakpoint::after,
+.gutter-run::after,
+.gutter-hover::after {
+  font-size: calc(var(--editor-font-size) * 1.125);
 }
 
 /* 当前行高亮（stopped 后标示执行行，debugGutter.ts） */

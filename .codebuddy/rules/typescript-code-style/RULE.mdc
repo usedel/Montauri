@@ -36,6 +36,7 @@ provider:
 - `dap/client.ts` — DAP 桥 TS 侧（与 `lsp/client.ts` 对称）：DAP 请求/响应关联（单序号域，`id` 作出站 `seq`，响应按 `request_seq` 回显）+ 事件分发 + 会话状态机（`idle/starting/running/stopped/exited`）+ `startDebug` 握手时序（`initialize → attach{listen} → debugpyWaitingForServer → debug_attach_debuggee → initialized → setBreakpoints → configurationDone`）。
 - `debugGutter.ts` — 断点 gutter（复用 `runGutter.ts` glyphMargin 装饰/命中范式，独立一套装饰集合勿冲突）：断点表 `Map<path, Set<line>>` 模块级持久（跨会话保留，`pushAllBreakpoints` 重放）+ `setBreakpoints` 同步 + 当前行高亮（`stopped → highlightCurrentLine`，`continued` 清除）；仅 `.py`/`.pyw` 生效。
 - `debugView.ts` — 调试侧栏（对标 `runWidget.ts` handlers 注入模式，避免循环导入）：工具栏 / 调用栈 / 变量 / 断点列表；`onPhase` 驱动渲染，`stopped → threads/stackTrace/scopes/variables` 刷新；MVP 忽略 `output` 事件（stdout 已走输出面板，避免双份）。
+- `gutterHover.ts` — gutter 悬停预示（可发现性）：断点只认 glyph margin 那一档（Monaco 按 x 把 gutter 分三档，该档默认仅 ≈ 一个行高 ≈ 21px），而整条 gutter 视觉上都是空白，故「CSS 画出可点档 + 悬停行淡化断点」降低误点（CSS 见 `style.css` 的「gutter 可发现性」段）；与真实 glyph（断点 / ▶ / 灯泡）互斥不叠加（zIndex: -1 兜底），仅 `.py`/`.pyw` 生效。
 - `markdownPreview.ts` — Markdown 预览域（markdown preview dev plan）：marked + DOMPurify 渲染 / 图片 asset 改写 / monaco colorize 高亮 / 点击委托 / 分栏显隐 / 右上角开关按钮与一次性引导（方案A/D）/ 导出 HTML（base64 内联图片 + 固定浅色主题 + 系统保存对话框）；打开相对 md 链接经 `setMarkdownLinkHandler` 回调注入，避免与 main.ts 循环依赖。
 - `anim.ts` — 动效与「减少动画」开关：`showEl`/`hideEl`（两阶段显隐，`motionDisabled()` 短路）/ `applyReduceMotion` / `restoreReduceMotion`；零依赖，任何模块可导入不成环。
 - `tooltip.ts` — 自绘 tooltip（`data-tip`，document 级 mouseover 委托 + role=tooltip + aria-describedby 生命周期）；**头部「五条判定规则」是原生 title 与 data-tip 分工的唯一依据**（UI-09，改双轨行为先读它）。

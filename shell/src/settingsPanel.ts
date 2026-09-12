@@ -110,8 +110,22 @@ export async function saveSettings(): Promise<void> {
   }
 }
 
+/**
+ * 把当前编辑器字号镜像到根节点变量（供 style.css 的 --editor-font-size 使用）。
+ * 为什么要镜像：Monaco 只把 fontInfo 内联到 .view-lines / .view-overlays 等节点，glyphMargin
+ * 不在它的子树内、继承不到；而 0.52.2 也没有输出 --vscode-editor-font-size 之类的 CSS 变量可读。
+ * 不用 editor.applyFontInfo(#editor) 替代：那会给整个编辑器子树注入 font-size，连带影响 Monaco
+ * 内部按继承取字号的浮层控件，副作用面太大。
+ */
+function applyEditorFontVar(): void {
+  document.documentElement.style.setProperty("--editor-font-size", `${app.settings.font_size}px`);
+}
+
+/** 字号生效后的统一收口：状态栏文案 + CSS 变量镜像。
+ *  init（main.ts 建完编辑器）、Ctrl+滚轮缩放、设置保存三条路径都只调本函数，故镜像放这里一处全覆盖。 */
 export function applyFontStatus(): void {
   statusFontEl.textContent = `字号 ${app.settings.font_size}`;
+  applyEditorFontVar();
 }
 
 /** 由 Settings 构造 Monaco 编辑器选项（P1：外观/编辑器高频项收敛）。
