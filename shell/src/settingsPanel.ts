@@ -6,7 +6,6 @@ import { invoke } from "@tauri-apps/api/core";
 import type * as MonacoApi from "monaco-editor/esm/vs/editor/editor.api";
 import { app, $, $btn, DEFAULT_SETTINGS, type Settings } from "./state";
 import * as lsp from "./lsp/client";
-import { startLsp } from "./main";
 import { renderEngineChip } from "./engineChip";
 import { repaintRunWidget } from "./runWidget";
 import * as ltUi from "./live-templates/ui/manager";
@@ -20,6 +19,26 @@ import { loadStorageUsage, wireStoragePanel } from "./storagePanel";
 import { getSelectedTheme, setSelectedTheme, wireThemePicker } from "./themePicker";
 // UI-25：欢迎页快捷键网格跟随键位系统，改键保存后需刷新
 import { renderWelcomeShortcuts } from "./welcomeShortcuts";
+
+// ---------- 注入（main 的 init 中 setSettingsPanelHandlers） ----------
+// TD-13：解「settingsPanel.ts → main.ts」循环边——切换静态引擎后需重启 LSP，
+// 由 main 注入 startLsp（参照 terminal.ts::setTerminalLinkHandler 先例）。
+
+interface SettingsPanelHandlers {
+  startLsp: () => Promise<void>;
+}
+
+let handlers: SettingsPanelHandlers | null = null;
+
+/** 注入 main 域函数（main 在 init 中调用；设置面板交互都发生在 init 之后） */
+export function setSettingsPanelHandlers(h: SettingsPanelHandlers): void {
+  handlers = h;
+}
+
+function sh(): SettingsPanelHandlers {
+  if (!handlers) throw new Error("[OpenCharm] settingsPanel 尚未接线（setSettingsPanelHandlers 须在 init 中先于设置面板交互）");
+  return handlers;
+}
 
 // ---------- 域内 DOM ----------
 
@@ -399,7 +418,7 @@ async function saveSettingsPanel(): Promise<void> {
 
   if (engineChanged) {
     renderEngineChip(); // 真值已写入 app.settings.lsp_engine，chip 从 settings 读取（不再写 DOM select）
-    await startLsp();
+    await sh().startLsp();
   } else if (intelChanged) {
     // 运行时智能层开关变化：只起停 intel，不重启静态引擎（P3-T09 一键关闭）
     await applyIntelToggle(runtimeIntelEnabled);

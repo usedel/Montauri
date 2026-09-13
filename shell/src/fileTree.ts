@@ -3,18 +3,40 @@
 // 域内私有状态留在本模块；跨域共享状态经 state.ts 的 app 读写。
 
 import { invoke } from "@tauri-apps/api/core";
-import { app, $, lazyEl, statusFileEl, type Entry } from "./state";
+import { app, $, lazyEl, statusFileEl, type Entry, type Tab } from "./state";
 import { basename, codicon, ensurePyExtension, stripPyExtension, gitBadgeClass, gitStatusLabel, joinPath, parentDirOf, relativePath, renderFileIcon } from "./util";
 // CR-25：状态读取改从零依赖的 gitStatusState（切断 fileTree ↔ git 的状态耦合）；
 // refreshGitStatus 是运行时才调用的函数（无初始化期循环风险），保留从 git.ts 导入
 import { refreshGitStatus } from "./git";
 import { gitStatusOf, isGitRepoActive, isGitDirtyDir } from "./gitStatusState";
 import { openTerminalAt } from "./termUi";
-import { openFile, renderTabs, closeTabSilent, insertHeaderTemplate } from "./main";
 import * as mdPreview from "./markdownPreview"; // Markdown 预览（.md 右键「打开预览」）
 import { openConfirm } from "./dialog";
 import * as lsp from "./lsp/client";
 import { hideMenu, showMenu, type MenuItem } from "./menu";
+
+// ---------- 注入（main 的 init 中 setFileTreeHandlers） ----------
+// TD-13：解「fileTree.ts → main.ts」循环边——打开文件 / 重绘标签 / 静默关标签 / 插入文件头
+// 都是运行时函数引用，改由 main 注入（参照 terminal.ts::setTerminalLinkHandler 先例）。
+
+interface FileTreeHandlers {
+  openFile: (path: string, revealLine?: number) => Promise<void>;
+  renderTabs: () => void;
+  closeTabSilent: (tab: Tab) => void;
+  insertHeaderTemplate: () => Promise<boolean>;
+}
+
+let handlers: FileTreeHandlers | null = null;
+
+/** 注入 main 域函数（main 在 init 中、wireFileTree 之前调用；树交互都发生在 init 之后） */
+export function setFileTreeHandlers(h: FileTreeHandlers): void {
+  handlers = h;
+}
+
+function fh(): FileTreeHandlers {
+  if (!handlers) throw new Error("[OpenCharm] fileTree 尚未接线（setFileTreeHandlers 须在 init 中先于文件树交互）");
+  return handlers;
+}
 
 // ---------- 域内状态 ----------
 
@@ -131,7 +153,7 @@ function renderTreeItem(e: Entry, depth: number): HTMLElement {
   item.addEventListener("click", (ev) => {
     selectEntry(e, item, ev);
     if (e.is_dir && !ev.ctrlKey && !ev.shiftKey) void toggleDir(item, e, depth);
-    else if (!e.is_dir && !ev.ctrlKey && !ev.shiftKey) void openFile(e.path);
+    else if (!e.is_dir && !ev.ctrlKey && !ev.shiftKey) void fh().openFile(e.path);
   });
   item.addEventListener("contextmenu", (ev) => {
     ev.preventDefault();
@@ -405,7 +427,7 @@ function showContextMenu(entry: Entry, x: number, y: number): void {
   if (!entry.is_dir && mdPreview.isMarkdownPath(entry.path)) {
     items.push(
       { sep: true },
-      { label: "打开预览", action: () => { mdPreview.setPreviewOpen(true); void openFile(entry.path); } },
+      { label: "打开预览", action: () => { mdPreview.setPreviewOpen(true); void fh().openFile(entry.path); } },
     );
   }
 
@@ -522,7 +544,7 @@ export async function createFileAt(entry: Entry): Promise<void> {
     return;
   }
   await reloadDir(base);
-  await openFile(target);
+  await fh().openFile(target);
 }
 
 /** 新建文件夹（内联输入，支持嵌套路径） */
@@ -559,9 +581,9 @@ export async function createPyFileAt(entry: Entry): Promise<void> {
     return;
   }
   await reloadDir(base);
-  await openFile(target);
+  await fh().openFile(target);
   app.editor.setPosition({ lineNumber: 1, column: 1 });
-  await insertHeaderTemplate();
+  await fh().insertHeaderTemplate();
 }
 
 /** 新建 Python 包：目录 + 空 __init__.py（后端原子命令）；不自动打开文件 */
@@ -633,7 +655,7 @@ async function handleRenameLinks(oldPath: string, newPath: string): Promise<void
     }
     if (app.activeTab === t) statusFileEl.textContent = newTabPath;
   }
-  renderTabs();
+  fh().renderTabs();
 }
 
 /** 复制选中项到内部剪贴板 */
@@ -714,7 +736,7 @@ async function deleteSelected(): Promise<void> {
     // 关闭打开中的标签
     for (const t of [...app.tabs]) {
       if (t.path === entry.path || t.path.startsWith(entry.path + "\\") || t.path.startsWith(entry.path + "/")) {
-        closeTabSilent(t);
+        fh().closeTabSilent(t);
       }
     }
     affectedDirs.add(parentDirOf(entry.path));
@@ -889,7 +911,7 @@ function handleTreeKeyNav(key: string): void {
       if (entry) {
         selectEntry(entry, current);
         if (entry.is_dir) void toggleDir(current, entry, depthOf(current));
-        else void openFile(entry.path);
+        else void fh().openFile(entry.path);
       }
       break;
     }

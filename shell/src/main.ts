@@ -28,14 +28,14 @@ import { openConfirm, openPrompt } from "./dialog";
 import { app, $, $btn, outputEl, statusFileEl, type Entry, type Tab } from "./state";
 import {
   createDirAt, createFileAt, isDirExpanded, isTreeEmpty, refreshTree, reloadDir,
-  renderCtxMenu, resetTreeState, wireFileTree, type CtxItem,
+  renderCtxMenu, resetTreeState, setFileTreeHandlers, wireFileTree, type CtxItem,
 } from "./fileTree";
 import { refreshGitStatus, renderGitPanel, refreshBranchPanel, resetGitState, wireGitUI } from "./git";
 import {
   disposeTerminal, openTerminalAt, wireBottomPanel, wireTerminalEvents,
 } from "./termUi";
 import { setTerminalLinkHandler } from "./terminal";
-import { loadSettings, saveSettings, applyFontStatus, openSettingsPanel, wireSettingsPanel, buildEditorOptions } from "./settingsPanel";
+import { loadSettings, saveSettings, applyFontStatus, openSettingsPanel, setSettingsPanelHandlers, wireSettingsPanel, buildEditorOptions } from "./settingsPanel";
 import { checkFirstRunStorage } from "./storagePanel";
 import { basename, codicon, DisposableStore, emptyState, languageOf, parentDirOf, renderFileIcon, symbolIcon } from "./util";
 import { restoreLayout, wireSplitters } from "./layout";
@@ -1251,9 +1251,11 @@ window.addEventListener("unhandledrejection", (e) => {
 // ---------- 初始化 ----------
 
 async function init(): Promise<void> {
-  // TD-14：运行域 / 链接跳转的解环注入（须先于任何事件与运行调用）
+  // TD-14 / TD-13：功能域解环注入（须先于任何事件与运行调用）
   setTracebackOpenFile(openFile);
   setRunFlowHandlers({ openFile, activateTab, renderTabs, saveActive });
+  setFileTreeHandlers({ openFile, renderTabs, closeTabSilent, insertHeaderTemplate });
+  setSettingsPanelHandlers({ startLsp });
   // UI-25：欢迎页快捷键网格改由键位系统渲染，必须在首个 await（Monaco 动态包，首屏最慢的一步）
   // 之前同步画一次，否则覆盖层会露出空的「快捷键」区。此刻 app.settings 仍是 DEFAULT_SETTINGS，
   // 画的是出厂键位；loadSettings 完成后由 updateEditorOverlay 刷成真实值（多数用户二者相同）。
