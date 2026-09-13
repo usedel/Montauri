@@ -806,6 +806,14 @@ button:focus-visible,
   content: "\ea71"; /* codicon-debug-breakpoint */
   color: var(--debug-breakpoint); /* UI-15：原裸值 #e51400（该值两主题均达标，故 token 不分主题） */
 }
+/* P0：条件断点（红点内带问号）与 Logpoint（菱形）——与断点列表徽标、右键菜单图标同源，
+   让用户一眼区分「会断下 / 条件断下 / 只打印」。 */
+.gutter-breakpoint-cond::after {
+  content: "\eaa7"; /* codicon-debug-breakpoint-conditional */
+}
+.gutter-breakpoint-log::after {
+  content: "\eaab"; /* codicon-debug-breakpoint-log */
+}
 
 /* ---------- gutter 可发现性（方案 1/2） ----------
    断点只认 glyph margin 这一档（Monaco 按 x 把 gutter 分三档，默认宽度 ≈ 一个行高 ≈ 21px），
@@ -835,6 +843,8 @@ button:focus-visible,
    即 codicon 的设计尺寸（VS Code 的断点也是该尺寸——它的类名含 codicon- 命中基础规则，
    我们用的是自命名类，不显式给字号会掉回继承的 13px，这正是红点偏小的原因）。 */
 .gutter-breakpoint::after,
+.gutter-breakpoint-cond::after,
+.gutter-breakpoint-log::after,
 .gutter-run::after,
 .gutter-hover::after {
   font-size: calc(var(--editor-font-size) * 1.125);
@@ -961,6 +971,24 @@ button:focus-visible,
   border-radius: 50%;
   background: var(--debug-breakpoint); /* UI-15：与 gutter 断点图标共用同一 token，两处红点保证同色 */
   flex-shrink: 0;
+}
+/* P0：条件断点 = 红点内留白（环形）；Logpoint = 菱形。与 gutter 装饰的图形语义一一对应。 */
+.debug-bp-dot-condition {
+  background: var(--bg-alt);
+  border: 2px solid var(--debug-breakpoint);
+}
+.debug-bp-dot-log {
+  border-radius: 2px;
+  transform: rotate(45deg) scale(0.85);
+}
+/* 条件/日志摘要：次要信息，允许被挤压（断点定位标签优先保证完整） */
+.debug-bp-detail {
+  color: var(--fg-dim);
+  font-size: var(--text-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 .debug-bp-label {
   cursor: pointer;
@@ -1699,6 +1727,95 @@ button:focus-visible,
   justify-content: flex-end;
   gap: var(--space-4);
   margin-top: var(--space-7);
+}
+/* 输入模态（P0：条件断点 / Logpoint 表达式录入；dialog.ts::openPrompt） */
+.prompt-card { min-width: 460px; }
+.prompt-card .settings-hint { margin-bottom: var(--space-4); }
+/* 最近打开的文件（P0，Ctrl+E；recentFiles.ts） */
+.recent-card { min-width: 520px; padding: var(--space-6); }
+.recent-list {
+  max-height: 320px;
+  overflow-y: auto;
+  margin-top: var(--space-4);
+}
+.recent-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--text-base);
+}
+.recent-item:hover { background: var(--hover-subtle); }
+/* 键盘高亮（焦点始终留在过滤输入框，故用 .active 而非 :focus 表达当前项） */
+.recent-item.active { background: var(--accent-soft); }
+.recent-name { color: var(--fg); flex-shrink: 0; }
+.recent-dir {
+  color: var(--fg-dim);
+  font-size: var(--text-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* TODO 工具窗（P0；todoView.ts） */
+#todo-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-soft);
+}
+#todo-summary {
+  color: var(--fg-dim);
+  font-size: var(--text-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#todo-toolbar .btn { margin-left: auto; }
+#todo-results { overflow-y: auto; flex: 1; }
+.todo-group-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  position: sticky;
+  top: 0;
+  background: var(--bg-alt);
+}
+.todo-badge {
+  font-size: var(--text-xs);
+  line-height: 1.4;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-xs);
+  border: 1px solid currentColor;
+  color: var(--fg-dim);
+  flex-shrink: 0;
+}
+/* 标记配色：TODO 中性、FIXME 警示、HACK/BUG 危险、XXX 次要 */
+.todo-badge-todo { color: var(--accent); }
+.todo-badge-fixme { color: var(--warn, #cca700); }
+.todo-badge-hack,
+.todo-badge-bug { color: var(--danger); }
+.todo-badge-xxx { color: var(--fg-dim); }
+.todo-group-count { color: var(--fg-dim); font-size: var(--text-xs); }
+.todo-item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: var(--space-1) var(--space-3) var(--space-1) var(--space-6);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+.todo-item:hover { background: var(--hover-subtle); }
+.todo-item:focus-visible { outline: 1px solid var(--focus-ring); outline-offset: -1px; }
+.todo-loc { color: var(--accent); flex-shrink: 0; }
+.todo-msg {
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 /* UI-08：对话框按钮迁移到 .btn 体系（.btn / .btn--primary / .btn--danger）。
    原 `.modal-actions button` 特异性 (0,1,1) 高于 .btn 的 (0,1,0)，故整块删除而非并存。
@@ -2826,3 +2943,311 @@ button:focus-visible,
 .storage-path { flex: 1 1 auto; min-width: 0; font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 
 .storage-inline-label { font-size: var(--text-sm); color: var(--fg-dim); }
+
+/* ---------- Search Everywhere / Quick Open（P1；quickOpen.ts） ---------- */
+/* 与「最近打开的文件」弹窗同构（同一套 modal-card + listbox 骨架），仅宽度与行内元素不同。 */
+
+.quick-open-card { min-width: 620px; max-width: 780px; padding: var(--space-6); }
+
+.quick-open-list {
+  max-height: 360px;
+  overflow-y: auto;
+  margin-top: var(--space-4);
+}
+
+.quick-open-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--text-base);
+}
+
+.quick-open-item:hover { background: var(--hover-subtle); }
+
+/* 键盘高亮（焦点始终留在过滤输入框，故用 .active 而非 :focus 表达当前项） */
+.quick-open-item.active { background: var(--accent-soft); }
+
+.quick-open-name { color: var(--fg); flex-shrink: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.quick-open-sub {
+  color: var(--fg-dim);
+  font-size: var(--text-sm);
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 命令项的键位提示：右对齐、等宽，避免与路径争夺横向空间 */
+.quick-open-kbd {
+  flex: none;
+  font-size: var(--text-xs);
+  color: var(--fg-dim);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0 var(--space-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 调试控制台（P1；debugConsole.ts） ---------- */
+
+.debug-console-log {
+  max-height: 180px;
+  overflow-y: auto;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  background: var(--bg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+}
+
+.debug-console-line { padding: 1px 0; white-space: pre-wrap; word-break: break-word; }
+
+.dc-prompt { color: var(--accent); }
+
+.dc-input { color: var(--fg); }
+
+.dc-result { color: var(--syntax-string); }
+
+.dc-error { color: var(--danger); }
+
+.dc-output { color: var(--fg-dim); }
+
+.debug-console-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+/* 输入行吃掉剩余宽度；「求值」按钮固定尺寸不参与伸缩 */
+#debug-console-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--text-sm);
+  padding: var(--space-1) var(--space-2);
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+#debug-console-input:disabled { color: var(--fg-dim); }
+
+#debug-console-run { flex: none; }
+
+/* ---------- 本地历史（P1；localHistory.ts） ---------- */
+
+.history-card { min-width: 860px; max-width: 96vw; padding: var(--space-6); }
+
+.history-body {
+  display: flex;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+  /* 高度类尺寸写自定义属性（UI-23 纪律：不写内联 height，否则会压过 .collapsed 折叠态） */
+  --history-h: 380px;
+}
+
+.history-side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 240px;
+  flex: none;
+}
+
+.history-list {
+  flex: 1 1 auto;
+  max-height: var(--history-h);
+  overflow-y: auto;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+}
+
+.history-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--text-sm);
+}
+
+.history-item:hover { background: var(--hover-subtle); }
+.history-item.active { background: var(--accent-soft); }
+
+.history-time { color: var(--fg); font-variant-numeric: tabular-nums; }
+
+.history-kind { color: var(--fg-dim); font-size: var(--text-xs); }
+
+.history-size { color: var(--fg-dim); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
+
+.history-side-actions { display: flex; gap: var(--space-2); }
+
+.history-side-actions .btn { flex: 1 1 0; }
+
+/* Monaco diff 编辑器容器：必须显式高度，否则 automaticLayout 也撑不开 */
+.history-diff {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: var(--history-h);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+/* ---------- Breadcrumbs 面包屑（P2；breadcrumbs.ts） ---------- */
+/* 一条细条：它的价值是「一直看得见」，故只占一行高度、不加边框分隔（与 tabbar 同层）。 */
+
+.breadcrumbs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 22px;
+  padding: 0 var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--fg-dim);
+  background: var(--bg);
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+  /* 隐藏横向滚动条：层级链偶尔超宽，滚动由鼠标滚轮/拖拽承担，不占视觉高度 */
+  scrollbar-width: none;
+}
+
+.breadcrumbs::-webkit-scrollbar { height: 0; }
+
+.crumb {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg-dim);
+  font-size: var(--text-sm);
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.crumb:hover { background: var(--hover-subtle); color: var(--fg); }
+.crumb-file { color: var(--fg); }
+.crumb-icon { display: inline-flex; font-size: 13px; }
+.crumb-text { overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
+.crumb-sep { display: inline-flex; align-items: center; opacity: 0.6; }
+
+/* ---------- 行内变量值（P2；inlineValues.ts） ---------- */
+/* 与运行时类型标注（intel inlay hints）同一视觉语言：弱化、不抢代码主体。 */
+
+.debug-inline-value {
+  color: var(--fg-dim);
+  font-size: 0.9em;
+  opacity: 0.85;
+  /* 值只是提示：不可选中，避免复制代码时把值一起带走 */
+  pointer-events: none;
+}
+
+/* ---------- 书签（P2；bookmarks.ts） ---------- */
+
+.gutter-bookmark { cursor: pointer; }
+.gutter-bookmark::after {
+  font-family: "codicon";
+  content: "\eb5e"; /* codicon-bookmark */
+  color: var(--accent);
+}
+
+.bookmark-card { min-width: 620px; padding: var(--space-6); }
+
+.bookmark-list {
+  max-height: 340px;
+  overflow-y: auto;
+  margin-bottom: var(--space-3);
+}
+
+.bookmark-item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--text-sm);
+}
+
+.bookmark-item:hover { background: var(--hover-subtle); }
+.bookmark-item.active { background: var(--accent-soft); }
+
+.bookmark-loc { color: var(--fg); flex: none; font-variant-numeric: tabular-nums; }
+
+.bookmark-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--fg-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bookmark-dir {
+  flex: none;
+  max-width: 40%;
+  color: var(--fg-dim);
+  font-size: var(--text-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bookmark-footer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  border-top: 1px solid var(--border-soft);
+  padding-top: var(--space-3);
+}
+
+.bookmark-hint { flex: 1 1 auto; font-size: var(--text-xs); color: var(--fg-dim); }
+
+/* ---------- 运行历史（P2；runHistory.ts） ---------- */
+
+.run-history-card { min-width: 620px; padding: var(--space-6); }
+
+.run-history-list { max-height: 360px; overflow-y: auto; }
+
+.run-history-item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--text-sm);
+}
+
+.run-history-item:hover { background: var(--hover-subtle); }
+.run-history-item.active { background: var(--accent-soft); }
+
+.run-history-name { color: var(--fg); flex: none; }
+
+.run-history-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--fg-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-history-meta {
+  flex: none;
+  color: var(--fg-dim);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}

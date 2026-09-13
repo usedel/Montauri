@@ -198,15 +198,48 @@ export const BUILTIN_TEMPLATES: TemplateDef[] = [
     positions: ["statement"],
     tabExpand: true,
   }),
+  // P2（PyCharm 调研 E4）：docstring 三件套。
+  // 关键点是 `allowInStrings: true`——docstring 本身就在字符串字面量里，
+  // 而 tabExpand 默认**禁止**字符串内展开（tabExpand.ts:93），不显式开启等价于永远用不上。
   t({
-    id: "builtin.docf",
-    abbreviation: "docf",
-    description: "函数 docstring",
-    body: '"""$DESC$\n\n    $END$\n    """',
+    id: "builtin.doc",
+    abbreviation: "doc",
+    description: "单行 docstring",
+    body: '"""$DESC$$END$"""',
     scopes: PY_ALL,
     positions: ["statement"],
     tabExpand: true,
+    allowInStrings: true,
     variables: [{ name: "DESC", defaultValue: "TODO" }],
+  }),
+  t({
+    id: "builtin.docf",
+    abbreviation: "docf",
+    description: "函数 docstring（Args / Returns）",
+    body: '"""$DESC$\n\n    Args:\n        $ARG$: $ARGDESC$\n\n    Returns:\n        $END$\n    """',
+    scopes: PY_CLASS_FN,
+    positions: ["statement"],
+    tabExpand: true,
+    allowInStrings: true,
+    variables: [
+      { name: "DESC", defaultValue: "TODO" },
+      { name: "ARG", defaultValue: "name" },
+      { name: "ARGDESC", defaultValue: "说明" },
+    ],
+  }),
+  t({
+    id: "builtin.docc",
+    abbreviation: "docc",
+    description: "类 docstring（Attributes）",
+    body: '"""$DESC$\n\n    Attributes:\n        $ATTR$: $END$\n    """',
+    scopes: PY_CLASS,
+    positions: ["statement"],
+    tabExpand: true,
+    allowInStrings: true,
+    variables: [
+      { name: "DESC", defaultValue: "TODO" },
+      { name: "ATTR", defaultValue: "name" },
+    ],
   }),
   t({
     id: "builtin.header",
@@ -624,18 +657,20 @@ export const BUILTIN_TEMPLATES: TemplateDef[] = [
 export const BUILTIN_ORDERING: Record<string, string[]> = {
   "python:module": [
     "main", "ifmain", "def", "class", "dataclass", "if", "ife", "for", "while",
-    "try", "with", "print", "lambda", "header", "docf",
+    // P2：模块层用单行 doc（`doc`）；`docf` 带 Args/Returns，只对函数/类有意义，
+    // 故从模块层的排序里移除（scopes 已不再含 python:module，留着会让 ordering 校验失败）
+    "try", "with", "print", "lambda", "header", "doc",
     // 爬虫脚手架（C 组）
     "reqget", "reqpost", "reqsess", "hget", "bs4", "lxml", "css", "jsonld",
     "page", "ua", "proxy", "rsleep", "csvw", "jsonw",
   ],
   "python:class": [
     "def", "init", "prop", "iter", "repr", "super", "class", "dataclass",
-    "for", "try", "if", "ife", "with", "print",
+    "for", "try", "if", "ife", "with", "print", "docc", "doc",
   ],
   "python:function": [
     "for", "if", "ife", "try", "with", "while", "print",
-    "lambda", "super", "docf", "def",
+    "lambda", "super", "docf", "doc", "def",
     // 爬虫脚手架（C 组）
     "reqget", "reqpost", "reqsess", "hget", "bs4", "lxml", "css", "jsonld",
     "page", "ua", "proxy", "rsleep", "csvw", "jsonw",

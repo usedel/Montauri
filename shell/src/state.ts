@@ -31,6 +31,8 @@ export interface Settings {
   probe_enabled: boolean;
   lsp_engine: string;
   format_on_save: boolean;
+  /** 保存时用 ruff 整理导入（Ctrl+Alt+O 的保存联动；与 format_on_save 同模式） */
+  optimize_imports_on_save: boolean;
   runtime_intel_enabled: boolean;
   terminal_cwd: string;
   /** 集成终端 shell："auto" | "pwsh" | "powershell" | "cmd"（auto 按顺序回退） */
@@ -66,6 +68,7 @@ export const DEFAULT_SETTINGS: Settings = {
   probe_enabled: true,
   lsp_engine: "pyrefly",
   format_on_save: false,
+  optimize_imports_on_save: false,
   runtime_intel_enabled: true,
   terminal_cwd: "workspace",
   terminal_shell: "auto",
@@ -85,12 +88,30 @@ export const DEFAULT_SETTINGS: Settings = {
     comment_block: "Ctrl+Shift+/",
     template_palette: "Ctrl+J",
     surround: "Ctrl+Alt+T",
+    // P0（PyCharm 调研）：Optimize Imports / 最近文件（与 keybindings.ts META、Rust default_keybindings 三处同步）
+    optimize_imports: "Ctrl+Alt+O",
+    recent_files: "Ctrl+E",
+    // P1（PyCharm 调研）：转到文件 / 转到行 / 导航后退前进 / 本地历史
+    //（三处同步：此处 / keybindings.ts META / Rust default_keybindings）
+    goto_file: "Ctrl+Shift+N",
+    goto_line: "Ctrl+G",
+    nav_back: "Ctrl+Alt+Left",
+    nav_forward: "Ctrl+Alt+Right",
+    local_history: "Ctrl+Shift+H",
     // 调试五件套（debug dev plan §6.6；三处同步：此处 / keybindings.ts META / Rust default_keybindings）
     debug: "F5",
     debug_stop: "Shift+F5",
     debug_step_over: "F10",
     debug_step_into: "F11",
     debug_step_out: "Shift+F11",
+    // P1：断点处求值
+    debug_evaluate: "Alt+F8",
+    // P2：调试打磨组 + 书签 / 草稿 / 运行历史
+    debug_run_to_cursor: "Alt+F9",
+    bookmark_toggle: "Ctrl+F11",
+    bookmark_list: "Ctrl+Shift+F11",
+    scratch_new: "Ctrl+Alt+Shift+Insert",
+    run_history: "Ctrl+Shift+R",
     // Markdown 预览开关（与 keybindings.ts META / Rust default_keybindings 三处同步）
     markdown_preview: "Ctrl+Shift+V",
   },

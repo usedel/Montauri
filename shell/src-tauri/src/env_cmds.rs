@@ -901,6 +901,25 @@ mod tests {
         assert_eq!(h1.len(), 12);
     }
 
+    /// P1：调试复用运行配置——`dap::debug_start` 走的是 `read_run_config(root, 脚本绝对路径)`，
+    /// 与「运行」路径（`get_run_config` / `build_run_env`）是**同一个函数、同一个键**。
+    /// 此测试锁定键口径（相对工作区根 + 统一正斜杠）：任一侧改了口径，调试都会**静默**
+    /// 读不到配置（不报错，只是参数与环境变量全丢），属最难排查的一类故障。
+    #[test]
+    fn run_config_key_is_relative_and_stable() {
+        if cfg!(windows) {
+            assert_eq!(run_config_key("F:\\ws", "F:\\ws\\pkg\\mod.py"), "pkg/mod.py");
+            assert_eq!(run_config_key("F:/ws", "F:/ws/pkg/mod.py"), "pkg/mod.py");
+            assert_eq!(run_config_key("F:\\ws\\", "F:\\ws\\mod.py"), "mod.py");
+            // 工作区外的文件：退化为文件名，仍有一个稳定键（不因绝对路径漂移失效）
+            assert_eq!(run_config_key("F:\\ws", "G:\\other\\mod.py"), "mod.py");
+        } else {
+            assert_eq!(run_config_key("/ws", "/ws/pkg/mod.py"), "pkg/mod.py");
+            assert_eq!(run_config_key("/ws/", "/ws/mod.py"), "mod.py");
+            assert_eq!(run_config_key("/ws", "/other/mod.py"), "mod.py");
+        }
+    }
+
     #[test]
     fn test_venv_python_missing() {
         // 不存在的 root 无 .venv → None

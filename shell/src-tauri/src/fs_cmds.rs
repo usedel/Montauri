@@ -1,4 +1,5 @@
 use serde::Serialize;
+use serde_json::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -403,6 +404,53 @@ fn create_project_impl(
     })
 }
 
+// ---------- Scratch 文件（P2：PyCharm Scratch 对标） ----------
+
+/// 草稿目录：`<data_root>/scratches/`——刻意放在**数据根而非工作区**里：
+/// 草稿的定义就是「不入库、不污染项目」，放工作区迟早会被误提交或误删。
+fn scratch_dir() -> PathBuf {
+    opencharm_home().join("scratches")
+}
+
+/// 在给定目录下创建下一个空闲编号的草稿文件（纯逻辑，可在单测里锁定）
+fn create_scratch_in(dir: &Path, ext: &str) -> Result<PathBuf, String> {
+    let ext = if ext.starts_with('.') { ext.to_string() } else { format!(".{ext}") };
+    for i in 1..1000 {
+        // 编号对**所有扩展名**共享（scratch-1.py 之后是 scratch-2.md 而不是又一个 1），
+        // 否则同一个编号会对应多个草稿，列表里没法分辨。
+        let prefix = format!("scratch-{i}.");
+        let taken = fs::read_dir(dir)
+            .ok()
+            .map(|rd| rd.flatten().any(|e| e.file_name().to_string_lossy().starts_with(&prefix)))
+            .unwrap_or(false);
+        if taken {
+            continue;
+        }
+        let p = dir.join(format!("scratch-{i}{ext}"));
+        if !p.exists() {
+            // Python 草稿给个可直接跑的骨架（含 __main__ 守卫，与「运行当前文件」的守卫行判定对齐）
+            let body = if ext == ".py" || ext == ".pyw" {
+                "# OpenCharm 草稿（不入库，可直接运行 / 调试）\n\n\ndef main() -> None:\n    pass\n\n\nif __name__ == \"__main__\":\n    main()\n"
+            } else {
+                ""
+            };
+            fs::write(&p, body).map_err(|e| format!("创建草稿失败：{e}"))?;
+            return Ok(p);
+        }
+    }
+    Err("草稿文件过多（已到 scratch-999），请清理草稿目录后再试".into())
+}
+
+/// 新建一个草稿文件，返回其绝对路径。ext 缺省 ".py"。
+#[tauri::command]
+pub fn create_scratch(ext: Option<String>) -> Result<String, String> {
+    let dir = scratch_dir();
+    fs::create_dir_all(&dir).map_err(|e| format!("创建草稿目录失败：{e}"))?;
+    let ext = ext.as_deref().unwrap_or(".py");
+    let p = create_scratch_in(&dir, ext)?;
+    Ok(p.to_string_lossy().into_owned())
+}
+
 // ---------- 代码格式化（ruff，独立子进程，不走 LSP 桥） ----------
 
 #[derive(Serialize)]
@@ -459,6 +507,66 @@ fn format_python_impl(path: String, content: String) -> Result<FormatResult, Str
         Ok(FormatResult {
             formatted: None,
             message: String::from_utf8_lossy(&out.stderr).trim().to_string(),
+        })
+    }
+}
+
+// ---------- Optimize Imports（ruff isort 规则 + F401，PyCharm Ctrl+Alt+O 对标） ----------
+
+/// 规则集：I = isort 兼容的导入排序/合并；F401 = 未使用的导入。
+/// 二者合起来即 PyCharm「Optimize Imports」的核心语义（排序 + 去重 + 删无用）。
+/// 不启用 --fix 之外的其它规则，避免把「整理导入」变成「顺手改一堆代码」。
+const OPTIMIZE_IMPORT_RULES: &str = "I,F401";
+
+/// 在缓冲区上整理导入（不落盘，编辑器层负责应用与撤销）。
+/// 与 format_python 同款 stdin 管线（架构铁律：ruff 走独立子进程，不占 LSP 桥）。
+/// ruff 缺席不拖垮功能：返回错误信息由前端提示。
+#[tauri::command]
+pub async fn optimize_imports(path: String, content: String) -> Result<FormatResult, String> {
+    tauri::async_runtime::spawn_blocking(move || optimize_imports_impl(path, content))
+        .await
+        .map_err(|e| format!("任务执行异常：{e}"))?
+}
+
+fn optimize_imports_impl(path: String, content: String) -> Result<FormatResult, String> {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    // `--fix` + 从 stdin 读：ruff 把整理后的全文写回 stdout（改动为空时原样回显）。
+    // 退出码 0 = 无诊断，1 = 有诊断（含已修复的），>1 = 用法/内部错误；故只把 >1 判失败。
+    let mut cmd = tool_command("ruff", ENV_RUFF);
+    cmd.args(["check", "--fix", "--select", OPTIMIZE_IMPORT_RULES, "--stdin-filename", &path, "-"]);
+    let mut child = match no_window(&mut cmd)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            return Ok(FormatResult {
+                formatted: None,
+                message: format!("无法启动 ruff（可能未安装）：{e}"),
+            })
+        }
+    };
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(content.as_bytes());
+    }
+    let out = child
+        .wait_with_output()
+        .map_err(|e| format!("ruff 执行失败：{e}"))?;
+    let code = out.status.code().unwrap_or(1);
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    if code > 1 || stdout.is_empty() {
+        Ok(FormatResult {
+            formatted: None,
+            message: String::from_utf8_lossy(&out.stderr).trim().to_string(),
+        })
+    } else {
+        Ok(FormatResult {
+            formatted: Some(stdout),
+            message: String::new(),
         })
     }
 }
@@ -752,6 +860,262 @@ fn search_one_file(
     }
 }
 
+// ---------- TODO 工具窗（PyCharm TODO tool window 对标） ----------
+
+/// 识别的标记（顺序即「同一行多个命中时的优先级」）。
+/// TODO/FIXME 大小写不敏感（PyCharm 默认模式）；XXX/HACK/BUG 要求全大写——
+/// 小写形态（xxx / hack / bug）在自然语言与技术文本中过于常见，放宽会淹没结果。
+const TODO_TAGS: [&str; 5] = ["TODO", "FIXME", "HACK", "BUG", "XXX"];
+
+/// 需要全大写匹配的标记（见 TODO_TAGS 注释）
+const TODO_TAGS_CASE_SENSITIVE: [&str; 3] = ["HACK", "BUG", "XXX"];
+
+/// 结果上限（防超大仓库把序列化与前端渲染拖垮，与搜索同一思路）
+const MAX_TODOS: usize = 2000;
+
+#[derive(Serialize, Clone)]
+pub struct TodoMatch {
+    pub path: String,
+    pub line: u32,
+    /// 归一化后的标记（大写，如 "TODO"）
+    pub tag: String,
+    /// 标记之后的说明文字（去掉前导 `: -` 等分隔符）
+    pub message: String,
+    /// 整行原文（trim 后，供悬停/收起时查看上下文）
+    pub text: String,
+}
+
+/// 工作区 TODO/FIXME 扫描：复用 search_workspace 的 `ignore` 走查（.gitignore 感知 +
+/// 隐藏过滤 + 噪声目录剪枝），命中行按「文件 → 行号」排序。
+#[tauri::command]
+pub async fn scan_todos(root: String) -> Result<Vec<TodoMatch>, String> {
+    tauri::async_runtime::spawn_blocking(move || scan_todos_impl(&root))
+        .await
+        .map_err(|e| format!("任务执行异常：{e}"))?
+}
+
+fn scan_todos_impl(root: &str) -> Result<Vec<TodoMatch>, String> {
+    let root_path = Path::new(root);
+    if !root_path.is_dir() {
+        return Err(format!("工作区目录不存在：{root}"));
+    }
+    let mut out: Vec<TodoMatch> = Vec::new();
+    for path in collect_files(root_path) {
+        if out.len() >= MAX_TODOS {
+            break;
+        }
+        // 与搜索同一口径：超大 / 二进制 / 非 UTF-8 一律跳过（不计数、不报错）
+        if let Ok(meta) = fs::metadata(&path) {
+            if meta.len() > MAX_FILE_SIZE {
+                continue;
+            }
+        }
+        let Some(content) = read_text_file(&path) else { continue };
+        let path_str = path.to_string_lossy().into_owned();
+        for (i, raw) in content.lines().enumerate() {
+            let Some((col, tag)) = find_todo_tag(raw) else { continue };
+            let after = raw[col + tag.len()..].trim();
+            let message = after
+                .trim_start_matches(|c: char| c == ':' || c == '-' || c == '(' || c == '：')
+                .trim()
+                .to_string();
+            out.push(TodoMatch {
+                path: path_str.clone(),
+                line: (i + 1) as u32,
+                tag: tag.to_string(),
+                message,
+                text: raw.trim().to_string(),
+            });
+            if out.len() >= MAX_TODOS {
+                break;
+            }
+        }
+    }
+    out.sort_by(|a, b| a.path.cmp(&b.path).then(a.line.cmp(&b.line)));
+    Ok(out)
+}
+
+/// 在行内定位最左侧的 TODO 标记，返回 (字节列, 标记)。含 ASCII 词边界判定——
+/// `TODOS` / `myTODO` 之类不算命中（否则变量名里的子串会大量误报）。
+fn find_todo_tag(line: &str) -> Option<(usize, &'static str)> {
+    let bytes = line.as_bytes();
+    let mut best: Option<(usize, &'static str)> = None;
+    for tag in TODO_TAGS {
+        let t = tag.as_bytes();
+        let case_sensitive = TODO_TAGS_CASE_SENSITIVE.contains(&tag);
+        let mut start = 0usize;
+        while start + t.len() <= bytes.len() {
+            let hit = if case_sensitive {
+                &bytes[start..start + t.len()] == t
+            } else {
+                bytes[start..start + t.len()].eq_ignore_ascii_case(t)
+            };
+            if hit && todo_boundary_ok(bytes, start, t.len()) {
+                if best.map_or(true, |(b, _)| start < b) {
+                    best = Some((start, tag));
+                }
+                break;
+            }
+            start += 1;
+        }
+    }
+    best
+}
+
+/// 词边界：前后均不得为字母/数字/下划线
+fn todo_boundary_ok(bytes: &[u8], start: usize, len: usize) -> bool {
+    let end = start + len;
+    let before_ok = start == 0 || {
+        let c = bytes[start - 1];
+        !(c.is_ascii_alphanumeric() || c == b'_')
+    };
+    let after_ok = end >= bytes.len() || {
+        let c = bytes[end];
+        !(c.is_ascii_alphanumeric() || c == b'_')
+    };
+    before_ok && after_ok
+}
+
+// ---------- ruff 实时 lint（P2：诊断第三桶） ----------
+
+/// lint 规则集：E/W = pycodestyle（PEP8 风格与格式），F = pyflakes（未使用导入/变量、未定义名）。
+/// 与 Optimize Imports 的区别：那里是**改写**（只取 I/F401 且 --fix），这里是**只读诊断**，
+/// 故范围更宽——用户看到的是「PEP8 级卫生问题」，不动代码。
+///
+/// 刻意显式指定而非交给项目配置：诊断口径必须**稳定可预期**（同一个文件不会因为
+/// 工作区里多了一个 pyproject.toml 就突然刷出几百条），否则 lint 很快会被当成噪音关掉。
+const LINT_RULES: &str = "E,W,F";
+
+#[derive(Serialize, Clone)]
+pub struct RuffDiagnostic {
+    /// 1 基行号
+    pub line: u32,
+    /// 1 基列号
+    pub column: u32,
+    pub end_line: u32,
+    pub end_column: u32,
+    pub message: String,
+    /// 规则码（如 "F401"）；缺失时为 null
+    pub code: Option<String>,
+}
+
+/// ruff check（JSON 输出）在缓冲区上做只读诊断，不改写任何内容。
+///
+/// 退出码语义（与 optimize_imports 同款）：0 = 无诊断，1 = 有诊断，>1 = 用法/内部错误。
+/// 故 **1 是正常路径**，只有 >1 才判失败——把「有诊断」当错误会让 lint 恒为空。
+/// ruff 缺席/失败一律返回空列表：lint 是增强，绝不能拖垮编辑（与探针缺席策略一致）。
+#[tauri::command]
+pub async fn ruff_lint(path: String, content: String) -> Result<Vec<RuffDiagnostic>, String> {
+    tauri::async_runtime::spawn_blocking(move || ruff_lint_impl(&path, &content))
+        .await
+        .map_err(|e| format!("任务执行异常：{e}"))?
+}
+
+fn ruff_lint_impl(path: &str, content: &str) -> Result<Vec<RuffDiagnostic>, String> {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    let mut cmd = tool_command("ruff", ENV_RUFF);
+    cmd.args([
+        "check",
+        "--output-format",
+        "json",
+        "--select",
+        LINT_RULES,
+        "--no-cache",
+        "--stdin-filename",
+        path,
+        "-",
+    ]);
+    let mut child = match no_window(&mut cmd)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(_) => return Ok(Vec::new()), // ruff 缺席：静默降级
+    };
+    if let Some(mut stdin) = child.stdin.take() {
+        // 子进程可能提前退出（如语法错误极多），忽略 BrokenPipe
+        let _ = stdin.write_all(content.as_bytes());
+    }
+    let out = match child.wait_with_output() {
+        Ok(o) => o,
+        Err(_) => return Ok(Vec::new()),
+    };
+    // 与 optimize_imports 同口径：>1 才是真失败
+    if out.status.code().unwrap_or(1) > 1 {
+        return Ok(Vec::new());
+    }
+    Ok(parse_ruff_json(&String::from_utf8_lossy(&out.stdout)))
+}
+
+/// 解析 ruff 的 JSON 诊断数组；解析失败返回空（宁可少报也不要报错弹窗）
+fn parse_ruff_json(raw: &str) -> Vec<RuffDiagnostic> {
+    let value: Value = match serde_json::from_str(raw) {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
+    let Some(items) = value.as_array() else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for it in items {
+        let start = it.get("location").and_then(|l| l.get("row")).and_then(serde_json::Value::as_u64);
+        let Some(line) = start else { continue };
+        let col = it.get("location").and_then(|l| l.get("column")).and_then(serde_json::Value::as_u64).unwrap_or(1);
+        // end_location 缺失（旧版 ruff）时退化为「起点 + 1 列」的单字符范围——
+        // Monaco 不接受 0 宽范围以外的非法范围，退化值至少保证标记能落在正确行上
+        let end_line = it.get("end_location").and_then(|l| l.get("row")).and_then(serde_json::Value::as_u64).unwrap_or(line);
+        let end_col = it.get("end_location").and_then(|l| l.get("column")).and_then(serde_json::Value::as_u64).unwrap_or(col + 1);
+        let message = it.get("message").and_then(serde_json::Value::as_str).unwrap_or("").to_string();
+        if message.is_empty() {
+            continue;
+        }
+        let code = it.get("code").and_then(serde_json::Value::as_str).map(|s| s.to_string());
+        out.push(RuffDiagnostic {
+            line: line as u32,
+            column: col as u32,
+            end_line: end_line as u32,
+            end_column: end_col as u32,
+            message,
+            code,
+        });
+    }
+    out
+}
+
+// ---------- 工作区文件清单（P1：Search Everywhere 文件名检索用） ----------
+
+/// 文件清单上限：超大仓库只取前 N 条，避免序列化与前端渲染被拖垮
+///（清单只服务于「按文件名快速跳转」，截断不影响定位常用文件）。
+const MAX_FILE_LIST: usize = 20_000;
+
+/// 列出工作区内的全部文件路径（复用 search_workspace 的 `ignore` 走查：.gitignore 感知 +
+/// 隐藏过滤 + 噪声目录剪枝），按路径排序。
+/// async + spawn_blocking：大仓库遍历可能耗时，同步 command 会卡死主线程 UI。
+#[tauri::command]
+pub async fn list_workspace_files(root: String) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || list_workspace_files_impl(&root))
+        .await
+        .map_err(|e| format!("任务执行异常：{e}"))?
+}
+
+fn list_workspace_files_impl(root: &str) -> Result<Vec<String>, String> {
+    let root_path = Path::new(root);
+    if !root_path.is_dir() {
+        return Err(format!("工作区目录不存在：{root}"));
+    }
+    let mut files: Vec<String> = collect_files(root_path)
+        .into_iter()
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect();
+    files.sort();
+    files.truncate(MAX_FILE_LIST);
+    Ok(files)
+}
+
 // ---------- 单元测试 ----------
 
 #[cfg(test)]
@@ -913,5 +1277,145 @@ mod tests {
         assert_eq!(r2.matches.len(), 1);
         assert_eq!(r2.matches[0].line, 2);
         fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn todo_tag_requires_word_boundary() {
+        // 词边界：变量名里的子串不算 TODO
+        assert_eq!(find_todo_tag("# TODO: 重构这里").map(|(_, t)| t), Some("TODO"));
+        assert_eq!(find_todo_tag("# todo 也识别（大小写不敏感）").map(|(_, t)| t), Some("TODO"));
+        assert!(find_todo_tag("todos = []").is_none(), "TODOS 不应命中");
+        assert!(find_todo_tag("my_todo_helper()").is_none(), "下划线连接的词不算");
+        assert!(find_todo_tag("def fixme_handler():").is_none(), "FIXME_ 前缀不是标记");
+        // XXX/HACK/BUG 要求全大写（小写形态过于常见）
+        assert_eq!(find_todo_tag("# XXX 临时方案").map(|(_, t)| t), Some("XXX"));
+        assert!(find_todo_tag("# xxx 小写不识别").is_none());
+        assert_eq!(find_todo_tag("# HACK: 绕过").map(|(_, t)| t), Some("HACK"));
+        assert!(find_todo_tag("# hack").is_none());
+        // 无标记
+        assert!(find_todo_tag("x = 1").is_none());
+    }
+
+    #[test]
+    fn todo_message_strips_leading_separators() {
+        assert_eq!(find_todo_tag("# TODO: 补齐异常分支").map(|(c, t)| (c, t)), Some((2, "TODO")));
+        // message 由调用方裁剪，这里验证裁剪口径（冒号/横线/括号/中文冒号）
+        for (raw, expect) in [
+            ("# TODO: 补齐异常分支", "补齐异常分支"),
+            ("# TODO - 补齐异常分支", "补齐异常分支"),
+            ("# TODO 补齐异常分支", "补齐异常分支"),
+            ("# TODO", ""),
+        ] {
+            let (col, tag) = find_todo_tag(raw).expect("应命中");
+            let after = raw[col + tag.len()..].trim();
+            let msg = after
+                .trim_start_matches(|c: char| c == ':' || c == '-' || c == '(' || c == '：')
+                .trim();
+            assert_eq!(msg, expect, "raw={raw}");
+        }
+    }
+
+    #[test]
+    fn test_scan_todos() {
+        let base = tmpdir("todo");
+        fs::write(
+            base.join("a.py"),
+            "import os\n# TODO: 删掉未使用的导入\nx = os.sep  # FIXME(x): 边界没兜住\nnormal = 1\n",
+        )
+        .unwrap();
+        fs::create_dir_all(base.join("pkg")).unwrap();
+        fs::write(base.join("pkg").join("b.py"), "# XXX 临时实现\n").unwrap();
+        // 忽略目录内的 TODO 不应出现（复用 collect_files 的 .gitignore/噪声目录剪枝）
+        fs::create_dir_all(base.join(".venv")).unwrap();
+        fs::write(base.join(".venv").join("c.py"), "# TODO hidden\n").unwrap();
+
+        let r = scan_todos_impl(&base.to_string_lossy()).unwrap();
+        assert_eq!(r.len(), 3, "a.py 两处 + pkg/b.py 一处");
+        assert!(r.iter().all(|m| !m.path.contains(".venv")));
+        // 按文件 → 行号排序
+        assert_eq!(r[0].line, 2);
+        assert_eq!(r[0].tag, "TODO");
+        assert_eq!(r[0].message, "删掉未使用的导入");
+        assert_eq!(r[1].line, 3);
+        assert_eq!(r[1].tag, "FIXME");
+        assert_eq!(r[1].message, "x): 边界没兜住");
+        assert_eq!(r[2].tag, "XXX");
+        assert!(r[2].path.ends_with("b.py"));
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn scan_todos_rejects_missing_root() {
+        let missing = std::env::temp_dir().join("opencharm-scan-todos-missing-dir");
+        assert!(scan_todos_impl(&missing.to_string_lossy()).is_err());
+    }
+
+    #[test]
+    fn test_list_workspace_files() {
+        let base = tmpdir("filelist");
+        fs::write(base.join("a.py"), "x=1").unwrap();
+        fs::create_dir_all(base.join("pkg")).unwrap();
+        fs::write(base.join("pkg").join("b.py"), "y=2").unwrap();
+        // 噪声/忽略目录不出现（与 search_workspace 同一走查口径）
+        fs::create_dir_all(base.join(".venv")).unwrap();
+        fs::write(base.join(".venv").join("c.py"), "z=3").unwrap();
+
+        let files = list_workspace_files_impl(&base.to_string_lossy()).unwrap();
+        assert_eq!(files.len(), 2, "只应有 a.py 与 pkg/b.py");
+        assert!(files.iter().all(|p| !p.contains(".venv")));
+        // 按路径排序（稳定输出，前端可直接按序渲染）
+        let mut sorted = files.clone();
+        sorted.sort();
+        assert_eq!(files, sorted);
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn create_scratch_picks_next_free_number() {
+        let d = tmpdir("scratch");
+        let a = create_scratch_in(&d, ".py").unwrap();
+        assert_eq!(a.file_name().unwrap().to_string_lossy(), "scratch-1.py");
+        // .py 草稿带可直接运行的骨架（含 __main__ 守卫）
+        let body = fs::read_to_string(&a).unwrap();
+        assert!(body.contains("if __name__"));
+        let b = create_scratch_in(&d, "py").unwrap(); // 无点前缀也应补上
+        assert_eq!(b.file_name().unwrap().to_string_lossy(), "scratch-2.py");
+        let c = create_scratch_in(&d, ".md").unwrap();
+        assert_eq!(c.file_name().unwrap().to_string_lossy(), "scratch-3.md");
+        assert_eq!(fs::read_to_string(&c).unwrap(), ""); // 非 Python 草稿是空文件
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn parse_ruff_json_maps_diagnostics() {
+        let raw = r#"[
+            {"code":"F401","message":"`os` imported but unused","location":{"row":1,"column":8},"end_location":{"row":1,"column":10}},
+            {"code":null,"message":"no code","location":{"row":7,"column":2}}
+        ]"#;
+        let got = parse_ruff_json(raw);
+        assert_eq!(got.len(), 2);
+        assert_eq!(got[0].code.as_deref(), Some("F401"));
+        assert_eq!(got[0].line, 1);
+        assert_eq!(got[0].column, 8);
+        assert_eq!(got[0].end_line, 1);
+        assert_eq!(got[0].end_column, 10);
+        // code 缺失 → None；end_location 缺失 → 退化为「起点 + 1 列」
+        assert_eq!(got[1].code, None);
+        assert_eq!(got[1].end_column, 3);
+    }
+
+    #[test]
+    fn parse_ruff_json_tolerates_garbage() {
+        // 非 JSON / 非数组 / 缺 message / 空数组：一律返回空，不报错
+        assert!(parse_ruff_json("not json").is_empty());
+        assert!(parse_ruff_json("{}").is_empty());
+        assert!(parse_ruff_json("[]").is_empty());
+        assert!(parse_ruff_json(r#"[{"code":"E1"}]"#).is_empty());
+    }
+
+    #[test]
+    fn list_workspace_files_rejects_missing_root() {
+        let missing = std::env::temp_dir().join("opencharm-file-list-missing-dir");
+        assert!(list_workspace_files_impl(&missing.to_string_lossy()).is_err());
     }
 }

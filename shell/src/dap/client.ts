@@ -52,7 +52,44 @@ export interface DapThread {
   name: string;
 }
 
+/** DAP `evaluate` 的响应（P1：求值表达式 / 调试控制台） */
+export interface DapEvaluateResult {
+  /** 求值结果的字符串表示（可直接展示） */
+  result: string;
+  /** 值类型（debugpy 给出 repr 的类型名，可选） */
+  type?: string;
+  /** 非 0 = 该值可继续展开（在 variables 里查子项） */
+  variablesReference: number;
+}
+
 export type DebugPhase = "idle" | "starting" | "running" | "stopped" | "exited";
+
+// ---------- 断点规格（P0：条件断点 / 命中断点 / Logpoint） ----------
+//
+// 三个字段都是 DAP `SourceBreakpoint` 的**原生字段**（D2/D3），debugpy 完整支持：
+// - condition    ：表达式为真才断下（Python 表达式，在断点所在帧求值）；
+// - hitCondition ：命中次数条件，形如 "5" / ">3" / "%2==0"（DAP 规范为次数表达式）；
+// - logMessage   ：**不打停**，只把 {expr} 插值后打印到调试控制台（Logpoint）。
+// Rust 侧 `dap_send_request` 把 params 作为 serde_json::Value 原样转发（无白名单），
+// 故新增字段无需改动 dap.rs——协议桥是纯透传的。
+
+/** 单个断点的高级属性（全空 = 普通断点） */
+export interface BreakpointSpec {
+  /** 条件表达式（空 = 无条件） */
+  condition?: string;
+  /** 命中次数条件（空 = 每次都断） */
+  hitCondition?: string;
+  /** 日志消息（非空 = Logpoint，不断下只打印） */
+  logMessage?: string;
+}
+
+/** 推送给 debugpy 的断点项（line + 可选高级字段） */
+export interface DapSourceBreakpoint extends BreakpointSpec {
+  line: number;
+}
+
+/** 断点类型（UI 渲染/排序用） */
+export type BreakpointKind = "plain" | "condition" | "log";
 
 // ---------- 会话状态（§6.5 状态机） ----------
 
@@ -291,12 +328,62 @@ export async function dapVariables(variablesReference: number): Promise<DapVaria
   return body?.variables ?? [];
 }
 
-/** 设置单文件断点（§6.4：params = { source: { path }, breakpoints: [{line}] }） */
-export async function dapSetBreakpoints(path: string, lines: number[]): Promise<any> {
+/**
+ * 设置单文件断点（§6.4 + P0 条件断点/Logpoint）。
+ * params = { source: { path }, breakpoints: [{ line, condition?, hitCondition?, logMessage? }] }
+ * 只带非空字段——全空字段显式传 null 会让部分适配器把断点判为「不可用」。
+ */
+export async function dapSetBreakpoints(path: string, bps: DapSourceBreakpoint[]): Promise<any> {
   return request("setBreakpoints", {
     source: { path },
-    breakpoints: lines.map((l) => ({ line: l })),
+    breakpoints: bps.map((b) => {
+      const out: Record<string, unknown> = { line: b.line };
+      if (b.condition) out.condition = b.condition;
+      if (b.hitCondition) out.hitCondition = b.hitCondition;
+      if (b.logMessage) out.logMessage = b.logMessage;
+      return out;
+    }),
   });
+}
+
+/**
+ * 求值表达式（P1，PyCharm Alt+F8 / Debug Console 的协议基础）。
+ *
+ * `frameId` 省略时 debugpy 用**当前选中帧**；显式传入可固定到某一帧（切换栈帧后求值）。
+ * `context` 取 "repl" —— 语义即「像在解释器里敲这行」，副作用会真实发生
+ * （这是 Debug Console 与 hover 求值的分水岭，后者用 "hover" 且应无副作用）。
+ */
+export async function dapEvaluate(
+  expression: string,
+  frameId?: number | null,
+  context: "repl" | "watch" | "hover" | "clipboard" = "repl",
+): Promise<DapEvaluateResult> {
+  const args: Record<string, unknown> = { expression, context };
+  if (frameId !== undefined && frameId !== null) args.frameId = frameId;
+  const body = await request("evaluate", args);
+  return {
+    result: body?.result ?? "",
+    type: body?.type,
+    variablesReference: body?.variablesReference ?? 0,
+  };
+}
+
+/**
+ * 改写变量值（P1 · DAP `setVariable`）。
+ * `variablesReference` 为变量所在容器（locals / globals scope 的引用），不是变量自身。
+ */
+export async function dapSetVariable(
+  variablesReference: number,
+  name: string,
+  value: string,
+): Promise<DapVariable> {
+  const body = await request("setVariable", { variablesReference, name, value });
+  return {
+    name: body?.name ?? name,
+    value: body?.value ?? "",
+    type: body?.type,
+    variablesReference: body?.variablesReference ?? 0,
+  };
 }
 
 /** 步进控制（§1.1）：继续 / 单步跳过 / 单步进入 / 单步退出 / 暂停 */

@@ -4,6 +4,7 @@
 // - 粘贴同名自动加「 - 副本」后缀；
 // - 重命名联动逻辑（标签/LSP/诊断/树）在 T03 由前端负责，这里只做磁盘层面 rename 并返回结果。
 
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 use tauri_plugin_clipboard_manager::ClipboardExt;
@@ -304,6 +305,65 @@ pub fn add_recent(workspace_root: String, file: String) -> Result<Vec<String>, S
     Ok(list)
 }
 
+// ---------- 书签（P2：行级书签，工作区级，存 <data_root>/bookmarks/<hash>.json） ----------
+
+/// 一个书签：文件 + 行号 + 建书签时那一行的文本（列表里直接能看懂，不必再读盘）
+#[derive(Serialize, Deserialize, Clone)]
+pub struct Bookmark {
+    pub path: String,
+    pub line: u32,
+    pub text: String,
+}
+
+fn bookmarks_path(root: &str) -> PathBuf {
+    opencharm_home().join("bookmarks").join(format!("{}.json", project_hash(root)))
+}
+
+/// 全部书签（按添加顺序）
+#[tauri::command]
+pub fn get_bookmarks(workspace_root: String) -> Result<Vec<Bookmark>, String> {
+    let p = bookmarks_path(&workspace_root);
+    if !p.is_file() {
+        return Ok(Vec::new());
+    }
+    let s = fs::read_to_string(p).map_err(|e| e.to_string())?;
+    Ok(serde_json::from_str(&s).unwrap_or_default())
+}
+
+fn write_bookmarks(workspace_root: &str, list: &[Bookmark]) -> Result<(), String> {
+    let p = bookmarks_path(workspace_root);
+    fs::create_dir_all(p.parent().unwrap_or(Path::new(""))).map_err(|e| e.to_string())?;
+    let json = serde_json::to_string(list).map_err(|e| format!("序列化书签失败：{e}"))?;
+    fs::write(p, json).map_err(|e| e.to_string())
+}
+
+/// 切换书签：同文件同行已存在则移除，否则追加（返回更新后的列表）
+#[tauri::command]
+pub fn toggle_bookmark(
+    workspace_root: String,
+    path: String,
+    line: u32,
+    text: String,
+) -> Result<Vec<Bookmark>, String> {
+    let mut list = get_bookmarks(workspace_root.clone())?;
+    let hit = list.iter().position(|b| b.path == path && b.line == line);
+    match hit {
+        Some(i) => {
+            list.remove(i);
+        }
+        None => list.push(Bookmark { path, line, text }),
+    }
+    write_bookmarks(&workspace_root, &list)?;
+    Ok(list)
+}
+
+/// 清空工作区全部书签
+#[tauri::command]
+pub fn clear_bookmarks(workspace_root: String) -> Result<Vec<Bookmark>, String> {
+    write_bookmarks(&workspace_root, &[])?;
+    Ok(Vec::new())
+}
+
 // ---------- 单元测试 ----------
 
 #[cfg(test)]
@@ -431,18 +491,43 @@ mod tests {
         assert_eq!(strip_verbatim_prefix("F:\\plain\\path"), "F:\\plain\\path");
     }
 
-    /// 本机对齐验证：probe 对 bench/sample/unannotated_scraper 的 trace 库 hash 为 dc7d8df083c6。
-    /// 路径不存在（CI/异机）时跳过。相对 CARGO_MANIFEST_DIR（shell/src-tauri）回溯到仓库根。
+    /// 与 probe 的口径对齐验证（**不依赖任何具体机器路径**）。
+    ///
+    /// probe（`probe/src/opencharm_probe/store.py::project_hash`）的哈希输入是
+    /// `sha1(normpath(realpath(root)))[:12]`：realpath 解析真实路径并去掉尾部分隔符，
+    /// normpath 统一为反斜杠。因此「同一目录的不同书写形式」在两端必须落到同一个
+    /// trace 库文件名上——这里用运行期真实存在的临时目录断言这些不变式。
+    ///
+    /// （原实现写死本机 hash `dc7d8df083c6`，换机器/换盘符必然误报，故改为不变式断言。）
     #[test]
-    fn test_project_hash_aligns_with_probe() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("..")
-            .join("..")
-            .join("bench")
-            .join("sample")
-            .join("unannotated_scraper");
-        if root.exists() {
-            assert_eq!(project_hash(&root.to_string_lossy()), "dc7d8df083c6");
-        }
+    fn project_hash_aligns_with_probe_normalization() {
+        let dir = tmpdir("projhash");
+        let plain = dir.to_string_lossy().to_string();
+
+        // 1. 确定性 + 形态：12 位小写 hex
+        let h = project_hash(&plain);
+        assert_eq!(h, project_hash(&plain));
+        assert_eq!(h.len(), 12);
+        assert!(h.chars().all(|c| c.is_ascii_hexdigit()));
+
+        // 2. 正/反斜杠混写（对应 Python normpath 的分隔符归一）
+        assert_eq!(project_hash(&plain.replace('\\', "/")), h);
+
+        // 3. 尾部分隔符（对应 realpath 归一：带与不带必须同键）
+        assert_eq!(project_hash(&format!("{plain}/")), h);
+        #[cfg(windows)]
+        assert_eq!(project_hash(&format!("{plain}\\")), h);
+
+        // 4. Windows verbatim 前缀：fs::canonicalize 会带 `\\?\`，而 Python realpath 不会
+        //    —— strip_verbatim_prefix 正是两端对齐点（仅 Windows 有意义）。
+        #[cfg(windows)]
+        assert_eq!(project_hash(&format!("\\\\?\\{plain}")), h);
+
+        // 5. 不同目录 → 不同键（trace 库文件名隔离）
+        let other = dir.join("other");
+        fs::create_dir_all(&other).unwrap();
+        assert_ne!(project_hash(&other.to_string_lossy()), h);
+
+        fs::remove_dir_all(dir).unwrap();
     }
 }

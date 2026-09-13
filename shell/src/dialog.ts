@@ -28,12 +28,31 @@ export interface AlertOptions {
   kind?: DialogKind;
 }
 
+export interface PromptOptions {
+  title: string;
+  /** 输入框上方的说明（如「Python 表达式，为真时才断下」） */
+  label?: string;
+  /** 初始值（编辑既有条件时回填） */
+  value?: string;
+  placeholder?: string;
+  /** 确定按钮文案，默认「确定」 */
+  okLabel?: string;
+}
+
 // CR-26：顶层 DOM 快照改惰性（测试环境无完整 DOM 时模块仍可被 import）
 const modalEl = lazyEl("confirm-modal");
 const titleEl = lazyEl("confirm-title");
 const messageEl = lazyEl("confirm-message");
 const okBtn = lazyEl<HTMLButtonElement>("confirm-ok");
 const cancelBtn = lazyEl<HTMLButtonElement>("confirm-cancel");
+
+/** 输入框模态（#prompt-modal）：条件断点 / Logpoint 等「一行文本输入」场景 */
+const promptModalEl = lazyEl("prompt-modal");
+const promptTitleEl = lazyEl("prompt-title");
+const promptLabelEl = lazyEl("prompt-label");
+const promptInputEl = lazyEl<HTMLInputElement>("prompt-input");
+const promptOkBtn = lazyEl<HTMLButtonElement>("prompt-ok");
+const promptCancelBtn = lazyEl<HTMLButtonElement>("prompt-cancel");
 
 /** UI-08：切换 .btn 体系的变体类（原为裸 `danger`/`primary`，依赖已删除的 `.modal-actions button.*` 规则） */
 function applyKind(kind: DialogKind): void {
@@ -127,4 +146,57 @@ export function openAlert(opts: AlertOptions): Promise<void> {
     kind: opts.kind ?? "primary",
     withCancel: false,
   }).then(() => undefined);
+}
+
+/**
+ * 单行文本输入框（P0：条件断点 / Logpoint 表达式录入）。
+ * resolve 规则：
+ * - 确定 → 返回 trim 后的字符串（**允许空串**，调用方据此「清空条件」）；
+ * - 取消 / Esc / 点遮罩 → 返回 null（与空串区分，调用方据此保持原值不变）。
+ */
+export function openPrompt(opts: PromptOptions): Promise<string | null> {
+  return new Promise((resolve) => {
+    const card = promptModalEl.querySelector<HTMLElement>(".modal-card");
+    card?.setAttribute("aria-label", opts.title);
+    promptTitleEl.textContent = opts.title;
+    promptLabelEl.textContent = opts.label ?? "";
+    promptLabelEl.classList.toggle("hidden", !opts.label);
+    promptInputEl.value = opts.value ?? "";
+    promptInputEl.placeholder = opts.placeholder ?? "";
+    promptOkBtn.textContent = opts.okLabel ?? "确定";
+
+    showEl(promptModalEl);
+    let releaseFocus: (() => void) | null = trapFocus(promptModalEl);
+
+    const finish = (v: string | null): void => {
+      releaseFocus?.();
+      releaseFocus = null;
+      hideEl(promptModalEl);
+      promptOkBtn.onclick = null;
+      promptCancelBtn.onclick = null;
+      promptModalEl.onmousedown = null;
+      promptInputEl.onkeydown = null;
+      resolve(v);
+    };
+    // 回车 = 确定（输入框单行的自然语义）；Escape = 取消
+    const submit = (): void => finish(promptInputEl.value.trim());
+
+    promptOkBtn.onclick = submit;
+    promptCancelBtn.onclick = () => finish(null);
+    promptInputEl.onkeydown = (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        submit();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        finish(null);
+      }
+    };
+    promptModalEl.onmousedown = (e) => {
+      if (e.target === promptModalEl) finish(null);
+    };
+
+    promptInputEl.focus();
+    promptInputEl.select();
+  });
 }

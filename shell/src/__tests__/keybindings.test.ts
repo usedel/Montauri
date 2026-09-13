@@ -5,6 +5,7 @@ import {
   bindingChord,
   normalizeBinding,
   parseBinding,
+  parseKeyToken,
   validateKeybindingMap,
 } from "../keybindings";
 import { DEFAULT_SETTINGS } from "../state";
@@ -93,6 +94,24 @@ describe("三处默认值漂移锁", () => {
     for (const m of KEYBINDING_META) {
       expect(parseBinding(m.def), m.id).not.toBeNull();
     }
+  });
+});
+
+describe("parseKeyToken 方位键短名（P1：导航历史 Ctrl+Alt+Left/Right）", () => {
+  it("短名归一到标准 code（KeyboardEvent.code 只有 Arrow* 形态）", () => {
+    expect(parseKeyToken("Left")).toBe("ArrowLeft");
+    expect(parseKeyToken("right")).toBe("ArrowRight");
+    expect(parseKeyToken("UP")).toBe("ArrowUp");
+    expect(parseKeyToken("down")).toBe("ArrowDown");
+  });
+
+  it("完整 Arrow* 写法仍然可用", () => {
+    expect(parseKeyToken("ArrowLeft")).toBe("ArrowLeft");
+  });
+
+  it("导航历史默认键可解析", () => {
+    expect(parseBinding("Ctrl+Alt+Left")).toEqual({ ctrl: true, shift: false, alt: true, key: "ArrowLeft" });
+    expect(parseBinding("Ctrl+Alt+Right")).toEqual({ ctrl: true, shift: false, alt: true, key: "ArrowRight" });
   });
 });
 

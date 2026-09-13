@@ -73,6 +73,8 @@
           <div id="activity-bar" role="tablist" aria-orientation="vertical" aria-label="侧栏视图">
             <button id="tab-files" class="activity-item active" role="tab" aria-selected="true" aria-controls="view-files" aria-label="资源管理器" data-tip="资源管理器"><i class="codicon codicon-files" aria-hidden="true"></i></button>
             <button id="tab-search" class="activity-item" role="tab" aria-selected="false" aria-controls="view-search" aria-label="搜索" data-tip="搜索"><i class="codicon codicon-search" aria-hidden="true"></i></button>
+            <!-- P0：TODO 工具窗（PyCharm TODO tool window 对标） -->
+            <button id="tab-todo" class="activity-item" role="tab" aria-selected="false" aria-controls="view-todo" aria-label="待办标记" data-tip="待办标记（TODO / FIXME）"><i class="codicon codicon-checklist" aria-hidden="true"></i></button>
             <button id="tab-git" class="activity-item" role="tab" aria-selected="false" aria-controls="view-git" aria-label="源代码管理" data-tip="源代码管理"><i class="codicon codicon-source-control" aria-hidden="true"></i></button>
             <button id="tab-debug" class="activity-item" role="tab" aria-selected="false" aria-controls="view-debug" aria-label="调试" data-tip="调试"><i class="codicon codicon-debug-alt" aria-hidden="true"></i></button>
           </div>
@@ -120,6 +122,8 @@
                 <div id="search-results"></div>
               </div>
             </div>
+            <!-- TODO 工具窗（P0）：内容由 todoView.ts::initTodoView 构建 -->
+            <div id="view-todo" class="sidebar-view hidden" role="tabpanel" aria-labelledby="tab-todo"></div>
             <div id="view-git" class="sidebar-view hidden" role="tabpanel" aria-labelledby="tab-git">
               <div id="git-panel">
                 <div id="git-branch-bar">
@@ -157,6 +161,8 @@
           <!-- UI-16：编辑器标签 tablist。tab 由 main.ts::renderTabs 动态渲染（role=tab + aria-selected + 漫游 tabindex）。
                不设 aria-controls：所有 tab 共享同一个 Monaco 编辑器面板，逐 tab 声明独立 tabpanel 与事实不符 -->
           <div id="tabbar" role="tablist" aria-label="打开的编辑器"></div>
+          <!-- Breadcrumbs 面包屑（P2）：内容由 breadcrumbs.ts 动态渲染，无活动文件时自隐 -->
+          <div id="breadcrumbs" class="breadcrumbs hidden" role="navigation" aria-label="代码层级"></div>
           <div id="editor-row">
             <div id="editor"></div>
             <!-- Markdown 预览分隔条（markdown preview dev plan §5-T2）：拖动调整预览宽度，双击重置 -->
@@ -302,6 +308,18 @@
         </div>
       </div>
     </div>
+    <!-- 单行输入模态（P0：条件断点 / Logpoint 表达式录入；dialog.ts::openPrompt） -->
+    <div id="prompt-modal" class="modal hidden">
+      <div class="modal-card prompt-card" role="dialog" aria-modal="true">
+        <div id="prompt-title" class="modal-title"></div>
+        <div id="prompt-label" class="settings-hint"></div>
+        <input id="prompt-input" type="text" spellcheck="false" autocomplete="off" />
+        <div class="modal-actions">
+          <button id="prompt-ok" class="btn btn--primary">确定</button>
+          <button id="prompt-cancel" class="btn">取消</button>
+        </div>
+      </div>
+    </div>
     <!-- Python 环境面板（模态） -->
     <div id="env-modal" class="modal hidden">
       <div class="modal-card env-card" role="dialog" aria-modal="true" aria-labelledby="env-modal-title">
@@ -407,6 +425,9 @@
         </div>
         <div class="settings-body">
           <div class="settings-hint" id="run-config-target"></div>
+          <!-- P1：调试复用同一份运行配置（后端 debug_start 已直读 run_configs），此处显式告知，
+               并提前点出「stdin 重定向自文件」在调试下不支持——比启动失败后再报错友好 -->
+          <div class="settings-hint">此配置对「运行」与「调试」同时生效（同一份参数 / 环境变量 / 工作目录）。标准输入选「重定向自文件」时无法启动调试（调试进程不经由文件重定向），其余两种模式不受影响。</div>
           <div class="settings-row">
             <label for="run-config-args">参数 (Parameters)</label>
             <input id="run-config-args" type="text" placeholder="--flag value  含空格用引号" spellcheck="false" />
@@ -540,6 +561,12 @@
                 <label for="settings-format-on-save">保存时格式化（ruff）</label>
                 <input id="settings-format-on-save" type="checkbox" />
               </div>
+              <!-- P0（PyCharm 调研）：Optimize Imports 的保存联动，与保存时格式化同模式 -->
+              <div class="settings-row">
+                <label for="settings-optimize-imports-on-save">保存时整理导入（ruff I,F401）</label>
+                <input id="settings-optimize-imports-on-save" type="checkbox" />
+              </div>
+              <div class="settings-hint">整理导入 = 移除未使用的导入 + 按 isort 规则排序；手动触发见「快捷键 → Optimize Imports」。</div>
             </div>
             <div id="settings-section-python" class="settings-section hidden" role="tabpanel">
               <div class="settings-row">
@@ -702,6 +729,39 @@
       <div class="modal-card palette-card" role="dialog" aria-modal="true" aria-label="插入模板">
         <input id="palette-search" type="text" placeholder="过滤模板（缩写 / 描述），↑↓ 选择，Enter 插入，Esc 关闭" spellcheck="false" />
         <div id="palette-list" class="palette-list"></div>
+      </div>
+    </div>
+    <!-- 最近打开的文件（P0，Ctrl+E；内容由 recentFiles.ts::initRecentFiles 构建） -->
+    <div id="recent-modal" class="modal hidden"></div>
+    <!-- Search Everywhere（P1，Double Shift / Ctrl+Shift+N / Ctrl+G；内容由 quickOpen.ts 构建） -->
+    <div id="quick-open-modal" class="modal hidden"></div>
+    <!-- 书签列表（P2，Ctrl+Shift+F11；内容由 bookmarks.ts 构建） -->
+    <div id="bookmark-modal" class="modal hidden"></div>
+    <!-- 运行历史（P2；内容由 runHistory.ts 构建） -->
+    <div id="run-history-modal" class="modal hidden"></div>
+    <!-- 本地历史（P1，Ctrl+Shift+H）：左列表 + 右 diff 预览 -->
+    <div id="history-modal" class="modal hidden">
+      <div class="modal-card history-card" role="dialog" aria-modal="true" aria-labelledby="history-title">
+        <div class="env-header">
+          <span id="history-title" class="env-title">本地历史</span>
+          <span class="spacer"></span>
+          <button id="history-close" class="btn btn--ghost btn--icon" data-tip="关闭" aria-label="关闭"><i class="codicon codicon-close" aria-hidden="true"></i></button>
+        </div>
+        <div class="history-body">
+          <div class="history-side">
+            <div id="history-list" class="history-list" role="listbox" aria-label="历史快照"></div>
+            <div class="history-side-actions">
+              <button id="history-mark" class="btn btn--sm">标记当前</button>
+              <button id="history-refresh" class="btn btn--sm">刷新</button>
+            </div>
+          </div>
+          <div id="history-diff" class="history-diff"></div>
+        </div>
+        <div class="modal-actions">
+          <button id="history-clear" class="btn btn--danger-outline">清空历史</button>
+          <span class="spacer"></span>
+          <button id="history-revert" class="btn btn--danger">回滚到该版本</button>
+        </div>
       </div>
     </div>
     <!-- 环绕模板选择器（模态，M3：Ctrl+Alt+T） -->

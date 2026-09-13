@@ -4,7 +4,13 @@
 
 import * as dap from "./dap/client";
 import type { DapStackFrame, DapVariable } from "./dap/client";
-import { getBreakpointLines, setBreakpointLines, breakpointFiles, clearCurrentLine, highlightCurrentLine, setBreakpointsChangeCallback } from "./debugGutter";
+import {
+  getBreakpoints, getBreakpointSpec, removeBreakpoint, breakpointFiles, breakpointKind,
+  clearCurrentLine, highlightCurrentLine, setBreakpointsChangeCallback, syncBreakpointsToDebugger, updateBreakpoint,
+} from "./debugGutter";
+import type { DapSourceBreakpoint } from "./dap/client";
+import { openPrompt } from "./dialog";
+import { clearInlineValues, updateInlineValues } from "./inlineValues";
 import { $ } from "./state";
 import { codicon, basename, emptyState } from "./util"; // UI-12：空态改用统一组件
 // UI-09：工具栏提示的快捷键副文本改为读键位系统（原先把 "(F5)" 等硬编码进提示文本，
@@ -35,6 +41,25 @@ export function setDebugViewHandlers(h: DebugViewHandlers): void {
 let activeThreadId = 1;
 let activeFrameId: number | null = null;
 let activeFrames: DapStackFrame[] = [];
+/** 当前帧的 locals 变量（P2：行内变量值 / Set Value 都要用） */
+let activeVars: DapVariable[] = [];
+/** locals 容器的引用（setVariable 需要「容器 + 名字」，不是变量自身） */
+let activeScopeRef = 0;
+
+/**
+ * Run to Cursor 的临时断点（P2）。
+ * `hadBefore` 记录该行原本是否已有断点——临时断点用完即撤，但不能把用户自己
+ * 设的断点一并删掉（否则「跑到光标」会顺手吃掉一个断点，很难被察觉）。
+ */
+let tempBreakpoint: { path: string; line: number; hadBefore: boolean } | null = null;
+
+/**
+ * 当前选中栈帧 id（P1：调试控制台求值要用——表达式须在**选中帧**的上下文里求值，
+ * 否则用户点了调用栈第 3 帧却在栈顶帧里求值，结果会与所见不符）。
+ */
+export function currentFrameId(): number | null {
+  return activeFrameId;
+}
 
 /** 记录「依赖清单命中 debugpy」的一次性提示是否已发（§3.5：输出面板一次性提示） */
 let depNoticeShown = false;
@@ -254,24 +279,39 @@ function renderVars(): void {
   }
 }
 
+/** 断点摘要文本（侧栏窄区显示，过长截短）：条件 / 命中次数 / 日志消息，按此优先级取一条 */
+function breakpointDetail(bp: DapSourceBreakpoint): string {
+  const raw = bp.logMessage
+    ? `{日志} ${bp.logMessage}`
+    : bp.condition
+      ? `{条件} ${bp.condition}`
+      : bp.hitCondition
+        ? `{命中} ${bp.hitCondition}`
+        : "";
+  return raw.length > 40 ? `${raw.slice(0, 39)}…` : raw;
+}
+
 function renderBreakpoints(): void {
   const el = $soft("debug-breakpoints");
   if (!el) return;
   el.textContent = "";
   const files = breakpointFiles();
-  const entries: [string, number[]][] = files.map((p) => [p, getBreakpointLines(p)]);
+  const entries: [string, DapSourceBreakpoint[]][] = files.map((p) => [p, getBreakpoints(p)]);
   if (entries.length === 0) {
     // UI-12：改用统一 emptyState()。原文案把「标题 + 操作指引」挤在一行的括号里，
     // 拆成标题与说明两层后更易扫读；图标用 debug-breakpoint，与编辑器 gutter 里的断点图形呼应。
     el.appendChild(emptyState("debug-breakpoint", "无断点", "点击编辑器行号左侧的空白处添加", true));
     return;
   }
-  for (const [path, lines] of entries) {
-    for (const line of lines) {
+  for (const [path, bps] of entries) {
+    for (const bp of bps) {
+      const line = bp.line;
+      const kind = breakpointKind(bp);
       const row = document.createElement("div");
       row.className = "debug-bp-row";
       const icon = document.createElement("span");
-      icon.className = "debug-bp-dot";
+      // P0：条件断点 / Logpoint 用不同图形，与编辑器 gutter 的装饰同源
+      icon.className = `debug-bp-dot${kind === "plain" ? "" : ` debug-bp-dot-${kind}`}`;
       row.appendChild(icon);
       const label = document.createElement("span");
       label.className = "debug-bp-label";
@@ -287,6 +327,16 @@ function renderBreakpoints(): void {
         }
       });
       row.appendChild(label);
+      // 条件 / 命中次数 / 日志消息：侧栏窄，摘要截短后挂 title 与 tooltip 全文
+      const detail = breakpointDetail(bp);
+      if (detail) {
+        const d = document.createElement("span");
+        d.className = "debug-bp-detail";
+        d.textContent = detail;
+        d.title = detail;
+        d.dataset.tip = detail;
+        row.appendChild(d);
+      }
       const del = document.createElement("span");
       del.className = "debug-bp-del";
       // UI-09：同 .term-tab-close，span 结构下只统一视觉轨，role/键盘可达性归 UI-16
@@ -297,9 +347,8 @@ function renderBreakpoints(): void {
       del.setAttribute("aria-label", `删除断点 ${basename(path)}:${line}`);
       del.tabIndex = 0;
       const removeBp = (): void => {
-        // 删除单行断点：整文件重设剩余行（setBreakpointLines 内部完成同步）
-        const rest = getBreakpointLines(path).filter((l) => l !== line);
-        setBreakpointLines(path, rest);
+        // 删除单行断点（removeBreakpoint 内部完成同步；其余行的高级属性不受影响）
+        removeBreakpoint(path, line);
         handlers?.refreshGutter();
         renderBreakpoints();
       };
@@ -328,6 +377,10 @@ export function wireDebugViewEvents(): void {
     if (dap.currentPhase() === "exited" || dap.currentPhase() === "idle") {
       activeFrames = [];
       activeFrameId = null;
+      activeVars = [];
+      activeScopeRef = 0;
+      tempBreakpoint = null;
+      clearInlineValues();
     }
     renderDebugView();
   });
@@ -340,19 +393,23 @@ export function wireDebugViewEvents(): void {
   dap.onEvent("continued", () => {
     // 继续执行：清当前行高亮（变量面板下次 stopped 再刷）
     clearCurrentLine();
+    // P2：行内变量值是「暂停态快照」，跑起来后即为过期信息，必须清掉
+    clearInlineValues();
   });
 
   dap.onEvent("terminated", () => {
     // debugpy 报告会话终止（脚本自然跑完）；后端退出监视会随后 emit debug-exited
   });
 
-  dap.onEvent("output", () => {
-    // MVP 忽略 output 事件：stdout 已走 PTY 真 TTY（§5.3），避免双份显示
-  });
+  // 注：`output` 事件**不在此处**订阅——它归调试控制台（debugConsole.ts）所有。
+  // P0 的 Logpoint 正是靠 output 事件把求值结果送出来，此前这里注册了一个空回调，
+  // 会静默吃掉 Logpoint 的全部输出（onEvent 是单回调表，后注册者覆盖先注册者）。
 }
 
 async function handleStopped(body: { threadId?: number; reason?: string }): Promise<void> {
   activeThreadId = body.threadId ?? 1;
+  // P2：Run to Cursor 的临时断点用完即撤（必须在刷新变量之前，免得残留到下一次暂停）
+  clearTempBreakpoint();
   try {
     activeFrames = await dap.dapStackTrace(activeThreadId);
     activeFrameId = activeFrames[0]?.id ?? null;
@@ -372,14 +429,18 @@ async function refreshVariables(): Promise<void> {
   const el = $soft("debug-vars");
   if (!el) return;
   el.textContent = "";
+  activeVars = [];
+  activeScopeRef = 0;
+  clearInlineValues();
   if (activeFrameId === null) return;
   try {
     // §6.5：栈顶 frameId → scopes → locals scope → variables
     const scopes = await dap.dapScopes(activeFrameId);
     const locals = scopes.find((s) => s.presentationHint === "locals" || s.name.toLowerCase() === "locals");
     if (!locals) return;
-    const vars: DapVariable[] = await dap.dapVariables(locals.variablesReference);
-    for (const v of vars) {
+    activeScopeRef = locals.variablesReference;
+    activeVars = await dap.dapVariables(activeScopeRef);
+    for (const v of activeVars) {
       const row = document.createElement("div");
       row.className = "debug-var-row";
       const name = document.createElement("span");
@@ -390,12 +451,73 @@ async function refreshVariables(): Promise<void> {
       value.className = "debug-var-value";
       value.textContent = v.value;
       value.title = v.value;
-      row.appendChild(value);
+      // P2：Set Value——点击值即可改写（PyCharm 同款交互）。
+      // 只在暂停态且拿到 locals 容器引用时可改（debugpy 的 setVariable 需要「容器 + 名字」）。
+      value.dataset.tip = "点击修改此变量的值";
+      value.setAttribute("role", "button");
+      value.setAttribute("aria-label", `修改 ${v.name} 的值（当前：${v.value}）`);
+      value.tabIndex = 0;
+      const edit = (): void => void setValue(v.name, v.value);
+      value.addEventListener("click", edit);
+      value.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter" || ev.key === " ") {
+          ev.preventDefault();
+          edit();
+        }
+      });
       el.appendChild(row);
     }
+    // P2：行内变量值——复用本次 variables 请求的结果，不再额外发 DAP 请求
+    const path = activeFrames[0]?.source?.path;
+    if (path) updateInlineValues(path, activeVars);
   } catch (e) {
     console.warn("[debugView] 变量刷新失败:", e);
   }
+}
+
+/** P2：Set Value——在断点处改写变量值（DAP `setVariable`） */
+async function setValue(name: string, current: string): Promise<void> {
+  if (dap.currentPhase() !== "stopped" || activeScopeRef === 0) return;
+  const next = await openPrompt({
+    title: `修改变量 ${name}`,
+    label: "新值（Python 表达式，在断点上下文中求值）",
+    value: current,
+    okLabel: "设置",
+  });
+  if (next === null || next === current) return; // 取消 / 未改动
+  try {
+    await dap.dapSetVariable(activeScopeRef, name, next);
+    await refreshVariables();
+  } catch (e) {
+    console.warn("[debugView] setVariable 失败:", e);
+  }
+}
+
+/**
+ * P2：Run to Cursor（PyCharm Alt+F9）——在光标行设一个**临时断点**然后继续。
+ * 命中断点后由 `handleStopped` 调用 `clearTempBreakpoint()` 撤掉它。
+ */
+export async function runToCursor(path: string, line: number): Promise<void> {
+  if (dap.currentPhase() !== "stopped") return;
+  // 该行已有断点（普通/条件/logpoint 皆可）→ 直接继续，不动用户的断点
+  const existing = getBreakpointSpec(path, line);
+  if (existing) {
+    await dap.dapContinue(activeThreadId);
+    return;
+  }
+  tempBreakpoint = { path, line, hadBefore: false };
+  updateBreakpoint(path, line, {});
+  await syncBreakpointsToDebugger(path);
+  await dap.dapContinue(activeThreadId);
+}
+
+/** 撤掉 Run to Cursor 的临时断点（每次 stopped 调用；非临时断点一律不动） */
+function clearTempBreakpoint(): void {
+  const t = tempBreakpoint;
+  tempBreakpoint = null;
+  if (!t || t.hadBefore) return;
+  removeBreakpoint(t.path, t.line);
+  void syncBreakpointsToDebugger(t.path);
 }
 
 // ---------- 步进控制 ----------

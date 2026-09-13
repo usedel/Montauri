@@ -1,6 +1,6 @@
 # PyCharm 功能调研报告与 OpenCharm 借鉴建议
 
-> 版本：v1.0 · 日期：2026-09-12 · 性质：调研报告（非排期依据）
+> 版本：v1.1 · 日期：2026-09-13 · 性质：调研报告（非排期依据）；§4 附 P0/P1/P2 落地记录，§0/§3 已同步为实际交付状态
 > 调研方法：JetBrains 官方文档（pycharm/help）+ 使用者实践汇总 + 本仓库功能盘点（shell/ 源码逐项核对）。
 > 结论用途：为 Phase 4「打磨期」的功能取舍提供输入；**是否立项、何时排期仍以 `python_ide_dev_plan_v2.md` 及产品负责人裁决为准**。
 
@@ -15,7 +15,9 @@ PyCharm 的领先之处并非单点技术（我们的三层补全/运行时采�
 3. **代码卫生类**：无 Optimize Imports、无 TODO 识别；
 4. **容错类**：无本地历史（Local History），误删/误存无法挽回（有 Git 但脚本场景常不建仓库）。
 
-以上全部可在现有架构（Monaco contrib + LSP/DAP 桥 + Rust 命令）内低成本实现，无一违反「自研组件独立成包/进程」第一原则。
+> **落地状态（2026-09-13）**：四类缺口基本闭环——P0 四项 + P1 五项 + P2 四项共 13 项，其中 **12 项已交付**；P2-13 的 **Docstring 生成部分交付**（仅落地 live template，缺 `"""`+Enter 自动生成，且因位置轴把块头 `:` 判为续行，模板在块体首行触发不到——见 `tech-debt.md` TD-15/TD-16）。§3 差距表已同步。另余两项远期候选：probe 驱动的脚本热点视图、覆盖率运行（Phase 5+ 评估）。
+
+以上各项均在现有架构（Monaco contrib + LSP/DAP 桥 + Rust 命令）内低成本落地，无一违反「自研组件独立成包/进程」第一原则。
 
 ---
 
@@ -93,27 +95,27 @@ PyCharm 的领先之处并非单点技术（我们的三层补全/运行时采�
 
 | PyCharm 功能 | 现状 | 证据 | 建议动作 | 量级 |
 |---|---|---|---|---|
-| Search Everywhere | 🟡 | 文本搜索 `src/search.ts`；键位注册表 `src/keybindings.ts`；模板面板 `src/live-templates/palette.ts` | 新建统一 Quick-Open 弹窗（文件/符号/动作混搜），Double Shift 触发 | 中 |
-| Go to File / Line | ❌ | 键位清单无 goto_file/goto_line | 并入 Quick-Open | 小 |
-| Recent Files | 🟡 | 后端 `file_ops.rs` `get_recent/add_recent`；前端仅写入无 UI | 加 Ctrl+E 弹窗消费现有数据 | 小 |
-| 后退/前进导航历史 | ❌ | 无命中 | 光标栈 + Ctrl+Alt+Left/Right | 中 |
-| Breadcrumbs | ❌ | 无命中 | documentSymbol 数据 + 底部条 | 中 |
-| 书签 | ❌ | 无命中 | 行级书签 + 列表视图 | 小 |
-| TODO 识别 | ❌ | 无命中 | 复用 `search_workspace`（ignore crate） | 小 |
-| Optimize Imports | ❌ | ruff 仅用于 format/缺包（`fs_cmds.rs`） | `ruff check --fix I,F401` stdin 管线 | 小 |
-| ruff 实时 lint | ❌ | 诊断分桶仅 pyrefly/intel（`lsp/client.ts`） | 第三桶接 ruff（server LSP 或离线扫描） | 中 |
-| 本地历史 | ❌ | 无命中 | 保存快照 → `~/.opencharm/history/` + diff 回滚 | 中 |
-| Scratch 文件 | ❌ | 无命中 | 固定草稿目录 + 现有运行路径 | 小 |
-| Docstring 生成 | ❌ | 模板体系无 docstring 模板 | 加 2~3 个内置 live template | 小 |
-| Evaluate / Debug Console | ❌ | `dap/client.ts` 无 evaluate 封装 | DAP `evaluate` request + 侧栏/控制台 | 中 |
-| 条件断点 / hitCondition | ❌ | `dapSetBreakpoints` 仅传 `{line}` | 断点右键菜单 + 字段透传（Rust `dap.rs` 同步放行） | 小 |
-| Logpoint | ❌ | 同上 | DAP `logMessage` 透传 | 小 |
-| 行内变量值 | ❌ | 无 inline values provider | Monaco InlineValuesProvider + DAP evaluate | 中 |
-| Set Value | ❌ | 无 setVariable | DAP `setVariable` | 小 |
-| Run to Cursor | ❌ | 无 | 临时断点组合 | 小 |
-| 调试复用运行配置 | 🟡 | 运行配置已有（`env_cmds.rs` run_configs 含 stdin）；调试启动未消费 | 调试启动继承 run_config | 小 |
-| 运行历史 | ❌ | 无 | transcript 留存标签页 | 中 |
-| 覆盖率运行 | ❌ | 无 | 依赖 coverage.py；**缓议** | 大 |
+| Search Everywhere | ✅ | `src/quickOpen.ts`（文件 + documentSymbol 符号 + 键位动作混搜）；后端 `fs_cmds::list_workspace_files` | 已交付（§4 P1-5） | 中 |
+| Go to File / Line | ✅ | `src/quickOpen.ts`（Ctrl+Shift+N / Ctrl+G，支持 `行:列` 与 `:行号` 后缀） | 已交付（§4 P1-5） | 小 |
+| Recent Files | ✅ | 后端 `file_ops.rs` `get_recent/add_recent`；前端 `src/recentFiles.ts`（Ctrl+E 弹窗） | 已交付（§4 P0-3） | 小 |
+| 后退/前进导航历史 | ✅ | `src/navHistory.ts`（位置栈 + 游标模型，Ctrl+Alt+←/→） | 已交付（§4 P1-8） | 中 |
+| Breadcrumbs | ✅ | `src/breadcrumbs.ts`（`symbolChainAt` 纯函数 + 顶部「文件 › 类 › 函数」链接） | 已交付（§4 P2-10） | 中 |
+| 书签 | ✅ | `file_ops.rs` 书签三命令 + `src/bookmarks.ts`（Ctrl+F11 / Ctrl+Shift+F11） | 已交付（§4 P2-13） | 小 |
+| TODO 识别 | ✅ | `fs_cmds::scan_todos`（复用 `search_workspace` 的 ignore 走查）+ `src/todoView.ts` | 已交付（§4 P0-4） | 小 |
+| Optimize Imports | ✅ | `fs_cmds::optimize_imports`（ruff `I,F401` stdin 管线）+ 保存时可选自动执行 | 已交付（§4 P0-2） | 小 |
+| ruff 实时 lint | ✅ | `fs_cmds::ruff_lint` + `src/ruffLint.ts`（owner `opencharm-ruff`，第三诊断桶） | 已交付（离线扫描路线，§4 P2-12） | 中 |
+| 本地历史 | ✅ | `src-tauri/src/history.rs`（快照/列/读/回滚/清空）+ `src/localHistory.ts`（Ctrl+Shift+H） | 已交付（§4 P1-7） | 中 |
+| Scratch 文件 | ✅ | `fs_cmds::create_scratch`（草稿落 `<data_root>/scratches/`，不入库） | 已交付（§4 P2-13） | 小 |
+| Docstring 生成 | 🟡 | `src/live-templates/builtin.ts` 的 `doc` / `docf` / `docc`（含 `allowInStrings`）；**缺 `"""`+Enter 自动生成**，且模板在块体首行因位置轴缺陷触发不到 | 🟡 部分交付（`tech-debt.md` TD-15/16） | 小 |
+| Evaluate / Debug Console | ✅ | `dap/client.ts::dapEvaluate` + `src/debugConsole.ts`（Alt+F8） | 已交付（§4 P1-6） | 中 |
+| 条件断点 / hitCondition | ✅ | `dap/client.ts::BreakpointSpec`（字段透传）+ `debugGutter.ts` 断点右键菜单 | 已交付（§4 P0-1） | 小 |
+| Logpoint | ✅ | 同上（`logMessage` 透传，菱形 glyph；输出经调试控制台承接） | 已交付（§4 P0-1） | 小 |
+| 行内变量值 | ✅ | `src/inlineValues.ts`（Monaco 注饰实现，复用 `variables` 请求，零额外 DAP 开销） | 已交付（§4 P2-11） | 中 |
+| Set Value | ✅ | `dapSetVariable` + 变量面板点值即改 | 已交付（§4 P2-11） | 小 |
+| Run to Cursor | ✅ | `debugView.ts::runToCursor`（Alt+F9，临时断点 + 命中后自动撤） | 已交付（§4 P2-11） | 小 |
+| 调试复用运行配置 | ✅ | `dap.rs::debug_start/debug_attach_debuggee` 直读 `read_run_config`；`run_config_key` 单测锁口径 | 已交付（后端本已生效，本次补可发现性，§4 P1-9） | 小 |
+| 运行历史 | ✅ | `src/runHistory.ts`（留存 20 次，可回看可删，Ctrl+Shift+R） | 已交付（§4 P2-13） | 中 |
+| 覆盖率运行 | ❌ | 无 | 依赖 coverage.py；**缓议**（Phase 5+） | 大 |
 | 结构视图/参数提示/inlay/折叠/多光标/Surround/快速修复/注释 | ✅ | `main.ts` outline、`monaco.ts` contribs、`lsp/client.ts` providers、`live-templates/surround.ts`、`keybindings.ts` | 无需动作 | — |
 | 补全三层合并 / postfix / live template | ✅（且强于 PyCharm 可配置性） | `lsp/client.ts` 排序契约、`live-templates/*` | 无需动作；继续相位 B（上下文轴导入/UI） | — |
 | 运行 + traceback 跳转（含终端内） | ✅ | `output.ts`、`terminal.ts` link provider、`runGutter.ts`/`runWidget.ts` | 无需动作 | — |
@@ -141,6 +143,49 @@ PyCharm 的领先之处并非单点技术（我们的三层补全/运行时采�
 8. **后退/前进导航历史**：跳转闭环的另一半，跳转定义频次越高此项越痛。
 9. **调试复用运行配置**：调试启动继承 run_configs（顺带偿还 tech-debt TD-9/10 的存储卫生时一并考虑）。
 
+#### P0 落地记录（2026-09-13）
+
+| # | 落地情况 | 主要改动 |
+|---|---|---|
+| 1 | ✅ 已交付 | `dap/client.ts` 新增 `BreakpointSpec`（condition / hitCondition / logMessage），`dapSetBreakpoints` 只透传非空字段；`debugGutter.ts` 断点表由 `Set<line>` 升级为 `Map<line, spec>`（空 spec = 普通断点，旧调用方语义不变），gutter 右键菜单可选「条件 / 命中次数 / 日志（不断下）」并渲染菱形 + 问号 glyph。Rust 侧 `dap_send_request` 本就原样透传 params，无需改动。回归见 `shell/src/__tests__/breakpoints.test.ts` |
+| 2 | ✅ 已交付 | 后端 `fs_cmds::optimize_imports`（`ruff check --fix --select I,F401`，stdin 管线，与格式化同款）；键位 `Ctrl+Alt+O` + 设置项「保存时自动整理导入」（`optimize_imports_on_save`，默认关） |
+| 3 | ✅ 已交付 | 新增 `shell/src/recentFiles.ts`（Ctrl+E 弹窗：过滤输入 + ↑↓ 漫游，焦点留在输入框）；消费**既有**的 `file_ops::get_recent`，收回「前端只写不读」的半截功能，未新增持久化 |
+| 4 | ✅ 已交付 | 后端 `fs_cmds::scan_todos`（复用 `search_workspace` 的 `ignore` 走查，.gitignore 感知）；`HACK/BUG/XXX` 全大写匹配防误报；前端 `shell/src/todoView.ts` 分组列表 + 点击跳转 |
+
+新增 2 个键位 id（`optimize_imports` / `recent_files`），三处同步已更新（`keybindings.ts` META / `state.ts` DEFAULT_SETTINGS / Rust `default_keybindings`），
+`settings.rs` 键位数漂移锁 17 → 19。
+
+#### P1 落地记录（2026-09-13）
+
+| # | 落地情况 | 主要改动 |
+|---|---|---|
+| 5 | ✅ 已交付 | 新增 `shell/src/quickOpen.ts`（文件 + 符号 + 命令混搜，`:行号` 后缀、模糊打分、双击 Shift / `Ctrl+Shift+N` / `Ctrl+G` 三入口）；后端新增 `list_workspace_files`（复用全局搜索的 `ignore` 走查）。命令数据源由 `main.ts` 注入，键位提示跟随用户改键 |
+| 6 | ✅ 已交付 | `dap/client.ts` 补 `dapEvaluate` / `dapSetVariable`；新增 `shell/src/debugConsole.ts`（控制台 + 输入历史 + `Alt+F8` 求值）。**顺带修掉一个 P0 遗留**：`output` 事件原先被 debugView 的空回调吃掉，导致 Logpoint 输出全不可见，现由调试控制台承接 |
+| 7 | ✅ 已交付 | 新增 `shell/src-tauri/src/history.rs`（保存前快照，存 `<data_root>/history/<project_hash>/<file_hash>/`，内容原样存文本、同内容去重、单文件上限 100 版、id 白名单防路径穿越）；前端 `shell/src/localHistory.ts`（列表 + Monaco diff 预览 + 回滚，回滚前先留「回滚前」快照）+ `Ctrl+Shift+H` |
+| 8 | ✅ 已交付 | 新增 `shell/src/navHistory.ts`（位置栈 + 游标模型，`Ctrl+Alt+←/→`；`applying` 抑制标志防止回退自身入栈） |
+| 9 | ✅ 已交付（后端本已生效） | 核对确认 `dap.rs::debug_start` / `debug_attach_debuggee` 早已直读 `read_run_config` 并经 `build_run_env` 应用参数/env；本次补齐的是**可发现性**：运行配置面板明示「对运行与调试同时生效」及 stdin=file 在调试下不支持，调试启动回显「复用运行配置：…」，并加 `run_config_key` 单测锁口径（防静默丢失配置） |
+
+键位三处同步已更新（`keybindings.ts` META / `state.ts` DEFAULT_SETTINGS / Rust `default_keybindings`），
+新增 6 个键位 id；`settings.rs` 的键位数漂移锁 19 → 25；`parseKeyToken` 补 `Left/Right/Up/Down`
+方位键短名（KeyboardEvent.code 只有 `Arrow*` 形态）。
+
+#### P2 落地记录（2026-09-13）
+
+| # | 落地情况 | 主要改动 |
+|---|---|---|
+| 10 | ✅ 已交付 | 新增 `shell/src/breadcrumbs.ts` + 编辑区顶部 `#breadcrumbs`（文件 › 类 › 函数，点击跳转）；符号链计算抽成纯函数 `symbolChainAt` 并带单测；刷新时机为切 tab / 光标移动 / 文档变更（250ms 防抖） |
+| 11 | ✅ 已交付 | ①行内变量值：`shell/src/inlineValues.ts`——Monaco 0.52 standalone **未暴露** `registerInlineValuesProvider`（那是 VS Code 侧 API），故改用与 inlay hints 同款的注入文本装饰实现，复用已有 `variables` 请求，零额外 DAP 开销；②Set Value：变量面板点值即改（DAP `setVariable`，需要「容器引用 + 名字」，故变量面板保存了 locals scope 的引用）；③Run to Cursor：Alt+F9，临时断点 + 继续，命中后自动撤掉（不误删用户既有断点） |
+| 12 | ✅ 已交付（离线扫描路线） | 后端新增 `fs_cmds::ruff_lint`（`ruff check --output-format json --select E,W,F`，stdin 管线，与格式化/Optimize Imports 同款）；前端 `shell/src/ruffLint.ts` 以 `opencharm-ruff` 为 owner 下发 marker，与 `opencharm-lsp` / `opencharm-intel` 三桶并存。**未选 ruff server LSP**：不引入第二个语言服务器进程，代价是「停手 800ms 才刷」而非逐字符 |
+| 13 | ✅ 已交付 | ①Scratch：`fs_cmds::create_scratch`，草稿落在 `<data_root>/scratches/`（不在工作区里，不入库），编号跨扩展名共享；②书签：`file_ops::get_bookmarks/toggle_bookmark/clear_bookmarks` + `shell/src/bookmarks.ts`（gutter 星标装饰 + 列表弹窗，Ctrl+F11 / Ctrl+Shift+F11）；③运行历史：`shell/src/runHistory.ts`，挂钩 run-stdout/stderr/exit 复用已还原的整行，留存 20 次、可回看可删（Ctrl+Shift+R）；④Docstring 模板：新增 `doc` / `docc`，并修正既有 `docf`——它缺 `allowInStrings`，而 docstring 本身就在字符串里（`tabExpand.ts` 默认禁止字符串内展开），等于一直用不上 |
+
+新增 5 个键位 id（`debug_run_to_cursor` / `bookmark_toggle` / `bookmark_list` / `scratch_new` / `run_history`），
+三处同步已更新，`settings.rs` 漂移锁 25 → 30；`NAMED_KEYS` 补 `Insert`。
+
+> 附注（2026-09-13 复核）：第 13 项 ④ 的 docstring 模板存在触发缺口——位置轴把块头 `:`
+> 判为续行（`scope.ts::CONT_SUFFIX_RE`），导致 `doc`/`docf`/`docc` 在「def/class/if 体首行」
+> 被判为 `expression` 而过滤掉；且未实现 PyCharm 的 `"""`+Enter 自动生成。故本项对应能力
+> 回标 🟡，已登记 `tech-debt.md` TD-15/TD-16，暂缓处理。
+
 ### P2（有价值，随迭代顺带）
 
 10. **Breadcrumbs**（documentSymbol 底部条）
@@ -159,4 +204,6 @@ PyCharm 的领先之处并非单点技术（我们的三层补全/运行时采�
 
 本次调研的核心判断：**PyCharm 的体验优势在「导航闭环 + 调试肌肉 + 容错兜底」三类细节，而非补全算法本身**。我们已完成的最小闭环（补全/跳转/运行/调试）底座正确，缺口多为「协议字段已就绪、只差 UI/透传」的低垂果实（P0/P1 共 9 项预估总投入约 3~4 周单人量级）。建议从 P0 四项起步，先让调试与代码卫生补齐到「自用不回头找 PyCharm」的水平。
 
-> 附：本报告基于的 PyCharm 行为以 JetBrains 官方文档（help.jetbrains.com/pycharm，2024.1+）与公开实践汇总为准；OpenCharm 现状以 2026-09-12 源码盘点为准。
+> 复盘（2026-09-13）：P0/P1/P2 共 13 项中 12 项已交付、1 项（Docstring 生成）部分交付，上述「低垂果实」基本采摘完毕。未达对标效果的部分（Docstring 自动生成 / 位置轴块体首行缺陷）已登记 `tech-debt.md` TD-15/TD-16 暂缓。后续若继续对标，方向应转向 §4 的远期候选（probe 热点视图 / 覆盖率运行），而非继续补 UI 细节。
+
+> 附：本报告基于的 PyCharm 行为以 JetBrains 官方文档（help.jetbrains.com/pycharm，2024.1+）与公开实践汇总为准；OpenCharm 现状以 2026-09-13 源码与测试复核为准。

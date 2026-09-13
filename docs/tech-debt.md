@@ -62,6 +62,23 @@
 - **建议**：前置 CR-05/07 已稳定，可在下次功能迭代时顺手偿还；拆分时参照 TD-007 的域拆分模式。
 - **涉及**：`shell/src/main.ts`
 
+> 2026-09-13 PyCharm 调研报告落地复核（`pycharm_feature_research_report.md`）发现。均为「已宣称交付、实际未达对标效果」的缺口，经裁决**暂缓处理**。
+
+### 15. 位置轴把块头冒号误判为续行，块体首行的语句位模板全部失效（P2，正确性）
+
+- **根因**：`scope.ts::classifyPosition` 的续行启发把 `:` 列入 `CONT_SUFFIX_RE`（见 `docs/live_templates上下文轴修订稿.md` §8.2），而 `def f(...):` / `class X:` / `if ...:` 等块头正以 `:` 结尾 → 其后首行被判为 `expression`。于是 `doc`/`docf`/`docc` 以及**所有** `positions:["statement"]` 模板（`def`/`class`/`if`/`for`/`while`/`try`/`with`/`main`/`ifmain`…）在「任何块头后的第一个语句行」被 `findByAbbreviation`（Tab 路径）与 `templatesForContext`（补全弹窗路径）双双过滤掉，从第二行起才恢复。
+- **复现**：临时单测对 `["def bar(self, x):", "    docf"]`、`["class Foo:", "    docc"]`、`["if x:", "    main"]` 及块体首行空行断言 `statement`，4/4 实得 `expression`（验证后已删除临时文件）。
+- **建议**：区分「块头 `:`」与「续行 `:`」——识别 `(async )?def`/`class`/`if`/`elif`/`else`/`for`/`while`/`try`/`except`/`finally`/`with`/`match`/`case`（含多行签名的 `):`）为块头而非续行；最小改法是直接从 `CONT_SUFFIX_RE` 移除 `:`（代价：`d = {` 换行后 `'a':` 这种「冒号后换行的值」会误判为语句位，极罕见）。需补 `scope.test.ts` 用例并同步修订上下文轴修订稿 §1.1 / §8.2。
+- **处理时机**：下次触碰 live templates 位置轴时独立 PR；改前先跑 `shell` vitest（含 `live-templates/__tests__/*`）。
+- **涉及**：`shell/src/live-templates/scope.ts`、`shell/src/live-templates/__tests__/scope.test.ts`、`docs/live_templates上下文轴修订稿.md`
+
+### 16. E4 Docstring 自动生成仅落地为 live template，缺 `"""`+Enter 自动生成（P3，对标缺口）
+
+- **现状**：`builtin.doc` / `docf` / `docc` 三个模板已内置（`allowInStrings` 已修正），但需用户主动键入缩写 + Tab，或从补全弹窗选取；PyCharm 的「输入 `"""` 回车即按函数签名生成 Args/Returns 骨架」未实现，也无 Alt+Insert 类入口。故 `pycharm_feature_research_report.md` §3 原标 ✅ 属过誉。
+- **建议**：监听 python 语言的 `"""` + Enter（onType / 命令入口），取 `documentSymbol` 或函数签名生成参数骨架，模板体可复用 `docf`；与第 15 条一并做更合适（否则模板仍触发不到）。
+- **处理时机**：作为独立特性排期（需产品裁决是否对标 PyCharm 触发方式），非顺手可还。
+- **涉及**：`shell/src/live-templates/builtin.ts`、`shell/src/live-templates/index.ts`、`shell/src/main.ts`
+
 ## 已归档
 
 > 处理完成的历史条目，仅保留标题与结论摘要；编号对应原 TD 编号。完整实施细节见对应 commit 历史。

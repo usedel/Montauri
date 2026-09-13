@@ -4,6 +4,7 @@ mod file_ops;
 mod fs_cmds;
 mod git_cmds;
 mod git_status;
+mod history;
 mod logging;
 mod lsp;
 mod run_env;
@@ -80,8 +81,19 @@ pub fn run() {
             fs_cmds::pick_folder,
             fs_cmds::pick_file,
             fs_cmds::create_project,
+            fs_cmds::create_scratch,
             fs_cmds::format_python,
+            fs_cmds::optimize_imports,
             fs_cmds::search_workspace,
+            fs_cmds::scan_todos,
+            fs_cmds::list_workspace_files,
+            fs_cmds::ruff_lint,
+            // 本地历史（P1：无 Git 工作区的保存快照 / diff / 回滚）
+            history::history_snapshot,
+            history::history_list,
+            history::history_read,
+            history::history_restore,
+            history::history_clear,
             // asset 协议动态授权（Markdown 预览本地图片）
             util::allow_asset_dir,
             // 文件管理写操作（P25-T01）
@@ -97,6 +109,10 @@ pub fn run() {
             file_ops::copy_to_clipboard,
             file_ops::get_recent,
             file_ops::add_recent,
+            // P2：书签（行级，工作区级持久化）
+            file_ops::get_bookmarks,
+            file_ops::toggle_bookmark,
+            file_ops::clear_bookmarks,
             // Python 环境管理（P25-T04）
             env_cmds::list_pythons,
             env_cmds::list_python_versions,

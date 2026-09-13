@@ -37,6 +37,7 @@ const settingsProbeEl = $("settings-probe") as HTMLInputElement;
 const settingsIntelEl = $("settings-intel") as HTMLInputElement;
 const settingsEngineEl = $("settings-engine") as HTMLSelectElement;
 const settingsFormatOnSaveEl = $("settings-format-on-save") as HTMLInputElement;
+const settingsOptimizeImportsOnSaveEl = $("settings-optimize-imports-on-save") as HTMLInputElement;
 const settingsTerminalCwdEl = $("settings-terminal-cwd") as HTMLSelectElement;
 const settingsTerminalShellEl = $("settings-terminal-shell") as HTMLSelectElement;
 const settingsReduceMotionEl = $("settings-reduce-motion") as HTMLInputElement;
@@ -272,6 +273,8 @@ function fillForm(settings: Settings): void {
   settingsIntelEl.checked = settings.runtime_intel_enabled;
   settingsEngineEl.value = settings.lsp_engine;
   settingsFormatOnSaveEl.checked = settings.format_on_save;
+  settingsOptimizeImportsOnSaveEl.checked =
+    settings.optimize_imports_on_save ?? DEFAULT_SETTINGS.optimize_imports_on_save;
   settingsTerminalCwdEl.value = settings.terminal_cwd;
   settingsTerminalShellEl.value = settings.terminal_shell ?? DEFAULT_SETTINGS.terminal_shell;
   // 旧配置缺 pypi_index 时兜底出厂默认（官方源）
@@ -335,6 +338,7 @@ async function saveSettingsPanel(): Promise<void> {
   const probeEnabled = settingsProbeEl.checked;
   const lspEngine = settingsEngineEl.value;
   const formatOnSave = settingsFormatOnSaveEl.checked;
+  const optimizeImportsOnSave = settingsOptimizeImportsOnSaveEl.checked;
   const runtimeIntelEnabled = settingsIntelEl.checked;
   const terminalCwd = settingsTerminalCwdEl.value;
   const terminalShell = settingsTerminalShellEl.value;
@@ -360,6 +364,7 @@ async function saveSettingsPanel(): Promise<void> {
     probe_enabled: probeEnabled,
     lsp_engine: lspEngine,
     format_on_save: formatOnSave,
+    optimize_imports_on_save: optimizeImportsOnSave,
     runtime_intel_enabled: runtimeIntelEnabled,
     terminal_cwd: terminalCwd,
     terminal_shell: terminalShell,

@@ -16,14 +16,14 @@ type ResizeDirection = "East" | "North" | "NorthEast" | "NorthWest" | "South" | 
 import { initLiveTemplates, type LiveTemplatesHandle } from "./live-templates";
 import * as ltUi from "./live-templates/ui/manager";
 import { initDevTools, openDevTools, listDevTools } from "./devtools";
-import { formatPythonSource, registerRuffFormatter, setFormatErrorHandler } from "./format";
+import { formatPythonSource, optimizeImportsSource, registerRuffFormatter, setFormatErrorHandler } from "./format";
 import { runSearch, cancelSearch, resetSearch, setOpenMatchHandler, type SearchMatch } from "./search";
 import { registerSidebarView, setSidebarTab, activeView } from "./views";
 import * as lsp from "./lsp/client";
 import * as kb from "./keybindings";
 import * as toolchain from "./toolchain";
 import { appendOutputLine, clearOutput, RunTranscript, type OutputLink } from "./output";
-import { openConfirm } from "./dialog";
+import { openConfirm, openPrompt } from "./dialog";
 import { app, $, $btn, outputEl, statusFileEl, type Entry, type Tab } from "./state";
 import {
   createDirAt, createFileAt, isDirExpanded, isTreeEmpty, refreshTree, reloadDir,
@@ -47,8 +47,36 @@ import { getRunMenuItems, renderRunWidget, setRunWidgetHandlers, setRunWidgetRep
 import { clearRunGutter, isRunGutterLine, refreshRunGutter, setRunGutterHandlers, wireRunGutter } from "./runGutter";
 import { wireGutterHover } from "./gutterHover";
 import * as dap from "./dap/client";
-import { clearCurrentLine, pushAllBreakpoints, refreshDebugGutter, wireDebugGutter } from "./debugGutter";
-import { initDebugView, notifyDepFound, renderDebugView, setDebugViewHandlers, wireDebugViewEvents } from "./debugView";
+import {
+  breakpointKind, clearCurrentLine, getBreakpointSpec, pushAllBreakpoints, refreshDebugGutter,
+  removeBreakpoint, setBreakpointMenuHandler, toggleBreakpoint, updateBreakpoint, wireDebugGutter,
+} from "./debugGutter";
+import { showMenu } from "./menu";
+import { initTodoView, refreshTodos, resetTodoView, setTodoViewHandlers } from "./todoView"; // P0：TODO 工具窗
+import { initDebugView, notifyDepFound, renderDebugView, runToCursor as runToCursorIn, setDebugViewHandlers, wireDebugViewEvents } from "./debugView";
+import { closeRecentFiles, initRecentFiles, openRecentFiles, setRecentFilesHandlers } from "./recentFiles"; // P0：最近打开的文件（Ctrl+E）
+// P1（PyCharm 调研）：Search Everywhere / 导航历史 / 本地历史 / 调试控制台
+import {
+  initQuickOpen, invalidateQuickOpenFiles, isQuickOpenOpen, openQuickOpen,
+  registerQuickOpenActions, setQuickOpenHandlers, type QuickOpenAction,
+} from "./quickOpen";
+import { goBack, goForward, noteOpen, pushCurrent, resetNavHistory, setNavHistoryHandlers } from "./navHistory";
+import { initLocalHistory, openLocalHistory, setLocalHistoryHandlers } from "./localHistory";
+// P2
+import {
+  initBreadcrumbs, invalidateBreadcrumbs, resetBreadcrumbs, scheduleBreadcrumbs, setBreadcrumbHandlers,
+} from "./breadcrumbs";
+import { initDebugConsole, notifyNotPaused, openEvaluatePrompt } from "./debugConsole";
+import { initInlineValues } from "./inlineValues";
+import { lintActiveFile, resetRuffLint, scheduleRuffLint, setRuffLintHandlers } from "./ruffLint";
+import {
+  initBookmarks, loadBookmarks, openBookmarks, refreshBookmarkGutter,
+  resetBookmarks, setBookmarkHandlers, toggleBookmarkAtCursor,
+} from "./bookmarks";
+import {
+  finishRun, initRunHistory, openRunHistory, recordLines, resetRunHistory,
+  setRunHistoryHandlers, startRun,
+} from "./runHistory";
 import { renderWelcomeShortcuts } from "./welcomeShortcuts"; // UI-25：欢迎页快捷键跟随键位系统
 import { moveMenuFocus, wireMenuKeyNav } from "./menuKeys"; // UI-30：菜单键盘导航（与 menu.ts 共享同一套 APG 规则）
 import * as mdPreview from "./markdownPreview"; // Markdown 预览（markdown preview dev plan）
@@ -83,6 +111,8 @@ let lastRun: { path: string; channel: "output" | "terminal" } | null = null;
 const runTranscript = new RunTranscript(outputEl, gotoFromLink);
 /** 文件监听防抖定时器 */
 let fsWatchTimer: number | undefined;
+/** P1：Double Shift 的判定窗口（ms）——两次 Shift 抬起间隔超过它就不算双击 */
+const DOUBLE_SHIFT_MS = 400;
 /** UI-05：三个模态（环境面板 / 新建项目 / 运行配置）的焦点陷阱解除句柄，关闭时置 null */
 let releaseEnvFocus: (() => void) | null = null;
 let releaseNewProjectFocus: (() => void) | null = null;
@@ -162,6 +192,13 @@ function resetWorkspaceUiState(): void {
   resetGitState();              // git 状态 + diff 视图 + 分支列表
   outlineEl.textContent = "";   // 大纲符号树
   resetSearch();                // 搜索结果 + 作废在途请求
+  resetTodoView();              // P0：TODO 列表 + 作废在途扫描
+  resetNavHistory();            // P1：导航历史（跨工作区的历史没有意义）
+  invalidateQuickOpenFiles();   // P1：工作区文件清单缓存随工作区失效
+  resetBreadcrumbs();           // P2：面包屑（含符号缓存与防抖 timer）
+  resetRuffLint();              // P2：ruff lint（防抖 timer + 在途请求）
+  resetBookmarks();             // P2：书签（列表缓存 + gutter 装饰）
+  resetRunHistory();            // P2：运行历史
   resetEnvPackages();           // 环境包面板状态
   pkgToken++;                   // CR-20：作废在途包列表请求
   currentInterpreter = null;    // 防切换瞬间误用旧解释器
@@ -221,6 +258,9 @@ async function openWorkspace(root: string): Promise<void> {
   }
   app.workspaceRoot = root;
   $("tree-header-text").textContent = root;
+  // P2：书签按工作区持久化，换工作区要重新加载（并刷新 gutter 装饰）
+  await loadBookmarks();
+  refreshBookmarkGutter();
   // Markdown 预览：动态授权 asset 协议读取当前工作区根（本地图片渲染）
   await invoke("allow_asset_dir", { path: root }).catch(console.error);
   await invoke("add_recent_workspace", { path: root }).catch(console.error);
@@ -242,6 +282,7 @@ async function closeWorkspace(): Promise<void> {
   await stopFileWatcher();
   console.debug("[closeWorkspace] stopFileWatcher done, took=", (performance.now() - t0).toFixed(0), "ms");
   resetWorkspaceUiState();
+  closeRecentFiles(); // 最近文件是工作区级的，切换工作区后旧列表不应还能被打开
   app.workspaceRoot = null;
   resetTreeState();
   $("tree-header-text").textContent = "文件"; // UI-13：与 index.html 的静态文案保持一致（分组标题统一中文）
@@ -639,6 +680,8 @@ function handleFsChanged(dirs: string[]): void {
     if (root && dirs.includes(root) && isTreeEmpty()) {
       await refreshTree();
     }
+    // P1：文件增删后作废 Search Everywhere 的文件清单缓存（下次打开重新拉取）
+    invalidateQuickOpenFiles();
     // Live Templates 热重载：用户层（<data_root>/config，watcher 附加监听）或工作区层配置变更（M2）
     if (
       dirs.some((d) => {
@@ -1300,6 +1343,8 @@ export async function openFile(path: string, revealLine?: number): Promise<void>
 
 /** CR-08：openFile 的实际执行体（由 in-flight 去重表保证同一 path 串行） */
 async function doOpenFile(path: string, revealLine?: number): Promise<void> {
+  // P1：导航历史——先记「离开前的位置」，末尾记「到达的位置」，后退才能回到出发点
+  pushCurrent();
   let tab = app.tabs.find((t) => t.path === path);
   if (!tab) {
     const content = await invoke<string>("read_file", { path });
@@ -1326,6 +1371,8 @@ async function doOpenFile(path: string, revealLine?: number): Promise<void> {
   activateTab(tab);
   void recordRecent(path);
   revealAfterOpen(path, revealLine);
+  // P1：记录到达位置（未指定行时取编辑器当前行，与用户所见一致）
+  noteOpen(path, revealLine ?? app.editor.getPosition()?.lineNumber ?? 1);
 }
 
 /** CR-08：打开完成后按需跳行（去重等待路径也要走，故独立成函数） */
@@ -1347,6 +1394,9 @@ function activateTab(tab: Tab): void {
   updateEditorOverlay();
   refreshRunGutter(); // C5：切换 tab 重算 __main__ 守卫行的 ▶
   refreshDebugGutter(); // D3：切换 tab 重算断点红点
+  scheduleBreadcrumbs(); // P2：面包屑跟随激活文件
+  refreshBookmarkGutter(); // P2：书签标记跟随激活文件
+  void lintActiveFile(); // P2：ruff 实时 lint（切 tab 立即跑，不等防抖）
   mdPreview.updatePreviewVisibility(); // Markdown 预览：切换 tab 后按「是否 md + 开关」刷新显隐
 }
 
@@ -1478,20 +1528,73 @@ export function renderTabs(): void {
   renderRunWidget(runWidgetState());
 }
 
+/** Optimize Imports（P0，Ctrl+Alt+O）：整理当前 Python 文件的导入（排序 + 删无用）。 */
+async function optimizeImportsActive(): Promise<void> {
+  const tab = app.activeTab;
+  if (!tab) return;
+  if (!tab.path.endsWith(".py") && !tab.path.endsWith(".pyw")) {
+    appendOutputLine(outputEl, `Optimize Imports 仅支持 Python 文件：${tab.path}`, "stderr", gotoFromLink);
+    return;
+  }
+  const before = tab.model.getValue();
+  const optimized = await optimizeImportsSource(tab.path, before);
+  if (optimized === null || optimized === before) return; // 失败已由 format 域提示；无改动则不动模型
+  tab.model.setValue(optimized); // 单次 setValue → Ctrl+Z 可整体撤销
+  appendOutputLine(outputEl, `已整理导入：${basename(tab.path)}`, "stdout", gotoFromLink);
+}
+
 async function saveActive(): Promise<void> {
   if (!app.activeTab) return;
+  const isPy = app.activeTab.path.endsWith(".py") || app.activeTab.path.endsWith(".pyw");
+  // 保存时整理导入（ruff I,F401，设置开关）：**先整理后格式化**——ruff format 不重排导入，
+  // 二者正交，此顺序与 PyCharm 的「Optimize Imports → Reformat」一致。失败不阻断保存。
+  if (app.settings.optimize_imports_on_save && isPy) {
+    const optimized = await optimizeImportsSource(app.activeTab.path, app.activeTab.model.getValue());
+    if (optimized !== null && optimized !== app.activeTab.model.getValue()) {
+      app.activeTab.model.setValue(optimized); // 单次 setValue → Ctrl+Z 可整体撤销
+    }
+  }
   // 保存时格式化（ruff，设置开关）：失败不阻断保存
-  if (app.settings.format_on_save && app.activeTab.path.endsWith(".py")) {
+  if (app.settings.format_on_save && isPy) {
     const formatted = await formatPythonSource(app.activeTab.path, app.activeTab.model.getValue());
     if (formatted !== null && formatted !== app.activeTab.model.getValue()) {
       app.activeTab.model.setValue(formatted); // 单次 setValue → Ctrl+Z 可整体撤销
     }
   }
+  // P1：本地历史——**写盘前**留一版快照（content 传 null = 后端读磁盘，落的是保存前的内容）。
+  // 失败只记日志：历史是兜底能力，绝不阻断保存（与 ruff 缺席不阻断格式化的策略一致）。
+  await snapshotHistory(app.activeTab.path);
   await invoke("write_file", { path: app.activeTab.path, content: app.activeTab.model.getValue() });
   app.activeTab.dirty = false;
   renderTabs();
   // 保存通知（引擎常在保存时触发完整重新检查）
   lsp.didSave(app.activeTab.path, app.activeTab.model);
+}
+
+/** 本地历史快照（保存前自动留痕）；无工作区时静默跳过 */
+async function snapshotHistory(path: string, content: string | null = null): Promise<void> {
+  if (!app.workspaceRoot) return;
+  try {
+    await invoke("history_snapshot", {
+      workspaceRoot: app.workspaceRoot,
+      path,
+      content,
+      kind: "save",
+    });
+  } catch (e) {
+    console.warn("[history] 保存快照失败", e);
+  }
+}
+
+/** 从磁盘重新加载文件到编辑器（本地历史回滚后刷新内容用） */
+async function reloadFileFromDisk(path: string): Promise<void> {
+  const tab = app.tabs.find((t) => t.path === path);
+  if (!tab) return;
+  const content = await invoke<string>("read_file", { path });
+  tab.model.setValue(content);
+  tab.dirty = false;
+  renderTabs();
+  await lsp.didChangeFull(path, tab.model);
 }
 
 // ---------- 运行 ----------
@@ -1672,7 +1775,9 @@ async function runActive(): Promise<void> {
   runningStdinEofHinted = false;
   runTranscript.flush(); // 上一轮残留的半行先定型，避免与本次输出粘成一行
   endRunPreparing(); // 状态就绪后释放闸门（内含 renderTabs）
+  startRun(path); // P2：运行历史——本次留档（输出面板路径才有 run-stdout/stderr 事件可采）
   appendOutputLine(outputEl, prep.echo, "cmd", gotoFromLink);
+  recordLines("cmd", [prep.echo]); // 回显行也入档，否则历史里看不出跑的是什么
   // S4：交互式运行 → 亮出输入行并聚焦，把「等待输入…」显式化（缓解坑 2 的单实例阻塞焦虑）
   syncRunStdinRow();
   try {
@@ -1681,6 +1786,9 @@ async function runActive(): Promise<void> {
   } catch (e) {
     // S1：stdin 重定向文件打不开时后端 fail fast，错误原因在此可见（不留僵尸运行态）
     appendOutputLine(outputEl, `运行失败: ${e}`, "stderr", gotoFromLink);
+    // P2：启动失败也要收尾历史记录——否则这条会永远停在中途，显示「运行中…」
+    recordLines("stderr", [`运行失败: ${e}`]);
+    finishRun(null);
     resetRunState();
   }
 }
@@ -1907,6 +2015,19 @@ async function runDebug(): Promise<void> {
   const prep = await prepareRun(path);
   if (!prep) return;
 
+  // P1：调试复用运行配置——后端 debug_start 直读 run_configs（参数 / env / 工作目录），
+  // 这里把「用上了什么」显式回显，避免用户以为调试是完全独立的一套配置。
+  if (app.workspaceRoot) {
+    const rc = await invoke<Partial<RunConfig>>("get_run_config", { workspaceRoot: app.workspaceRoot, scriptPath: path })
+      .catch(() => ({} as Partial<RunConfig>));
+    const parts: string[] = [];
+    if (rc.args?.trim()) parts.push(`参数 ${rc.args.trim()}`);
+    if (rc.env?.length) parts.push(`环境变量 ${rc.env.length} 项`);
+    if (parts.length) {
+      appendOutputLine(outputEl, `调试复用运行配置：${parts.join("，")}`, "hint", gotoFromLink);
+    }
+  }
+
   // debug_detect：debugpy 定位 + 依赖声明提示（§5.1.6：提示性质，不阻断）
   interface DebugDetectResult { debugpyOk: boolean; debugpyDir: string | null; depFound: boolean; depFiles: string[] }
   let detect: DebugDetectResult;
@@ -1953,6 +2074,180 @@ async function stopDebugSession(): Promise<void> {
   await dap.stopDebug();
   dap.resetDebugState();
   clearCurrentLine();
+}
+
+/**
+ * P2：新建草稿文件（PyCharm Ctrl+Alt+Shift+Insert Scratch 同款）。
+ * 草稿落在数据根的 scratches/ 目录（**不在工作区里**——不入库、不污染项目），
+ * 创建后直接打开即可运行 / 调试。
+ */
+async function newScratch(): Promise<void> {
+  try {
+    const path = await invoke<string>("create_scratch", { ext: ".py" });
+    await openFile(path);
+    appendOutputLine(outputEl, `已新建草稿：${path}（不入库，可直接运行 / 调试）`, "hint", gotoFromLink);
+  } catch (e) {
+    appendOutputLine(outputEl, `新建草稿失败: ${e}`, "stderr", gotoFromLink);
+  }
+}
+
+/** Alt+F9 Run to Cursor：跑到光标所在行（临时断点 + 继续，命中断点后自动撤掉） */
+async function runToCursorAtCursor(): Promise<void> {
+  const tab = app.activeTab;
+  if (!tab) return;
+  const line = app.editor.getPosition()?.lineNumber;
+  if (!line) return;
+  if (dap.currentPhase() !== "stopped") {
+    appendOutputLine(outputEl, "Run to Cursor 需要在调试暂停时使用（先运行到断点处）", "hint", gotoFromLink);
+    return;
+  }
+  await runToCursorIn(tab.path, line);
+}
+
+/** Alt+F8 求值表达式：非暂停态给明确指引，暂停态切到调试侧栏并弹输入框 */
+async function onEvaluateShortcut(): Promise<void> {
+  if (dap.currentPhase() !== "stopped") {
+    await notifyNotPaused();
+    return;
+  }
+  setSidebarTab("debug");
+  await openEvaluatePrompt();
+}
+
+/**
+ * P1：Search Everywhere 的「命令」数据源。
+ * 键位表里已有的动作直接用其 id——hint 会自动跟随用户在设置里改过的键位
+ * （同 debugView 工具栏提示的处理，避免硬编码 "F5" 这类会失真的文案）；
+ * 无键位的动作用显式 hint（如内建的 Shift+Alt+F）或留空。
+ */
+function buildQuickOpenActions(): QuickOpenAction[] {
+  return [
+    { id: "save", label: "保存", run: () => void saveActive() },
+    { id: "run", label: "运行当前文件", run: () => void runActive() },
+    { id: "debug", label: "启动调试 / 继续", run: () => void runDebug() },
+    { id: "debug_stop", label: "停止调试", run: () => void stopDebugSession() },
+    { id: "debug_evaluate", label: "求值表达式", run: () => void onEvaluateShortcut() },
+    { id: "debug_run_to_cursor", label: "运行到光标处", run: () => void runToCursorAtCursor() },
+    { id: "bookmark_toggle", label: "切换书签", run: () => void toggleBookmarkAtCursor() },
+    { id: "bookmark_list", label: "书签列表", run: () => void openBookmarks() },
+    { id: "scratch_new", label: "新建草稿文件", run: () => void newScratch() },
+    { id: "run_history", label: "运行历史", run: () => openRunHistory() },
+    { id: "goto_file", label: "转到文件", run: () => void openQuickOpen("files") },
+    { id: "goto_line", label: "转到行 / 列", run: () => void openQuickOpen("line") },
+    { id: "goto_definition", label: "跳转定义", run: () => void lsp.gotoDefinitionAtCursor(app.editor) },
+    { id: "global_search", label: "全局搜索", run: () => setSidebarTab("search") },
+    { id: "recent_files", label: "最近打开的文件", run: () => void openRecentFiles() },
+    { id: "optimize_imports", label: "整理导入（Optimize Imports）", run: () => void optimizeImportsActive() },
+    { id: "local_history", label: "本地历史", run: () => void openLocalHistory() },
+    { id: "template_palette", label: "Live Templates 面板", run: () => liveTemplatesHandle?.openPalette() },
+    { id: "surround", label: "环绕模板（需选区）", run: () => liveTemplatesHandle?.openSurround() },
+    { id: "markdown_preview", label: "Markdown 预览", run: () => mdPreview.togglePreview() },
+    { id: "format_document", label: "格式化文档", hint: "Shift+Alt+F", run: () => void app.editor.getAction("editor.action.formatDocument")?.run() },
+    { id: "open_settings", label: "打开设置", run: () => openSettingsPanel() },
+    { id: "new_project", label: "新建项目", run: () => openNewProjectPanel() },
+    { id: "git_panel", label: "Git 面板", run: () => setSidebarTab("git") },
+    { id: "todo_panel", label: "TODO 工具窗", run: () => setSidebarTab("todo") },
+  ];
+}
+
+// ---------- 断点右键菜单（P0：条件断点 / 命中次数 / Logpoint） ----------
+
+/**
+ * 断点 gutter 右键菜单（对标 PyCharm 右键断点）。
+ * 三个字段均为 DAP `SourceBreakpoint` 原生能力（见 dap/client.ts::BreakpointSpec），
+ * 本函数只负责「录入 + 落库 + 重绘」，协议透传与同步由 debugGutter 负责。
+ *
+ * 录入口径：openPrompt 返回 null = 取消（保持原值）；空串 = 清空该字段。
+ */
+async function showBreakpointMenu(path: string, line: number, x: number, y: number): Promise<void> {
+  const spec = getBreakpointSpec(path, line);
+  const has = spec !== null;
+  const kind = breakpointKind(spec);
+  const apply = (next: Parameters<typeof updateBreakpoint>[2]): void => {
+    updateBreakpoint(path, line, next);
+    refreshDebugGutter();
+  };
+
+  showMenu(
+    [
+      {
+        label: has ? "编辑条件…" : "添加条件断点…",
+        icon: "debug-breakpoint-conditional",
+        // 条件为真才断下——爬虫循环「第 N 次迭代才断」场景刚需
+        detail: spec?.condition ? `当前：${spec.condition}` : undefined,
+        action: () => {
+          void openPrompt({
+            title: `断点条件 · ${basename(path)}:${line}`,
+            label: "Python 表达式，为真时才断下（如 i > 10）；留空清除条件。",
+            value: spec?.condition ?? "",
+            placeholder: "i > 10",
+          }).then((v) => {
+            if (v === null) return; // 取消：保持原值
+            apply({ ...spec, condition: v || undefined });
+          });
+        },
+      },
+      {
+        label: "设置命中次数…",
+        icon: "debug-breakpoint-function",
+        detail: spec?.hitCondition ? `当前：${spec.hitCondition}` : undefined,
+        action: () => {
+          void openPrompt({
+            title: `命中次数 · ${basename(path)}:${line}`,
+            label: "数字（第 N 次命中时断下）或比较表达式（>3、%2==0）；留空清除。",
+            value: spec?.hitCondition ?? "",
+            placeholder: ">3",
+          }).then((v) => {
+            if (v === null) return;
+            apply({ ...spec, hitCondition: v || undefined });
+          });
+        },
+      },
+      {
+        label: has && spec?.logMessage ? "编辑日志消息…" : "设为日志点（不打断）…",
+        icon: "debug-breakpoint-log",
+        detail: spec?.logMessage ? `当前：${spec.logMessage}` : undefined,
+        action: () => {
+          void openPrompt({
+            title: `日志点 · ${basename(path)}:${line}`,
+            label: "用 {表达式} 插值，如 i={i}；设置后该行不断下，只把结果打到调试输出。",
+            value: spec?.logMessage ?? "",
+            placeholder: "i={i}, url={url}",
+          }).then((v) => {
+            if (v === null) return;
+            apply({ ...spec, logMessage: v || undefined });
+          });
+        },
+      },
+      {
+        label: "转为普通断点",
+        icon: "debug-breakpoint",
+        disabled: kind === "plain",
+        disabledReason: "当前已是普通断点",
+        action: () => apply(null),
+      },
+      { sep: true },
+      has
+        ? {
+            label: "删除断点",
+            icon: "trash",
+            danger: true,
+            action: () => {
+              removeBreakpoint(path, line);
+              refreshDebugGutter();
+            },
+          }
+        : {
+            label: "在此添加断点",
+            icon: "debug-breakpoint",
+            action: () => {
+              toggleBreakpoint(path, line);
+              refreshDebugGutter();
+            },
+          },
+    ],
+    { x, y },
+  );
 }
 
 // ---------- 运行配置（P3 建议 2）----------
@@ -2161,10 +2456,30 @@ function getMenuItems(menu: string): MenuEntry[] {
       { label: "替换", shortcut: "Ctrl+H", action: () => { app.editor.trigger("menu", "editor.action.startFindReplaceAction", null); } },
       { sep: true, label: "" },
       { label: "格式化文档", shortcut: "Shift+Alt+F", action: () => { void app.editor.getAction("editor.action.formatDocument")?.run(); } },
+      // P0：Optimize Imports（PyCharm「编辑 → Optimize Imports」同位置）
+      {
+        label: "整理导入（Optimize Imports）",
+        shortcut: kb.bindingLabel("optimize_imports") || undefined,
+        action: () => void optimizeImportsActive(),
+      },
     ];
     case "view": return [
       { label: "文件树", action: () => setSidebarTab("files") },
       { label: "搜索", shortcut: kb.bindingLabel("global_search") || undefined, action: () => setSidebarTab("search") },
+      // P0：最近打开的文件（PyCharm「视图 → 最近的文件」同位置）
+      { label: "最近的文件", shortcut: kb.bindingLabel("recent_files") || undefined, action: () => void openRecentFiles() },
+      // P1：Search Everywhere / 本地历史
+      { label: "Search Everywhere", shortcut: "Double Shift", action: () => void openQuickOpen("all") },
+      { label: "转到文件", shortcut: kb.bindingLabel("goto_file") || undefined, action: () => void openQuickOpen("files") },
+      { label: "转到行 / 列", shortcut: kb.bindingLabel("goto_line") || undefined, action: () => void openQuickOpen("line") },
+      { label: "本地历史", shortcut: kb.bindingLabel("local_history") || undefined, action: () => void openLocalHistory() },
+      { sep: true, label: "" },
+      { label: "后退", shortcut: kb.bindingLabel("nav_back") || undefined, action: () => void goBack() },
+      { label: "前进", shortcut: kb.bindingLabel("nav_forward") || undefined, action: () => void goForward() },
+      { sep: true, label: "" },
+      // P2：书签 / 运行历史
+      { label: "书签列表", shortcut: kb.bindingLabel("bookmark_list") || undefined, action: () => void openBookmarks() },
+      { label: "运行历史", shortcut: kb.bindingLabel("run_history") || undefined, action: () => openRunHistory() },
       { sep: true, label: "" },
       { label: "Markdown 预览", shortcut: kb.bindingLabel("markdown_preview") || undefined, action: () => mdPreview.togglePreview() },
       { label: "输出面板", action: () => { $("bottom").classList.toggle("collapsed"); } },
@@ -2513,6 +2828,8 @@ async function init(): Promise<void> {
   kb.setKeybindingHandler("surround", () => liveTemplatesHandle?.openSurround());
   // 运行选区 / 行（默认 Alt+Shift+E）
   kb.setKeybindingHandler("run_selection", () => void runSelection());
+  // P0：Optimize Imports（默认 Ctrl+Alt+O，PyCharm 同款）
+  kb.setKeybindingHandler("optimize_imports", () => void optimizeImportsActive());
   // CR-24：LSP providers 统一入应用级 DisposableStore——不再丢弃句柄。
   // providers 与引擎实例无关（内部按 engineStatus 短路），init 只注册一次；
   // store 便于应用级 teardown / 测试中整体清理，防句柄泄漏累积。
@@ -2582,6 +2899,8 @@ async function init(): Promise<void> {
     else if (id === "run") void runActive();
     else if (id === "stop") void stopRun();
     else if (id === "global_search") setSidebarTab("search");
+    // P0：最近打开的文件（Ctrl+E）——后端数据早已在写，此前前端没有消费入口
+    else if (id === "recent_files") void openRecentFiles();
     else if (id === "markdown_preview") mdPreview.togglePreview();
     // 调试五件套（debug dev plan §6.6）：F5 启动/继续、Shift+F5 停止、F10/F11/Shift+F11 步进
     else if (id === "debug") {
@@ -2592,6 +2911,37 @@ async function init(): Promise<void> {
     else if (id === "debug_step_over") import("./dap/client").then((m) => void m.dapNext(1));
     else if (id === "debug_step_into") import("./dap/client").then((m) => void m.dapStepIn(1));
     else if (id === "debug_step_out") import("./dap/client").then((m) => void m.dapStepOut(1));
+    // P1：Search Everywhere 三入口 + 导航历史 + 本地历史 + 求值表达式
+    else if (id === "goto_file") void openQuickOpen("files");
+    else if (id === "goto_line") void openQuickOpen("line");
+    else if (id === "nav_back") void goBack();
+    else if (id === "nav_forward") void goForward();
+    else if (id === "local_history") void openLocalHistory();
+    else if (id === "debug_evaluate") void onEvaluateShortcut();
+    // P2：Run to Cursor / 书签 / 草稿 / 运行历史
+    else if (id === "debug_run_to_cursor") void runToCursorAtCursor();
+    else if (id === "bookmark_toggle") void toggleBookmarkAtCursor();
+    else if (id === "bookmark_list") void openBookmarks();
+    else if (id === "scratch_new") void newScratch();
+    else if (id === "run_history") openRunHistory();
+  });
+
+  // P1：Double Shift → Search Everywhere（键位表无法表达双击手势，故固定在此）。
+  // 误触防护：两次 Shift 之间若按下过任何**其它**键（如打大写字母 A 的 Shift+A），
+  // 计时器立即作废——否则连续输入大写字母会被误判成双击 Shift。
+  let lastShiftUpAt = 0;
+  window.addEventListener("keydown", (e) => {
+    if (e.key !== "Shift") lastShiftUpAt = 0;
+  });
+  window.addEventListener("keyup", (e) => {
+    if (e.key !== "Shift") return;
+    const now = Date.now();
+    if (lastShiftUpAt > 0 && now - lastShiftUpAt < DOUBLE_SHIFT_MS) {
+      lastShiftUpAt = 0;
+      if (!isQuickOpenOpen()) void openQuickOpen("all");
+    } else {
+      lastShiftUpAt = now;
+    }
   });
 
   // didChange 全量同步（200ms 防抖，技术方案 §2.4）
@@ -2615,6 +2965,13 @@ async function init(): Promise<void> {
     editorTimers.outline = window.setTimeout(() => {
       if (activeView() === "files") refreshOutline();
     }, 500);
+    // P2：面包屑的符号树随编辑过期（缓存丢弃 → 下次刷新重查）
+    invalidateBreadcrumbs();
+    scheduleBreadcrumbs();
+    // P2：ruff 实时 lint（停手 800ms 后跑一次）
+    scheduleRuffLint();
+    // P2：书签按行号定位，行增删后装饰要跟着重算（与断点红点同款处理）
+    window.setTimeout(() => refreshBookmarkGutter(), 300);
     // 自动保存（delay 模式，P25-T08）
     if (app.settings.autosave === "delay") {
       window.clearTimeout(editorTimers.autosave);
@@ -2632,6 +2989,50 @@ async function init(): Promise<void> {
   $("tab-search").dataset.tipKey = kb.bindingLabel("global_search"); // tooltip 快捷键副文本（跟随自定义键位）
   wireBottomPanel();
   wireFileTree();
+  // P0：最近打开的文件（Ctrl+E 弹窗）
+  initRecentFiles();
+  setRecentFilesHandlers({ openFile: (p) => void openFile(p) });
+  // P1：Search Everywhere（Double Shift / Ctrl+Shift+N / Ctrl+G）
+  initQuickOpen();
+  setQuickOpenHandlers({
+    openFile: (p, line) => void openFile(p, line),
+    gotoLine: (line, column) => {
+      app.editor.setPosition({ lineNumber: line, column });
+      app.editor.revealLineInCenter(line);
+      app.editor.focus();
+    },
+  });
+  registerQuickOpenActions(buildQuickOpenActions());
+  // P1：导航历史（Ctrl+Alt+←/→）——跳转闭环的另一半
+  setNavHistoryHandlers({ openFile: (p, line) => openFile(p, line) });
+  // P1：本地历史（Ctrl+Shift+H）——无 Git 工作区的回滚兜底
+  initLocalHistory();
+  setLocalHistoryHandlers({ reloadFile: (p) => reloadFileFromDisk(p) });
+  // P2：ruff 实时 lint（诊断第三桶，owner = opencharm-ruff）
+  setRuffLintHandlers({ setMarkers });
+  // P2：书签（Ctrl+F11 切换 / Ctrl+Shift+F11 列表）
+  initBookmarks(app.editor, app.monaco);
+  setBookmarkHandlers({ openFile: (p, line) => void openFile(p, line) });
+  void loadBookmarks().then(() => refreshBookmarkGutter());
+  // P2：运行历史（输出面板按次留存，可回看）
+  initRunHistory();
+  setRunHistoryHandlers({
+    clearOutput: () => clearOutput(outputEl),
+    appendLine: (cls, text) => appendOutputLine(outputEl, text, cls, gotoFromLink),
+  });
+  // P2：Breadcrumbs 面包屑（编辑区顶部层级链）
+  initBreadcrumbs();
+  setBreadcrumbHandlers({
+    gotoLine: (line) => {
+      app.editor.setPosition({ lineNumber: line, column: 1 });
+      app.editor.revealLineInCenter(line);
+      app.editor.focus();
+    },
+  });
+  app.editor.onDidChangeCursorPosition(() => scheduleBreadcrumbs());
+  // P0：TODO 工具窗
+  initTodoView();
+  setTodoViewHandlers({ openFile: (path, line) => void openFile(path, line) });
   $("ew-open-folder").addEventListener("click", () => void openFolderFromToolbar());
   $("ew-new-project").addEventListener("click", () => openNewProjectPanel());
   $("ew-recent-clear").addEventListener("click", () => void clearRecentWorkspaces());
@@ -2744,7 +3145,15 @@ async function init(): Promise<void> {
     // 注入「守卫行归属」判定：debugGutter 需让出 __main__ 行的 glyph（方案 A），
     // 但不直接 import runGutter（会带进 menu 的顶层 document 监听），故由此注入。
     wireDebugGutter(app.editor, app.monaco, isRunGutterLine);
+    // P0：断点右键菜单（条件 / 命中次数 / Logpoint）——菜单构造需要 menu.ts 与 dialog.ts，
+    // 由 main 注入以保持 debugGutter 的可测试性（同 runGutter 的 menuItems 注入范式）。
+    setBreakpointMenuHandler((path, line, x, y) => void showBreakpointMenu(path, line, x, y));
     initDebugView();
+    // P1：调试控制台（求值表达式 + Logpoint 输出承接）——必须挂在 initDebugView 之后，
+    // 它往 #view-debug 末尾追加节点，先建会被 initDebugView 的 textContent = "" 清掉
+    initDebugConsole();
+    // P2：行内变量值（与 inlay hints 同一套注入文本装饰）
+    initInlineValues(app.editor, app.monaco);
     wireDebugViewEvents();
     // 调试 phase 变化 → 运行组按钮同步（调试中 ⏹ 可用并路由 debug_stop，D4）
     dap.onPhase(() => {
@@ -2798,6 +3207,13 @@ async function init(): Promise<void> {
     onShow: () => ($("search-input") as HTMLInputElement).focus(),
     onHide: () => cancelSearch(),
   });
+  // P0：TODO 工具窗——切到该视图才扫描（大仓库遍历不占用启动路径）
+  registerSidebarView({
+    id: "todo",
+    rootId: "view-todo",
+    tabId: "tab-todo",
+    onShow: () => void refreshTodos(),
+  });
   registerSidebarView({
     id: "git",
     rootId: "view-git",
@@ -2819,6 +3235,7 @@ async function init(): Promise<void> {
   // Activity Bar 图标（FILES / SEARCH / GIT / DEBUG）
   $("tab-files").addEventListener("click", () => setSidebarTab("files"));
   $("tab-search").addEventListener("click", () => setSidebarTab("search"));
+  $("tab-todo").addEventListener("click", () => setSidebarTab("todo"));
   $("tab-git").addEventListener("click", () => setSidebarTab("git"));
   $("tab-debug").addEventListener("click", () => setSidebarTab("debug"));
   // 大纲折叠 / 展开（OUTLINE 并入文件视图，TD-001 附带考虑）
@@ -2944,19 +3361,23 @@ async function init(): Promise<void> {
   // 统一交给 RunTranscript 还原成行——提示符立即可见（坑 1），traceback 链接不被 chunk 切碎（结论 6）。
   // 非交互路径没有 partial 字段，走同一套逻辑等价于旧的按行追加（且不再每行多出一个空白行）。
   await listen<{ data: string; partial?: boolean }>("run-stdout", (e) => {
-    runTranscript.write("stdout", e.payload.data, e.payload.partial === true);
+    const lines = runTranscript.write("stdout", e.payload.data, e.payload.partial === true);
+    recordLines("stdout", lines); // P2：运行历史留档（复用已还原好的整行）
     updateRunStdinStatus();
   });
   await listen<{ data: string; partial?: boolean }>("run-stderr", (e) => {
     // S2：只对**定型**的整行做 EOFError 归因（半行提示符不参与判定，避免误判）
-    for (const line of runTranscript.write("stderr", e.payload.data, e.payload.partial === true)) {
-      maybeHintEof(line);
-    }
+    const lines = runTranscript.write("stderr", e.payload.data, e.payload.partial === true);
+    recordLines("stderr", lines); // P2：运行历史留档
+    for (const line of lines) maybeHintEof(line);
   });
   await listen<{ code: number | null }>("run-exit", (e) => {
     // 收尾：把残留半行定型（脚本以无换行输出结束时不吞字），并让它同样参与 EOF 归因
-    for (const line of runTranscript.flush()) maybeHintEof(line);
+    const tail = runTranscript.flush();
+    recordLines("stdout", tail); // P2：残留半行同样入档，否则最后一行报错会丢
+    for (const line of tail) maybeHintEof(line);
     appendOutputLine(outputEl, `[进程退出 code=${e.payload.code ?? "null"}]`, "exit", gotoFromLink);
+    finishRun(e.payload.code); // P2：结束本次运行记录
     resetRunState();
   });
 

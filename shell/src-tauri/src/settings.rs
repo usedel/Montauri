@@ -22,12 +22,30 @@ fn default_keybindings() -> HashMap<String, String> {
     m.insert("comment_block".into(), "Ctrl+Shift+/".into());
     m.insert("template_palette".into(), "Ctrl+J".into());
     m.insert("surround".into(), "Ctrl+Alt+T".into());
+    // P0（PyCharm 调研）：Optimize Imports / 最近文件（与前端 KEYBINDING_META / DEFAULT_SETTINGS 三处同步）
+    m.insert("optimize_imports".into(), "Ctrl+Alt+O".into());
+    m.insert("recent_files".into(), "Ctrl+E".into());
+    // P1（PyCharm 调研）：转到文件 / 转到行 / 导航后退前进 / 本地历史
+    //（与前端 KEYBINDING_META / DEFAULT_SETTINGS 三处同步）
+    m.insert("goto_file".into(), "Ctrl+Shift+N".into());
+    m.insert("goto_line".into(), "Ctrl+G".into());
+    m.insert("nav_back".into(), "Ctrl+Alt+Left".into());
+    m.insert("nav_forward".into(), "Ctrl+Alt+Right".into());
+    m.insert("local_history".into(), "Ctrl+Shift+H".into());
     // 调试五件套（debug dev plan §6.6；与前端 KEYBINDING_META / DEFAULT_SETTINGS 三处同步）
     m.insert("debug".into(), "F5".into());
     m.insert("debug_stop".into(), "Shift+F5".into());
     m.insert("debug_step_over".into(), "F10".into());
     m.insert("debug_step_into".into(), "F11".into());
     m.insert("debug_step_out".into(), "Shift+F11".into());
+    // P1：断点处求值表达式（与前端 KEYBINDING_META / DEFAULT_SETTINGS 三处同步）
+    m.insert("debug_evaluate".into(), "Alt+F8".into());
+    // P2：调试打磨组 + 书签 / 草稿 / 运行历史
+    m.insert("debug_run_to_cursor".into(), "Alt+F9".into());
+    m.insert("bookmark_toggle".into(), "Ctrl+F11".into());
+    m.insert("bookmark_list".into(), "Ctrl+Shift+F11".into());
+    m.insert("scratch_new".into(), "Ctrl+Alt+Shift+Insert".into());
+    m.insert("run_history".into(), "Ctrl+Shift+R".into());
     // Markdown 预览开关（markdown preview dev plan §5-T4；与前端 KEYBINDING_META / DEFAULT_SETTINGS 三处同步）
     m.insert("markdown_preview".into(), "Ctrl+Shift+V".into());
     m
@@ -66,6 +84,8 @@ pub struct Settings {
     pub lsp_engine: String,
     /// 保存时用 ruff 格式化（Ctrl+S 联动）
     pub format_on_save: bool,
+    /// 保存时用 ruff 整理导入（Ctrl+Alt+O 的保存联动，与 format_on_save 同模式）
+    pub optimize_imports_on_save: bool,
     /// 运行时智能层（opencharm-intel）开关——关闭时 LSP 桥不启动 intel（P3-T09）
     pub runtime_intel_enabled: bool,
     /// 终端默认启动目录："workspace"（工作区根）| "file"（活动文件所在目录）
@@ -106,6 +126,7 @@ impl Default for Settings {
             probe_enabled: true,
             lsp_engine: "pyrefly".into(),
             format_on_save: false,
+            optimize_imports_on_save: false,
             runtime_intel_enabled: true,
             terminal_cwd: "workspace".into(),
             terminal_shell: "auto".into(),
@@ -190,7 +211,23 @@ mod tests {
         assert_eq!(d.keybindings.get("debug_step_into").map(String::as_str), Some("F11"));
         assert_eq!(d.keybindings.get("debug_step_out").map(String::as_str), Some("Shift+F11"));
         assert_eq!(d.keybindings.get("markdown_preview").map(String::as_str), Some("Ctrl+Shift+V"));
-        assert_eq!(d.keybindings.len(), 17);
+        // P0（PyCharm 调研）：Optimize Imports / 最近文件
+        assert_eq!(d.keybindings.get("optimize_imports").map(String::as_str), Some("Ctrl+Alt+O"));
+        assert_eq!(d.keybindings.get("recent_files").map(String::as_str), Some("Ctrl+E"));
+        // P1（PyCharm 调研）：Search Everywhere 三入口 + 导航历史 + 本地历史 + 求值
+        assert_eq!(d.keybindings.get("goto_file").map(String::as_str), Some("Ctrl+Shift+N"));
+        assert_eq!(d.keybindings.get("goto_line").map(String::as_str), Some("Ctrl+G"));
+        assert_eq!(d.keybindings.get("nav_back").map(String::as_str), Some("Ctrl+Alt+Left"));
+        assert_eq!(d.keybindings.get("nav_forward").map(String::as_str), Some("Ctrl+Alt+Right"));
+        assert_eq!(d.keybindings.get("local_history").map(String::as_str), Some("Ctrl+Shift+H"));
+        assert_eq!(d.keybindings.get("debug_evaluate").map(String::as_str), Some("Alt+F8"));
+        // P2：Run to Cursor / 书签 / 草稿 / 运行历史
+        assert_eq!(d.keybindings.get("debug_run_to_cursor").map(String::as_str), Some("Alt+F9"));
+        assert_eq!(d.keybindings.get("bookmark_toggle").map(String::as_str), Some("Ctrl+F11"));
+        assert_eq!(d.keybindings.get("scratch_new").map(String::as_str), Some("Ctrl+Alt+Shift+Insert"));
+        // 键位表条目数 = 前端 KEYBINDING_META 条目数（漂移锁，新增键须同步改这里）
+        assert_eq!(d.keybindings.len(), 30);
+        assert_eq!(d.optimize_imports_on_save, false);
     }
 
     #[test]
@@ -225,6 +262,14 @@ mod tests {
         assert_eq!(s.keybindings.get("duplicate_line").map(String::as_str), Some("Ctrl+D"));
         assert_eq!(s.keybindings.get("debug").map(String::as_str), Some("F5"));
         assert_eq!(s.keybindings.get("markdown_preview").map(String::as_str), Some("Ctrl+Shift+V"));
-        assert_eq!(s.keybindings.len(), 17);
+        assert_eq!(s.keybindings.get("optimize_imports").map(String::as_str), Some("Ctrl+Alt+O"));
+        assert_eq!(s.keybindings.get("recent_files").map(String::as_str), Some("Ctrl+E"));
+        // P1 新增键（旧配置无此字段 → 同样回落默认）
+        assert_eq!(s.keybindings.get("goto_file").map(String::as_str), Some("Ctrl+Shift+N"));
+        assert_eq!(s.keybindings.get("nav_back").map(String::as_str), Some("Ctrl+Alt+Left"));
+        assert_eq!(s.keybindings.get("local_history").map(String::as_str), Some("Ctrl+Shift+H"));
+        assert_eq!(s.keybindings.get("run_history").map(String::as_str), Some("Ctrl+Shift+R"));
+        assert_eq!(s.keybindings.len(), 30);
+        assert_eq!(s.optimize_imports_on_save, false); // 旧配置文件无此字段 → 默认关闭
     }
 }
