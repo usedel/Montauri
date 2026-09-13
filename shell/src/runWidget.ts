@@ -1,6 +1,6 @@
 // 运行入口 UI 域（C3）：菜单栏全局运行组（[运行目标 ▾] / ▶ / ⏹）+ 状态机 + 目标下拉菜单。
 // 组成为 PyCharm 布局：左侧下拉显示**当前选中的运行目标**并切换，右侧 ▶ 才真正启动
-// （见 docs/pycharm_habits_adaptation_plan.md §3-B；原先的 ▸「更多运行选项」并入此下拉）。
+// （见 docs/python_run_dev_plan.md §4；原先的 ▸「更多运行选项」并入此下拉）。
 // 与 main.ts 解耦：main.ts 拥有运行动作与运行态真值，本模块只负责「渲染 + 派发」——
 // handlers 注入（同 terminal.ts::setTerminalLinkHandler / termUi.ts::setOutputPanelHooks 先例），
 // 避免 runWidget → main → runWidget 的循环导入。所有状态变化点调用 renderRunWidget 重绘。

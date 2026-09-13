@@ -173,7 +173,7 @@ export function selectionMetaOf(): SelectionRunMeta | null {
  * 而运行目标描述"▶ 下次会跑什么"——**运行结束后仍然保留**，只有显式操作才会改变它：
  *   ① 标签右键 →「运行」/「在终端中运行」；② gutter ▶；③ ▸ 菜单选命名配置 / 命令面板「运行当前文件」。
  * 单纯**切换打开的文件不改变目标**（对齐 PyCharm；此前 ▶ 恒等于活动文件，见
- * `docs/pycharm_habits_adaptation_plan.md` §3-B）。
+ * `docs/python_run_dev_plan.md` §4）。
  * 无目标时（首次运行 / 新工作区）▶ 回落当前文件。
  */
 export type RunTarget =

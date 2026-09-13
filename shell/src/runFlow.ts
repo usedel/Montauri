@@ -61,7 +61,7 @@ let runPreparing = false;
 /**
  * 粘性运行目标：▶ / Ctrl+F10 **不再跑「当前文件」**，而是跑"上次运行的目标"（文件或命名配置），
  * 之后切换打开的文件不改变它——对齐 PyCharm「Run 部件 = 选中的运行配置」语义
- * （见 `docs/pycharm_habits_adaptation_plan.md` §3-B，该节同时记录了对
+ * （见 `docs/python_run_dev_plan.md` §4，该节同时记录了对
  * `python_ide_dev_plan_v2.md:80` 首版语义的有意识偏离）。
  *
  * 只有显式操作才会重新指定目标：① 标签右键「运行」/「在终端中运行」；② gutter ▶；
