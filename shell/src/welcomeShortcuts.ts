@@ -28,7 +28,8 @@ interface WelcomeShortcut {
   fixed?: string;
 }
 
-/** 与改动前 index.html 的 6 行一一对应（顺序与说明文案均保持），仅键位来源改为动态 */
+/** P1（UX 审查）：由 6 行扩充到 13 行——键位系统里 30+ 项大多无处可发现，
+ *  欢迎页是首屏唯一键位入口。仍保持「kb 优先 + fixed 兜底」两类结构。 */
 const SHORTCUTS: WelcomeShortcut[] = [
   { label: "保存文件", kb: "save" },
   { label: "全局搜索", kb: "global_search" },
@@ -36,6 +37,13 @@ const SHORTCUTS: WelcomeShortcut[] = [
   { label: "跳转到定义", kb: "goto_definition", fallback: "F12" },
   { label: "查找引用", fixed: "Shift+F12" },
   { label: "格式化文档", fixed: "Shift+Alt+F" },
+  { label: "启动调试", kb: "debug" },
+  { label: "关闭标签", kb: "close_tab" },
+  { label: "新建文件", kb: "new_file" },
+  { label: "转到文件", kb: "goto_file" },
+  { label: "导航后退", kb: "nav_back" },
+  { label: "最近打开的文件", kb: "recent_files" },
+  { label: "打开设置", kb: "open_settings" },
 ];
 
 /** 该项当前应显示的键位串（空串 = 已解绑且无兜底） */

@@ -12,6 +12,8 @@ import { gitStatusOf, isGitRepoActive, isGitDirtyDir } from "./gitStatusState";
 import { openTerminalAt } from "./termUi";
 import * as mdPreview from "./markdownPreview"; // Markdown 预览（.md 右键「打开预览」）
 import { openConfirm } from "./dialog";
+import { toast, toastFail } from "./toast";
+import { setSidebarTab } from "./views";
 import * as lsp from "./lsp/client";
 import { hideMenu, showMenu, type MenuItem } from "./menu";
 
@@ -510,12 +512,15 @@ function inlineInput(container: HTMLElement, beforeEl: HTMLElement | null, initi
       row.remove();
       resolve(val);
     };
+    input.title = "Enter 确认 · Esc 取消";
     input.addEventListener("keydown", (e) => {
       e.stopPropagation(); // 防止触发树快捷键
       if (e.key === "Enter") finish(input.value.trim() || null);
       else if (e.key === "Escape") finish(null);
     });
-    input.addEventListener("blur", () => finish(input.value.trim() || null));
+    // P1（UX 审查）：blur = 取消而非提交——原先点击别处会被误当作确认，
+    // 半输入的文件名/新名直接落盘（误建文件 / 误重命名）。提交必须显式按 Enter。
+    input.addEventListener("blur", () => finish(null));
     setTimeout(() => {
       input.focus();
       if (selectStem) {
@@ -541,10 +546,28 @@ export async function createFileAt(entry: Entry): Promise<void> {
     await invoke("create_file", { path: target });
   } catch (e) {
     console.error("新建文件失败", e);
+    toastFail("新建文件", e);
     return;
   }
   await reloadDir(base);
   await fh().openFile(target);
+}
+
+/** P1（UX 审查）：全局「新建文件」入口（键位 Ctrl+Alt+Insert）。
+ *  目标目录 = 活动文件所在目录（无活动文件时为工作区根）；目标目录已展开时先展开它，
+ *  让内联输入框出现在目标目录之下（父链未展开等查不到元素时回落到树根部，行为同右键）。
+ *  setSidebarTab 经 views.ts 注入无环（views 零依赖）。 */
+export async function createFileInteractive(): Promise<void> {
+  if (!app.workspaceRoot) return;
+  setSidebarTab("files"); // 输入框在树里，先保证文件视图可见
+  const tab = app.activeTab;
+  const base = tab ? parentDirOf(tab.path) : app.workspaceRoot;
+  if (base !== app.workspaceRoot && !dirContainers.has(base)) {
+    const dirEl = treeEl.querySelector<HTMLElement>(`.tree-item.dir[data-path="${CSS.escape(base)}"]`);
+    const dirEntry = dirEl ? entryFromEl(dirEl) : null;
+    if (dirEl && dirEntry) await toggleDir(dirEl, dirEntry, depthOf(dirEl));
+  }
+  await createFileAt({ name: basename(base), path: base, is_dir: true });
 }
 
 /** 新建文件夹（内联输入，支持嵌套路径） */
@@ -560,6 +583,7 @@ export async function createDirAt(entry: Entry): Promise<void> {
     await invoke("create_dir", { path: target });
   } catch (e) {
     console.error("新建文件夹失败", e);
+    toastFail("新建文件夹", e);
     return;
   }
   await reloadDir(base);
@@ -578,6 +602,7 @@ export async function createPyFileAt(entry: Entry): Promise<void> {
     await invoke("create_file", { path: target });
   } catch (e) {
     console.error("新建 Python 文件失败", e);
+    toastFail("新建 Python 文件", e);
     return;
   }
   await reloadDir(base);
@@ -599,6 +624,7 @@ export async function createPyPackageAt(entry: Entry): Promise<void> {
     await invoke("create_py_package", { path: target });
   } catch (e) {
     console.error("新建 Python 包失败", e);
+    toastFail("新建 Python 包", e);
     return;
   }
   await reloadDir(base);
@@ -619,6 +645,7 @@ async function renameEntry(entry: Entry): Promise<void> {
     await invoke("rename_path", { oldPath, newPath });
   } catch (e) {
     console.error("重命名失败", e);
+    toastFail("重命名", e);
     return;
   }
   await handleRenameLinks(oldPath, newPath);
@@ -685,7 +712,25 @@ async function pasteEntry(entry: Entry): Promise<void> {
   const srcPaths = fileClipboard.paths;
   const mode = fileClipboard.mode;
 
-  for (const src of srcPaths) {
+  // UX P0-2：剪切（移动）不支持覆盖——目标目录已存在同名项时先拦截并提示，
+  // 而不是让 rename_path 逐个报错后才知情（复制模式后端自动加「副本」，无同名冲突）。
+  let moves = srcPaths;
+  if (mode === "cut") {
+    const skipped: string[] = [];
+    moves = [];
+    for (const src of srcPaths) {
+      const name = basename(src);
+      if (await dirHasEntry(targetDir, name)) skipped.push(name);
+      else moves.push(src);
+    }
+    if (skipped.length > 0) {
+      toast(`目标目录已存在同名项，已跳过：${skipped.join("、")}（移动不支持覆盖）`);
+    }
+    if (moves.length === 0) return; // 全部被跳过：剪贴板与 .cut 标记保持原状
+  }
+
+  const failed: string[] = [];
+  for (const src of moves) {
     try {
       if (mode === "cut") {
         const newName = basename(src);
@@ -698,8 +743,11 @@ async function pasteEntry(entry: Entry): Promise<void> {
       }
     } catch (e) {
       console.error("粘贴失败", src, e);
+      failed.push(basename(src));
     }
   }
+  // UX P0-1：部分失败要有汇总反馈（原先只 console.error，用户以为粘贴成功）
+  if (failed.length > 0) toast(`粘贴 ${failed.length} 项失败：${failed.join("、")}`, "error");
 
   // 剪切完成后清除剪贴板和视觉标记
   if (mode === "cut") {
@@ -726,11 +774,13 @@ async function deleteSelected(): Promise<void> {
   if (!ok) return;
 
   const affectedDirs = new Set<string>();
+  const failed: string[] = [];
   for (const entry of entries) {
     try {
       await invoke("trash_path", { path: entry.path });
     } catch (e) {
       console.error("删除失败", entry.path, e);
+      failed.push(basename(entry.path));
       continue;
     }
     // 关闭打开中的标签
@@ -743,23 +793,47 @@ async function deleteSelected(): Promise<void> {
   }
   selectedPaths.clear();
   selectedEntry = null;
+  // UX P0-1：失败项要有可见反馈
+  if (failed.length > 0) toast(`删除 ${failed.length} 项失败：${failed.join("、")}`, "error");
   for (const d of affectedDirs) {
     if (dirContainers.has(d)) await reloadDir(d);
   }
 }
 
+/** 目标目录下是否已存在同名项（Windows 文件系统大小写不敏感，比较归一小写）。
+ *  UX P0-2：移动/剪切不支持覆盖，冲突在动手前拦截并提示。目录读不到时返回 false，
+ *  让后续 rename_path 自己报错（走 toastFail，不吞真实原因）。 */
+async function dirHasEntry(dir: string, name: string): Promise<boolean> {
+  try {
+    const entries = await invoke<Entry[]>("read_dir", { path: dir, showHidden: true });
+    const lower = name.toLowerCase();
+    return entries.some((e) => e.name.toLowerCase() === lower);
+  } catch {
+    return false;
+  }
+}
+
 /** 拖拽移动文件到目标目录 */
 async function dropMoveFile(srcPath: string, targetDirPath: string): Promise<void> {
-  // 不能移动到自身或自身的子目录
+  // 不能移动到自身或自身的子目录（UX P0-2：原先静默拒绝，用户不知道拖拽为什么没生效）
   if (srcPath === targetDirPath) return;
-  if (targetDirPath.startsWith(srcPath + "\\") || targetDirPath.startsWith(srcPath + "/")) return;
+  if (targetDirPath.startsWith(srcPath + "\\") || targetDirPath.startsWith(srcPath + "/")) {
+    toast("不能把文件夹移动到它自己的子目录里");
+    return;
+  }
   const newName = basename(srcPath);
   const dst = joinPath(targetDirPath, newName);
   if (srcPath === dst) return;
+  // UX P0-2：目标同名先拦截（移动不支持覆盖）
+  if (await dirHasEntry(targetDirPath, newName)) {
+    toast(`目标目录已存在同名项「${newName}」，已取消移动（不支持覆盖）`);
+    return;
+  }
   try {
     await invoke("rename_path", { oldPath: srcPath, newPath: dst });
   } catch (e) {
     console.error("拖拽移动失败", e);
+    toastFail("拖拽移动", e);
     return;
   }
   await handleRenameLinks(srcPath, dst);
@@ -774,6 +848,7 @@ async function copyEntryPath(entry: Entry): Promise<void> {
     await invoke("copy_to_clipboard", { text: entry.path });
   } catch (e) {
     console.error("复制路径失败", e);
+    toastFail("复制路径", e);
   }
 }
 
@@ -783,6 +858,7 @@ async function revealEntry(entry: Entry): Promise<void> {
     await invoke("reveal_in_explorer", { path: entry.path });
   } catch (e) {
     console.error("打开资源管理器失败", e);
+    toastFail("打开资源管理器", e);
   }
 }
 

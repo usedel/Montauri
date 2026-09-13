@@ -364,6 +364,50 @@ pub fn clear_bookmarks(workspace_root: String) -> Result<Vec<Bookmark>, String> 
     Ok(Vec::new())
 }
 
+// ---------- 断点持久化（P2-11 UX 审查：断点随工作区落盘，与书签同模式） ----------
+//
+// 此前端内只在内存保留断点表（跨调试会话、不跨应用重启），而书签却持久化——行为不一致。
+// 存 <data_root>/breakpoints/<hash>.json；wire 格式用 camelCase 直接对齐 TS 的 BreakpointSpec，
+// 空串表示无该高级属性（TS 侧加载时归一为 undefined，保持「空 spec 即普通断点」语义）。
+
+/// 一条持久化断点：文件路径 + 行号 + DAP 高级属性（空串 = 无）
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct PersistedBreakpoint {
+    pub path: String,
+    pub line: u32,
+    #[serde(default)]
+    pub condition: String,
+    #[serde(default)]
+    pub hit_condition: String,
+    #[serde(default)]
+    pub log_message: String,
+}
+
+fn breakpoints_path(root: &str) -> PathBuf {
+    opencharm_home().join("breakpoints").join(format!("{}.json", project_hash(root)))
+}
+
+/// 全部持久化断点（文件不存在返回空表）
+#[tauri::command]
+pub fn get_breakpoints(workspace_root: String) -> Result<Vec<PersistedBreakpoint>, String> {
+    let p = breakpoints_path(&workspace_root);
+    if !p.is_file() {
+        return Ok(Vec::new());
+    }
+    let s = fs::read_to_string(p).map_err(|e| e.to_string())?;
+    Ok(serde_json::from_str(&s).unwrap_or_default())
+}
+
+/// 全量覆盖写入断点表（前端每次断点表变更后整体落盘，量级小、语义最简）
+#[tauri::command]
+pub fn set_breakpoints(workspace_root: String, breakpoints: Vec<PersistedBreakpoint>) -> Result<(), String> {
+    let p = breakpoints_path(&workspace_root);
+    fs::create_dir_all(p.parent().unwrap_or(Path::new(""))).map_err(|e| e.to_string())?;
+    let json = serde_json::to_string(&breakpoints).map_err(|e| format!("序列化断点失败：{e}"))?;
+    fs::write(p, json).map_err(|e| e.to_string())
+}
+
 // ---------- 单元测试 ----------
 
 #[cfg(test)]

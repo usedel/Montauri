@@ -11,6 +11,7 @@
 
 import { app } from "./state";
 import { samePath } from "./util";
+import { toast } from "./toast";
 
 export interface NavLocation {
   path: string;
@@ -80,10 +81,15 @@ export function canGoForward(): boolean {
   return index >= 0 && index < history.length - 1;
 }
 
-/** 移动游标并跳转；无法移动返回 false（调用方可据此给些反馈） */
+/** 移动游标并跳转；无法移动返回 false。
+ *  P1（UX 审查）：到尽头时给 toast 反馈——原先返回值被调用方忽略，用户按 Ctrl+Alt+Left
+ *  毫无反应时不明白原因（键盘与菜单两条路径共用此唯一实现，反馈只写一处）。 */
 async function move(delta: number): Promise<boolean> {
   const next = index + delta;
-  if (next < 0 || next >= history.length) return false;
+  if (next < 0 || next >= history.length) {
+    toast(delta < 0 ? "没有更早的导航位置" : "已在最新的导航位置");
+    return false;
+  }
   index = next;
   const loc = history[next];
   applying = true;

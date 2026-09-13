@@ -253,7 +253,9 @@ export function runWidgetState(): RunWidgetState {
   return {
     canRun,
     disabledReason,
-    running: isRunning() || runPreparing || debugging,
+    running: isRunning() || debugging,
+    // P1（UX 审查）：准备期独立表达——原先混进 running，▶ 的提示误报「已有脚本在运行（先停止）」
+    preparing: runPreparing,
     channel: runChannelOf(),
     targetName: tab ? basename(tab.path) : "",
     runShortcut: kb.bindingLabel("run"),

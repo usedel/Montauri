@@ -13,6 +13,8 @@ export interface RunWidgetState {
   /** canRun 为假时的原因文案 */
   disabledReason: string;
   running: boolean;
+  /** P1（UX 审查）：运行准备期（保存 / 依赖预检 / Before launch）——▶ 显示 spinner + 专属提示 */
+  preparing: boolean;
   channel: "output" | "terminal" | null;
   /** 活动文件名（basename），用于 tooltip */
   targetName: string;
@@ -42,6 +44,8 @@ export interface RunButtonState {
   disabled: boolean;
   tip: string;
   tipKey?: string;
+  /** P1：准备中——▶ 图标切为旋转 loader（data-tip 已解释原因） */
+  busy?: boolean;
 }
 
 export interface RunWidgetComputed {
@@ -80,6 +84,14 @@ export function repaintRunWidget(): void {
 
 /** 纯函数：把运行态映射为三按钮的亮/灰 + tooltip 文案（可单测，不碰 DOM）。 */
 export function computeRunWidget(s: RunWidgetState): RunWidgetComputed {
+  if (s.preparing) {
+    // P1：准备期（保存 / 依赖预检 / 前置配置）——原先混在 running 里误报「已有脚本在运行」
+    return {
+      run: { disabled: true, tip: "正在准备运行（保存 / 依赖预检）…", busy: true },
+      stop: { disabled: true, tip: "没有正在运行的脚本" },
+      menu: { disabled: false, tip: "更多运行选项" },
+    };
+  }
   if (!s.canRun) {
     // R0：不可运行
     const reason = s.disabledReason;
@@ -115,11 +127,23 @@ export function renderRunWidget(s: RunWidgetState): void {
   applyButton(btnMenu, c.menu);
 }
 
+/** UX P0-3：禁用态用 .is-disabled 类 + aria-disabled（debugView 工具栏同款模式），
+ *  不用 disabled 属性——Chromium 不向禁用的表单控件派发鼠标事件，data-tip 会静默失效，
+ *  而「为什么不能运行」的原因文案恰是灰按钮最需要展示的信息；附带让按钮留在 tab 序列，
+ *  键盘/读屏用户也能发现控件并听到「已禁用」。点击守卫在 wireRunWidget 的回调里。 */
 function applyButton(btn: HTMLButtonElement, b: RunButtonState): void {
-  btn.disabled = b.disabled;
+  btn.classList.toggle("is-disabled", b.disabled);
+  btn.setAttribute("aria-disabled", String(b.disabled));
   btn.dataset.tip = b.tip;
   if (b.tipKey) btn.dataset.tipKey = b.tipKey;
   else delete btn.dataset.tipKey;
+  // P1：准备中把图标切为旋转 loader（codicon-modifier-spin 已随「减少动画」自动归零）
+  const icon = btn.querySelector<HTMLElement>("i.codicon");
+  if (icon) {
+    icon.classList.toggle("codicon-run", !b.busy);
+    icon.classList.toggle("codicon-loading", !!b.busy);
+    icon.classList.toggle("codicon-modifier-spin", !!b.busy);
+  }
 }
 
 /** ▾ 下拉菜单项（与 gutter 右键共用同源，保证两处菜单一致）。 */
@@ -168,12 +192,20 @@ export function getRunMenuItems(): MenuItem[] {
   ];
 }
 
-/** 接线三按钮（init 调用一次） */
+/** 接线三按钮（init 调用一次）。UX P0-3：按钮不再用 disabled 属性（见 applyButton），
+ *  故点击守卫移入回调——.is-disabled 时的点击一律忽略。 */
 export function wireRunWidget(): void {
-  btnRun.addEventListener("click", () => handlers?.run());
-  btnStop.addEventListener("click", () => handlers?.stop());
+  btnRun.addEventListener("click", () => {
+    if (btnRun.classList.contains("is-disabled")) return;
+    handlers?.run();
+  });
+  btnStop.addEventListener("click", () => {
+    if (btnStop.classList.contains("is-disabled")) return;
+    handlers?.stop();
+  });
   btnMenu.addEventListener("click", (e) => {
     e.stopPropagation();
+    if (btnMenu.classList.contains("is-disabled")) return;
     showMenu(getRunMenuItems(), btnMenu);
   });
 }

@@ -41,7 +41,13 @@ export type KeybindingId =
   | "bookmark_list"
   | "scratch_new"
   | "run_history"
-  | "markdown_preview";
+  | "markdown_preview"
+  // P1（UX 审查）：高频但此前无键位的操作（三处同步：此处 / state.ts / Rust settings.rs）
+  | "close_tab"
+  | "new_file"
+  | "open_settings"
+  | "toggle_sidebar"
+  | "toggle_bottom";
 
 export interface KeybindingMeta {
   id: KeybindingId;
@@ -92,6 +98,13 @@ export const KEYBINDING_META: KeybindingMeta[] = [
   { id: "run_history", label: "运行历史", def: "Ctrl+Shift+R", scope: "window" },
   // Markdown 预览开关（markdown preview dev plan §5-T4；window 级——编辑器聚焦/失焦均可用）
   { id: "markdown_preview", label: "Markdown 预览", def: "Ctrl+Shift+V", scope: "window" },
+  // P1（UX 审查）：高频操作补键位。默认值取 PyCharm 同款（Ctrl+F4 关闭标签 / Ctrl+Alt+Insert 新建
+  // / Ctrl+Alt+S 设置）；侧栏/底部面板取 PyCharm 工具窗口习惯键（Ctrl+Shift+F12 / Alt+F12）
+  { id: "close_tab", label: "关闭标签", def: "Ctrl+F4", scope: "window" },
+  { id: "new_file", label: "新建文件", def: "Ctrl+Alt+Insert", scope: "window" },
+  { id: "open_settings", label: "打开设置", def: "Ctrl+Alt+S", scope: "window" },
+  { id: "toggle_sidebar", label: "切换侧栏", def: "Ctrl+Shift+F12", scope: "window" },
+  { id: "toggle_bottom", label: "切换底部面板", def: "Alt+F12", scope: "window" },
 ];
 
 // ---------- 解析 ----------

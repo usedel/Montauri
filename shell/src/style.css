@@ -529,8 +529,8 @@ button:focus-visible,
   border-radius: var(--radius-sm);
 }
 .menubar-icon:hover { color: var(--fg); background: var(--hover); }
-.menubar-icon:disabled { opacity: 0.4; cursor: default; }
-.menubar-icon:disabled:hover { color: var(--fg-dim); background: transparent; }
+.menubar-icon:disabled, .menubar-icon.is-disabled { opacity: 0.4; cursor: default; }
+.menubar-icon:disabled:hover, .menubar-icon.is-disabled:hover { color: var(--fg-dim); background: transparent; }
 
 /* UI-19 / UI-27：标题栏功能分区细分隔线（菜单区│动作区、设置区│窗口控制区）。
    1px × 16px 垂直居中，用 --border-soft；两侧 --space-2 间距。
@@ -548,10 +548,13 @@ button:focus-visible,
 /* 运行组（C3）：三独立按钮，紧跟「工具」菜单后。按钮均为 <button>，天然不受拖窗区影响 */
 /* UI-19：原 margin-left 由前置 .menubar-sep 的间距取代，避免分隔线两侧间距叠加过宽 */
 #run-group { display: flex; align-items: center; gap: var(--space-1); flex: none; }
+/* UX P0-3：运行组禁用态改用 .is-disabled（不用 disabled 属性）——
+   Chromium 不向禁用控件派发鼠标事件，data-tip 会静默失效，
+   而「为什么不能运行」的原因文案恰是灰按钮最需要展示的信息。 */
 #run-group #btn-run { color: var(--brand); }
-#run-group #btn-run:disabled { color: var(--fg-dim); }
+#run-group #btn-run:disabled, #run-group #btn-run.is-disabled { color: var(--fg-dim); }
 #run-group #btn-stop { color: var(--fg-dim); }
-#run-group #btn-stop:not(:disabled) { color: var(--danger); }
+#run-group #btn-stop:not(:disabled):not(.is-disabled) { color: var(--danger); }
 
 /* ---------- 标题栏窗口控制按钮（自绘，VS Code 风） ---------- */
 /* UI-19：原 margin-left 由前置 .menubar-sep 的间距取代（设置区│窗口控制区分隔线） */
@@ -898,6 +901,16 @@ button:focus-visible,
   opacity: 0.35;
   cursor: default;
 }
+/* P1（UX 审查）：调试 starting 阶段的状态提示（debugView.ts 构建，renderToolbar 控制显隐） */
+.debug-starting-hint {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  color: var(--fg-dim);
+  font-size: var(--text-sm);
+}
+.debug-starting-hint .codicon { font-size: var(--text-md); }
 .debug-section-header {
   padding: var(--space-3) var(--space-5) var(--space-2);
   font-size: var(--text-xs);
@@ -952,6 +965,17 @@ button:focus-visible,
   color: var(--syntax-var);
   flex-shrink: 0;
 }
+/* P2-11（UX 审查）：变量树——可展开行的 twisty / 悬停态（对齐文件树范式）。
+   无子级的行放等宽占位（.tw-placeholder）保持两列对齐。 */
+.debug-var-row .twisty {
+  flex: none;
+  width: 14px;
+  text-align: center;
+}
+.debug-var-row .tw-placeholder { visibility: hidden; }
+.debug-var-row[aria-expanded] { cursor: pointer; }
+.debug-var-row[aria-expanded]:hover { background: var(--hover-subtle); }
+.debug-var-row.debug-var-empty { color: var(--fg-dim); }
 .debug-var-value {
   color: var(--fg);
   overflow: hidden;
@@ -3316,3 +3340,51 @@ button:focus-visible,
 }
 .compound-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .compound-item input { flex: none; }
+
+/* ---------- 全局 toast 通知（UX 审查 P0-1；toast.ts） ---------- */
+/* 右下角堆叠（状态栏上方）；z-index 高于 confirm-modal（500），失败提示不被模态遮挡 */
+#toast-stack {
+  position: fixed;
+  right: var(--space-6);
+  bottom: calc(24px + var(--space-4)); /* #statusbar 高 24px + 一档间距 */
+  z-index: 600;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-width: min(420px, 60vw);
+  pointer-events: none; /* 命中只在 toast 本体上开放，不挡其下方点击 */
+}
+.toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--fg-dim);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow);
+  color: var(--fg);
+  font-size: var(--text-sm);
+  animation: oc-fade-in calc(0.12s * var(--motion)) ease-out;
+}
+.toast.closing { animation: oc-fade-out calc(0.1s * var(--motion)) ease-in forwards; }
+.toast .codicon { font-size: var(--text-md); flex: none; }
+.toast--error { border-left-color: var(--danger); }
+.toast--error > .codicon { color: var(--danger); }
+.toast--success { border-left-color: var(--ok); }
+.toast--success > .codicon { color: var(--ok); }
+.toast--info > .codicon { color: var(--link); }
+.toast-text { flex: 1 1 auto; min-width: 0; word-break: break-all; }
+.toast-close {
+  flex: none;
+  display: inline-flex;
+  background: none;
+  border: none;
+  color: var(--fg-dim);
+  cursor: pointer;
+  padding: 0;
+}
+.toast-close:hover { color: var(--fg); }
+.toast-close .codicon { font-size: var(--text-sm); }

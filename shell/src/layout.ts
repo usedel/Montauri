@@ -61,6 +61,12 @@ function readStored(key: string): number | null {
   return Number.isFinite(v) && v > 0 ? v : null;
 }
 
+/** P1（UX 审查）：切换侧栏显隐（键位 Ctrl+Shift+F12 / 视图菜单共用唯一实现）。
+ *  宽度仍由 --sidebar-w / 内联 width 持久化，隐藏只是 display:none，重新展开不丢尺寸。 */
+export function toggleSidebar(): void {
+  document.getElementById("sidebar")?.classList.toggle("hidden");
+}
+
 /** 启动时恢复上次的侧栏宽度 / 底部面板高度 / 右侧面板宽度 / 大纲高度（越界值忽略） */
 export function restoreLayout(): void {
   const sw = readStored(SIDEBAR_KEY);

@@ -113,6 +113,9 @@ pub fn run() {
             file_ops::get_bookmarks,
             file_ops::toggle_bookmark,
             file_ops::clear_bookmarks,
+            // P2-11（UX 审查）：断点随工作区持久化（与书签同模式）
+            file_ops::get_breakpoints,
+            file_ops::set_breakpoints,
             // Python 环境管理（P25-T04）
             env_cmds::list_pythons,
             env_cmds::list_python_versions,

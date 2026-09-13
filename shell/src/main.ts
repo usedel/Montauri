@@ -27,18 +27,18 @@ import { appendOutputLine, clearOutput, setOutputUrlHandler } from "./output";
 import { openConfirm, openPrompt } from "./dialog";
 import { app, $, $btn, outputEl, statusFileEl, type Entry, type Tab } from "./state";
 import {
-  createDirAt, createFileAt, isDirExpanded, isTreeEmpty, refreshTree, reloadDir,
+  createDirAt, createFileInteractive, isDirExpanded, isTreeEmpty, refreshTree, reloadDir,
   renderCtxMenu, resetTreeState, setFileTreeHandlers, wireFileTree, type CtxItem,
 } from "./fileTree";
 import { refreshGitStatus, renderGitPanel, refreshBranchPanel, resetGitState, wireGitUI } from "./git";
 import {
-  disposeTerminal, openTerminalAt, wireBottomPanel, wireTerminalEvents,
+  disposeTerminal, openTerminalAt, toggleBottomPanel, wireBottomPanel, wireTerminalEvents,
 } from "./termUi";
 import { setTerminalLinkHandler } from "./terminal";
 import { loadSettings, saveSettings, applyFontStatus, openSettingsPanel, setSettingsPanelHandlers, wireSettingsPanel, buildEditorOptions } from "./settingsPanel";
 import { checkFirstRunStorage } from "./storagePanel";
 import { basename, codicon, DisposableStore, emptyState, languageOf, parentDirOf, renderFileIcon, symbolIcon } from "./util";
-import { restoreLayout, wireSplitters } from "./layout";
+import { restoreLayout, toggleSidebar, wireSplitters } from "./layout";
 import { motionDisabled, restoreReduceMotion } from "./anim";
 import { wireTooltip } from "./tooltip";
 import { renderEngineChip, setEngineChipHandlers, wireEngineChip } from "./engineChip";
@@ -47,8 +47,9 @@ import { clearRunGutter, isRunGutterLine, refreshRunGutter, setRunGutterHandlers
 import { wireGutterHover } from "./gutterHover";
 import * as dap from "./dap/client";
 import {
-  breakpointKind, clearCurrentLine, getBreakpointSpec, pushAllBreakpoints, refreshDebugGutter,
-  removeBreakpoint, setBreakpointMenuHandler, toggleBreakpoint, updateBreakpoint, wireDebugGutter,
+  breakpointKind, clearCurrentLine, getBreakpointSpec, loadBreakpoints, pushAllBreakpoints,
+  refreshDebugGutter, removeBreakpoint, resetBreakpoints, setBreakpointMenuHandler, toggleBreakpoint,
+  updateBreakpoint, wireDebugGutter,
 } from "./debugGutter";
 import { showMenu } from "./menu";
 import { initTodoView, refreshTodos, resetTodoView, setTodoViewHandlers } from "./todoView"; // P0：TODO 工具窗
@@ -147,6 +148,7 @@ function resetWorkspaceUiState(): void {
   resetBreadcrumbs();           // P2：面包屑（含符号缓存与防抖 timer）
   resetRuffLint();              // P2：ruff lint（防抖 timer + 在途请求）
   resetBookmarks();             // P2：书签（列表缓存 + gutter 装饰）
+  resetBreakpoints();           // P2-11：断点内存表随工作区切换清空（盘上数据按工作区隔离）
   resetRunHistory();            // P2：运行历史
   resetEnvPanelState();          // 环境域状态（包面板 + 解释器缓存 + 在途请求令牌 + 提示去重）
   ($("search-input") as HTMLInputElement).value = ""; // 清空搜索关键词
@@ -206,6 +208,9 @@ async function openWorkspace(root: string): Promise<void> {
   // P2：书签按工作区持久化，换工作区要重新加载（并刷新 gutter 装饰）
   await loadBookmarks();
   refreshBookmarkGutter();
+  // P2-11（UX 审查）：断点同样按工作区持久化——回填后重绘当前文件的红点
+  await loadBreakpoints();
+  refreshDebugGutter();
   // Markdown 预览：动态授权 asset 协议读取当前工作区根（本地图片渲染）
   await invoke("allow_asset_dir", { path: root }).catch(console.error);
   await invoke("add_recent_workspace", { path: root }).catch(console.error);
@@ -1023,6 +1028,11 @@ function buildQuickOpenActions(): QuickOpenAction[] {
     { id: "new_project", label: "新建项目", run: () => openNewProjectPanel() },
     { id: "git_panel", label: "Git 面板", run: () => setSidebarTab("git") },
     { id: "todo_panel", label: "TODO 工具窗", run: () => setSidebarTab("todo") },
+    // P1（UX 审查）：高频操作进命令面板（id 对齐键位表 → 提示自动跟随改键）
+    { id: "close_tab", label: "关闭标签", run: () => { if (app.activeTab) void closeTab(app.activeTab); } },
+    { id: "new_file", label: "新建文件", run: () => void createFileInteractive() },
+    { id: "toggle_sidebar", label: "切换侧栏", run: () => toggleSidebar() },
+    { id: "toggle_bottom", label: "切换底部面板", run: () => toggleBottomPanel() },
   ];
 }
 
@@ -1169,7 +1179,9 @@ function getMenuItems(menu: string): MenuEntry[] {
   switch (menu) {
     case "file": return [
       { label: "新建项目", action: () => openNewProjectPanel() },
-      { label: "新建文件", action: () => { if (app.workspaceRoot) void createFileAt(rootEntry()); } },
+      // P1（UX 审查）：改走 createFileInteractive——目标目录跟随活动文件（原固定为工作区根），
+      // 且键位标签与键位系统同源
+      { label: "新建文件", shortcut: kb.bindingLabel("new_file") || undefined, action: () => void createFileInteractive() },
       { label: "新建文件夹", action: () => { if (app.workspaceRoot) void createDirAt(rootEntry()); } },
       { sep: true, label: "" },
       { label: "打开工作区", shortcut: "Ctrl+K Ctrl+O", action: () => void openFolderFromToolbar() },
@@ -1227,8 +1239,10 @@ function getMenuItems(menu: string): MenuEntry[] {
       { label: "运行历史", shortcut: kb.bindingLabel("run_history") || undefined, action: () => openRunHistory() },
       { sep: true, label: "" },
       { label: "Markdown 预览", shortcut: kb.bindingLabel("markdown_preview") || undefined, action: () => mdPreview.togglePreview() },
-      { label: "输出面板", action: () => { $("bottom").classList.toggle("collapsed"); } },
-      { label: "设置", action: () => openSettingsPanel() },
+      // P1（UX 审查）：面板开关 + 设置补键位标签，菜单与快捷键同源（改键后自动跟随）
+      { label: "切换侧栏", shortcut: kb.bindingLabel("toggle_sidebar") || undefined, action: () => toggleSidebar() },
+      { label: "切换底部面板", shortcut: kb.bindingLabel("toggle_bottom") || undefined, action: () => toggleBottomPanel() },
+      { label: "设置", shortcut: kb.bindingLabel("open_settings") || undefined, action: () => openSettingsPanel() },
       { label: "Live Templates", action: () => openSettingsPanel("templates") },
     ];
     case "tools": return listDevTools().map((t) => ({
@@ -1416,6 +1430,12 @@ async function init(): Promise<void> {
     else if (id === "bookmark_list") void openBookmarks();
     else if (id === "scratch_new") void newScratch();
     else if (id === "run_history") openRunHistory();
+    // P1（UX 审查）：高频操作键位（关闭标签 / 新建文件 / 设置 / 侧栏 / 底部面板）
+    else if (id === "close_tab") { if (app.activeTab) void closeTab(app.activeTab); }
+    else if (id === "new_file") void createFileInteractive();
+    else if (id === "open_settings") openSettingsPanel();
+    else if (id === "toggle_sidebar") toggleSidebar();
+    else if (id === "toggle_bottom") toggleBottomPanel();
   });
 
   // P1：Double Shift → Search Everywhere（键位表无法表达双击手势，故固定在此）。
@@ -1506,6 +1526,8 @@ async function init(): Promise<void> {
   initBookmarks(app.editor, app.monaco);
   setBookmarkHandlers({ openFile: (p, line) => void openFile(p, line) });
   void loadBookmarks().then(() => refreshBookmarkGutter());
+  // P2-11（UX 审查）：启动恢复上次会话的断点（与书签同源同模式）
+  void loadBreakpoints().then(() => refreshDebugGutter());
   // P2：运行历史（输出面板按次留存，可回看）；P2-M：标签条 + P2-O 保存输出
   initRunHistory();
   initRunTabs();

@@ -7,6 +7,7 @@ function s(partial: Partial<RunWidgetState>): RunWidgetState {
     canRun: false,
     disabledReason: "未打开工作区",
     running: false,
+    preparing: false,
     channel: null,
     targetName: "",
     runShortcut: "Ctrl+F10",
@@ -25,6 +26,15 @@ describe("computeRunWidget 状态 → 三按钮", () => {
     expect(c.run.tip).toBe("当前文件不是 Python 文件");
     expect(c.stop.disabled).toBe(true);
     expect(c.menu.disabled).toBe(true);
+  });
+
+  it("P1 准备期：▶ 灰 + busy + 专属提示（不再误报「已有脚本在运行」）", () => {
+    const c = computeRunWidget(s({ canRun: true, targetName: "main.py", preparing: true }));
+    expect(c.run.disabled).toBe(true);
+    expect(c.run.busy).toBe(true);
+    expect(c.run.tip).toBe("正在准备运行（保存 / 依赖预检）…");
+    expect(c.stop.disabled).toBe(true);
+    expect(c.menu.disabled).toBe(false);
   });
 
   it("R1（可运行未运行）：▶ 亮 + 运行名 + 快捷键，⏹ 灰，▾ 亮", () => {

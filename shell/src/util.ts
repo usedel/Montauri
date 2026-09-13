@@ -259,6 +259,13 @@ export function gitLineClass(line: string): string {
   return "stdout";
 }
 
+/** 异常 → 可读文案（toast / 输出面板统一用；Tauri invoke 抛的多是 string） */
+export function errMsg(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  const s = String(e).trim();
+  return s || "未知错误";
+}
+
 // ---------- CR-27：跨域共享 UI 工具（原 main.ts/storagePanel.ts 两套 setBusy 收敛） ----------
 
 /** 转圈图标：codicon 的 loading 图标默认静止，需叠加 codicon-modifier-spin 才转动 */

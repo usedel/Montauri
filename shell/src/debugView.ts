@@ -12,7 +12,7 @@ import type { DapSourceBreakpoint } from "./dap/client";
 import { openPrompt } from "./dialog";
 import { clearInlineValues, updateInlineValues } from "./inlineValues";
 import { $ } from "./state";
-import { codicon, basename, emptyState } from "./util"; // UI-12：空态改用统一组件
+import { codicon, basename, emptyState, spinIcon } from "./util"; // UI-12：空态改用统一组件
 // UI-09：工具栏提示的快捷键副文本改为读键位系统（原先把 "(F5)" 等硬编码进提示文本，
 // 用户在设置里改键后提示就是错的）。keybindings 仅依赖 state，此处导入不成环。
 import { bindingLabel, type KeybindingId } from "./keybindings";
@@ -45,6 +45,11 @@ let activeFrames: DapStackFrame[] = [];
 let activeVars: DapVariable[] = [];
 /** locals 容器的引用（setVariable 需要「容器 + 名字」，不是变量自身） */
 let activeScopeRef = 0;
+/** P2-11（UX 审查）：已展开的容器引用集合——单次 stopped 内有效（ref 随会话/帧失效，
+ *  handleStopped 清空；setValue 触发的刷新据此重渲染已展开的子树，展开状态不丢） */
+const expandedRefs = new Set<number>();
+/** 变量面板异步令牌（CR-20 范式）：旧 stopped 的 scopes/variables 响应不得覆盖新面板 */
+let varToken = 0;
 
 /**
  * Run to Cursor 的临时断点（P2）。
@@ -133,6 +138,15 @@ export function initDebugView(): void {
   toolbar.appendChild(toolbarButton("debug-stop", "debug-stop", () => handlers?.stop()));
   root.appendChild(toolbar);
 
+  // P1（UX 审查）：starting 阶段（debugpy 加载/握手）原先只有灰按钮无任何说明——
+  // 加一行带 spinner 的状态提示，显隐由 renderToolbar 按 phase 同步
+  const startingHint = document.createElement("div");
+  startingHint.id = "debug-starting-hint";
+  startingHint.className = "debug-starting-hint hidden";
+  startingHint.appendChild(spinIcon());
+  startingHint.appendChild(document.createTextNode("调试器启动中…（首次启动需加载 debugpy，请稍候）"));
+  root.appendChild(startingHint);
+
   // 调用栈
   const stackHeader = document.createElement("div");
   stackHeader.className = "debug-section-header";
@@ -142,12 +156,14 @@ export function initDebugView(): void {
   root.appendChild(stackHeader);
   root.appendChild(stack);
 
-  // 变量
+  // 变量（P2-11：树形展开——容器走 tree 语义，行 treeitem / 子级 group）
   const varsHeader = document.createElement("div");
   varsHeader.className = "debug-section-header";
   varsHeader.textContent = "变量";
   const vars = document.createElement("div");
   vars.id = "debug-vars";
+  vars.setAttribute("role", "tree");
+  vars.setAttribute("aria-label", "变量");
   root.appendChild(varsHeader);
   root.appendChild(vars);
 
@@ -192,6 +208,8 @@ function renderToolbar(): void {
   set("debug-step-out", stopped);
   set("debug-pause", phase === "running");
   set("debug-stop", canControl || phase === "starting");
+  // P1（UX 审查）：starting 阶段显示「启动中…」状态提示（元素在 initDebugView 构建）
+  document.getElementById("debug-starting-hint")?.classList.toggle("hidden", phase !== "starting");
 }
 
 /** 渲染期元素获取：缺元素静默跳过（$ 会抛错，DOM 未建好时 phase 回调可能先于 initDebugView） */
@@ -380,6 +398,7 @@ export function wireDebugViewEvents(): void {
       activeVars = [];
       activeScopeRef = 0;
       tempBreakpoint = null;
+      expandedRefs.clear();
       clearInlineValues();
     }
     renderDebugView();
@@ -408,6 +427,9 @@ export function wireDebugViewEvents(): void {
 
 async function handleStopped(body: { threadId?: number; reason?: string }): Promise<void> {
   activeThreadId = body.threadId ?? 1;
+  // P2-11：新的暂停点 variablesReference 全部失效——展开状态与在途请求一并作废
+  expandedRefs.clear();
+  varToken++;
   // P2：Run to Cursor 的临时断点用完即撤（必须在刷新变量之前，免得残留到下一次暂停）
   clearTempBreakpoint();
   try {
@@ -428,45 +450,26 @@ async function handleStopped(body: { threadId?: number; reason?: string }): Prom
 async function refreshVariables(): Promise<void> {
   const el = $soft("debug-vars");
   if (!el) return;
+  const token = ++varToken; // CR-20：异步刷新令牌（scopes/variables 都是 await，旧响应不得覆盖新面板）
   el.textContent = "";
   activeVars = [];
   activeScopeRef = 0;
   clearInlineValues();
-  if (activeFrameId === null) return;
+  if (activeFrameId === null) {
+    expandedRefs.clear();
+    return;
+  }
   try {
     // §6.5：栈顶 frameId → scopes → locals scope → variables
     const scopes = await dap.dapScopes(activeFrameId);
+    if (token !== varToken) return;
     const locals = scopes.find((s) => s.presentationHint === "locals" || s.name.toLowerCase() === "locals");
     if (!locals) return;
     activeScopeRef = locals.variablesReference;
     activeVars = await dap.dapVariables(activeScopeRef);
-    for (const v of activeVars) {
-      const row = document.createElement("div");
-      row.className = "debug-var-row";
-      const name = document.createElement("span");
-      name.className = "debug-var-name";
-      name.textContent = v.name;
-      row.appendChild(name);
-      const value = document.createElement("span");
-      value.className = "debug-var-value";
-      value.textContent = v.value;
-      value.title = v.value;
-      // P2：Set Value——点击值即可改写（PyCharm 同款交互）。
-      // 只在暂停态且拿到 locals 容器引用时可改（debugpy 的 setVariable 需要「容器 + 名字」）。
-      value.dataset.tip = "点击修改此变量的值";
-      value.setAttribute("role", "button");
-      value.setAttribute("aria-label", `修改 ${v.name} 的值（当前：${v.value}）`);
-      value.tabIndex = 0;
-      const edit = (): void => void setValue(v.name, v.value);
-      value.addEventListener("click", edit);
-      value.addEventListener("keydown", (ev) => {
-        if (ev.key === "Enter" || ev.key === " ") {
-          ev.preventDefault();
-          edit();
-        }
-      });
-      el.appendChild(row);
-    }
+    if (token !== varToken) return;
+    // P2-11（UX 审查）：树形渲染——variablesReference>0 的行可展开，懒加载子级（递归）
+    for (const v of activeVars) renderVarRow(el, v, activeScopeRef, 0, token);
     // P2：行内变量值——复用本次 variables 请求的结果，不再额外发 DAP 请求
     const path = activeFrames[0]?.source?.path;
     if (path) updateInlineValues(path, activeVars);
@@ -475,9 +478,147 @@ async function refreshVariables(): Promise<void> {
   }
 }
 
-/** P2：Set Value——在断点处改写变量值（DAP `setVariable`） */
-async function setValue(name: string, current: string): Promise<void> {
-  if (dap.currentPhase() !== "stopped" || activeScopeRef === 0) return;
+/** 行缩进（照 fileTree 的 depth → paddingLeft 范式） */
+function varPad(depth: number): string {
+  return `${8 + depth * 14}px`;
+}
+
+/** twisty / aria-expanded 的单一写入点（fileTree::setTwisty 同款纪律：视觉与读屏同源切换） */
+function setRowExpanded(row: HTMLElement, on: boolean): void {
+  row.setAttribute("aria-expanded", String(on));
+  const twisty = row.querySelector<HTMLElement>(".twisty");
+  twisty?.classList.toggle("codicon-chevron-right", !on);
+  twisty?.classList.toggle("codicon-chevron-down", on);
+}
+
+/**
+ * 渲染一行变量（P2-11 树形展开）。
+ * - variablesReference > 0（dict/list/对象等）：twisty 可展开，子级懒加载；
+ * - 值点击仍是 Set Value（嵌套项改写需要父容器 ref，见 setValue）；
+ * - 展开状态记在 expandedRefs（单次 stopped 内有效），setValue 后的刷新据此重建子树。
+ */
+function renderVarRow(container: HTMLElement, v: DapVariable, parentRef: number, depth: number, token: number): void {
+  const expandable = v.variablesReference > 0;
+  const row = document.createElement("div");
+  row.className = "debug-var-row";
+  row.style.paddingLeft = varPad(depth);
+  if (expandable) {
+    row.setAttribute("role", "treeitem");
+    row.tabIndex = 0;
+  }
+
+  // twisty / 占位：两列对齐（无子级行也缩进一格）
+  const twisty = document.createElement("i");
+  twisty.className = expandable ? "twisty codicon codicon-chevron-right" : "twisty tw-placeholder";
+  twisty.setAttribute("aria-hidden", "true");
+  row.appendChild(twisty);
+
+  const name = document.createElement("span");
+  name.className = "debug-var-name";
+  name.textContent = v.name;
+  row.appendChild(name);
+
+  const value = document.createElement("span");
+  value.className = "debug-var-value";
+  value.textContent = v.value;
+  value.title = v.value;
+  // P2：Set Value——点击值即可改写（PyCharm 同款交互）。
+  // 嵌套项的容器是父变量自身的 variablesReference（debugpy 的 setVariable 需要「容器 + 名字」）。
+  value.dataset.tip = "点击修改此变量的值";
+  value.setAttribute("role", "button");
+  value.setAttribute("aria-label", `修改 ${v.name} 的值（当前：${v.value}）`);
+  value.tabIndex = 0;
+  const edit = (ev: Event): void => {
+    ev.stopPropagation(); // 值点击 = 改值，不触发行的展开/折叠
+    void setValue(v.name, v.value, parentRef);
+  };
+  value.addEventListener("click", edit);
+  value.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter" || ev.key === " ") {
+      ev.preventDefault();
+      edit(ev);
+    }
+  });
+  row.appendChild(value);
+
+  if (expandable) {
+    const open = expandedRefs.has(v.variablesReference);
+    setRowExpanded(row, open);
+    const toggle = (): void => void toggleVarChildren(row, v, depth, token);
+    row.addEventListener("click", toggle);
+    row.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter" || ev.key === " ") {
+        ev.preventDefault();
+        toggle();
+      }
+    });
+  }
+  container.appendChild(row);
+
+  // 刷新路径：已展开的 ref 直接重建子容器（展开状态在 setValue 刷新后不丢）
+  if (expandable && expandedRefs.has(v.variablesReference)) {
+    setRowExpanded(row, true);
+    const group = document.createElement("div");
+    group.className = "debug-var-children";
+    group.setAttribute("role", "group");
+    container.appendChild(group);
+    void loadChildren(group, v.variablesReference, depth, token);
+  }
+}
+
+/** 展开/折叠一个可展开变量：子容器紧跟行后（折叠即移除），子级懒加载 */
+async function toggleVarChildren(row: HTMLElement, v: DapVariable, depth: number, token: number): Promise<void> {
+  const ref = v.variablesReference;
+  if (expandedRefs.has(ref)) {
+    expandedRefs.delete(ref);
+    row.nextElementSibling?.remove(); // 子容器紧跟行后（renderVarRow 的渲染顺序保证）
+    setRowExpanded(row, false);
+    return;
+  }
+  expandedRefs.add(ref);
+  setRowExpanded(row, true);
+  const group = document.createElement("div");
+  group.className = "debug-var-children";
+  group.setAttribute("role", "group");
+  row.insertAdjacentElement("afterend", group);
+  await loadChildren(group, ref, depth, token);
+}
+
+/** 测试专用：把一行变量渲染进指定容器（树形展开回归测试用；生产路径走 refreshVariables，
+ *  同 runWidget::setRunWidgetStateForTest 先例）。token 取当前 varToken（调用方无法触达私有令牌）。 */
+export function renderVarRowForTest(container: HTMLElement, v: DapVariable, parentRef: number, depth: number): void {
+  renderVarRow(container, v, parentRef, depth, varToken);
+}
+
+/** 测试专用：清空展开状态与令牌（测试间隔离；生产路径由 handleStopped/reset 负责） */
+export function resetVarTreeForTest(): void {
+  expandedRefs.clear();
+  varToken++;
+}
+
+/** 拉取并渲染某容器的子变量（递归；令牌失效或已非暂停态则丢弃响应） */
+async function loadChildren(group: HTMLElement, ref: number, depth: number, token: number): Promise<void> {
+  try {
+    const children = await dap.dapVariables(ref);
+    if (token !== varToken || dap.currentPhase() !== "stopped") return;
+    group.textContent = "";
+    if (children.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "debug-var-row debug-var-empty";
+      empty.style.paddingLeft = varPad(depth + 1);
+      empty.textContent = "（空）";
+      group.appendChild(empty);
+      return;
+    }
+    for (const c of children) renderVarRow(group, c, ref, depth + 1, token);
+  } catch (e) {
+    console.warn("[debugView] 子变量加载失败:", e);
+  }
+}
+
+/** P2：Set Value——在断点处改写变量值（DAP `setVariable`；parentRef = 变量所在容器） */
+async function setValue(name: string, current: string, parentRef: number): Promise<void> {
+  if (dap.currentPhase() !== "stopped" || activeScopeRef === 0 || parentRef === 0) return;
   const next = await openPrompt({
     title: `修改变量 ${name}`,
     label: "新值（Python 表达式，在断点上下文中求值）",
@@ -486,8 +627,8 @@ async function setValue(name: string, current: string): Promise<void> {
   });
   if (next === null || next === current) return; // 取消 / 未改动
   try {
-    await dap.dapSetVariable(activeScopeRef, name, next);
-    await refreshVariables();
+    await dap.dapSetVariable(parentRef, name, next);
+    await refreshVariables(); // expandedRefs 保留：已展开的子树按新值重建
   } catch (e) {
     console.warn("[debugView] setVariable 失败:", e);
   }

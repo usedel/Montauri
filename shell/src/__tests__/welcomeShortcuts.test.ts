@@ -39,25 +39,32 @@ afterEach(() => {
 });
 
 describe("欢迎页快捷键网格（UI-25）", () => {
-  it("出厂键位：六项齐全，键位按 + 拆成独立 kbd 分段", () => {
+  // P1（UX 审查）：网格由 6 行扩充到 13 行，条目数随 SHORTCUTS 变化
+  const ROW_COUNT = 13;
+
+  it("出厂键位：条目齐全，键位按 + 拆成独立 kbd 分段", () => {
     renderWelcomeShortcuts();
-    expect(document.querySelectorAll(".ew-shortcut").length).toBe(6);
+    expect(document.querySelectorAll(".ew-shortcut").length).toBe(ROW_COUNT);
     expect(rowOf("保存文件").kbds).toEqual(["Ctrl", "S"]);
     expect(rowOf("全局搜索").kbds).toEqual(["Ctrl", "Shift", "F"]);
     expect(rowOf("运行当前文件").kbds).toEqual(["Ctrl", "F10"]);
+    // P1 新增行（此前键位无处可发现的高频操作）
+    expect(rowOf("关闭标签").kbds).toEqual(["Ctrl", "F4"]);
+    expect(rowOf("新建文件").kbds).toEqual(["Ctrl", "Alt", "Insert"]);
+    expect(rowOf("打开设置").kbds).toEqual(["Ctrl", "Alt", "S"]);
   });
 
   it("用户改键后重绘即跟随（本条是 UI-25 的核心不变量）", () => {
-    setBindings({ save: "Ctrl+Alt+S", global_search: "Ctrl+G" });
+    setBindings({ save: "Ctrl+Alt+P", global_search: "Ctrl+G" });
     renderWelcomeShortcuts();
-    expect(rowOf("保存文件").kbds).toEqual(["Ctrl", "Alt", "S"]);
+    expect(rowOf("保存文件").kbds).toEqual(["Ctrl", "Alt", "P"]);
     expect(rowOf("全局搜索").kbds).toEqual(["Ctrl", "G"]);
   });
 
   it("重绘幂等：连续渲染不累积行", () => {
     renderWelcomeShortcuts();
     renderWelcomeShortcuts();
-    expect(document.querySelectorAll(".ew-shortcut").length).toBe(6);
+    expect(document.querySelectorAll(".ew-shortcut").length).toBe(ROW_COUNT);
   });
 
   it("解绑且无兜底 → 显示「未绑定」占位，不渲染空 kbd 框、也不整行消失", () => {
@@ -66,7 +73,7 @@ describe("欢迎页快捷键网格（UI-25）", () => {
     const row = rowOf("保存文件");
     expect(row.kbds).toEqual([]);
     expect(row.placeholder).toBe("未绑定");
-    expect(document.querySelectorAll(".ew-shortcut").length).toBe(6); // 行仍在：动作没消失，只是没键
+    expect(document.querySelectorAll(".ew-shortcut").length).toBe(ROW_COUNT); // 行仍在：动作没消失，只是没键
   });
 
   it("「跳转到定义」解绑时回落 F12（Monaco 固定保留该键，不该报未绑定）", () => {
@@ -96,6 +103,9 @@ describe("欢迎页快捷键网格（UI-25）", () => {
     const labels = Array.from(document.querySelectorAll<HTMLElement>(".ew-shortcut .label")).map(
       (l) => l.textContent,
     );
-    expect(labels).toEqual(["保存文件", "全局搜索", "运行当前文件", "跳转到定义", "查找引用", "格式化文档"]);
+    expect(labels).toEqual([
+      "保存文件", "全局搜索", "运行当前文件", "跳转到定义", "查找引用", "格式化文档",
+      "启动调试", "关闭标签", "新建文件", "转到文件", "导航后退", "最近打开的文件", "打开设置",
+    ]);
   });
 });

@@ -48,6 +48,12 @@ fn default_keybindings() -> HashMap<String, String> {
     m.insert("run_history".into(), "Ctrl+Shift+R".into());
     // Markdown 预览开关（markdown preview dev plan §5-T4；与前端 KEYBINDING_META / DEFAULT_SETTINGS 三处同步）
     m.insert("markdown_preview".into(), "Ctrl+Shift+V".into());
+    // P1（UX 审查）：高频操作补键位（与前端 KEYBINDING_META / DEFAULT_SETTINGS 三处同步）
+    m.insert("close_tab".into(), "Ctrl+F4".into());
+    m.insert("new_file".into(), "Ctrl+Alt+Insert".into());
+    m.insert("open_settings".into(), "Ctrl+Alt+S".into());
+    m.insert("toggle_sidebar".into(), "Ctrl+Shift+F12".into());
+    m.insert("toggle_bottom".into(), "Alt+F12".into());
     m
 }
 
@@ -225,8 +231,14 @@ mod tests {
         assert_eq!(d.keybindings.get("debug_run_to_cursor").map(String::as_str), Some("Alt+F9"));
         assert_eq!(d.keybindings.get("bookmark_toggle").map(String::as_str), Some("Ctrl+F11"));
         assert_eq!(d.keybindings.get("scratch_new").map(String::as_str), Some("Ctrl+Alt+Shift+Insert"));
+        // P1（UX 审查）：关闭标签 / 新建文件 / 打开设置 / 切换侧栏 / 切换底部面板
+        assert_eq!(d.keybindings.get("close_tab").map(String::as_str), Some("Ctrl+F4"));
+        assert_eq!(d.keybindings.get("new_file").map(String::as_str), Some("Ctrl+Alt+Insert"));
+        assert_eq!(d.keybindings.get("open_settings").map(String::as_str), Some("Ctrl+Alt+S"));
+        assert_eq!(d.keybindings.get("toggle_sidebar").map(String::as_str), Some("Ctrl+Shift+F12"));
+        assert_eq!(d.keybindings.get("toggle_bottom").map(String::as_str), Some("Alt+F12"));
         // 键位表条目数 = 前端 KEYBINDING_META 条目数（漂移锁，新增键须同步改这里）
-        assert_eq!(d.keybindings.len(), 30);
+        assert_eq!(d.keybindings.len(), 35);
         assert_eq!(d.optimize_imports_on_save, false);
     }
 
@@ -269,7 +281,7 @@ mod tests {
         assert_eq!(s.keybindings.get("nav_back").map(String::as_str), Some("Ctrl+Alt+Left"));
         assert_eq!(s.keybindings.get("local_history").map(String::as_str), Some("Ctrl+Shift+H"));
         assert_eq!(s.keybindings.get("run_history").map(String::as_str), Some("Ctrl+Shift+R"));
-        assert_eq!(s.keybindings.len(), 30);
+        assert_eq!(s.keybindings.len(), 35);
         assert_eq!(s.optimize_imports_on_save, false); // 旧配置文件无此字段 → 默认关闭
     }
 }

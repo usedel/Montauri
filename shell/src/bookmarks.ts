@@ -13,6 +13,8 @@ import { hideEl, showEl } from "./anim";
 import { trapFocus } from "./focusTrap";
 import { app, type MonacoModule } from "./state";
 import { basename, emptyState, relativePath } from "./util";
+import { openConfirm } from "./dialog";
+import { toastFail } from "./toast";
 
 export interface Bookmark {
   path: string;
@@ -77,6 +79,7 @@ export async function loadBookmarks(): Promise<void> {
     items = await invoke<Bookmark[]>("get_bookmarks", { workspaceRoot: app.workspaceRoot });
   } catch (e) {
     console.warn("[bookmarks] 读取书签失败", e);
+    toastFail("读取书签", e);
     items = [];
   }
 }
@@ -102,6 +105,7 @@ export async function toggleBookmarkAtCursor(): Promise<void> {
     });
   } catch (e) {
     console.warn("[bookmarks] 切换书签失败", e);
+    toastFail("切换书签", e);
     return;
   }
   refreshBookmarkGutter();
@@ -118,6 +122,7 @@ async function removeAt(path: string, line: number): Promise<void> {
     });
   } catch (e) {
     console.warn("[bookmarks] 删除书签失败", e);
+    toastFail("删除书签", e);
     return;
   }
   refreshBookmarkGutter();
@@ -130,10 +135,22 @@ async function clearAll(): Promise<void> {
     items = await invoke<Bookmark[]>("clear_bookmarks", { workspaceRoot: app.workspaceRoot });
   } catch (e) {
     console.warn("[bookmarks] 清空书签失败", e);
+    toastFail("清空书签", e);
     return;
   }
   refreshBookmarkGutter();
   renderList();
+}
+
+/** UX P0-2：清空全部书签不可恢复，补确认框（与「删除文件」的确认标准对齐；列表为空时无事发生） */
+async function confirmClearAll(): Promise<void> {
+  if (items.length === 0) return;
+  const ok = await openConfirm({
+    message: `确认清空全部 ${items.length} 个书签？此操作不可恢复。`,
+    okLabel: "清空",
+    kind: "danger",
+  });
+  if (ok) await clearAll();
 }
 
 /** 工作区复位 */
@@ -178,7 +195,7 @@ export function initBookmarks(
   clear.id = "bookmark-clear";
   clear.className = "btn btn--sm btn--danger-outline";
   clear.textContent = "清空书签";
-  clear.addEventListener("click", () => void clearAll());
+  clear.addEventListener("click", () => void confirmClearAll());
   footer.append(hint, clear);
 
   card.append(list, footer);
@@ -200,6 +217,10 @@ export function initBookmarks(
   });
   document.addEventListener("keydown", (e) => {
     if (!isBookmarksOpen()) return;
+    // confirm/alert 等模态叠在书签弹窗之上时忽略按键：否则确认框打开期间
+    // 按 Delete/Esc 会同时作用到背后的书签列表（误删别的书签 / 直接关掉弹窗）
+    const confirmModal = document.getElementById("confirm-modal");
+    if (confirmModal && !confirmModal.classList.contains("hidden")) return;
     if (e.key === "Escape") {
       e.preventDefault();
       closeBookmarks();

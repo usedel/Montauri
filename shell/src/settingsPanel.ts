@@ -14,6 +14,7 @@ import { refreshTerminalFonts, refreshTerminalMotion, refreshTerminalThemes } fr
 import { applyReduceMotion, hideEl, motionDisabled, reduceMotionEnabled, showEl } from "./anim";
 import { trapFocus } from "./focusTrap";
 import { openAlert } from "./dialog";
+import { toast, toastFail } from "./toast";
 import { loadStorageUsage, wireStoragePanel } from "./storagePanel";
 // UI-26：主题选择改自绘预览色卡（原生 <option> 放不下色卡），值读写经 themePicker
 import { getSelectedTheme, setSelectedTheme, wireThemePicker } from "./themePicker";
@@ -116,6 +117,8 @@ export async function loadSettings(): Promise<void> {
     app.settings = await invoke<Settings>("get_settings");
   } catch (e) {
     console.warn("设置加载失败，使用默认", e);
+    // UX P0-1：原先只 console，用户不知道自己在设置面板里的改动不会持久化
+    toast("设置加载失败，本次会话使用默认设置（改动可能无法保存）", "error");
   }
   // 快捷键逐项兜底：旧配置 / 手改文件缺项时回落出厂默认（Rust 侧仅保证整表缺省）
   app.settings.keybindings = { ...DEFAULT_SETTINGS.keybindings, ...(app.settings.keybindings ?? {}) };
@@ -127,6 +130,7 @@ export async function saveSettings(): Promise<void> {
     await invoke("set_settings", { settings: app.settings });
   } catch (e) {
     console.warn("设置保存失败", e);
+    toastFail("保存设置", e);
   }
 }
 

@@ -8,11 +8,17 @@
 // logMessage 三个 DAP 原生字段（见 dap/client.ts 的 BreakpointSpec 注释）。
 // 数据结构由 Set<line> 升级为 Map<line, spec>：**空 spec 即普通断点**，
 // 故既有「只有行号」的调用方（getBreakpointLines / setBreakpointLines）语义不变。
+//
+// P2-11（UX 审查）：断点表随工作区持久化（<data_root>/breakpoints/<hash>.json，与书签同模式）。
+// 每次断点表变更经 notifyChange 全量落盘（fire-and-forget，失败 toast 不阻断交互）；
+// 打开工作区时 loadBreakpoints 回填内存表，切换/关闭工作区时 resetBreakpoints 清内存（不写盘）。
 
+import { invoke } from "@tauri-apps/api/core";
 import type * as MonacoApi from "monaco-editor/esm/vs/editor/editor.api";
 import { app, type MonacoModule } from "./state";
 import * as dap from "./dap/client";
 import type { BreakpointKind, BreakpointSpec, DapSourceBreakpoint } from "./dap/client";
+import { toastFail } from "./toast";
 
 /** 断点表：文件路径 → 行号 → 高级属性（空对象 = 普通断点）。模块级持久（跨会话保留，D3 验收）。 */
 const breakpoints = new Map<string, Map<number, BreakpointSpec>>();
@@ -39,6 +45,75 @@ export function setBreakpointsChangeCallback(cb: (() => void) | null): void {
 
 function notifyChange(): void {
   onChange?.();
+  persistBreakpoints(); // P2-11：所有变更路径统一在此落盘
+}
+
+// ---------- 持久化（P2-11：与书签同模式，工作区级 JSON） ----------
+
+/** 落盘形态（Rust PersistedBreakpoint，camelCase 对齐；空串 = 无该高级属性） */
+interface PersistedBreakpoint {
+  path: string;
+  line: number;
+  condition?: string;
+  hitCondition?: string;
+  logMessage?: string;
+}
+
+/** 全量覆盖写盘（fire-and-forget；invoke 参数在调用点同步捕获，切换工作区无竞态） */
+function persistBreakpoints(): void {
+  const root = app.workspaceRoot;
+  if (!root) return;
+  const list: PersistedBreakpoint[] = [];
+  for (const [path, map] of breakpoints) {
+    for (const [line, spec] of map) {
+      list.push({
+        path,
+        line,
+        condition: spec.condition ?? "",
+        hitCondition: spec.hitCondition ?? "",
+        logMessage: spec.logMessage ?? "",
+      });
+    }
+  }
+  try {
+    // fire-and-forget：落盘失败只提示，绝不打断 gutter 点击（invoke 同步异常也不冒泡到交互路径）
+    void Promise.resolve(invoke("set_breakpoints", { workspaceRoot: root, breakpoints: list })).catch((e) => {
+      console.warn("[debugGutter] 断点落盘失败", e);
+      toastFail("保存断点", e);
+    });
+  } catch (e) {
+    console.warn("[debugGutter] 断点落盘失败", e);
+    toastFail("保存断点", e);
+  }
+}
+
+/** 打开工作区时回填内存表（空串高级属性归一为 undefined，保持「空 spec 即普通断点」） */
+export async function loadBreakpoints(): Promise<void> {
+  if (!app.workspaceRoot) return;
+  try {
+    const list = await invoke<PersistedBreakpoint[]>("get_breakpoints", { workspaceRoot: app.workspaceRoot });
+    breakpoints.clear();
+    for (const b of list) {
+      let map = breakpoints.get(b.path);
+      if (!map) {
+        map = new Map();
+        breakpoints.set(b.path, map);
+      }
+      const spec: BreakpointSpec = {};
+      if (b.condition) spec.condition = b.condition;
+      if (b.hitCondition) spec.hitCondition = b.hitCondition;
+      if (b.logMessage) spec.logMessage = b.logMessage;
+      map.set(b.line, spec);
+    }
+  } catch (e) {
+    console.warn("[debugGutter] 读取断点失败", e);
+    toastFail("读取断点", e);
+  }
+}
+
+/** 切换/关闭工作区时清空内存表（盘上数据属于各自工作区，不写盘） */
+export function resetBreakpoints(): void {
+  breakpoints.clear();
 }
 
 /** 取某文件断点行（排序副本） */

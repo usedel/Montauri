@@ -114,6 +114,12 @@ export const DEFAULT_SETTINGS: Settings = {
     run_history: "Ctrl+Shift+R",
     // Markdown 预览开关（与 keybindings.ts META / Rust default_keybindings 三处同步）
     markdown_preview: "Ctrl+Shift+V",
+    // P1（UX 审查）：高频操作补键位（三处同步：此处 / keybindings.ts META / Rust default_keybindings）
+    close_tab: "Ctrl+F4",
+    new_file: "Ctrl+Alt+Insert",
+    open_settings: "Ctrl+Alt+S",
+    toggle_sidebar: "Ctrl+Shift+F12",
+    toggle_bottom: "Alt+F12",
   },
   // 日志默认（须与 Rust settings.rs Default 保持同步）
   log_enabled: true,

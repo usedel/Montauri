@@ -533,6 +533,16 @@ export async function disposeTerminal(): Promise<void> {
 
 // ---------- 事件接线 ----------
 
+/** P1（UX 审查）：切换底部面板展开/收起（#btn-toggle-output 与键位 Alt+F12 共用唯一实现） */
+export function toggleBottomPanel(): void {
+  const bottom = $("bottom");
+  bottom.classList.toggle("collapsed");
+  // 展开时若终端可见，重新 fit + resize（收起期间尺寸归零）
+  if (!bottom.classList.contains("collapsed") && bottomTab === "terminal") {
+    activeTermSession()?.iterm.relayout();
+  }
+}
+
 /** 接线底部面板交互：标签切换 / 清空输出 / 展开收起 / 高频命令下拉 */
 export function wireBottomPanel(): void {
   // 底部面板：输出 / 终端标签 + 清空 + 展开收起
@@ -543,14 +553,7 @@ export function wireBottomPanel(): void {
     outputHooks?.onClear(); // S4：先丢弃未完结行状态，再清空容器
     clearOutput(outputEl);
   });
-  $("btn-toggle-output").addEventListener("click", () => {
-    const bottom = $("bottom");
-    bottom.classList.toggle("collapsed");
-    // 展开时若终端可见，重新 fit + resize（收起期间尺寸归零）
-    if (!bottom.classList.contains("collapsed") && bottomTab === "terminal") {
-      activeTermSession()?.iterm.relayout();
-    }
-  });
+  $("btn-toggle-output").addEventListener("click", toggleBottomPanel);
   // 高频命令下拉（P2-6）：选中即发送到终端
   ($("terminal-cmd") as HTMLSelectElement).addEventListener("change", (e) => {
     const sel = e.target as HTMLSelectElement;
