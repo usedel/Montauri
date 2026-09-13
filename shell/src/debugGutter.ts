@@ -105,6 +105,9 @@ export async function loadBreakpoints(): Promise<void> {
       if (b.logMessage) spec.logMessage = b.logMessage;
       map.set(b.line, spec);
     }
+    // 回填后刷新侧栏断点列表——否则打开工作区后旧断点只在 gutter 可见，列表却是空的
+    //（gutter 装饰由调用方 refreshDebugGutter 负责；走 onChange 而非 notifyChange，避免多余回写盘）
+    onChange?.();
   } catch (e) {
     console.warn("[debugGutter] 读取断点失败", e);
     toastFail("读取断点", e);

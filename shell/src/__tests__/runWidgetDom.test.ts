@@ -28,11 +28,21 @@ function state(partial: Partial<RunWidgetState>): RunWidgetState {
 }
 
 beforeAll(async () => {
-  // renderRunWidget 走 lazyEl 解析 DOM，须先备好三个按钮再动态导入
+  // renderRunWidget 走 lazyEl 解析 DOM，须先备好三个按钮再动态导入。
+  // 内部 <i> 图标类与 index.html 静态结构一致（▶ / ⏹ / ▾），
+  // 图标不变量回归（applyButton 的 busy 切换不得污染其它按钮）依赖这一点。
+  const icons: Record<string, string> = {
+    "btn-run": "codicon-run",
+    "btn-stop": "codicon-debug-stop",
+    "btn-run-menu": "codicon-chevron-down",
+  };
   for (const id of IDS) {
     if (!document.getElementById(id)) {
       const b = document.createElement("button");
       b.id = id;
+      const i = document.createElement("i");
+      i.className = `codicon ${icons[id]}`;
+      b.appendChild(i);
       document.body.appendChild(b);
     }
   }
@@ -63,5 +73,30 @@ describe("运行组禁用态（UX P0-3：.is-disabled + aria-disabled，保留 d
     expect(stop.classList.contains("is-disabled")).toBe(true);
     expect(stop.getAttribute("aria-disabled")).toBe("true");
     expect(stop.dataset.tip).toBe("没有正在运行的脚本");
+  });
+});
+
+describe("运行组图标不变量（busy 切换不得污染其它按钮）", () => {
+  const iconClass = (id: string): string =>
+    (document.getElementById(id)?.querySelector("i.codicon")?.className ?? "").trim();
+
+  it("非 busy 渲染不改动任何按钮的图标类", () => {
+    rw.renderRunWidget(state({ canRun: true, targetName: "main.py", preparing: false }));
+    expect(iconClass("btn-run")).toBe("codicon codicon-run");
+    expect(iconClass("btn-stop")).toBe("codicon codicon-debug-stop");
+    expect(iconClass("btn-run-menu")).toBe("codicon codicon-chevron-down");
+  });
+
+  it("准备期仅 ▶ 切为旋转 loader；恢复后 ▶ 还原，⏹/▾ 全程不变", () => {
+    rw.renderRunWidget(state({ canRun: true, targetName: "main.py", preparing: true }));
+    expect(iconClass("btn-run")).toContain("codicon-loading");
+    expect(iconClass("btn-run")).toContain("codicon-modifier-spin");
+    expect(iconClass("btn-run")).not.toContain("codicon-run");
+    expect(iconClass("btn-stop")).toBe("codicon codicon-debug-stop");
+    expect(iconClass("btn-run-menu")).toBe("codicon codicon-chevron-down");
+    // 准备结束：▶ 还原
+    rw.renderRunWidget(state({ canRun: true, targetName: "main.py", preparing: false }));
+    expect(iconClass("btn-run")).toBe("codicon codicon-run");
+    expect(iconClass("btn-stop")).toBe("codicon codicon-debug-stop");
   });
 });

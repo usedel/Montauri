@@ -612,7 +612,14 @@ async function loadChildren(group: HTMLElement, ref: number, depth: number, toke
     }
     for (const c of children) renderVarRow(group, c, ref, depth + 1, token);
   } catch (e) {
+    // UX P0-1 纪律：失败要可见——空展开区会让用户以为「没有子级」
     console.warn("[debugView] 子变量加载失败:", e);
+    group.textContent = "";
+    const row = document.createElement("div");
+    row.className = "debug-var-row debug-var-empty";
+    row.style.paddingLeft = varPad(depth + 1);
+    row.textContent = "（子变量加载失败，点击折叠后重试）";
+    group.appendChild(row);
   }
 }
 

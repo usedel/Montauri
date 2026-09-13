@@ -4,7 +4,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { app, $, lazyEl, statusFileEl, type Entry, type Tab } from "./state";
-import { basename, codicon, ensurePyExtension, stripPyExtension, gitBadgeClass, gitStatusLabel, joinPath, parentDirOf, relativePath, renderFileIcon } from "./util";
+import { basename, codicon, ensurePyExtension, samePath, stripPyExtension, gitBadgeClass, gitStatusLabel, joinPath, parentDirOf, relativePath, renderFileIcon } from "./util";
 // CR-25：状态读取改从零依赖的 gitStatusState（切断 fileTree ↔ git 的状态耦合）；
 // refreshGitStatus 是运行时才调用的函数（无初始化期循环风险），保留从 git.ts 导入
 import { refreshGitStatus } from "./git";
@@ -720,7 +720,8 @@ async function pasteEntry(entry: Entry): Promise<void> {
     moves = [];
     for (const src of srcPaths) {
       const name = basename(src);
-      if (await dirHasEntry(targetDir, name)) skipped.push(name);
+      // 原地粘贴（目标 = 源位置）：不算同名冲突，交给循环内 src === dst 的跳过逻辑
+      if (await dirHasEntry(targetDir, name) && !samePath(joinPath(targetDir, name), src)) skipped.push(name);
       else moves.push(src);
     }
     if (skipped.length > 0) {

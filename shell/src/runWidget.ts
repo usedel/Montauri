@@ -137,12 +137,19 @@ function applyButton(btn: HTMLButtonElement, b: RunButtonState): void {
   btn.dataset.tip = b.tip;
   if (b.tipKey) btn.dataset.tipKey = b.tipKey;
   else delete btn.dataset.tipKey;
-  // P1：准备中把图标切为旋转 loader（codicon-modifier-spin 已随「减少动画」自动归零）
+  // P1：准备中把 ▶ 切为旋转 loader（codicon-modifier-spin 已随「减少动画」自动归零）。
+  // 只对「正在显示 loader」的图标做 run↔loading 双向切换——本函数是三按钮共用，
+  // 不能无条件给 ⏹（codicon-debug-stop）/ ▾（codicon-chevron-down）加 codicon-run，
+  // 否则同特异性的 ::before content 互相覆盖，三个按钮图标会变成同一个 ▶。
   const icon = btn.querySelector<HTMLElement>("i.codicon");
   if (icon) {
-    icon.classList.toggle("codicon-run", !b.busy);
-    icon.classList.toggle("codicon-loading", !!b.busy);
-    icon.classList.toggle("codicon-modifier-spin", !!b.busy);
+    if (b.busy) {
+      icon.classList.remove("codicon-run");
+      icon.classList.add("codicon-loading", "codicon-modifier-spin");
+    } else if (icon.classList.contains("codicon-loading")) {
+      icon.classList.remove("codicon-loading", "codicon-modifier-spin");
+      icon.classList.add("codicon-run");
+    }
   }
 }
 
@@ -151,6 +158,11 @@ export function getRunMenuItems(): MenuItem[] {
   const s = state;
   const h = handlers;
   if (!s || !h) return [];
+
+  // P1：preparing（保存 / 依赖预检）与 running 同属「不可再启动」——否则准备期菜单项
+  // 仍可点、点击被 runFlow 闸门静默拒绝（点了没反应）
+  const busy = s.running || s.preparing;
+  const busyReason = s.preparing ? "正在准备运行…" : "已有脚本在运行";
 
   // P0-C：命名配置区（未运行时可用，module 入口无需活动文件）
   const profileItems: MenuItem[] = [];
@@ -161,8 +173,8 @@ export function getRunMenuItems(): MenuItem[] {
         label: `运行 ${p.name}`,
         icon: "run",
         detail: p.summary,
-        disabled: s.running,
-        disabledReason: s.running ? "已有脚本在运行" : undefined,
+        disabled: busy,
+        disabledReason: busy ? busyReason : undefined,
         action: () => h.runProfile(p.name),
       });
     }
@@ -181,13 +193,13 @@ export function getRunMenuItems(): MenuItem[] {
     ];
   }
 
-  // R0 / R1（未运行）
+  // R0 / R1（未运行；含准备期——各项置灰并给出原因）
   return [
-    { label: "在终端中运行", icon: "terminal", detail: "真 TTY（getpass / tqdm / 彩色 / Ctrl+C）", disabled: !s.canRun, disabledReason: s.canRun ? undefined : s.disabledReason, action: h.runInTerminal },
-    { label: "运行选区 / 行", icon: "run", shortcut: s.selectionShortcut, disabled: !s.canRun, disabledReason: s.canRun ? undefined : s.disabledReason, action: h.runSelection },
+    { label: "在终端中运行", icon: "terminal", detail: "真 TTY（getpass / tqdm / 彩色 / Ctrl+C）", disabled: busy || !s.canRun, disabledReason: busy ? busyReason : s.canRun ? undefined : s.disabledReason, action: h.runInTerminal },
+    { label: "运行选区 / 行", icon: "run", shortcut: s.selectionShortcut, disabled: busy || !s.canRun, disabledReason: busy ? busyReason : s.canRun ? undefined : s.disabledReason, action: h.runSelection },
     ...profileItems,
     { sep: true },
-    { label: "并行运行配置…", icon: "combine", detail: "勾选多个配置一次性并行启动（Compound）", disabled: s.profiles.length === 0, disabledReason: s.profiles.length === 0 ? "暂无命名配置" : undefined, action: h.openCompound },
+    { label: "并行运行配置…", icon: "combine", detail: "勾选多个配置一次性并行启动（Compound）", disabled: busy || s.profiles.length === 0, disabledReason: busy ? busyReason : s.profiles.length === 0 ? "暂无命名配置" : undefined, action: h.openCompound },
     { label: "运行配置…", icon: "gear", detail: "配置列表 / 入口类型 / 工作目录 / 参数 / 环境变量 / 标准输入", disabled: !s.canOpenConfig, disabledReason: s.canOpenConfig ? undefined : "需先打开工作区", action: h.openRunConfig },
   ];
 }

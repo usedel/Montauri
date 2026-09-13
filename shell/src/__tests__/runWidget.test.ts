@@ -97,4 +97,12 @@ describe("getRunMenuItems 配置列表（P0-C）", () => {
     const p = items.find((i) => "label" in i && i.label === "运行 FastAPI") as { disabled?: boolean } | undefined;
     expect(p?.disabled).toBe(true);
   });
+
+  it("准备期：运行项置灰并说明原因（P1：点击不再被 runFlow 闸门静默拒绝）", () => {
+    setRunWidgetStateForTest(s({ canRun: true, targetName: "main.py", preparing: true }));
+    const items = getRunMenuItems();
+    const term = items.find((i) => "label" in i && i.label === "在终端中运行") as { disabled?: boolean; disabledReason?: string };
+    expect(term.disabled).toBe(true);
+    expect(term.disabledReason).toBe("正在准备运行…");
+  });
 });
