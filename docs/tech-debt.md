@@ -12,11 +12,6 @@
 - **建议**：Windows 下统一 `to_lowercase()` 归一后再哈希；加跨进程约束测试。
 - **涉及**：`shell/src-tauri/src/file_ops.rs`、`probe/src/opencharm_probe/store.py`
 
-### 5. probe 打包/注入健壮性（P2）
-- **根因**：wheel 只打包 `src/opencharm_probe`，漏 `sitecustomize.py` → pip 安装后 inject/check 失效；`runner.py` `mon.start()` 失败不恢复 `sys.argv`/`cwd`/`sys.path`；`autostart.py` argv[0] 守卫大小写敏感。
-- **建议**：hatch 打包纳入顶层 `sitecustomize.py`；`run_with_probe` 把状态恢复包进 `try/finally`；argv 比对用 `os.path.normcase`。
-- **涉及**：`probe/pyproject.toml`、`probe/src/opencharm_probe/{runner,autostart}.py`
-
 ### 6. 前端鲁棒性与设置单点（P3）
 - **根因**：`client.ts` `fileUriToPath`/`pathToFileUri` 仅 Windows 语义，`decodeURIComponent` 非法 `%` 未捕获；settings 默认值三处同步（Rust `default_keybindings` / `state.ts` `DEFAULT_SETTINGS` / `keybindings.ts` `META`）依赖测试锁易漂移。
 - **建议**：URI 编解码做跨平台 + 异常兜底；设置默认值收敛为单一来源。
@@ -28,7 +23,7 @@
 - **涉及**：新增 CI 配置、`ci/`、`bench/`
 
 > 2026-09-09「运行体验对齐 PyCharm」（P0–P3 + stdin S1–S4）交付时新增。均为**可接受的小债**，非缺陷。
-> 第 8 条（S3+S4 公共前置）已随 S3/S4 交付偿还，移入「已归档」；下方编号保持原样（TD-9~TD-12）。
+> 第 8 条（S3+S4 公共前置）已随 S3/S4 交付偿还，移入「已归档」；第 5 条已于 2026-09-10 随 CR-19 偿还并归档（此前在待处理区重复登记，2026-09-13 复核移除）。下方编号保持原样（TD-9~TD-12）。
 
 ### 9. 运行配置孤儿条目（P3，存储卫生）
 - **根因**：`run_configs` 以「相对工作区根、正斜杠规范化」的脚本路径为键；脚本重命名/移动/删除后旧键残留，无清理机制，配置文件只增不减。
@@ -58,7 +53,7 @@
 - **涉及**：`shell/src/{git,fileTree,settingsPanel,main}.ts`
 
 ### 14. main.ts 运行态收敛为 RunState 与按域拆分（P3，质量，源自 CR-30 余量）
-- **现状**：CR-30 已完成调试 `console.log` 清理与 `editorTimers` 模块级收敛；剩余两项大范围重构：① 运行态 6 个模块级变量（running/runningPath/runChannel/runningStdinMode/runningStdinEofHinted/selectionRunMeta）收敛为 discriminated union `RunState`；② main.ts（~2600 行）继续按域拆分（envPanel / menuBar / runFlow 等）。
+- **现状**：CR-30 已完成调试 `console.log` 清理与 `editorTimers` 模块级收敛；剩余两项大范围重构：① 运行态 6 个模块级变量（running/runningPath/runChannel/runningStdinMode/runningStdinEofHinted/selectionRunMeta）收敛为 discriminated union `RunState`；② main.ts（~3100 行）继续按域拆分（envPanel / menuBar / runFlow 等）。
 - **建议**：前置 CR-05/07 已稳定，可在下次功能迭代时顺手偿还；拆分时参照 TD-007 的域拆分模式。
 - **涉及**：`shell/src/main.ts`
 
