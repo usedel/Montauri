@@ -47,7 +47,7 @@ export interface RunRecord {
 export interface RunHistoryHandlers {
   clearOutput: () => void;
   appendLine: (cls: string, text: string) => void;
-  /** P2-M：标签条「重跑」按钮（main.ts 按记录路由：runProfile / runActive） */
+  /** P2-M：标签条「重跑」按钮（main.ts 按记录路由：runProfile / runFile） */
   rerun: (r: RunRecord) => void;
 }
 

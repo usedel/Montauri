@@ -8,7 +8,7 @@ import type { RunWidgetState } from "../runWidget";
 
 let rw: typeof RunWidgetModule;
 
-const IDS = ["btn-run", "btn-stop", "btn-run-menu"];
+const IDS = ["btn-run", "btn-stop", "run-target"];
 
 function state(partial: Partial<RunWidgetState>): RunWidgetState {
   return {
@@ -18,6 +18,8 @@ function state(partial: Partial<RunWidgetState>): RunWidgetState {
     preparing: false,
     channel: null,
     targetName: "",
+    currentTarget: null,
+    unsavedFileTarget: null,
     runShortcut: "Ctrl+F10",
     stopShortcut: "Ctrl+F2",
     selectionShortcut: "Alt+Shift+E",
@@ -34,12 +36,19 @@ beforeAll(async () => {
   const icons: Record<string, string> = {
     "btn-run": "codicon-run",
     "btn-stop": "codicon-debug-stop",
-    "btn-run-menu": "codicon-chevron-down",
+    "run-target": "codicon-chevron-down",
   };
   for (const id of IDS) {
     if (!document.getElementById(id)) {
       const b = document.createElement("button");
       b.id = id;
+      // 目标下拉内含标签 span（与 index.html 同构），renderRunWidget 会写它的 textContent
+      if (id === "run-target") {
+        const label = document.createElement("span");
+        label.id = "run-target-label";
+        label.className = "run-target-label";
+        b.appendChild(label);
+      }
       const i = document.createElement("i");
       i.className = `codicon ${icons[id]}`;
       b.appendChild(i);
@@ -62,9 +71,9 @@ describe("运行组禁用态（UX P0-3：.is-disabled + aria-disabled，保留 d
     expect(document.getElementById("btn-run")!.dataset.tip).toBe("当前文件不是 Python 文件");
   });
 
-  it("R1 可运行未运行：▶/▾ 清除禁用态，⏹ 仍禁用；aria-disabled 与类同源", () => {
+  it("R1 可运行未运行：▶/目标下拉 清除禁用态，⏹ 仍禁用；aria-disabled 与类同源", () => {
     rw.renderRunWidget(state({ canRun: true, targetName: "main.py" }));
-    for (const id of ["btn-run", "btn-run-menu"]) {
+    for (const id of ["btn-run", "run-target"]) {
       const b = document.getElementById(id) as HTMLButtonElement;
       expect(b.classList.contains("is-disabled"), `${id} 不应再带 .is-disabled`).toBe(false);
       expect(b.getAttribute("aria-disabled")).toBe("false");
@@ -84,19 +93,39 @@ describe("运行组图标不变量（busy 切换不得污染其它按钮）", ()
     rw.renderRunWidget(state({ canRun: true, targetName: "main.py", preparing: false }));
     expect(iconClass("btn-run")).toBe("codicon codicon-run");
     expect(iconClass("btn-stop")).toBe("codicon codicon-debug-stop");
-    expect(iconClass("btn-run-menu")).toBe("codicon codicon-chevron-down");
+    expect(iconClass("run-target")).toBe("codicon codicon-chevron-down");
   });
 
-  it("准备期仅 ▶ 切为旋转 loader；恢复后 ▶ 还原，⏹/▾ 全程不变", () => {
+  it("准备期仅 ▶ 切为旋转 loader；恢复后 ▶ 还原，⏹/目标下拉 全程不变", () => {
     rw.renderRunWidget(state({ canRun: true, targetName: "main.py", preparing: true }));
     expect(iconClass("btn-run")).toContain("codicon-loading");
     expect(iconClass("btn-run")).toContain("codicon-modifier-spin");
     expect(iconClass("btn-run")).not.toContain("codicon-run");
     expect(iconClass("btn-stop")).toBe("codicon codicon-debug-stop");
-    expect(iconClass("btn-run-menu")).toBe("codicon codicon-chevron-down");
+    expect(iconClass("run-target")).toBe("codicon codicon-chevron-down");
     // 准备结束：▶ 还原
     rw.renderRunWidget(state({ canRun: true, targetName: "main.py", preparing: false }));
     expect(iconClass("btn-run")).toBe("codicon codicon-run");
     expect(iconClass("btn-stop")).toBe("codicon codicon-debug-stop");
+  });
+});
+
+describe("运行目标下拉标签（PyCharm 布局：▶ 左侧常驻显示目标名）", () => {
+  const label = (): string => document.getElementById("run-target-label")?.textContent ?? "";
+  const combo = (): HTMLButtonElement => document.getElementById("run-target") as HTMLButtonElement;
+
+  it("有粘性目标：显示目标名，tooltip 一并给出当前目标", () => {
+    rw.renderRunWidget(
+      state({ canRun: true, targetName: "uvicorn（配置）", currentTarget: { kind: "profile", name: "uvicorn" } }),
+    );
+    expect(label()).toBe("uvicorn（配置）");
+    expect(combo().dataset.tip).toContain("uvicorn（配置）");
+    expect(combo().classList.contains("is-empty")).toBe(false);
+  });
+
+  it("无目标：显示 PyCharm 的固定占位文案「当前文件」并标 .is-empty（不拼真实文件名）", () => {
+    rw.renderRunWidget(state({ canRun: true, targetName: "" }));
+    expect(label()).toBe("当前文件");
+    expect(combo().classList.contains("is-empty")).toBe(true);
   });
 });

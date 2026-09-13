@@ -49,6 +49,9 @@ export interface RunConfig {
   auto_rerun: boolean;
   /** P2-Q：解释器加 -i，脚本跑完留在同一交互 REPL（stdin 强制交互式） */
   python_console: boolean;
+  /** PyCharm 临时配置：由「跑文件」自动落盘生成（上限 5，超出淘汰最旧）；
+   *  在配置页显式保存即升格为永久配置（Save Configuration）。持久化在工作区配置里。 */
+  temporary: boolean;
 }
 
 /** 缺省运行配置（与后端 RunProfile::default 一致，P0-A：stdin 默认 interactive） */
@@ -66,6 +69,7 @@ export const EMPTY_RUN_CONFIG: RunConfig = {
   open_browser_url: "",
   auto_rerun: false,
   python_console: false,
+  temporary: false,
 };
 
 /** 归一化后端返回的运行配置（防御缺字段；与 RunProfile serde default 同口径） */
@@ -84,6 +88,7 @@ export function normalizeRunConfig(raw: Partial<RunConfig> | undefined | null, f
     open_browser_url: raw?.open_browser_url ?? "",
     auto_rerun: raw?.auto_rerun === true,
     python_console: raw?.python_console === true,
+    temporary: raw?.temporary === true,
   };
 }
 
@@ -157,4 +162,34 @@ export function runningStdinModeOf(): StdinMode {
 /** 选区运行元信息（traceback 跳转映射；非选区运行或 idle 时 null） */
 export function selectionMetaOf(): SelectionRunMeta | null {
   return runState.phase === "running" ? runState.selection : null;
+}
+
+// ---------- 运行目标（粘性，PyCharm「Run 部件 = 选中的配置」语义） ----------
+
+/**
+ * ▶ 的运行目标：**脚本文件** 或 **命名运行配置** 二选一。
+ *
+ * 与 RunState 的区别：RunState 描述"此刻正在跑什么"（idle 即整组作废），
+ * 而运行目标描述"▶ 下次会跑什么"——**运行结束后仍然保留**，只有显式操作才会改变它：
+ *   ① 标签右键 →「运行」/「在终端中运行」；② gutter ▶；③ ▸ 菜单选命名配置 / 命令面板「运行当前文件」。
+ * 单纯**切换打开的文件不改变目标**（对齐 PyCharm；此前 ▶ 恒等于活动文件，见
+ * `docs/pycharm_habits_adaptation_plan.md` §3-B）。
+ * 无目标时（首次运行 / 新工作区）▶ 回落当前文件。
+ */
+export type RunTarget =
+  | { kind: "file"; path: string }
+  | { kind: "profile"; name: string };
+
+/** 目标与上次所用通道的绑定记录（▶ 重跑沿用同一通道） */
+export interface RunTargetRecord {
+  target: RunTarget;
+  channel: "output" | "terminal";
+}
+
+/**
+ * 目标的显示名（运行部件 tooltip 用）：命名配置附加「（配置）」来源标识，
+ * 以便与"跑某个文件"区分。`baseName` 由调用方注入以保持本模块零依赖。
+ */
+export function displayTargetName(t: RunTarget, baseName: (path: string) => string): string {
+  return t.kind === "profile" ? `${t.name}（配置）` : baseName(t.path);
 }

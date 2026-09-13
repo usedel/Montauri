@@ -555,6 +555,24 @@ button:focus-visible,
 #run-group #btn-run:disabled, #run-group #btn-run.is-disabled { color: var(--fg-dim); }
 #run-group #btn-stop { color: var(--fg-dim); }
 #run-group #btn-stop:not(:disabled):not(.is-disabled) { color: var(--danger); }
+/* 运行目标下拉（PyCharm 布局：[目标名 ▾] [▶] [⏹]）：常驻显示「▶ 下次会跑什么」，
+   长名截断为 ellipsis，完整内容交给 data-tip 自绘 tooltip。 */
+#run-group #run-target {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  max-width: 168px;
+  padding: var(--space-1) var(--space-2);
+}
+#run-target .run-target-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-sm, var(--text-md));
+}
+/* 无目标占位态：不用主色，避免与真实目标名抢视觉权重 */
+#run-target.is-empty .run-target-label { color: var(--fg-dim); }
+#run-target .codicon { flex: none; }
 
 /* ---------- 标题栏窗口控制按钮（自绘，VS Code 风） ---------- */
 /* UI-19：原 margin-left 由前置 .menubar-sep 的间距取代（设置区│窗口控制区分隔线） */
@@ -1664,6 +1682,18 @@ button:focus-visible,
   position: fixed;
   z-index: 200;
   min-width: 180px;
+  /* 上界兜底：菜单条目会随数据增长（如运行目标列表，摘要含脚本路径 + 参数 + cwd），
+     不设上界时尺寸可超过视口，超出部分既不可达，也会让定位无从收敛。超限走内部滚动。
+     ⚠ 因果澄清（勿再写错）：本规则**不是**「下拉漂到窗口左上角」的原因。那个 bug 的真因是
+     menu.ts::isElementAnchor 注释里记的锚点判定缺陷（坐标算成 NaN → style 被静默丢弃 → 停在
+     复位的 (0,0)）。本规则防的是另一条独立路径：菜单真的比可用空间还大。封顶是**必要的**——
+     它让"定位"这道题始终有解，但它从来不是那个 bug 的修复。 */
+  max-height: calc(100vh - 12px);
+  /* 宽度同理必须封顶：`.mi-detail` 全是 white-space:nowrap，不封顶会被撑到接近整个窗口宽，
+     定位正确也会超出可用空间。封顶后由 .mi-detail 的 ellipsis 承担截断。 */
+  max-width: min(520px, calc(100vw - 12px));
+  overflow-y: auto;
+  overflow-x: hidden;
   background: var(--bg-alt);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
@@ -1692,8 +1722,9 @@ button:focus-visible,
 /* C1 通用弹出菜单（menu.ts）：与菜单栏 flyout 那套分离，只作用于 #ctx-menu 容器 */
 #ctx-menu .ctx-menu-item { display: flex; align-items: center; gap: var(--space-4); }
 .ctx-menu-item .mi-icon { width: 16px; flex: none; display: flex; align-items: center; justify-content: center; font-size: var(--text-base); color: var(--fg-dim); }
-.ctx-menu-item .mi-label { white-space: nowrap; }
-.ctx-menu-item .mi-detail { color: var(--fg-dim); font-size: var(--text-xs); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ctx-menu-item .mi-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 说明列封顶后再 ellipsis：否则 nowrap 的它会把整个菜单撑宽（宽度封顶的配套措施） */
+.ctx-menu-item .mi-detail { color: var(--fg-dim); font-size: var(--text-xs); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 300px; }
 .ctx-menu-item.disabled { opacity: 0.45; cursor: default; }
 .ctx-menu-item.disabled:hover { background: transparent; color: var(--fg); }
 
@@ -2419,6 +2450,38 @@ button:focus-visible,
 
 /* ---------- 新建项目面板 ---------- */
 .new-project-card { min-width: 480px; }
+
+/* ---------- 运行配置管理器（PyCharm 式左列表 + 右编辑） ---------- */
+.run-config-card { width: 880px; max-width: 94vw; max-height: 82vh; display: flex; flex-direction: column; }
+.run-config-body { display: flex; flex: 1; min-height: 0; gap: var(--space-7); }
+.run-config-list-pane {
+  width: 208px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--border-soft);
+  padding-right: var(--space-5);
+}
+.run-config-list-toolbar { display: flex; gap: var(--space-2); padding-bottom: var(--space-3); }
+.run-config-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; min-height: 0; }
+.run-config-list-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  color: var(--fg);
+}
+.run-config-list-item:hover { background: var(--hover); }
+/* UI-06/07 同口径：选中态才用重色，hover 保持轻量 */
+.run-config-list-item.selected { background: var(--accent-soft); }
+.run-config-list-item .rcl-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.run-config-list-item .rcl-tag { margin-left: auto; flex: none; color: var(--fg-dim); font-size: var(--text-xs); }
+.run-config-list-empty { padding: var(--space-3); color: var(--fg-dim); font-size: var(--text-xs); line-height: 1.5; }
+.run-config-editor { flex: 1; min-width: 0; overflow-y: auto; }
 /* 控件观感统一走上面的通用 .settings-row 规则（此处曾自带一套，造成两套观感） */
 .new-project-preview {
   font-size: var(--text-xs);
@@ -3339,7 +3402,10 @@ button:focus-visible,
   min-width: 0;
 }
 .compound-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.compound-item input { flex: none; }
+/* 必须显式锁宽高：.modal-card input{width:100%} 会命中此处的复选框（选择器只按元素名），
+   而 .settings-row input[type="checkbox"] 的 16px 兜底因选择器不匹配（本项不是 .settings-row）不生效。
+   不锁宽 → 复选框撑满整行、右侧 span 被压成 0 宽（overflow:hidden 把配置名裁没，只剩一行空复选框）。 */
+.compound-item input { flex: none; width: 16px; height: 16px; cursor: pointer; accent-color: var(--accent); }
 
 /* ---------- 全局 toast 通知（UX 审查 P0-1；toast.ts） ---------- */
 /* 右下角堆叠（状态栏上方）；z-index 高于 confirm-modal（500），失败提示不被模态遮挡 */

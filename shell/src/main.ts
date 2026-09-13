@@ -91,8 +91,9 @@ import { wireMenuBar, type MenuEntry } from "./menuBar";
 import {
   discardRunTranscript, initRunEvents, isRunBusy, maybeAutoRerun,
   maybeSuggestFastApi, openCompoundPanel, prepareRun, refreshRunProfiles, rerunRecord,
-  restartRun, resetRunSessionState, resetRunState, runActive, runActiveInTerminal,
-  runProfile, runSelection, runWidgetState, setRunFlowHandlers, stopRun, wireRunFlow,
+  restartRun, resetRunSessionState, resetRunState, runFile, runFileInTerminal,
+  runStickyTarget, runStickyTargetInTerminal, setRunTarget, loadPersistedRunTarget,
+  runSelection, runWidgetState, setRunFlowHandlers, stopRun, wireRunFlow,
   clearRunProfilesCache,
 } from "./runFlow";
 import { openRunConfig, wireRunConfigPanel } from "./runConfigPanel";
@@ -223,6 +224,7 @@ async function openWorkspace(root: string): Promise<void> {
   await startFileWatcher(); // 启动文件监听
   // P0-C/E：命名运行配置入菜单 + FastAPI 项目探测（仅提示，不打扰）
   void refreshRunProfiles();
+  void loadPersistedRunTarget(); // ▶ 指向上次选中的运行配置（持久化在工作区配置里）
   void maybeSuggestFastApi();
   updateEditorOverlay();
 }
@@ -415,8 +417,8 @@ function showTabContextMenu(tab: Tab, x: number, y: number): void {
     items.splice(
       5,
       0,
-      { label: "运行", action: () => void runActive() },
-      { label: "在终端中运行", action: () => void runActiveInTerminal() },
+      { label: "运行", action: () => void runFile(tab.path) },
+      { label: "在终端中运行", action: () => void runFileInTerminal(tab.path) },
       { label: "运行配置…", action: () => void openRunConfig(tab.path) },
       { sep: true },
     );
@@ -834,32 +836,41 @@ async function optimizeImportsActive(): Promise<void> {
   appendOutputLine(outputEl, `已整理导入：${basename(tab.path)}`, "stdout", gotoFromLink);
 }
 
-async function saveActive(): Promise<void> {
-  if (!app.activeTab) return;
-  const isPy = app.activeTab.path.endsWith(".py") || app.activeTab.path.endsWith(".pyw");
+/**
+ * 保存**指定** tab（保存时整理导入 → 格式化 → 写盘 → 本地历史 → 通知引擎）。
+ * 从 saveActive 抽出来是为了运行域：▶ 的粘性目标可能不是活动 tab，只靠 saveActive
+ * 会漏存目标文件，导致「跑了磁盘上的旧内容」（表现为改了没生效）。
+ */
+async function saveTab(tab: Tab): Promise<void> {
+  const isPy = tab.path.endsWith(".py") || tab.path.endsWith(".pyw");
   // 保存时整理导入（ruff I,F401，设置开关）：**先整理后格式化**——ruff format 不重排导入，
   // 二者正交，此顺序与 PyCharm 的「Optimize Imports → Reformat」一致。失败不阻断保存。
   if (app.settings.optimize_imports_on_save && isPy) {
-    const optimized = await optimizeImportsSource(app.activeTab.path, app.activeTab.model.getValue());
-    if (optimized !== null && optimized !== app.activeTab.model.getValue()) {
-      app.activeTab.model.setValue(optimized); // 单次 setValue → Ctrl+Z 可整体撤销
+    const optimized = await optimizeImportsSource(tab.path, tab.model.getValue());
+    if (optimized !== null && optimized !== tab.model.getValue()) {
+      tab.model.setValue(optimized); // 单次 setValue → Ctrl+Z 可整体撤销
     }
   }
   // 保存时格式化（ruff，设置开关）：失败不阻断保存
   if (app.settings.format_on_save && isPy) {
-    const formatted = await formatPythonSource(app.activeTab.path, app.activeTab.model.getValue());
-    if (formatted !== null && formatted !== app.activeTab.model.getValue()) {
-      app.activeTab.model.setValue(formatted); // 单次 setValue → Ctrl+Z 可整体撤销
+    const formatted = await formatPythonSource(tab.path, tab.model.getValue());
+    if (formatted !== null && formatted !== tab.model.getValue()) {
+      tab.model.setValue(formatted); // 单次 setValue → Ctrl+Z 可整体撤销
     }
   }
   // P1：本地历史——**写盘前**留一版快照（content 传 null = 后端读磁盘，落的是保存前的内容）。
   // 失败只记日志：历史是兜底能力，绝不阻断保存（与 ruff 缺席不阻断格式化的策略一致）。
-  await snapshotHistory(app.activeTab.path);
-  await invoke("write_file", { path: app.activeTab.path, content: app.activeTab.model.getValue() });
-  app.activeTab.dirty = false;
+  await snapshotHistory(tab.path);
+  await invoke("write_file", { path: tab.path, content: tab.model.getValue() });
+  tab.dirty = false;
   renderTabs();
   // 保存通知（引擎常在保存时触发完整重新检查）
-  lsp.didSave(app.activeTab.path, app.activeTab.model);
+  lsp.didSave(tab.path, tab.model);
+}
+
+async function saveActive(): Promise<void> {
+  if (!app.activeTab) return;
+  await saveTab(app.activeTab);
 }
 
 /** 本地历史快照（保存前自动留痕）；无工作区时静默跳过 */
@@ -888,7 +899,7 @@ async function reloadFileFromDisk(path: string): Promise<void> {
   await lsp.didChangeFull(path, tab.model);
 }
 
-// 运行域（prepareRun / runActive / runActiveInTerminal / runProfile / runSelection /
+// 运行域（prepareRun / runFile / runStickyTarget / runProfile / runSelection /
 // stopRun / runWidgetState / auto_rerun / 输出事件流）→ runFlow.ts；运行态真值 → runState.ts。
 
 // ---------- 调试（debug dev plan §6.7：调试运行入口） ----------
@@ -1026,7 +1037,7 @@ async function onEvaluateShortcut(): Promise<void> {
 function buildQuickOpenActions(): QuickOpenAction[] {
   return [
     { id: "save", label: "保存", run: () => void saveActive() },
-    { id: "run", label: "运行当前文件", run: () => void runActive() },
+    { id: "run", label: "运行当前文件", run: () => { if (app.activeTab) void runFile(app.activeTab.path); } },
     { id: "debug", label: "启动调试 / 继续", run: () => void runDebug() },
     { id: "debug_stop", label: "停止调试", run: () => void stopDebugSession() },
     { id: "debug_evaluate", label: "求值表达式", run: () => void onEvaluateShortcut() },
@@ -1289,7 +1300,7 @@ window.addEventListener("unhandledrejection", (e) => {
 async function init(): Promise<void> {
   // TD-14 / TD-13：功能域解环注入（须先于任何事件与运行调用）
   setTracebackOpenFile(openFile);
-  setRunFlowHandlers({ openFile, activateTab, renderTabs, saveActive });
+  setRunFlowHandlers({ openFile, activateTab, renderTabs, saveActive, saveTab });
   setFileTreeHandlers({ openFile, renderTabs, closeTabSilent, insertHeaderTemplate });
   setSettingsPanelHandlers({ startLsp });
   // UI-25：欢迎页快捷键网格改由键位系统渲染，必须在首个 await（Monaco 动态包，首屏最慢的一步）
@@ -1424,7 +1435,7 @@ async function init(): Promise<void> {
     if (!id) return;
     e.preventDefault();
     if (id === "save") void saveActive();
-    else if (id === "run") void runActive();
+    else if (id === "run") void runStickyTarget();
     else if (id === "stop") void stopRun();
     else if (id === "global_search") setSidebarTab("search");
     // P0：最近打开的文件（Ctrl+E）——后端数据早已在写，此前前端没有消费入口
@@ -1646,8 +1657,8 @@ async function init(): Promise<void> {
 
   // 运行组（C3）：菜单栏 ▶/⏹/▾。main 拥有运行动作，runWidget 只负责渲染与派发
   setRunWidgetHandlers({
-    run: () => void runActive(),
-    runInTerminal: () => void runActiveInTerminal(),
+    run: () => void runStickyTarget(),
+    runInTerminal: () => void runStickyTargetInTerminal(),
     runSelection: () => void runSelection(),
     // 调试态联动（D4）：运行组 ⏹ 在调试中路由到 debug_stop，避免「调试中误触停止脚本」
     stop: () => {
@@ -1656,8 +1667,10 @@ async function init(): Promise<void> {
       else void stopRun();
     },
     restart: () => void restartRun(),
-    openRunConfig: () => { if (app.activeTab) void openRunConfig(app.activeTab.path); },
-    runProfile: (name: string) => void runProfile(name),
+    // 面板为工作区级：没有活动标签也可打开（活动文件仅用于预选回退，见 openRunConfig）
+    openRunConfig: () => void openRunConfig(app.activeTab?.path),
+    // 下拉只负责「选定」目标（不启动）：选定后由 ▶ 执行，对齐 PyCharm
+    setTarget: (t) => setRunTarget(t),
     openCompound: () => openCompoundPanel(),
   });
   wireRunWidget();
@@ -1669,7 +1682,8 @@ async function init(): Promise<void> {
   // 否则用户会点在行号两侧的空白上而以为「断点坏了」（CSS 侧见 style.css 同段注释）
   wireGutterHover(app.editor, app.monaco);
   setRunGutterHandlers({
-    run: () => void runActive(),
+    // gutter ▶ 的语义是「运行这个文件」→ 显式指定目标（顺带把它设为 ▶ 的粘性目标）
+    run: () => { if (app.activeTab) void runFile(app.activeTab.path); },
     menuItems: () => getRunMenuItems(),
     state: () => {
       const tab = app.activeTab;

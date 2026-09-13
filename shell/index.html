@@ -40,22 +40,26 @@
         <button class="menubar-item" data-menu="edit" aria-haspopup="menu" aria-expanded="false">编辑</button>
         <button class="menubar-item" data-menu="view" aria-haspopup="menu" aria-expanded="false">视图</button>
         <button class="menubar-item" data-menu="tools" aria-haspopup="menu" aria-expanded="false">工具</button>
-        <!-- UI-19：菜单区│动作区分隔线（纯装饰，读屏跳过） -->
-        <span class="menubar-sep" aria-hidden="true"></span>
-        <!-- 运行组（C3）：紧跟在「工具」菜单之后、spacer 之前。三独立按钮 ▶/⏹/▾ -->
+        <!-- UI-19：菜单区与「运行/调试动作区」之间改由 .spacer 弹性间距分隔（动作区整体右移，
+             与 PyCharm 窗口头部一致——运行控件在右上、不在菜单旁边）。 -->
+        <span class="spacer"></span>
+        <!-- 运行组（C3）：PyCharm 布局 [运行目标 ▾] [▶] [⏹]，靠右并与设置区以分隔线区分 -->
         <!-- UI-16：存量 data-tip 图标按钮补齐 aria-label（第四批登记的待办）。内部 <i> 带 aria-hidden，
              可访问名称只能由 aria-label 提供；data-tip 只服务视觉 tooltip，读屏不感知。 -->
         <div id="run-group">
+          <!-- 运行目标下拉：常驻显示「▶ 下次会跑什么」，点击弹出菜单（menu.ts showMenu）。
+               原独立的 ▾「更多运行选项」按钮的功能已并入本下拉——"选择目标"与"更多运行方式"
+               若为两份入口，用户会在两个菜单里分别找同一批配置。 -->
+          <button id="run-target" class="menubar-icon run-target" data-tip="选择运行目标" aria-label="运行目标" aria-haspopup="menu" aria-expanded="false"><span id="run-target-label" class="run-target-label">当前文件</span><i class="codicon codicon-chevron-down" aria-hidden="true"></i></button>
           <button id="btn-run" class="menubar-icon" data-tip="运行" aria-label="运行"><i class="codicon codicon-run" aria-hidden="true"></i></button>
           <button id="btn-stop" class="menubar-icon" data-tip="停止运行" aria-label="停止运行"><i class="codicon codicon-debug-stop" aria-hidden="true"></i></button>
-          <!-- UI-30：▾ 按钮弹出运行菜单（menu.ts showMenu），声明 haspopup；aria-expanded 由 menu.ts 的触发元素跟踪统一切换 -->
-          <button id="btn-run-menu" class="menubar-icon" data-tip="更多运行选项" aria-label="更多运行选项" aria-haspopup="menu" aria-expanded="false"><i class="codicon codicon-chevron-down" aria-hidden="true"></i></button>
         </div>
-        <!-- 调试按钮（debug dev plan §6.1）：运行组旁新增「调试」入口 -->
+        <!-- 调试按钮（debug dev plan §6.1）：运行组旁新增「调试」入口，随动作区一并右移 -->
         <button id="btn-debug" class="menubar-icon" data-tip="调试" aria-label="调试"><i class="codicon codicon-debug" aria-hidden="true"></i></button>
-        <span class="spacer"></span>
+        <!-- UI-19：动作区│设置区分隔线（纯装饰，读屏跳过）——两者都在右侧，必须显式区分 -->
+        <span class="menubar-sep" aria-hidden="true"></span>
         <button id="btn-settings" class="menubar-icon" data-tip="设置" aria-label="设置"><i class="codicon codicon-gear" aria-hidden="true"></i></button>
-        <!-- UI-19 / UI-27：设置区│窗口控制区分隔线（动作区与右侧系统区之间由 .spacer 弹性间距分隔） -->
+        <!-- UI-19 / UI-27：设置区│窗口控制区分隔线（右侧系统区与设置按钮同样相邻，需显式区分） -->
         <span class="menubar-sep" aria-hidden="true"></span>
         <div id="win-controls">
           <!-- UI-09：图标按钮统一走自绘 data-tip。因内部 <i> 带 aria-hidden，可访问名称原先仅由 title 提供，
@@ -423,31 +427,38 @@
     </div>
     <!-- 运行配置面板（模态，P0-C/D：工作区级命名配置列表 + 入口类型 + 工作目录；持久化到工作区配置，不侵入项目） -->
     <div id="run-config-modal" class="modal hidden">
-      <div class="modal-card new-project-card" role="dialog" aria-modal="true" aria-labelledby="run-config-title">
+      <div class="modal-card run-config-card" role="dialog" aria-modal="true" aria-labelledby="run-config-title">
         <div class="env-header">
           <span id="run-config-title" class="env-title">运行配置</span>
           <span class="spacer"></span>
-          <button id="run-config-close" class="btn btn--ghost btn--icon"><i class="codicon codicon-close" aria-hidden="true"></i></button>
+          <button id="run-config-close" class="btn btn--ghost btn--icon" aria-label="关闭"><i class="codicon codicon-close" aria-hidden="true"></i></button>
         </div>
-        <div class="settings-body">
-          <div class="settings-row">
-            <label for="run-config-select">配置</label>
-            <select id="run-config-select" aria-label="选择要编辑的运行配置"></select>
-            <button id="run-config-new" class="btn">新建…</button>
+        <div class="run-config-body">
+          <!-- 左：工作区里**全部**运行配置（永久 + 跑文件自动生成的临时配置）。
+               形态对齐 PyCharm 的「左列表 + 右编辑」，与当前打开哪个文件无关。 -->
+          <div class="run-config-list-pane">
+            <div class="run-config-list-toolbar">
+              <button id="run-config-new" class="btn btn--sm">新建</button>
+              <button id="run-config-copy" class="btn btn--sm">复制</button>
+              <button id="run-config-delete" class="btn btn--sm btn--danger-outline" disabled>删除</button>
+            </div>
+            <ul id="run-config-list" class="run-config-list" role="listbox" aria-label="运行配置列表"></ul>
           </div>
-          <div class="settings-hint" id="run-config-target"></div>
-          <div class="settings-row hidden" id="run-config-name-row">
+          <!-- 右：编辑选中的那一份 -->
+          <div class="settings-body run-config-editor">
+            <div class="settings-hint hidden" id="run-config-target"></div>
+          <div class="settings-row" id="run-config-name-row">
             <label for="run-config-name">配置名</label>
             <input id="run-config-name" type="text" placeholder="FastAPI" spellcheck="false" />
           </div>
-          <div class="settings-row hidden" id="run-config-entry-row">
+          <div class="settings-row" id="run-config-entry-row">
             <label for="run-config-entry-kind">入口类型</label>
             <select id="run-config-entry-kind" title="脚本 = 运行一个 .py 文件；模块 = python -m（uvicorn / flask 等框架入口）">
               <option value="script">脚本 (Script path)</option>
               <option value="module">模块 (Module name = python -m)</option>
             </select>
           </div>
-          <div class="settings-row hidden" id="run-config-target-row">
+          <div class="settings-row" id="run-config-target-row">
             <label for="run-config-target-input" id="run-config-target-label">脚本路径 (Script path)</label>
             <input id="run-config-target-input" type="text" placeholder="main.py（相对工作区根）" spellcheck="false" />
           </div>
@@ -508,11 +519,11 @@
             <textarea id="run-config-env" rows="5" placeholder="MY_VAR=1&#10;OTHER=abc" spellcheck="false"></textarea>
           </div>
         </div>
+        </div>
         <div class="modal-actions">
-          <button id="run-config-delete" class="btn hidden">删除</button>
           <span class="spacer"></span>
           <button id="run-config-save" class="btn btn--primary">保存</button>
-          <button id="run-config-cancel" class="btn">取消</button>
+          <button id="run-config-cancel" class="btn">关闭</button>
         </div>
       </div>
     </div>

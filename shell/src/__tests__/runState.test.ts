@@ -4,7 +4,8 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import {
   EMPTY_RUN_CONFIG, getRunState, isRunning, normalizeRunConfig, runChannelOf, runningPathOf,
-  runningStdinModeOf, selectionMetaOf, setRunState, stdinModeOf, type RunConfig,
+  runningStdinModeOf, selectionMetaOf, setRunState, stdinModeOf, displayTargetName,
+  type RunConfig, type RunTarget,
 } from "../runState";
 
 describe("normalizeRunConfig（与后端 RunProfile serde default 同口径）", () => {
@@ -144,5 +145,26 @@ describe("RunState 判别联合（TD-14 ①：整组置位 / 整组作废）", (
     });
     expect(runChannelOf()).toBe("terminal");
     expect(runningStdinModeOf()).toBe("null");
+  });
+});
+
+describe("运行目标（粘性：▶ 跑的不再是「当前文件」）", () => {
+  const baseName = (p: string): string => p.replace(/\\/g, "/").split("/").pop() ?? p;
+
+  it("文件目标显示 basename，不带来源标识", () => {
+    const t: RunTarget = { kind: "file", path: "/ws/pkg/main.py" };
+    expect(displayTargetName(t, baseName)).toBe("main.py");
+  });
+
+  it("命名配置目标附加「（配置）」来源标识，与「跑某个文件」区分", () => {
+    const t: RunTarget = { kind: "profile", name: "uvicorn" };
+    expect(displayTargetName(t, baseName)).toBe("uvicorn（配置）");
+  });
+
+  it("配置名与文件名同形时，显示名仍能区分二者", () => {
+    const file: RunTarget = { kind: "file", path: "/ws/app.py" };
+    const profile: RunTarget = { kind: "profile", name: "app.py" };
+    expect(displayTargetName(file, baseName)).toBe("app.py");
+    expect(displayTargetName(profile, baseName)).not.toBe(displayTargetName(file, baseName));
   });
 });

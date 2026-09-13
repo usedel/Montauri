@@ -1,8 +1,8 @@
 // 运行域（TD-14 拆分，原 main.ts 的「运行 + P0-C 命名配置 + Compound + FastAPI + S4 交互输入 + P2-N auto_rerun」段）。
 // 两条运行路径共用一套「运行态」（§4.7 结论 3，S3/S4 首版单实例）：
-// - **输出面板**（runActive → `lsp::run_script`）：默认路径，traceback 天然可点击；
+// - **输出面板**（runFile / runStickyTarget → `lsp::run_script`）：默认路径，traceback 天然可点击；
 //   stdin=interactive（S4）时输出面板下方亮出输入行，用户逐行应答。
-// - **运行终端**（runActiveInTerminal → `terminal::run_in_terminal`）：真 TTY，覆盖
+// - **运行终端**（runFileInTerminal / runStickyTargetInTerminal → `terminal::run_in_terminal`）：真 TTY，覆盖
 //   getpass / tqdm / rich / 彩色输出 / Ctrl+C（坑 3：管道模式下 isatty() 为假，这些全都退化）。
 // 运行态收敛为 runState.ts 的 RunState 判别联合（TD-14 ①）；`running` / `runningPath` /
 // 停止按钮 / tab 运行图标对两条路径一致，按 `channel` 路由停止动作。
@@ -24,8 +24,8 @@ import { runScriptInTerminal, stopRunTerminal, setOutputPanelHooks } from "./ter
 import { currentInterpreter, shortInterpreter } from "./envPanel";
 import {
   EMPTY_RUN_CONFIG, getRunState, setRunState, isRunning, runChannelOf, runningPathOf,
-  normalizeRunConfig, stdinModeOf,
-  type RunConfig, type StdinMode, type SelectionRunMeta,
+  normalizeRunConfig, stdinModeOf, displayTargetName,
+  type RunConfig, type StdinMode, type SelectionRunMeta, type RunTargetRecord, type RunTarget,
 } from "./runState";
 import { startRun, finishRun, recordLines, isViewingLive, type RunRecord } from "./runHistory";
 import { renderRunWidget, type RunWidgetState } from "./runWidget";
@@ -37,6 +37,8 @@ interface RunFlowHandlers {
   activateTab: (tab: Tab) => void;
   renderTabs: () => void;
   saveActive: () => Promise<void>;
+  /** 保存**指定** tab（粘性目标可能不是活动 tab，只靠 saveActive 会漏存） */
+  saveTab: (tab: Tab) => Promise<void>;
 }
 
 let handlers: RunFlowHandlers | null = null;
@@ -56,16 +58,141 @@ function h(): RunFlowHandlers {
  * `running`（RunState）在 `prepareRun`（含保存、依赖预检、确认框）之后才置位，此前连点 Ctrl+F10
  * 会并发拉起两个 `run_script`，后端单实例槽被顶掉、状态错乱。生命周期与 RunState 正交（见 runState.ts）。 */
 let runPreparing = false;
-/** 上次运行的路径与通道（「停止并重新运行」用）。resetRunState 不清，切换/关闭工作区清（resetRunSessionState）。
- * P0-C：命名配置运行的路径存为 `profile:<name>`。 */
-let lastRun: { path: string; channel: "output" | "terminal" } | null = null;
+/**
+ * 粘性运行目标：▶ / Ctrl+F10 **不再跑「当前文件」**，而是跑"上次运行的目标"（文件或命名配置），
+ * 之后切换打开的文件不改变它——对齐 PyCharm「Run 部件 = 选中的运行配置」语义
+ * （见 `docs/pycharm_habits_adaptation_plan.md` §3-B，该节同时记录了对
+ * `python_ide_dev_plan_v2.md:80` 首版语义的有意识偏离）。
+ *
+ * 只有显式操作才会重新指定目标：① 标签右键「运行」/「在终端中运行」；② gutter ▶；
+ * ③ ▸ 菜单选命名配置 / 命令面板「运行当前文件」。选区运行**不改目标**（同 PyCharm）。
+ * 无目标时（首次运行 / 新工作区）▶ 回落当前文件并把它设为目标。
+ *
+ * resetRunState 不清（运行结束仍粘着），切换/关闭工作区清（resetRunSessionState）。
+ */
+let runTarget: RunTargetRecord | null = null;
 /** P0-C：命名运行配置缓存（▾ 菜单 / 编辑面板数据源）；打开工作区 / 编辑配置后刷新 */
 let runProfiles: RunConfig[] = [];
-/** P0-C：最近一次按命名配置运行的名字（restartRun 重跑用） */
-let lastProfile: string | null = null;
+
+/**
+ * 相对工作区根的正斜杠路径（与后端 `run_config_key` / runConfigPanel.runConfigKeyOf 同口径）。
+ * 用途：把"文件目标"匹配到**已保存的运行配置**，从而判断它是否需要在下拉里单列一行。
+ */
+function relConfigKey(path: string): string {
+  const root = app.workspaceRoot?.replace(/\\/g, "/").replace(/\/+$/, "") ?? "";
+  const norm = path.replace(/\\/g, "/");
+  if (root && norm.toLowerCase().startsWith(root.toLowerCase())) {
+    const rel = norm.slice(root.length).replace(/^\//, "");
+    if (rel) return rel;
+  }
+  return norm.split("/").pop() ?? norm;
+}
+
+/** ▶ 的当前目标若是「文件」且**尚无对应的已保存配置**，返回它（下拉需单列一行，
+ *  否则用户看不到 ▶ 会跑什么）。已被某份 script 配置覆盖时不重复出现，避免同名两行。 */
+function unsavedFileTargetOf(rec: RunTargetRecord | null): { path: string; name: string } | null {
+  if (!rec || rec.target.kind !== "file") return null;
+  const path = rec.target.path;
+  const covered = runProfiles.some((p) => p.entry.kind === "script" && p.entry.target === relConfigKey(path));
+  return covered ? null : { path, name: basename(path) };
+}
+
+/** 运行某个文件前，确保它有一份**持久化**的运行配置（PyCharm 临时配置语义）。
+ *  已有配置时后端**不会覆盖用户设置**，只在新建/刷新次序时写盘；
+ *  失败仅记日志——落配置失败绝不能挡住运行本身。 */
+async function ensureFileProfile(path: string): Promise<void> {
+  if (!app.workspaceRoot) return;
+  try {
+    await invoke<RunConfig>("ensure_run_profile", { workspaceRoot: app.workspaceRoot, scriptPath: path });
+    await refreshRunProfiles(); // 让下拉立刻由「未保存的文件目标」切换为该文件的配置条目
+  } catch (e) {
+    console.warn("[run] 自动落运行配置失败（不影响本次运行）:", e);
+  }
+}
+
+/** 粘性运行目标读取（仅供渲染 / 测试；写入一律由运行路径内部完成，避免第二份真值） */
+export function getRunTarget(): RunTargetRecord | null {
+  return runTarget;
+}
+
+/** 测试专用：直接设置粘性运行目标 */
+export function setRunTargetForTest(rec: RunTargetRecord | null): void {
+  runTarget = rec;
+  renderRunWidget(runWidgetState());
+}
+
+/** 写入粘性目标并**持久化到工作区配置**（PyCharm 把选中的配置记在项目里，重开仍在）。
+ *  持久化失败只记日志——内存态仍然有效，不影响本次会话的 ▶。 */
+function assignRunTarget(rec: RunTargetRecord | null): void {
+  runTarget = rec;
+  if (!app.workspaceRoot) return;
+  const target = rec
+    ? {
+        kind: rec.target.kind,
+        name: rec.target.kind === "profile" ? rec.target.name : "",
+        path: rec.target.kind === "file" ? rec.target.path : "",
+        channel: rec.channel,
+      }
+    : null;
+  void invoke("set_run_target", { workspaceRoot: app.workspaceRoot, target }).catch((e) =>
+    console.warn("[run] 持久化运行目标失败:", e),
+  );
+}
+
+/** 打开工作区后载入持久化的运行目标（▶ 指向上次那个配置，跨重启稳定）。 */
+export async function loadPersistedRunTarget(): Promise<void> {
+  if (!app.workspaceRoot) return;
+  try {
+    const raw = await invoke<{ kind: string; name: string; path: string; channel: string } | null>(
+      "get_run_target",
+      { workspaceRoot: app.workspaceRoot },
+    );
+    if (!raw) return;
+    let rec: RunTargetRecord | null = null;
+    if (raw.kind === "profile" && raw.name.trim()) {
+      rec = { target: { kind: "profile", name: raw.name }, channel: chanOf(raw.channel) };
+    } else if (raw.kind === "file" && raw.path.trim()) {
+      rec = { target: { kind: "file", path: raw.path }, channel: chanOf(raw.channel) };
+    }
+    if (!rec) return;
+    runTarget = rec; // 直接赋值：载入不该触发"载入即写回"
+    // 还原出来的文件目标同样补一份配置，保证目标区只列配置（与当前实现一致）
+    if (rec.target.kind === "file") void ensureFileProfile(rec.target.path);
+    renderRunWidget(runWidgetState());
+  } catch (e) {
+    console.warn("[run] 载入运行目标失败:", e);
+  }
+}
+
+function chanOf(v: string): "output" | "terminal" {
+  return v === "terminal" ? "terminal" : "output";
+}
+
+/**
+ * 只切换 ▶ 的粘性目标（**不启动**）——运行目标下拉专用，对齐 PyCharm「下拉只改选中」。
+ * 通道沿用策略：切过去仍是同一个目标 → 保留上次通道（如该文件上次是在终端里跑的）；
+ * 换成另一个目标 → 回落输出面板。
+ */
+export function setRunTarget(t: RunTarget): void {
+  const prev = runTarget;
+  let channel: "output" | "terminal" = "output";
+  if (prev && prev.target.kind === t.kind) {
+    const same =
+      t.kind === "file"
+        ? prev.target.kind === "file" && samePath(prev.target.path, t.path)
+        : prev.target.kind === "profile" && prev.target.name === t.name;
+    if (same) channel = prev.channel;
+  }
+  assignRunTarget({ target: t, channel });
+  // 目标区只应列"已保存的配置"：文件目标一旦被选中，也让它落一份配置，
+  // 从而不再需要"临时（未保存为运行配置）"那一行（见 unsavedFileTargetOf）
+  if (t.kind === "file") void ensureFileProfile(t.path);
+  renderRunWidget(runWidgetState());
+}
+
 /** P0-E：FastAPI 提示按工作区每会话最多一次 */
 let fastApiHintShownFor: string | null = null;
-/** P0-B：EOF 一键补救动作执行中（防连点：重跑链路含 stopRun + runActive 多个 await） */
+/** P0-B：EOF 一键补救动作执行中（防连点：重跑链路含 stopRun + runFile 多个 await） */
 let eofRemedyBusy = false;
 /** P2-N：auto_rerun 防抖定时器 */
 let autoRerunTimer: number | undefined;
@@ -99,7 +226,10 @@ export async function prepareRun(path: string): Promise<RunPrep | null> {
     appendOutputLine(outputEl, `不是 Python 文件：${path}`, "stderr", gotoFromLink);
     return null;
   }
-  if (app.activeTab?.dirty) await h().saveActive(); // 运行前自动保存
+  // 运行前自动保存：保存的是**本次运行目标所在的 tab**，而不是活动 tab——粘性运行时目标文件
+  // 往往不是当前打开的文件，只存活动 tab 会让它跑到磁盘上的旧内容（表现为「改了没生效」）。
+  const targetTab = app.tabs.find((t) => samePath(t.path, path));
+  if (targetTab?.dirty) await h().saveTab(targetTab);
   // 运行前依赖预检：文件顶层 import 的第三方模块须在当前解释器中可解析，否则提前提示（避免「补全可用但运行 ImportError」）
   if (currentInterpreter) {
     const missing = await invoke<Array<{ name: string; line: number; stmt: string }>>(
@@ -214,13 +344,15 @@ function cleanupSelectionRunMeta(meta: SelectionRunMeta): void {
  * （运行态本身已由 resetRunState 复位；原 main 的两行收敛于此） */
 export function resetRunSessionState(): void {
   runStdinInputEl.value = "";
-  lastRun = null;
+  runTarget = null;
 }
 
 /** 关闭工作区：命名配置缓存 / lastProfile / FastAPI 提示去重均为工作区级，一并清空 */
 export function clearRunProfilesCache(): void {
   runProfiles = [];
-  lastProfile = null;
+  // 运行目标同样属工作区级数据：只清内存，**不动已持久化的值**——那是该工作区自己的记录，
+  // 重新打开该工作区时由 loadPersistedRunTarget 还原。
+  runTarget = null;
   fastApiHintShownFor = null;
 }
 
@@ -241,13 +373,18 @@ export function runWidgetState(): RunWidgetState {
   const hasWs = !!app.workspaceRoot;
   const tab = app.activeTab;
   const isPy = !!tab && (tab.path.endsWith(".py") || tab.path.endsWith(".pyw"));
-  const canRun = hasWs && !!tab && isPy;
+  // 粘性目标优先于当前文件：▶ 跑的是「上次运行的目标」，切换文件既不该改变对象，
+  // 也不该让 ▶ 灰掉（module 入口的命名配置甚至不需要打开任何 .py）。
+  const rec = runTarget;
+  const canRunFile = hasWs && !!tab && isPy;
+  const canRun = hasWs && (!!rec || canRunFile);
   // D4「调试态与运行态 UI 不混淆」：调试中 ⏹ 必须可用（点击路由到 debug_stop），
   // 否则用户在调试中失去了菜单栏停止入口（E2E 实测：调试中 #btn-stop disabled）。
   const dbgPhase = dap.currentPhase();
   const debugging = dbgPhase === "starting" || dbgPhase === "running" || dbgPhase === "stopped";
   let disabledReason: string;
   if (!hasWs) disabledReason = "未打开工作区";
+  else if (canRun) disabledReason = "";
   else if (!tab) disabledReason = "没有打开的文件";
   else disabledReason = "当前文件不是 Python 文件";
   return {
@@ -257,13 +394,24 @@ export function runWidgetState(): RunWidgetState {
     // P1（UX 审查）：准备期独立表达——原先混进 running，▶ 的提示误报「已有脚本在运行（先停止）」
     preparing: runPreparing,
     channel: runChannelOf(),
-    targetName: tab ? basename(tab.path) : "",
+    // ▶ 显示的是「下次会跑什么」：有粘性目标即显示目标（配置带来源标识）；无目标时**留空**，
+    // 由下拉渲染成固定占位「当前文件」——**绝不拼活动文件名**：拼了就会随切标签漂移
+    // （打开 pyproject.toml 就显示 pyproject.toml），违背「运行目标区与活动标签无关」
+    // （见 runWidget.ts::TARGET_PLACEHOLDER）。
+    targetName: rec ? displayTargetName(rec.target, basename) : "",
+    // 下拉据此渲染目标区并打勾当前项
+    currentTarget: rec ? rec.target : null,
+    // 当前目标是"文件"且尚未保存为配置时的那一行（见 unsavedFileTargetOf）
+    unsavedFileTarget: unsavedFileTargetOf(rec),
     runShortcut: kb.bindingLabel("run"),
     stopShortcut: kb.bindingLabel("stop"),
     selectionShortcut: kb.bindingLabel("run_selection"),
-    canOpenConfig: canRun,
-    // P0-C：▾ 菜单配置区数据源
-    profiles: runProfiles.map((p) => ({ name: p.name, summary: profileSummary(p) })),
+    // 运行配置面板是**工作区级**的：左列表列出全部配置，与打开哪个文件无关；
+    // 活动文件只用于「预选哪一份配置」的回退（openRunConfig 内部还有 profiles[0]/新建兜底），
+    // 不是可用性前提。故此处只要求有工作区——与运行目标区「与活动标签无关」的原则一致。
+    canOpenConfig: hasWs,
+    // 下拉配置区数据源（temporary = PyCharm 临时配置，UI 侧标「临时」）
+    profiles: runProfiles.map((p) => ({ name: p.name, summary: profileSummary(p), temporary: p.temporary === true })),
   };
 }
 
@@ -294,7 +442,7 @@ function ingestBackground(cls: string, data: string): void {
 }
 
 /** P2-M：标签条「重跑」——按记录原始形态路由：命名配置按名重跑；文件运行激活 tab 后运行。
- * 已有运行在跑时由 runProfile / runActive 的冲突询问式兜底（P1-H）。 */
+ * 已有运行在跑时由 runProfile / runFile 的冲突询问式兜底（P1-H）。 */
 export async function rerunRecord(r: RunRecord): Promise<void> {
   if (r.profileName) {
     await runProfile(r.profileName);
@@ -311,42 +459,73 @@ export async function rerunRecord(r: RunRecord): Promise<void> {
       return;
     }
   }
-  await runActive();
+  await runFile(r.path); // 显式重跑该记录 → 同时把它设成 ▶ 的粘性目标
 }
 
-/** 「停止并重新运行」：按上次通道重跑 lastRun.path。目标文件已不在 tabs 时先打开，
- *  若打开失败（磁盘文件已删）则置灰不跑——绝不静默跑错文件（T11）。 */
+/** 「停止并重新运行」：按粘性目标重跑（沿用原通道）。目标失效时提示 + 提供「改跑当前文件」
+ *  补救动作——绝不静默跑错文件（T11）。 */
 export async function restartRun(): Promise<void> {
-  if (!lastRun) return;
-  const { path, channel } = lastRun;
+  const rec = runTarget;
+  if (!rec) return;
   await stopRun();
-  // P0-C：命名配置运行的重跑——无文件锚点，按名重跑（输出面板路径）
-  if (path.startsWith("profile:")) {
-    if (lastProfile) await runProfile(lastProfile);
-    return;
-  }
-  const tab = app.tabs.find((t) => t.path === path);
-  if (tab) {
-    h().activateTab(tab);
-  } else {
-    try {
-      await h().openFile(path);
-    } catch (e) {
-      appendOutputLine(outputEl, `无法重新运行：${path}（文件可能已不存在）`, "stderr", gotoFromLink);
+  if (rec.target.kind === "profile") {
+    if (!(await profileTargetAlive(rec.target.name))) {
+      await reportStaleTarget(`运行配置「${rec.target.name}」已不存在`);
       return;
     }
+    await runProfile(rec.target.name);
+    return;
   }
-  if (channel === "terminal") await runActiveInTerminal();
-  else await runActive();
+  if (!(await fileTargetAlive(rec.target.path))) {
+    await reportStaleTarget(`上次运行的文件不存在：${rec.target.path}`);
+    return;
+  }
+  await launchScript(rec.target.path, rec.channel);
 }
 
-// ---------- 输出面板路径 ----------
+// ---------- 文件运行（输出面板 / 运行终端两条通道，共用一套启动逻辑） ----------
 
-/** 在输出面板运行（默认路径） */
-export async function runActive(): Promise<void> {
-  if (!app.activeTab) return;
+/** 粘性目标失效（运行目标的文件被删 / 命名配置被删）：提示一次，并提供「改跑当前文件」
+ *  可点击补救动作。**绝不静默改跑别的文件**（T11 纪律）；目标随即清空，避免 ▶ 永久咬着死目标。 */
+async function reportStaleTarget(reason: string): Promise<void> {
+  runTarget = null;
+  const active = app.activeTab;
+  const el = appendOutputLine(outputEl, `${reason}。▶ 的运行目标已清空。`, "stderr", gotoFromLink);
+  const isPy = !!active && (active.path.endsWith(".py") || active.path.endsWith(".pyw"));
+  if (active && isPy) {
+    const a = document.createElement("span");
+    a.className = "out-link";
+    a.textContent = "改跑当前文件";
+    a.addEventListener("click", () => void runFile(active.path));
+    el.appendChild(document.createTextNode("　"));
+    el.appendChild(a);
+  }
+  renderRunWidget(runWidgetState());
+}
+
+/** 粘性文件目标是否仍存在：已打开的 tab 直接视为存在（省一次 IO），否则后端读一次确认 */
+async function fileTargetAlive(path: string): Promise<boolean> {
+  if (app.tabs.some((t) => samePath(t.path, path))) return true;
+  try {
+    await invoke<string>("read_file", { path });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** 粘性配置目标是否仍存在：先刷新缓存再判定，避免拿陈旧列表下结论 */
+async function profileTargetAlive(name: string): Promise<boolean> {
+  await refreshRunProfiles();
+  return runProfiles.some((p) => p.name === name);
+}
+
+/**
+ * 按「文件 + 通道」实际启动一次运行（内部统一实现，四个公开入口共用）。
+ * 两条通道的差异仅在 stdin 处理与输出落点；运行前准备（prepareRun）与粘性目标写入共用。
+ */
+async function launchScript(path: string, channel: "output" | "terminal"): Promise<void> {
   if (!beginRunPreparing()) return; // CR-07：准备期闸门（同步检查并置位）
-  const path = app.activeTab.path;
   let prep: RunPrep | null = null;
   try {
     prep = await prepareRun(path);
@@ -354,27 +533,57 @@ export async function runActive(): Promise<void> {
     if (!prep) endRunPreparing(); // 预检取消/失败 → 释放闸门（成功路径在下方置 RunState 后释放）
   }
   if (!prep) return;
+  // PTY 无法直接接管重定向文件（§4.4 末行）：不静默降级成手工输入——
+  // 那会破坏 file 模式「可复现」的核心诉求，因此明确拒绝并给出两条出路。
+  if (channel === "terminal" && prep.stdinMode === "file") {
+    endRunPreparing();
+    appendOutputLine(
+      outputEl,
+      "「在终端中运行」不支持标准输入重定向自文件（PTY 无法直接接管文件）。可在标签右键 →「运行配置…」中改为「不接输入」或「交互式」，或改用普通「运行」。",
+      "hint",
+      gotoFromLink,
+    );
+    return;
+  }
   if (isRunning()) {
     endRunPreparing(); // 准备期间已有运行启动（如 run-exit 重入）→ 放弃
     return;
   }
-  // P1-K：Before launch——前置配置先跑完（失败则中止主运行）
-  if (!(await runPreLaunch(prep.profile.pre_run_profile))) {
+  // P1-K：Before launch——前置配置先跑完（失败则中止主运行；终端路径不在一张 Before launch 图上）
+  if (channel === "output" && !(await runPreLaunch(prep.profile.pre_run_profile))) {
     endRunPreparing();
     return;
   }
-  lastRun = { path, channel: "output" };
+  // 粘性目标落定：此后切换打开的文件不再改变 ▶ 的运行对象（对齐 PyCharm）
+  assignRunTarget({ target: { kind: "file", path }, channel });
+  // PyCharm 临时配置：跑一个文件就自动落一份**持久化**配置，使它成为下拉里可回选的稳定条目。
+  // fire-and-forget——落配置失败绝不能挡住运行本身。
+  void ensureFileProfile(path);
   setRunState({
     phase: "running",
-    channel: "output",
+    channel,
     path,
-    stdinMode: prep.stdinMode,
+    // PTY 下 stdin 天然是 TTY：交互由终端自身承载，输出面板的输入行与 S2 的 EOF 归因都不适用
+    stdinMode: channel === "terminal" ? "null" : prep.stdinMode,
     eofHinted: false,
     selection: null,
-    profile: prep.profile, // P2-N：auto_rerun 判定依据
+    profile: channel === "terminal" ? null : prep.profile, // P2-N：auto_rerun 判定依据
   });
-  runTranscript.flush(); // 上一轮残留的半行先定型，避免与本次输出粘成一行
+  if (channel === "output") runTranscript.flush(); // 上一轮残留的半行先定型，避免与本次输出粘成一行
   endRunPreparing(); // 状态就绪后释放闸门（内含 renderTabs）
+
+  if (channel === "terminal") {
+    syncRunStdinRow();
+    try {
+      await runScriptInTerminal(path, prep.echo, resetRunState);
+    } catch (e) {
+      // P1-H：冲突改询问式（终端路径仍为单实例硬约束，但给「停止并重跑」出路）
+      if (await maybeRetryAfterConflict(e, () => launchScript(path, "terminal"))) return;
+      appendOutputLine(outputEl, `在终端中运行失败: ${e}`, "stderr", gotoFromLink);
+      resetRunState();
+    }
+    return;
+  }
   startRun(path, "output"); // P2：运行历史——本次留档（输出面板路径才有 run-stdout/stderr 事件可采）
   appendOutputLine(outputEl, prep.echo, "cmd", gotoFromLink);
   recordLines("cmd", [prep.echo]); // 回显行也入档，否则历史里看不出跑的是什么
@@ -385,7 +594,7 @@ export async function runActive(): Promise<void> {
     // 输出经 run-stdout / run-stderr / run-exit 事件流式到达
   } catch (e) {
     // P1-H：冲突改询问式（后端竞态报「已有…在运行」时弹「停止并重跑」）
-    if (await maybeRetryAfterConflict(e, () => runActive())) return;
+    if (await maybeRetryAfterConflict(e, () => launchScript(path, "output"))) return;
     // S1：stdin 重定向文件打不开时后端 fail fast，错误原因在此可见（不留僵尸运行态）
     appendOutputLine(outputEl, `运行失败: ${e}`, "stderr", gotoFromLink);
     // P2：启动失败也要收尾历史记录——否则这条会永远停在中途，显示「运行中…」
@@ -393,6 +602,63 @@ export async function runActive(): Promise<void> {
     finishRun(null);
     resetRunState();
   }
+}
+
+/** 显式运行某个脚本文件（输出面板），并把 ▶ 的粘性目标切到该文件。
+ *  入口：标签右键「运行」、gutter ▶、命令面板「运行当前文件」、运行历史「重跑」。 */
+export async function runFile(path: string): Promise<void> {
+  await launchScript(path, "output");
+}
+
+/** 显式在终端中运行某个脚本文件（真 TTY），同样把粘性目标切到该文件。
+ *  入口：标签右键「在终端中运行」。 */
+export async function runFileInTerminal(path: string): Promise<void> {
+  await launchScript(path, "terminal");
+}
+
+/** ▶ / Ctrl+F10：运行**粘性目标**；无目标时回落当前文件（首次运行 / 新工作区）。 */
+export async function runStickyTarget(): Promise<void> {
+  const rec = runTarget;
+  if (!rec) {
+    const tab = app.activeTab;
+    if (!tab) return;
+    await launchScript(tab.path, "output");
+    return;
+  }
+  if (rec.target.kind === "profile") {
+    if (!(await profileTargetAlive(rec.target.name))) {
+      await reportStaleTarget(`运行配置「${rec.target.name}」已不存在`);
+      return;
+    }
+    await runProfile(rec.target.name);
+    return;
+  }
+  if (!(await fileTargetAlive(rec.target.path))) {
+    await reportStaleTarget(`上次运行的文件不存在：${rec.target.path}`);
+    return;
+  }
+  await launchScript(rec.target.path, rec.channel);
+}
+
+/** ▾ 菜单「在终端中运行」：同 runStickyTarget，但按 terminal 通道跑（无粘性目标时跑当前文件）。
+ *  命名配置目标回落输出面板路径——既有的 profile 运行只有输出面板一种通道。 */
+export async function runStickyTargetInTerminal(): Promise<void> {
+  const rec = runTarget;
+  if (rec?.target.kind === "profile") {
+    if (!(await profileTargetAlive(rec.target.name))) {
+      await reportStaleTarget(`运行配置「${rec.target.name}」已不存在`);
+      return;
+    }
+    await runProfile(rec.target.name);
+    return;
+  }
+  const path = rec?.target.kind === "file" ? rec.target.path : app.activeTab?.path;
+  if (!path) return;
+  if (rec && !(await fileTargetAlive(path))) {
+    await reportStaleTarget(`上次运行的文件不存在：${path}`);
+    return;
+  }
+  await launchScript(path, "terminal");
 }
 
 /** P1-H：运行冲突询问式。后端报「已有…在运行」类错误时弹确认「停止当前实例并启动新实例？」，
@@ -413,61 +679,6 @@ async function maybeRetryAfterConflict(e: unknown, retry: () => Promise<void>): 
   await stopRun();
   await retry();
   return true;
-}
-
-// ---------- 运行终端路径 ----------
-
-/** S3：在终端中运行（真 TTY）。输出落点=专用「运行终端」tab（§4.7 结论 2）：
- * 独立标签样式与普通 shell 区分，生命周期也不同——脚本跑完即结束会话，
- * tab 保留供阅读输出与点击 traceback（坑 4 由 xterm link provider 补齐）。 */
-export async function runActiveInTerminal(): Promise<void> {
-  if (!app.activeTab) return;
-  if (!beginRunPreparing()) return; // CR-07：准备期闸门（同步检查并置位）
-  const path = app.activeTab.path;
-  let prep: RunPrep | null = null;
-  try {
-    prep = await prepareRun(path);
-  } finally {
-    if (!prep) endRunPreparing();
-  }
-  if (!prep) return;
-  // PTY 无法直接接管重定向文件（§4.4 末行）：不静默降级成手工输入——
-  // 那会破坏 file 模式「可复现」的核心诉求，因此明确拒绝并给出两条出路。
-  if (prep.stdinMode === "file") {
-    endRunPreparing();
-    appendOutputLine(
-      outputEl,
-      "「在终端中运行」不支持标准输入重定向自文件（PTY 无法直接接管文件）。可在标签右键 →「运行配置…」中改为「不接输入」或「交互式」，或改用普通「运行」。",
-      "hint",
-      gotoFromLink,
-    );
-    return;
-  }
-  if (isRunning()) {
-    endRunPreparing();
-    return;
-  }
-  lastRun = { path, channel: "terminal" };
-  // PTY 下 stdin 天然是 TTY：交互由终端自身承载，输出面板的输入行与 S2 的 EOF 归因都不适用
-  setRunState({
-    phase: "running",
-    channel: "terminal",
-    path,
-    stdinMode: "null",
-    eofHinted: false,
-    selection: null,
-    profile: null,
-  });
-  endRunPreparing(); // 状态就绪后释放闸门（内含 renderTabs）
-  syncRunStdinRow();
-  try {
-    await runScriptInTerminal(path, prep.echo, resetRunState);
-  } catch (e) {
-    // P1-H：冲突改询问式（终端路径仍为单实例硬约束，但给「停止并重跑」出路）
-    if (await maybeRetryAfterConflict(e, () => runActiveInTerminal())) return;
-    appendOutputLine(outputEl, `在终端中运行失败: ${e}`, "stderr", gotoFromLink);
-    resetRunState();
-  }
 }
 
 // ---------- P0-C：命名运行配置（Run 部件 ▾ 菜单） ----------
@@ -545,7 +756,7 @@ export async function runProfile(name: string, forceExtra = false): Promise<void
   }
   if (!isExtra && !beginRunPreparing()) return;
   try {
-    // 额外实例路径：不动统一运行态（RunState / lastRun 仍归属首个实例），仅回显 + spawn
+    // 额外实例路径：不动统一运行态（RunState / 粘性目标仍归属首个实例），仅回显 + spawn
     if (isExtra) {
       const echo = profileEcho(p);
       appendOutputLine(outputEl, echo, "cmd", gotoFromLink);
@@ -575,8 +786,8 @@ export async function runProfile(name: string, forceExtra = false): Promise<void
     }
     // P1-K：Before launch——前置配置先跑完（失败则中止主运行；额外实例路径不执行）
     if (!(await runPreLaunch(p.pre_run_profile))) return;
-    lastRun = { path: `profile:${name}`, channel: "output" };
-    lastProfile = name;
+    // 粘性目标落定：该命名配置成为 ▶ 的运行对象（此后切换打开的文件不再改变它）
+    assignRunTarget({ target: { kind: "profile", name }, channel: "output" });
     setRunState({
       phase: "running",
       channel: "output",
@@ -708,6 +919,7 @@ async function createFastApiProfile(hit: { module: string; app_var: string }): P
       open_browser_url: "http://127.0.0.1:8000",
       auto_rerun: false,
       python_console: false,
+      temporary: false, // 预设是显式生成的配置，属永久配置
     };
     await invoke("save_run_profile", { workspaceRoot: app.workspaceRoot, profile });
     await refreshRunProfiles();
@@ -839,8 +1051,8 @@ async function rerunAfterEof(channel: "output" | "terminal"): Promise<void> {
         return;
       }
     }
-    if (channel === "terminal") await runActiveInTerminal();
-    else await runActive();
+    if (channel === "terminal") await runFileInTerminal(path);
+    else await runFile(path);
   } catch (e) {
     appendOutputLine(outputEl, `补救重跑失败：${e}`, "stderr", gotoFromLink);
   }

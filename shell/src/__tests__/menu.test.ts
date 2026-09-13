@@ -180,3 +180,63 @@ describe("menu.ts UI-30 ARIA 与键盘导航", () => {
     btn.remove();
   });
 });
+
+// ---------- 回归：lazyEl 代理锚点（生产路径，原测试只用真实元素故漏掉） ----------
+
+describe("menu.ts 锚点判定：lazyEl 代理必须按「元素」处理", () => {
+  /** 造一个与生产同源的 lazyEl 代理：真实按钮 + `lazyEl(id)` 包装（Proxy target 是普通对象） */
+  async function proxyAnchor(): Promise<{ btn: HTMLButtonElement; proxy: HTMLButtonElement }> {
+    const { lazyEl } = await import("../state");
+    const btn = document.createElement("button");
+    btn.id = "run-target-probe";
+    btn.setAttribute("aria-haspopup", "menu");
+    btn.setAttribute("aria-expanded", "false");
+    btn.style.position = "fixed";
+    document.body.appendChild(btn);
+    // 模拟标题栏右上角按钮：Proxy 的 get 陷阱会转发到真元素，故这里生效
+    btn.getBoundingClientRect = () =>
+      ({ left: 900, top: 4, right: 980, bottom: 32, width: 80, height: 28, x: 900, y: 4 }) as DOMRect;
+    return { btn, proxy: lazyEl<HTMLButtonElement>("run-target-probe") };
+  }
+
+  it("代理锚点按元素定位（不得退化成 {x,y} 分支 → NaN → 菜单停在 0,0）", async () => {
+    const { btn, proxy } = await proxyAnchor();
+    // lazyEl 的 Proxy target 是 `{}` 且无 getPrototypeOf 陷阱 —— 这正是老代码 instanceof 误判的根因
+    expect(proxy instanceof HTMLElement).toBe(false);
+
+    const menuEl = ctx();
+    const realRect = menuEl.getBoundingClientRect.bind(menuEl);
+    menuEl.getBoundingClientRect = () =>
+      ({ left: 0, top: 0, right: 320, bottom: 160, width: 320, height: 160, x: 0, y: 0 }) as DOMRect;
+    try {
+      menu.showMenu([{ label: "A" }], proxy);
+      // 期望：贴住按钮下缘（aRect.bottom + 2）；横向右侧放不下则右对齐，再夹进视口
+      const M = 6;
+      const menuW = 320;
+      let expectLeft = 900;
+      if (expectLeft + menuW > window.innerWidth - M) expectLeft = 980 - menuW;
+      expectLeft = Math.max(M, Math.min(expectLeft, Math.max(M, window.innerWidth - menuW - M)));
+      expect(menuEl.style.top).toBe("34px");
+      expect(menuEl.style.left).toBe(`${expectLeft}px`);
+      // 老代码的症状：坐标算成 NaN，写 style 被静默丢弃 → 停在复位值（窗口左上角）
+      expect(menuEl.getAttribute("style")).not.toContain("NaN");
+      expect(menuEl.style.top).not.toBe("0px");
+    } finally {
+      menuEl.getBoundingClientRect = realRect;
+      menu.hideMenu();
+      btn.remove();
+    }
+  });
+
+  it("代理锚点的 aria-expanded 同源开合（老代码因 instanceof 误判永不置 true）", async () => {
+    const { btn, proxy } = await proxyAnchor();
+    try {
+      menu.showMenu([{ label: "A" }], proxy);
+      expect(btn.getAttribute("aria-expanded")).toBe("true");
+      menu.hideMenu();
+      expect(btn.getAttribute("aria-expanded")).toBe("false");
+    } finally {
+      btn.remove();
+    }
+  });
+});

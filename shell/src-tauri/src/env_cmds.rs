@@ -261,6 +261,12 @@ pub struct RunProfile {
     /// （stdin 强制交互式，输出面板输入行即 REPL 输入；stop_script 退出）。
     #[serde(default)]
     pub python_console: bool,
+    /// PyCharm「临时配置」标记：由**跑文件**自动落盘（`ensure_run_profile`）的配置为 true——
+    /// 跑过即出现在运行目标下拉里、且**持久化到工作区配置**（重启后仍在，不随当前打开的文件变化）；
+    /// 上限 `TEMPORARY_PROFILE_LIMIT`，超出淘汰最旧。用户在配置页显式保存
+    /// （`save_run_profile`）即升格为永久配置（对应 PyCharm 的 Save Configuration）。
+    #[serde(default)]
+    pub temporary: bool,
 }
 
 impl RunProfile {
@@ -460,6 +466,120 @@ pub fn delete_run_profile(workspace_root: String, name: String) -> Result<(), St
     let mut profiles = load_profiles(&workspace_root);
     profiles.retain(|p| p.name != name);
     write_profiles(&workspace_root, &profiles)
+}
+
+// ---------- 当前运行目标（持久化） ----------
+
+/// 持久化在工作区配置里的「当前运行目标」。
+/// PyCharm 把"选中的运行配置"记在项目里，重开 IDE 后 ▶ 仍指向它；我们同样落到工作区配置，
+/// 使「▶ 跑什么」跨重启、跨会话稳定（而不是每次启动重新选）。
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct StoredRunTarget {
+    /// "file" | "profile"
+    #[serde(default)]
+    pub kind: String,
+    /// kind == "profile" 时的配置名
+    #[serde(default)]
+    pub name: String,
+    /// kind == "file" 时的脚本绝对路径
+    #[serde(default)]
+    pub path: String,
+    /// 上次使用的通道："output" | "terminal"
+    #[serde(default)]
+    pub channel: String,
+}
+
+impl StoredRunTarget {
+    /// 是否是一条有效目标（脏数据一律当没有，避免 ▶ 指向空目标）
+    fn is_valid(&self) -> bool {
+        match self.kind.as_str() {
+            "profile" => !self.name.trim().is_empty(),
+            "file" => !self.path.trim().is_empty(),
+            _ => false,
+        }
+    }
+}
+
+/// 读取持久化的当前运行目标（无效/缺失返回 None）
+#[tauri::command]
+pub fn get_run_target(workspace_root: String) -> Option<StoredRunTarget> {
+    load_config(&workspace_root)
+        .get("run_target")
+        .and_then(|v| serde_json::from_value::<StoredRunTarget>(v.clone()).ok())
+        .filter(StoredRunTarget::is_valid)
+}
+
+/// 写入/清除持久化的当前运行目标（target=None → 移除该键，保持配置精简）
+#[tauri::command]
+pub fn set_run_target(workspace_root: String, target: Option<StoredRunTarget>) -> Result<(), String> {
+    let mut v = load_config(&workspace_root);
+    let obj = v.as_object_mut().ok_or("工作区配置格式非法")?;
+    match target.filter(StoredRunTarget::is_valid) {
+        Some(t) => {
+            obj.insert("run_target".into(), serde_json::to_value(t).map_err(|e| e.to_string())?);
+        }
+        None => {
+            obj.remove("run_target");
+        }
+    }
+    save_config(&workspace_root, &v)
+}
+
+/// PyCharm「临时配置」上限（`Temporary configurations limit` 默认值）：超出后淘汰最旧。
+const TEMPORARY_PROFILE_LIMIT: usize = 5;
+
+/// 淘汰超限的临时配置：Vec 顺序 = 落盘顺序 = 新旧次序，从**最旧**的开始删；永久配置不动。
+fn prune_temporary_profiles(profiles: &mut Vec<RunProfile>) {
+    let mut temps: Vec<usize> = profiles
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| p.temporary)
+        .map(|(i, _)| i)
+        .collect();
+    while temps.len() > TEMPORARY_PROFILE_LIMIT {
+        let oldest = temps.remove(0);
+        profiles.remove(oldest);
+        for t in temps.iter_mut() {
+            *t -= 1;
+        }
+    }
+}
+
+/// 确保某个**脚本文件**有一份运行配置（PyCharm 临时配置语义）——运行该文件时调用。
+///
+/// - 已有配置（不论永久/临时）：**原样保留，绝不覆盖用户设置**；临时配置刷新一次次序
+///   （移到末尾 = 最近使用），永久配置完全不动，也不写盘；
+/// - 没有配置：自动落一份 `temporary = true` 的配置，使该文件成为运行目标下拉里
+///   **可回选且持久化**的稳定条目（重启后仍在，与"当前打开哪个文件"无关）；
+/// - 临时配置数量超过 [`TEMPORARY_PROFILE_LIMIT`] 时，按落盘顺序淘汰**最旧**的。
+#[tauri::command]
+pub fn ensure_run_profile(workspace_root: String, script_path: String) -> Result<RunProfile, String> {
+    let key = run_config_key(&workspace_root, &script_path);
+    let mut profiles = load_profiles(&workspace_root);
+    match profiles.iter().position(|p| p.entry.kind == "script" && p.entry.target == key) {
+        Some(i) => {
+            if profiles[i].temporary {
+                // 最近使用提到末尾（Vec 顺序即落盘顺序 = 新旧次序）
+                let p = profiles.remove(i);
+                profiles.push(p);
+                write_profiles(&workspace_root, &profiles)?;
+            }
+        }
+        None => {
+            profiles.push(RunProfile {
+                name: unique_profile_name(&profile_name_for_key(&key), &profiles),
+                entry: RunEntry { kind: "script".into(), target: key.clone() },
+                temporary: true,
+                ..Default::default()
+            });
+            prune_temporary_profiles(&mut profiles);
+            write_profiles(&workspace_root, &profiles)?;
+        }
+    }
+    Ok(profiles
+        .into_iter()
+        .find(|p| p.entry.kind == "script" && p.entry.target == key)
+        .unwrap_or_default())
 }
 
 /// 指定虚拟环境目录下的解释器路径（Windows Scripts/python.exe，Unix bin/python）
@@ -1268,6 +1388,30 @@ mod tests {
             assert_eq!(run_config_key("/ws/", "/ws/mod.py"), "mod.py");
             assert_eq!(run_config_key("/ws", "/other/mod.py"), "mod.py");
         }
+    }
+
+    /// 跑文件自动落配置（`ensure_run_profile`）的淘汰规则：临时配置上限 5，
+    /// 超出时删**最旧**的；永久配置永远不受影响。纯函数单测——不触碰真实 home。
+    #[test]
+    fn temporary_profiles_capped_and_oldest_dropped() {
+        let mk = |name: &str, temp: bool| RunProfile {
+            name: name.to_string(),
+            temporary: temp,
+            ..Default::default()
+        };
+        let mut v = vec![
+            mk("a", true),    // 最旧 → 应被淘汰
+            mk("perm", false), // 永久配置：必须原样保留且不被计数
+            mk("b", true),
+            mk("c", true),
+            mk("d", true),
+            mk("e", true),
+            mk("f", true), // 最新
+        ];
+        prune_temporary_profiles(&mut v);
+        let names: Vec<&str> = v.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, vec!["perm", "b", "c", "d", "e", "f"]);
+        assert_eq!(v.iter().filter(|p| p.temporary).count(), TEMPORARY_PROFILE_LIMIT);
     }
 
     #[test]

@@ -1,4 +1,6 @@
-// 运行入口 UI 域（C3）：菜单栏全局运行组（▶ / ⏹ / ▾）+ 状态机 + ▾ 下拉菜单。
+// 运行入口 UI 域（C3）：菜单栏全局运行组（[运行目标 ▾] / ▶ / ⏹）+ 状态机 + 目标下拉菜单。
+// 组成为 PyCharm 布局：左侧下拉显示**当前选中的运行目标**并切换，右侧 ▶ 才真正启动
+// （见 docs/pycharm_habits_adaptation_plan.md §3-B；原先的 ▸「更多运行选项」并入此下拉）。
 // 与 main.ts 解耦：main.ts 拥有运行动作与运行态真值，本模块只负责「渲染 + 派发」——
 // handlers 注入（同 terminal.ts::setTerminalLinkHandler / termUi.ts::setOutputPanelHooks 先例），
 // 避免 runWidget → main → runWidget 的循环导入。所有状态变化点调用 renderRunWidget 重绘。
@@ -6,9 +8,10 @@
 
 import { lazyEl } from "./state";
 import { showMenu, type MenuItem } from "./menu";
+import type { RunTarget } from "./runState";
 
 export interface RunWidgetState {
-  /** 有工作区且有活动 .py/.pyw */
+  /** 有工作区且（有粘性目标 或 有活动 .py/.pyw） */
   canRun: boolean;
   /** canRun 为假时的原因文案 */
   disabledReason: string;
@@ -16,15 +19,19 @@ export interface RunWidgetState {
   /** P1（UX 审查）：运行准备期（保存 / 依赖预检 / Before launch）——▶ 显示 spinner + 专属提示 */
   preparing: boolean;
   channel: "output" | "terminal" | null;
-  /** 活动文件名（basename），用于 tooltip */
+  /** ▶ 会跑的目标显示名（**仅粘性目标**；无目标时为空串，由下拉渲染成固定占位「当前文件」） */
   targetName: string;
+  /** 当前粘性运行目标（▶ 下次会跑什么）；null = 无目标，▶ 将回落当前文件 */
+  currentTarget: RunTarget | null;
+  /** 当前目标是「文件」且尚未保存为运行配置时的那一行（null = 无 / 已被配置覆盖） */
+  unsavedFileTarget: { path: string; name: string } | null;
   runShortcut: string;
   stopShortcut: string;
   selectionShortcut: string;
-  /** 有工作区且有活动 .py（运行配置入口可用性） */
+  /** 有工作区（运行配置入口可用性；面板是工作区级的，不依赖活动文件） */
   canOpenConfig: boolean;
-  /** P0-C：命名运行配置列表（▾ 菜单展示；summary 为回显摘要） */
-  profiles: { name: string; summary: string }[];
+  /** 运行配置列表（下拉的目标区展示；summary 为回显摘要，temporary = PyCharm 临时配置） */
+  profiles: { name: string; summary: string; temporary?: boolean }[];
 }
 
 export interface RunWidgetHandlers {
@@ -34,10 +41,10 @@ export interface RunWidgetHandlers {
   stop: () => void;
   restart: () => void;
   openRunConfig: () => void;
-  /** P0-C：按名运行一份命名配置（module 入口无需文件锚点） */
-  runProfile: (name: string) => void;
   /** P2 Compound：并行运行多个配置（勾选面板） */
   openCompound: () => void;
+  /** 只把 ▶ 的目标切过去（不启动）——下拉的目标区用，对齐 PyCharm「选下拉 ≠ 运行」 */
+  setTarget: (t: RunTarget) => void;
 }
 
 export interface RunButtonState {
@@ -51,13 +58,27 @@ export interface RunButtonState {
 export interface RunWidgetComputed {
   run: RunButtonState;
   stop: RunButtonState;
-  menu: RunButtonState;
+  /** 左侧「运行目标」下拉（显示当前目标 + 切换入口） */
+  target: RunButtonState;
 }
 
 // CR-26：顶层 DOM 快照改惰性（computeRunWidget 是纯函数，测试环境无 DOM 也要可 import）
 const btnRun = lazyEl<HTMLButtonElement>("btn-run");
 const btnStop = lazyEl<HTMLButtonElement>("btn-stop");
-const btnMenu = lazyEl<HTMLButtonElement>("btn-run-menu");
+const btnTarget = lazyEl<HTMLButtonElement>("run-target");
+const targetLabelEl = lazyEl<HTMLElement>("run-target-label");
+
+/** 路径归一（跨平台大小写/分隔符），仅用于目标打勾比对 */
+function normPath(p: string): string {
+  return p.replace(/\\/g, "/").toLowerCase();
+}
+
+/**
+ * 无目标时下拉的占位标签。用 PyCharm 的固定文案「当前文件」——它是**预选态**，
+ * 含义是"跑编辑器里那个文件"，因此**绝不能**拼上真实文件名（拼了就会随切标签变化，
+ * 看起来像一个叫 main.py 的已存配置）。
+ */
+const TARGET_PLACEHOLDER = "当前文件";
 
 let handlers: RunWidgetHandlers | null = null;
 let state: RunWidgetState | null = null;
@@ -84,12 +105,17 @@ export function repaintRunWidget(): void {
 
 /** 纯函数：把运行态映射为三按钮的亮/灰 + tooltip 文案（可单测，不碰 DOM）。 */
 export function computeRunWidget(s: RunWidgetState): RunWidgetComputed {
+  /** 下拉提示：当前目标 + 「只改选中、不启动」——后半句是本菜单与旧 ▸「更多选项」的关键区别，
+   *  必须常驻可见，否则用户会以为点开菜单选中一项就等于跑了它（起跑仍由 ▶ 负责）。 */
+  const targetTip = s.targetName
+    ? `切换运行目标（当前：${s.targetName}）· 只改选中，不启动`
+    : "选择运行目标（只改选中，不启动）";
   if (s.preparing) {
     // P1：准备期（保存 / 依赖预检 / 前置配置）——原先混在 running 里误报「已有脚本在运行」
     return {
       run: { disabled: true, tip: "正在准备运行（保存 / 依赖预检）…", busy: true },
       stop: { disabled: true, tip: "没有正在运行的脚本" },
-      menu: { disabled: false, tip: "更多运行选项" },
+      target: { disabled: false, tip: targetTip },
     };
   }
   if (!s.canRun) {
@@ -98,33 +124,35 @@ export function computeRunWidget(s: RunWidgetState): RunWidgetComputed {
     return {
       run: { disabled: true, tip: reason },
       stop: { disabled: true, tip: "没有正在运行的脚本" },
-      menu: { disabled: true, tip: reason },
+      target: { disabled: true, tip: reason },
     };
   }
   if (!s.running) {
     // R1：可运行、未运行
     return {
-      run: { disabled: false, tip: `运行 ${s.targetName}`, tipKey: s.runShortcut },
+      run: { disabled: false, tip: s.targetName ? `运行 ${s.targetName}` : "运行当前文件", tipKey: s.runShortcut },
       stop: { disabled: true, tip: "没有正在运行的脚本" },
-      menu: { disabled: false, tip: "更多运行选项" },
+      target: { disabled: false, tip: targetTip },
     };
   }
-  // R2 / R3：运行中
+  // R2 / R3：运行中（仍允许改选目标——PyCharm 同样可以在运行中换选中项）
   const channelTip = s.channel === "terminal" ? "运行终端" : "输出面板";
   return {
     run: { disabled: true, tip: "已有脚本在运行（先停止）" },
     stop: { disabled: false, tip: `停止运行 · ${channelTip}`, tipKey: s.stopShortcut },
-    menu: { disabled: false, tip: "更多运行选项" },
+    target: { disabled: false, tip: targetTip },
   };
 }
 
-/** 按状态重绘三按钮的亮/灰、tooltip、tip-key。所有状态变化点都要调它。 */
+/** 按状态重绘三控件的亮/灰、tooltip、tip-key，并同步下拉上的目标名。所有状态变化点都要调它。 */
 export function renderRunWidget(s: RunWidgetState): void {
   state = s;
   const c = computeRunWidget(s);
   applyButton(btnRun, c.run);
   applyButton(btnStop, c.stop);
-  applyButton(btnMenu, c.menu);
+  applyButton(btnTarget, c.target);
+  targetLabelEl.textContent = s.targetName || TARGET_PLACEHOLDER;
+  btnTarget.classList.toggle("is-empty", !s.targetName);
 }
 
 /** UX P0-3：禁用态用 .is-disabled 类 + aria-disabled（debugView 工具栏同款模式），
@@ -153,7 +181,12 @@ function applyButton(btn: HTMLButtonElement, b: RunButtonState): void {
   }
 }
 
-/** ▾ 下拉菜单项（与 gutter 右键共用同源，保证两处菜单一致）。 */
+/**
+ * 「运行目标」下拉菜单项（与 gutter 右键共用同源，保证两处菜单一致）。
+ * 结构对齐 PyCharm：**顶部目标区**（单选，`checked` 标出当前项，点击只改选中、不启动）
+ * + **底部「更多运行方式」**（终端运行 / 选区运行 / 并行 / 编辑配置）。
+ * 旧版 ▸ 菜单里的「运行 <配置名>」不再单独列出——选中目标后按 ▶ 即运行，与 PyCharm 一致。
+ */
 export function getRunMenuItems(): MenuItem[] {
   const s = state;
   const h = handlers;
@@ -163,48 +196,83 @@ export function getRunMenuItems(): MenuItem[] {
   // 仍可点、点击被 runFlow 闸门静默拒绝（点了没反应）
   const busy = s.running || s.preparing;
   const busyReason = s.preparing ? "正在准备运行…" : "已有脚本在运行";
+  const cur = s.currentTarget;
+  const curFilePath = cur && cur.kind === "file" ? normPath(cur.path) : null;
 
-  // P0-C：命名配置区（未运行时可用，module 入口无需活动文件）
-  const profileItems: MenuItem[] = [];
-  if (s.profiles.length > 0) {
-    profileItems.push({ sep: true });
-    for (const p of s.profiles) {
-      profileItems.push({
-        label: `运行 ${p.name}`,
-        icon: "run",
-        detail: p.summary,
-        disabled: busy,
-        disabledReason: busy ? busyReason : undefined,
-        action: () => h.runProfile(p.name),
-      });
-    }
+  // ---- 目标区（单选）——切换目标本身不受 busy 限制：随时可改选，▶ 才是执行动作 ----
+  // 只放**真实存在的配置**：永久的命名配置 + 临时的「跑过的文件」。
+  // 不放"当前打开的文件"——它不是配置，且会随切标签漂移（PyCharm 也没有这样的条目）。
+  const targetItems: MenuItem[] = [];
+  for (const p of s.profiles) {
+    targetItems.push({
+      label: p.name,
+      icon: "run",
+      // 临时配置（跑文件自动落盘、上限 5）显式标注来源，与手工新建的永久配置区分
+      detail: [p.summary, p.temporary ? "临时" : ""].filter(Boolean).join("  ·  ") || undefined,
+      checked: cur?.kind === "profile" && cur.name === p.name,
+      action: () => h.setTarget({ kind: "profile", name: p.name }),
+    });
+  }
+  // 当前目标是未保存为配置的文件时补一行，保证 ▶ 会跑什么在下拉里可见
+  if (s.unsavedFileTarget && curFilePath !== null && curFilePath === normPath(s.unsavedFileTarget.path)) {
+    targetItems.push({
+      label: s.unsavedFileTarget.name,
+      icon: "file-code",
+      detail: "临时（未保存为运行配置）",
+      checked: true,
+      action: () => h.setTarget({ kind: "file", path: s.unsavedFileTarget!.path }),
+    });
   }
 
+  const items: MenuItem[] = [];
   if (s.running) {
-    return [
+    items.push(
       { label: "停止运行", icon: "debug-stop", shortcut: s.stopShortcut, action: h.stop },
       { label: "停止并重新运行", icon: "debug-rerun", action: h.restart },
-      { sep: true },
-      { label: "在终端中运行", icon: "terminal", detail: "真 TTY（getpass / tqdm / 彩色 / Ctrl+C）", disabled: true, disabledReason: "已有脚本在运行" },
-      { label: "运行选区 / 行", icon: "run", shortcut: s.selectionShortcut, disabled: true, disabledReason: "已有脚本在运行" },
-      ...profileItems,
-      { sep: true },
-      { label: "运行配置…", icon: "gear", detail: "配置列表 / 入口类型 / 工作目录 / 参数 / 环境变量 / 标准输入", disabled: !s.canOpenConfig, disabledReason: s.canOpenConfig ? undefined : "需先打开工作区", action: h.openRunConfig },
-    ];
+    );
   }
-
-  // R0 / R1（未运行；含准备期——各项置灰并给出原因）
-  return [
-    { label: "在终端中运行", icon: "terminal", detail: "真 TTY（getpass / tqdm / 彩色 / Ctrl+C）", disabled: busy || !s.canRun, disabledReason: busy ? busyReason : s.canRun ? undefined : s.disabledReason, action: h.runInTerminal },
-    { label: "运行选区 / 行", icon: "run", shortcut: s.selectionShortcut, disabled: busy || !s.canRun, disabledReason: busy ? busyReason : s.canRun ? undefined : s.disabledReason, action: h.runSelection },
-    ...profileItems,
+  if (items.length > 0) items.push({ sep: true });
+  items.push(...targetItems);
+  items.push({ sep: true });
+  items.push(
+    {
+      label: "在终端中运行",
+      icon: "terminal",
+      detail: "真 TTY（getpass / tqdm / 彩色 / Ctrl+C）",
+      disabled: busy || !s.canRun,
+      disabledReason: busy ? busyReason : s.canRun ? undefined : s.disabledReason,
+      action: h.runInTerminal,
+    },
+    {
+      label: "运行选区 / 行",
+      icon: "run",
+      shortcut: s.selectionShortcut,
+      disabled: busy || !s.canRun,
+      disabledReason: busy ? busyReason : s.canRun ? undefined : s.disabledReason,
+      action: h.runSelection,
+    },
     { sep: true },
-    { label: "并行运行配置…", icon: "combine", detail: "勾选多个配置一次性并行启动（Compound）", disabled: busy || s.profiles.length === 0, disabledReason: busy ? busyReason : s.profiles.length === 0 ? "暂无命名配置" : undefined, action: h.openCompound },
-    { label: "运行配置…", icon: "gear", detail: "配置列表 / 入口类型 / 工作目录 / 参数 / 环境变量 / 标准输入", disabled: !s.canOpenConfig, disabledReason: s.canOpenConfig ? undefined : "需先打开工作区", action: h.openRunConfig },
-  ];
+    {
+      label: "并行运行配置…",
+      icon: "combine",
+      detail: "勾选多个配置一次性并行启动（Compound）",
+      disabled: busy || s.profiles.length === 0,
+      disabledReason: busy ? busyReason : s.profiles.length === 0 ? "暂无命名配置" : undefined,
+      action: h.openCompound,
+    },
+    {
+      label: "运行配置…",
+      icon: "gear",
+      detail: "配置列表 / 入口类型 / 工作目录 / 参数 / 环境变量 / 标准输入",
+      disabled: !s.canOpenConfig,
+      disabledReason: s.canOpenConfig ? undefined : s.disabledReason || "需先打开工作区",
+      action: h.openRunConfig,
+    },
+  );
+  return items;
 }
 
-/** 接线三按钮（init 调用一次）。UX P0-3：按钮不再用 disabled 属性（见 applyButton），
+/** 接线三控件（init 调用一次）。UX P0-3：控件不再用 disabled 属性（见 applyButton），
  *  故点击守卫移入回调——.is-disabled 时的点击一律忽略。 */
 export function wireRunWidget(): void {
   btnRun.addEventListener("click", () => {
@@ -215,9 +283,9 @@ export function wireRunWidget(): void {
     if (btnStop.classList.contains("is-disabled")) return;
     handlers?.stop();
   });
-  btnMenu.addEventListener("click", (e) => {
+  btnTarget.addEventListener("click", (e) => {
     e.stopPropagation();
-    if (btnMenu.classList.contains("is-disabled")) return;
-    showMenu(getRunMenuItems(), btnMenu);
+    if (btnTarget.classList.contains("is-disabled")) return;
+    showMenu(getRunMenuItems(), btnTarget);
   });
 }

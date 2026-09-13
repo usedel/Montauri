@@ -21,18 +21,21 @@ export function menuItemsOf(root: HTMLElement): HTMLElement[] {
 export function moveMenuFocus(root: HTMLElement, dir: 1 | -1 | "first" | "last"): void {
   const items = menuItemsOf(root);
   if (items.length === 0) return;
+  // preventScroll：菜单是 position:fixed 的浮层，若因聚焦触发浏览器"滚动到可见"，
+  // 会连带滚动文档 → 整个界面位移、浮层看起来"飘走"。浮层内聚焦一律不触发滚动。
+  const opts: FocusOptions = { preventScroll: true };
   if (dir === "first") {
-    items[0].focus();
+    items[0].focus(opts);
     return;
   }
   if (dir === "last") {
-    items[items.length - 1].focus();
+    items[items.length - 1].focus(opts);
     return;
   }
   const cur = items.indexOf(document.activeElement as HTMLElement);
   // 焦点不在集合内（-1）：dir=1 时 base=-1 → next=0（首项）；dir=-1 时 base=0 → next=-1 环绕到末项
   const base = cur === -1 ? (dir === 1 ? -1 : 0) : cur;
-  items[(base + dir + items.length) % items.length].focus();
+  items[(base + dir + items.length) % items.length].focus(opts);
 }
 
 export interface MenuKeyNavOptions {
