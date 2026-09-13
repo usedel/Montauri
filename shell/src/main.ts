@@ -37,7 +37,8 @@ import {
 import { setTerminalLinkHandler } from "./terminal";
 import { loadSettings, saveSettings, applyFontStatus, openSettingsPanel, setSettingsPanelHandlers, wireSettingsPanel, buildEditorOptions } from "./settingsPanel";
 import { checkFirstRunStorage } from "./storagePanel";
-import { basename, codicon, DisposableStore, emptyState, languageOf, parentDirOf, renderFileIcon, symbolIcon } from "./util";
+import { basename, codicon, DisposableStore, emptyState, languageOf, parentDirOf, relativePathOrName, renderFileIcon, symbolIcon } from "./util";
+import { toastFail } from "./toast";
 import { restoreLayout, toggleSidebar, wireSplitters } from "./layout";
 import { motionDisabled, restoreReduceMotion } from "./anim";
 import { wireTooltip } from "./tooltip";
@@ -376,6 +377,21 @@ export async function insertHeaderTemplate(): Promise<boolean> {
 
 // ---------- 标签右键菜单 ----------
 
+/** tab 的相对路径（规则见 util.relativePathOrName） */
+function relativePathOfTab(path: string): string {
+  return relativePathOrName(app.workspaceRoot, path);
+}
+
+/** 复制文本到系统剪贴板（tab 右键菜单）；成功静默、失败弹提示（与 fileTree.copyPaths 一致） */
+async function copyTabPath(text: string): Promise<void> {
+  try {
+    await invoke("copy_to_clipboard", { text });
+  } catch (e) {
+    console.error("复制路径失败", e);
+    toastFail("复制路径", e);
+  }
+}
+
 /** 标签右键菜单（P25-T08） */
 function showTabContextMenu(tab: Tab, x: number, y: number): void {
   activateTab(tab);
@@ -386,7 +402,10 @@ function showTabContextMenu(tab: Tab, x: number, y: number): void {
     { label: "关闭右侧", action: () => void closeTabsRightOf(tab) },
     { label: "关闭全部", action: () => void closeAllTabs() },
     { sep: true },
-    { label: "复制路径", action: () => invoke("copy_to_clipboard", { text: tab.path }).catch(console.error) },
+    // 复制路径三件套（对齐 VSCode：Copy Name / Copy Relative Path / Copy Path）
+    { label: "复制文件名", action: () => void copyTabPath(basename(tab.path)) },
+    { label: "复制相对路径", action: () => void copyTabPath(relativePathOfTab(tab.path)) },
+    { label: "复制绝对路径", action: () => void copyTabPath(tab.path) },
     { label: "在终端中打开", action: () => void openTerminalAt(parentDirOf(tab.path)) },
     { label: "在资源管理器中显示", action: () => invoke("reveal_in_explorer", { path: tab.path }).catch(console.error) },
   ];
@@ -719,6 +738,9 @@ export function renderTabs(): void {
     el.setAttribute("aria-selected", String(active));
     el.tabIndex = active ? 0 : -1;
     el.dataset.path = t.path;
+    // 悬停显示完整路径（tooltip.ts 规则 4：纯路径披露用原生 title，不挂 data-tip；
+    // tab 内部无 data-tip，不触发规则 5 的父子不同轨冲突）
+    el.title = t.path;
     el.appendChild(renderFileIcon(basename(t.path))); // D2 P-08：标签页文件类型图标
     const name = document.createElement("span");
     name.className = "name";

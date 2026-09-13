@@ -4,7 +4,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { app, $, lazyEl, statusFileEl, type Entry, type Tab } from "./state";
-import { basename, codicon, ensurePyExtension, samePath, stripPyExtension, gitBadgeClass, gitStatusLabel, joinPath, parentDirOf, relativePath, renderFileIcon } from "./util";
+import { basename, codicon, ensurePyExtension, samePath, stripPyExtension, gitBadgeClass, gitStatusLabel, joinPath, parentDirOf, relativePath, relativePathOrName, renderFileIcon } from "./util";
 // CR-25：状态读取改从零依赖的 gitStatusState（切断 fileTree ↔ git 的状态耦合）；
 // refreshGitStatus 是运行时才调用的函数（无初始化期循环风险），保留从 git.ts 导入
 import { refreshGitStatus } from "./git";
@@ -396,8 +396,12 @@ export interface CtxItem {
   action?: () => void;
 }
 
-function showContextMenu(entry: Entry, x: number, y: number): void {
-  const multi = selectedPaths.size > 1;
+function showContextMenu(entry: Entry, x: number, y: number, opts?: { background?: boolean }): void {
+  // 背景右键（树空白处，entry = 工作区根）：菜单只做「在该目录下」的操作。
+  // 关键：不显示 重命名/删除/复制/剪切——它们作用于 selectedPaths，而背景右键与选中项无关，
+  // 否则会把上一次的多选当成操作目标（复制路径三件套同理，由 contextPaths 兜底回 entry）。
+  const background = opts?.background ?? false;
+  const multi = !background && selectedPaths.size > 1;
   const items: CtxItem[] = [
     { label: "新建文件", action: () => createFileAt(entry) },
     { label: "新建文件夹", action: () => createDirAt(entry) },
@@ -408,18 +412,25 @@ function showContextMenu(entry: Entry, x: number, y: number): void {
   if (fileClipboard) {
     items.push({ label: "粘贴", action: () => pasteEntry(entry) }, { sep: true });
   }
-  if (!multi) {
-    items.push({ label: "重命名", action: () => renameEntry(entry) });
+  if (!background) {
+    if (!multi) {
+      items.push({ label: "重命名", action: () => renameEntry(entry) });
+    }
+    items.push(
+      { label: multi ? `删除 ${selectedPaths.size} 项` : "删除", danger: true, action: () => void deleteSelected() },
+      { sep: true },
+      { label: multi ? `复制 ${selectedPaths.size} 项` : "复制", action: () => copySelected() },
+      { label: multi ? `剪切 ${selectedPaths.size} 项` : "剪切", action: () => cutSelected() },
+    );
   }
+  // 复制路径三件套（对齐 VSCode：Copy Name / Copy Relative Path / Copy Path）；
+  // 多选时复制全部选中项，每行一个
+  const targets = contextPaths(entry);
   items.push(
-    { label: multi ? `删除 ${selectedPaths.size} 项` : "删除", danger: true, action: () => void deleteSelected() },
-    { sep: true },
-    { label: multi ? `复制 ${selectedPaths.size} 项` : "复制", action: () => copySelected() },
-    { label: multi ? `剪切 ${selectedPaths.size} 项` : "剪切", action: () => cutSelected() },
+    { label: "复制文件名", action: () => void copyPaths("name", targets) },
+    { label: "复制相对路径", action: () => void copyPaths("relative", targets) },
+    { label: "复制绝对路径", action: () => void copyPaths("full", targets) },
   );
-  if (!multi) {
-    items.push({ label: "复制路径", action: () => copyEntryPath(entry) });
-  }
   items.push(
     { sep: true },
     { label: "在终端中打开", action: () => void openTerminalAt(entry.is_dir ? entry.path : parentDirOf(entry.path)) },
@@ -843,10 +854,22 @@ async function dropMoveFile(srcPath: string, targetDirPath: string): Promise<voi
   if (dirContainers.has(targetDirPath)) await reloadDir(targetDirPath);
 }
 
-/** 绝对路径写入系统剪贴板 */
-async function copyEntryPath(entry: Entry): Promise<void> {
+/** 当前右键操作的目标路径：多选且右键项确在选中集内时取全部选中项，否则只取该 entry。
+ * 「在选中集内」的判定是必须的：树空白处右键（entry = 工作区根）不经过 selectEntry，
+ * selectedPaths 会残留上一次多选，若只看 size>1 会把旧选中项当成复制目标。 */
+function contextPaths(entry: Entry): string[] {
+  return selectedPaths.size > 1 && selectedPaths.has(entry.path) ? [...selectedPaths] : [entry.path];
+}
+
+/** 复制路径三件套：文件名 / 相对路径 / 绝对路径；多选时每行一个（对齐 VSCode） */
+async function copyPaths(kind: "name" | "relative" | "full", paths: string[]): Promise<void> {
+  const texts = paths.map((p) => {
+    if (kind === "name") return basename(p);
+    if (kind === "full") return p;
+    return relativePathOrName(app.workspaceRoot, p);
+  });
   try {
-    await invoke("copy_to_clipboard", { text: entry.path });
+    await invoke("copy_to_clipboard", { text: texts.join("\n") });
   } catch (e) {
     console.error("复制路径失败", e);
     toastFail("复制路径", e);
@@ -891,11 +914,16 @@ export function wireFileTree(): void {
 
 /** 树全局事件：空白处右键（根级新建）、F2/Del、菜单点击外部关闭、键盘导航 */
 function wireFileTreeEvents(): void {
-  // 树空白处右键 → 以工作区根为作用目标
+  // 树空白处右键 → 背景菜单：只做工作区根目录级操作（新建/粘贴/复制路径/终端），
+  // 不涉及当前选中项，避免误用残留的多选目标
   treeEl.addEventListener("contextmenu", (ev) => {
     if (ev.target === treeEl && app.workspaceRoot) {
       ev.preventDefault();
-      showContextMenu({ name: basename(app.workspaceRoot), path: app.workspaceRoot, is_dir: true }, ev.clientX, ev.clientY);
+      showContextMenu(
+        { name: basename(app.workspaceRoot), path: app.workspaceRoot, is_dir: true },
+        ev.clientX, ev.clientY,
+        { background: true },
+      );
     }
   });
   // 树容器级拖放：拖到空白处 = 移动到工作区根目录

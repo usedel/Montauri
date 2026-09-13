@@ -219,6 +219,28 @@ export function relativePath(root: string, full: string): string {
   return rel || full;
 }
 
+/** 计算相对路径（展示 / 复制到剪贴板用）：保留原始大小写与分隔符。
+ * 与 relativePath() 的区别：后者为 git 状态匹配做了归一化（小写 + 正斜杠），
+ * 直接复制给用户会得到 "src/foo.py" 这类非原样路径，故复制场景改用本函数。
+ * 大小写 / 分隔符无关地判断前缀；命中后按「原始 root 的长度」在原串上截取，保住原样。
+ * 不在 root 下（含前缀陷阱，如 root="D:/proj" 但 full="D:/proj2/x.py"）或 full 即 root 本身时返回 null。 */
+export function relativePathRaw(root: string, full: string): string | null {
+  const trimmedRoot = root.replace(/[\\/]+$/, "");
+  if (!trimmedRoot) return null;
+  const normRoot = normalizePath(trimmedRoot);
+  const normFull = normalizePath(full);
+  if (normFull !== normRoot && !normFull.startsWith(normRoot + "/")) return null;
+  // normRoot 仅用于前缀判定；截取用原始 trimmedRoot 的长度（full 以原始 root 开头，位置精确）
+  return full.slice(trimmedRoot.length).replace(/^[\\/]+/, "") || null;
+}
+
+/** 「复制相对路径」的完整规则：工作区内取相对路径（保留原样），
+ * 无工作区或不在工作区内时回退为文件名。tab 菜单与文件树菜单共用，保证两处行为一致。 */
+export function relativePathOrName(root: string | null | undefined, full: string): string {
+  if (!root) return basename(full);
+  return relativePathRaw(root, full) ?? basename(full);
+}
+
 // ---------- CR-28：路径归一化统一（唯一权威实现，全项目引用） ----------
 // 原本项目内有五套实现（relativePath / samePath / fileTree / git / lsp client），
 // Windows 大小写/分隔符不一致时 Git 徽标消失、诊断失配（关联 CR-22）。
