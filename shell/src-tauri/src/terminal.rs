@@ -294,6 +294,7 @@ pub(crate) fn start_session(
 ///   不静默降级成手工输入——那会破坏「可复现」这一 file 模式的核心诉求。
 ///
 /// 返回非致命告警（如 Parameters 解析失败），由前端写入终端回显。
+/// P0-C：`profile` 提供时按命名运行配置执行（忽略 `path`；module 入口无需文件锚点）。
 #[tauri::command]
 pub fn run_in_terminal(
     app: AppHandle,
@@ -302,6 +303,7 @@ pub fn run_in_terminal(
     rows: u16,
     path: String,
     workspace_root: Option<String>,
+    profile: Option<String>,
 ) -> Result<Vec<String>, String> {
     // 单实例统一模型（§4.7 结论 3）：输出面板路径占用时拒绝，反之亦然（见 lsp::run_script）
     if crate::lsp::run_slot_busy() {
@@ -316,35 +318,67 @@ pub fn run_in_terminal(
     }
     kill_session(&id); // 复用同一会话槽：停止运行后会话可立即复用（验收项）
 
-    let p = std::path::Path::new(&path);
-    let dir = p.parent().unwrap_or(std::path::Path::new(".")).to_path_buf();
-    let fname = p
-        .file_name()
-        .map(|f| f.to_string_lossy().to_string())
-        .unwrap_or_default();
-    let script_abs = if p.is_absolute() {
-        p.to_path_buf()
-    } else {
-        std::env::current_dir().unwrap_or_default().join(p)
+    // P0-C：入口 / 脚本锚点解析——profile 模式忽略 path 参数（module 入口无需文件锚点）；
+    // 文件模式与 run_script 同口径（解释器 / 配置 / uv 兜底）。
+    let (entry, script_abs, script_dir, fname, run_config) = match profile {
+        Some(pname) => {
+            let root = workspace_root.clone().ok_or("运行配置需先打开一个工作区")?;
+            let prof = crate::env_cmds::load_profile_by_name(&root, &pname)
+                .ok_or_else(|| format!("找不到运行配置：{pname}"))?;
+            if prof.entry.kind == "module" && !prof.entry.is_module() {
+                return Err(format!("运行配置「{pname}」选择了模块入口，但模块名为空"));
+            }
+            let rootp = std::path::PathBuf::from(&root);
+            if prof.entry.is_module() {
+                (prof.entry.clone(), rootp.clone(), Some(rootp), String::new(), prof)
+            } else {
+                let t = std::path::Path::new(prof.entry.target_trimmed());
+                let abs = if t.is_absolute() { t.to_path_buf() } else { rootp.join(t) };
+                let dir = abs.parent().unwrap_or(std::path::Path::new(".")).to_path_buf();
+                let fname = abs.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
+                (prof.entry.clone(), abs, Some(dir), fname, prof)
+            }
+        }
+        None => {
+            let p = std::path::Path::new(&path);
+            let dir = p.parent().unwrap_or(std::path::Path::new(".")).to_path_buf();
+            let fname = p
+                .file_name()
+                .map(|f| f.to_string_lossy().to_string())
+                .unwrap_or_default();
+            let abs = if p.is_absolute() {
+                p.to_path_buf()
+            } else {
+                std::env::current_dir().unwrap_or_default().join(p)
+            };
+            let rc = workspace_root
+                .as_deref()
+                .map(|r| crate::env_cmds::read_run_config(r, &path))
+                .unwrap_or_default();
+            (rc.entry.clone(), abs, Some(dir), fname, rc)
+        }
     };
 
-    // 解释器与运行配置的解析口径与 run_script 一致（工作区配置 > .venv 自动检测 > uv run 兜底）
+    // 解释器解析口径与 run_script 一致（工作区配置 > .venv 自动检测 > uv run 兜底）
     let interpreter = workspace_root
         .as_deref()
         .and_then(|r| crate::env_cmds::get_interpreter(r.to_string()).ok().flatten());
-    let run_config = workspace_root
-        .as_deref()
-        .map(|r| crate::env_cmds::read_run_config(r, &path))
-        .unwrap_or_default();
 
     if run_config.stdin.effective_mode() == "file" {
         return Err(
-            "「在终端中运行」不支持标准输入重定向自文件（PTY 无法直接接管文件）。请在标签右键 →「运行配置…」中把标准输入改为「不接输入」或「交互式」，或改用普通「运行」。"
+            "「在终端中运行」不支持标准输入重定向自文件（PTY 无法直接接管文件）。请在运行配置中把标准输入改为「不接输入」或「交互式」，或改用普通「运行」。"
                 .into(),
         );
     }
 
-    let run_cmd = crate::run_env::resolve_run_command(&script_abs, &fname, interpreter.as_deref());
+    // P0-D：工作目录解析（空 = script→脚本目录 / module→工作区根；支持宏）
+    let cwd = crate::run_env::resolve_run_cwd(
+        &run_config.cwd,
+        workspace_root.as_deref(),
+        script_dir.as_deref(),
+        entry.is_module(),
+    );
+    let run_cmd = crate::run_env::resolve_run_command(&entry, &script_abs, &fname, interpreter.as_deref(), run_config.python_console);
     // uv 兜底分支：uv 缺席时给出可诊断的出路，而不是让 spawn 抛一行 OS 报错
     if run_cmd.is_uv && !crate::tool_paths::is_available("uv", ENV_UV) {
         return Err("未选择解释器且未找到 uv，无法在终端中运行（可在状态栏选择解释器，或先安装 uv）".into());
@@ -367,7 +401,7 @@ pub fn run_in_terminal(
     cb.args(run_cmd.args.iter().cloned());
     // 运行配置 args 追加在脚本之后（与 run_script 同序，两分支通用）
     cb.args(run_env.args.iter().cloned());
-    cb.cwd(&dir);
+    cb.cwd(&cwd);
     // PTY 专有：xterm/ANSI 协商（终端能力声明，不影响 Python 语义，非环境漂移）
     cb.env("TERM", "xterm-256color");
     for (k, v) in &run_cmd.env {

@@ -3251,3 +3251,68 @@ button:focus-visible,
   font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
 }
+
+/* ---------- P2-M：运行标签条（输出面板头部，每次运行一 chip：回看 / Pin / 重跑） ---------- */
+#run-tabs-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 2px var(--space-3);
+  border-bottom: 1px solid var(--border);
+  min-height: 26px;
+}
+#run-tabs {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  overflow-x: auto;
+  min-width: 0;
+  flex: 1;
+  scrollbar-width: thin;
+}
+.run-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 1px var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  color: var(--fg-dim);
+  cursor: pointer;
+  white-space: nowrap;
+  flex: none;
+}
+.run-tab:hover { background: var(--hover-subtle); color: var(--fg); }
+.run-tab.active { color: var(--fg); border-color: var(--accent); background: var(--accent-soft); }
+.run-tab.running .run-tab-meta { color: var(--accent); }
+.run-tab-name { overflow: hidden; text-overflow: ellipsis; max-width: 180px; }
+.run-tab-meta { font-variant-numeric: tabular-nums; opacity: 0.85; }
+.run-tab-btn {
+  display: inline-flex;
+  align-items: center;
+  border: none;
+  background: transparent;
+  color: var(--fg-dim);
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+.run-tab-btn .codicon { font-size: var(--text-sm); }
+.run-tab-btn:hover { color: var(--fg); }
+.run-tab-btn.pinned { color: var(--accent); }
+
+/* ---------- P2：并行运行勾选面板（Compound 最小集） ---------- */
+#run-compound-list { max-height: 300px; overflow-y: auto; display: flex; flex-direction: column; }
+.compound-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
+  font-size: var(--text-sm);
+  color: var(--fg);
+  cursor: pointer;
+  min-width: 0;
+}
+.compound-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.compound-item input { flex: none; }

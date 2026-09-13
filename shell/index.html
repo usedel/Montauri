@@ -249,6 +249,12 @@
           <button id="btn-clear-output" class="btn btn--sm" data-tip="清空输出">清空</button>
           <button id="btn-toggle-output" class="btn btn--sm btn--icon" data-tip="收起/展开面板"><i class="codicon codicon-chevron-down" aria-hidden="true"></i></button>
         </div>
+        <!-- P2-M：运行标签条（每次运行一 chip：回看 / Pin / 重跑）；P2-O：保存输出到文件 -->
+        <div id="run-tabs-row">
+          <div id="run-tabs" role="tablist" aria-label="运行记录"></div>
+          <span class="spacer"></span>
+          <button id="btn-save-output" class="btn btn--sm btn--icon" data-tip="保存当前运行输出到文件" aria-label="保存当前运行输出到文件"><i class="codicon codicon-save" aria-hidden="true"></i></button>
+        </div>
         <div id="output" role="tabpanel" aria-labelledby="tab-output"></div>
         <!-- S4：交互式运行的输入行（仅 stdin=「交互式」且运行中可见）。
              提示符经 chunk 转发即时显示在上方输出里，用户在此逐行应答（Enter 发送，Esc 交回焦点） -->
@@ -415,7 +421,7 @@
         </div>
       </div>
     </div>
-    <!-- 运行配置面板（模态，P3 建议 2：Parameters / 环境变量，持久化到工作区配置，不侵入项目） -->
+    <!-- 运行配置面板（模态，P0-C/D：工作区级命名配置列表 + 入口类型 + 工作目录；持久化到工作区配置，不侵入项目） -->
     <div id="run-config-modal" class="modal hidden">
       <div class="modal-card new-project-card" role="dialog" aria-modal="true" aria-labelledby="run-config-title">
         <div class="env-header">
@@ -424,20 +430,72 @@
           <button id="run-config-close" class="btn btn--ghost btn--icon"><i class="codicon codicon-close" aria-hidden="true"></i></button>
         </div>
         <div class="settings-body">
+          <div class="settings-row">
+            <label for="run-config-select">配置</label>
+            <select id="run-config-select" aria-label="选择要编辑的运行配置"></select>
+            <button id="run-config-new" class="btn">新建…</button>
+          </div>
           <div class="settings-hint" id="run-config-target"></div>
-          <!-- P1：调试复用同一份运行配置（后端 debug_start 已直读 run_configs），此处显式告知，
+          <div class="settings-row hidden" id="run-config-name-row">
+            <label for="run-config-name">配置名</label>
+            <input id="run-config-name" type="text" placeholder="FastAPI" spellcheck="false" />
+          </div>
+          <div class="settings-row hidden" id="run-config-entry-row">
+            <label for="run-config-entry-kind">入口类型</label>
+            <select id="run-config-entry-kind" title="脚本 = 运行一个 .py 文件；模块 = python -m（uvicorn / flask 等框架入口）">
+              <option value="script">脚本 (Script path)</option>
+              <option value="module">模块 (Module name = python -m)</option>
+            </select>
+          </div>
+          <div class="settings-row hidden" id="run-config-target-row">
+            <label for="run-config-target-input" id="run-config-target-label">脚本路径 (Script path)</label>
+            <input id="run-config-target-input" type="text" placeholder="main.py（相对工作区根）" spellcheck="false" />
+          </div>
+          <!-- P1：调试复用同一份运行配置（debug_start / debug_attach_debuggee 消费同一份 entry / cwd / 参数 / env），
                并提前点出「stdin 重定向自文件」在调试下不支持——比启动失败后再报错友好 -->
-          <div class="settings-hint">此配置对「运行」与「调试」同时生效（同一份参数 / 环境变量 / 工作目录）。标准输入选「重定向自文件」时无法启动调试（调试进程不经由文件重定向），其余两种模式不受影响。</div>
+          <div class="settings-hint">此配置对「运行」与「调试」同时生效（同一份入口 / 参数 / 环境变量 / 工作目录）。标准输入选「重定向自文件」时无法启动调试（调试进程不经由文件重定向），其余两种模式不受影响。</div>
           <div class="settings-row">
             <label for="run-config-args">参数 (Parameters)</label>
             <input id="run-config-args" type="text" placeholder="--flag value  含空格用引号" spellcheck="false" />
           </div>
           <div class="settings-row">
+            <label for="run-config-cwd">工作目录 (Working directory)</label>
+            <input id="run-config-cwd" type="text" placeholder="留空 = 默认（脚本→所在目录，模块→工作区根）；支持 ${workspaceRoot}" spellcheck="false" />
+          </div>
+          <div class="settings-row">
+            <label for="run-config-interpreter">解释器（可选）</label>
+            <input id="run-config-interpreter" type="text" placeholder="留空 = 工作区解释器；或填解释器绝对路径" spellcheck="false" />
+          </div>
+          <div class="settings-row settings-row-col">
+            <label for="run-config-env-files">.env 文件（每行一个路径，按序加载；相对工作区根）</label>
+            <textarea id="run-config-env-files" rows="2" placeholder=".env&#10;config/prod.env" spellcheck="false"></textarea>
+          </div>
+          <div class="settings-row">
+            <label for="run-config-allow-multiple">允许多实例</label>
+            <input id="run-config-allow-multiple" type="checkbox" title="已有实例在运行时仍可再启动一个（服务器类配置，如两个端口的 uvicorn）；额外实例标准输入恒为空、输出与首个实例共用输出面板" />
+          </div>
+          <div class="settings-row">
+            <label for="run-config-pre-run">启动前先运行</label>
+            <input id="run-config-pre-run" type="text" placeholder="配置名（可选）；等待其结束后再启动本配置" spellcheck="false" />
+          </div>
+          <div class="settings-row">
+            <label for="run-config-open-browser">启动后打开浏览器</label>
+            <input id="run-config-open-browser" type="text" placeholder="URL（可选），如 http://127.0.0.1:8000" spellcheck="false" />
+          </div>
+          <div class="settings-row">
+            <label for="run-config-auto-rerun">变更自动重启</label>
+            <input id="run-config-auto-rerun" type="checkbox" title="保存的源文件变更时自动停止并重启本次运行（Rerun automatically）；模块入口不适用（uvicorn --reload 自带内环）" />
+          </div>
+          <div class="settings-row">
+            <label for="run-config-python-console">跑完进入交互控制台</label>
+            <input id="run-config-python-console" type="checkbox" title="解释器加 -i：脚本跑完留在同一交互 REPL，输出面板输入行即 REPL 输入（Run with Python console）" />
+          </div>
+          <div class="settings-row">
             <label for="run-config-stdin-mode">标准输入 (stdin)</label>
-            <select id="run-config-stdin-mode" title="脚本读取标准输入时的来源">
-              <option value="null">不接输入（input() 立即 EOF）</option>
+            <select id="run-config-stdin-mode" title="脚本读取标准输入时的来源。交互式为默认（对齐 PyCharm：控制台可直接键入）；「在终端中运行」不支持重定向自文件">
+              <option value="interactive">交互式（在输出面板逐行应答）——默认</option>
               <option value="file">重定向自文件（Redirect input from）</option>
-              <option value="interactive">交互式（在输出面板逐行应答）</option>
+              <option value="null">不接输入（input() 立即 EOF）</option>
             </select>
           </div>
           <div class="settings-row hidden" id="run-config-stdin-path-row">
@@ -451,8 +509,28 @@
           </div>
         </div>
         <div class="modal-actions">
+          <button id="run-config-delete" class="btn hidden">删除</button>
+          <span class="spacer"></span>
           <button id="run-config-save" class="btn btn--primary">保存</button>
           <button id="run-config-cancel" class="btn">取消</button>
+        </div>
+      </div>
+    </div>
+    <!-- 并行运行（Compound 最小集）：勾选多个命名配置一次性并行启动（不持久化） -->
+    <div id="run-compound-modal" class="modal hidden">
+      <div class="modal-card new-project-card" role="dialog" aria-modal="true" aria-labelledby="run-compound-title">
+        <div class="env-header">
+          <span id="run-compound-title" class="env-title">并行运行配置</span>
+          <span class="spacer"></span>
+          <button id="run-compound-close" class="btn btn--ghost btn--icon"><i class="codicon codicon-close" aria-hidden="true"></i></button>
+        </div>
+        <div class="settings-body">
+          <div class="settings-hint">勾选要同时启动的配置：第一个占用常规运行槽，其余作为并行实例启动（标准输入恒为空、输出共用输出面板、随停止按钮一并终止）。</div>
+          <div id="run-compound-list"></div>
+        </div>
+        <div class="modal-actions">
+          <button id="run-compound-run" class="btn btn--primary">并行运行</button>
+          <button id="run-compound-cancel" class="btn">取消</button>
         </div>
       </div>
     </div>

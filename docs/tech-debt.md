@@ -48,14 +48,9 @@
 > 2026-09-10 代码审查整改（CR-01~CR-30，原 `code_review_remediation_plan.md` 已完成并删除）遗留的可选优化项。
 
 ### 13. 前端剩余循环 import 边（P3，架构，源自 CR-25 余量）
-- **现状**：CR-25 已完成 git 状态下沉（新建零依赖 `gitStatusState.ts`，切断 fileTree↔git 状态耦合）；剩余 `git.ts → main.ts`（`gotoFromLink`）、`fileTree.ts → main.ts`（`openFile` 等）、`settingsPanel.ts → main.ts`（`startLsp`）为**运行时函数引用**（无初始化期 TDZ 风险，当前可安全运行）。
+- **现状**：CR-25 已完成 git 状态下沉（新建零依赖 `gitStatusState.ts`，切断 fileTree↔git 状态耦合）；TD-14 已把 `gotoFromLink` 迁至零业务依赖的 `tracebackLink.ts`（openFile 注入），**`git.ts → main.ts` 边随之解除**；剩余 `fileTree.ts → main.ts`（`openFile` / `renderTabs` / `closeTabSilent` / `insertHeaderTemplate`）、`settingsPanel.ts → main.ts`（`startLsp`）为**运行时函数引用**（无初始化期 TDZ 风险，当前可安全运行）。
 - **建议**：后续按 `terminal.ts::setTerminalLinkHandler` 的 handler 注入先例逐边解环；不紧急。
-- **涉及**：`shell/src/{git,fileTree,settingsPanel,main}.ts`
-
-### 14. main.ts 运行态收敛为 RunState 与按域拆分（P3，质量，源自 CR-30 余量）
-- **现状**：CR-30 已完成调试 `console.log` 清理与 `editorTimers` 模块级收敛；剩余两项大范围重构：① 运行态 6 个模块级变量（running/runningPath/runChannel/runningStdinMode/runningStdinEofHinted/selectionRunMeta）收敛为 discriminated union `RunState`；② main.ts（~3100 行）继续按域拆分（envPanel / menuBar / runFlow 等）。
-- **建议**：前置 CR-05/07 已稳定，可在下次功能迭代时顺手偿还；拆分时参照 TD-007 的域拆分模式。
-- **涉及**：`shell/src/main.ts`
+- **涉及**：`shell/src/{fileTree,settingsPanel,main}.ts`
 
 > 2026-09-13 PyCharm 调研报告落地复核（`pycharm_feature_research_report.md`）发现。均为「已宣称交付、实际未达对标效果」的缺口，经裁决**暂缓处理**。
 
@@ -85,6 +80,7 @@
 | 2 | intel server.rs 锁 poison 与 async 持锁（P2） | 2026-09-10 | 已并入 CR-18 实施：改 `parking_lot::RwLock`（无中毒）+ `Arc` 快照锁外重计算 + 补全/hover/definition/inlay/诊断全部 `spawn_blocking` |
 | 5 | probe 打包/注入健壮性（P2） | 2026-09-10 | 已并入 CR-19 实施：hatch `force-include` 打包 `sitecustomize.py`（wheel 验证）；`mon.start()` 纳入 try/finally 恢复现场；argv[0] 守卫 `normcase` 归一化；probe `pytest` 63 例全绿 |
 | 3 | intel did_change 依赖全量同步契约（P2） | 2026-09-09 | 已并入 CR-02 实施：`ServerCapabilities` 显式声明 `TextDocumentSyncKind::FULL`，intel `cargo test` 全绿 |
+| 14 | main.ts 运行态收敛为 RunState 与按域拆分（P3，质量） | 2026-09-13 | ① 运行态 6 变量（running/runningPath/runChannel/runningStdinMode/runningStdinEofHinted/selectionRunMeta）+ runningProfile 收敛为 `runState.ts` 的 `RunState` 判别联合（零依赖 + accessors，整组置位/整组作废，杜绝半复位态）；② 按域拆出 `runFlow.ts`（运行核心 ~1030 行）/ `envPanel.ts`（621）/ `runConfigPanel.ts`（351）/ `menuBar.ts`（286）/ `newProject.ts`（223）/ `tracebackLink.ts`（37），main.ts 由 ~3169 降至 1620 行；解环用 handler 注入（`setRunFlowHandlers` / `initEnvPanel{restartEngine}` / `wireNewProject` / `wireMenuBar(getMenuItems)` / `setTracebackOpenFile`），顺带解除 TD-13 的 `git.ts → main.ts` 边。基线：tsc 0 错、vitest 287 passed（新增 `runState` 13 例） |
 | 8 | 终端与运行按钮的环境注入不一致（S3+S4 公共前置） | 2026-09-09 | 抽 `run_env.rs` 单一装配来源（`build_run_env` / `assemble` / `resolve_run_command`），`cargo test` 72 例全绿；两条运行路径 env 逐项同源 |
 | TD-009 | 全项目代码检查与修复（P0/P1 项，共 11 项） | 2026-08-28 | probe/intel/shell 修复全绿；含 Cargo.lock 纳入版本锁定 |
 | TD-008 | 确认弹窗统一为自绘风格 | 2026-08-28 | 新增 `dialog.ts`，替换 8 处 confirm + 1 处 alert |

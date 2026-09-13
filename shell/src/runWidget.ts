@@ -21,6 +21,8 @@ export interface RunWidgetState {
   selectionShortcut: string;
   /** 有工作区且有活动 .py（运行配置入口可用性） */
   canOpenConfig: boolean;
+  /** P0-C：命名运行配置列表（▾ 菜单展示；summary 为回显摘要） */
+  profiles: { name: string; summary: string }[];
 }
 
 export interface RunWidgetHandlers {
@@ -30,6 +32,10 @@ export interface RunWidgetHandlers {
   stop: () => void;
   restart: () => void;
   openRunConfig: () => void;
+  /** P0-C：按名运行一份命名配置（module 入口无需文件锚点） */
+  runProfile: (name: string) => void;
+  /** P2 Compound：并行运行多个配置（勾选面板） */
+  openCompound: () => void;
 }
 
 export interface RunButtonState {
@@ -56,6 +62,11 @@ let repaintFn: (() => void) | null = null;
 
 export function setRunWidgetHandlers(h: RunWidgetHandlers): void {
   handlers = h;
+}
+
+/** 测试专用：直接注入 state（getRunMenuItems 为纯函数，测试不经过 renderRunWidget 的 DOM 路径） */
+export function setRunWidgetStateForTest(s: RunWidgetState): void {
+  state = s;
 }
 
 export function setRunWidgetRepaint(fn: () => void): void {
@@ -117,6 +128,22 @@ export function getRunMenuItems(): MenuItem[] {
   const h = handlers;
   if (!s || !h) return [];
 
+  // P0-C：命名配置区（未运行时可用，module 入口无需活动文件）
+  const profileItems: MenuItem[] = [];
+  if (s.profiles.length > 0) {
+    profileItems.push({ sep: true });
+    for (const p of s.profiles) {
+      profileItems.push({
+        label: `运行 ${p.name}`,
+        icon: "run",
+        detail: p.summary,
+        disabled: s.running,
+        disabledReason: s.running ? "已有脚本在运行" : undefined,
+        action: () => h.runProfile(p.name),
+      });
+    }
+  }
+
   if (s.running) {
     return [
       { label: "停止运行", icon: "debug-stop", shortcut: s.stopShortcut, action: h.stop },
@@ -124,8 +151,9 @@ export function getRunMenuItems(): MenuItem[] {
       { sep: true },
       { label: "在终端中运行", icon: "terminal", detail: "真 TTY（getpass / tqdm / 彩色 / Ctrl+C）", disabled: true, disabledReason: "已有脚本在运行" },
       { label: "运行选区 / 行", icon: "run", shortcut: s.selectionShortcut, disabled: true, disabledReason: "已有脚本在运行" },
+      ...profileItems,
       { sep: true },
-      { label: "运行配置…", icon: "gear", detail: "参数 / 环境变量 / 标准输入", disabled: !s.canOpenConfig, disabledReason: s.canOpenConfig ? undefined : "需先打开工作区", action: h.openRunConfig },
+      { label: "运行配置…", icon: "gear", detail: "配置列表 / 入口类型 / 工作目录 / 参数 / 环境变量 / 标准输入", disabled: !s.canOpenConfig, disabledReason: s.canOpenConfig ? undefined : "需先打开工作区", action: h.openRunConfig },
     ];
   }
 
@@ -133,8 +161,10 @@ export function getRunMenuItems(): MenuItem[] {
   return [
     { label: "在终端中运行", icon: "terminal", detail: "真 TTY（getpass / tqdm / 彩色 / Ctrl+C）", disabled: !s.canRun, disabledReason: s.canRun ? undefined : s.disabledReason, action: h.runInTerminal },
     { label: "运行选区 / 行", icon: "run", shortcut: s.selectionShortcut, disabled: !s.canRun, disabledReason: s.canRun ? undefined : s.disabledReason, action: h.runSelection },
+    ...profileItems,
     { sep: true },
-    { label: "运行配置…", icon: "gear", detail: "参数 / 环境变量 / 标准输入", disabled: !s.canOpenConfig, disabledReason: s.canOpenConfig ? undefined : "需先打开工作区", action: h.openRunConfig },
+    { label: "并行运行配置…", icon: "combine", detail: "勾选多个配置一次性并行启动（Compound）", disabled: s.profiles.length === 0, disabledReason: s.profiles.length === 0 ? "暂无命名配置" : undefined, action: h.openCompound },
+    { label: "运行配置…", icon: "gear", detail: "配置列表 / 入口类型 / 工作目录 / 参数 / 环境变量 / 标准输入", disabled: !s.canOpenConfig, disabledReason: s.canOpenConfig ? undefined : "需先打开工作区", action: h.openRunConfig },
   ];
 }
 

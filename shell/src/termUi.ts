@@ -474,12 +474,18 @@ export async function runScriptInTerminal(path: string, echo: string, onExit: ()
 
 /** 停止运行终端里的脚本（main.ts 的 `stopRun` 按 runChannel 路由到此）。
  * `term_kill` 不发 term-exit（只有自然退出才 notify），故此处直接触发退出回调，
- * 保证统一运行态立即复位、会话槽可立即复用。 */
+ * 保证统一运行态立即复位、会话槽可立即复用。
+ * P1-J：软杀优先——先向 PTY 写 Ctrl+C（\x03，ConPTY 转换为控制台事件，uvicorn 等
+ * 长驻服务可优雅退出），宽限 1.2s 未退再 term_kill 强杀；脚本已自然退出则跳过。 */
 export async function stopRunTerminal(): Promise<void> {
   const s = termSessions.find((x) => x.kind === "run");
   if (!s) {
     fireRunExit();
     return;
+  }
+  if (s.runActive) {
+    await invoke("term_write", { id: s.id, data: "\x03" }).catch(() => undefined);
+    await new Promise((r) => setTimeout(r, 1200));
   }
   await invoke("term_kill", { id: s.id }).catch(() => undefined);
   s.runActive = false;

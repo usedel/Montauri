@@ -125,6 +125,10 @@ pub fn run() {
             env_cmds::init_pyproject,
             env_cmds::get_run_config,
             env_cmds::set_run_config,
+            env_cmds::list_run_profiles,
+            env_cmds::save_run_profile,
+            env_cmds::delete_run_profile,
+            env_cmds::detect_fastapi,
             env_cmds::list_packages,
             env_cmds::list_outdated,
             env_cmds::pip_install,
@@ -160,6 +164,7 @@ pub fn run() {
             lsp::get_intel_info,
             // 运行
             lsp::run_script,
+            lsp::run_profile,
             lsp::stop_script,
             lsp::run_stdin,
             // 集成终端（Phase 4）

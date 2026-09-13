@@ -295,6 +295,11 @@ static RUN_CHILD: Mutex<Option<Child>> = Mutex::new(None);
 /// 退出监视线程与 `stop_script` **两处都要清空**，否则残留句柄会让下次运行拿不到槽位。
 static RUN_STDIN: Mutex<Option<std::process::ChildStdin>> = Mutex::new(None);
 
+/// P1-H：多实例额外子进程（`allow_multiple` 配置在主槽被占时的后续实例）。
+/// stdin 恒 null、不占用 RUN_STDIN；退出仅从表移除、**不发 run-exit**
+/// （前端统一运行态仍以首个实例为准，报告 P2-M 每配置标签页落地后再做逐实例状态）。
+static RUN_EXTRA: Mutex<Vec<Child>> = Mutex::new(Vec::new());
+
 /// 运行槽位是否被占用（供 `terminal::run_in_terminal` 做单实例守卫，§4.7 结论 3）
 pub(crate) fn run_slot_busy() -> bool {
     unpoison(RUN_CHILD.lock()).is_some()
@@ -304,25 +309,18 @@ pub(crate) fn run_slot_busy() -> bool {
 /// P25-T06：选中解释器 → 直接 <解释器> <file>；未选中 → uv run 兜底（解析见 `run_env::resolve_run_command`）。
 /// P25-T09：probe 开关——false 时不注入运行时探针（probe 注入对两种运行方式同样生效，仅在 probe=true 时）。
 /// S4：`stdin.mode == "interactive"` 时子进程 stdin 走 piped 并登记 `RUN_STDIN`，
-/// 前端输出面板的输入行经 [`run_stdin`] 逐行喂入（默认仍是 null，见坑 2：piped 无人写入会永久阻塞）。
+/// 前端输出面板的输入行经 [`run_stdin`] 逐行喂入（P0-A：interactive 已是默认档，
+/// 输入行 + 「等待输入…」状态 + stopRun 先 drop stdin 共同兜住「piped 无人写入」阻塞）。
+/// `stdin_mode`：调用方显式覆盖（P0-A）——选区运行传 `Some("null")` 锁定「不接输入」，
+/// 避免默认档改交互后，片段运行被 piped 且输入行不可见而静默挂起；不传则读运行配置。
 #[tauri::command]
-pub fn run_script(app: AppHandle, path: String, workspace_root: Option<String>, probe: bool) -> Result<(), String> {
-    {
-        let rc = unpoison(RUN_CHILD.lock());
-        if rc.is_some() {
-            return Err("已有脚本在运行".into());
-        }
-        // 单实例统一模型（§4.7 结论 3）：PTY 运行占用时同样拒绝——两条路径共用同一个「运行中」状态，
-        // 并发会让输出面板与运行终端争抢 traceback 落点，且用户无从判断该按哪个停止。
-        if crate::terminal::run_terminal_busy() {
-            return Err("已有脚本在终端中运行".into());
-        }
-        // 三态互斥（debug dev plan §3.2）：调试占用时拒绝普通运行
-        if crate::dap::debug_busy() {
-            return Err("已有调试会话在运行".into());
-        }
-    }
-
+pub fn run_script(
+    app: AppHandle,
+    path: String,
+    workspace_root: Option<String>,
+    probe: bool,
+    stdin_mode: Option<String>,
+) -> Result<(), String> {
     let p = std::path::Path::new(&path);
     let dir = p.parent().unwrap_or(std::path::Path::new(".")).to_path_buf();
     let fname = p
@@ -336,28 +334,89 @@ pub fn run_script(app: AppHandle, path: String, workspace_root: Option<String>, 
         std::env::current_dir().unwrap_or_default().join(p)
     };
 
-    // 解释器分支：工作区配置优先，其次 .venv 自动检测（见 env_cmds::get_interpreter）
-    let interpreter = workspace_root
-        .as_deref()
-        .and_then(|r| crate::env_cmds::get_interpreter(r.to_string()).ok().flatten());
-
-    // P3（建议 2）：读取该脚本的轻量运行配置（Parameters / 环境变量 / stdin），存于工作区配置而非用户项目。
-    let run_config = workspace_root
+    // P0-C：读取该文件的运行配置（Parameters / 入口 / 工作目录 / 环境变量 / stdin），存于工作区配置而非用户项目。
+    let mut run_config = workspace_root
         .as_deref()
         .map(|r| crate::env_cmds::read_run_config(r, &path))
         .unwrap_or_default();
+    // P0-A：调用方显式覆盖 stdin 模式（选区运行锁定 null），优先级高于运行配置
+    if let Some(m) = stdin_mode {
+        run_config.stdin.mode = m;
+    }
+    // P0-C：module 入口必须有模块名（空模块名在 RunEntry::is_module 已归一化为脚本语义，这里显式报错）
+    if run_config.entry.kind == "module" && !run_config.entry.is_module() {
+        return Err("运行配置选择了模块入口，但模块名为空".into());
+    }
+    // P1-H：allow_multiple 时槽被占放行为额外实例
+    let extra = check_run_slots(run_config.allow_multiple)?;
+
+    // 解释器解析（P1-I）：配置级覆盖 > 工作区配置 > .venv 自动检测（见 env_cmds::get_interpreter）
+    let profile_interpreter = run_config.interpreter.trim().to_string();
+    let interpreter = if profile_interpreter.is_empty() {
+        workspace_root
+            .as_deref()
+            .and_then(|r| crate::env_cmds::get_interpreter(r.to_string()).ok().flatten())
+    } else {
+        Some(profile_interpreter)
+    };
+
+    // P0-D：工作目录解析（空 = script→脚本目录 / module→工作区根；支持 ${workspaceRoot} 宏）
+    let cwd = crate::run_env::resolve_run_cwd(
+        &run_config.cwd,
+        workspace_root.as_deref(),
+        Some(&dir),
+        run_config.entry.is_module(),
+    );
 
     // 阶段 0 公共基建：运行命令与环境装配统一走 run_env（与 PTY 路径共用，杜绝 §4.2 坑 6 的漂移）
-    let run_cmd = crate::run_env::resolve_run_command(&script_abs, &fname, interpreter.as_deref());
+    let run_cmd = crate::run_env::resolve_run_command(
+        &run_config.entry,
+        &script_abs,
+        &fname,
+        interpreter.as_deref(),
+        run_config.python_console,
+    );
     let run_env =
         crate::run_env::build_run_env(&app, &script_abs, workspace_root.as_deref(), &run_config, probe);
+    // P2-Q：交互控制台强制 stdin=piped（REPL 依赖输入行），优先于运行配置的 stdin 模式
+    let (stdin_stdio, interactive) = if run_config.python_console {
+        (Stdio::piped(), true)
+    } else {
+        build_stdin_stdio(&run_config.stdin)?
+    };
 
-    // S1/S4：标准输入来源。file 模式在 spawn **之前**打开文件——失败即 fail fast 并回传明确原因，
-    // 不留“已进入运行态却读不到输入”的僵尸运行（对齐 §4.4 的“用户无从感知原因”）。
-    let stdin_mode = run_config.stdin.effective_mode();
-    let interactive = stdin_mode == "interactive";
-    let stdin_stdio = if stdin_mode == "file" {
-        let fp = run_config.stdin.path.trim();
+    spawn_run_process(app, run_cmd, cwd, run_env, stdin_stdio, interactive, probe, extra)
+}
+
+/// 单实例槽位检查（run_script / run_profile 共用，§4.7 结论 3 + debug dev plan §3.2）。
+/// P1-H：`allow_multiple` 为 true 时，运行槽被占不再硬报错，而是放行为「额外实例」
+/// （返回 Ok(true)，stdin 恒 null、输出与首个实例共用输出面板）；三态互斥中的
+/// 「调试占用」不可越。返回 Ok(false) = 常规主实例；Ok(true) = 额外实例。
+fn check_run_slots(allow_multiple: bool) -> Result<bool, String> {
+    // 三态互斥：调试占用时拒绝普通运行（不可被 allow_multiple 越过）
+    if crate::dap::debug_busy() {
+        return Err("已有调试会话在运行".into());
+    }
+    let primary_busy = unpoison(RUN_CHILD.lock()).is_some() || crate::terminal::run_terminal_busy();
+    if !primary_busy {
+        return Ok(false);
+    }
+    if allow_multiple {
+        return Ok(true);
+    }
+    if unpoison(RUN_CHILD.lock()).is_some() {
+        return Err("已有脚本在运行".into());
+    }
+    Err("已有脚本在终端中运行".into())
+}
+
+/// S1/S4：标准输入来源装配（run_script / run_profile 共用）。file 模式在 spawn **之前**打开文件
+/// ——失败即 fail fast 并回传明确原因，不留“已进入运行态却读不到输入”的僵尸运行（§4.4）。
+fn build_stdin_stdio(stdin: &crate::env_cmds::StdinConfig) -> Result<(Stdio, bool), String> {
+    let mode = stdin.effective_mode();
+    let interactive = mode == "interactive";
+    let stdio = if mode == "file" {
+        let fp = stdin.path.trim();
         let f = std::fs::File::open(fp).map_err(|e| format!("标准输入文件无法打开：{fp}（{e}）"))?;
         Stdio::from(f)
     } else if interactive {
@@ -365,6 +424,24 @@ pub fn run_script(app: AppHandle, path: String, workspace_root: Option<String>, 
     } else {
         Stdio::null()
     };
+    Ok((stdio, interactive))
+}
+
+/// 进程装配体（run_script / run_profile 共用）：spawn + 槽位登记 + 流式转发 + 退出监视。
+/// `app` 按值接收（退出监视线程要求 'static，内部按需 clone）。
+fn spawn_run_process(
+    app: AppHandle,
+    run_cmd: crate::run_env::RunCommand,
+    cwd: std::path::PathBuf,
+    run_env: crate::run_env::RunEnv,
+    stdin_stdio: Stdio,
+    interactive: bool,
+    probe: bool,
+    extra: bool,
+) -> Result<(), String> {
+    // P1-H：额外实例不参与交互（stdin 恒 null），也不占用 RUN_STDIN / RUN_CHILD 主槽
+    let interactive = interactive && !extra;
+    let stdin_stdio = if extra { Stdio::null() } else { stdin_stdio };
 
     let mut cmd = Command::new(&run_cmd.program);
     cmd.args(&run_cmd.args);
@@ -379,7 +456,7 @@ pub fn run_script(app: AppHandle, path: String, workspace_root: Option<String>, 
         cmd.env(k, v);
     }
     cmd
-        .current_dir(&dir)
+        .current_dir(&cwd)
         .stdin(stdin_stdio)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -402,6 +479,35 @@ pub fn run_script(app: AppHandle, path: String, workspace_root: Option<String>, 
 
     let stdout = child.stdout.take().ok_or("无法获取 stdout")?;
     let stderr = child.stderr.take().ok_or("无法获取 stderr")?;
+
+    // P1-H：额外实例 → RUN_EXTRA 表 + 独立退出监视（仅移除，不发 run-exit）
+    if extra {
+        let pid = child.id();
+        unpoison(RUN_EXTRA.lock()).push(child);
+        std::thread::spawn(move || loop {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            let done = {
+                let mut extras = unpoison(RUN_EXTRA.lock());
+                let Some(pos) = extras.iter().position(|c| c.id() == pid) else { return };
+                match extras[pos].try_wait() {
+                    Ok(Some(_)) => {
+                        extras.remove(pos);
+                        true
+                    }
+                    Ok(None) => false,
+                    Err(_) => {
+                        extras.remove(pos);
+                        true
+                    }
+                }
+            };
+            if done {
+                return;
+            }
+        });
+        return Ok(());
+    }
+
     // S4：交互式运行登记 stdin 槽位；非交互时写入 None，顺带清掉上一次异常退出可能残留的句柄
     let child_stdin = if interactive { child.stdin.take() } else { None };
     {
@@ -455,6 +561,61 @@ pub fn run_script(app: AppHandle, path: String, workspace_root: Option<String>, 
     });
 
     Ok(())
+}
+
+/// P0-C：按命名运行配置运行（Run 部件 ▾ 菜单入口）。module 入口无需打开任何文件。
+#[tauri::command]
+pub fn run_profile(app: AppHandle, workspace_root: String, name: String, probe: bool, force_extra: Option<bool>) -> Result<(), String> {
+    let profile = crate::env_cmds::load_profile_by_name(&workspace_root, &name)
+        .ok_or_else(|| format!("找不到运行配置：{name}"))?;
+    if profile.entry.kind == "module" && !profile.entry.is_module() {
+        return Err(format!("运行配置「{name}」选择了模块入口，但模块名为空"));
+    }
+    // P1-H：allow_multiple 时槽被占放行为额外实例；P2 Compound：force_extra 显式要求并行实例
+    let extra = check_run_slots(profile.allow_multiple || force_extra.unwrap_or(false))?;
+
+    // entry 解析：script → 工作区根/target（绝对路径原样）；module → 工作区根占位
+    // （build_run_env 仅用 script_abs 拼 probe 元信息与 PYTHONPATH，module 场景传根即可）
+    let root = std::path::PathBuf::from(&workspace_root);
+    let (script_abs, script_dir, fname) = if profile.entry.is_module() {
+        (root.clone(), Some(root.clone()), String::new())
+    } else {
+        let t = std::path::Path::new(profile.entry.target_trimmed());
+        let abs = if t.is_absolute() { t.to_path_buf() } else { root.join(t) };
+        let dir = abs.parent().unwrap_or(std::path::Path::new(".")).to_path_buf();
+        let fname = abs.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
+        (abs, Some(dir), fname)
+    };
+
+    // 解释器解析（P1-I）：配置级覆盖 > 工作区配置 > .venv 自动检测
+    let profile_interpreter = profile.interpreter.trim().to_string();
+    let interpreter = if profile_interpreter.is_empty() {
+        crate::env_cmds::get_interpreter(workspace_root.clone()).ok().flatten()
+    } else {
+        Some(profile_interpreter)
+    };
+    let cwd = crate::run_env::resolve_run_cwd(
+        &profile.cwd,
+        Some(&workspace_root),
+        script_dir.as_deref(),
+        profile.entry.is_module(),
+    );
+    let run_cmd = crate::run_env::resolve_run_command(
+        &profile.entry,
+        &script_abs,
+        &fname,
+        interpreter.as_deref(),
+        profile.python_console,
+    );
+    let run_env = crate::run_env::build_run_env(&app, &script_abs, Some(&workspace_root), &profile, probe);
+    // P2-Q：交互控制台强制 stdin=piped（REPL 依赖输入行），优先于运行配置的 stdin 模式
+    let (stdin_stdio, interactive) = if profile.python_console {
+        (Stdio::piped(), true)
+    } else {
+        build_stdin_stdio(&profile.stdin)?
+    };
+
+    spawn_run_process(app, run_cmd, cwd, run_env, stdin_stdio, interactive, probe, extra)
 }
 
 /// 非交互路径的输出转发：按行（`read_until(b'\n')`）+ lossy 解码，历史行为一字未改。
@@ -534,14 +695,39 @@ pub fn run_stdin(data: String) -> Result<(), String> {
 #[tauri::command]
 pub fn stop_script() -> Result<(), String> {
     // S4：先 drop stdin——关闭管道常能直接唤醒阻塞中的 input()（脚本收到 EOF 自行退出），
-    // 再杀进程树兜底；顺序反了会让「正在等输入的脚本」白挨一次 taskkill /T /F。
+    // 再进入软杀/强杀序列；顺序反了会让「正在等输入的脚本」白挨一次 taskkill /T /F。
     unpoison(RUN_STDIN.lock()).take();
+    // P1-H：多实例额外子进程一并终止（直接强杀：它们不持有交互态，无优雅退出预期）
+    let extras: Vec<Child> = unpoison(RUN_EXTRA.lock()).drain(..).collect();
+    for c in extras {
+        kill_process_tree_async(c);
+    }
     let child = unpoison(RUN_CHILD.lock()).take();
     if let Some(child) = child {
-        // CR-10：异步终止——同步 taskkill 对庞杂进程树可耗时数秒，点「停止」会卡 UI 数秒
-        kill_process_tree_async(child); // 杀 uv/解释器连带其 python 脚本子树
+        // P1-J：软杀优先 + 宽限窗口 + 强杀兜底（长驻服务可优雅退出）
+        kill_with_grace(child);
     }
     Ok(())
+}
+
+/// P1-J：软杀优先序列：温和终止信号（Unix SIGINT；Windows 为 no-op，见 `util::soft_kill_pid` 注释）
+/// → 宽限窗口 3s（长驻服务优雅退出：关连接池 / 落日志）→ 超时强杀整棵进程树。
+/// 与历史行为兼容：child 立即离开 RUN_CHILD 槽（宽限期内允许发起新运行）；
+/// 停止路径的运行态由前端复位（不 emit run-exit，与旧 taskkill 即杀路径一致）。
+fn kill_with_grace(mut child: Child) {
+    std::thread::spawn(move || {
+        let pid = child.id();
+        crate::util::soft_kill_pid(pid);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while std::time::Instant::now() < deadline {
+            match child.try_wait() {
+                Ok(Some(_)) => return, // 已优雅退出
+                Ok(None) => std::thread::sleep(std::time::Duration::from_millis(100)),
+                Err(_) => return,
+            }
+        }
+        kill_process_tree(&mut child);
+    });
 }
 
 /// CR-14：应用退出（RunEvent::Exit）清理——同步终止全部 LSP 引擎进程树。
@@ -559,6 +745,11 @@ pub(crate) fn lsp_stop_all_for_exit() {
 /// CR-14：应用退出清理——同步终止运行中脚本（理由同上，不能被进程退出截断）。
 pub(crate) fn stop_script_for_exit() {
     unpoison(RUN_STDIN.lock()).take();
+    // P1-H：多实例额外子进程一并同步终止
+    let extras: Vec<Child> = unpoison(RUN_EXTRA.lock()).drain(..).collect();
+    for mut c in extras {
+        kill_process_tree(&mut c);
+    }
     if let Some(mut child) = unpoison(RUN_CHILD.lock()).take() {
         kill_process_tree(&mut child);
     }

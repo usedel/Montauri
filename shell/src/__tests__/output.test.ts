@@ -151,3 +151,43 @@ describe("appendOutputLine（一次性整行）", () => {
     expect(TRACEBACK_RE.lastIndex).toBe(0);
   });
 });
+
+describe("URL 链接识别（P2-L）", () => {
+  it("行内 URL 渲染为可点击链接，点击回传 URL", async () => {
+    const { setOutputUrlHandler } = await import("../output");
+    const handler = vi.fn();
+    setOutputUrlHandler(handler);
+    const container = document.createElement("div");
+    appendOutputLine(container, "Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)", "stdout", vi.fn());
+    const link = Array.from(container.querySelectorAll(".out-link")).find(
+      (el) => el.textContent?.startsWith("http"),
+    ) as HTMLElement;
+    expect(link).toBeTruthy();
+    expect(link.textContent).toBe("http://127.0.0.1:8000");
+    link.click();
+    expect(handler).toHaveBeenCalledWith("http://127.0.0.1:8000");
+  });
+
+  it("句尾标点剥离（句号/右括号不算链接一部分），多 URL 各自成链", async () => {
+    const { setOutputUrlHandler } = await import("../output");
+    const handler = vi.fn();
+    setOutputUrlHandler(handler);
+    const container = document.createElement("div");
+    appendOutputLine(container, "访问 http://a.dev. 与 https://b.dev/docs) 对比", "stdout", vi.fn());
+    const links = Array.from(container.querySelectorAll(".out-link"))
+      .map((el) => el.textContent)
+      .filter((t) => t?.startsWith("http"));
+    expect(links).toEqual(["http://a.dev", "https://b.dev/docs"]);
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("traceback 帧内不误生 URL 链接（两种链接分层叠加不冲突）", () => {
+    const container = document.createElement("div");
+    const onLink = vi.fn();
+    appendOutputLine(container, 'File "main.py", line 7, in <module>', "stderr", onLink);
+    const links = Array.from(container.querySelectorAll(".out-link"));
+    expect(links.length).toBe(1);
+    (links[0] as HTMLElement).click();
+    expect(onLink).toHaveBeenCalledWith({ path: "main.py", line: 7 });
+  });
+});

@@ -313,19 +313,29 @@ pub async fn debug_start(
     };
 
     // ---- 3. 解释器与运行配置 ----
-    let interpreter = workspace_root
-        .as_deref()
-        .and_then(|r| crate::env_cmds::get_interpreter(r.to_string()).ok().flatten());
     let run_config = workspace_root
         .as_deref()
         .map(|r| crate::env_cmds::read_run_config(r, &path))
         .unwrap_or_default();
+    // P1-I：解释器解析（配置级覆盖 > 工作区配置 > .venv 自动检测）
+    let profile_interpreter = run_config.interpreter.trim().to_string();
+    let interpreter = if profile_interpreter.is_empty() {
+        workspace_root
+            .as_deref()
+            .and_then(|r| crate::env_cmds::get_interpreter(r.to_string()).ok().flatten())
+    } else {
+        Some(profile_interpreter)
+    };
 
     if run_config.stdin.effective_mode() == "file" {
         return Err(
             "调试不支持标准输入重定向自文件（PTY 无法直接接管文件）。请在运行配置中把标准输入改为「不接输入」或「交互式」。"
                 .into(),
         );
+    }
+    // P0-C：module 入口必须有模块名（调试与运行同一份配置语义）
+    if run_config.entry.kind == "module" && !run_config.entry.is_module() {
+        return Err("运行配置选择了模块入口，但模块名为空".into());
     }
 
     // ---- 4. 定位自带 debugpy（含 verbatim 剥离）----
@@ -495,14 +505,20 @@ pub async fn debug_attach_debuggee(
         std::env::current_dir().unwrap_or_default().join(p)
     };
 
-    let interpreter = workspace_root
-        .as_deref()
-        .and_then(|r| crate::env_cmds::get_interpreter(r.to_string()).ok().flatten())
-        .ok_or("调试需要已选择的解释器（debug_start 已校验，此处不应到达）")?;
     let run_config = workspace_root
         .as_deref()
         .map(|r| crate::env_cmds::read_run_config(r, &path))
         .unwrap_or_default();
+    // P1-I：解释器解析（配置级覆盖 > 工作区配置）
+    let profile_interpreter = run_config.interpreter.trim().to_string();
+    let interpreter = if profile_interpreter.is_empty() {
+        workspace_root
+            .as_deref()
+            .and_then(|r| crate::env_cmds::get_interpreter(r.to_string()).ok().flatten())
+            .ok_or("调试需要已选择的解释器（debug_start 已校验，此处不应到达）")?
+    } else {
+        profile_interpreter
+    };
     let run_env = crate::run_env::build_run_env(
         &app,
         &script_abs,
@@ -521,14 +537,32 @@ pub async fn debug_attach_debuggee(
     let connect_addr = format!("{host}:{port}");
     let connect_addr_for_log = connect_addr.clone();
 
+    // P0-C/D：module 入口与工作目录——调试与运行消费同一份配置（entry/cwd）。
+    // debugpy CLI 支持 `-m <module>` 形式：`python -m debugpy --connect ... -m <module> [args…]`
+    let is_module = run_config.entry.is_module();
+    if run_config.entry.kind == "module" && !is_module {
+        return Err("运行配置选择了模块入口，但模块名为空".into());
+    }
+    let cwd = crate::run_env::resolve_run_cwd(
+        &run_config.cwd,
+        workspace_root.as_deref(),
+        Some(&dir),
+        is_module,
+    );
+
     let mut cmd = std::process::Command::new(&interpreter);
     cmd.arg(debugpy_dir.join("__main__.py").to_string_lossy().to_string());
     cmd.arg("--connect");
     cmd.arg(&connect_addr);
     cmd.arg("--wait-for-client");
-    cmd.arg(script_abs.to_string_lossy().to_string());
+    if is_module {
+        cmd.arg("-m");
+        cmd.arg(run_config.entry.target_trimmed());
+    } else {
+        cmd.arg(script_abs.to_string_lossy().to_string());
+    }
     cmd.args(&run_env.args);
-    cmd.current_dir(&dir);
+    cmd.current_dir(&cwd);
     for (k, v) in &run_env.env {
         cmd.env(k, v);
     }

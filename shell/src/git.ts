@@ -10,7 +10,7 @@ import { appendOutputLine, clearOutput } from "./output";
 import { refreshTreeWithExpandedState } from "./fileTree";
 import { setBottomTab } from "./termUi";
 import { motionDisabled } from "./anim"; // UI-11：diff 编辑器不走 buildEditorOptions，需单独接管光标闪烁
-import { gotoFromLink } from "./main";
+import { gotoFromLink } from "./tracebackLink"; // TD-14：gotoFromLink 迁出 main，逐边解环（TD-13）
 // CR-25：状态存储下沉到零依赖的 gitStatusState（fileTree 装饰只读，不再 import 本模块）
 import { gitStatuses, gitDirtyDirs, gitRepoActive } from "./gitStatusState";
 
