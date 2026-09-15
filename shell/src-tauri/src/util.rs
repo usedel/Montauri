@@ -110,29 +110,9 @@ pub(crate) fn unpoison<T>(r: std::sync::LockResult<T>) -> T {
     r.unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-/// P1-J：温和终止子进程（尽力而为，不保证成功）。
-///
-/// - Unix：`kill -INT`（等价 Ctrl+C），uvicorn 等长驻服务可捕获后优雅退出（关连接池、落日志）；
-/// - Windows：run_script 拉起的子进程带 CREATE_NO_WINDOW（**独享**隐藏控制台），而
-///   `GenerateConsoleCtrlEvent` 只能投递到与调用方**共享控制台**的进程组——跨控制台不可达；
-///   `AttachConsole` + `FreeConsole` 是进程级危险操作（影响全部线程），不采用。
-///   故 Windows 下此函数为 no-op，由调用方的「stdin drop + 宽限窗口 + 强杀兜底」序列承担软杀语义。
-pub(crate) fn soft_kill_pid(pid: u32) {
-    #[cfg(not(windows))]
-    {
-        let _ = std::process::Command::new("kill")
-            .arg("-INT")
-            .arg(pid.to_string())
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status();
-    }
-    #[cfg(windows)]
-    {
-        let _ = pid; // 见函数注释：Windows 下无安全的跨控制台软杀手段
-    }
-}
+// 注：曾有 soft_kill_pid（P1-J 温和终止，服务 piped run_script 的「stdin drop + 宽限 +
+// 强杀」序列）——随 v3.4 §17-16 删净 piped 路径失去全部调用方，移除；运行链路的软杀
+// 语义统一由 PTY 写 \x03（term_write）承担，见 termUi::stopRunInstanceById。
 
 /// 终止子进程**及其全部子孙进程**并回收（同步阻塞）。
 ///

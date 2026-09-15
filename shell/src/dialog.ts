@@ -137,6 +137,82 @@ export function openConfirm(opts: ConfirmOptions): Promise<boolean> {
   });
 }
 
+// ---------- v3.4 §6.4（M3-3.7）：三选一对话框（项目运行二选一 + 取消） ----------
+
+export interface ChoiceOptions {
+  title?: string;
+  message: string;
+  /** 主按钮（推荐动作） */
+  okLabel: string;
+  /** 中性按钮（备选动作）；省略则退化为双按钮 */
+  neutralLabel?: string;
+  /** 取消按钮，默认「取消」 */
+  cancelLabel?: string;
+  kind?: DialogKind;
+}
+
+/** 三选一结果："ok" / "neutral" / "cancel"（Esc / 遮罩 = cancel，绝不误触动作） */
+export type ChoiceResult = "ok" | "neutral" | "cancel";
+
+/** 三按钮选择框：ok（主）+ neutral（备选）+ cancel。Esc 与点遮罩均 = cancel。
+ *  v3.4 §6.4：项目运行中再点「运行项目」的「停止并重跑 / 新建实例」二选一——
+ *  中性按钮承载「新建实例」，主按钮承载「停止并重跑」，取消是安全出口。
+ *  ⚠️ DOM 节点一律 getElementById 取**真元素**：模块级 lazyEl 代理不能作为
+ *  insertBefore 的参照节点（Proxy 非 Node，DOM API 直接抛 TypeError——实测踩坑）。 */
+export function openChoice(opts: ChoiceOptions): Promise<ChoiceResult> {
+  return new Promise((resolve) => {
+    titleEl.textContent = opts.title ?? "";
+    titleEl.classList.toggle("hidden", !opts.title);
+    messageEl.textContent = opts.message;
+    const okReal = document.getElementById("confirm-ok") as HTMLButtonElement;
+    const cancelReal = document.getElementById("confirm-cancel") as HTMLButtonElement;
+    okReal.textContent = opts.okLabel;
+    cancelReal.textContent = opts.cancelLabel ?? "取消";
+    applyKind(opts.kind ?? "primary");
+
+    // 中性按钮：动态插入到 ok 按钮之前（对话框同时只会有一个实例，用后即删）
+    const card = modalEl.querySelector<HTMLElement>(".modal-actions");
+    let neutralBtn: HTMLButtonElement | null = null;
+    if (opts.neutralLabel && card) {
+      neutralBtn = document.createElement("button");
+      neutralBtn.className = "btn";
+      neutralBtn.textContent = opts.neutralLabel;
+      card.insertBefore(neutralBtn, okReal);
+    }
+
+    showEl(modalEl);
+    let releaseFocus: (() => void) | null = trapFocus(modalEl);
+
+    const finish = (v: ChoiceResult): void => {
+      releaseFocus?.();
+      releaseFocus = null;
+      hideEl(modalEl);
+      okReal.onclick = null;
+      cancelReal.onclick = null;
+      okReal.onkeydown = null;
+      cancelReal.onkeydown = null;
+      modalEl.onmousedown = null;
+      neutralBtn?.remove();
+      resolve(v);
+    };
+
+    okReal.onclick = () => finish("ok");
+    cancelReal.onclick = () => finish("cancel");
+    neutralBtn?.addEventListener("click", () => finish("neutral"));
+    for (const b of [okReal, cancelReal, neutralBtn]) {
+      if (b) b.onkeydown = (e) => {
+        if (e.key === "Escape") finish("cancel");
+      };
+    }
+    modalEl.onmousedown = (e) => {
+      if (e.target === modalEl) finish("cancel");
+    };
+
+    // 默认焦点放「取消」防误触（与 openConfirm 同策略）
+    cancelReal.focus();
+  });
+}
+
 /** 提示框（单按钮），用户关闭后 resolve */
 export function openAlert(opts: AlertOptions): Promise<void> {
   return openModal({
@@ -171,14 +247,21 @@ export function openPrompt(opts: PromptOptions): Promise<string | null> {
     const finish = (v: string | null): void => {
       releaseFocus?.();
       releaseFocus = null;
+      document.removeEventListener("keydown", onKeydown);
       hideEl(promptModalEl);
       promptOkBtn.onclick = null;
       promptCancelBtn.onclick = null;
-      promptModalEl.onmousedown = null;
       promptInputEl.onkeydown = null;
       resolve(v);
     };
-    // 回车 = 确定（输入框单行的自然语义）；Escape = 取消
+    // tech-debt #18：含可编辑内容，点遮罩不关闭；仅 Esc / 确定 / 取消关闭（document 级，close 时移除）
+    const onKeydown = (e: KeyboardEvent): void => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        finish(null);
+      }
+    };
+    // 回车 = 确定（输入框单行的自然语义）
     const submit = (): void => finish(promptInputEl.value.trim());
 
     promptOkBtn.onclick = submit;
@@ -187,14 +270,9 @@ export function openPrompt(opts: PromptOptions): Promise<string | null> {
       if (e.key === "Enter") {
         e.preventDefault();
         submit();
-      } else if (e.key === "Escape") {
-        e.preventDefault();
-        finish(null);
       }
     };
-    promptModalEl.onmousedown = (e) => {
-      if (e.target === promptModalEl) finish(null);
-    };
+    document.addEventListener("keydown", onKeydown);
 
     promptInputEl.focus();
     promptInputEl.select();

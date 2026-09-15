@@ -33,7 +33,9 @@ interface WelcomeShortcut {
 const SHORTCUTS: WelcomeShortcut[] = [
   { label: "保存文件", kb: "save" },
   { label: "全局搜索", kb: "global_search" },
-  { label: "运行当前文件", kb: "run" },
+  // v3.4 §17-7（M3-3.5）：run 拆为 run_script + run_project
+  { label: "运行脚本", kb: "run_script" },
+  { label: "运行项目", kb: "run_project" },
   { label: "跳转到定义", kb: "goto_definition", fallback: "F12" },
   { label: "查找引用", fixed: "Shift+F12" },
   { label: "格式化文档", fixed: "Shift+Alt+F" },

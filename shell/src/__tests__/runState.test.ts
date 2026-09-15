@@ -1,17 +1,33 @@
-// TD-14 ①：运行态单一真值（RunState 判别联合）+ 运行配置归一化口径的单测。
-// 纯模块（零 DOM 依赖），默认 node 环境即可。
+// TD-14 ① + v3.4 §17-4（M3-3.3）：多实例运行列表 + 运行配置归一化口径的单测。
+// RunState 从单实例判别联合改为**运行实例列表**（kind/id/label/phase/startedAt）；
+// isRunning() = 任一实例在跑；⏹ 与 tab 停止按钮按实例 id 路由。纯模块（零 DOM 依赖）。
 
 import { describe, expect, it, beforeEach } from "vitest";
 import {
-  EMPTY_RUN_CONFIG, getRunState, isRunning, normalizeRunConfig, runChannelOf, runningPathOf,
-  runningStdinModeOf, selectionMetaOf, setRunState, stdinModeOf, displayTargetName,
-  type RunConfig, type RunTarget,
+  EMPTY_RUN_CONFIG, addRunInstance, clearRunInstances, findRunInstance, isRunning,
+  latestActiveInstance, listRunInstances, normalizeRunConfig, projectRunActive,
+  removeRunInstance, resetRunStateAll, runningPathsOf, scriptRunActive, selectionMetaOf,
+  type RunInstance,
 } from "../runState";
 
+function inst(partial: Partial<RunInstance> & Pick<RunInstance, "id" | "kind">): RunInstance {
+  return {
+    label: "运行",
+    phase: "running",
+    startedAt: Date.now(),
+    path: null,
+    selection: null,
+    exit: null,
+    canceled: false,
+    stopping: false,
+    ...partial,
+  };
+}
+
 describe("normalizeRunConfig（与后端 RunProfile serde default 同口径）", () => {
-  it("缺字段一律回落缺省（stdin 默认 interactive，布尔默认 false）", () => {
-    const cfg = normalizeRunConfig(undefined, "main.py");
-    expect(cfg).toEqual({ ...EMPTY_RUN_CONFIG, name: "main.py" });
+  it("缺字段一律回落缺省", () => {
+    const cfg = normalizeRunConfig(undefined);
+    expect(cfg).toEqual(EMPTY_RUN_CONFIG);
   });
 
   it("未知 entry.kind 回落 script；module 原样保留", () => {
@@ -22,149 +38,88 @@ describe("normalizeRunConfig（与后端 RunProfile serde default 同口径）",
     });
   });
 
-  it("布尔字段仅显式 true 才算真（存量 0/undefined 不误判）", () => {
-    const cfg = normalizeRunConfig({ allow_multiple: 1 as unknown as boolean, auto_rerun: true, python_console: false });
-    expect(cfg.allow_multiple).toBe(false);
-    expect(cfg.auto_rerun).toBe(true);
-    expect(cfg.python_console).toBe(false);
-  });
-
-  it("P2-Q 新增字段 python_console 被归一化", () => {
-    expect(normalizeRunConfig({ python_console: true }).python_console).toBe(true);
-  });
-});
-
-describe("stdinModeOf（与后端 effective_mode 同口径）", () => {
-  it("file 且有路径 → file", () => {
-    expect(stdinModeOf({ stdin: { mode: "file", path: "in.txt" } })).toBe("file");
-  });
-
-  it("file 但路径为空 → null（选了重定向却没给文件）", () => {
-    expect(stdinModeOf({ stdin: { mode: "file", path: "   " } })).toBe("null");
-  });
-
-  it("interactive 原样；未知/缺失 → null", () => {
-    expect(stdinModeOf({ stdin: { mode: "interactive", path: "" } })).toBe("interactive");
-    expect(stdinModeOf({ stdin: { mode: "weird" as "null", path: "" } })).toBe("null");
-    expect(stdinModeOf(undefined)).toBe("null");
+  it("v2 遗留字段（name/stdin/allow_multiple 等）被静默丢弃，不进归一化结果（§4.3）", () => {
+    const cfg = normalizeRunConfig({
+      name: "legacy",
+      stdin: { mode: "file", path: "in.txt" },
+      allow_multiple: true,
+      auto_rerun: true,
+      python_console: true,
+      args: "--x",
+    } as unknown as Parameters<typeof normalizeRunConfig>[0]);
+    expect(cfg).toEqual({ ...EMPTY_RUN_CONFIG, args: "--x" });
+    expect("stdin" in cfg).toBe(false);
+    expect("name" in cfg).toBe(false);
   });
 });
 
-describe("RunState 判别联合（TD-14 ①：整组置位 / 整组作废）", () => {
-  beforeEach(() => setRunState({ phase: "idle" }));
+describe("多实例运行列表（§17-4 / §12）", () => {
+  beforeEach(() => resetRunStateAll());
 
-  it("idle：全部运行期字段取空口径（不再有「半复位」的残留值）", () => {
-    expect(getRunState()).toEqual({ phase: "idle" });
+  it("空列表：isRunning 为假，无实例可查", () => {
     expect(isRunning()).toBe(false);
-    expect(runChannelOf()).toBeNull();
-    expect(runningPathOf()).toBeNull();
-    expect(runningStdinModeOf()).toBe("null");
-    expect(selectionMetaOf()).toBeNull();
+    expect(listRunInstances()).toEqual([]);
+    expect(findRunInstance("run-term-script")).toBeNull();
+    expect(latestActiveInstance()).toBeNull();
   });
 
-  it("running：六个原模块级变量从同一状态读出", () => {
-    const profile: RunConfig = { ...EMPTY_RUN_CONFIG, name: "main.py", auto_rerun: true };
-    setRunState({
-      phase: "running",
-      channel: "output",
-      path: "/ws/main.py",
-      stdinMode: "interactive",
-      eofHinted: false,
-      selection: null,
-      profile,
-    });
+  it("脚本实例：登记后 isRunning / scriptRunActive 为真，path 进 runningPathsOf", () => {
+    addRunInstance(inst({ id: "run-term-script", kind: "script", path: "/ws/main.py" }));
     expect(isRunning()).toBe(true);
-    expect(runChannelOf()).toBe("output");
-    expect(runningPathOf()).toBe("/ws/main.py");
-    expect(runningStdinModeOf()).toBe("interactive");
-    expect(selectionMetaOf()).toBeNull();
-    const s = getRunState();
-    expect(s.phase === "running" && s.profile).toBe(profile);
+    expect(scriptRunActive()).toBe(true);
+    expect(projectRunActive()).toBe(false);
+    expect(runningPathsOf().has("/ws/main.py")).toBe(true);
+    expect(findRunInstance("run-term-script")?.kind).toBe("script");
   });
 
-  it("module 入口运行：path 为 null（无文件锚点）但环境判定仍准确", () => {
-    setRunState({
-      phase: "running",
-      channel: "output",
-      path: null,
-      stdinMode: "null",
-      eofHinted: false,
-      selection: null,
-      profile: null,
-    });
-    expect(isRunning()).toBe(true);
-    expect(runningPathOf()).toBeNull();
+  it("项目实例与脚本实例并存（§12 不互斥）：各自独立、isRunning 覆盖两者", () => {
+    addRunInstance(inst({ id: "run-term-script", kind: "script", path: "/ws/main.py" }));
+    addRunInstance(inst({ id: "run-term-project-1", kind: "project", label: "项目" }));
+    addRunInstance(inst({ id: "run-term-project-2", kind: "project", label: "项目 2" }));
+    expect(listRunInstances()).toHaveLength(3);
+    expect(scriptRunActive()).toBe(true);
+    expect(projectRunActive()).toBe(true);
   });
 
-  it("eofHinted 可在运行中置位（一次运行只提示一次 EOF 归因）", () => {
-    setRunState({
-      phase: "running",
-      channel: "output",
-      path: "/ws/main.py",
-      stdinMode: "null",
-      eofHinted: false,
-      selection: null,
-      profile: null,
-    });
-    const s = getRunState();
-    if (s.phase === "running") s.eofHinted = true;
-    const after = getRunState();
-    expect(after.phase === "running" && after.eofHinted).toBe(true);
-  });
-
-  it("选区运行：selection 元信息随状态整组存在，复位后一并消失", () => {
-    setRunState({
-      phase: "running",
-      channel: "output",
-      path: "/ws/__opencharm_selection__abc.py",
-      stdinMode: "null",
-      eofHinted: false,
-      selection: { tempPath: "/ws/__opencharm_selection__abc.py", sourcePath: "/ws/main.py", startLine: 12 },
-      profile: null,
-    });
-    expect(selectionMetaOf()).toEqual({
-      tempPath: "/ws/__opencharm_selection__abc.py",
-      sourcePath: "/ws/main.py",
-      startLine: 12,
-    });
-
-    setRunState({ phase: "idle" });
-    expect(selectionMetaOf()).toBeNull();
+  it("exited 不算在跑（§7.3）：退出后的实例不再驱动 isRunning / ⏹", () => {
+    addRunInstance(inst({ id: "run-term-script", kind: "script", phase: "exited", exit: { kind: "code", code: 0 } }));
     expect(isRunning()).toBe(false);
+    expect(scriptRunActive()).toBe(false);
+    expect(latestActiveInstance()).toBeNull();
   });
 
-  it("terminal 通道：stdin 恒 null、profile 为 null（PTY 自身承载交互）", () => {
-    setRunState({
-      phase: "running",
-      channel: "terminal",
-      path: "/ws/main.py",
-      stdinMode: "null",
-      eofHinted: false,
-      selection: null,
-      profile: null,
-    });
-    expect(runChannelOf()).toBe("terminal");
-    expect(runningStdinModeOf()).toBe("null");
-  });
-});
-
-describe("运行目标（粘性：▶ 跑的不再是「当前文件」）", () => {
-  const baseName = (p: string): string => p.replace(/\\/g, "/").split("/").pop() ?? p;
-
-  it("文件目标显示 basename，不带来源标识", () => {
-    const t: RunTarget = { kind: "file", path: "/ws/pkg/main.py" };
-    expect(displayTargetName(t, baseName)).toBe("main.py");
+  it("⏹ 停止路由取最近启动且在跑的（§10：只停一个）", () => {
+    const t0 = Date.now() - 5000;
+    addRunInstance(inst({ id: "run-term-script", kind: "script", startedAt: t0 }));
+    addRunInstance(inst({ id: "run-term-project-1", kind: "project", startedAt: t0 + 1000 }));
+    addRunInstance(inst({ id: "run-term-project-2", kind: "project", startedAt: t0 + 2000 }));
+    expect(latestActiveInstance()?.id).toBe("run-term-project-2");
   });
 
-  it("命名配置目标附加「（配置）」来源标识，与「跑某个文件」区分", () => {
-    const t: RunTarget = { kind: "profile", name: "uvicorn" };
-    expect(displayTargetName(t, baseName)).toBe("uvicorn（配置）");
+  it("⏹ 停止路由不含 preparing 实例（§7.3：preparing 态 ⏹ 置灰——进程未落地无处着力，复查回归钉）", () => {
+    const t0 = Date.now() - 5000;
+    // 仅一个 preparing 实例（无 running）→ ⏹ 无目标
+    addRunInstance(inst({ id: "run-term-script", kind: "script", phase: "preparing", startedAt: t0 }));
+    expect(latestActiveInstance()).toBeNull();
+    // preparing（晚启动）与 running（早启动）并存 → 取 running 的
+    addRunInstance(inst({ id: "run-term-project-1", kind: "project", phase: "running", startedAt: t0 - 1000 }));
+    expect(latestActiveInstance()?.id).toBe("run-term-project-1");
   });
 
-  it("配置名与文件名同形时，显示名仍能区分二者", () => {
-    const file: RunTarget = { kind: "file", path: "/ws/app.py" };
-    const profile: RunTarget = { kind: "profile", name: "app.py" };
-    expect(displayTargetName(file, baseName)).toBe("app.py");
-    expect(displayTargetName(profile, baseName)).not.toBe(displayTargetName(file, baseName));
+  it("移除实例（关闭 tab）：removeRunInstance 幂等，clearRunInstances 清全部（§15）", () => {
+    addRunInstance(inst({ id: "run-term-script", kind: "script" }));
+    addRunInstance(inst({ id: "run-term-project-1", kind: "project" }));
+    removeRunInstance("run-term-script");
+    removeRunInstance("run-term-script"); // 幂等
+    expect(listRunInstances()).toHaveLength(1);
+    clearRunInstances();
+    expect(listRunInstances()).toHaveLength(0);
+  });
+
+  it("选区运行：selection 元信息按临时文件路径查找（traceback 映射）", () => {
+    const sel = { tempPath: "/ws/__opencharm_selection__abc.py", sourcePath: "/ws/main.py", startLine: 12 };
+    addRunInstance(inst({ id: "run-term-script", kind: "script", path: sel.tempPath, selection: sel }));
+    expect(selectionMetaOf(sel.tempPath)).toEqual(sel);
+    expect(selectionMetaOf("/ws/other.py")).toBeNull();
   });
 });

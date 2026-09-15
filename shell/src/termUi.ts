@@ -1,10 +1,17 @@
 // 终端功能域（TD-007 迁出 main.ts）：集成终端多会话 UI（Phase 4 / P2-7）+
 // 底部面板标签切换（输出 / 终端 / 差异）。term-data/term-exit 事件分发也在此接线。
+//
+// v3.4 M3（§17-5）：termUi 按实例化——运行终端的退出回调 / runActive / tab 查找 /
+// 停止路由全部按实例 id 绑定（多实例：脚本唯一「运行」+「项目 N」并行）；启动前确保
+// tab 存在（无则重建，§7.1 不变式）；preparing 期关闭 tab 的竞态用 canceled 标记 +
+// invoke 返回后按 id 幂等补杀兜底（§7.4）。
+//
+// v3.4 §11（M3-3.8）：运行历史采集挂到 term-data 分发点——按实例 id 归属，剥离 ANSI。
 
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { app, $, outputEl } from "./state";
-import { basename, codicon, emptyState, parentDirOf } from "./util"; // UI-12：终端无会话时的空态
+import { basename, codicon, emptyState, parentDirOf, stripAnsi } from "./util"; // UI-12：终端无会话时的空态；stripAnsi（§11 历史采集）
 import { IntegratedTerminal } from "./terminal";
 import { clearOutput } from "./output";
 import { ensureDiffEditor } from "./git";
@@ -21,8 +28,16 @@ interface TermSessionUI {
   view: HTMLElement;
   /** S3："run" = 专用「运行终端」（脚本跑完即结束会话）；"shell" = 普通交互 shell */
   kind: "shell" | "run";
+  /** 运行终端专属（v3.4 §17-12）：script = 脚本运行 tab；project = 项目运行 tab */
+  runKind?: "script" | "project";
   /** 运行终端专属：当前是否有脚本在跑（驱动 tab 上的停止按钮） */
   runActive: boolean;
+  /** 运行终端专属：按实例退出回调（runFlow 注册；自然退出 / 主动停止 / 关闭 tab 三路共用） */
+  runExit?: (code: number) => void;
+  /** 运行终端专属：按实例输出采集回调（运行历史入档，§11） */
+  runOnData?: (text: string) => void;
+  /** preparing 期关闭 tab：invoke 返回后按 id 幂等补杀（§7.4 竞态兜底） */
+  canceled?: boolean;
   /** 该会话的 shell 别名（"auto"/"pwsh"/"powershell"/"cmd"）；run 会话恒为 "auto"（不参与 shell 选择，仅占位） */
   shell: string;
 }
@@ -33,10 +48,8 @@ const termSessions: TermSessionUI[] = [];
 let activeTermId: string | null = null;
 /** 终端编号自增（生成 label「终端 N」） */
 let termSeq = 0;
-/** 运行终端编号自增（生成 id `run-term-N`；后端按该前缀识别「运行会话」做单实例守卫） */
-let runTermSeq = 0;
-/** 运行终端结束回调（main.ts 注册：复位统一运行态——停止按钮 / tab 运行图标，§4.7 结论 3） */
-let runExitHook: (() => void) | null = null;
+/** 项目运行实例序号（v3.4 §17-12：id `run-term-project-<N>`，「项目 2」起为并行实例） */
+let projectRunSeq = 1;
 /** 输出面板的跨域回调（main.ts 注册，避免 termUi 反向依赖 main.ts 造成循环导入） */
 export interface OutputPanelHooks {
   /** 切标签后调用：同步 S4 交互输入行的可见性（输入行只在「输出」标签下有意义） */
@@ -141,6 +154,11 @@ function activeTermSession(): TermSessionUI | null {
   return termSessions.find((s) => s.id === activeTermId) ?? null;
 }
 
+/** 按 id 查找终端会话（termUi 按实例化的基础查找，§17-5） */
+function sessionById(id: string): TermSessionUI | null {
+  return termSessions.find((s) => s.id === id) ?? null;
+}
+
 /** 新建一个终端会话并设为激活；返回该会话。
  * `shell` 为显式别名；缺省回退全局默认 `app.settings.terminal_shell`。 */
 async function createTerminal(cwd: string | null, shell?: string): Promise<TermSessionUI | null> {
@@ -232,11 +250,29 @@ function activateTerminal(id: string): void {
   }
 }
 
-/** 关闭指定终端 */
+/** 运行终端被关闭的回调（runFlow 注册：移除对应实例并复位运行态，§7.1 不变式的
+ *  runState 半边——「tab 被关闭 ⇒ 实例必须终止并复位」）。 */
+let runTabClosedHook: ((id: string) => void) | null = null;
+
+/** 注入运行 tab 关闭回调（runFlow 的 wireRunFlow 注册） */
+export function setRunTabClosedHook(fn: (id: string) => void): void {
+  runTabClosedHook = fn;
+}
+
+/** 关闭指定终端（运行终端 = 停止 + 关闭，§7.1 不变式：先终止进程再移除 tab） */
 async function closeTerminal(id: string): Promise<void> {
   const idx = termSessions.findIndex((s) => s.id === id);
   if (idx === -1) return;
   const [s] = termSessions.splice(idx, 1);
+  if (s.kind === "run") {
+    // preparing 期（run_in_terminal invoke 在途）：kill 可能打到后端尚未登记的 id 落空。
+    // §7.4 竞态兜底：标记 canceled，spawn 返回后按 id 幂等补杀；runActive 期 kill 即时生效。
+    s.canceled = true;
+    s.runExit = undefined; // 关闭 tab 即复位，退出回调不再需要（实例移除由 hook 承担）
+    s.runOnData = undefined;
+    // IntegratedTerminal.dispose 在 started=true 时含 term_kill；started=false（invoke 在途）
+    // 时 kill 落空——补杀由 runScriptInTerminal 返回路径的 killIfCanceled 承担
+  }
   await s.iterm.dispose();
   s.view.remove();
   if (activeTermId === id) {
@@ -244,15 +280,15 @@ async function closeTerminal(id: string): Promise<void> {
   }
   renderTerminalTabs();
   renderTerminalViews();
-  // S3：关掉正在跑的运行终端 = 停止运行，必须同步复位统一运行态（否则停止按钮永远亮着）
-  if (s.kind === "run" && s.runActive) fireRunExit();
+  // §7.1 不变式：运行 tab 被关 ⇒ 实例终止并复位（runFlow 侧移除实例 + 重绘运行组）
+  if (s.kind === "run") runTabClosedHook?.(s.id);
 }
 
-/** 触发运行结束回调（自然退出 / 主动停止 / 关闭运行终端三处共用，且只触发一次） */
-function fireRunExit(): void {
-  const hook = runExitHook;
-  runExitHook = null;
-  hook?.();
+/** 检查 preparing 竞态补偿（§7.4）：会话被取消（关闭 tab）后，invoke 返回时补杀后端进程。
+ *  由 runScriptInTerminal 在 startRun 返回后调用——后端 TERMS 已登记，此时 kill 必命中。 */
+async function killIfCanceled(s: TermSessionUI): Promise<void> {
+  if (!s.canceled) return;
+  await invoke("term_kill", { id: s.id }).catch(() => undefined);
 }
 
 /** UI-16：给「以 span/div 充当按钮」的元素补齐 button 语义 + 键盘激活。
@@ -303,26 +339,29 @@ function renderTerminalTabs(): void {
     name.className = "term-tab-name";
     name.textContent = termTitle(s);
     el.appendChild(name);
-    // S3：运行中给一个停止按钮（与标签页运行图标 / stopRun 共用同一运行态，结论 3）
+    // S3：运行中给一个停止按钮（按实例 id 路由，§17-5 / §10：各运行 tab 独立停止）
     if (s.kind === "run" && s.runActive) {
       const stop = document.createElement("span");
       stop.className = "term-tab-stop";
       stop.appendChild(codicon("debug-stop"));
       // UI-09：这两个是 <span> 而非 <button>（沿用既有结构，改成 button 需重置按钮默认样式）。
       // UI-16：已按第四批待办补齐 role/tabindex/键盘激活（见 makeSpanButton）。
-      stop.dataset.tip = "停止运行";
-      makeSpanButton(stop, "停止运行");
+      stop.dataset.tip = `停止 ${s.label}`;
+      makeSpanButton(stop, `停止 ${s.label}`);
       stop.addEventListener("click", (ev) => {
         ev.stopPropagation();
-        void stopRunTerminal();
+        // §10：各运行 tab 独立停止——路由到 runFlow 的完整停止路径（进程 + 实例态收口）
+        const viaHook = runTabStopHook?.(s.id);
+        if (viaHook) void viaHook;
+        else void stopRunInstanceById(s.id);
       });
       el.appendChild(stop);
     }
     const close = document.createElement("span");
     close.className = "term-tab-close";
     close.appendChild(codicon("close"));
-    close.dataset.tip = s.kind === "run" ? "关闭运行终端" : "关闭终端";
-    makeSpanButton(close, s.kind === "run" ? "关闭运行终端" : "关闭终端"); // UI-16
+    close.dataset.tip = s.kind === "run" ? "关闭运行终端（先停止）" : "关闭终端";
+    makeSpanButton(close, s.kind === "run" ? "关闭运行终端（先停止）" : "关闭终端"); // UI-16
     close.addEventListener("click", (ev) => {
       ev.stopPropagation();
       void closeTerminal(s.id);
@@ -422,34 +461,71 @@ export async function openTerminalAt(dir: string): Promise<void> {
   await createTerminal(dir);
 }
 
-// ---------- S3：在终端中运行（真 TTY） ----------
+// ---------- S3：统一运行控制台（v3.4 §6/§17-5 按实例化） ----------
 
-/** 在专用「运行终端」中运行脚本（`terminal::run_in_terminal` → PTY 直跑解释器，不套 shell）。
+/** runScriptInTerminal 的启动参数（按实例化口径，§17-5） */
+export interface RunTerminalOptions {
+  /** 脚本路径（project 时被后端忽略，传 entry.target 占位） */
+  path: string;
+  /** 运行回显行（写在脚本输出之前） */
+  echo: string;
+  /** "script" | "project"（后端 kind 参数） */
+  kind: "script" | "project";
+  /** 显式指定实例 id（「项目 N」并行实例）；缺省按 kind 分配：
+   *  script → run-term-script；project → run-term-project-1（主 tab） */
+  instanceId?: string;
+  /** probe 开关（缺省 = 后端按全局 probe_enabled 控制；选区运行传 false） */
+  probe?: boolean;
+  /** 按实例输出采集回调（运行历史入档，§11；ANSI 剥离在采集侧） */
+  onData?: (text: string) => void;
+  /** 按实例退出回调（自然退出；主动停止 / 关闭 tab 由 runFlow 侧收口） */
+  onExit: (code: number) => void;
+}
+
+/** 在统一运行控制台运行（`terminal::run_in_terminal` → PTY 直跑解释器，不套 shell）。
  *
- * - **单实例**：全局只保留一个运行终端 tab，重复运行**复用**同一 tab（停止后立即可再跑，验收项）；
+ * - **按实例化（§17-5）**：退出回调 / 输出采集 / tab 查找 / 停止路由全部按实例 id 绑定；
+ * - **启动前确保 tab 存在，不存在则重建**（§7.1 不变式，根治「关掉终端再运行没地方输出」）；
+ * - 会话 id 按后端约定分配（§17-12）：script → `run-term-script`；project → 主 tab
+ *   `run-term-project-1` 或并行实例 `run-term-project-<N>`（N ≥ 2）；
  * - 生命周期与 shell 不同（§4.7 结论 2）：脚本跑完即结束会话，tab 保留供阅读输出与点击 traceback；
- * - 回显行与运行按钮同一口径（来源前缀 + 解释器完整路径 + 参数 + stdin），
- *   让「这次用哪套环境跑」在终端里同样显式可见。
+ * - 回显行与运行按钮同一口径（来源前缀 + 解释器完整路径 + 参数）。
  *
- * @param echo 运行回显行（写在脚本输出之前）
- * @param onExit 会话结束（自然退出 / 主动停止 / 关闭 tab）时回调，供 main.ts 复位统一运行态
  * @throws 后端启动失败（已在终端里写下原因），调用方负责复位运行态 */
-export async function runScriptInTerminal(path: string, echo: string, onExit: () => void): Promise<void> {
-  runExitHook = onExit;
-
-  let s = termSessions.find((x) => x.kind === "run");
+export async function runScriptInTerminal(opts: RunTerminalOptions): Promise<void> {
+  const { path, echo, kind } = opts;
+  // 实例 id 分配：脚本恒 run-term-script（全局唯一）；项目按 instanceId（主 tab=1 / 并行 N）
+  const id = opts.instanceId ?? (kind === "project" ? "run-term-project-1" : "run-term-script");
+  // 竞态护栏（§7.4 复查修复）：runState 实例在 preparing 期已被 stopRunById 收口（exited）
+  // 或被关闭 tab 移除 → 本次 spawn 直接放弃（否则进程落地即孤儿——canceled 标记可能在
+  // 会话创建前/后被抹，唯有以 runState 为准才可靠）。onExternalRunAbort 由 runFlow 注入。
+  if (runAbortProbe?.(id)) return;
+  // 启动前确保 tab 存在（§7.1 不变式）：查不到（被关闭 / 首次）则重建
+  let s = termSessions.find((x) => x.id === id);
+  const isNewSession = !s;
   if (!s) {
-    // id 必须以 `run-term-` 开头：后端据此与普通 shell 会话区分（单实例守卫 + 退出事件路由）
-    const id = `run-term-${++runTermSeq}`;
     const view = document.createElement("div");
     view.className = "terminal-view";
     terminalViewsEl.appendChild(view);
     const iterm = new IntegratedTerminal(id, view);
     iterm.setOnExit(() => renderTerminalTabs());
-    s = { id, label: "运行", venv: null, iterm, view, kind: "run", runActive: false, shell: "auto" };
+    const label = kind === "project"
+      ? (id === "run-term-project-1" ? "项目" : `项目 ${Number(id.slice("run-term-project-".length))}`)
+      : `运行 · ${basename(path)}`;
+    s = { id, label, venv: null, iterm, view, kind: "run", runKind: kind, runActive: false, shell: "auto" };
     termSessions.push(s);
+    if (id !== "run-term-script" && id.startsWith("run-term-project-")) {
+      const n = Number(id.slice("run-term-project-".length));
+      if (Number.isFinite(n)) projectRunSeq = Math.max(projectRunSeq, n);
+    }
   }
-  s.label = `运行 · ${basename(path)}`;
+  // 按实例绑定回调（§17-5：每实例各自挂自己的退出回调与采集回调）。
+  // canceled 只在新会话上清零：既有会话可能已被 stopRunById 标记 canceled（preparing 期
+  // 停止），无条件清零会让 spawn 落地后的补杀失效 → 孤儿进程（复查修复）。
+  s.runExit = opts.onExit;
+  s.runOnData = opts.onData;
+  if (isNewSession) s.canceled = false;
+  if (kind === "script") s.label = `运行 · ${basename(path)}`;
   activeTermId = s.id;
   // **先落好运行终端再切标签**：setBottomTab 会触发 ensureAnyTerminal，
   // 顺序反了它会先建一个交互 shell 并把激活态抢走（用户看到的是 shell 而不是运行输出）
@@ -459,39 +535,97 @@ export async function runScriptInTerminal(path: string, echo: string, onExit: ()
   s.iterm.relayout(); // 面板刚切过来，尺寸可能还没稳定（cols/rows 要准，否则 PTY 换行错位）
 
   try {
-    const warnings = await s.iterm.startRun(path, app.workspaceRoot, echo);
+    const warnings = await s.iterm.startRun(path, app.workspaceRoot, echo, kind, opts.probe);
+    // preparing 竞态兜底（§7.4）：tab 在 invoke 在途时被关闭（canceled）→ 后端 TERMS 此刻
+    // 已登记，补杀必命中；未取消则正常进入运行态
+    await killIfCanceled(s);
+    if (s.canceled) return;
     s.runActive = true;
-    // 非致命告警（如 Parameters 解析失败）写进终端，与输出面板路径同一份文案（来自 run_env）
+    // 非致命告警（如 Parameters 解析失败）写进终端（文案来自 run_env）
     for (const w of warnings) s.iterm.writeData(`\x1b[33m${w.replace(/\n/g, "\r\n")}\x1b[0m\r\n`);
     renderTerminalTabs();
   } catch (e) {
     s.runActive = false;
     renderTerminalTabs();
-    fireRunExit();
     throw e;
   }
 }
 
-/** 停止运行终端里的脚本（main.ts 的 `stopRun` 按 runChannel 路由到此）。
- * `term_kill` 不发 term-exit（只有自然退出才 notify），故此处直接触发退出回调，
- * 保证统一运行态立即复位、会话槽可立即复用。
+/** 取消一个 preparing 期实例（runFlow 的 stopRunById 对未落地进程的停止语义，§7.4）：
+ *  仅标记 canceled——spawn 落地后由 runScriptInTerminal 的 killIfCanceled 按 id 补杀。
+ *  对已进入运行态（runActive）的会话无操作（那属于 stopRunInstanceById 的软杀路径）。 */
+export function cancelRunInstance(id: string): void {
+  const s = sessionById(id);
+  if (s && !s.runActive) s.canceled = true;
+}
+
+/** 启动中止探针（runFlow 注册，§7.4 复查修复）：runScriptInTerminal 在 spawn 前询问
+ *  「该实例是否已在 runState 侧被收口（exited）或移除（关闭 tab）」——是则放弃本次
+ *  spawn。这堵住了「stopRunById 在 preparing 期收口实例，但 invoke 已在途、落地即孤儿」
+ *  的窗口（canceled 标记可能晚于会话创建/清零，唯有 runState 是唯一真值）。 */
+let runAbortProbe: ((id: string) => boolean) | null = null;
+
+/** 注入启动中止探针（runFlow 的 wireRunFlow 注册） */
+export function setRunAbortProbe(fn: (id: string) => boolean): void {
+  runAbortProbe = fn;
+}
+
+/** 按实例 id 停止运行（runFlow 的 stopRunById / tab 停止按钮统一路由；幂等，§7.5）。
+ * `term_kill` 不发 term-exit（只有自然退出才 notify），故由调用方（runFlow）收口实例态。
  * P1-J：软杀优先——先向 PTY 写 Ctrl+C（\x03，ConPTY 转换为控制台事件，uvicorn 等
- * 长驻服务可优雅退出），宽限 1.2s 未退再 term_kill 强杀；脚本已自然退出则跳过。 */
-export async function stopRunTerminal(): Promise<void> {
-  const s = termSessions.find((x) => x.kind === "run");
-  if (!s) {
-    fireRunExit();
-    return;
-  }
-  if (s.runActive) {
-    await invoke("term_write", { id: s.id, data: "\x03" }).catch(() => undefined);
-    await new Promise((r) => setTimeout(r, 1200));
-  }
+ * 长驻服务可优雅退出），宽限 1.2s 未退再 term_kill 强杀。 */
+export async function stopRunInstanceById(id: string): Promise<void> {
+  const s = sessionById(id);
+  if (!s || !s.runActive) return; // 幂等：对已结束实例无操作（§7.5 硬规则 3）
+  await invoke("term_write", { id: s.id, data: "\x03" }).catch(() => undefined);
+  await new Promise((r) => setTimeout(r, 1200));
   await invoke("term_kill", { id: s.id }).catch(() => undefined);
   s.runActive = false;
   s.iterm.markStopped();
   renderTerminalTabs();
-  fireRunExit();
+}
+
+// ---------- FastAPI 服务 URL 自动打开（§9，M3-3.9） ----------
+
+/** 用系统浏览器打开 URL（main 侧注入 open_external 的包装；仅 http/https） */
+let externalUrlOpener: ((url: string) => void) | null = null;
+
+/** 注入 URL 打开器（main 注册，避免 termUi 反向依赖 invoke 细节） */
+export function setExternalUrlOpener(fn: (url: string) => void): void {
+  externalUrlOpener = fn;
+}
+
+/** 兼容导出（runFlow 使用） */
+export function openExternalUrl(url: string): void {
+  externalUrlOpener?.(url);
+}
+
+/** Uvicorn 服务就绪行（§9：监听控制台输出中的该行解析实际 URL） */
+const UVICORN_URL_RE = /Uvicorn running on (https?:\/\/\S+)/;
+
+/** 跨块缓冲（§9 复查修复）：PTY 分块可能把就绪行从中间截断（`Uvicorn run` + `ning on …`），
+ *  逐块匹配会漏——保留尾部一段（就绪行长度上限 512 字符足够）跨块拼接。 */
+let uvicornTail = "";
+
+/** 按实例检测 Uvicorn 就绪行并打开浏览器（每项目每会话一次，§9）。
+ *  挂在 term-data 分发点：任何项目运行实例（uvicorn --reload 等）的输出中出现
+ *  `Uvicorn running on http://…` 即解析 URL 并用系统浏览器打开。
+ *  text 须为剥离 ANSI 后的纯文本（调用方保证）。 */
+const uvicornOpenedFor = new Set<string>();
+
+function watchUvicornLine(_id: string, text: string): void {
+  // 已打开过的项目直接跳过（每项目每会话一次，§9），不积累缓冲
+  const root = app.workspaceRoot ?? "";
+  if (root && uvicornOpenedFor.has(root)) return;
+  // 快速路径：不含 "Uvicorn" 且缓冲为空 → 无需拼接，直接返回
+  if (!uvicornTail && !text.includes("Uvicorn")) return;
+  uvicornTail = (uvicornTail + text).slice(-512);
+  const m = UVICORN_URL_RE.exec(uvicornTail);
+  if (!m) return;
+  uvicornTail = "";
+  const url = m[1];
+  if (root) uvicornOpenedFor.add(root);
+  externalUrlOpener?.(url);
 }
 
 /** 执行高频命令（P2-6：一键插入或立即执行）。
@@ -509,6 +643,14 @@ async function runTerminalCommand(cmd: string, run: boolean): Promise<void> {
   s.iterm.sendCommand(cmd, run);
 }
 
+/** tab 停止按钮的停止回调（runFlow 注册：停止进程 + 收口实例态，§10 各 tab 独立停止） */
+let runTabStopHook: ((id: string) => Promise<void>) | null = null;
+
+/** 注入 tab 停止回调（runFlow 的 wireRunFlow 注册，路由到完整停止路径） */
+export function setRunTabStopHook(fn: (id: string) => Promise<void>): void {
+  runTabStopHook = fn;
+}
+
 /** 销毁所有终端并重置底部面板到「输出」标签（关闭/切换工作区时调用） */
 export async function disposeTerminal(): Promise<void> {
   for (const s of termSessions) {
@@ -518,9 +660,8 @@ export async function disposeTerminal(): Promise<void> {
   termSessions.length = 0;
   activeTermId = null;
   termSeq = 0;
-  runTermSeq = 0;
-  // 运行态由 main.ts 的 resetWorkspaceUiState 统一复位；此处只丢弃回调，避免旧工作区的 hook 被后续触发
-  runExitHook = null;
+  projectRunSeq = 1;
+  uvicornOpenedFor.clear();
   renderTerminalTabs();
   bottomTab = "output";
   $("tab-output").classList.add("active");
@@ -566,23 +707,39 @@ export function wireBottomPanel(): void {
   });
 }
 
-/** 接线终端 PTY 事件（P2-7 多会话）：按 id 分发到对应终端实例 */
+// ---------- ANSI 剥离（§11 运行历史采集；实现在 util.ts，纯函数同 basename 层） ----------
+
+/** 接线终端 PTY 事件（P2-7 多会话）：按 id 分发到对应终端实例。
+ *  v3.4 §11（M3-3.8）：运行会话的输出同时送历史采集（剥离 ANSI）与 Uvicorn 监听。 */
 export async function wireTerminalEvents(): Promise<void> {
   // 启动即预取可用 shell 列表，让默认路径（右键「在终端中打开」/「命令…」落点）也能正确退化
   void fetchAvailableShells();
   await listen<{ id: string; data: string }>("term-data", (e) => {
-    termSessions.find((s) => s.id === e.payload.id)?.iterm.writeData(e.payload.data);
+    const s = termSessions.find((x) => x.id === e.payload.id);
+    if (!s) return;
+    s.iterm.writeData(e.payload.data);
+    // 按实例采集（运行历史，§11）+ FastAPI 服务就绪行监听（§9）。
+    // 两者都用剥离 ANSI 后的文本：uvicorn 彩色输出中 URL 后可能紧跟重置码（\x1b[0m），
+    // 对原始数据跑 \S+ 会把转义码吃进 URL（复查修复）
+    if (s.kind === "run") {
+      const plain = stripAnsi(e.payload.data);
+      s.runOnData?.(plain);
+      watchUvicornLine(s.id, plain);
+    }
   });
-  await listen<{ id: string }>("term-exit", (e) => {
+  await listen<{ id: string; code?: number }>("term-exit", (e) => {
     const s = termSessions.find((x) => x.id === e.payload.id);
     if (!s) return;
     s.iterm.handleExit();
-    // S3：运行终端里的脚本自然退出 → 复位统一运行态（停止按钮 / 标签页运行图标），
+    // S3：运行终端里的脚本自然退出 → 按实例触发退出回调（runFlow 收口实例态），
     // tab 本身保留，供阅读输出与点击 traceback（§4.7 结论 2）
     if (s.kind === "run") {
       s.runActive = false;
       renderTerminalTabs();
-      fireRunExit();
+      const code = typeof e.payload.code === "number" ? e.payload.code : 0;
+      const exit = s.runExit;
+      s.runExit = undefined;
+      exit?.(code);
     }
   });
 }

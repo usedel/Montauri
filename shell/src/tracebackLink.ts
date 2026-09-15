@@ -4,7 +4,7 @@
 // terminal.ts::setTerminalLinkHandler 的 handler 注入先例，避免与 main 循环依赖。
 
 import { app, outputEl } from "./state";
-import { joinPath, samePath } from "./util";
+import { joinPath } from "./util";
 import { appendOutputLine, type OutputLink } from "./output";
 import { selectionMetaOf } from "./runState";
 
@@ -21,8 +21,9 @@ export function gotoFromLink(link: OutputLink): void {
   let path = link.path;
   let line = link.line;
   // 选区运行 traceback 的临时文件 → 映射回源文件选区起始行
-  const sel = selectionMetaOf();
-  if (sel && samePath(link.path, sel.tempPath)) {
+  //（v3.4 M3-3.3：多实例模型下按临时文件路径查找对应实例的 selection）
+  const sel = selectionMetaOf(link.path);
+  if (sel) {
     path = sel.sourcePath;
     line = sel.startLine + link.line - 1;
   }

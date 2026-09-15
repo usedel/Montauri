@@ -16,10 +16,18 @@
 | [`docs/python_ide_dev_plan_v2.md`](docs/python_ide_dev_plan_v2.md) | **开发计划 v2（现行）**：Phase 重排与当前进度 |
 | [`docs/python_debug_dev_plan.md`](docs/python_debug_dev_plan.md) | **调试功能开发计划 v1.3（已实施）**：DAP / debugpy 集成，D1–D5 |
 | [`docs/debug_acceptance_record.md`](docs/debug_acceptance_record.md) | 调试功能验收记录（D1–D5 / Gate E） |
+| [`docs/python_run_dev_plan.md`](docs/python_run_dev_plan.md) | **运行功能交互设计 v3.4（现行，已实施）**：脚本/项目运行 + 统一 PTY 控制台 |
+| [`docs/run_acceptance_record.md`](docs/run_acceptance_record.md) | 运行功能验收记录（M1–M4 / §19 风险闭环） |
+| [`docs/python_run_migration_plan.md`](docs/python_run_migration_plan.md) | 运行迁移实施计划（M1–M4 已全部完成） |
 | [`docs/data-directory-layout-v2.md`](docs/data-directory-layout-v2.md) | 数据目录与部署方案（现行，已实施） |
 | [`docs/disk-space-plan.md`](docs/disk-space-plan.md) | 系统盘占用治理方案（已实施） |
 | [`docs/tech-debt.md`](docs/tech-debt.md) | 技术债登记（待处理 + 已归档） |
 | [`docs/ui_design_improvement_plan.md`](docs/ui_design_improvement_plan.md) | **界面设计改进计划 v2.1（已全部完成：30/30 项 + 2 条清单外遗留，共十批）**：UI 缺陷、设计系统一致性、ARIA 无障碍与响应式打磨；§7 有逐批进度记录与人工抽查清单 |
+| [`docs/markdown_preview_dev_plan.md`](docs/markdown_preview_dev_plan.md) | Markdown 预览开发计划 v1.0（已实施）：编辑区分栏实时预览 + GFM / 图片 / 链接 |
+| [`docs/live_templates上下文轴修订稿.md`](docs/live_templates上下文轴修订稿.md) | Live Templates 上下文位置轴修订稿 v1.1（相位 A 已实现）：容器 × 位置 × 词法三维 |
+| [`docs/pycharm_feature_research_report.md`](docs/pycharm_feature_research_report.md) | PyCharm 功能调研报告 v1.1（调研，非排期依据） |
+| [`docs/plugin_system_design.md`](docs/plugin_system_design.md) | 插件系统设计方案 v0.1（方向稿） |
+| [`docs/edit_prediction_research_plan.md`](docs/edit_prediction_research_plan.md) | 低延迟编辑预测研究方案 v0.1（探索中） |
 | [`docs/adr/`](docs/adr/) | 技术决策记录（ADR） |
 
 > 技术方案与开发计划冲突时，以开发计划为准并反馈修订。
@@ -34,7 +42,7 @@ open-charm/
 ├── docs/                    # 方案、开发计划、ADR、技术债登记
 ├── probe/                   # ✅ opencharm-probe（Phase 2 交付，Gate C 达标）
 ├── intel/                   # ✅ opencharm-intel（Phase 3 已基本交付，见 intel/README.md）
-└── tools/                   # 构建辅助脚本（fetch-debugpy.ps1 拉取打包 debugpy）
+└── tools/                   # 构建辅助脚本（fetch-debugpy.ps1 拉取打包 debugpy；edit_history_stats.py 统计编辑历史）
 ```
 
 ## 架构第一原则
@@ -88,5 +96,6 @@ powershell -File .\build-release.ps1
 
 - 项目阶段：**Phase 1 / Phase 2 / Phase 2.5 均已交付，Phase 3（opencharm-intel）已交付**；当前进入 **Phase 4（持续打磨）**，进度见 `docs/python_ide_dev_plan_v2.md` §7。
 - **调试功能（DAP / debugpy 最小闭环）已交付**：D1–D5 / Gate E 见 [`docs/debug_acceptance_record.md`](docs/debug_acceptance_record.md)；协议层与打包均已验证，部分 UI 交互项待人工抽查（清单见验收记录 §五）。
+- **运行功能迁移（M1–M4）已交付**：脚本/项目两种运行 + 统一 PTY 运行控制台 + 多实例并行 + 运行历史按实例归属；交互口径 [`docs/python_run_dev_plan.md`](docs/python_run_dev_plan.md) v3.4、验收记录 [`docs/run_acceptance_record.md`](docs/run_acceptance_record.md)。
 - **界面设计改进计划已收官**（十批，30/30 项 + 2 条遗留）：按钮体系 / scale token / Tooltip 双轨收敛 / ARIA 语义（tree·tabs·dialog·tooltip·menu）/ 浅色主题对比度达标 / 响应式下限 / 字号字体族全局跟随设置；沉淀的硬规则已固化到 `.codebuddy/rules/typescript-code-style`，逐批可见变化的人工抽查清单见计划文档 §7。
 - 现行方案：[`docs/python_ide_tech_plan_v3.md`](docs/python_ide_tech_plan_v3.md) · 现行计划：[`docs/python_ide_dev_plan_v2.md`](docs/python_ide_dev_plan_v2.md) · 技术债登记：[`docs/tech-debt.md`](docs/tech-debt.md)。

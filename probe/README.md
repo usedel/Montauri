@@ -53,9 +53,24 @@ uv run opencharm-probe check <script.py> [--expect file.json] [--uv] [--threshol
 |---|---|
 | 全局 PY_START 常开（无操作回调地板） | 1.25x |
 | 仅局部事件 | 1.10x |
-| **本探针（发现窗口 + 局部事件 + 降采样）** | **1.00x** |
+| **本探针（发现窗口 + 局部事件 + 降采样）** | Phase 2 实测 1.00x；M4 基准修复后 **1.35x**（见下） |
 
-- **发现窗口**：启动后全局 `PY_START` 开启（上限 2s），期间分类每个被调用的 code，对项目内函数 arm 局部 `PY_START | PY_RETURN`；连续 2000 次派发无新函数即提前关窗；之后每 5s 重开 0.5s 捕获新函数（延迟 import 等）。
+- **发现窗口**：启动后全局 `PY_START` 开启（上限 2s），期间分类每个被调用的 code，对项目内函数 arm 局部 `PY_START | PY_RETURN`；连续 2000 次派发无新函数即提前关窗（**静默关窗有 0.25s 时间地板**——sitecustomize 链噪音免疫，见 M4 修复批次）；之后每 5s 重开 0.5s 捕获新函数（延迟 import 等）。
+
+> **M4 修复批次（2026-09-14，PTY 实测暴露的两个独立缺陷）**：
+>
+> 1. **quiet 节流失效（开销 1.84x 超红线）**：`_maybe_close_window` 的窗口延长路径
+>    （`_active > 0` 保持窗口）此前**不重置 `_quiet`**——长运行脚本 `_quiet` 只增不减，
+>    越过 `_QUIET_CLOSE` 后每次 PY_START 派发都命中决策点执行 `_sync_active` 全栈回溯
+>    + 窗口推进，CR-01 节流失效（诊断实测：60004 次派发 → 57999 次回溯）。修复：延长
+>    路径补 `_quiet = 0`，回溯回到每窗口至多一次（60004 → 29 次），基准 **1.35x PASS**。
+>    回归：`test_quiet_close_path_also_throttled_by_window`。
+> 2. **sitecustomize 链噪音误关发现窗口（PTY 注入 0 采集）**：宿主环境 PYTHONPATH 里的
+>    第三方 sitecustomize（如 IDE 安全删除 shim）链式加载 probe 后继续执行自身逻辑，
+>    毫秒内涌入 2000+ 次库函数派发（全是「无新函数」）→ `_QUIET_CLOSE` 瞬间吃满 →
+>    静默关窗 → 主脚本零采集。修复：静默关窗加 `_MIN_DISCOVERY_FLOOR`（0.25s）时间
+>    地板——启动噪音在地板内免疫，主脚本 `<module>` 激活后由 `_active > 0` 接管保窗。
+>    回归：`test_sitecustomize_noise_does_not_close_window`。
 - **OR 语义**：全局+局部同开不双触发（实测确认），窗口外采集完全靠局部事件——库代码零派发。
 - **静音**：每函数调用数超限（默认 200）后清空其全部局部事件，此后零派发开销。
 - **类型观测降采样**：每参数位/返回位最多 100 次类型观测（类型分布的边际价值递减）。
@@ -131,13 +146,22 @@ shell 运行按钮集成（P2-T06，已交付）：`lsp.rs` 的 `run_script` 在
 - `PYTHONPATH` 注入会遮蔽目标 venv 自身的 `sitecustomize`（显式运行场景可接受）；
 - 类方法/闭包的 qualname 带 `<locals>` 段（与 Python 语义一致，Phase 3 消费时处理）。
 
-## Gate C 验收状态（Phase 2 完成）
+## Gate C 验收状态（Phase 2 完成；M4 基准复测见下）
 
 | 指标 | 目标 | 当前 |
 |---|---|---|
-| 探针开销 | < 1.5x | ✅ 1.00x（bench `unannotated_scraper`，2000 轮 × 3 函数；回归 0.94x） |
-| trace 正确率抽检 | ≥ 98% | ✅ **100.0%**（`check` 命令，8 项全命中）+ 61 单测全绿 |
+| 探针开销 | < 1.5x | ✅ Phase 2 实测 1.00x；**M4 基准 1.35x**（`bench_probe.ps1`，见下） |
+| trace 正确率抽检 | ≥ 98% | ✅ **100.0%**（`check` 命令，8 项全命中）+ 70 单测全绿 |
 | 采集无感 | 无感 | ✅ shell 运行按钮一键采集；摘要仅 stderr 一行，quiet 可关 |
-| trace 库稳定 | 稳定 | ✅ 跨运行累加正确 + 陈旧标记 + clean 防膨胀 |
+| trace 库稳定 | 稳定 | ✅ 跨运行累加正确 + 陈旧标记 + clean 防膨胀 + WAL 并发（M4：8 进程并行写库零丢失） |
 
 Gate C 四项验收指标全部达标并未留待办。
+
+### M4 复测补充（2026-09-14，`python_run_migration_plan.md` 4.1/4.2）
+
+| 项 | 结果 |
+|---|---|
+| 开销正式基准（重建 `bench_probe.py`/`bench_probe.ps1` 后） | **1.35x PASS**（31.0ms / 42.0ms，best of 3；Windows Python 3.13.7） |
+| `runs.instance` 运行实例归属（§19-5） | ✅ shell PTY 注入 `OPENCHARM_PROBE_INSTANCE` → `runs.instance`，多实例并行归属正确（端到端实测） |
+| 多进程并发写库 | ✅ 8 进程并行 `save` 同一库：全部成功、零丢失、WAL 生效（`test_instance_concurrency.py`） |
+| PTY 注入链采集 | ✅ 实测发现并修复 sitecustomize 链噪音误关发现窗口（`_MIN_DISCOVERY_FLOOR`，见上「M4 开销修复」段同批），PTY 下 6 函数全采集 |

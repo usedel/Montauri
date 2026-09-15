@@ -87,7 +87,7 @@ cargo build --release  # P3-T02 性能验收用
 
 - `shell/src-tauri/src/lsp.rs`：多引擎（`engine` 键区分 `static`/`intel`，事件 payload 带 engine）；新增 `get_intel_info`（定位 exe + 算 trace 库路径）；
 - `shell/src/lsp/client.ts`：双引擎会话 + 补全三层合并（intel `1xx` / 静态 `2xx`，模板 `0xx` 在 main.ts）、hover/definition 合并、文档同步广播；intel 启动失败**静默降级**（静态引擎照常）；
-- 关键坑：`project_hash` 用 Rust `fs::canonicalize`，Windows 上返回 `\\?\` verbatim 前缀，与 probe `os.path.realpath`（无前缀）不一致 → trace 库 hash 错位；已用 `strip_verbatim_prefix` 对齐（见 `shell/src-tauri/src/file_ops.rs`，含对齐测试）。
+- 关键坑：`project_hash` 用 Rust `fs::canonicalize`，Windows 上返回 `\\?\` verbatim 前缀，与 probe `os.path.realpath`（无前缀）不一致 → trace 库 hash 错位；已用 `strip_verbatim_prefix` 对齐（见 `shell/src-tauri/src/file_ops.rs`，含对齐测试）。补：Windows 路径大小写不敏感，两端已加大小写归一（Rust `to_lowercase` / probe `os.path.normcase`），否则同目录大小写不同会产两个 trace 库（tech-debt #4）。
 
 ## 已知约定（来自 probe）
 

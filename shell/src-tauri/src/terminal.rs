@@ -31,13 +31,18 @@ struct TermSession {
 static TERMS: LazyLock<Mutex<HashMap<String, TermSession>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// 「运行终端」会话 id 前缀（S3）：前端按此约定分配 id，后端据此与普通 shell 会话区分——
-/// 单实例守卫（`run_terminal_busy`）与前端退出事件路由都依赖它。
+/// 会话生命周期管理与前端退出事件路由都依赖它。
 pub(crate) const RUN_TERM_PREFIX: &str = "run-term-";
 
-/// 是否有「在终端中运行」的会话在跑（供 `lsp::run_script` 做单实例守卫，§4.7 结论 3）。
-/// 会话自然退出 / 被 `term_kill` 后即刻从 TERMS 移除，因此「停止运行后会话可立即复用」。
-pub(crate) fn run_terminal_busy() -> bool {
-    unpoison(TERMS.lock()).keys().any(|k| k.starts_with(RUN_TERM_PREFIX))
+// 注：曾有 run_terminal_busy()（run-term-* 全量占用判定，供调试三态互斥）——v3.4 §13.2
+// 裁决 10 把互斥收窄为「调试 ↔ 脚本运行」后由 script_run_busy() 取代（项目实例与调试
+// 可并存），失去全部调用方，移除。
+
+/// 是否有**脚本**运行会话在跑（§13.2，裁决 10：互斥收窄——调试只与脚本运行互斥，
+/// 项目实例（长驻服务）可与调试并存）。会话 id 约定见 `run_in_terminal` 文档：
+/// `run-term-script` / `run-term-project-<N>`。
+pub(crate) fn script_run_busy() -> bool {
+    unpoison(TERMS.lock()).keys().any(|k| k == &format!("{RUN_TERM_PREFIX}script"))
 }
 
 /// 杀掉并移除指定会话（不 emit term-exit——只有「自然退出」才 notify 前端）。
@@ -254,7 +259,9 @@ pub(crate) fn start_session(
         }
     });
 
-    // 退出监视线程：轮询 child 状态，自然退出时移除会话并 notify 前端
+    // 退出监视线程：轮询 child 状态，自然退出时移除会话并 notify 前端。
+    // v3.4 §17-17：payload 补 `code`（退出码，u32）与 `signal`（信号名，可空），
+    // 供运行历史记录退出码（§11）。旧前端不读这两个字段时行为不变（向后兼容的加法）。
     let app_exit = app.clone();
     let id_exit = id.to_string();
     std::thread::spawn(move || loop {
@@ -263,19 +270,22 @@ pub(crate) fn start_session(
             let mut map = unpoison(TERMS.lock());
             let done = match map.get_mut(&id_exit) {
                 Some(s) => match s.child.try_wait() {
-                    Ok(Some(_)) => true,
-                    Ok(None) => false,
-                    Err(_) => true,
+                    Ok(Some(status)) => Some((status.exit_code(), status.signal().map(String::from))),
+                    Ok(None) => None,
+                    Err(_) => Some((1, None)), // try_wait 失败按异常退出收口（code=1）
                 },
                 None => return, // 已被 term_kill / term_spawn 移除，静默退出
             };
-            if done {
-                map.remove(&id_exit);
+            match done {
+                None => None, // 仍在运行
+                Some(info) => {
+                    map.remove(&id_exit);
+                    Some(info)
+                }
             }
-            done
         };
-        if exited {
-            let _ = app_exit.emit("term-exit", json!({ "id": id_exit }));
+        if let Some((code, signal)) = exited {
+            let _ = app_exit.emit("term-exit", json!({ "id": id_exit, "code": code, "signal": signal }));
             return;
         }
     });
@@ -283,18 +293,20 @@ pub(crate) fn start_session(
     Ok(())
 }
 
-/// S3：在终端中运行脚本（真 TTY）。**直接 spawn 解释器 + [脚本, ...参数]，跳过 `shell_candidates`**
-/// ——套一层 `pwsh -c python x.py` 会让 Ctrl+C 与退出码多一层语义损耗。
+/// v3.4 §17-12：统一运行入口——`kind: "script" | "project"`。
 ///
-/// - env / PYTHONPATH / args 与 `run_script` **完全一致**（共用 `run_env::build_run_env`，偿还 TD-8 / 坑 6）；
-/// - PTY 下 stdin 天然是 TTY：`getpass` / `tqdm` / `rich` / 彩色输出 / Ctrl+C 均可用（坑 3，管道模式做不到）；
-/// - probe 采集首版**默认关闭**（`probe=false`）：TTY 交互场景采样价值为零，且 probe 输出与 ANSI
-///   的交互未实测（§4.7 结论 4，待有证据再评估开启，单列验收）；
-/// - `stdin.mode == "file"` 不支持：PTY 无法直接 `Stdio::from(File)`，fail fast 给出可执行出路（§4.4 末行）；
-///   不静默降级成手工输入——那会破坏「可复现」这一 file 模式的核心诉求。
+/// - `script`：`path` 为脚本路径，内部 `read_run_config(root, path)` 读**脚本配置**；
+/// - `project`：`path` 忽略，内部读**项目配置**（固定键 `project_run`），按 `entry`
+///   （module/script）解析 `script_abs` / `script_dir` / `fname`；
+/// - env / PYTHONPATH / args 与调试链路共用 `run_env::build_run_env`（单一装配来源）；
+/// - PTY 下 stdin 天然是 TTY：`getpass` / `tqdm` / `rich` / 彩色输出 / Ctrl+C 均可用；
+///   （v3.4 §4.2 已删 `stdin` 配置项，PTY 路径不再有「重定向自文件」分支）；
+/// - probe 受全局 `probe_enabled` 开关控制（§5.4 运行路径必开，§17-13）。
+///
+/// 会话 id 约定（§17-12）：`run-term-script` / `run-term-project-<N>`（沿用 `RUN_TERM_PREFIX`），
+/// 供多实例槽位区分与调试互斥收窄判定（§13.2：`script_run_busy` 只看脚本运行会话）。
 ///
 /// 返回非致命告警（如 Parameters 解析失败），由前端写入终端回显。
-/// P0-C：`profile` 提供时按命名运行配置执行（忽略 `path`；module 入口无需文件锚点）。
 #[tauri::command]
 pub fn run_in_terminal(
     app: AppHandle,
@@ -303,14 +315,11 @@ pub fn run_in_terminal(
     rows: u16,
     path: String,
     workspace_root: Option<String>,
-    profile: Option<String>,
+    kind: Option<String>,
 ) -> Result<Vec<String>, String> {
-    // 单实例统一模型（§4.7 结论 3）：输出面板路径占用时拒绝，反之亦然（见 lsp::run_script）
-    if crate::lsp::run_slot_busy() {
-        return Err("已有脚本在运行".into());
-    }
-    // 三态互斥（debug dev plan §3.2）：调试占用时拒绝终端运行
-    if crate::dap::debug_busy() {
+    let kind = kind.unwrap_or_else(|| "script".to_string());
+    // 三态互斥收窄（§13.2，裁决 10）：调试占用时拒绝**脚本**运行；项目实例（长驻服务）放行
+    if crate::dap::debug_busy() && kind != "project" {
         return Err("已有调试会话在运行".into());
     }
     if !id.starts_with(RUN_TERM_PREFIX) {
@@ -318,15 +327,15 @@ pub fn run_in_terminal(
     }
     kill_session(&id); // 复用同一会话槽：停止运行后会话可立即复用（验收项）
 
-    // P0-C：入口 / 脚本锚点解析——profile 模式忽略 path 参数（module 入口无需文件锚点）；
-    // 文件模式与 run_script 同口径（解释器 / 配置 / uv 兜底）。
-    let (entry, script_abs, script_dir, fname, run_config) = match profile {
-        Some(pname) => {
-            let root = workspace_root.clone().ok_or("运行配置需先打开一个工作区")?;
-            let prof = crate::env_cmds::load_profile_by_name(&root, &pname)
-                .ok_or_else(|| format!("找不到运行配置：{pname}"))?;
+    // 入口 / 脚本锚点解析（§17-12）——kind=project 时忽略 path，读项目配置；
+    // kind=script 与调试链路同口径（解释器 / 配置 / uv 兜底）。
+    let (entry, script_abs, script_dir, fname, run_config) = match kind.as_str() {
+        "project" => {
+            let root = workspace_root.clone().ok_or("运行项目需先打开一个工作区")?;
+            let prof = crate::env_cmds::read_project_run(&root)
+                .ok_or("项目未配置入口：请先在「运行配置 → 项目配置」中设置入口，或让自动探测（首次运行项目时）为您生成")?;
             if prof.entry.kind == "module" && !prof.entry.is_module() {
-                return Err(format!("运行配置「{pname}」选择了模块入口，但模块名为空"));
+                return Err("项目配置选择了模块入口，但模块名为空".into());
             }
             let rootp = std::path::PathBuf::from(&root);
             if prof.entry.is_module() {
@@ -339,7 +348,7 @@ pub fn run_in_terminal(
                 (prof.entry.clone(), abs, Some(dir), fname, prof)
             }
         }
-        None => {
+        _ => {
             let p = std::path::Path::new(&path);
             let dir = p.parent().unwrap_or(std::path::Path::new(".")).to_path_buf();
             let fname = p
@@ -359,17 +368,15 @@ pub fn run_in_terminal(
         }
     };
 
-    // 解释器解析口径与 run_script 一致（工作区配置 > .venv 自动检测 > uv run 兜底）
-    let interpreter = workspace_root
-        .as_deref()
-        .and_then(|r| crate::env_cmds::get_interpreter(r.to_string()).ok().flatten());
-
-    if run_config.stdin.effective_mode() == "file" {
-        return Err(
-            "「在终端中运行」不支持标准输入重定向自文件（PTY 无法直接接管文件）。请在运行配置中把标准输入改为「不接输入」或「交互式」，或改用普通「运行」。"
-                .into(),
-        );
-    }
+    // 解释器解析口径与调试链路一致（配置级覆盖 > 工作区配置 > .venv 自动检测 > uv run 兜底）
+    let profile_interpreter = run_config.interpreter.trim().to_string();
+    let interpreter = if profile_interpreter.is_empty() {
+        workspace_root
+            .as_deref()
+            .and_then(|r| crate::env_cmds::get_interpreter(r.to_string()).ok().flatten())
+    } else {
+        Some(profile_interpreter)
+    };
 
     // P0-D：工作目录解析（空 = script→脚本目录 / module→工作区根；支持宏）
     let cwd = crate::run_env::resolve_run_cwd(
@@ -378,14 +385,24 @@ pub fn run_in_terminal(
         script_dir.as_deref(),
         entry.is_module(),
     );
-    let run_cmd = crate::run_env::resolve_run_command(&entry, &script_abs, &fname, interpreter.as_deref(), run_config.python_console);
+    let run_cmd = crate::run_env::resolve_run_command(&entry, &script_abs, &fname, interpreter.as_deref());
     // uv 兜底分支：uv 缺席时给出可诊断的出路，而不是让 spawn 抛一行 OS 报错
     if run_cmd.is_uv && !crate::tool_paths::is_available("uv", ENV_UV) {
         return Err("未选择解释器且未找到 uv，无法在终端中运行（可在状态栏选择解释器，或先安装 uv）".into());
     }
-    // probe=false：见函数文档（§4.7 结论 4）
-    let run_env =
-        crate::run_env::build_run_env(&app, &script_abs, workspace_root.as_deref(), &run_config, false);
+    // probe 受全局设置控制（§5.4 运行路径必开；§17-13 接线 probe_enabled）。
+    // instance（§19-5）：本会话 id 即运行实例标识（run-term-script / run-term-project-<N>），
+    // 经 OPENCHARM_PROBE_INSTANCE 注入 → probe 落库 runs.instance——多实例并行时 trace
+    // 可归属到单次运行（调试链路 build_run_env 传 None，不受影响）。
+    let probe = crate::settings::current_probe_enabled(&app);
+    let run_env = crate::run_env::build_run_env(
+        &app,
+        &script_abs,
+        workspace_root.as_deref(),
+        &run_config,
+        probe,
+        Some(id.as_str()),
+    );
 
     let pty_system = native_pty_system();
     let pair = pty_system

@@ -66,13 +66,13 @@ debugpy 的启动模型是 `python <debugpy 目录> --listen <host>:<port> --wai
 2. **应当以应用资源目录分发**（推翻原推论 2）：加速模块按版本共存、缺失回退纯 Python，跨解释器/多版本稳健，不存在「逐字节一致」约束。
 3. 落点 = **应用资源目录**（§3.4 打包管线）：调试零安装、零网络、离线可用、切换 venv 无感。调试器实例恒用自带副本——包目录作为脚本参数时 `sys.path[0]` 优先于 venv site-packages，用户环境中即使存在 debugpy 也不影响调试会话。
 
-### 3.2 沟通「运行三态互斥」
+### 3.2 沟通「运行互斥」（v3.4 收窄更新）
 
-现有运行单实例守卫有两处：
-- `lsp.rs::run_slot_busy()` —— 输出面板运行占用
-- `terminal.rs::run_terminal_busy()` —— PTY 运行占用
+> v3.4 运行迁移后更新：piped 运行路径（`run_script` / `run_slot_busy`）已删，运行统一走 PTY；
+> 互斥口径收窄为「调试 ↔ 脚本运行」（`terminal::script_run_busy()` 只看 `run-term-script` 会话），
+> 项目实例（长驻服务）可与调试并存（§13.2 裁决 10）。
 
-调试运行需要**独占**：调试期间拒绝普通运行，反之亦然。实现为新增 `dap.rs::debug_busy()`，并在 `run_script` / `run_in_terminal` / `debug_start` 三处**相互**检查（详见 §7 D1）。
+调试与脚本运行互斥：新增 `dap.rs::debug_busy()`；脚本运行在 `terminal::run_in_terminal` 中反向检查 `debug_busy()`，调试在 `debug_start` 中检查 `script_run_busy()`（详见 §7 D1）。
 
 ### 3.3 端口预分配（避免从 stdout 解析端口）
 
@@ -170,8 +170,8 @@ pub(crate) fn debug_busy() -> bool {
 
 流程（顺序严格）：
 
-1. `debug_busy()` / `lsp::run_slot_busy()` / `terminal::run_terminal_busy()` 三态互斥检查。
-2. 解析脚本路径 / 文件名（同 `run_script` / `run_in_terminal` 的 `script_abs` / `fname` / `dir` 逻辑）。
+1. `debug_busy()` 单实例 + `terminal::script_run_busy()` 脚本运行互斥检查（v3.4 收窄后，项目实例放行）。
+2. 解析脚本路径 / 文件名（同 `run_in_terminal` 脚本分支的 `script_abs` / `fname` / `dir` 逻辑）。
 3. 解析解释器（`env_cmds::get_interpreter`）与运行配置（`env_cmds::read_run_config`）。
 4. **定位自带 debugpy**：`locate_debugpy_dir(&app)` 四级查找——`OPENCHARM_DEBUGPY_DIR` 环境变量 → `~/.opencharm/runtime/debugpy` → Tauri 资源目录候选（`util::resource_candidates`）→ dev 仓库布局上溯 `vendor/debugpy`（同 `lsp.rs::locate_intel_binary` 先例）；返回含 `__main__.py` 的包目录。缺失 → 可诊断错误（安装包损坏 / dev 未运行 `tools/fetch-debugpy.ps1`），**无安装分支**。
 5. **依赖声明检测（提示性质）**：扫 `workspace_root` 下 `pyproject.toml` / `requirements*.txt`（见 §5.1.6），命中则回传前端做一次性提示，不阻断。
@@ -402,7 +402,7 @@ type DebugPhase = "idle" | "starting" | "running" | "stopped" | "exited";
    - `dap::debug_detect`（`locate_debugpy_dir` 结果 + 依赖声明扫描结果，**无子进程探测**）
    - `dap::debug_start`（spawn + 端口预分配 + PTY 落地 + TCP 连接）
 3. `locate_debugpy_dir(app)`：四级查找（`OPENCHARM_DEBUGPY_DIR` → `~/.opencharm/runtime/debugpy` → `util::resource_candidates` → dev 仓库上溯 `vendor/debugpy`），同 `lsp.rs::locate_intel_binary` 先例；纯文件系统操作。
-4. 三态互斥：在 `lsp.rs::run_script`、`terminal.rs::run_in_terminal` 各加一条 `dap::debug_busy()` 检查；在 `debug_start` 里反向检查另两态。
+4. 互斥（v3.4 收窄）：在 `terminal.rs::run_in_terminal` 脚本分支加 `dap::debug_busy()` 检查；在 `debug_start` 里检查 `terminal::script_run_busy()`；项目实例与调试并存。
 5. `debug_detect` 返回 `{ debugpyOk: bool, debugpyDir: string | null, depFound: bool, depFiles: string[] }`。
 6. PTY 落地：把 `terminal.rs::start_session` 调整为 `pub(crate)`（或不导出而在 dap.rs 内复用 openpty 模式），会话 id 用新前缀。
 7. 单测：`scan_debugpy_dep` 纯函数；端口预分配函数。
@@ -453,7 +453,7 @@ type DebugPhase = "idle" | "starting" | "running" | "stopped" | "exited";
 - [ ] 断点同步到 debugpy 后，`configurationDone` 执行到断点即暂停
 - [ ] 停止调试后断点表保留（下次调试自动重放）
 
-### D4 —— 调试态 UI + PTY 复用 + 当前行高亮
+### D4 —— 调试态 UI + 当前行高亮
 
 **范围**：`debugView.ts` + `index.html` 布局 + `views.ts` 注册 + `main.ts` 接线 + 快捷键三处同步。
 
@@ -461,7 +461,7 @@ type DebugPhase = "idle" | "starting" | "running" | "stopped" | "exited";
 
 1. 侧栏 `#view-debug`：工具栏（继续/暂停/单步跳过/单步进入/单步退出/停止）+ 调用栈 + 变量 + 断点列表。
 2. 当前行高亮：`stopped` 事件带 `line` + `source.path`，用 `createDecorationsCollection` 画 `current-line` 装饰（每次 stopped 先 clear 再设）。
-3. 调试进程 stdout 走 PTY：复用 `termUi.ts::runScriptInTerminal` 的模式，但后端命令换成 debugpy 启动（前端可能需要一个 `startDebugInTerminal` 变体，或在 `IntegratedTerminal` 增加 `startDebug`，调 `debug_start` + `term-data` 事件仍由 main 分发）。
+3. 调试进程 stdout 走管道（v1.3 修订：ConPTY 下 pydevd 回连 socket 不工作，改管道模式），debuggee stdout/stderr 经管道转发为 `debug-stdout`/`debug-stderr` 事件 → 输出面板（§13.3；调试期 `input()` 暂不支持）。
 4. 快捷键三处同步（`keybindings.ts` / `DEFAULT_SETTINGS` / Rust `default_keybindings`）加 §6.6 五项。
 5. UI 态：调试运行中，运行组 ▶/⏹ 与 tab 运行图标不误标（区分 debug 态）；停止按钮在调试态路由到 `debug_stop`。
 
@@ -469,7 +469,7 @@ type DebugPhase = "idle" | "starting" | "running" | "stopped" | "exited";
 
 - [ ] 断点暂停 → 侧栏显示调用栈 + 变量，编辑器当前行高亮
 - [ ] 继续 / 单步跳过 / 单步进入 / 单步退出 / 停止全部可用，当前行随步进移动
-- [ ] 脚本 `print` / `input()` 输出走 PTY 真 TTY（彩色 / 交互可用）
+- [ ] 脚本 `print` 输出走输出面板（`debug-stdout`/`debug-stderr` 承接，无断链）；`input()` 调试期暂不支持（§〇 遗留）
 - [ ] 快捷键 F5 / Shift+F5 / F10 / F11 / Shift+F11 生效，设置里可改键
 - [ ] 调试态与运行态 UI 不混淆
 
@@ -520,15 +520,19 @@ type DebugPhase = "idle" | "starting" | "running" | "stopped" | "exited";
 
 ## 10. 附录：现有集成点索引
 
+> **v3.4 运行迁移（`python_run_dev_plan.md`）后更新**：piped 运行路径（`run_script` /
+> `stop_script` / `run_slot_busy` / `RUN_CHILD` 等）已删净，运行统一走 PTY；下表为
+> 调试链路当前实际依赖的集成点（运行口径以 `python_run_dev_plan.md` 为准）。
+
 **Rust（`shell/src-tauri/src/`）**
 
 | 文件 | 关键符号 | 用途 |
 |---|---|---|
 | `lib.rs` | `invoke_handler!` | 注册新命令 |
-| `lsp.rs` | `run_script` / `stop_script` / `run_slot_busy` / `read_frame` / `send_message` / `RUN_CHILD` | 运行单实例 + Content-Length 帧范式 + 进程树清理 |
-| `terminal.rs` | `run_in_terminal` / `start_session` / `run_terminal_busy` / `RUN_TERM_PREFIX` / `term-data`·`term-exit` | PTY 会话 + 真 TTY 运行通道 |
-| `env_cmds.rs` | `get_interpreter` / `read_run_config` / `RunConfig` / `pip_install` / `run_uv_streaming` / `tool_command` | 解释器 / 运行配置（`pip_install` 与调试无关，v1.1 起无 debugpy 安装路径） |
-| `run_env.rs` | `build_run_env` / `resolve_run_command` / `RunEnv` | 环境统一装配（必须复用） |
+| `lsp.rs` | `read_frame` / `send_message` / `lsp_start` / `lsp_stop` | Content-Length 帧范式（dap.rs 内复刻同款，不跨模块依赖） |
+| `terminal.rs` | `run_in_terminal(kind)` / `start_session` / `script_run_busy` / `RUN_TERM_PREFIX` / `term-data`·`term-exit` | PTY 会话 + 真 TTY 运行通道（调试互斥按 §13.2 收窄至脚本运行会话） |
+| `env_cmds.rs` | `get_interpreter` / `read_run_config` / `RunProfile` / `pip_install` / `run_uv_streaming` / `tool_command` | 解释器 / 运行配置（`pip_install` 与调试无关，v1.1 起无 debugpy 安装路径） |
+| `run_env.rs` | `build_run_env` / `resolve_run_command` / `RunEnv` | 环境统一装配（必须复用；调试链路 probe=false + instance=None，§13.4） |
 | `tool_paths.rs` | `tool_command` / `resolve_tool` / `is_available` / `ENV_UV` | uv 定位与 PyPI 镜像注入 |
 | `util.rs` | `kill_process_tree` / `no_window` / `unpoison` / `IncrementalUtf8Decoder` | 进程清理 / 隐藏窗口 / 锁 / 增量 UTF-8 |
 
@@ -536,15 +540,17 @@ type DebugPhase = "idle" | "starting" | "running" | "stopped" | "exited";
 
 | 文件 | 关键符号 | 用途 |
 |---|---|---|
-| `main.ts` | `prepareRun` / `runActive` / `runActiveInTerminal` / `stopRun` / `activateTab` / `openFile` / `renderTabs` | 运行接线 / 运行态 / 编辑器操作 |
+| `main.ts` | `runDebug`（复用 `runFlow.prepareRun`）/ `activateTab` / `openFile` / `renderTabs` | 调试接线 / 编辑器操作（§13.1：prepareRun 为运行与调试共用） |
+| `runFlow.ts` | `prepareRun` / `runScript` / `runProject` / `stopRunById` | 运行域（v3.4 多实例模型；调试互斥判定 `isRunBusy` 只看脚本运行） |
 | `state.ts` | `app` / `Settings` / `DEFAULT_SETTINGS` / `$` / `outputEl` | 共享状态 / DOM 工具 |
 | `views.ts` | `SidebarViewId` / `registerSidebarView` / `setSidebarTab` | 侧栏视图注册（扩展 debug） |
 | `runGutter.ts` | `wireRunGutter` / `refreshRunGutter` / `createDecorationsCollection` | gutter 装饰 + 点击命中范式 |
-| `runWidget.ts` | `RunWidgetState` / handlers 注入模式 | 按钮状态机范式 |
+| `runWidget.ts` | `RunWidgetState` / handlers 注入模式 | 按钮状态机范式（四控件：运行脚本 / 运行项目 / 停止 / 配置） |
 | `terminal.ts` | `IntegratedTerminal.startRun` / `setTerminalLinkHandler` | 前端 PTY 会话 |
-| `termUi.ts` | `runScriptInTerminal` / `stopRunTerminal` / `wireBottomPanel` / `wireTerminalEvents` | 底部面板接线 / 终端运行 |
-| `lsp/client.ts` | request/event 封装范式 | DAP client 对标 |
-| `dialog.ts` | `openConfirm` | 确认弹窗（v1.1：调试流程不再依赖安装引导弹窗；保留用于其他场景） |
+| `termUi.ts` | `runScriptInTerminal` / `stopRunInstanceById` / `wireBottomPanel` / `wireTerminalEvents` | 底部面板接线 / 终端运行（多实例按 id 绑定） |
+| `output.ts` | `appendOutputLine` | 输出面板（v3.4 后仅承载调试输出：`debug-stdout` / `debug-stderr` 事件，§13.3） |
+| `dap/client.ts` | request/event 封装范式 | DAP client 对标 |
+| `dialog.ts` | `openConfirm` / `openChoice` | 确认弹窗（v1.1：调试流程不再依赖安装引导弹窗；保留用于其他场景） |
 | `keybindings.ts` | `KEYBINDING_META` / `setKeybindingHandler` | 快捷键（三处同步） |
 
 **遵守规范**：Rust 侧遵循 `.codebuddy/rules/rust-code-style/RULE.mdc`；TS 侧遵循 `.codebuddy/rules/typescript-code-style/RULE.mdc`；所有耗时子进程走 `spawn_blocking` + 明确超时（参考 `env_cmds` 的 `UV_TIMEOUT` / `run_with_timeout` 先例），避免阻塞 idle。v1.1 后调试路径**无安装/网络子进程**（§3.4 零安装），`debug_detect` 为纯文件系统操作。

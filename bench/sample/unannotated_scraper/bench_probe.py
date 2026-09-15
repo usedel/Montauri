@@ -1,18 +1,13 @@
-"""无注解爬虫样例（bench：运行时采样价值考察）。
+"""probe 开销基准目标脚本（Gate C：开销 < 1.5x；bench_probe.ps1 消费本文件）。
 
-刻意无类型注解、动态结构多——静态引擎在此场景弱，
-Phase 2/3 的 opencharm-probe/intel 主战场：
-- parse_page 返回 dict，静态无法推断字段
-- 工厂函数 make_fetcher 返回闭包，动态分发
-- 插件式 handler 注册表
+刻意无注解、纯 CPU（不联网）——2000 轮 × 3 函数的稳定负载：
+- parse_page：dict 构造 + 列表推导（静态不可知的动态结构）
+- normalize：循环 + 条件 + 字符串处理
+- make_fetcher：闭包工厂 + 动态分发
+
+输出单行 `bench: <sec> s (2000 rounds x 3 funcs)` 供 bench_probe.ps1 抓取计时
+（README 的 Phase 2 开销表即本脚本产出；M4-4.1 正式基准复跑同一负载）。
 """
-
-import requests
-
-
-def fetch(url, timeout=10):
-    resp = requests.get(url, timeout=timeout)
-    return resp.text
 
 
 def parse_page(html):
@@ -23,38 +18,41 @@ def parse_page(html):
     }
 
 
+def normalize(items):
+    out = []
+    for it in items:
+        if it:
+            out.append(it.strip().lower())
+    return out
+
+
 def make_fetcher(base_url):
     # 工厂函数：闭包 + 动态行为
-    session = requests.Session()
-
     def _get(path):
-        return session.get(base_url + path)
+        return base_url + path
 
     return _get
 
 
-# 插件式 handler 注册表（静态必翻车场景）
-HANDLERS = {}
+HTML = ('<html><title>bench</title>' + '<a href="x">y</a>' * 16) * 8
 
 
-def register(name):
-    def deco(fn):
-        HANDLERS[name] = fn
-        return fn
-
-    return deco
-
-
-@register("page")
-def handle_page(data):
-    return parse_page(data)
-
-
-def run():
+def main(rounds=2000):
     fetcher = make_fetcher("https://example.com")
-    for name, handler in HANDLERS.items():
-        print("handler:", name, handler)
+    links = []
+    for i in range(rounds):
+        page = parse_page(HTML)
+        links = normalize(page["links"])
+        fetcher(f"/{i}")
+    return len(links)
 
 
 if __name__ == "__main__":
-    run()
+    import time
+    import os
+
+    rounds = int(os.environ.get("BENCH_ROUNDS", "2000"))
+    t0 = time.perf_counter()
+    main(rounds)
+    dt = time.perf_counter() - t0
+    print(f"bench: {dt:.3f} s ({rounds} rounds x 3 funcs)")

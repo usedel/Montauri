@@ -283,6 +283,46 @@ pub(crate) fn write_min_pyproject(root: &Path, name: &str, requires_python: &str
     fs::write(root.join("pyproject.toml"), content)
 }
 
+/// `name` 是否为 TOML 独立字段（`name = "..."`），而非 `names` / `name_suffix` 等同前缀键
+fn is_name_field(t: &str) -> bool {
+    let Some(rest) = t.strip_prefix("name") else {
+        return false;
+    };
+    rest.starts_with('=') || rest.starts_with(' ') || rest.starts_with('\t')
+}
+
+/// tech-debt #12：uv init 生成的 `[project].name` 按其自身规则（目录名）归一，与方案 B 的
+/// `sanitize_pkg_name` 口径可能不同（特殊字符 / 首尾分隔符）。生成后校验并改写为
+/// `sanitize_pkg_name` 结果，使方案 A / B 的 name 口径一致。
+/// 用字符串行扫描改写（不引入 TOML 解析依赖）；找不到 `[project].name` 或 IO 失败时静默不写。
+fn normalize_project_name(root: &Path, expected: &str) -> std::io::Result<()> {
+    let path = root.join("pyproject.toml");
+    let content = fs::read_to_string(&path)?;
+    let target = sanitize_pkg_name(expected);
+    let mut out: Vec<String> = Vec::with_capacity(content.lines().count() + 1);
+    let mut in_project = false;
+    let mut replaced = false;
+    for line in content.lines() {
+        let t = line.trim();
+        if t.starts_with('[') && t.ends_with(']') {
+            in_project = t == "[project]";
+            out.push(line.to_string());
+            continue;
+        }
+        if in_project && !replaced && is_name_field(t) {
+            let leading = &line[..line.len() - line.trim_start().len()];
+            out.push(format!("{leading}name = \"{target}\""));
+            replaced = true;
+            continue;
+        }
+        out.push(line.to_string());
+    }
+    if replaced {
+        fs::write(&path, out.join("\n"))?;
+    }
+    Ok(())
+}
+
 /// 方案 A：用 uv 官方脚手架生成 pyproject.toml。
 /// `uv init --bare` 只写 pyproject.toml——实测 uv 0.10.11 在非空目录下不生成 main.py/README/.gitignore，
 /// 也不触碰既有文件，因此与 create_project 的 main.py/.gitignore 写入无双写冲突（调研报告 §5 建议 1 的顾虑）。
@@ -327,7 +367,11 @@ pub(crate) fn ensure_pyproject(
     fallback_requires: &str,
 ) -> (bool, String) {
     match uv_init_bare(root, python_arg.as_deref()) {
-        Ok(()) => (true, "已用 uv init --bare 生成 pyproject.toml".to_string()),
+        Ok(()) => {
+            // tech-debt #12：改写 name 使与方案 B 口径一致（失败静默，不阻断生成）
+            let _ = normalize_project_name(root, name);
+            (true, "已用 uv init --bare 生成 pyproject.toml".to_string())
+        }
         Err(e) => match write_min_pyproject(root, name, fallback_requires) {
             Ok(()) => (
                 false,
@@ -1116,6 +1160,60 @@ fn list_workspace_files_impl(root: &str) -> Result<Vec<String>, String> {
     Ok(files)
 }
 
+const MAX_DIR_LIST: usize = 2_000;
+
+/// 列出工作区内的子目录（相对工作区根、统一正斜杠；复用 list_workspace_files 同一套
+/// `ignore` 走查：.gitignore 感知 + 隐藏过滤 + 噪声目录剪枝）。运行配置「工作目录」候选用；
+/// 不含根自身（根由前端以 `${workspaceRoot}` 单列），按路径排序、去重、截断。
+#[tauri::command]
+pub async fn list_workspace_dirs(root: String) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || list_workspace_dirs_impl(&root))
+        .await
+        .map_err(|e| format!("任务执行异常：{e}"))?
+}
+
+fn list_workspace_dirs_impl(root: &str) -> Result<Vec<String>, String> {
+    let root_path = Path::new(root);
+    if !root_path.is_dir() {
+        return Err(format!("工作区目录不存在：{root}"));
+    }
+    let root_norm = root.replace('\\', "/");
+    let root_norm = root_norm.trim_end_matches('/');
+    let mut dirs: Vec<String> = Vec::new();
+    let mut builder = ignore::WalkBuilder::new(root_path);
+    builder
+        .hidden(true)
+        .git_ignore(true)
+        .git_global(true)
+        .git_exclude(true)
+        .filter_entry(|e| {
+            if e.depth() == 0 {
+                return true;
+            }
+            let name = e.file_name().to_string_lossy().into_owned();
+            !SEARCH_IGNORED_DIRS.contains(&name.as_str())
+        });
+    for entry in builder.build() {
+        if let Ok(entry) = entry {
+            if entry.depth() == 0 {
+                continue; // 根自身不计入
+            }
+            if entry.file_type().map_or(false, |ft| ft.is_dir()) {
+                let s = entry.into_path().to_string_lossy().replace('\\', "/");
+                if let Some(rel) = s.strip_prefix(root_norm).and_then(|r| r.strip_prefix('/')) {
+                    if !rel.is_empty() {
+                        dirs.push(rel.to_string());
+                    }
+                }
+            }
+        }
+    }
+    dirs.sort();
+    dirs.dedup();
+    dirs.truncate(MAX_DIR_LIST);
+    Ok(dirs)
+}
+
 // ---------- 单元测试 ----------
 
 #[cfg(test)]
@@ -1129,6 +1227,33 @@ mod tests {
         let d = std::env::temp_dir().join(format!("opencharm-test-{tag}-{nanos}"));
         fs::create_dir_all(&d).unwrap();
         d
+    }
+
+    #[test]
+    fn test_normalize_project_name() {
+        let dir = tmpdir("pkgname");
+        // 模拟 uv init --bare 生成的 pyproject：name 按 uv 口径（保留空格/大小写）
+        fs::write(
+            dir.join("pyproject.toml"),
+            "[project]\nname = \"My Proj\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+        normalize_project_name(&dir, "My Proj").unwrap();
+        let content = fs::read_to_string(dir.join("pyproject.toml")).unwrap();
+        assert!(content.contains("name = \"my-proj\""), "实际内容：{content}");
+
+        // 非 [project] 段的 name（如 [tool.uv]）不被误改
+        fs::write(
+            dir.join("pyproject.toml"),
+            "[project]\nname = \"ok\"\n[tool.uv]\nname = \"keep\"\n",
+        )
+        .unwrap();
+        normalize_project_name(&dir, "ok").unwrap();
+        let content2 = fs::read_to_string(dir.join("pyproject.toml")).unwrap();
+        assert!(content2.contains("name = \"ok\""), "实际内容：{content2}");
+        assert!(content2.contains("name = \"keep\""), "实际内容：{content2}");
+
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
@@ -1367,6 +1492,27 @@ mod tests {
         let mut sorted = files.clone();
         sorted.sort();
         assert_eq!(files, sorted);
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn test_list_workspace_dirs() {
+        let base = tmpdir("dirlist");
+        fs::create_dir_all(base.join("src").join("pkg")).unwrap();
+        fs::write(base.join("src").join("a.py"), "x=1").unwrap();
+        // 噪声目录（.venv 在 SEARCH_IGNORED_DIRS + hidden 双重过滤）不应出现
+        fs::create_dir_all(base.join(".venv").join("lib")).unwrap();
+
+        let dirs = list_workspace_dirs_impl(&base.to_string_lossy()).unwrap();
+        assert!(dirs.contains(&"src".to_string()), "应含 src");
+        assert!(dirs.contains(&"src/pkg".to_string()), "应含 src/pkg（正斜杠相对路径）");
+        assert!(!dirs.iter().any(|d| d.contains(".venv")), "噪声目录应被剪枝");
+        assert!(!dirs.iter().any(|d| d.is_empty()), "不含根自身（空串）");
+        // 排序 + 去重
+        let mut sorted = dirs.clone();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(dirs, sorted);
         fs::remove_dir_all(&base).unwrap();
     }
 

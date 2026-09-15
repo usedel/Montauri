@@ -258,6 +258,10 @@ pub fn project_hash(root: &str) -> String {
     // 否则 shell 与 probe 的 trace 库 hash 错位（P3-T06' 根因）。
     let norm = canonical.to_string_lossy().replace('/', "\\");
     let norm = strip_verbatim_prefix(&norm);
+    // tech-debt #4：Windows 路径不区分大小写，与 probe 的 os.path.normcase（.lower()）对齐——
+    // 否则同一目录大小写不同会各产一个 trace 库，intel 读不到 probe 写的数据。
+    #[cfg(windows)]
+    let norm = norm.to_lowercase();
     let mut hasher = Sha1::new();
     hasher.update(norm.as_bytes());
     let digest = hasher.finalize();
@@ -538,9 +542,10 @@ mod tests {
     /// 与 probe 的口径对齐验证（**不依赖任何具体机器路径**）。
     ///
     /// probe（`probe/src/opencharm_probe/store.py::project_hash`）的哈希输入是
-    /// `sha1(normpath(realpath(root)))[:12]`：realpath 解析真实路径并去掉尾部分隔符，
-    /// normpath 统一为反斜杠。因此「同一目录的不同书写形式」在两端必须落到同一个
-    /// trace 库文件名上——这里用运行期真实存在的临时目录断言这些不变式。
+    /// `sha1(normcase(normpath(realpath(root))))[:12]`：realpath 解析真实路径并去掉尾部分隔符，
+    /// normpath 统一为反斜杠、normcase 统一大小写（Windows）。因此「同一目录的不同书写形式」
+    /// （含大小写变体）在两端必须落到同一个 trace 库文件名上——这里用运行期真实存在的
+    /// 临时目录断言这些不变式。
     ///
     /// （原实现写死本机 hash `dc7d8df083c6`，换机器/换盘符必然误报，故改为不变式断言。）
     #[test]
@@ -567,7 +572,13 @@ mod tests {
         #[cfg(windows)]
         assert_eq!(project_hash(&format!("\\\\?\\{plain}")), h);
 
-        // 5. 不同目录 → 不同键（trace 库文件名隔离）
+        // 5. Windows 大小写变体 → 同键（对应 probe 的 os.path.normcase / to_lowercase，tech-debt #4）
+        #[cfg(windows)]
+        assert_eq!(project_hash(&plain.to_uppercase()), h);
+        #[cfg(windows)]
+        assert_eq!(project_hash(&plain.to_lowercase()), h);
+
+        // 6. 不同目录 → 不同键（trace 库文件名隔离）
         let other = dir.join("other");
         fs::create_dir_all(&other).unwrap();
         assert_ne!(project_hash(&other.to_string_lossy()), h);

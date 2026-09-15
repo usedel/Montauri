@@ -9,7 +9,9 @@ use serde_json::{json, Value};
 use std::fs;
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
+use std::collections::HashMap;
 use std::process::{Command, Stdio};
+use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
 use tauri::{AppHandle, Emitter};
@@ -118,65 +120,19 @@ fn write_config(root: &str, interpreter: Option<&str>) -> Result<(), String> {
     save_config(root, &v)
 }
 
-// ---------- 运行配置（P0-C/D：工作区级命名配置列表）----------
+// ---------- 运行配置（v3.4：脚本配置（每文件）+ 项目配置（每项目））----------
 //
-// 运行单元从「文件」升级为「配置」（对齐 PyCharm Run/Debug Configuration）：
-// - 每份配置：name / entry / args / cwd / env / stdin，存 <data_root>/workspaces/<hash>.json
-//   的 run_profiles 数组（不写入用户项目，架构铁律）；
-// - entry 二选一：script（脚本路径）| module（= python -m，uvicorn / flask 等框架入口）；
-// - 「当前文件」的运行仍是文件中心视角（▶ / 调试 / gutter），经 read_run_config 以
-//   「kind=script 且 target=该文件」匹配配置，无匹配即缺省——相当于 PyCharm 的临时配置；
-// - 旧「按脚本路径为键」的 run_configs 映射在首次读取时**一次性迁移**进 run_profiles
-//   （TD-9 孤儿条目随新模型自然消失）。
+// python_run_dev_plan.md §4：
+// - 脚本配置：每文件一份（可选），存 run_configs map，键 = 脚本相对工作区根路径
+//   （正斜杠，run_config_key 归一）；entry 恒为文件本身（系统填充，不参与存取语义）；
+// - 项目配置：每项目一份，固定键 project_run，entry 为 module | script 二选一；
+// - 旧 run_profiles 数组（v2 命名配置列表）直接忽略废弃：不读取、不转换、不回写（§4.3）。
 
 /// 单个环境变量键值对
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct EnvVar {
     pub key: String,
     pub value: String,
-}
-
-/// stdin 缺省模式：交互式（P0-A，对齐 PyCharm「控制台默认可输入」——`input()` 无需改配置即可应答）。
-/// `null` 降级为**显式**「不接输入」档：仅在用户明确选择时落盘生效（is_empty 相应放行，
-/// 见 [`RunProfile::is_effectively_empty`]）。「piped 无人写入会永久阻塞」的担忧由既有 UI 兜住：
-/// 输入行可见 + 「脚本正在等待输入…」状态 + stopRun 先 drop stdin 唤醒阻塞。
-fn default_stdin_mode() -> String {
-    "interactive".to_string()
-}
-
-/// 标准输入配置（stdin 重定向 S1 + 输出面板交互 S4）。
-/// 用扁平 struct 而非 tagged enum：前端镜像成本最低，且 `#[serde(default)]` 保证
-/// 存量配置无需迁移即反序列化为缺省。
-#[derive(Serialize, Deserialize, Clone)]
-pub struct StdinConfig {
-    /// "null"（不接输入，input() 立即 EOF——P0-A 起为显式选择档）
-    /// | "file"（重定向自文件，可复现）
-    /// | "interactive"（S4：管道交互，用户在输出面板逐行应答——P0-A 起为默认）
-    #[serde(default = "default_stdin_mode")]
-    pub mode: String,
-    /// mode == "file" 时的输入文件路径
-    #[serde(default)]
-    pub path: String,
-}
-
-impl Default for StdinConfig {
-    fn default() -> Self {
-        Self { mode: default_stdin_mode(), path: String::new() }
-    }
-}
-
-impl StdinConfig {
-    /// 归一化后的有效模式：
-    /// - 选了 `file` 但路径为空 → 视作 `null`（避免拿空路径去 open）；
-    /// - 未知/拼错的模式一律退回 `null`——绝不能让一个错字把运行变成
-    ///   「piped 且无人写入」的永久阻塞（handoff §4.2 坑 2：默认值铁律）。
-    pub fn effective_mode(&self) -> &str {
-        match self.mode.as_str() {
-            "file" if self.path.trim().is_empty() => "null",
-            "file" | "interactive" => self.mode.as_str(),
-            _ => "null",
-        }
-    }
 }
 
 /// 运行入口（P0-C）：`Script path` / `Module name` 二选一（对齐 PyCharm）。
@@ -212,13 +168,11 @@ impl RunEntry {
     }
 }
 
-/// 一份运行配置（P0-C/D）：可命名、可复用、支持 module 入口与可配置工作目录。
+/// 一份运行配置（v3.4 §4.2 字段表）：脚本配置与项目配置共用同一结构。
+/// 脚本配置的 entry 由系统填充（= 文件本身），不参与用户编辑。
 #[derive(Serialize, Deserialize, Clone, Default)]
 pub struct RunProfile {
-    /// 配置名（唯一键；「当前文件」的隐式配置以文件名命名，如 "main.py"）
-    #[serde(default)]
-    pub name: String,
-    /// 运行入口：脚本 / 模块（P0-C）
+    /// 运行入口：脚本 / 模块（项目配置二选一；脚本配置恒为 script 且 target 由系统填充）
     #[serde(default)]
     pub entry: RunEntry,
     /// 脚本参数（原始字符串，运行时用 shell-words 拆分）
@@ -235,83 +189,22 @@ pub struct RunProfile {
     /// 相对路径以工作区根为基准；文件缺失仅告警不中断运行。
     #[serde(default)]
     pub env_files: Vec<String>,
-    /// 标准输入来源（S1 文件重定向；S4 交互；缺省 interactive 与 P0-A 默认一致）
-    #[serde(default)]
-    pub stdin: StdinConfig,
     /// 配置级解释器覆盖（P1-I）：空 = 沿用工作区级解释器（历史行为）
     #[serde(default)]
     pub interpreter: String,
-    /// 允许多实例（P1-H）：运行槽被占时仍可再启动一个实例（服务器类配置刚需，
-    /// 如两个不同端口的 uvicorn）。仅输出面板路径生效；新增实例 stdin 为 null、
-    /// 输出与首个实例共用输出面板，随 stop_script 一并终止。
-    #[serde(default)]
-    pub allow_multiple: bool,
-    /// Before launch 最小集（P1-K）：启动前先运行的命名配置（等待其结束后再启动本配置；
-    /// 空 = 无）。仅前端执行（命名配置与「当前文件」两条运行入口），终端路径不适用。
-    #[serde(default)]
-    pub pre_run_profile: String,
-    /// Before launch 最小集（P1-K）：主运行 spawn 成功后用系统浏览器打开的 URL（空 = 不打开）。
-    #[serde(default)]
-    pub open_browser_url: String,
-    /// P2-N：Rerun automatically——保存的源文件变更时自动停止并重启本次运行
-    /// （仅 script 入口的「当前文件」/ 配置运行；module 入口交给 uvicorn --reload 自己的内环）。
-    #[serde(default)]
-    pub auto_rerun: bool,
-    /// P2-Q：Run with Python console——解释器加 `-i`，脚本跑完留在同一交互 REPL
-    /// （stdin 强制交互式，输出面板输入行即 REPL 输入；stop_script 退出）。
-    #[serde(default)]
-    pub python_console: bool,
-    /// PyCharm「临时配置」标记：由**跑文件**自动落盘（`ensure_run_profile`）的配置为 true——
-    /// 跑过即出现在运行目标下拉里、且**持久化到工作区配置**（重启后仍在，不随当前打开的文件变化）；
-    /// 上限 `TEMPORARY_PROFILE_LIMIT`，超出淘汰最旧。用户在配置页显式保存
-    /// （`save_run_profile`）即升格为永久配置（对应 PyCharm 的 Save Configuration）。
-    #[serde(default)]
-    pub temporary: bool,
 }
 
 impl RunProfile {
-    /// 是否为「等于没配置」：args / env / cwd / env_files / interpreter 全缺省、
-    /// 入口为空脚本、开关全关、stdin 落在缺省（interactive）或脏值（file 无路径）时，
-    /// `set_run_config` 会移除该配置保持文件精简。
-    /// P0-A 语义：`null` 是**显式**选择的「不接输入」，必须落盘保留——否则用户明确选的
-    /// 「不接输入」保存后会被删掉，下次运行回落成 interactive（语义漂移）。
-    /// 注意：script 入口的 target 由系统填充（= 文件本身），不参与判定。
+    /// 是否为「等于没配置」（v3.4 字段表裁剪后）：args / env / cwd / env_files / interpreter
+    /// 全缺省时，`set_run_config` 会移除该配置保持文件精简。
+    /// 注意：脚本配置的 entry 由系统填充（= 文件本身），不参与判定。
     fn is_effectively_empty(&self) -> bool {
-        let stdin_empty = match self.stdin.mode.as_str() {
-            "interactive" => true, // 缺省档，无需落盘
-            "file" => self.stdin.path.trim().is_empty(), // 无路径的脏值仍按空清理
-            _ => false,            // null / 未知 → 显式值，保留
-        };
         self.args.trim().is_empty()
             && self.env.is_empty()
             && self.env_files.iter().all(|p| p.trim().is_empty())
             && self.cwd.trim().is_empty()
             && self.interpreter.trim().is_empty()
-            && !self.allow_multiple
-            && self.pre_run_profile.trim().is_empty()
-            && self.open_browser_url.trim().is_empty()
-            && !self.auto_rerun
-            && !self.python_console
-            && !self.entry.is_module()
-            && self.entry.target.trim().is_empty()
-            && stdin_empty
     }
-}
-
-/// 从配置键（相对路径，正斜杠）取展示名（文件名 / 末段）
-fn profile_name_for_key(key: &str) -> String {
-    key.rsplit('/').next().unwrap_or(key).to_string()
-}
-
-/// 生成不与既有配置重名的展示名：重名时追加 " (2)" / " (3)"…
-fn unique_profile_name(base: &str, taken: &[RunProfile]) -> String {
-    let mut name = base.to_string();
-    let mut n = 2;
-    while taken.iter().any(|p| p.name == name) {
-        name = format!("{base} ({n})");
-        n += 1;
-    }
-    name
 }
 
 /// 运行配置存储键：相对工作区根、统一正斜杠（跨平台稳定，避免绝对路径漂移）
@@ -336,66 +229,59 @@ fn run_config_key(workspace_root: &str, script_path: &str) -> String {
         .to_string()
 }
 
-/// 读取全部运行配置（首次调用时把旧 run_configs 一次性迁移进 run_profiles）。
-pub(crate) fn load_profiles(workspace_root: &str) -> Vec<RunProfile> {
-    let mut v = load_config(workspace_root);
-    if let Some(arr) = v.get("run_profiles").and_then(Value::as_array) {
-        return arr
-            .iter()
-            .filter_map(|p| serde_json::from_value::<RunProfile>(p.clone()).ok())
-            .collect();
-    }
-    // 迁移：legacy run_configs（按脚本路径为键）→ run_profiles（一次性写回，TD-9 根治）
-    let legacy = v.get("run_configs").and_then(Value::as_object).cloned();
-    let mut profiles: Vec<RunProfile> = Vec::new();
-    if let Some(map) = legacy {
-        for (key, val) in map {
-            let Ok(mut p) = serde_json::from_value::<RunProfile>(val) else { continue };
-            p.entry = RunEntry { kind: "script".into(), target: key.clone() };
-            p.name = unique_profile_name(&profile_name_for_key(&key), &profiles);
-            profiles.push(p);
-        }
-        if !profiles.is_empty() {
-            if let Some(obj) = v.as_object_mut() {
-                obj.insert("run_profiles".into(), serde_json::to_value(&profiles).unwrap_or_else(|_| json!([])));
-                obj.remove("run_configs");
-                let _ = save_config(workspace_root, &v);
-            }
-        }
-    }
-    profiles
-}
+/// 项目配置的存储键（v3.4 §4.1：工作区配置固定键）
+const PROJECT_RUN_KEY: &str = "project_run";
 
-/// 写回全部运行配置（空列表则移除键，保持文件精简）
-fn write_profiles(workspace_root: &str, profiles: &[RunProfile]) -> Result<(), String> {
-    let mut v = load_config(workspace_root);
-    let obj = v.as_object_mut().ok_or("工作区配置格式非法")?;
-    if profiles.is_empty() {
-        obj.remove("run_profiles");
-    } else {
-        let value = serde_json::to_value(profiles).map_err(|e| e.to_string())?;
-        obj.insert("run_profiles".into(), value);
-    }
-    save_config(workspace_root, &v)
-}
-
-/// 「当前文件」视角读取运行配置（供命令、run_script、terminal、dap 共用）。
-/// 匹配规则：kind=script 且 target=该文件的配置键；无匹配返回缺省（= PyCharm 临时配置语义）。
+/// 读取脚本运行配置（v3.4 §4.1：存 run_configs map，键 = run_config_key）。
+/// 无匹配返回缺省——读不到配置绝不阻断运行（§4.3）。
 pub fn read_run_config(workspace_root: &str, script_path: &str) -> RunProfile {
     let key = run_config_key(workspace_root, script_path);
-    load_profiles(workspace_root)
-        .into_iter()
-        .find(|p| p.entry.kind == "script" && p.entry.target == key)
+    load_config(workspace_root)
+        .get("run_configs")
+        .and_then(Value::as_object)
+        .and_then(|m| m.get(&key))
+        .and_then(|v| serde_json::from_value::<RunProfile>(v.clone()).ok())
+        .map(|mut p| {
+            // entry 恒为文件本身（系统填充，§4.2）：存量脏值一律纠正
+            p.entry = RunEntry { kind: "script".into(), target: key.clone() };
+            p
+        })
         .unwrap_or_else(|| RunProfile {
-            name: profile_name_for_key(&key),
             entry: RunEntry { kind: "script".into(), target: key },
             ..Default::default()
         })
 }
 
-/// 按名读取一份命名配置（Run 部件 ▾ 菜单运行入口用）
-pub(crate) fn load_profile_by_name(workspace_root: &str, name: &str) -> Option<RunProfile> {
-    load_profiles(workspace_root).into_iter().find(|p| p.name == name)
+/// 读取项目运行配置（v3.4 §4.1：固定键 project_run）；未配置返回 None。
+pub(crate) fn read_project_run(workspace_root: &str) -> Option<RunProfile> {
+    load_config(workspace_root)
+        .get(PROJECT_RUN_KEY)
+        .and_then(|v| serde_json::from_value::<RunProfile>(v.clone()).ok())
+}
+
+/// 读取项目运行配置（前端配置面板加载用）
+#[tauri::command]
+pub fn get_project_run(workspace_root: String) -> Option<RunProfile> {
+    read_project_run(&workspace_root)
+}
+
+/// 保存项目运行配置（entry 为空 = 未配置，移除该键保持文件精简）
+#[tauri::command]
+pub fn set_project_run(workspace_root: String, config: RunProfile) -> Result<(), String> {
+    write_project_run(&workspace_root, &config)
+}
+
+/// 项目配置写入（命令与 §9 探测共用）：固定键 `project_run`，entry 为空即移除。
+fn write_project_run(workspace_root: &str, config: &RunProfile) -> Result<(), String> {
+    let mut v = load_config(workspace_root);
+    let obj = v.as_object_mut().ok_or("工作区配置格式非法")?;
+    if config.entry.target.trim().is_empty() {
+        obj.remove(PROJECT_RUN_KEY);
+    } else {
+        let value = serde_json::to_value(config).map_err(|e| e.to_string())?;
+        obj.insert(PROJECT_RUN_KEY.into(), value);
+    }
+    save_config(workspace_root, &v)
 }
 
 /// 获取「当前文件」运行配置（前端编辑面板加载用，P3 时代命令签名不变）
@@ -408,179 +294,72 @@ pub fn get_run_config(workspace_root: String, script_path: String) -> RunProfile
 #[tauri::command]
 pub fn set_run_config(workspace_root: String, script_path: String, config: RunProfile) -> Result<(), String> {
     let key = run_config_key(&workspace_root, &script_path);
-    let mut profiles = load_profiles(&workspace_root);
-    if config.is_effectively_empty() {
-        profiles.retain(|p| !(p.entry.kind == "script" && p.entry.target == key));
-    } else {
-        match profiles.iter_mut().find(|p| p.entry.kind == "script" && p.entry.target == key) {
-            Some(p) => {
-                p.args = config.args;
-                p.cwd = config.cwd;
-                p.env = config.env;
-                p.env_files = config.env_files;
-                p.stdin = config.stdin;
-                p.interpreter = config.interpreter;
-                p.allow_multiple = config.allow_multiple;
-                p.pre_run_profile = config.pre_run_profile;
-                p.open_browser_url = config.open_browser_url;
-                p.auto_rerun = config.auto_rerun;
-                p.python_console = config.python_console;
-            }
-            None => {
-                let mut cfg = config;
-                cfg.entry = RunEntry { kind: "script".into(), target: key.clone() };
-                cfg.name = unique_profile_name(&profile_name_for_key(&key), &profiles);
-                profiles.push(cfg);
-            }
-        }
-    }
-    write_profiles(&workspace_root, &profiles)
-}
-
-/// 列出全部命名运行配置（Run 部件 ▾ 菜单 / 编辑面板数据源）
-#[tauri::command]
-pub fn list_run_profiles(workspace_root: String) -> Vec<RunProfile> {
-    load_profiles(&workspace_root)
-}
-
-/// 保存命名配置（按 name upsert；名称必填且 trim 后非空）
-#[tauri::command]
-pub fn save_run_profile(workspace_root: String, profile: RunProfile) -> Result<(), String> {
-    let name = profile.name.trim().to_string();
-    if name.is_empty() {
-        return Err("配置名不能为空".into());
-    }
-    let mut profiles = load_profiles(&workspace_root);
-    let mut cfg = profile;
-    cfg.name = name.clone();
-    match profiles.iter_mut().find(|p| p.name == name) {
-        Some(p) => *p = cfg,
-        None => profiles.push(cfg),
-    }
-    write_profiles(&workspace_root, &profiles)
-}
-
-/// 删除命名配置（按 name）
-#[tauri::command]
-pub fn delete_run_profile(workspace_root: String, name: String) -> Result<(), String> {
-    let mut profiles = load_profiles(&workspace_root);
-    profiles.retain(|p| p.name != name);
-    write_profiles(&workspace_root, &profiles)
-}
-
-// ---------- 当前运行目标（持久化） ----------
-
-/// 持久化在工作区配置里的「当前运行目标」。
-/// PyCharm 把"选中的运行配置"记在项目里，重开 IDE 后 ▶ 仍指向它；我们同样落到工作区配置，
-/// 使「▶ 跑什么」跨重启、跨会话稳定（而不是每次启动重新选）。
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
-pub struct StoredRunTarget {
-    /// "file" | "profile"
-    #[serde(default)]
-    pub kind: String,
-    /// kind == "profile" 时的配置名
-    #[serde(default)]
-    pub name: String,
-    /// kind == "file" 时的脚本绝对路径
-    #[serde(default)]
-    pub path: String,
-    /// 上次使用的通道："output" | "terminal"
-    #[serde(default)]
-    pub channel: String,
-}
-
-impl StoredRunTarget {
-    /// 是否是一条有效目标（脏数据一律当没有，避免 ▶ 指向空目标）
-    fn is_valid(&self) -> bool {
-        match self.kind.as_str() {
-            "profile" => !self.name.trim().is_empty(),
-            "file" => !self.path.trim().is_empty(),
-            _ => false,
-        }
-    }
-}
-
-/// 读取持久化的当前运行目标（无效/缺失返回 None）
-#[tauri::command]
-pub fn get_run_target(workspace_root: String) -> Option<StoredRunTarget> {
-    load_config(&workspace_root)
-        .get("run_target")
-        .and_then(|v| serde_json::from_value::<StoredRunTarget>(v.clone()).ok())
-        .filter(StoredRunTarget::is_valid)
-}
-
-/// 写入/清除持久化的当前运行目标（target=None → 移除该键，保持配置精简）
-#[tauri::command]
-pub fn set_run_target(workspace_root: String, target: Option<StoredRunTarget>) -> Result<(), String> {
     let mut v = load_config(&workspace_root);
     let obj = v.as_object_mut().ok_or("工作区配置格式非法")?;
-    match target.filter(StoredRunTarget::is_valid) {
-        Some(t) => {
-            obj.insert("run_target".into(), serde_json::to_value(t).map_err(|e| e.to_string())?);
-        }
-        None => {
-            obj.remove("run_target");
-        }
+    let store = obj
+        .entry("run_configs".to_string())
+        .or_insert_with(|| json!({}));
+    let map = store.as_object_mut().ok_or("工作区配置格式非法")?;
+    if config.is_effectively_empty() {
+        map.remove(&key);
+    } else {
+        let mut cfg = config;
+        cfg.entry = RunEntry { kind: "script".into(), target: key.clone() };
+        map.insert(key, serde_json::to_value(&cfg).map_err(|e| e.to_string())?);
     }
-    save_config(&workspace_root, &v)
+    if map.is_empty() {
+        obj.remove("run_configs");
+    }
+    save_config(&workspace_root, &v)?;
+    // tech-debt #9：保存时顺带清扫孤儿运行配置（脚本已删/改名留下的旧键）
+    let _ = sweep_run_configs_impl(&workspace_root);
+    Ok(())
 }
 
-/// PyCharm「临时配置」上限（`Temporary configurations limit` 默认值）：超出后淘汰最旧。
-const TEMPORARY_PROFILE_LIMIT: usize = 5;
-
-/// 淘汰超限的临时配置：Vec 顺序 = 落盘顺序 = 新旧次序，从**最旧**的开始删；永久配置不动。
-fn prune_temporary_profiles(profiles: &mut Vec<RunProfile>) {
-    let mut temps: Vec<usize> = profiles
-        .iter()
-        .enumerate()
-        .filter(|(_, p)| p.temporary)
-        .map(|(i, _)| i)
-        .collect();
-    while temps.len() > TEMPORARY_PROFILE_LIMIT {
-        let oldest = temps.remove(0);
-        profiles.remove(oldest);
-        for t in temps.iter_mut() {
-            *t -= 1;
+/// 清扫孤儿运行配置：`run_configs` 中键对应文件不存在（脚本已删/改名）即移除（tech-debt #9）。
+/// 返回移除的条目数；无 `run_configs` 时直接返回 0，绝不 panic。
+fn sweep_run_configs_impl(workspace_root: &str) -> Result<usize, String> {
+    let root = Path::new(workspace_root);
+    let mut v = load_config(workspace_root);
+    let obj = v.as_object_mut().ok_or("工作区配置格式非法")?;
+    let Some(store) = obj.get_mut("run_configs") else {
+        return Ok(0);
+    };
+    let Some(map) = store.as_object_mut() else {
+        return Ok(0);
+    };
+    let keys = map.keys().cloned().collect::<Vec<_>>();
+    let mut removed = 0usize;
+    for key in keys {
+        // 键为相对工作区根路径（正斜杠，run_config_key 口径）；存在性以根下拼接为准。
+        // 纯文件名键（无 '/'）可能是工作区根目录文件，也可能是 run_config_key 对工作区外文件
+        // 的退化键——二者无法靠键本身区分，保守跳过，避免误删工作区外文件的运行配置
+        // （review 发现的边界：误删用户配置比残留无害键更不可接受）。
+        if !key.contains('/') {
+            continue;
+        }
+        let rel = key.replace('/', std::path::MAIN_SEPARATOR_STR);
+        if !root.join(rel).is_file() {
+            map.remove(&key);
+            removed += 1;
         }
     }
+    if map.is_empty() {
+        obj.remove("run_configs");
+    }
+    if removed > 0 {
+        save_config(workspace_root, &v)?;
+    }
+    Ok(removed)
 }
 
-/// 确保某个**脚本文件**有一份运行配置（PyCharm 临时配置语义）——运行该文件时调用。
-///
-/// - 已有配置（不论永久/临时）：**原样保留，绝不覆盖用户设置**；临时配置刷新一次次序
-///   （移到末尾 = 最近使用），永久配置完全不动，也不写盘；
-/// - 没有配置：自动落一份 `temporary = true` 的配置，使该文件成为运行目标下拉里
-///   **可回选且持久化**的稳定条目（重启后仍在，与"当前打开哪个文件"无关）；
-/// - 临时配置数量超过 [`TEMPORARY_PROFILE_LIMIT`] 时，按落盘顺序淘汰**最旧**的。
+/// 手动清扫孤儿运行配置（打开工作区时由前端调用；正常保存已自动清扫）。
 #[tauri::command]
-pub fn ensure_run_profile(workspace_root: String, script_path: String) -> Result<RunProfile, String> {
-    let key = run_config_key(&workspace_root, &script_path);
-    let mut profiles = load_profiles(&workspace_root);
-    match profiles.iter().position(|p| p.entry.kind == "script" && p.entry.target == key) {
-        Some(i) => {
-            if profiles[i].temporary {
-                // 最近使用提到末尾（Vec 顺序即落盘顺序 = 新旧次序）
-                let p = profiles.remove(i);
-                profiles.push(p);
-                write_profiles(&workspace_root, &profiles)?;
-            }
-        }
-        None => {
-            profiles.push(RunProfile {
-                name: unique_profile_name(&profile_name_for_key(&key), &profiles),
-                entry: RunEntry { kind: "script".into(), target: key.clone() },
-                temporary: true,
-                ..Default::default()
-            });
-            prune_temporary_profiles(&mut profiles);
-            write_profiles(&workspace_root, &profiles)?;
-        }
-    }
-    Ok(profiles
-        .into_iter()
-        .find(|p| p.entry.kind == "script" && p.entry.target == key)
-        .unwrap_or_default())
+pub fn sweep_run_configs(workspace_root: String) -> Result<usize, String> {
+    sweep_run_configs_impl(&workspace_root)
 }
+
+// ---------- venv 解释器定位 ----------
 
 /// 指定虚拟环境目录下的解释器路径（Windows Scripts/python.exe，Unix bin/python）
 fn venv_python_at(dir: &Path) -> Option<String> {
@@ -939,13 +718,35 @@ pub fn set_interpreter(workspace_root: String, path: Option<String>) -> Result<(
     write_config(&workspace_root, cleaned.as_deref())
 }
 
+/// 解释器路径 → 版本号进程内缓存（tech-debt #11）：状态栏刷新 / 开工作区 / 换解释器都会读到版本，
+/// 避免每次 `refreshInterpreterStatus` 都 spawn 一次 `<path> --version`。键为完整路径，换解释器自然失效。
+static VERSION_CACHE: LazyLock<Mutex<HashMap<String, String>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
 /// 查询指定解释器版本号（`<path> --version`），供状态栏“解释器来源 + 版本”展示（P1 建议 2）。
 /// 失败（路径无效/超时）返回空串，前端降级为仅显示来源，不阻断运行。
 #[tauri::command]
 pub async fn interpreter_version(path: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || Ok(version_of(&path)))
+    // 命中缓存直接返回；miss 才 spawn 子进程，空串不缓存（查询失败下次仍重试）
+    if let Some(v) = VERSION_CACHE
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .get(&path)
+        .cloned()
+    {
+        return Ok(v);
+    }
+    let p = path.clone();
+    let version = tauri::async_runtime::spawn_blocking(move || version_of(&p))
         .await
-        .map_err(|e| format!("任务执行异常：{e}"))?
+        .map_err(|e| format!("任务执行异常：{e}"))?;
+    if !version.is_empty() {
+        VERSION_CACHE
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .insert(path, version.clone());
+    }
+    Ok(version)
 }
 
 /// 工作区根是否已有 pyproject.toml（驱动环境面板“建议生成 pyproject.toml”横幅，P2 建议 5）。
@@ -1202,6 +1003,159 @@ fn parse_pip_list(s: &str) -> Vec<PackageInfo> {
         .collect()
 }
 
+// ---------- v3.4 §9：项目入口自动探测（首次运行项目时） ----------
+//
+// 按优先级探测，命中即写入项目配置（用户可改），不命中返回未命中（前端提示「请先配置项目入口」
+// 并打开配置面板，§7.4）。探测口径与 FastAPI 探测一致：纯文件读取，无子进程。
+//
+// 优先级（§9）：
+// 1. pyproject.toml 的 [project.scripts] / [tool.uv] 入口声明；
+// 2. 依赖声明含 fastapi 且源码有 `app = FastAPI()` → FastAPI 预设（uvicorn <module>:<app> --reload，
+//    起服务后自动开浏览器，机制见前端监听 `Uvicorn running on` 行，M3-3.9 落地）；
+// 3. 根目录存在 main.py → 入口脚本 main.py；
+// 4. 存在含 __main__.py 的包 → python -m <pkg>；
+// 5. 都没有 → 未命中。
+
+/// 探测结果（命中来源 + 写入的配置，供前端回显「已自动配置：<来源>」）
+#[derive(Serialize)]
+pub struct ProjectEntryDetection {
+    /// 命中来源标识："scripts" | "fastapi" | "main-py" | "package"
+    pub source: String,
+    /// 写入项目配置后的入口描述（回显用，如 "uvicorn main:app --reload" / "main.py" / "-m myapp"）
+    pub summary: String,
+    /// 探测并写入的项目配置（前端可进一步展示 / 用户可在配置面板修改）
+    pub config: RunProfile,
+}
+
+/// 解析 pyproject.toml 的 `[project.scripts]` 段：收集 `name = "module:func"` 行。
+/// 行扫描口径（与 dap.rs 的 pyproject 依赖扫描一致，不引入 toml crate）：
+/// 进入 `[project.scripts]` 表头后持续收集 `x = "y"` 键值，直到下一个表头。
+fn pyproject_scripts_entries(text: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let mut in_scripts = false;
+    for raw in text.lines() {
+        let l = raw.trim();
+        if l.starts_with('[') {
+            in_scripts = l == "[project.scripts]";
+            continue;
+        }
+        if !in_scripts {
+            continue;
+        }
+        let Some(eq) = l.find('=') else { continue };
+        let key = l[..eq].trim().trim_matches('"');
+        let val = l[eq + 1..].trim().trim_matches('"');
+        if !key.is_empty() && val.contains(':') {
+            out.push((key.to_string(), val.to_string()));
+        }
+    }
+    out
+}
+
+/// `[project.scripts]` 条目 `name = "module:func"` → 模块名（取 `:` 前段）
+fn script_entry_module(val: &str) -> String {
+    val.split(':').next().unwrap_or(val).trim().to_string()
+}
+
+/// 深度受限地找「根下第一层含 `__main__.py` 的包」（§9-4：`python -m <pkg>`）。
+/// 仅扫根目录第一层子目录（包入口惯例在浅层；复用 FastAPI 扫描的跳过目录表）。
+fn find_main_package(root: &Path) -> Option<String> {
+    let rd = fs::read_dir(root).ok()?;
+    let mut names: Vec<String> = rd
+        .flatten()
+        .filter(|e| e.path().join("__main__.py").is_file())
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .collect();
+    names.sort(); // 确定性：多个候选时按字母序取首个
+    names.into_iter().next()
+}
+
+/// §9 探测主体（纯函数化：目录传入，便于单测直接锁定优先级）
+fn detect_project_entry_impl(root: &Path) -> Option<ProjectEntryDetection> {
+    // 1. pyproject.toml [project.scripts]（[tool.uv] 无入口声明语义，仅 project.scripts 有效）
+    if let Ok(text) = fs::read_to_string(root.join("pyproject.toml")) {
+        let entries = pyproject_scripts_entries(&text);
+        if let Some((name, val)) = entries.into_iter().next() {
+            let module = script_entry_module(&val);
+            if !module.is_empty() {
+                return Some(ProjectEntryDetection {
+                    source: "scripts".into(),
+                    summary: format!("-m {module}（scripts.{name}）"),
+                    config: RunProfile {
+                        entry: RunEntry { kind: "module".into(), target: module },
+                        ..Default::default()
+                    },
+                });
+            }
+        }
+        // 2. FastAPI 预设：依赖声明含 fastapi 且源码有 `app = FastAPI()`
+        if deps_mention(&text, "fastapi") {
+            if let Some((file, app_var)) = scan_fastapi_app(root) {
+                let module = py_module_target(&file);
+                let args = format!("{module}:{app_var} --reload");
+                return Some(ProjectEntryDetection {
+                    source: "fastapi".into(),
+                    summary: format!("-m uvicorn {args}"),
+                    config: RunProfile {
+                        entry: RunEntry { kind: "module".into(), target: "uvicorn".into() },
+                        args,
+                        cwd: "${workspaceRoot}".into(),
+                        ..Default::default()
+                    },
+                });
+            }
+        }
+    }
+
+    // 3. 根目录 main.py → 入口脚本
+    let main_py = root.join("main.py");
+    if main_py.is_file() {
+        return Some(ProjectEntryDetection {
+            source: "main-py".into(),
+            summary: "main.py".into(),
+            config: RunProfile {
+                entry: RunEntry { kind: "script".into(), target: "main.py".into() },
+                ..Default::default()
+            },
+        });
+    }
+
+    // 4. 含 __main__.py 的包 → python -m <pkg>
+    if let Some(pkg) = find_main_package(root) {
+        return Some(ProjectEntryDetection {
+            source: "package".into(),
+            summary: format!("-m {pkg}"),
+            config: RunProfile {
+                entry: RunEntry { kind: "module".into(), target: pkg },
+                ..Default::default()
+            },
+        });
+    }
+
+    // 5. 都没有 → 未命中
+    None
+}
+
+/// 首次运行项目时的入口自动探测（§9）：命中即写入项目配置（用户可改），返回探测结果。
+#[tauri::command]
+pub async fn detect_project_entry(workspace_root: String) -> Result<Option<ProjectEntryDetection>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let root = Path::new(&workspace_root);
+        if !root.is_dir() {
+            return Err(format!("工作区不存在：{workspace_root}"));
+        }
+        // 已配置则不覆盖（§9：探测服务于「首次运行」；已有配置 = 用户已表达意图）
+        if read_project_run(&workspace_root).is_some() {
+            return Ok(None);
+        }
+        let Some(hit) = detect_project_entry_impl(root) else { return Ok(None) };
+        write_project_run(&workspace_root, &hit.config)?;
+        Ok(Some(hit))
+    })
+    .await
+    .map_err(|e| format!("任务执行异常：{e}"))?
+}
+
 // ---------- P0-E：FastAPI 项目探测（预设「仅提示」形态的数据源） ----------
 //
 // 探测口径（纯文件读取，无子进程，一次调用 < 数十 ms）：
@@ -1390,30 +1344,6 @@ mod tests {
         }
     }
 
-    /// 跑文件自动落配置（`ensure_run_profile`）的淘汰规则：临时配置上限 5，
-    /// 超出时删**最旧**的；永久配置永远不受影响。纯函数单测——不触碰真实 home。
-    #[test]
-    fn temporary_profiles_capped_and_oldest_dropped() {
-        let mk = |name: &str, temp: bool| RunProfile {
-            name: name.to_string(),
-            temporary: temp,
-            ..Default::default()
-        };
-        let mut v = vec![
-            mk("a", true),    // 最旧 → 应被淘汰
-            mk("perm", false), // 永久配置：必须原样保留且不被计数
-            mk("b", true),
-            mk("c", true),
-            mk("d", true),
-            mk("e", true),
-            mk("f", true), // 最新
-        ];
-        prune_temporary_profiles(&mut v);
-        let names: Vec<&str> = v.iter().map(|p| p.name.as_str()).collect();
-        assert_eq!(names, vec!["perm", "b", "c", "d", "e", "f"]);
-        assert_eq!(v.iter().filter(|p| p.temporary).count(), TEMPORARY_PROFILE_LIMIT);
-    }
-
     #[test]
     fn test_venv_python_missing() {
         // 不存在的 root 无 .venv → None
@@ -1456,32 +1386,15 @@ mod tests {
     #[test]
     fn test_run_profile_is_effectively_empty() {
         assert!(RunProfile::default().is_effectively_empty());
-        // P0-A：interactive 是缺省档，无需落盘
-        assert!(rc("  ", vec![], "interactive", "").is_effectively_empty());
-        assert!(!rc("--flag", vec![], "interactive", "").is_effectively_empty());
-        assert!(!rc("", vec![EnvVar { key: "K".into(), value: "V".into() }], "interactive", "").is_effectively_empty());
-        // stdin 重定向也算“有配置”，不能被当空配置删掉
-        assert!(!rc("", vec![], "file", "F:/data/in.txt").is_effectively_empty());
-        // 选了 file 但没给路径 → 归一化成 null，仍视为空（脏值清理保留）
-        assert!(rc("", vec![], "file", "  ").is_effectively_empty());
-        // P0-A：null 是显式选择的「不接输入」，必须落盘保留，不能再被当空配置删掉
-        //（否则用户明确选的 null 保存即丢，下次运行回落 interactive，语义漂移）
-        assert!(!rc("", vec![], "null", "").is_effectively_empty());
-        // P0-C/D：module 入口、cwd、script target 都算「有配置」
-        assert!(!RunProfile { entry: RunEntry { kind: "module".into(), target: "uvicorn".into() }, ..Default::default() }.is_effectively_empty());
+        assert!(rc("  ", vec![]).is_effectively_empty());
+        assert!(!rc("--flag", vec![]).is_effectively_empty());
+        assert!(!rc("", vec![EnvVar { key: "K".into(), value: "V".into() }]).is_effectively_empty());
+        // v3.4 §4.2：cwd 属于保留字段，算「有配置」；entry 由系统填充，不参与判定
         assert!(!RunProfile { cwd: "${workspaceRoot}".into(), ..Default::default() }.is_effectively_empty());
-        assert!(!RunProfile { entry: RunEntry { kind: "script".into(), target: "main.py".into() }, ..Default::default() }.is_effectively_empty());
-        // P1-G/I/H：.env 文件、解释器覆盖、允许多实例都算「有配置」；空白 env_files 视为缺省
+        // .env 文件、解释器覆盖都算「有配置」；空白 env_files 视为缺省
         assert!(!RunProfile { env_files: vec![".env".into()], ..Default::default() }.is_effectively_empty());
         assert!(RunProfile { env_files: vec!["  ".into()], ..Default::default() }.is_effectively_empty());
         assert!(!RunProfile { interpreter: "D:/py/python.exe".into(), ..Default::default() }.is_effectively_empty());
-        assert!(!RunProfile { allow_multiple: true, ..Default::default() }.is_effectively_empty());
-        // P1-K：Before launch 两字段都算「有配置」
-        assert!(!RunProfile { pre_run_profile: "db-seed".into(), ..Default::default() }.is_effectively_empty());
-        assert!(!RunProfile { open_browser_url: "http://127.0.0.1:8000".into(), ..Default::default() }.is_effectively_empty());
-        // P2-N/Q：自动重启、交互控制台都算「有配置」
-        assert!(!RunProfile { auto_rerun: true, ..Default::default() }.is_effectively_empty());
-        assert!(!RunProfile { python_console: true, ..Default::default() }.is_effectively_empty());
     }
 
     #[test]
@@ -1495,9 +1408,7 @@ mod tests {
     }
 
     #[test]
-    fn test_profile_name_and_module_target_helpers() {
-        assert_eq!(profile_name_for_key("pkg/sub/mod.py"), "mod.py");
-        assert_eq!(profile_name_for_key("main.py"), "main.py");
+    fn test_module_target_helpers() {
         assert_eq!(py_module_target("app/main.py"), "app.main");
         assert_eq!(py_module_target("main.py"), "main");
         assert!(deps_mention("fastapi==0.1\n", "fastapi"));
@@ -1505,75 +1416,45 @@ mod tests {
         assert!(!deps_mention("requests\n", "fastapi"));
     }
 
-    #[test]
-    fn test_unique_profile_name() {
-        let taken = vec![RunProfile { name: "main.py".into(), ..Default::default() }];
-        assert_eq!(unique_profile_name("main.py", &taken), "main.py (2)");
-        assert_eq!(unique_profile_name("other", &taken), "other");
-    }
-
     /// 构造 RunProfile 的小工具（避免每处都写全字段）
-    fn rc(args: &str, env: Vec<EnvVar>, mode: &str, path: &str) -> RunProfile {
+    fn rc(args: &str, env: Vec<EnvVar>) -> RunProfile {
         RunProfile {
             args: args.into(),
             env,
-            stdin: StdinConfig { mode: mode.into(), path: path.into() },
             ..Default::default()
         }
     }
 
     #[test]
-    fn test_stdin_effective_mode() {
-        // P0-A：默认档为交互式（对齐 PyCharm 控制台默认可输入）
-        assert_eq!(StdinConfig::default().effective_mode(), "interactive");
-        assert_eq!(StdinConfig { mode: "file".into(), path: "a.txt".into() }.effective_mode(), "file");
-        // 空路径不能拿去 open，归一化为 null
-        assert_eq!(StdinConfig { mode: "file".into(), path: "".into() }.effective_mode(), "null");
-        assert_eq!(StdinConfig { mode: "file".into(), path: "   ".into() }.effective_mode(), "null");
-        // S4：交互式无需路径
-        assert_eq!(StdinConfig { mode: "interactive".into(), path: "".into() }.effective_mode(), "interactive");
-        // 未知/拼错的模式必须退回 null（坑 2：绝不能意外落到 piped 永久阻塞）
-        assert_eq!(StdinConfig { mode: "pipe".into(), path: "".into() }.effective_mode(), "null");
-        assert_eq!(StdinConfig { mode: "".into(), path: "".into() }.effective_mode(), "null");
-    }
-
-    #[test]
-    fn test_run_profile_backward_compat_without_stdin() {
-        // 存量配置（P3 时代写入，无 stdin / entry / cwd 字段）反序列化为新默认（P0-A interactive），无需迁移
+    fn test_run_profile_backward_compat() {
+        // 存量配置（P3 时代写入，无 entry / cwd 字段）反序列化为新默认，无需迁移
         let legacy = r#"{"args":"--x","env":[{"key":"K","value":"V"}]}"#;
         let cfg: RunProfile = serde_json::from_str(legacy).unwrap();
         assert_eq!(cfg.args, "--x");
         assert_eq!(cfg.env.len(), 1);
-        assert_eq!(cfg.stdin.effective_mode(), "interactive");
-        assert!(cfg.stdin.path.is_empty());
         assert_eq!(cfg.entry.kind, "script");
         assert!(cfg.cwd.is_empty());
 
-        // 完全空的配置对象同样落到缺省（交互式），且仍视为空配置
+        // 完全空的配置对象同样落到缺省，且仍视为空配置
         let empty: RunProfile = serde_json::from_str("{}").unwrap();
-        assert_eq!(empty.stdin.effective_mode(), "interactive");
         assert!(empty.is_effectively_empty());
 
-        // 带 stdin 的新格式往返一致
-        let full = rc("", vec![], "file", "F:/in.txt");
+        // 序列化往返一致
+        let full = rc("--flag", vec![EnvVar { key: "K".into(), value: "V".into() }]);
         let json = serde_json::to_string(&full).unwrap();
         let back: RunProfile = serde_json::from_str(&json).unwrap();
-        assert_eq!(back.stdin.mode, "file");
-        assert_eq!(back.stdin.path, "F:/in.txt");
+        assert_eq!(back.args, "--flag");
+        assert_eq!(back.env.len(), 1);
+    }
 
-        // S4：interactive 零迁移往返；P0-A 后它是缺省档，等价于空配置（读回即默认行为）
-        let interactive = rc("", vec![], "interactive", "");
-        let json = serde_json::to_string(&interactive).unwrap();
-        let back: RunProfile = serde_json::from_str(&json).unwrap();
-        assert_eq!(back.stdin.effective_mode(), "interactive");
-        assert!(back.is_effectively_empty());
-
-        // P0-A：显式 null 往返后仍是 null（不被当空配置删掉/回落）
-        let null_mode = rc("", vec![], "null", "");
-        let json = serde_json::to_string(&null_mode).unwrap();
-        let back: RunProfile = serde_json::from_str(&json).unwrap();
-        assert_eq!(back.stdin.effective_mode(), "null");
-        assert!(!back.is_effectively_empty());
+    /// v3.4 §4.3：存量工作区配置里的 v2 遗留字段（name / temporary / allow_multiple / stdin 等）
+    /// 反序列化时静默丢弃，不报错、不迁移；保留字段照常读取。
+    #[test]
+    fn test_legacy_v2_fields_are_ignored_on_deserialize() {
+        let legacy = r#"{"name":"main.py","temporary":true,"allow_multiple":true,"pre_run_profile":"db","open_browser_url":"http://x","auto_rerun":true,"python_console":true,"stdin":{"mode":"file","path":"in.txt"},"args":"--x"}"#;
+        let cfg: RunProfile = serde_json::from_str(legacy).unwrap();
+        assert_eq!(cfg.args, "--x");
+        assert!(!cfg.is_effectively_empty()); // args 非空即「有配置」
     }
 
     #[test]
@@ -1585,5 +1466,104 @@ mod tests {
         assert_eq!(v[0].version, "26.0.1");
         assert_eq!(v[0].latest, "26.2.1");
         assert_eq!(v[0].filetype, "wheel");
+    }
+
+    // ---------- v3.4 §9：项目入口探测单测（优先级锁定） ----------
+
+    fn detect_tmpdir(tag: &str) -> std::path::PathBuf {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let d = std::env::temp_dir().join(format!("opencharm-detect-{tag}-{nanos}"));
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    /// §9-1：pyproject.toml [project.scripts] 优先级最高，命中即 module 入口
+    #[test]
+    fn detect_prefers_project_scripts() {
+        let d = detect_tmpdir("scripts");
+        std::fs::write(d.join("pyproject.toml"), r#"
+[project]
+name = "demo"
+
+[project.scripts]
+demo = "demo.cli:main"
+"#).unwrap();
+        // 同时放置 main.py / 包，验证 scripts 优先
+        std::fs::write(d.join("main.py"), "print(1)").unwrap();
+        let hit = detect_project_entry_impl(&d).expect("scripts 应命中");
+        assert_eq!(hit.source, "scripts");
+        assert_eq!(hit.config.entry.kind, "module");
+        assert_eq!(hit.config.entry.target, "demo.cli"); // `demo = "demo.cli:main"` 的模块段
+        assert!(hit.summary.contains("scripts.demo"));
+    }
+
+    /// §9-2：无 scripts 时，依赖含 fastapi + 源码有 `app = FastAPI()` → uvicorn 预设
+    #[test]
+    fn detect_fastapi_preset_when_no_scripts() {
+        let d = detect_tmpdir("fastapi");
+        std::fs::write(d.join("pyproject.toml"), r#"
+[project]
+dependencies = ["fastapi", "uvicorn"]
+"#).unwrap();
+        std::fs::write(d.join("main.py"), "from fastapi import FastAPI\napp = FastAPI()\n").unwrap();
+        let hit = detect_project_entry_impl(&d).expect("fastapi 应命中");
+        assert_eq!(hit.source, "fastapi");
+        assert_eq!(hit.config.entry.kind, "module");
+        assert_eq!(hit.config.entry.target, "uvicorn");
+        assert_eq!(hit.config.args, "main:app --reload");
+        assert_eq!(hit.config.cwd, "${workspaceRoot}");
+    }
+
+    /// §9-3：无 scripts / 非 fastapi，根目录 main.py → 入口脚本
+    #[test]
+    fn detect_falls_back_to_main_py() {
+        let d = detect_tmpdir("mainpy");
+        std::fs::write(d.join("main.py"), "print(1)").unwrap();
+        let hit = detect_project_entry_impl(&d).expect("main.py 应命中");
+        assert_eq!(hit.source, "main-py");
+        assert_eq!(hit.config.entry.kind, "script");
+        assert_eq!(hit.config.entry.target, "main.py");
+    }
+
+    /// §9-4：无 main.py，存在含 __main__.py 的包 → python -m <pkg>
+    #[test]
+    fn detect_falls_back_to_main_package() {
+        let d = detect_tmpdir("pkg");
+        std::fs::create_dir_all(d.join("myapp")).unwrap();
+        std::fs::write(d.join("myapp").join("__main__.py"), "print(1)").unwrap();
+        std::fs::write(d.join("myapp").join("__init__.py"), "").unwrap();
+        let hit = detect_project_entry_impl(&d).expect("包入口应命中");
+        assert_eq!(hit.source, "package");
+        assert_eq!(hit.config.entry.kind, "module");
+        assert_eq!(hit.config.entry.target, "myapp");
+    }
+
+    /// §9-5：全都没有 → 未命中（前端提示「请先配置项目入口」）
+    #[test]
+    fn detect_misses_on_empty_project() {
+        let d = detect_tmpdir("empty");
+        std::fs::write(d.join("utils.py"), "print(1)").unwrap(); // 散文件不算入口
+        assert!(detect_project_entry_impl(&d).is_none());
+    }
+
+    /// [project.scripts] 行扫描：表头切换 / 无冒号条目 / 空键的容错
+    #[test]
+    fn pyproject_scripts_scan_rules() {
+        let text = r#"
+[project]
+name = "x"
+
+[project.scripts]
+demo = "demo.cli:main"
+bad-no-colon = "justmodule"
+
+[tool.uv]
+dev-dependencies = []
+"#;
+        let entries = pyproject_scripts_entries(text);
+        assert_eq!(entries, vec![("demo".to_string(), "demo.cli:main".to_string())]);
+        assert_eq!(script_entry_module("demo.cli:main"), "demo.cli");
+        assert_eq!(script_entry_module("nocolon"), "nocolon");
     }
 }

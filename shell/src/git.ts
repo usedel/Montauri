@@ -11,6 +11,7 @@ import { refreshTreeWithExpandedState } from "./fileTree";
 import { setBottomTab } from "./termUi";
 import { motionDisabled } from "./anim"; // UI-11：diff 编辑器不走 buildEditorOptions，需单独接管光标闪烁
 import { gotoFromLink } from "./tracebackLink"; // TD-14：gotoFromLink 迁出 main，逐边解环（TD-13）
+import { toast } from "./toast";
 // CR-25：状态存储下沉到零依赖的 gitStatusState（fileTree 装饰只读，不再 import 本模块）
 import { gitStatuses, gitDirtyDirs, gitRepoActive } from "./gitStatusState";
 
@@ -510,6 +511,7 @@ function renderBranchList(): void {
   newBox.className = "git-branch-new";
   const input = document.createElement("input");
   input.type = "text";
+  input.autocomplete = "off";
   input.placeholder = "新分支名…";
   input.spellcheck = false;
   const btn = document.createElement("button");
@@ -538,7 +540,10 @@ async function checkoutBranch(name: string): Promise<void> {
 async function createBranchAndSwitch(name: string): Promise<void> {
   if (!app.workspaceRoot) return;
   const n = name.trim();
-  if (!n) return;
+  if (!n) {
+    toast("请输入新分支名", "error");
+    return;
+  }
   try {
     await invoke("git_create_branch", { root: app.workspaceRoot, name: n });
   } catch (e) {

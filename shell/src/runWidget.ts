@@ -1,97 +1,75 @@
-// 运行入口 UI 域（C3）：菜单栏全局运行组（[运行目标 ▾] / ▶ / ⏹）+ 状态机 + 目标下拉菜单。
-// 组成为 PyCharm 布局：左侧下拉显示**当前选中的运行目标**并切换，右侧 ▶ 才真正启动
-// （见 docs/python_run_dev_plan.md §4；原先的 ▸「更多运行选项」并入此下拉）。
+// 运行组 UI 域（v3.4 §8 / §17-2）：菜单栏全局四控件
+// [▶ 运行脚本] [▶ 运行项目] [⏹ 停止] [⚙ 运行配置…]——状态 × 界面矩阵见 §7.3。
 // 与 main.ts 解耦：main.ts 拥有运行动作与运行态真值，本模块只负责「渲染 + 派发」——
-// handlers 注入（同 terminal.ts::setTerminalLinkHandler / termUi.ts::setOutputPanelHooks 先例），
-// 避免 runWidget → main → runWidget 的循环导入。所有状态变化点调用 renderRunWidget 重绘。
-// 本模块只更新按钮属性/类名，不重建按钮 DOM（renderTabs 高频调用，T10）。
+// handlers 注入（同 terminal.ts::setTerminalLinkHandler 先例），避免循环导入。
+// 所有状态变化点调用 renderRunWidget 重绘。本模块只更新按钮属性/类名，不重建按钮 DOM（T10）。
 
 import { lazyEl } from "./state";
-import { showMenu, type MenuItem } from "./menu";
-import type { RunTarget } from "./runState";
 
 export interface RunWidgetState {
-  /** 有工作区且（有粘性目标 或 有活动 .py/.pyw） */
-  canRun: boolean;
-  /** canRun 为假时的原因文案 */
-  disabledReason: string;
-  running: boolean;
-  /** P1（UX 审查）：运行准备期（保存 / 依赖预检 / Before launch）——▶ 显示 spinner + 专属提示 */
-  preparing: boolean;
-  channel: "output" | "terminal" | null;
-  /** ▶ 会跑的目标显示名（**仅粘性目标**；无目标时为空串，由下拉渲染成固定占位「当前文件」） */
-  targetName: string;
-  /** 当前粘性运行目标（▶ 下次会跑什么）；null = 无目标，▶ 将回落当前文件 */
-  currentTarget: RunTarget | null;
-  /** 当前目标是「文件」且尚未保存为运行配置时的那一行（null = 无 / 已被配置覆盖） */
-  unsavedFileTarget: { path: string; name: string } | null;
-  runShortcut: string;
+  /** 是否打开了工作区（§18 裁决 7：无工作区一律禁用，含脚本运行） */
+  hasWs: boolean;
+  /** 「运行脚本」可用（工作区 + 活动 .py/.pyw；§7.3 idle 行） */
+  canRunScript: boolean;
+  /** 「运行脚本」置灰原因（空 = 可用） */
+  scriptDisabledReason: string;
+  /** 「运行项目」可用（只要求工作区；入口探测不到时提示配置，不置灰） */
+  canRunProject: boolean;
+  /** 「运行项目」置灰原因（空 = 可用） */
+  projectDisabledReason: string;
+  /** 脚本运行进行中（running 或 preparing；驱动「运行脚本」置灰） */
+  scriptBusy: boolean;
+  /** 项目运行进行中（running 或 preparing；供菜单禁用判定） */
+  projectBusy: boolean;
+  /** 脚本准备期（spinner 专属——与 running 区分，§7.3） */
+  scriptPreparing: boolean;
+  /** 项目准备期（spinner 专属——running 时「运行项目」可点弹二选一，§7.3） */
+  projectPreparing: boolean;
+  /** 调试进行中（⏹ 路由 debug_stop；脚本运行拒绝，§13.2） */
+  debugging: boolean;
+  runScriptShortcut: string;
+  runProjectShortcut: string;
   stopShortcut: string;
-  selectionShortcut: string;
+  /** ⏹ 将停止的目标（最近启动且在跑的实例标签；null = 没有在跑的） */
+  stopTarget: string | null;
   /** 有工作区（运行配置入口可用性；面板是工作区级的，不依赖活动文件） */
   canOpenConfig: boolean;
-  /** 运行配置列表（下拉的目标区展示；summary 为回显摘要，temporary = PyCharm 临时配置） */
-  profiles: { name: string; summary: string; temporary?: boolean }[];
 }
 
 export interface RunWidgetHandlers {
-  run: () => void;
-  runInTerminal: () => void;
-  runSelection: () => void;
+  runScript: () => void;
+  runProject: () => void;
   stop: () => void;
-  restart: () => void;
   openRunConfig: () => void;
-  /** P2 Compound：并行运行多个配置（勾选面板） */
-  openCompound: () => void;
-  /** 只把 ▶ 的目标切过去（不启动）——下拉的目标区用，对齐 PyCharm「选下拉 ≠ 运行」 */
-  setTarget: (t: RunTarget) => void;
 }
 
 export interface RunButtonState {
   disabled: boolean;
   tip: string;
   tipKey?: string;
-  /** P1：准备中——▶ 图标切为旋转 loader（data-tip 已解释原因） */
+  /** 准备中——▶ 图标切为旋转 loader（data-tip 已解释原因） */
   busy?: boolean;
 }
 
 export interface RunWidgetComputed {
-  run: RunButtonState;
+  runScript: RunButtonState;
+  runProject: RunButtonState;
   stop: RunButtonState;
-  /** 左侧「运行目标」下拉（显示当前目标 + 切换入口） */
-  target: RunButtonState;
+  config: RunButtonState;
 }
 
 // CR-26：顶层 DOM 快照改惰性（computeRunWidget 是纯函数，测试环境无 DOM 也要可 import）
-const btnRun = lazyEl<HTMLButtonElement>("btn-run");
+const btnRunScript = lazyEl<HTMLButtonElement>("btn-run-script");
+const btnRunProject = lazyEl<HTMLButtonElement>("btn-run-project");
 const btnStop = lazyEl<HTMLButtonElement>("btn-stop");
-const btnTarget = lazyEl<HTMLButtonElement>("run-target");
-const targetLabelEl = lazyEl<HTMLElement>("run-target-label");
-
-/** 路径归一（跨平台大小写/分隔符），仅用于目标打勾比对 */
-function normPath(p: string): string {
-  return p.replace(/\\/g, "/").toLowerCase();
-}
-
-/**
- * 无目标时下拉的占位标签。用 PyCharm 的固定文案「当前文件」——它是**预选态**，
- * 含义是"跑编辑器里那个文件"，因此**绝不能**拼上真实文件名（拼了就会随切标签变化，
- * 看起来像一个叫 main.py 的已存配置）。
- */
-const TARGET_PLACEHOLDER = "当前文件";
+const btnConfig = lazyEl<HTMLButtonElement>("btn-run-config");
 
 let handlers: RunWidgetHandlers | null = null;
-let state: RunWidgetState | null = null;
 /** 设置保存后改键位不会走 renderTabs，由 main 注册一个「重新组装状态并重绘」的回调补那条路径 */
 let repaintFn: (() => void) | null = null;
 
 export function setRunWidgetHandlers(h: RunWidgetHandlers): void {
   handlers = h;
-}
-
-/** 测试专用：直接注入 state（getRunMenuItems 为纯函数，测试不经过 renderRunWidget 的 DOM 路径） */
-export function setRunWidgetStateForTest(s: RunWidgetState): void {
-  state = s;
 }
 
 export function setRunWidgetRepaint(fn: () => void): void {
@@ -103,56 +81,62 @@ export function repaintRunWidget(): void {
   repaintFn?.();
 }
 
-/** 纯函数：把运行态映射为三按钮的亮/灰 + tooltip 文案（可单测，不碰 DOM）。 */
-export function computeRunWidget(s: RunWidgetState): RunWidgetComputed {
-  /** 下拉提示：当前目标 + 「只改选中、不启动」——后半句是本菜单与旧 ▸「更多选项」的关键区别，
-   *  必须常驻可见，否则用户会以为点开菜单选中一项就等于跑了它（起跑仍由 ▶ 负责）。 */
-  const targetTip = s.targetName
-    ? `切换运行目标（当前：${s.targetName}）· 只改选中，不启动`
-    : "选择运行目标（只改选中，不启动）";
-  if (s.preparing) {
-    // P1：准备期（保存 / 依赖预检 / 前置配置）——原先混在 running 里误报「已有脚本在运行」
-    return {
-      run: { disabled: true, tip: "正在准备运行（保存 / 依赖预检）…", busy: true },
-      stop: { disabled: true, tip: "没有正在运行的脚本" },
-      target: { disabled: false, tip: targetTip },
-    };
-  }
-  if (!s.canRun) {
-    // R0：不可运行
-    const reason = s.disabledReason;
-    return {
-      run: { disabled: true, tip: reason },
-      stop: { disabled: true, tip: "没有正在运行的脚本" },
-      target: { disabled: true, tip: reason },
-    };
-  }
-  if (!s.running) {
-    // R1：可运行、未运行
-    return {
-      run: { disabled: false, tip: s.targetName ? `运行 ${s.targetName}` : "运行当前文件", tipKey: s.runShortcut },
-      stop: { disabled: true, tip: "没有正在运行的脚本" },
-      target: { disabled: false, tip: targetTip },
-    };
-  }
-  // R2 / R3：运行中（仍允许改选目标——PyCharm 同样可以在运行中换选中项）
-  const channelTip = s.channel === "terminal" ? "运行终端" : "输出面板";
-  return {
-    run: { disabled: true, tip: "已有脚本在运行（先停止）" },
-    stop: { disabled: false, tip: `停止运行 · ${channelTip}`, tipKey: s.stopShortcut },
-    target: { disabled: false, tip: targetTip },
-  };
+/** 当前注入的 handlers（gutter 右键 / 标签右键共用运行组动作，保证各入口一致） */
+export function runWidgetHandlers(): RunWidgetHandlers | null {
+  return handlers;
 }
 
-/** 按状态重绘三控件的亮/灰、tooltip、tip-key，并同步下拉上的目标名。所有状态变化点都要调它。 */
+/** 纯函数：把运行态映射为四控件的亮/灰 + tooltip 文案（§7.3 矩阵；可单测，不碰 DOM）。 */
+export function computeRunWidget(s: RunWidgetState): RunWidgetComputed {
+  // ⏹：调试中路由 debug_stop（D4）；否则停最近启动且在跑的实例（§10）
+  const stopTip = s.debugging
+    ? `停止调试`
+    : s.stopTarget
+      ? `停止运行（${s.stopTarget}）`
+      : "没有正在运行";
+  const stopState: RunButtonState = s.debugging || !!s.stopTarget
+    ? { disabled: false, tip: stopTip, tipKey: s.debugging ? undefined : s.stopShortcut }
+    : { disabled: true, tip: stopTip };
+
+  // ⚙ 运行配置…：工作区级入口
+  const configState: RunButtonState = s.canOpenConfig
+    ? { disabled: false, tip: "运行配置（脚本配置 / 项目配置）" }
+    : { disabled: true, tip: "需先打开工作区" };
+
+  // ▶ 运行脚本（§7.3）：preparing spinner → 脚本运行置灰 → 调试拒绝 → 可用「运行 <文件名>」。
+  // 置灰判定 = !canRunScript（文件前提不满足）**或 scriptDisabledReason 非空**（运行中 /
+  // 调试中——runFlow 已把 busy 推导进 reason；Playwright 实测修复：拆 preparing 时
+  // 曾把 busy 置灰分支拆丢，导致脚本 running 时 ▶ 仍可点）
+  let runScriptState: RunButtonState;
+  if (s.scriptPreparing) {
+    runScriptState = { disabled: true, tip: "正在准备运行（保存 / 依赖预检）…", busy: true };
+  } else if (!s.canRunScript || s.scriptDisabledReason) {
+    runScriptState = { disabled: true, tip: s.scriptDisabledReason };
+  } else {
+    runScriptState = { disabled: false, tip: "", tipKey: s.runScriptShortcut };
+  }
+
+  // ▶ 运行项目（§7.3）：preparing spinner；running → **可点**（触发二选一，§6.4）；
+  // 无工作区置灰；入口探测不到不置灰（点击后提示配置）
+  let runProjectState: RunButtonState;
+  if (s.projectPreparing) {
+    runProjectState = { disabled: true, tip: "正在准备运行项目…", busy: true };
+  } else if (!s.canRunProject) {
+    runProjectState = { disabled: true, tip: s.projectDisabledReason };
+  } else {
+    runProjectState = { disabled: false, tip: s.projectBusy ? "项目正在运行（点击选择：停止并重跑 / 新建实例）" : "", tipKey: s.runProjectShortcut };
+  }
+
+  return { runScript: runScriptState, runProject: runProjectState, stop: stopState, config: configState };
+}
+
+/** 按状态重绘四控件的亮/灰、tooltip、tip-key。所有状态变化点都要调它。 */
 export function renderRunWidget(s: RunWidgetState): void {
-  state = s;
   const c = computeRunWidget(s);
-  applyButton(btnRun, c.run);
+  applyButton(btnRunScript, c.runScript);
+  applyButton(btnRunProject, c.runProject);
   applyButton(btnStop, c.stop);
-  applyButton(btnTarget, c.target);
-  targetLabelEl.textContent = s.targetName || TARGET_PLACEHOLDER;
-  btnTarget.classList.toggle("is-empty", !s.targetName);
+  applyButton(btnConfig, c.config);
 }
 
 /** UX P0-3：禁用态用 .is-disabled 类 + aria-disabled（debugView 工具栏同款模式），
@@ -165,127 +149,50 @@ function applyButton(btn: HTMLButtonElement, b: RunButtonState): void {
   btn.dataset.tip = b.tip;
   if (b.tipKey) btn.dataset.tipKey = b.tipKey;
   else delete btn.dataset.tipKey;
-  // P1：准备中把 ▶ 切为旋转 loader（codicon-modifier-spin 已随「减少动画」自动归零）。
-  // 只对「正在显示 loader」的图标做 run↔loading 双向切换——本函数是三按钮共用，
-  // 不能无条件给 ⏹（codicon-debug-stop）/ ▾（codicon-chevron-down）加 codicon-run，
-  // 否则同特异性的 ::before content 互相覆盖，三个按钮图标会变成同一个 ▶。
+  // 准备中把 ▶ 切为旋转 loader（codicon-modifier-spin 已随「减少动画」自动归零）。
+  // 恢复时还原**本命图标**（首个 codicon-* 类，四控件各异：run / run-all / debug-stop / gear）——
+  // 此前硬编码加 codicon-run，会让 ▶项目 恢复后叠加第二个图标类（同特异性 content 互相覆盖）。
   const icon = btn.querySelector<HTMLElement>("i.codicon");
   if (icon) {
     if (b.busy) {
-      icon.classList.remove("codicon-run");
+      const native = nativeIconOf(icon);
+      if (native) icon.dataset.nativeIcon = native;
+      icon.classList.remove("codicon-run", "codicon-run-all");
       icon.classList.add("codicon-loading", "codicon-modifier-spin");
     } else if (icon.classList.contains("codicon-loading")) {
       icon.classList.remove("codicon-loading", "codicon-modifier-spin");
-      icon.classList.add("codicon-run");
+      const native = icon.dataset.nativeIcon;
+      if (native) icon.classList.add(native);
+      delete icon.dataset.nativeIcon;
     }
   }
 }
 
-/**
- * 「运行目标」下拉菜单项（与 gutter 右键共用同源，保证两处菜单一致）。
- * 结构对齐 PyCharm：**顶部目标区**（单选，`checked` 标出当前项，点击只改选中、不启动）
- * + **底部「更多运行方式」**（终端运行 / 选区运行 / 并行 / 编辑配置）。
- * 旧版 ▸ 菜单里的「运行 <配置名>」不再单独列出——选中目标后按 ▶ 即运行，与 PyCharm 一致。
- */
-export function getRunMenuItems(): MenuItem[] {
-  const s = state;
-  const h = handlers;
-  if (!s || !h) return [];
-
-  // P1：preparing（保存 / 依赖预检）与 running 同属「不可再启动」——否则准备期菜单项
-  // 仍可点、点击被 runFlow 闸门静默拒绝（点了没反应）
-  const busy = s.running || s.preparing;
-  const busyReason = s.preparing ? "正在准备运行…" : "已有脚本在运行";
-  const cur = s.currentTarget;
-  const curFilePath = cur && cur.kind === "file" ? normPath(cur.path) : null;
-
-  // ---- 目标区（单选）——切换目标本身不受 busy 限制：随时可改选，▶ 才是执行动作 ----
-  // 只放**真实存在的配置**：永久的命名配置 + 临时的「跑过的文件」。
-  // 不放"当前打开的文件"——它不是配置，且会随切标签漂移（PyCharm 也没有这样的条目）。
-  const targetItems: MenuItem[] = [];
-  for (const p of s.profiles) {
-    targetItems.push({
-      label: p.name,
-      icon: "run",
-      // 临时配置（跑文件自动落盘、上限 5）显式标注来源，与手工新建的永久配置区分
-      detail: [p.summary, p.temporary ? "临时" : ""].filter(Boolean).join("  ·  ") || undefined,
-      checked: cur?.kind === "profile" && cur.name === p.name,
-      action: () => h.setTarget({ kind: "profile", name: p.name }),
-    });
+/** 取图标的本命 codicon 类（首个 codicon- 开头且非 loading/spin 的类名） */
+function nativeIconOf(icon: HTMLElement): string | null {
+  for (const c of icon.classList) {
+    if (c.startsWith("codicon-") && c !== "codicon-loading" && c !== "codicon-modifier-spin") return c;
   }
-  // 当前目标是未保存为配置的文件时补一行，保证 ▶ 会跑什么在下拉里可见
-  if (s.unsavedFileTarget && curFilePath !== null && curFilePath === normPath(s.unsavedFileTarget.path)) {
-    targetItems.push({
-      label: s.unsavedFileTarget.name,
-      icon: "file-code",
-      detail: "临时（未保存为运行配置）",
-      checked: true,
-      action: () => h.setTarget({ kind: "file", path: s.unsavedFileTarget!.path }),
-    });
-  }
-
-  const items: MenuItem[] = [];
-  if (s.running) {
-    items.push(
-      { label: "停止运行", icon: "debug-stop", shortcut: s.stopShortcut, action: h.stop },
-      { label: "停止并重新运行", icon: "debug-rerun", action: h.restart },
-    );
-  }
-  if (items.length > 0) items.push({ sep: true });
-  items.push(...targetItems);
-  items.push({ sep: true });
-  items.push(
-    {
-      label: "在终端中运行",
-      icon: "terminal",
-      detail: "真 TTY（getpass / tqdm / 彩色 / Ctrl+C）",
-      disabled: busy || !s.canRun,
-      disabledReason: busy ? busyReason : s.canRun ? undefined : s.disabledReason,
-      action: h.runInTerminal,
-    },
-    {
-      label: "运行选区 / 行",
-      icon: "run",
-      shortcut: s.selectionShortcut,
-      disabled: busy || !s.canRun,
-      disabledReason: busy ? busyReason : s.canRun ? undefined : s.disabledReason,
-      action: h.runSelection,
-    },
-    { sep: true },
-    {
-      label: "并行运行配置…",
-      icon: "combine",
-      detail: "勾选多个配置一次性并行启动（Compound）",
-      disabled: busy || s.profiles.length === 0,
-      disabledReason: busy ? busyReason : s.profiles.length === 0 ? "暂无命名配置" : undefined,
-      action: h.openCompound,
-    },
-    {
-      label: "运行配置…",
-      icon: "gear",
-      detail: "配置列表 / 入口类型 / 工作目录 / 参数 / 环境变量 / 标准输入",
-      disabled: !s.canOpenConfig,
-      disabledReason: s.canOpenConfig ? undefined : s.disabledReason || "需先打开工作区",
-      action: h.openRunConfig,
-    },
-  );
-  return items;
+  return null;
 }
 
-/** 接线三控件（init 调用一次）。UX P0-3：控件不再用 disabled 属性（见 applyButton），
+/** 接线四控件（init 调用一次）。UX P0-3：控件不再用 disabled 属性（见 applyButton），
  *  故点击守卫移入回调——.is-disabled 时的点击一律忽略。 */
 export function wireRunWidget(): void {
-  btnRun.addEventListener("click", () => {
-    if (btnRun.classList.contains("is-disabled")) return;
-    handlers?.run();
+  btnRunScript.addEventListener("click", () => {
+    if (btnRunScript.classList.contains("is-disabled")) return;
+    handlers?.runScript();
+  });
+  btnRunProject.addEventListener("click", () => {
+    if (btnRunProject.classList.contains("is-disabled")) return;
+    handlers?.runProject();
   });
   btnStop.addEventListener("click", () => {
     if (btnStop.classList.contains("is-disabled")) return;
     handlers?.stop();
   });
-  btnTarget.addEventListener("click", (e) => {
-    e.stopPropagation();
-    if (btnTarget.classList.contains("is-disabled")) return;
-    showMenu(getRunMenuItems(), btnTarget);
+  btnConfig.addEventListener("click", () => {
+    if (btnConfig.classList.contains("is-disabled")) return;
+    handlers?.openRunConfig();
   });
 }

@@ -7,7 +7,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { invoke } from "@tauri-apps/api/core";
 import { app, DEFAULT_SETTINGS } from "./state";
-import { TRACEBACK_RE, type OutputLink } from "./output";
+import { TRACEBACK_RE, URL_RE, URL_TRAILING_PUNCT, type OutputLink } from "./output";
 import { motionDisabled } from "./anim"; // UI-11：终端光标闪烁也归「减少动画」管（anim.ts 无依赖，导入不成环）
 
 /** 终端配色随外壳主题（D1 P-01：浅色主题下不再固定深色终端） */
@@ -38,6 +38,14 @@ let linkHandler: ((link: OutputLink) => void) | null = null;
 
 export function setTerminalLinkHandler(cb: (link: OutputLink) => void): void {
   linkHandler = cb;
+}
+
+/** 终端内 URL 的点击处理器（main.ts 注入 → invoke open_external，与 setOutputUrlHandler 同模式）。
+ * 做成模块级而非实例级：shell 终端与运行终端都该能点开 uvicorn/FastAPI 等服务 URL。 */
+let urlHandler: ((url: string) => void) | null = null;
+
+export function setTerminalUrlHandler(cb: (url: string) => void): void {
+  urlHandler = cb;
 }
 
 export class IntegratedTerminal {
@@ -73,10 +81,10 @@ export class IntegratedTerminal {
     });
 
     // S3（坑 4）：输出跑进 xterm 后没有「行元素」可挂点击，traceback 跳转会整个丢掉。
-    // 改用 xterm 的 link provider，复用输出面板同一个 TRACEBACK_RE 与跳转逻辑（注册一次，
-    // xterm 按需回调：鼠标悬停该行 / refresh 时）。
+    // 改用 xterm 的 link provider，复用输出面板同一个 TRACEBACK_RE 与跳转逻辑；P2-L 顺带
+    // 复用 URL_RE 让服务 URL（uvicorn/FastAPI 等）也可点击（注册一次，按需回调悬停/refresh）。
     this.term.registerLinkProvider({
-      provideLinks: (bufferLine, callback) => callback(this.provideTracebackLinks(bufferLine)),
+      provideLinks: (bufferLine, callback) => callback(this.provideLinks(bufferLine)),
     });
 
     // 容器尺寸变化 → adapt fit + 同步 PTY 尺寸
@@ -179,6 +187,43 @@ export class IntegratedTerminal {
     this.term.write(data);
   }
 
+  /** 为一整行终端缓冲提供全部链接（traceback + URL），供 registerLinkProvider 按需回调。
+   * 两套匹配不重叠（`File "…"` 帧里不含 URL），合并后一次性回传 xterm。 */
+  private provideLinks(bufferLine: number): ILink[] | undefined {
+    const links = this.provideTracebackLinks(bufferLine) ?? [];
+    const urls = this.provideUrlLinks(bufferLine);
+    if (urls) links.push(...urls);
+    return links.length > 0 ? links : undefined;
+  }
+
+  /** 为一行终端缓冲提供 URL 链接（P2-L 的终端落点：uvicorn/FastAPI 等服务 URL 可点击）。
+   * xterm buffer 存的是已解析字符（不含 ANSI），整行直接跑 URL_RE 即可；列号按同一字符串计算。 */
+  private provideUrlLinks(bufferLine: number): ILink[] | undefined {
+    if (!urlHandler) return undefined;
+    const text = this.term.buffer.active.getLine(bufferLine - 1)?.translateToString(true) ?? "";
+    if (!text.includes("://")) return undefined;
+    const links: ILink[] = [];
+    URL_RE.lastIndex = 0; // 带 `g` 的全局态：复用前必须重置
+    let m: RegExpExecArray | null;
+    while ((m = URL_RE.exec(text)) !== null) {
+      // 剥离句尾标点（与 output.ts::appendTextWithUrls 同口径）
+      let url = m[0];
+      let end = m.index + url.length;
+      while (url.length > 0 && URL_TRAILING_PUNCT.includes(url[url.length - 1])) {
+        url = url.slice(0, -1);
+        end--;
+      }
+      if (!url) continue;
+      links.push({
+        range: { start: { x: m.index + 1, y: bufferLine }, end: { x: end, y: bufferLine } },
+        text: url,
+        activate: () => urlHandler?.(url),
+        decorations: { pointerCursor: true, underline: true },
+      });
+    }
+    return links.length > 0 ? links : undefined;
+  }
+
   /** 为一行终端缓冲提供 traceback 链接（xterm 按需回调）。
    * PTY 路径不存在输出面板那种「chunk 切碎」问题——xterm 看的是完整行缓冲，
    * 因此这里直接对整行跑正则即可（§4.7 结论 5）。 */
@@ -210,10 +255,18 @@ export class IntegratedTerminal {
 
   /** S3：以「运行」语义启动 PTY 会话——后端 `run_in_terminal` 直接 spawn 解释器 + [脚本, ...参数]，
    * **不套 shell**（套 `pwsh -c python x.py` 会让 Ctrl+C 与退出码多一层语义损耗）。
+   * v3.4 §17-12：`kind` = "script" | "project"（project 忽略 path 读项目配置）；
+   * `probe` 缺省 = 后端按全局设置 probe_enabled 控制（选区运行传 false——片段不采样）。
    * @param banner 运行回显行（与运行按钮同一口径），在 reset 之后立即写入，保证排在脚本输出之前
    * @returns 后端的非致命告警（如 Parameters 解析失败）
    * @throws 启动失败（已写入终端提示），调用方负责复位运行态 */
-  async startRun(path: string, workspaceRoot: string | null, banner: string): Promise<string[]> {
+  async startRun(
+    path: string,
+    workspaceRoot: string | null,
+    banner: string,
+    kind: "script" | "project" = "script",
+    probe?: boolean,
+  ): Promise<string[]> {
     if (this.started) {
       await invoke("term_kill", { id: this.id }).catch(() => undefined);
     }
@@ -227,7 +280,7 @@ export class IntegratedTerminal {
     const rows = dims?.rows ?? 24;
     let warnings: string[];
     try {
-      warnings = await invoke<string[]>("run_in_terminal", { id: this.id, cols, rows, path, workspaceRoot });
+      warnings = await invoke<string[]>("run_in_terminal", { id: this.id, cols, rows, path, workspaceRoot, kind, probe });
     } catch (e) {
       this.started = false;
       this.term.writeln(`\r\n\x1b[31m在终端中运行失败: ${e}\x1b[0m`);

@@ -25,13 +25,13 @@ provider:
 - `util.ts` — 无状态工具与共享 UI 助手：路径（`normalizePath` / `samePath` / `relativePath` 大小写无关）/ 文件图标 / 语言映射（`LspSymbolKind` 枚举）/ Git 展示 / 大纲符号 / `setBusy`+`spinIcon`（按钮忙碌态唯一实现）/ `DisposableStore`（disposable 集中清理）。
 - `monaco.ts` — Monaco 本地 worker 配置。
 - `views.ts` — 侧栏视图注册表（Activity Bar + 单根视图容器）。
-- `keybindings.ts` — 快捷键配置域：PyCharm 风格默认键位 + 解析/校验/分发（设置 → 快捷键；出厂默认三处同步：KEYBINDING_META.def / state.ts DEFAULT_SETTINGS / Rust default_keybindings）。
+- `keybindings.ts` — 快捷键配置域：PyCharm 风格默认键位 + 解析/校验/分发（设置 → 快捷键；出厂默认单一来源 = `keybindingDefaults.ts`，前端两处取其元数据，Rust 侧由漂移锁测试兜底）。
 - `format.ts` — ruff 格式化桥接。
-- `dialog.ts` — 统一自绘消息对话框（TD-008）：`openConfirm` / `openAlert`，全项目确认/提示交互的唯一入口，禁止原生消息框。
+- `dialog.ts` — 统一自绘消息对话框（TD-008）：`openConfirm` / `openAlert` / `openChoice`（三按钮：主 / 中性 / 取消），全项目确认/提示交互的唯一入口，禁止原生消息框。
 - `search.ts` — 全局搜索。
 - `terminal.ts` — 集成终端前端封装（PTY 会话）。
 - `live-templates/` — Live Templates（M1/M2/M3 重构）：`index.ts` 入口 / `schema.ts` Schema v2 + v1 迁移 / `builtin.ts` 内置模板库（插入/环绕/后缀）/ `registry.ts` 三层合并（键 = scope+kind+abbreviation）/ `engine.ts` 表达式引擎（纯函数）/ `compiler.ts` `$VAR$`→snippet 编译（纯函数，literals 注入 $EXPR$/$SELECTION$）/ `scope.ts` 上下文判定（符号主路径+启发式兜底）/ `symbols.ts` documentSymbol 缓存 / `tabExpand.ts` 缩写+Tab 展开 / `completion.ts` 补全路径（sortText `0xx` + preselect + `.` 分流后缀）/ `postfix.ts` 后缀补全 / `surround.ts` 环绕（Ctrl+Alt+T）/ `palette.ts` 模板面板（Ctrl+J）/ `pycharmImport.ts` PyCharm XML 导入 / `snippet.ts` SnippetController2 注入助手 / `ui/manager.ts` 管理面板。
-- `output.ts` — 输出面板 + traceback `File "…", line N` 点击跳转。
+- `output.ts` — 输出面板 + traceback `File "…", line N` 点击跳转（v3.4 后仅承载调试输出 `debug-stdout`/`debug-stderr`、运行历史回放与系统提示；运行输出统一走终端控制台）。
 - `lsp/client.ts` — LSP 桥 TS 侧（JSON-RPC 关联 + Monaco providers）。
 - `dap/client.ts` — DAP 桥 TS 侧（与 `lsp/client.ts` 对称）：DAP 请求/响应关联（单序号域，`id` 作出站 `seq`，响应按 `request_seq` 回显）+ 事件分发 + 会话状态机（`idle/starting/running/stopped/exited`）+ `startDebug` 握手时序（`initialize → attach{listen} → debugpyWaitingForServer → debug_attach_debuggee → initialized → setBreakpoints → configurationDone`）。
 - `debugGutter.ts` — 断点 gutter（复用 `runGutter.ts` glyphMargin 装饰/命中范式，独立一套装饰集合勿冲突）：断点表 `Map<path, Set<line>>` 模块级持久（跨会话保留，`pushAllBreakpoints` 重放）+ `setBreakpoints` 同步 + 当前行高亮（`stopped → highlightCurrentLine`，`continued` 清除）；仅 `.py`/`.pyw` 生效。
@@ -42,10 +42,10 @@ provider:
 - `tooltip.ts` — 自绘 tooltip（`data-tip`，document 级 mouseover 委托 + role=tooltip + aria-describedby 生命周期）；**头部「五条判定规则」是原生 title 与 data-tip 分工的唯一依据**（UI-09，改双轨行为先读它）。
 - `focusTrap.ts` — 模态焦点陷阱（UI-05）：支持模态叠加的陷阱栈；所有 `.modal` 在 showEl 后启用、hideEl 前解除（句柄模块级持有，防御性先解除再启用）。
 - `layout.ts` — 面板布局域：侧栏 / 底部面板 / 右面板 / 大纲四条分隔条的拖拽 + localStorage 持久化 + 双击重置；拖拽上限随窗口宽动态收口（UI-23）；**高度类拖拽写自定义属性而非内联 height**（见「UI 与样式约定」）。
-- `menu.ts` — 通用扁平弹出菜单（`#ctx-menu` 容器，`showMenu`/`hideMenu`/`isMenuOpen`）：文件树右键 / 引擎切换 / shell 选择 / 运行 ▾ 共用；与 main.ts 菜单栏 flyout 渲染器**刻意不合并**（分工见文件头部注释）。
+- `menu.ts` — 通用扁平弹出菜单（`#ctx-menu` 容器，`showMenu`/`hideMenu`/`isMenuOpen`）：文件树右键 / 引擎切换 / shell 选择共用；与 main.ts 菜单栏 flyout 渲染器**刻意不合并**（分工见文件头部注释）。
 - `menuKeys.ts` — 弹出菜单键盘导航（UI-30，APG menu 模式）：`menuItemsOf` / `moveMenuFocus` / `wireMenuKeyNav`，menu.ts 与 main.ts 菜单栏两套渲染器共享同一套规则。
 - `engineChip.ts` — 状态栏「静态语义引擎」chip：真值统一在 `app.settings.lsp_engine`；startLsp/saveSettings 经 handlers 注入（不反向依赖 main.ts）。
-- `runWidget.ts` — 标题栏运行组（▶/⏹/▾）：状态渲染 + tooltip 快捷键副文本走 `kb.bindingLabel()`；handlers 注入模式。
+- `runWidget.ts` — 标题栏运行组四控件（▶ 运行脚本 / ▶ 运行项目 / ⏹ 停止 / ⚙ 运行配置…）：状态渲染 + tooltip 快捷键副文本走 `kb.bindingLabel()`；handlers 注入模式。
 - `runGutter.ts` — 编辑器 gutter 运行按钮（glyphMargin 装饰 + 右键运行菜单，坐标 anchor）。
 - `storagePanel.ts` — 设置「存储」页：占用可视化 / 可再生清理 / uv 缓存 / 数据迁移 + 首启落位提示模态；点击委托用 `[data-trace]` 属性钩子（禁止拿样式类名当 JS 钩子，UI-08 教训）。
 - `themePicker.ts` — 设置面板主题预览色卡（UI-26）：自绘 radiogroup（漫游 tabindex + ←→↑↓ 移动即选中）；**值真源 = DOM 的 aria-checked**，不另设模块级变量。
@@ -53,6 +53,28 @@ provider:
 - `devtools/` — 右侧开发工具面板：`panel.ts`（单实例挂载，激活即 dispose 旧实例）/ `registry.ts` / `types.ts`（ToolHost/ToolInstance）/ `feedback.ts`（`flashSuccess`/`flashError`，依赖 `.btn` 类）/ `jsonpath/` / `curl2python/`。
 - `stdlib.ts` — Python 标准库顶层模块名集合：missing-import 提示排除用（防「安装 os」类误报）。
 - `toolchain.ts` — 工具链引导底层 invoke 封装（uv / 静态引擎探测与一键安装；确认与输出渲染在 main.ts）。
+- `keybindingDefaults.ts` — 出厂键位元数据单一来源（tech-debt #6）：`keybindings.ts`（分发/解析）与 `state.ts`（`DEFAULT_SETTINGS`）都从这里取，Rust `default_keybindings` 由漂移锁测试兜底。
+- `menuBar.ts` — 顶部菜单栏域（TD-14 拆分）：下拉菜单 / flyout 子菜单渲染与 APG 键盘导航；菜单项数据由 main 注入，机制与数据分离。
+- `bookmarks.ts` — 行级书签（P2 · F11）：行标记 + 列表跳转 / 删除；与 TODO 工具窗互补（临时备忘，不进版本库）。
+- `breadcrumbs.ts` — Breadcrumbs 面包屑（P2）：编辑区顶部「文件 › 类 › 函数」层级链，数据与大纲同源（LSP `documentSymbol`）。
+- `combobox.ts` — 通用组合框：输入框 + 即时下拉候选，复用 quickOpen fuzzyScore，fixed 定位避 overflow 裁剪。
+- `quickOpen.ts` — Quick Open / Search Everywhere（P1 · Double Shift）：文件 / 符号 / 命令混搜 + `goto_file` / `goto_line`。
+- `recentFiles.ts` — 最近打开的文件（P0 · Ctrl+E）：列出 / 过滤 / 键盘漫游，消费 Rust `file_ops::get_recent`。
+- `navHistory.ts` — 导航历史（P1 · Ctrl+Alt+←/→）：位置栈 + 游标模型，跳转定义后原路返回。
+- `localHistory.ts` — 本地历史（P1 · Local History）：无 Git 也能回退；列表 + diff 预览 + 回滚。
+- `editHistory.ts` — 编辑历史采集（低延迟编辑预测数据源）：行对事件落盘 Rust JSONL。
+- `ruffLint.ts` — ruff 实时 lint（P2）：诊断第三桶（owner=`opencharm-ruff`），与静态引擎 / 运行时 intel 三桶并存。
+- `todoView.ts` — TODO 工具窗（P0）：扫描 TODO/FIXME 等标记分组列出并跳转（Rust `fs_cmds::scan_todos`）。
+- `envPanel.ts` — Python 环境面板域（TD-14 拆分）：解释器状态栏 / 环境面板 / venv / 包管理 / 装包 / .venv 检测 / 工具链首启引导。
+- `newProject.ts` — 新建项目域（TD-14 拆分）：项目创建面板（名称/位置/git/环境类型/Python 版本）+ `create_project` 落盘。
+- `inlineValues.ts` — 行内变量值（P2 · Inline Values）：调试暂停时行尾显示变量当前值（自绘，非 Monaco InlineValuesProvider）。
+- `debugConsole.ts` — 调试控制台 / 求值（P1 · Debug Console + Alt+F8）：断点处 DAP evaluate（context=repl），副作用真实发生。
+- `runState.ts` — 运行态单一真值（TD-14 ①）：运行实例列表（脚本唯一 + 项目 N 并行），实例与运行控制台 tab 同生共死。
+- `runFlow.ts` — 运行域（TD-14）：`runScript()`/`runProject()` 统一 PTY 控制台 + preparing 生命周期收口。
+- `runHistory.ts` — 运行历史（P2）：按实例留存输出，可回看 / 再点 traceback / 保存输出。
+- `runConfigPanel.ts` — 运行配置面板（v3.4 §17-6）：脚本 / 项目两分区配置。
+- `toast.ts` — 全局 toast 轻提示（UX P0-1）：异步操作失败/结果的即时反馈，右下角堆叠、自动消失、可手动关闭。
+- `tracebackLink.ts` — 输出链接跳转（TD-14 拆分）：输出面板 / 终端的 traceback 链接 → 打开并定位，openFile 经 handler 注入。
 
 ## 补全三层合并（sortText 段，顺序固定）
 
@@ -70,27 +92,46 @@ provider:
 ## 键位约定
 
 默认键位为 PyCharm 风格，均可在「设置 → 快捷键」自定义（存 `Settings.keybindings`，
-注册表与解析/校验在 `keybindings.ts`；出厂默认三处同步见该文件头注）。
+注册表与解析/校验在 `keybindings.ts`；出厂默认单一来源见 `keybindingDefaults.ts` 头注）。
 
 | 键（默认） | 功能 | 可自定义 |
 |---|---|---|
-| `Tab` | 缩写直接展开（无弹窗时）/ snippet 占位符前进 | 否 |
+| `Tab` | 缩写直接展开（无弹窗时）/ snippet 占位符前进 | 否（固定） |
 | `Ctrl+S` | 保存（推送 didSave） | 是（window 级） |
-| `Ctrl+F10` | 运行当前文件 | 是（window 级） |
+| `Ctrl+F10` | 运行脚本（当前文件） | 是（window 级） |
+| `Ctrl+Shift+F10` | 运行项目 | 是（window 级） |
+| `Ctrl+F2` | 停止运行 | 是（window 级） |
+| `Alt+Shift+E` | 运行选区 / 行 | 是（editor 级） |
 | `Ctrl+Shift+F` | 全局搜索 | 是（window 级） |
-| `Ctrl+B` | 跳转定义 | 是（`F12` / `Ctrl+点击` 固定保留） |
-| `Ctrl+D` | 复制行 / 选区 | 是 |
-| `Ctrl+/` / `Ctrl+Shift+/` | 行 / 块注释开关 | 是 |
-| `Ctrl+J` | Live Templates 面板 | 是 |
-| `Ctrl+Alt+T` | 环绕模板（需选区） | 是 |
+| `Ctrl+B` | 跳转定义（`F12` / `Ctrl+点击` 固定保留） | 是（editor 级） |
+| `Ctrl+D` | 复制行 / 选区 | 是（editor 级） |
+| `Ctrl+/` / `Ctrl+Shift+/` | 行 / 块注释开关 | 是（editor 级） |
+| `Ctrl+J` | Live Templates 面板 | 是（editor 级） |
+| `Ctrl+Alt+T` | 环绕模板（需选区） | 是（editor 级） |
+| `Ctrl+Alt+O` | Optimize Imports（整理导入） | 是（editor 级） |
+| `Ctrl+E` | 最近打开的文件 | 是（window 级） |
+| `Ctrl+Shift+N` | 转到文件（Search Everywhere 文件模式） | 是（window 级） |
+| `Ctrl+G` | 转到行 / 列 | 是（window 级） |
+| `Ctrl+Alt+Left` / `Ctrl+Alt+Right` | 导航后退 / 前进 | 是（window 级） |
+| `Ctrl+Shift+H` | 本地历史 | 是（window 级） |
 | `F5` | 启动调试 / 继续 | 是（window 级） |
 | `Shift+F5` | 停止调试 | 是（window 级） |
 | `F10` | 单步跳过（next） | 是（window 级） |
 | `F11` | 单步进入（stepIn） | 是（window 级） |
 | `Shift+F11` | 单步退出（stepOut） | 是（window 级） |
+| `Alt+F8` | 求值表达式（调试控制台） | 是（window 级） |
+| `Alt+F9` | 运行到光标处 | 是（window 级） |
+| `Ctrl+F11` / `Ctrl+Shift+F11` | 切换书签 / 书签列表 | 是（window 级） |
+| `Ctrl+Alt+Shift+Insert` | 新建草稿文件（Scratch） | 是（window 级） |
+| `Ctrl+Shift+R` | 运行历史 | 是（window 级） |
 | `Ctrl+Shift+V` | Markdown 预览开关 | 是（window 级） |
+| `Ctrl+F4` | 关闭标签 | 是（window 级） |
+| `Ctrl+Alt+Insert` | 新建文件 | 是（window 级） |
+| `Ctrl+Alt+S` | 打开设置 | 是（window 级） |
+| `Ctrl+Shift+F12` | 切换侧栏 | 是（window 级） |
+| `Alt+F12` | 切换底部面板 | 是（window 级） |
 
-- 调试五件套为 **window 级**（调试中编辑器可能失焦）；新增/改键须**三处同步**：`keybindings.ts` `KEYBINDING_META.def` / `state.ts` `DEFAULT_SETTINGS.keybindings` / Rust `settings.rs` `default_keybindings`（`settings.rs` 单测断言键位数，漏改会红）。
+- 调试五件套为 **window 级**（调试中编辑器可能失焦）；新增/改键只需改 `keybindingDefaults.ts`（单一来源），`state.ts` `DEFAULT_SETTINGS.keybindings` 从其取，Rust `settings.rs` `default_keybindings` 由漂移锁测试兜底（漏改会红）。
 - window 级键经 `matchWindowBinding` 实时匹配（改键即生效）；editor 级键经
   `monaco.editor.addKeybindingRules` 建映射，设置保存后 `applyEditorKeybindings()` 重建。
 

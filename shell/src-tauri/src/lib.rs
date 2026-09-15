@@ -1,4 +1,5 @@
 mod dap;
+mod edit_history;
 mod env_cmds;
 mod file_ops;
 mod fs_cmds;
@@ -87,6 +88,7 @@ pub fn run() {
             fs_cmds::search_workspace,
             fs_cmds::scan_todos,
             fs_cmds::list_workspace_files,
+            fs_cmds::list_workspace_dirs,
             fs_cmds::ruff_lint,
             // 本地历史（P1：无 Git 工作区的保存快照 / diff / 回滚）
             history::history_snapshot,
@@ -94,6 +96,8 @@ pub fn run() {
             history::history_read,
             history::history_restore,
             history::history_clear,
+            // 编辑历史采集（低延迟编辑预测数据源 V1：行对 JSONL 落盘）
+            edit_history::edit_history_append,
             // asset 协议动态授权（Markdown 预览本地图片）
             util::allow_asset_dir,
             // 文件管理写操作（P25-T01）
@@ -128,12 +132,10 @@ pub fn run() {
             env_cmds::init_pyproject,
             env_cmds::get_run_config,
             env_cmds::set_run_config,
-            env_cmds::list_run_profiles,
-            env_cmds::save_run_profile,
-            env_cmds::delete_run_profile,
-            env_cmds::ensure_run_profile,
-            env_cmds::get_run_target,
-            env_cmds::set_run_target,
+            env_cmds::sweep_run_configs,
+            env_cmds::get_project_run,
+            env_cmds::set_project_run,
+            env_cmds::detect_project_entry,
             env_cmds::detect_fastapi,
             env_cmds::list_packages,
             env_cmds::list_outdated,
@@ -168,11 +170,6 @@ pub fn run() {
             lsp::lsp_send_response,
             lsp::lsp_stop,
             lsp::get_intel_info,
-            // 运行
-            lsp::run_script,
-            lsp::run_profile,
-            lsp::stop_script,
-            lsp::run_stdin,
             // 集成终端（Phase 4）
             terminal::term_spawn,
             terminal::list_shells,
@@ -180,7 +177,7 @@ pub fn run() {
             terminal::term_resize,
             terminal::term_kill,
             terminal::term_kill_all,
-            // S3：在终端中运行（真 TTY：getpass / tqdm / rich / 彩色 / Ctrl+C）
+            // v3.4 §17-12：统一运行入口（真 TTY：getpass / tqdm / rich / 彩色 / Ctrl+C）
             terminal::run_in_terminal,
             // 调试（DAP / debugpy，docs/python_debug_dev_plan.md）
             dap::debug_detect,
@@ -227,8 +224,7 @@ pub fn run() {
                 );
                 watcher::watch_stop().ok();
                 dap::debug_stop_for_exit();
-                terminal::term_kill_all_for_exit();
-                lsp::stop_script_for_exit();
+                terminal::term_kill_all_for_exit(); // v3.4 §17-16：运行全走 PTY，运行进程清理随会话统一承担
                 lsp::lsp_stop_all_for_exit();
             }
         });

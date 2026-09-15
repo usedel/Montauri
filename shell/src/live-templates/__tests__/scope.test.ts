@@ -51,4 +51,22 @@ describe("classifyPosition（位置轴判定）", () => {
     expect(classifyPosition(model(["x = 1", "    class"]), pos(2, 11))).toBe("statement");
     expect(classifyPosition(model(["x = 1", "main"]), pos(2, 5))).toBe("statement");
   });
+
+  it("块头 ':' 后首行是语句位，而非续行（def/class/if）", () => {
+    expect(classifyPosition(model(["def bar(self, x):", "    docf"]), pos(2, 9))).toBe("statement");
+    expect(classifyPosition(model(["class Foo:", "    docc"]), pos(2, 9))).toBe("statement");
+    expect(classifyPosition(model(["if x:", "    main"]), pos(2, 9))).toBe("statement");
+  });
+
+  it("跨行 def 签名闭合行 '):' 后首行仍是语句位", () => {
+    expect(classifyPosition(model(["def foo(", "    a,", "):", "    docf"]), pos(4, 9))).toBe("statement");
+  });
+
+  it("块体首行空行处敲缩写 → statement", () => {
+    expect(classifyPosition(model(["def f():", "", "    docf"]), pos(2, 1))).toBe("statement");
+  });
+
+  it("字典键值冒号换行的值仍是表达式位（值分隔 ':' 不算块头）", () => {
+    expect(classifyPosition(model(["d = {", "    'a':", "    value"]), pos(3, 10))).toBe("expression");
+  });
 });

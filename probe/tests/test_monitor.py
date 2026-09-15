@@ -469,3 +469,97 @@ def test_sync_active_count_throttled_by_window(monkeypatch):
     assert calls["sync"] == 2
 
     mon.stop()
+
+
+def test_quiet_close_path_also_throttled_by_window(monkeypatch):
+    """M4 开销修复回归：静默超限（_quiet >= _QUIET_CLOSE）路径同样受窗口节流。
+
+    修复前：窗口延长分支不重置 _quiet——_quiet 越过 _QUIET_CLOSE 后只增不减，
+    「时间未到期但静默超限」让每次派发都命中决策点（_sync_active 全栈回溯 +
+    窗口推进），退化 O(派发数×栈深)（bench 60004 次派发跑出 57999 次回溯，
+    开销 1.84x 超红线）。修复后：延长路径重置 _quiet，回溯每窗口至多一次。
+
+    注：配合 _MIN_DISCOVERY_FLOOR（M4 第二修复，见
+    test_sitecustomize_noise_does_not_close_window），本用例把 _win_opened_at
+    回拨到地板之前——静默超限的「长运行脚本」场景发生在运行中段，天然越过地板。
+    """
+    import time as _time
+
+    from opencharm_probe import monitor as mon_mod
+
+    monkeypatch.setattr(mon_mod, "_DISCOVERY_WINDOW", 10.0)  # 窗口期内不因时间到期
+    # _QUIET_CLOSE 用真实值 2000：直接把 _quiet 推过阈值，模拟长运行脚本的
+    # 「每次派发 +1、从不归零」状态（这正是 bench 负载的形态）
+    assert mon_mod._QUIET_CLOSE == 2000
+
+    mon, _sink = _new_monitor()
+    mon.start()
+    # 越过静默关窗的时间地板（模拟长运行脚本中段：启动噪音期已过）
+    mon._win_opened_at = _time.perf_counter() - 1.0
+
+    calls = {"sync": 0}
+    orig_sync = mon._sync_active
+
+    def counting_sync():
+        calls["sync"] += 1
+        return orig_sync()
+
+    mon._sync_active = counting_sync
+    mon._code_ok[sys._getframe().f_code] = True
+    mon._active = 1  # 模拟活跃项目函数（<module>/main 帧全程在栈上）
+
+    # 第一次：静默超限 → 决策点 → 回溯 1 次 + 窗口延长 + _quiet 归零
+    mon._quiet = mon_mod._QUIET_CLOSE + 5
+    before_win = mon._win_until
+    mon._maybe_close_window()
+    assert calls["sync"] == 1
+    assert mon._quiet == 0, "窗口延长路径必须重置 _quiet（M4 修复核心断言）"
+    assert mon._win_until > before_win, "静默超限路径同样推进窗口（保持 CR-01 节流语义）"
+
+    # 后续派发（时间仍在窗口期内、静默重新累积但未超限）：直接 return，不回溯。
+    # 注：quiet 取远低于阈值的值——直接调用 _maybe_close_window 本身可能经全局
+    # PY_START 触发一次嵌套 _on_start 使 _quiet 自增 1，取边界值会被恰好顶过阈值。
+    mon._quiet = mon_mod._QUIET_CLOSE // 2
+    mon._maybe_close_window()
+    mon._maybe_close_window()
+    assert calls["sync"] == 1, "时间在窗口期内且静默未超限：不应回溯"
+
+    # 静默再次越过阈值 → 到达决策点：再回溯一次（每窗口至多一次的「重开」语义）
+    mon._quiet = mon_mod._QUIET_CLOSE + 1
+    mon._maybe_close_window()
+    assert calls["sync"] == 2
+    assert mon._quiet == 0, "每次窗口延长都重置 _quiet（节流可持续）"
+
+    mon.stop()
+
+
+def test_sitecustomize_noise_does_not_close_window(monkeypatch):
+    """M4 PTY 实测修复回归：sitecustomize 链噪音不得吃满 _QUIET_CLOSE 误关发现窗口。
+
+    实测场景（dev 下经宿主 IDE 启动）：PYTHONPATH 首段的第三方 sitecustomize（如安全
+    删除 shim）在链式加载 probe bootstrap 后继续执行自身逻辑，毫秒内涌入 2000+ 次库
+    函数派发——全是「无新函数」，_QUIET_CLOSE 瞬间吃满 → 静默关窗 → 主脚本 0 采集。
+    修复：静默关窗加 _MIN_DISCOVERY_FLOOR 时间地板（窗口开启后 0.25s 内不因静默关窗）。
+    """
+    import time as _time
+
+    from opencharm_probe import monitor as mon_mod
+
+    monkeypatch.setattr(mon_mod, "_DISCOVERY_WINDOW", 10.0)  # 时间上限不干扰
+    monkeypatch.setattr(mon_mod, "_MIN_DISCOVERY_FLOOR", 0.25)
+
+    mon, _sink = _new_monitor()
+    mon.start()
+
+    # 模拟启动噪音：窗口刚开、quiet 瞬间吃满（库函数派发，无新项目函数）
+    assert mon._in_window
+    mon._quiet = mon_mod._QUIET_CLOSE + 500
+    mon._maybe_close_window()
+    assert mon._in_window, "时间地板内：静默超限不得关窗（sitecustomize 噪音免疫）"
+
+    # 越过地板后静默仍超限且无活跃项目函数 → 允许关窗（正常路径不受影响）
+    mon._win_opened_at = _time.perf_counter() - 1.0
+    mon._maybe_close_window()
+    assert not mon._in_window, "越过地板且 _active=0：静默关窗恢复正常"
+
+    mon.stop()

@@ -26,6 +26,8 @@ interface FileTreeHandlers {
   renderTabs: () => void;
   closeTabSilent: (tab: Tab) => void;
   insertHeaderTemplate: () => Promise<boolean>;
+  /** v3.4 §8（M3-3.4）：文件树右键「运行脚本」（runFlow 注入，避免 fileTree → runFlow 循环依赖） */
+  runScript: (path: string) => void;
 }
 
 let handlers: FileTreeHandlers | null = null;
@@ -70,8 +72,18 @@ export async function refreshTree(): Promise<void> {
   treeEl.textContent = "";
   dirContainers.clear();
   expandedDirs.clear();
-  dirContainers.set(app.workspaceRoot, { container: treeEl, depth: 0 });
-  await buildDir(app.workspaceRoot, treeEl, 0);
+  await renderRootNode();
+}
+
+/** 渲染工作区根节点（可见、可折叠、默认展开），其子项装入根节点的子容器。
+ *  根节点是「工作区」的视觉锚点：右键即可在根目录新建，初用者不再无从下手。 */
+async function renderRootNode(): Promise<void> {
+  const root = app.workspaceRoot!;
+  const rootEntry: Entry = { name: basename(root), path: root, is_dir: true };
+  const rootItem = renderTreeItem(rootEntry, 0, { isRoot: true });
+  treeEl.appendChild(rootItem);
+  // 复用 toggleDir 的展开分支：建子容器 + 登记 dirContainers/expandedDirs + buildDir 填充
+  await toggleDir(rootItem, rootEntry, 0);
 }
 
 /** 读取 dir 的一层并填充到 container（不负责登记 map） */
@@ -99,12 +111,14 @@ async function buildDir(dir: string, container: HTMLElement, depth: number): Pro
 }
 
 /** 渲染单个树节点（文件/目录），含类型图标 + git 状态装饰 */
-function renderTreeItem(e: Entry, depth: number): HTMLElement {
+function renderTreeItem(e: Entry, depth: number, opts?: { isRoot?: boolean }): HTMLElement {
+  const isRoot = opts?.isRoot ?? false;
   const item = document.createElement("div");
-  item.className = `tree-item ${e.is_dir ? "dir" : "file"}`;
+  item.className = `tree-item ${e.is_dir ? "dir" : "file"}${isRoot ? " tree-root" : ""}`;
   item.style.paddingLeft = `${8 + depth * 14}px`;
   item.title = e.path;
   item.dataset.path = e.path;
+  if (isRoot) item.dataset.root = "true"; // 根节点标记：collapseAll/applyTreeFilter/键盘守卫据此豁免
   item.tabIndex = -1; // 可聚焦但不进 tab 序列（键盘导航手动管理）
   // UI-16：tree 模式（WAI-ARIA treeitem）。容器 #tree 的 role=tree 在 index.html 静态声明；
   // 目录的展开态用 aria-expanded（toggleDir/collapseAll 与 twisty 图标同源切换）；
@@ -162,10 +176,12 @@ function renderTreeItem(e: Entry, depth: number): HTMLElement {
     ev.stopPropagation();
     // 右键时若未选中当前项，则单选它
     if (!selectedPaths.has(e.path)) selectEntry(e, item);
-    showContextMenu(e, ev.clientX, ev.clientY);
+    // 根节点走背景菜单：只保留「在该目录下」的新建/粘贴/复制路径/终端，
+    // 不给重命名/删除/复制/剪切——工作区根不可删改名，误操作代价极高
+    showContextMenu(e, ev.clientX, ev.clientY, isRoot ? { background: true } : undefined);
   });
-  // 拖拽支持
-  item.draggable = true;
+  // 拖拽支持（根节点不可拖拽：不能把工作区根移动到自己子目录）
+  item.draggable = !isRoot;
   item.addEventListener("dragstart", (ev) => {
     ev.stopPropagation();
     if (!ev.dataTransfer) return;
@@ -259,9 +275,10 @@ function collapseAll(): void {
     dirContainers.delete(path);
     expandedDirs.delete(path);
   }
-  // 重置所有 twisty 与文件夹图标为收起态（UI-16：aria-expanded 一并复位）
-  treeEl.querySelectorAll<HTMLElement>(".tree-item.dir .twisty").forEach((el) => setTwisty(el, false));
-  treeEl.querySelectorAll<HTMLElement>(".tree-item.dir").forEach((el) => {
+  // 重置所有 twisty 与文件夹图标为收起态（UI-16：aria-expanded 一并复位）。
+  // 根节点（data-root）豁免：它始终保持展开，是工作区的视觉锚点。
+  treeEl.querySelectorAll<HTMLElement>(".tree-item.dir:not([data-root]) .twisty").forEach((el) => setTwisty(el, false));
+  treeEl.querySelectorAll<HTMLElement>(".tree-item.dir:not([data-root])").forEach((el) => {
     setFolderIcon(el, false);
     el.setAttribute("aria-expanded", "false");
   });
@@ -303,9 +320,8 @@ export async function refreshTreeWithExpandedState(): Promise<void> {
   treeEl.textContent = "";
   dirContainers.clear();
   expandedDirs.clear();
-  dirContainers.set(app.workspaceRoot, { container: treeEl, depth: 0 });
-  await buildDir(app.workspaceRoot, treeEl, 0);
-  // 恢复之前展开的目录（仅恢复仍存在的）
+  await renderRootNode();
+  // 恢复之前展开的子目录（根节点已在 renderRootNode 中展开，跳过）
   for (const dir of prevExpanded) {
     if (dir === app.workspaceRoot) continue;
     const itemEl = treeEl.querySelector<HTMLElement>(`.tree-item[data-path="${CSS.escape(dir)}"]`);
@@ -443,6 +459,13 @@ function showContextMenu(entry: Entry, x: number, y: number, opts?: { background
       { label: "打开预览", action: () => { mdPreview.setPreviewOpen(true); void fh().openFile(entry.path); } },
     );
   }
+  // v3.4 §8（M3-3.4）：.py 文件右键「运行脚本」（顺带补上的可选入口）
+  if (!entry.is_dir && (entry.path.endsWith(".py") || entry.path.endsWith(".pyw"))) {
+    items.push(
+      { sep: true },
+      { label: "运行脚本", action: () => handlers?.runScript(entry.path) },
+    );
+  }
 
   renderCtxMenu(items, x, y);
 }
@@ -509,6 +532,7 @@ function inlineInput(container: HTMLElement, beforeEl: HTMLElement | null, initi
     const input = document.createElement("input");
     input.className = "inline-input";
     input.type = "text";
+    input.autocomplete = "off";
     input.value = initial;
     input.spellcheck = false;
     row.appendChild(input);
@@ -544,12 +568,26 @@ function inlineInput(container: HTMLElement, beforeEl: HTMLElement | null, initi
   });
 }
 
+/** 确保目录已展开并返回其子容器与深度（内联输入定位用）。
+ *  未展开则展开它（根节点恒在，普通目录走 toggleDir）；找不到节点时回落到树根。
+ *  收敛四个 create* 的「取容器/深度」样板，并顺带处理「根节点被折叠时在其下新建」的定位。 */
+async function ensureDirExpanded(path: string): Promise<{ container: HTMLElement; depth: number }> {
+  const st = dirContainers.get(path);
+  if (st) return st;
+  const el = treeEl.querySelector<HTMLElement>(`.tree-item[data-path="${CSS.escape(path)}"]`);
+  const entry = el ? entryFromEl(el) : null;
+  if (el && entry?.is_dir) {
+    await toggleDir(el, entry, depthOf(el));
+    const st2 = dirContainers.get(path);
+    if (st2) return st2;
+  }
+  return { container: treeEl, depth: 0 };
+}
+
 /** 新建文件（内联输入，支持相对路径 pkg/mod.py；创建后立即打开） */
 export async function createFileAt(entry: Entry): Promise<void> {
   const base = entry.is_dir ? entry.path : parentDirOf(entry.path);
-  const st = dirContainers.get(base);
-  const container = st?.container ?? treeEl;
-  const depth = st ? st.depth : 0;
+  const { container, depth } = await ensureDirExpanded(base);
   const rel = await inlineInput(container, null, "", depth);
   if (!rel) return;
   const target = joinPath(base, rel);
@@ -564,29 +602,31 @@ export async function createFileAt(entry: Entry): Promise<void> {
   await fh().openFile(target);
 }
 
-/** P1（UX 审查）：全局「新建文件」入口（键位 Ctrl+Alt+Insert）。
- *  目标目录 = 活动文件所在目录（无活动文件时为工作区根）；目标目录已展开时先展开它，
- *  让内联输入框出现在目标目录之下（父链未展开等查不到元素时回落到树根部，行为同右键）。
+/** P1（UX 审查）：全局「新建文件」入口（键位 Ctrl+Alt+Insert / 工具栏按钮）。
+ *  目标目录 = 活动文件所在目录（无活动文件时为工作区根）；目标目录的展开
+ *  由 createFileAt → ensureDirExpanded 统一处理（含根节点折叠态），无需在此手动展开。
  *  setSidebarTab 经 views.ts 注入无环（views 零依赖）。 */
 export async function createFileInteractive(): Promise<void> {
   if (!app.workspaceRoot) return;
   setSidebarTab("files"); // 输入框在树里，先保证文件视图可见
   const tab = app.activeTab;
   const base = tab ? parentDirOf(tab.path) : app.workspaceRoot;
-  if (base !== app.workspaceRoot && !dirContainers.has(base)) {
-    const dirEl = treeEl.querySelector<HTMLElement>(`.tree-item.dir[data-path="${CSS.escape(base)}"]`);
-    const dirEntry = dirEl ? entryFromEl(dirEl) : null;
-    if (dirEl && dirEntry) await toggleDir(dirEl, dirEntry, depthOf(dirEl));
-  }
   await createFileAt({ name: basename(base), path: base, is_dir: true });
+}
+
+/** 全局「新建文件夹」入口（工具栏按钮）：目标目录同 createFileInteractive（活动文件目录 / 工作区根）。 */
+export async function createDirInteractive(): Promise<void> {
+  if (!app.workspaceRoot) return;
+  setSidebarTab("files");
+  const tab = app.activeTab;
+  const base = tab ? parentDirOf(tab.path) : app.workspaceRoot;
+  await createDirAt({ name: basename(base), path: base, is_dir: true });
 }
 
 /** 新建文件夹（内联输入，支持嵌套路径） */
 export async function createDirAt(entry: Entry): Promise<void> {
   const base = entry.is_dir ? entry.path : parentDirOf(entry.path);
-  const st = dirContainers.get(base);
-  const container = st?.container ?? treeEl;
-  const depth = st ? st.depth : 0;
+  const { container, depth } = await ensureDirExpanded(base);
   const rel = await inlineInput(container, null, "", depth);
   if (!rel) return;
   const target = joinPath(base, rel);
@@ -603,9 +643,7 @@ export async function createDirAt(entry: Entry): Promise<void> {
 /** 新建 Python 文件（.py/.pyw）：自动补扩展名，创建后立即打开并插入 header 文件头（若模板可用） */
 export async function createPyFileAt(entry: Entry): Promise<void> {
   const base = entry.is_dir ? entry.path : parentDirOf(entry.path);
-  const st = dirContainers.get(base);
-  const container = st?.container ?? treeEl;
-  const depth = st ? st.depth : 0;
+  const { container, depth } = await ensureDirExpanded(base);
   const rel = await inlineInput(container, null, "", depth);
   if (!rel) return;
   const target = joinPath(base, ensurePyExtension(rel));
@@ -625,9 +663,7 @@ export async function createPyFileAt(entry: Entry): Promise<void> {
 /** 新建 Python 包：目录 + 空 __init__.py（后端原子命令）；不自动打开文件 */
 export async function createPyPackageAt(entry: Entry): Promise<void> {
   const base = entry.is_dir ? entry.path : parentDirOf(entry.path);
-  const st = dirContainers.get(base);
-  const container = st?.container ?? treeEl;
-  const depth = st ? st.depth : 0;
+  const { container, depth } = await ensureDirExpanded(base);
   const rel = await inlineInput(container, null, "", depth);
   if (!rel) return;
   const target = joinPath(base, stripPyExtension(rel));
@@ -643,6 +679,8 @@ export async function createPyPackageAt(entry: Entry): Promise<void> {
 
 /** 重命名（内联输入，磁盘层面 + 树刷新 + 标签联动） */
 async function renameEntry(entry: Entry): Promise<void> {
+  // 工作区根不可重命名（F2 选中根节点时守卫；右键背景菜单本就不给重命名）
+  if (app.workspaceRoot && samePath(entry.path, app.workspaceRoot)) return;
   const oldPath = entry.path;
   const itemEl = treeEl.querySelector<HTMLElement>(`.tree-item[data-path="${CSS.escape(oldPath)}"]`);
   if (!itemEl) return;
@@ -777,7 +815,10 @@ async function pasteEntry(entry: Entry): Promise<void> {
 
 /** 删除所有选中项 */
 async function deleteSelected(): Promise<void> {
-  const entries = getSelectedEntries();
+  // 工作区根不可删除（Delete 选中根节点时守卫；右键背景菜单本就不给删除）
+  const entries = getSelectedEntries().filter(
+    (e) => !(app.workspaceRoot && samePath(e.path, app.workspaceRoot)),
+  );
   if (entries.length === 0) return;
   const msg = entries.length === 1
     ? `确认删除「${entries[0].path}」？\n删除后将移入系统回收站（可恢复）。`
@@ -890,7 +931,9 @@ async function revealEntry(entry: Entry): Promise<void> {
 
 /** 接线文件树全部交互：工具栏按钮 + 过滤框 + 树全局事件（原 init 内片段 + wireFileTreeEvents） */
 export function wireFileTree(): void {
-  // 文件树工具栏按钮
+  // 文件树工具栏按钮（新建文件/文件夹放最左，对齐 VS Code explorer 工具栏的可见入口）
+  $("btn-tree-new-file").addEventListener("click", () => void createFileInteractive());
+  $("btn-tree-new-folder").addEventListener("click", () => void createDirInteractive());
   $("btn-tree-refresh").addEventListener("click", () => void refreshTreeWithExpandedState());
   $("btn-tree-collapse").addEventListener("click", collapseAll);
   $("btn-tree-hidden").addEventListener("click", () => void toggleHiddenFiles());
@@ -1057,8 +1100,9 @@ function applyTreeFilter(): void {
     treeEl.querySelectorAll(".tree-empty.filtered-out").forEach((el) => el.classList.remove("filtered-out"));
     return;
   }
-  // 先标记所有项
+  // 先标记所有项（根节点恒显，不参与过滤——否则过滤词不匹配文件夹名时整树会被隐藏）
   for (const item of items) {
+    if (item.dataset.root === "true") continue;
     const name = item.querySelector(".name")?.textContent?.toLowerCase() ?? "";
     const match = name.includes(keyword);
     item.classList.toggle("filtered-out", !match);

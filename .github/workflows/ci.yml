@@ -1,0 +1,103 @@
+# OpenCharm CI（tech-debt #7 落地）
+#
+# 目标平台 Windows-only（Tauri 2 + NSIS / ConPTY / WebView2；probe 测试假定 Windows 路径），
+# 故两个 job 均跑 windows-latest。
+#
+# - test：4 个测试矩阵（前端 vitest + tsc 构建 / probe pytest / intel cargo test /
+#   shell LSP 桥 cargo test），每次 push main 与 PR 自动跑——「CI 全绿才可合并」的护栏。
+# - package-smoke：打包（NSIS）+ bench 回归（冷启动 / 内存红线，红线断言语义见
+#   bench/collect-metrics.ps1），手动触发（workflow_dispatch），发布前门禁。
+#
+# 工具链版本对齐 ci/versions.toml（node 22 / python 3.13 / rust 1.96）。
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: 测试矩阵（前端 / probe / intel / shell）
+    runs-on: windows-latest
+    steps:
+      - name: 检出
+        uses: actions/checkout@v4
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: shell/package-lock.json
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: 安装 Rust 工具链
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.96.0"
+
+      - name: 前端 vitest + tsc 构建
+        working-directory: shell
+        run: |
+          npm ci
+          npx vitest run
+          npm run build
+
+      - name: probe pytest
+        working-directory: probe
+        run: |
+          python -m pip install -e ".[dev]"
+          python -m pytest -q
+
+      - name: intel cargo test
+        working-directory: intel
+        run: cargo test
+
+      - name: shell/src-tauri cargo test（LSP 桥）
+        working-directory: shell/src-tauri
+        run: cargo test
+
+  package-smoke:
+    name: 打包 + bench 烟测
+    runs-on: windows-latest
+    needs: test
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - name: 检出
+        uses: actions/checkout@v4
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: shell/package-lock.json
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: 安装 Rust 工具链
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.96.0"
+
+      - name: 前端依赖
+        working-directory: shell
+        run: npm ci
+
+      - name: 打包（NSIS）
+        shell: pwsh
+        run: ./build-release.ps1 -SkipNpmInstall
+
+      - name: bench 回归（冷启动 / 内存红线）
+        shell: pwsh
+        run: ./bench/collect-metrics.ps1 -Runs 2

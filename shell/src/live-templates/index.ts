@@ -14,6 +14,7 @@ import { resolveSyntaxContext, type SyntaxContext } from "./scope";
 import { compileTemplate } from "./compiler";
 import { insertSnippet } from "./snippet";
 import { SymbolIndex, type RawSymbol } from "./symbols";
+import { registerDocstringTrigger } from "./docstring";
 
 type Monaco = typeof MonacoApi;
 
@@ -142,6 +143,8 @@ export async function initLiveTemplates(
     isComposing: () => composing,
     resolveScopeInfo: getScopeInfo,
   });
+  // tech-debt #16：`"""` + Enter 自动生成 docstring（对标 PyCharm）
+  const docstringTrigger = registerDocstringTrigger(monaco, editor);
   const surroundHandle = registerSurround(editor, registry, {
     buildEngineContext,
     resolveScopeInfo: getScopeInfo,
@@ -216,6 +219,7 @@ export async function initLiveTemplates(
       compEnd.dispose();
       completionDisposable.dispose();
       tabDisposable.dispose();
+      docstringTrigger.dispose();
       surroundHandle.dispose();
       paletteHandle.dispose();
       symbolIndex?.clear();

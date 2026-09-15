@@ -154,10 +154,12 @@ Linux `~/.config/opencharm/data-root`、macOS `~/Library/Application Support/Ope
 - 保留现有配置 `installMode: currentUser`（官方模板原生支持）：per-user 免管理员安装、目录选择页、
   官方 per-user 默认目录（LOCALAPPDATA 下），全部开箱即得。**数据根永不进安装目录**，无需任何模板定制。
 - 卸载清理：官方模板提供 `installerHooks`（`bundle.windows.nsis.installerHooks`），新增 `nsis/hooks.nsh`：
-  - `NSIS_HOOK_POSTUNINSTALL` 中 MessageBox 询问「是否删除 OpenCharm 用户数据」；
-  - 确认 → 依次删除**默认数据根** `%LOCALAPPDATA%\OpenCharm`、**指针所指数据根**
+  - `NSIS_HOOK_POSTUNINSTALL` 复用卸载确认页自带「Delete the application data」复选框状态
+    （模板 `un.ConfirmLeave` 写入全局变量 `$DeleteAppDataCheckboxState`，1=勾选），不再单独弹窗询问，
+    消除「勾了复选框却仍被二次询问」的重复打扰；
+  - 勾选 → 依次删除**默认数据根** `%LOCALAPPDATA%\OpenCharm`、**指针所指数据根**
     （读 `%APPDATA%\OpenCharm\data-root`，覆盖已迁移到其他盘的场景；含盘根防误删护栏）、
-    **指针目录** `%APPDATA%\OpenCharm`；拒绝 → 全部保留。
+    **指针目录** `%APPDATA%\OpenCharm`；未勾选 → 全部保留。
   - **用户工具链（`%USERPROFILE%\.local\bin` 的 uv、`%APPDATA%\uv\tools` 的 pyrefly）一律不碰。**
 - `build-release.ps1` / `.bat` 无需改动（仅调用 `tauri build`）。
 

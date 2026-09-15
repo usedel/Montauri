@@ -27,7 +27,8 @@ CREATE TABLE IF NOT EXISTS runs(
   project TEXT NOT NULL,
   script TEXT NOT NULL,
   python TEXT NOT NULL,
-  probe_version TEXT NOT NULL
+  probe_version TEXT NOT NULL,
+  instance TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS functions(
   fid INTEGER PRIMARY KEY,
@@ -71,10 +72,23 @@ def _ensure_stale_column(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE functions ADD COLUMN stale INTEGER NOT NULL DEFAULT 0")
 
 
+def _ensure_instance_column(conn: sqlite3.Connection) -> None:
+    """旧库迁移：runs 无 instance 列则补（§19-5 运行实例标识，M4 前的库）。
+    旧行回落 ''（无法归属到单次运行——观测数据本身跨运行累加，不受影响）。"""
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(runs)")}
+    if "instance" not in cols:
+        conn.execute("ALTER TABLE runs ADD COLUMN instance TEXT NOT NULL DEFAULT ''")
+
+
 def project_hash(project_root: str) -> str:
-    """项目根 realpath 的 sha1 前 12 位（库文件名隔离键）。"""
+    """项目根 realpath 的 sha1 前 12 位（库文件名隔离键）。
+
+    normcase 统一大小写：Windows 路径不区分大小写（`F:\\Proj` 与 `f:\\proj` 是同一目录），
+    不归一会产生两个 trace 库，shell 与 probe 错位（tech-debt #4）。POSIX 上 normcase 恒等，无副作用。
+    shell 侧对应实现见 `shell/src-tauri/src/file_ops.rs::project_hash`（Windows 下 to_lowercase）。
+    """
     return hashlib.sha1(
-        os.path.normpath(os.path.realpath(project_root)).encode("utf-8")
+        os.path.normcase(os.path.normpath(os.path.realpath(project_root))).encode("utf-8")
     ).hexdigest()[:12]
 
 
@@ -96,12 +110,19 @@ def _set_pragmas(conn: sqlite3.Connection, read_only: bool = False) -> None:
 
 
 def save(cfg: ProbeConfig, sink: ObservationSink, project_root: str, script: str,
-         started: float, elapsed: float) -> Path:
+         started: float, elapsed: float, instance: str | None = None) -> Path:
     """聚合观测批量 upsert 到 trace 库（单事务，失败抛异常由调用方兜底）。
 
     P2-T07 陈旧标记：本次运行覆盖到的函数清回 stale=0（观测与当前代码一致）；
     未覆盖但所在文件 mtime > 本次 run.started 的函数标 stale=1。
+
+    §19-5 instance（可空）：运行实例标识（shell 注入的会话 id，如
+    `run-term-script` / `run-term-project-2`）——多实例并行时每次落库可归属到
+    单次运行；None 时读环境变量 OPENCHARM_PROBE_INSTANCE（注入模式零改动兼容），
+    两者皆缺则落 ''（CLI 直接运行等场景，无归属语义）。
     """
+    if instance is None:
+        instance = os.environ.get("OPENCHARM_PROBE_INSTANCE", "")
     path = db_path(cfg, project_root)
     path.parent.mkdir(parents=True, exist_ok=True)
     import sys
@@ -110,13 +131,14 @@ def save(cfg: ProbeConfig, sink: ObservationSink, project_root: str, script: str
         _set_pragmas(conn)
         conn.executescript(SCHEMA)
         _ensure_stale_column(conn)
+        _ensure_instance_column(conn)
         # P2-T07：本次运行前库内末次 run 时刻（陈旧检测的比较基准）
         prev_max_started = conn.execute("SELECT MAX(started) FROM runs").fetchone()[0]
         conn.execute(
-            "INSERT INTO runs(started, elapsed, project, script, python, probe_version)"
-            " VALUES(?,?,?,?,?,?)",
+            "INSERT INTO runs(started, elapsed, project, script, python, probe_version, instance)"
+            " VALUES(?,?,?,?,?,?,?)",
             (started, elapsed, os.path.normpath(os.path.realpath(project_root)),
-             script, sys.version.split()[0], __version__),
+             script, sys.version.split()[0], __version__, instance),
         )
         # functions：INSERT OR IGNORE 建行，再 UPDATE 累加 hits
         # （fid 是 sink 内存编号，跨运行不稳定——用 (filename, qualname, lineno) 做自然键，
@@ -207,6 +229,7 @@ def clean(cfg: ProbeConfig, project_root: str, days: int | None = None,
         _set_pragmas(conn)
         conn.executescript(SCHEMA)
         _ensure_stale_column(conn)
+        _ensure_instance_column(conn)
         if days is not None:
             cutoff = time.time() - days * 86400
             cur = conn.execute("DELETE FROM runs WHERE started < ?", (cutoff,))

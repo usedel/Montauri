@@ -12,7 +12,9 @@ use crate::util::opencharm_home;
 fn default_keybindings() -> HashMap<String, String> {
     let mut m = HashMap::new();
     m.insert("save".into(), "Ctrl+S".into());
-    m.insert("run".into(), "Ctrl+F10".into());
+    // v3.4 §17-7（M3-3.5）：run 拆为 run_script + run_project（三处同步）
+    m.insert("run_script".into(), "Ctrl+F10".into());
+    m.insert("run_project".into(), "Ctrl+Shift+F10".into());
     m.insert("stop".into(), "Ctrl+F2".into());
     m.insert("run_selection".into(), "Alt+Shift+E".into());
     m.insert("global_search".into(), "Ctrl+Shift+F".into());
@@ -163,6 +165,13 @@ pub fn get_settings() -> Result<Settings, String> {
     Ok(load())
 }
 
+/// 当前 `probe_enabled` 开关值（运行路径低频读取，直接落盘读 + 失败回落默认 true）。
+/// §17-13：`terminal::run_in_terminal` 的 probe 注入由此控制；调试链路（dap.rs）
+/// 恒 `probe=false`，不经此函数（§13.4）。
+pub(crate) fn current_probe_enabled(_app: &tauri::AppHandle) -> bool {
+    load().probe_enabled
+}
+
 /// 写入完整设置
 #[tauri::command]
 pub fn set_settings(settings: Settings) -> Result<(), String> {
@@ -206,6 +215,9 @@ mod tests {
         assert_eq!(d.terminal_shell, "auto");
         // 快捷键默认值（PyCharm 风格）
         assert_eq!(d.keybindings.get("save").map(String::as_str), Some("Ctrl+S"));
+        // v3.4 §17-7（M3-3.5）：run 拆为 run_script + run_project
+        assert_eq!(d.keybindings.get("run_script").map(String::as_str), Some("Ctrl+F10"));
+        assert_eq!(d.keybindings.get("run_project").map(String::as_str), Some("Ctrl+Shift+F10"));
         assert_eq!(d.keybindings.get("duplicate_line").map(String::as_str), Some("Ctrl+D"));
         assert_eq!(d.keybindings.get("comment_line").map(String::as_str), Some("Ctrl+/"));
         assert_eq!(d.keybindings.get("comment_block").map(String::as_str), Some("Ctrl+Shift+/"));
@@ -238,7 +250,7 @@ mod tests {
         assert_eq!(d.keybindings.get("toggle_sidebar").map(String::as_str), Some("Ctrl+Shift+F12"));
         assert_eq!(d.keybindings.get("toggle_bottom").map(String::as_str), Some("Alt+F12"));
         // 键位表条目数 = 前端 KEYBINDING_META 条目数（漂移锁，新增键须同步改这里）
-        assert_eq!(d.keybindings.len(), 35);
+        assert_eq!(d.keybindings.len(), 36);
         assert_eq!(d.optimize_imports_on_save, false);
     }
 
@@ -281,7 +293,10 @@ mod tests {
         assert_eq!(s.keybindings.get("nav_back").map(String::as_str), Some("Ctrl+Alt+Left"));
         assert_eq!(s.keybindings.get("local_history").map(String::as_str), Some("Ctrl+Shift+H"));
         assert_eq!(s.keybindings.get("run_history").map(String::as_str), Some("Ctrl+Shift+R"));
-        assert_eq!(s.keybindings.len(), 35);
+        // v3.4 §17-7（M3-3.5）：run 拆分后旧配置无 run_script/run_project 字段 → 回落默认
+        assert_eq!(s.keybindings.get("run_script").map(String::as_str), Some("Ctrl+F10"));
+        assert_eq!(s.keybindings.get("run_project").map(String::as_str), Some("Ctrl+Shift+F10"));
+        assert_eq!(s.keybindings.len(), 36);
         assert_eq!(s.optimize_imports_on_save, false); // 旧配置文件无此字段 → 默认关闭
     }
 }

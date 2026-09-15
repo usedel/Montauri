@@ -164,12 +164,25 @@ const WORD_CHAR_RE = /[A-Za-z0-9_-]/;
 /** 定义头前缀：词起点之前紧邻 def/class（或 async def）头 */
 const DEF_HEAD_PREFIX_RE = /^\s*(?:async\s+)?(?:def|class)\s+$/;
 
-/** 行末悬挂符：语句显式续行（行连接符 / 左悬挂运算符与标点） */
-const CONT_SUFFIX_RE = /(,|\(|\[|\{|:|\.|=|\+|-|\*|\/|%|@|<|>|&|\||\^|~)$/;
+/** 行末悬挂符：语句显式续行（行连接符 / 左悬挂运算符与标点）。
+ * `:` 单独处理（见 isBlockHeaderColon）：块头 `:`（def/class/if/... 或其跨行签名的 `):` / `]:`）
+ * 不是续行符——块体首行应是 statement；仅值分隔冒号（字典键值 / 切片）才是续行。 */
+const CONT_SUFFIX_RE = /(,|\(|\[|\{|\.|=|\+|-|\*|\/|%|@|<|>|&|\||\^|~)$/;
 
 /** 行末悬挂关键词：二元/一元运算符后需右操作数，或引入子句后需主体 */
 const CONT_KEYWORD_RE =
   /\b(and|or|not|in|is|if|elif|else|for|while|return|yield|import|from|as|assert|del|raise|with|lambda|await)\s*$/;
+
+/** 单行块头引入关键字（含 def/class/async def），用于区分「块头 `:`」与「续行 `:`」 */
+const BLOCK_HEAD_START_RE =
+  /^(?:async\s+)?(?:def|class|if|elif|else|for|while|try|except|finally|with|match|case)\b/;
+
+/** 以 `:` 结尾的上一非空行是否为「块头」：块头的 `:` 引入缩进块体（下一行是 statement 位），
+ * 而非续行。覆盖单行块头与跨行签名的闭合行（去掉 `:` 后以 `)` / `]` 结尾，如 `):`）。 */
+function isBlockHeaderColon(trimmed: string): boolean {
+  if (BLOCK_HEAD_START_RE.test(trimmed)) return true;
+  return /[)\]]$/.test(trimmed.slice(0, -1));
+}
 
 /**
  * 语法位置判定（纯 model + position，无 Monaco 依赖，可单测）。
@@ -208,7 +221,12 @@ function continuesPrevious(model: MonacoApi.editor.ITextModel, lineNumber: numbe
     const trimmed = prev.trim();
     if (!trimmed) continue;
     const te = prev.trimEnd();
-    return te.endsWith("\\") || CONT_SUFFIX_RE.test(te) || CONT_KEYWORD_RE.test(trimmed);
+    if (te.endsWith("\\")) return true;
+    if (CONT_KEYWORD_RE.test(trimmed)) return true;
+    if (CONT_SUFFIX_RE.test(te)) return true;
+    // `:` 结尾：仅值分隔冒号（非块头）算续行；块头 `:` 的下一行是语句位
+    if (te.endsWith(":") && !isBlockHeaderColon(trimmed)) return true;
+    return false;
   }
   return false;
 }

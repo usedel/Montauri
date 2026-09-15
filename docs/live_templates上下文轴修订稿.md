@@ -41,7 +41,7 @@ SyntaxContext { container, position, lexical, className, methodName }
 
 | 值 | 含义 | 判定线索 |
 |---|---|---|
-| `statement` | 语句边界（可开始新语句处，含模块顶层） | 光标列左侧仅空白，且上一非空行为完整语句（跨行括号深度 0，行末非续行符） |
+| `statement` | 语句边界（可开始新语句处，含模块顶层） | 光标列左侧仅空白，且上一非空行为完整语句（跨行括号深度 0，行末非续行符；块头 `:` 结尾视为完整语句，故块体首行是 statement——见 §8.2） |
 | `expression` | 表达式位置（`=`/`return`/`,`/`(`/`[`/`{` 之后、实参、下标等） | 落在未闭合括号内，或紧跟表达式引入符之后 |
 | `name` | 定义名位置（`def`/`class` 头部名字 token 内） | 当前行形如 `^\s*(async\s+)?def\s+\w*` / `^\s*class\s+\w*` 且光标列落在名字 token 内 |
 
@@ -161,7 +161,7 @@ classify(model, position, symbols) -> SyntaxContext
 相位 A（位置轴核心）已实现并全绿（vitest 10 文件 · 80 项）。与正文的偏差/细化：
 
 1. **判定器落点**：未新建 `context.ts`，`classifyPosition` 与 `resolveSyntaxContext` 直接落在 `scope.ts`——`SyntaxContext extends ScopeInfo` 仅追加 `position`，复用既有容器判定（documentSymbol 缓存 + 缩进兜底）体系。
-2. **位置判定以「缩写词起点」为界**（§1.1/§3 细化）：触发补全/展开时光标紧贴缩写词，`statement` 判定为「缩写词起点到行首仅空白 + 上一非空行完整」；「跨行括号平衡」落地为「行末悬挂启发」——上一非空行 `trimEnd()` 以行连接符 `\`、悬挂标点（`, ( [ { : . = + - * / % @ < > & | ^ ~`）或悬挂关键词（`and or not in is if elif else for while return yield import from as assert del raise with lambda await`）结尾即视为续行（expression）。v1.1 不维护跨行括号栈；换 LSP AST 时随「可替换性承诺」一并精确化。
+2. **位置判定以「缩写词起点」为界**（§1.1/§3 细化）：触发补全/展开时光标紧贴缩写词，`statement` 判定为「缩写词起点到行首仅空白 + 上一非空行完整」；「跨行括号平衡」落地为「行末悬挂启发」——上一非空行 `trimEnd()` 以行连接符 `\`、悬挂标点（`, ( [ { . = + - * / % @ < > & | ^ ~`）或悬挂关键词（`and or not in is if elif else for while return yield import from as assert del raise with lambda await`）结尾即视为续行（expression）。`:` 单独处理（tech-debt #15）：块头 `:`（单行块头 def/class/if/... 或跨行签名闭合 `):` / `]:`）不视为续行——块体首行是 statement；仅值分隔冒号（字典键值 / 切片）算续行。v1.1 不维护跨行括号栈；换 LSP AST 时随「可替换性承诺」一并精确化。
 3. **Registry 键粒度不变**（偏离 §4 文字）：保持 `scope + kind + abbreviation` 键；`templatesForContext(ctx)` 内部先取 `templatesForScope` 再按 `positions` 过滤，`findByAbbreviation` 增加位置维。理由：改键会牵动「按 scope 墓碑 / 三层覆盖 / ordering」既有语义，收益仅省一次遍历——不为优化引入回归。
 4. **缩写分工**：`builtin.ifmain` 为 `__main__` 守卫，`builtin.main` 为「`def main()` 函数定义」模板，均 `scopes:["python:module"] + positions:["statement"]`。
 5. **结构模板标注**：`def`/`class`/`dataclass`/`if`/`ife`/`for`/`while`/`try`/`with`/`header`/`adef`/`afor`/`awith`/`init`/`prop`/`iter`/`repr`/`docf` 均 `positions:["statement"]`；`super`/`print`/`lambda` 走缺省。

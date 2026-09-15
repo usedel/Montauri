@@ -1,6 +1,6 @@
 // 运行环境装配（S3/S4 公共基建，偿还 tech-debt 第 8 条）：
-// 把「一次 Python 运行需要注入什么」收敛成**单一来源**——`lsp::run_script`（std::process::Command）
-// 与 `terminal::run_in_terminal`（portable-pty CommandBuilder）共用同一份装配结果，
+// 把「一次 Python 运行需要注入什么」收敛成**单一来源**——`terminal::run_in_terminal`
+// （portable-pty CommandBuilder）与 `dap.rs` 调试链路共用同一份装配结果，
 // 杜绝两条路径的语义漂移（PYTHONPATH 四段约定：用户配置 → 继承 → 工作区根 → probe src）。
 //
 // 设计要点：
@@ -24,7 +24,7 @@ pub(crate) struct RunEnv {
     /// ① 默认注入（PYTHONIOENCODING / PYTHONUTF8 / PYTHONUNBUFFERED）
     /// ② PYTHONPATH 四段合并（见 [`assemble`]）
     /// ③ 运行配置的其余用户环境变量（用户值优先，覆盖 ①②）
-    /// ④ probe 三件套（仅 probe_src 为 Some 时）
+    /// ④ probe 四件套（仅 probe_src 为 Some 时，§5.3 ⑤）
     pub(crate) env: Vec<(String, String)>,
     /// 脚本参数（`shell-words` 拆分结果，调用方追加在脚本名之后）
     pub(crate) args: Vec<String>,
@@ -98,6 +98,7 @@ pub(crate) fn build_run_env(
     workspace_root: Option<&str>,
     run_config: &RunProfile,
     probe: bool,
+    instance: Option<&str>,
 ) -> RunEnv {
     let probe_src = if probe { locate_probe_src(app) } else { None };
     // ②-2 段（继承自 shell 的既有 PYTHONPATH）在此读取进程环境；作为显式入参下传，
@@ -106,7 +107,7 @@ pub(crate) fn build_run_env(
     // P1-G：加载 .env 文件（有序；相对工作区根）。文件缺失仅告警不中断运行。
     let mut warnings: Vec<String> = Vec::new();
     let env_file_env = load_env_files(&run_config.env_files, workspace_root, &mut warnings);
-    let mut out = assemble(script_abs, workspace_root, run_config, probe_src, inherited.as_deref(), &env_file_env);
+    let mut out = assemble(script_abs, workspace_root, run_config, probe_src, inherited.as_deref(), &env_file_env, instance);
     out.warnings.extend(warnings);
     out
 }
@@ -181,6 +182,7 @@ pub(crate) fn assemble(
     probe_src: Option<PathBuf>,
     inherited_pythonpath: Option<&str>,
     env_file_env: &[(String, String)],
+    instance: Option<&str>,
 ) -> RunEnv {
     let mut env: Vec<(String, String)> = Vec::new();
     let mut warnings: Vec<String> = Vec::new();
@@ -245,7 +247,10 @@ pub(crate) fn assemble(
         }
     }
 
-    // ④ probe 三件套（probe/src 已经 ②-4 进 PYTHONPATH，这里只补 autostart 开关与元信息）
+    // ④ probe 四件套（probe/src 已经 ②-4 进 PYTHONPATH，这里补 autostart 开关与元信息）。
+    // OPENCHARM_PROBE_INSTANCE（§19-5 运行实例归属）：terminal::run_in_terminal 按会话 id
+    // 注入（run-term-script / run-term-project-<N>），probe 落库时写 runs.instance——
+    // 多实例并行时每次 trace 可归属到单次运行；None（调试链路 / 旧调用方）不注入。
     if probe_src.is_some() {
         env.push(("OPENCHARM_PROBE_AUTOSTART".to_string(), "1".to_string()));
         env.push((
@@ -256,6 +261,9 @@ pub(crate) fn assemble(
             "OPENCHARM_PROBE_HOME".to_string(),
             crate::util::opencharm_home().to_string_lossy().to_string(),
         ));
+        if let Some(inst) = instance {
+            env.push(("OPENCHARM_PROBE_INSTANCE".to_string(), inst.to_string()));
+        }
     }
 
     // 脚本参数（P3）：shell-words 拆分（支持引号/转义）；解析失败降级为「忽略参数 + 告警」，不中断运行
@@ -286,19 +294,16 @@ pub(crate) struct RunCommand {
 /// 解析运行命令（P0-C）：入口二选一——
 /// - script：选中解释器 → `<解释器> <脚本>`；未选中 → `uv run <文件名>` 兜底；
 /// - module：选中解释器 → `<解释器> -m <模块名>`；未选中 → `uv run python -m <模块名>` 兜底。
-/// P2-Q：`python_console` 为 true 时前置 `-i`（脚本跑完留在交互 REPL）。
+/// v3.4 §18 裁决 3：`python_console`（-i 前置）随 v2 高级项删除——需要时手敲 `python -i <file>`。
 /// 与 `run_script` 的历史分支完全一致，PTY 路径复用后不再有第二套解释器解析逻辑。
 pub(crate) fn resolve_run_command(
     entry: &RunEntry,
     script_abs: &Path,
     file_name: &str,
     interpreter: Option<&str>,
-    python_console: bool,
 ) -> RunCommand {
-    // -i 必须在脚本 / -m 之前（它是解释器自身的选项）
-    let console_prefix: Vec<String> = if python_console { vec!["-i".to_string()] } else { Vec::new() };
     let module_args = || {
-        let mut a = console_prefix.clone();
+        let mut a = Vec::new();
         a.push("-m".to_string());
         a.push(entry.target_trimmed().to_string());
         a
@@ -309,9 +314,7 @@ pub(crate) fn resolve_run_command(
             args: if entry.is_module() {
                 module_args()
             } else {
-                let mut a = console_prefix;
-                a.push(script_abs.to_string_lossy().to_string());
-                a
+                vec![script_abs.to_string_lossy().to_string()]
             },
             env: Vec::new(),
             is_uv: false,
@@ -332,13 +335,9 @@ pub(crate) fn resolve_run_command(
                 args: if entry.is_module() {
                     // uv run 把 "python" 当作环境内命令执行：`uv run python -m <模块>` 等价 `python -m`
                     let mut a = vec!["run".to_string(), "python".to_string()];
-                    a.extend(console_prefix);
                     a.push("-m".to_string());
                     a.push(entry.target_trimmed().to_string());
                     a
-                } else if python_console {
-                    // P2-Q：REPL 需要显式 python（`uv run <文件>` 跑完即退，无法停留交互）
-                    vec!["run".to_string(), "python".to_string(), "-i".to_string(), file_name.to_string()]
                 } else {
                     vec!["run".to_string(), file_name.to_string()]
                 },
@@ -391,17 +390,17 @@ pub(crate) fn resolve_run_cwd(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::env_cmds::{EnvVar, RunEntry, StdinConfig};
+    use crate::env_cmds::{EnvVar, RunEntry};
 
     const SCRIPT: &str = if cfg!(windows) { "F:\\proj\\main.py" } else { "/proj/main.py" };
 
     fn rc(args: &str, env: Vec<EnvVar>) -> RunProfile {
-        RunProfile { args: args.into(), env, stdin: StdinConfig::default(), ..Default::default() }
+        RunProfile { args: args.into(), env, ..Default::default() }
     }
 
     /// 装配（不挂 probe、无继承 PYTHONPATH、无 .env）——单测统一入口
     fn asm(cfg: &RunProfile, root: Option<&str>) -> RunEnv {
-        assemble(Path::new(SCRIPT), root, cfg, None, None, &[])
+        assemble(Path::new(SCRIPT), root, cfg, None, None, &[], None)
     }
 
     /// §2.1 四段合并顺序的完整锁定：① 用户配置 → ② 继承 → ③ 工作区根 → ④ probe src
@@ -416,6 +415,7 @@ mod tests {
             Some(probe_src.clone()),
             Some("/inherited/lib"),
             &[],
+            None,
         );
         let pp = env_value(&e, "PYTHONPATH").expect("应注入 PYTHONPATH");
         let sep = if cfg!(windows) { ';' } else { ':' };
@@ -429,7 +429,7 @@ mod tests {
 
     #[test]
     fn inherited_blank_pythonpath_is_ignored() {
-        let e = assemble(Path::new(SCRIPT), None, &rc("", vec![]), None, Some("   "), &[]);
+        let e = assemble(Path::new(SCRIPT), None, &rc("", vec![]), None, Some("   "), &[], None);
         assert!(env_value(&e, "PYTHONPATH").is_none());
     }
 
@@ -480,7 +480,7 @@ mod tests {
     fn env_file_env_sits_between_defaults_and_user_env() {
         let cfg = rc("", vec![EnvVar { key: "APP_MODE".into(), value: "user".into() }]);
         let env_file = vec![("APP_MODE".to_string(), "dotenv".to_string()), ("FROM_DOTENV".to_string(), "1".to_string())];
-        let e = assemble(Path::new(SCRIPT), None, &cfg, None, None, &env_file);
+        let e = assemble(Path::new(SCRIPT), None, &cfg, None, None, &env_file, None);
         // 顺序即优先级：.env 先写、用户 env 后写覆盖
         let hits: Vec<&str> = e.env.iter().filter(|(k, _)| k == "APP_MODE").map(|(_, v)| v.as_str()).collect();
         assert_eq!(hits, ["dotenv", "user"]);
@@ -494,7 +494,7 @@ mod tests {
     fn env_file_pythonpath_joins_merge_after_user_value() {
         let cfg = rc("", vec![EnvVar { key: "PYTHONPATH".into(), value: "/user/lib".into() }]);
         let env_file = vec![("PYTHONPATH".to_string(), "/dotenv/lib".to_string())];
-        let e = assemble(Path::new(SCRIPT), Some("/ws/root"), &cfg, None, Some("/inherited/lib"), &env_file);
+        let e = assemble(Path::new(SCRIPT), Some("/ws/root"), &cfg, None, Some("/inherited/lib"), &env_file, None);
         let pp = env_value(&e, "PYTHONPATH").expect("应注入 PYTHONPATH");
         let sep = if cfg!(windows) { ';' } else { ':' };
         let parts: Vec<&str> = pp.split(sep).collect();
@@ -537,9 +537,9 @@ mod tests {
 
     #[test]
     fn probe_trio_and_pythonpath_tail() {
-        // probe/src 追加在 PYTHONPATH **末位**（用户同名模块优先命中，不被探针遮蔽）+ autostart 三件套
+        // probe/src 追加在 PYTHONPATH **末位**（用户同名模块优先命中，不被探针遮蔽）+ 四件套
         let probe_src = PathBuf::from(if cfg!(windows) { "F:\\oc\\probe\\src" } else { "/oc/probe/src" });
-        let e = assemble(Path::new(SCRIPT), Some("/ws/root"), &rc("", vec![]), Some(probe_src.clone()), None, &[]);
+        let e = assemble(Path::new(SCRIPT), Some("/ws/root"), &rc("", vec![]), Some(probe_src.clone()), None, &[], None);
         let pp = env_value(&e, "PYTHONPATH").expect("应注入 PYTHONPATH");
         let sep = if cfg!(windows) { ';' } else { ':' };
         let parts: Vec<&str> = pp.split(sep).collect();
@@ -550,6 +550,28 @@ mod tests {
         assert!(!crate::util::opencharm_home().to_string_lossy().is_empty());
         assert!(env_value(&e, "OPENCHARM_PROBE_HOME").is_some());
         assert_eq!(e.probe_src.as_deref(), Some(probe_src.as_path()));
+        // instance 未传 → 不注入（调试链路 / 无归属语义的调用方）
+        assert!(env_value(&e, "OPENCHARM_PROBE_INSTANCE").is_none());
+    }
+
+    /// §19-5：instance 传入 → OPENCHARM_PROBE_INSTANCE 注入（runs.instance 归属键）
+    #[test]
+    fn probe_instance_env_injected_when_provided() {
+        let probe_src = PathBuf::from(if cfg!(windows) { "F:\\oc\\probe\\src" } else { "/oc/probe/src" });
+        let e = assemble(
+            Path::new(SCRIPT),
+            Some("/ws/root"),
+            &rc("", vec![]),
+            Some(probe_src),
+            None,
+            &[],
+            Some("run-term-project-2"),
+        );
+        assert_eq!(env_value(&e, "OPENCHARM_PROBE_INSTANCE").as_deref(), Some("run-term-project-2"));
+        // probe 关闭时 instance 一并不注入（四件套整体缺席）
+        let e2 = asm(&rc("", vec![]), Some("/ws/root"));
+        assert!(env_value(&e2, "OPENCHARM_PROBE_INSTANCE").is_none());
+        assert!(env_value(&e2, "OPENCHARM_PROBE_AUTOSTART").is_none());
     }
 
     #[test]
@@ -571,7 +593,7 @@ mod tests {
     #[test]
     fn resolve_run_command_prefers_interpreter() {
         let script = Path::new(SCRIPT);
-        let c = resolve_run_command(&RunEntry::default(), script, "main.py", Some("F:/proj/.venv/Scripts/python.exe"), false);
+        let c = resolve_run_command(&RunEntry::default(), script, "main.py", Some("F:/proj/.venv/Scripts/python.exe"));
         assert!(!c.is_uv);
         assert_eq!(c.program, "F:/proj/.venv/Scripts/python.exe");
         // 解释器分支：脚本绝对路径就是唯一的前置参数（运行配置 args 由调用方追加在其后）
@@ -581,7 +603,7 @@ mod tests {
 
     #[test]
     fn resolve_run_command_falls_back_to_uv_run() {
-        let c = resolve_run_command(&RunEntry::default(), Path::new(SCRIPT), "main.py", None, false);
+        let c = resolve_run_command(&RunEntry::default(), Path::new(SCRIPT), "main.py", None);
         assert!(c.is_uv);
         assert_eq!(c.args, ["run".to_string(), "main.py".to_string()]);
         assert!(!c.program.is_empty()); // 裸名 "uv" 或解析到的绝对路径
@@ -592,34 +614,14 @@ mod tests {
     fn resolve_run_command_module_entry() {
         let script = Path::new(SCRIPT);
         let entry = RunEntry { kind: "module".into(), target: "uvicorn".into() };
-        let c = resolve_run_command(&entry, script, "main.py", Some("F:/py/python.exe"), false);
+        let c = resolve_run_command(&entry, script, "main.py", Some("F:/py/python.exe"));
         assert!(!c.is_uv);
         assert_eq!(c.program, "F:/py/python.exe");
         assert_eq!(c.args, ["-m".to_string(), "uvicorn".to_string()]);
 
-        let c2 = resolve_run_command(&entry, script, "main.py", None, false);
+        let c2 = resolve_run_command(&entry, script, "main.py", None);
         assert!(c2.is_uv);
         assert_eq!(c2.args, ["run".to_string(), "python".to_string(), "-m".to_string(), "uvicorn".to_string()]);
-    }
-
-    /// P2-Q：交互控制台前置 `-i`（解释器选项，必须在脚本 / -m 之前）
-    #[test]
-    fn resolve_run_command_python_console_prefixes_i() {
-        let script = Path::new(SCRIPT);
-        let c = resolve_run_command(&RunEntry::default(), script, "main.py", Some("F:/py/python.exe"), true);
-        assert_eq!(c.args, ["-i".to_string(), script.to_string_lossy().to_string()]);
-
-        let entry = RunEntry { kind: "module".into(), target: "uvicorn".into() };
-        let c2 = resolve_run_command(&entry, script, "main.py", Some("F:/py/python.exe"), true);
-        assert_eq!(c2.args, ["-i".to_string(), "-m".to_string(), "uvicorn".to_string()]);
-
-        let c3 = resolve_run_command(&RunEntry::default(), script, "main.py", None, true);
-        assert_eq!(c3.args, [
-            "run".to_string(),
-            "python".to_string(),
-            "-i".to_string(),
-            "main.py".to_string()
-        ]);
     }
 
     /// P0-D：cwd 解析——宏展开 / 相对基准工作区根 / 空值默认（module→根，script→脚本目录）

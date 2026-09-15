@@ -32,6 +32,13 @@ def test_project_hash_stable():
     assert a != project_hash("F:/other")
 
 
+def test_project_hash_case_insensitive():
+    # tech-debt #4：Windows 路径不区分大小写，大小写变体须落到同一 trace 库键
+    # （对齐 shell/src-tauri/src/file_ops.rs::project_hash 的 to_lowercase / os.path.normcase）。
+    assert project_hash("F:/proj") == project_hash("f:/PROJ")
+    assert project_hash("F:\\Api\\Scraper") == project_hash("f:\\api\\scraper")
+
+
 def test_db_path_layout(cfg):
     p = db_path(cfg, "F:/proj")
     assert p.parent == Path(cfg.db_dir)

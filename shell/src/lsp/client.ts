@@ -185,16 +185,25 @@ function monacoPosToLsp(p: MonacoApi.Position): LspPosition {
 }
 
 function fileUriToPath(uri: string): string {
-  // file:///F:/a/b.py → F:\a\b.py
+  // file:///F:/a/b.py → F:\a\b.py（Windows）；file:///home/u/a.py → /home/u/a.py（Unix）
   let p = uri;
   if (p.startsWith("file:///")) p = p.slice(8);
   else if (p.startsWith("file://")) p = p.slice(7);
-  return decodeURIComponent(p).replace(/\//g, "\\");
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(p);
+  } catch {
+    decoded = p; // tech-debt #6：非法 `%` 序列兜底，不让整条解析崩溃
+  }
+  // Windows 盘符路径转反斜杠；Unix 路径保留正斜杠
+  return /^[A-Za-z]:/.test(decoded) ? decoded.replace(/\//g, "\\") : decoded;
 }
 
 function pathToFileUri(path: string): string {
   const normalized = path.replace(/\\/g, "/");
-  return "file:///" + encodeURI(normalized).replace(/#/g, "%23");
+  // tech-debt #6：先手动转义 `encodeURI` 不覆盖的 `%` `#` `?`，再交 encodeURI 处理空格/中文等
+  const pre = normalized.replace(/%/g, "%25").replace(/#/g, "%23").replace(/\?/g, "%3F");
+  return "file:///" + encodeURI(pre);
 }
 
 /** CR-29：工作区 rootUri 构造（导出供 main.ts / settingsPanel.ts 复用）。

@@ -39,15 +39,16 @@ afterEach(() => {
 });
 
 describe("欢迎页快捷键网格（UI-25）", () => {
-  // P1（UX 审查）：网格由 6 行扩充到 13 行，条目数随 SHORTCUTS 变化
-  const ROW_COUNT = 13;
+  // v3.4 §17-7（M3-3.5）：run 拆为 run_script + run_project，网格 13 → 14 行
+  const ROW_COUNT = 14;
 
   it("出厂键位：条目齐全，键位按 + 拆成独立 kbd 分段", () => {
     renderWelcomeShortcuts();
     expect(document.querySelectorAll(".ew-shortcut").length).toBe(ROW_COUNT);
     expect(rowOf("保存文件").kbds).toEqual(["Ctrl", "S"]);
     expect(rowOf("全局搜索").kbds).toEqual(["Ctrl", "Shift", "F"]);
-    expect(rowOf("运行当前文件").kbds).toEqual(["Ctrl", "F10"]);
+    expect(rowOf("运行脚本").kbds).toEqual(["Ctrl", "F10"]);
+    expect(rowOf("运行项目").kbds).toEqual(["Ctrl", "Shift", "F10"]);
     // P1 新增行（此前键位无处可发现的高频操作）
     expect(rowOf("关闭标签").kbds).toEqual(["Ctrl", "F4"]);
     expect(rowOf("新建文件").kbds).toEqual(["Ctrl", "Alt", "Insert"]);
@@ -104,7 +105,7 @@ describe("欢迎页快捷键网格（UI-25）", () => {
       (l) => l.textContent,
     );
     expect(labels).toEqual([
-      "保存文件", "全局搜索", "运行当前文件", "跳转到定义", "查找引用", "格式化文档",
+      "保存文件", "全局搜索", "运行脚本", "运行项目", "跳转到定义", "查找引用", "格式化文档",
       "启动调试", "关闭标签", "新建文件", "转到文件", "导航后退", "最近打开的文件", "打开设置",
     ]);
   });

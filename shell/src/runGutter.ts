@@ -14,7 +14,7 @@ import { showMenu, type MenuItem } from "./menu";
 
 export interface RunGutterHandlers {
   run: () => void;
-  /** 右键时返回与菜单栏 ▾ 同一份菜单项（main 提供，保证两处菜单一致） */
+  /** 右键时返回运行组同源菜单项（main 提供，保证两处菜单一致） */
   menuItems: () => MenuItem[];
   /** 当前是否可运行（决定图标亮/灰） */
   state: () => { canRun: boolean; running: boolean; targetName: string };

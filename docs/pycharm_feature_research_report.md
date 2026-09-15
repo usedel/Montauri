@@ -16,6 +16,8 @@ PyCharm 的领先之处并非单点技术（我们的三层补全/运行时采�
 4. **容错类**：无本地历史（Local History），误删/误存无法挽回（有 Git 但脚本场景常不建仓库）。
 
 > **落地状态（2026-09-13）**：四类缺口基本闭环——P0 四项 + P1 五项 + P2 四项共 13 项，其中 **12 项已交付**；P2-13 的 **Docstring 生成部分交付**（仅落地 live template，缺 `"""`+Enter 自动生成，且因位置轴把块头 `:` 判为续行，模板在块体首行触发不到——见 `tech-debt.md` TD-15/TD-16）。§3 差距表已同步。另余两项远期候选：probe 驱动的脚本热点视图、覆盖率运行（Phase 5+ 评估）。
+>
+> **落地状态补充（2026-09-15）**：TD-15/TD-16 已偿还并归档，Docstring 生成由「部分交付」转为「已交付」——`"""`+Enter 自动生成骨架（`shell/src/live-templates/docstring.ts`）+ 块体首行语句位缺陷修复（`scope.ts`）。至此 13 项全部闭环。
 
 以上各项均在现有架构（Monaco contrib + LSP/DAP 桥 + Rust 命令）内低成本落地，无一违反「自研组件独立成包/进程」第一原则。
 
@@ -106,7 +108,7 @@ PyCharm 的领先之处并非单点技术（我们的三层补全/运行时采�
 | ruff 实时 lint | ✅ | `fs_cmds::ruff_lint` + `src/ruffLint.ts`（owner `opencharm-ruff`，第三诊断桶） | 已交付（离线扫描路线，§4 P2-12） | 中 |
 | 本地历史 | ✅ | `src-tauri/src/history.rs`（快照/列/读/回滚/清空）+ `src/localHistory.ts`（Ctrl+Shift+H） | 已交付（§4 P1-7） | 中 |
 | Scratch 文件 | ✅ | `fs_cmds::create_scratch`（草稿落 `<data_root>/scratches/`，不入库） | 已交付（§4 P2-13） | 小 |
-| Docstring 生成 | 🟡 | `src/live-templates/builtin.ts` 的 `doc` / `docf` / `docc`（含 `allowInStrings`）；**缺 `"""`+Enter 自动生成**，且模板在块体首行因位置轴缺陷触发不到 | 🟡 部分交付（`tech-debt.md` TD-15/16） | 小 |
+| Docstring 生成 | ✅ | `src/live-templates/builtin.ts` 的 `doc` / `docf` / `docc`（含 `allowInStrings`）+ `src/live-templates/docstring.ts` 的 `"""`+Enter 自动生成（Args/Returns/Attributes 骨架） | 已交付（§4 P2-13；块体首行触发缺陷随 TD-15 修复） | 小 |
 | Evaluate / Debug Console | ✅ | `dap/client.ts::dapEvaluate` + `src/debugConsole.ts`（Alt+F8） | 已交付（§4 P1-6） | 中 |
 | 条件断点 / hitCondition | ✅ | `dap/client.ts::BreakpointSpec`（字段透传）+ `debugGutter.ts` 断点右键菜单 | 已交付（§4 P0-1） | 小 |
 | Logpoint | ✅ | 同上（`logMessage` 透传，菱形 glyph；输出经调试控制台承接） | 已交付（§4 P0-1） | 小 |
@@ -185,6 +187,7 @@ PyCharm 的领先之处并非单点技术（我们的三层补全/运行时采�
 > 判为续行（`scope.ts::CONT_SUFFIX_RE`），导致 `doc`/`docf`/`docc` 在「def/class/if 体首行」
 > 被判为 `expression` 而过滤掉；且未实现 PyCharm 的 `"""`+Enter 自动生成。故本项对应能力
 > 回标 🟡，已登记 `tech-debt.md` TD-15/TD-16，暂缓处理。
+> ——已于 2026-09-15 偿还（TD-15 移除 `:` 续行误判 + TD-16 `"""`+Enter 自动生成），本项回标 ✅。
 
 ### P2（有价值，随迭代顺带）
 
@@ -205,5 +208,7 @@ PyCharm 的领先之处并非单点技术（我们的三层补全/运行时采�
 本次调研的核心判断：**PyCharm 的体验优势在「导航闭环 + 调试肌肉 + 容错兜底」三类细节，而非补全算法本身**。我们已完成的最小闭环（补全/跳转/运行/调试）底座正确，缺口多为「协议字段已就绪、只差 UI/透传」的低垂果实（P0/P1 共 9 项预估总投入约 3~4 周单人量级）。建议从 P0 四项起步，先让调试与代码卫生补齐到「自用不回头找 PyCharm」的水平。
 
 > 复盘（2026-09-13）：P0/P1/P2 共 13 项中 12 项已交付、1 项（Docstring 生成）部分交付，上述「低垂果实」基本采摘完毕。未达对标效果的部分（Docstring 自动生成 / 位置轴块体首行缺陷）已登记 `tech-debt.md` TD-15/TD-16 暂缓。后续若继续对标，方向应转向 §4 的远期候选（probe 热点视图 / 覆盖率运行），而非继续补 UI 细节。
+>
+> 复盘补充（2026-09-15）：上述缺口已闭环——TD-15（位置轴块体首行缺陷）与 TD-16（Docstring 自动生成）均已偿还并归档（`tech-debt.md`）。E4 由「部分交付」转为「已交付」：`"""`+Enter 按函数签名生成 Args/Returns/Attributes 骨架（`shell/src/live-templates/docstring.ts`，含单测），块体首行语句位模板触发缺陷同步修复（`scope.ts`）。
 
 > 附：本报告基于的 PyCharm 行为以 JetBrains 官方文档（help.jetbrains.com/pycharm，2024.1+）与公开实践汇总为准；OpenCharm 现状以 2026-09-13 源码与测试复核为准。

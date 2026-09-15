@@ -1,5 +1,14 @@
 ; OpenCharm NSIS 安装钩子（Tauri installerHooks 扩展点，见 docs/disk-space-plan.md P2）。
-; 使用官方 NSIS 模板，不 fork 完整 installer.nsi；仅挂卸载钩子实现「删除用户数据」询问。
+; 使用官方 NSIS 模板，不 fork 完整 installer.nsi。
+;
+; 卸载时「是否删除用户数据」不再单独弹 MessageBox，而是复用 Tauri 官方模板卸载确认页上
+; 自带的「Delete the application data」复选框，消除「勾了复选框却仍被二次询问」的重复打扰：
+;   - 模板 un.ConfirmLeave 经 BM_GETCHECK 把勾选状态写入全局变量 $DeleteAppDataCheckboxState
+;     （1 = 勾选；与模板内删除 ${BUNDLEID} 目录用的是同一变量）；
+;   - 更新模式（$UpdateMode = 1，升级重装先卸载旧版）下不删数据，与模板内置逻辑一致。
+;
+; 耦合说明：$DeleteAppDataCheckboxState / $UpdateMode 是 Tauri 官方 installer.nsi 的内部全局变量，
+; 升级 Tauri 时需对照官方模板确认变量名与取值语义未变（docs/data-directory-layout-v2.md §7）。
 ;
 ; 数据根可能被迁移到自定义位置（指针文件机制，跨平台、无注册表依赖）：
 ;   - 指针文件：%APPDATA%\OpenCharm\data-root（应用写入，内容 = 数据根绝对路径，无换行）
@@ -12,7 +21,9 @@
   Push $1
   Push $2
   Push $3
-  MessageBox MB_YESNO|MB_ICONQUESTION "是否同时删除 OpenCharm 用户数据（设置、trace 库、日志等）？$\n$\n此操作不可恢复；已迁移到其他盘的自定义数据目录也会一并删除。" /SD IDNO IDNO opencharm_skip_data_removal
+  ; 复用卸载确认页复选框状态：未勾选（$DeleteAppDataCheckboxState != 1）或更新模式即跳过。
+  StrCmp $DeleteAppDataCheckboxState 1 0 opencharm_skip_data_removal
+  StrCmp $UpdateMode 1 opencharm_skip_data_removal
     ; 1) 默认数据根
     RMDir /r "$LOCALAPPDATA\OpenCharm"
     ; 2) 迁移过的数据根：读指针文件（应用自己写入的，内容 = 数据根绝对路径）。

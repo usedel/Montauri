@@ -97,3 +97,10 @@ $report = $reportLines -join "`r`n"
 $reportPath = Join-Path $reportDir "metrics-$date.md"
 Set-Content -Path $reportPath -Value $report -Encoding UTF8
 Write-Host "报告已写入: $reportPath"
+
+# 红线纳入断言（tech-debt #7，供 CI 门禁复用）：任一红线破则非零退出
+if ($startupVerdict -eq "FAIL" -or $memVerdict -eq "FAIL") {
+    Write-Host "bench 红线未达标：冷启动 $startupVerdict / 内存 $memVerdict" -ForegroundColor Red
+    exit 1
+}
+Write-Host "bench 红线达标：冷启动 PASS / 内存 PASS" -ForegroundColor Green

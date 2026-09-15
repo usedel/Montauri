@@ -201,6 +201,7 @@ function renderKeybindingRows(): void {
     label.textContent = m.label;
     const input = document.createElement("input");
     input.type = "text";
+    input.autocomplete = "off";
     input.id = kbInputId(m.id);
     input.placeholder = m.def;
     input.spellcheck = false;
@@ -317,12 +318,18 @@ function fillForm(settings: Settings): void {
 /** UI-05：设置面板模态的焦点陷阱解除句柄 */
 let releaseSettingsFocus: (() => void) | null = null;
 
+/** tech-debt #18：Esc 关闭设置面板（document 级，open 时挂、close 时移除） */
+function onSettingsKeydown(e: KeyboardEvent): void {
+  if (e.key === "Escape") closeSettingsPanel();
+}
+
 /** 打开设置面板（可指定初始分类；「视图 → Live Templates」快捷入口复用） */
 export function openSettingsPanel(category: SettingsCategory = "appearance"): void {
   fillForm(app.settings);
   void refreshTerminalShellSelect(); // 异步探测可用 shell，完成后重建下拉
   switchCategory(category);
   showEl(settingsModalEl);
+  document.addEventListener("keydown", onSettingsKeydown); // tech-debt #18：Esc 关闭
   // UI-05：焦点陷阱（防御性先解除上一次未释放的陷阱，避免异常路径下重复叠加）
   releaseSettingsFocus?.();
   releaseSettingsFocus = trapFocus(settingsModalEl);
@@ -336,6 +343,7 @@ function resetSettingsPanel(): void {
 }
 
 function closeSettingsPanel(): void {
+  document.removeEventListener("keydown", onSettingsKeydown); // tech-debt #18
   releaseSettingsFocus?.();
   releaseSettingsFocus = null;
   hideEl(settingsModalEl);
@@ -418,6 +426,7 @@ async function saveSettingsPanel(): Promise<void> {
   // UI-25：欢迎页快捷键网格同理——保存路径不经 updateEditorOverlay，不显式刷就会留着旧键位
   renderWelcomeShortcuts();
   await saveSettings();
+  toast("设置已保存", "success"); // tech-debt #19：即时操作结果统一轻提示
   closeSettingsPanel();
 
   if (engineChanged) {
@@ -438,7 +447,7 @@ async function applyIntelToggle(enabled: boolean): Promise<void> {
       await lsp.startIntel(app.workspaceRoot, rootUri);
       for (const t of app.tabs) lsp.didOpen(t.path, t.model);
     } catch (e) {
-      console.warn("[intel] 启动异常:", e);
+      toastFail("启动运行时智能层", e);
     }
   } else {
     await lsp.stopIntel();
@@ -462,9 +471,7 @@ export function wireSettingsPanel(): void {
   document.querySelectorAll<HTMLElement>(".settings-nav-item").forEach((b) => {
     b.addEventListener("click", () => switchCategory((b.dataset.cat ?? "appearance") as SettingsCategory));
   });
-  settingsModalEl.addEventListener("click", (e) => {
-    if (e.target === settingsModalEl) closeSettingsPanel();
-  });
+  // tech-debt #18：含可编辑内容，点遮罩不关闭（仅 X / 取消 / Esc 关闭）
   // D3 P-14：字体族下拉候选 → 写入自定义框 + 实时预览
   settingsFontFamilyPresetEl.addEventListener("change", () => {
     if (settingsFontFamilyPresetEl.value !== "__custom__") {
@@ -498,11 +505,11 @@ export function wireSettingsPanel(): void {
   });
   // 日志：打开日志目录（系统资源管理器）
   settingsLogOpenEl.addEventListener("click", () => {
-    invoke("open_log_dir").catch((e) => console.warn("打开日志目录失败", e));
+    invoke("open_log_dir").catch((e) => toastFail("打开日志目录", e));
   });
   // 数据：打开数据根目录（系统资源管理器）
   settingsDataOpenEl.addEventListener("click", () => {
-    invoke("open_data_dir").catch((e) => console.warn("打开数据目录失败", e));
+    invoke("open_data_dir").catch((e) => toastFail("打开数据目录", e));
   });
   // 存储：占用可视化 / 清理 / 迁移（storagePanel.ts）
   wireStoragePanel();

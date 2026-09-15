@@ -25,7 +25,7 @@ import * as lsp from "./lsp/client";
 import * as kb from "./keybindings";
 import { appendOutputLine, clearOutput, setOutputUrlHandler } from "./output";
 import { openConfirm, openPrompt } from "./dialog";
-import { app, $, $btn, outputEl, statusFileEl, type Entry, type Tab } from "./state";
+import { app, $, outputEl, statusFileEl, type Entry, type Tab } from "./state";
 import {
   createDirAt, createFileInteractive, isDirExpanded, isTreeEmpty, refreshTree, reloadDir,
   renderCtxMenu, resetTreeState, setFileTreeHandlers, wireFileTree, type CtxItem,
@@ -34,7 +34,8 @@ import { refreshGitStatus, renderGitPanel, refreshBranchPanel, resetGitState, wi
 import {
   disposeTerminal, openTerminalAt, toggleBottomPanel, wireBottomPanel, wireTerminalEvents,
 } from "./termUi";
-import { setTerminalLinkHandler } from "./terminal";
+import { setTerminalLinkHandler, setTerminalUrlHandler } from "./terminal";
+import { setExternalUrlOpener } from "./termUi";
 import { loadSettings, saveSettings, applyFontStatus, openSettingsPanel, setSettingsPanelHandlers, wireSettingsPanel, buildEditorOptions } from "./settingsPanel";
 import { checkFirstRunStorage } from "./storagePanel";
 import { basename, codicon, DisposableStore, emptyState, languageOf, parentDirOf, relativePathOrName, renderFileIcon, symbolIcon } from "./util";
@@ -43,7 +44,7 @@ import { restoreLayout, toggleSidebar, wireSplitters } from "./layout";
 import { motionDisabled, restoreReduceMotion } from "./anim";
 import { wireTooltip } from "./tooltip";
 import { renderEngineChip, setEngineChipHandlers, wireEngineChip } from "./engineChip";
-import { getRunMenuItems, renderRunWidget, setRunWidgetHandlers, setRunWidgetRepaint, wireRunWidget } from "./runWidget";
+import { renderRunWidget, setRunWidgetHandlers, setRunWidgetRepaint, wireRunWidget, runWidgetHandlers } from "./runWidget";
 import { clearRunGutter, isRunGutterLine, refreshRunGutter, setRunGutterHandlers, wireRunGutter } from "./runGutter";
 import { wireGutterHover } from "./gutterHover";
 import * as dap from "./dap/client";
@@ -52,7 +53,7 @@ import {
   refreshDebugGutter, removeBreakpoint, resetBreakpoints, setBreakpointMenuHandler, toggleBreakpoint,
   updateBreakpoint, wireDebugGutter,
 } from "./debugGutter";
-import { showMenu } from "./menu";
+import { showMenu, type MenuItem } from "./menu";
 import { initTodoView, refreshTodos, resetTodoView, setTodoViewHandlers } from "./todoView"; // P0：TODO 工具窗
 import { initDebugView, notifyDepFound, renderDebugView, runToCursor as runToCursorIn, setDebugViewHandlers, wireDebugViewEvents } from "./debugView";
 import { closeRecentFiles, initRecentFiles, openRecentFiles, setRecentFilesHandlers } from "./recentFiles"; // P0：最近打开的文件（Ctrl+E）
@@ -63,6 +64,7 @@ import {
 } from "./quickOpen";
 import { goBack, goForward, noteOpen, pushCurrent, resetNavHistory, setNavHistoryHandlers } from "./navHistory";
 import { initLocalHistory, openLocalHistory, setLocalHistoryHandlers } from "./localHistory";
+import { initEditHistory } from "./editHistory"; // 低延迟编辑预测数据源 V1：行对采集
 // P2
 import {
   initBreadcrumbs, invalidateBreadcrumbs, resetBreadcrumbs, scheduleBreadcrumbs, setBreadcrumbHandlers,
@@ -75,8 +77,8 @@ import {
   resetBookmarks, setBookmarkHandlers, toggleBookmarkAtCursor,
 } from "./bookmarks";
 import {
-  initRunHistory, initRunTabs, openRunHistory, resetRunHistory,
-  saveCurrentOutput, setRunHistoryHandlers,
+  initRunHistory, openRunHistory, resetRunHistory,
+  setRunHistoryHandlers,
 } from "./runHistory";
 import { renderWelcomeShortcuts } from "./welcomeShortcuts"; // UI-25：欢迎页快捷键跟随键位系统
 import * as mdPreview from "./markdownPreview"; // Markdown 预览（markdown preview dev plan）
@@ -89,16 +91,15 @@ import {
 import { openNewProjectPanel, wireNewProject } from "./newProject";
 import { wireMenuBar, type MenuEntry } from "./menuBar";
 import {
-  discardRunTranscript, initRunEvents, isRunBusy, maybeAutoRerun,
-  maybeSuggestFastApi, openCompoundPanel, prepareRun, refreshRunProfiles, rerunRecord,
-  restartRun, resetRunSessionState, resetRunState, runFile, runFileInTerminal,
-  runStickyTarget, runStickyTargetInTerminal, setRunTarget, loadPersistedRunTarget,
+  initRunEvents, isRunBusy,
+  maybeSuggestFastApi, prepareRun,
+  resetRunSessionState, runScript, runProject, stopAllRuns,
   runSelection, runWidgetState, setRunFlowHandlers, stopRun, wireRunFlow,
-  clearRunProfilesCache,
+  clearRunProfilesCache, rerunRecord,
 } from "./runFlow";
 import { openRunConfig, wireRunConfigPanel } from "./runConfigPanel";
 import { gotoFromLink, setTracebackOpenFile } from "./tracebackLink";
-import { isRunning, runningPathOf, type RunConfig } from "./runState";
+import { isRunning, scriptRunActive, runningPathsOf, type RunConfig } from "./runState";
 
 // ---------- 模块级状态（本层私有；TD-14 后运行态归 runState.ts / runFlow.ts） ----------
 
@@ -139,8 +140,7 @@ function resetWorkspaceUiState(): void {
   editorTimers.clearAll();      // CR-13：防抖 timer 全清（autosave 不再跨工作区触发）
   app.pendingChanges.clear();   // CR-13：在途文档同步一并作废
   outlineToken++;               // CR-20：作废在途大纲请求
-  discardRunTranscript();       // S4：先丢弃未完结行状态，否则会往已被清空的游离元素里写
-  clearOutput(outputEl);        // 输出面板（运行输出 / traceback）
+  clearOutput(outputEl);        // 输出面板（调试输出 / traceback）
   resetGitState();              // git 状态 + diff 视图 + 分支列表
   outlineEl.textContent = "";   // 大纲符号树
   resetSearch();                // 搜索结果 + 作废在途请求
@@ -151,12 +151,11 @@ function resetWorkspaceUiState(): void {
   resetRuffLint();              // P2：ruff lint（防抖 timer + 在途请求）
   resetBookmarks();             // P2：书签（列表缓存 + gutter 装饰）
   resetBreakpoints();           // P2-11：断点内存表随工作区切换清空（盘上数据按工作区隔离）
-  resetRunHistory();            // P2：运行历史
+  resetRunHistory();            // P2：运行历史（§15：切换/关闭工作区重置）
   resetEnvPanelState();          // 环境域状态（包面板 + 解释器缓存 + 在途请求令牌 + 提示去重）
   ($("search-input") as HTMLInputElement).value = ""; // 清空搜索关键词
-  // S4：运行态与交互输入行一并复位（旧运行已由 teardownCurrent 停止）
-  resetRunState();
-  resetRunSessionState(); // 交互输入行清空 + 「停止并重新运行」的目标随工作区切换作废
+  // v3.4 §15（M3-3.10）：停全部运行实例（teardownCurrent 已停止）+ 清实例表 + 清配置缓存
+  resetRunSessionState();
   clearRunGutter(); // C5：切换/关闭工作区清空 gutter ▶
   clearCurrentLine(); // D4：清调试当前行高亮
   renderDebugView(); // D4：调试侧栏复位到 idle 呈现
@@ -168,10 +167,11 @@ async function teardownCurrent(): Promise<boolean> {
     if (app.tabs.some((t) => t.dirty) && !(await openConfirm({ message: "存在未保存的修改，继续将丢失，确认关闭工作区？", kind: "danger" }))) {
       return false;
     }
-    // S3/S4：切换/关闭工作区前先停掉在跑的脚本（按 runChannel 路由，两条路径都覆盖）。
+    // v3.4 §15（M3-3.10）：切换/关闭工作区前停掉**全部**运行实例（脚本 + 所有项目实例）。
     // 否则后端进程会变成孤儿继续跑，而前端运行态随后被 resetWorkspaceUiState 复位，
-    // 用户就再也没有停止入口了（统一运行态模型要求「状态与进程同生共死」）。
-    if (isRunning()) await stopRun();
+    // 用户就再也没有停止入口了（§7.1 不变式：状态与进程同生共死）。
+    // 调试清理走 debug_stop 独立链路（§13.5），不在此处覆盖。
+    if (isRunning()) await stopAllRuns();
 
     // 调试会话同理（§8 坑 7）：关闭工作区必须停调试，否则 debugpy 进程树成孤儿。
     if (dap.currentPhase() !== "idle" && dap.currentPhase() !== "exited") {
@@ -217,14 +217,13 @@ async function openWorkspace(root: string): Promise<void> {
   await invoke("allow_asset_dir", { path: root }).catch(console.error);
   await invoke("add_recent_workspace", { path: root }).catch(console.error);
   await refreshTree();
+  await invoke("sweep_run_configs", { workspaceRoot: root }).catch(console.error); // tech-debt #9：打开工作区清扫孤儿运行配置
   await loadTemplatesConfig();
   await refreshInterpreterStatus(); // 先确定解释器，供 startLsp/run 使用
   await startLsp();
   await maybePromptVenv();
   await startFileWatcher(); // 启动文件监听
-  // P0-C/E：命名运行配置入菜单 + FastAPI 项目探测（仅提示，不打扰）
-  void refreshRunProfiles();
-  void loadPersistedRunTarget(); // ▶ 指向上次选中的运行配置（持久化在工作区配置里）
+  // P0-E：FastAPI 项目探测（仅提示，不打扰；v3.4 M3：配置缓存随粘性目标删除已无清空项）
   void maybeSuggestFastApi();
   updateEditorOverlay();
 }
@@ -244,7 +243,7 @@ async function closeWorkspace(): Promise<void> {
   $("tree-header-text").textContent = "文件"; // UI-13：与 index.html 的静态文案保持一致（分组标题统一中文）
   statusFileEl.textContent = "";
   clearInterpreterStatus();
-  // P0-C/E：配置列表与 FastAPI 提示均为工作区级，关闭工作区即清空
+  // P0-E：FastAPI 提示为工作区级，关闭工作区即清空
   clearRunProfilesCache();
   renderRunWidget(runWidgetState());
   updateEditorOverlay();
@@ -412,13 +411,14 @@ function showTabContextMenu(tab: Tab, x: number, y: number): void {
     { label: "在资源管理器中显示", action: () => invoke("reveal_in_explorer", { path: tab.path }).catch(console.error) },
   ];
   // P3（建议 2）：Python 脚本可编辑持久化运行配置（Parameters / 环境变量）
-  // S3（建议 4）：新增「在终端中运行」——真 TTY 才能满足 getpass / tqdm / rich / 彩色 / Ctrl+C（坑 3）
+  // v3.4 §8（M3-3.4）：标签右键入口对齐四控件运行组——「运行脚本 / 运行项目 / 运行配置…」
+  //（「在终端中运行」已删：运行统一走终端控制台，双入口等价无意义，§6.5）
   if (isPy) {
     items.splice(
       5,
       0,
-      { label: "运行", action: () => void runFile(tab.path) },
-      { label: "在终端中运行", action: () => void runFileInTerminal(tab.path) },
+      { label: "运行脚本", action: () => void runScript(tab.path) },
+      { label: "运行项目", action: () => void runProject() },
       { label: "运行配置…", action: () => void openRunConfig(tab.path) },
       { sep: true },
     );
@@ -476,7 +476,7 @@ async function stopFileWatcher(): Promise<void> {
 
 /** 处理文件变更事件（防抖后增量刷新受影响目录） */
 function handleFsChanged(dirs: string[]): void {
-  maybeAutoRerun(dirs); // P2-N：自身带防抖，须在通用防抖之外先行判定（实现见 runFlow.ts）
+  // v3.4 §18 裁决 3：auto_rerun 已删（框架自带 reload，纯脚本手动重跑够用），监听回调只剩通用防抖刷新
   window.clearTimeout(fsWatchTimer);
   fsWatchTimer = window.setTimeout(async () => {
     // 增量刷新 git 状态：仅重查受影响的目录，避免大仓库全量扫描（TD-002）
@@ -614,7 +614,7 @@ export async function openFile(path: string, revealLine?: number): Promise<void>
   // CR-08：in-flight 去重——双击/多入口并发打开同一文件时，两次调用都查不到 tab、
   // 都进 read_file → createModel 对重复 URI 返回既有 model → 两 Tab 持同一 model，
   // closeTabSilent dispose 掉另一个仍在用的 model。以 path 为键串行化，
-  // 后续调用 await 同一个 Promise（含 gotoFromLink / openSearchMatch / restartRun 双击路径）。
+  // 后续调用 await 同一个 Promise（含 gotoFromLink / openSearchMatch / 历史重跑双击路径）。
   const inflight = openFileInflight.get(path);
   if (inflight) {
     await inflight;
@@ -750,8 +750,10 @@ export function renderTabs(): void {
     const dirty = document.createElement("span");
     dirty.className = "dirty";
     if (t.dirty) dirty.appendChild(codicon("circle-filled"));
-    // TD-14：runningPathOf() 非运行态返回 null，故 t.path 命中即为「该 tab 正在运行」
-    const isRunningHere = t.path === runningPathOf();
+    // TD-14：runningPathsOf() 取运行中脚本路径集合，故 t.path 命中即为「该 tab 正在运行」
+    //（v3.4 M3-3.3：多实例模型——脚本实例的 path 集合；项目实例无文件锚点不在此列）
+    const runningScripts = runningPathsOf();
+    const isRunningHere = runningScripts.has(t.path);
     // UI-16：脏标记/运行指示的圆点是纯视觉装饰（aria-hidden），状态并入 tab 的可访问名称，
     // 读屏聚焦该 tab 时直接听到「已修改 / 运行中」（承接 UI-09 对 .tab-running 的遗留说明）
     const labelParts = [basename(t.path)];
@@ -899,8 +901,8 @@ async function reloadFileFromDisk(path: string): Promise<void> {
   await lsp.didChangeFull(path, tab.model);
 }
 
-// 运行域（prepareRun / runFile / runStickyTarget / runProfile / runSelection /
-// stopRun / runWidgetState / auto_rerun / 输出事件流）→ runFlow.ts；运行态真值 → runState.ts。
+// 运行域（prepareRun / runScript / runProject / runSelection /
+// stopRun / runWidgetState / 输出事件流）→ runFlow.ts；运行态真值 → runState.ts。
 
 // ---------- 调试（debug dev plan §6.7：调试运行入口） ----------
 
@@ -1037,7 +1039,10 @@ async function onEvaluateShortcut(): Promise<void> {
 function buildQuickOpenActions(): QuickOpenAction[] {
   return [
     { id: "save", label: "保存", run: () => void saveActive() },
-    { id: "run", label: "运行当前文件", run: () => { if (app.activeTab) void runFile(app.activeTab.path); } },
+    // v3.4 §8（M3-3.4）：命令面板对齐四控件运行组
+    { id: "run_script", label: "运行脚本", run: () => { if (app.activeTab) void runScript(app.activeTab.path); } },
+    { id: "run_project", label: "运行项目", run: () => void runProject() },
+    { id: "stop", label: "停止运行", run: () => void stopRun() },
     { id: "debug", label: "启动调试 / 继续", run: () => void runDebug() },
     { id: "debug_stop", label: "停止调试", run: () => void stopDebugSession() },
     { id: "debug_evaluate", label: "求值表达式", run: () => void onEvaluateShortcut() },
@@ -1208,6 +1213,48 @@ function rootEntry(): Entry {
   return { name: basename(app.workspaceRoot ?? ""), path: app.workspaceRoot ?? "", is_dir: true };
 }
 
+/** gutter ▶ 右键菜单（v3.4 §8：对齐四控件——运行脚本 / 运行项目 / 停止 / 运行配置…）。
+ *  从 runWidget 注入的 handlers + **即时状态**（runWidgetState 现算，不依赖渲染快照——
+ *  菜单打开时刻的状态可能与上次渲染不同）派生，保证各入口动作一致。 */
+function buildRunMenuItems(): MenuItem[] {
+  const h = runWidgetHandlers();
+  const s = runWidgetState();
+  return [
+    {
+      label: "运行脚本",
+      icon: "run",
+      shortcut: kb.bindingLabel("run_script") || undefined,
+      disabled: !s.canRunScript || s.scriptBusy,
+      disabledReason: s.scriptDisabledReason || "正在准备运行…",
+      action: () => h?.runScript(),
+    },
+    {
+      label: "运行项目",
+      icon: "run-all",
+      shortcut: kb.bindingLabel("run_project") || undefined,
+      disabled: !s.canRunProject || s.projectPreparing,
+      disabledReason: s.projectDisabledReason || "正在准备运行项目…",
+      action: () => h?.runProject(),
+    },
+    { sep: true },
+    {
+      label: "停止运行",
+      icon: "debug-stop",
+      shortcut: kb.bindingLabel("stop") || undefined,
+      disabled: !s.debugging && !s.stopTarget,
+      disabledReason: "没有正在运行",
+      action: () => h?.stop(),
+    },
+    {
+      label: "运行配置…",
+      icon: "gear",
+      disabled: !s.canOpenConfig,
+      disabledReason: "需先打开工作区",
+      action: () => h?.openRunConfig(),
+    },
+  ];
+}
+
 function getMenuItems(menu: string): MenuEntry[] {
   switch (menu) {
     case "file": return [
@@ -1301,7 +1348,7 @@ async function init(): Promise<void> {
   // TD-14 / TD-13：功能域解环注入（须先于任何事件与运行调用）
   setTracebackOpenFile(openFile);
   setRunFlowHandlers({ openFile, activateTab, renderTabs, saveActive, saveTab });
-  setFileTreeHandlers({ openFile, renderTabs, closeTabSilent, insertHeaderTemplate });
+  setFileTreeHandlers({ openFile, renderTabs, closeTabSilent, insertHeaderTemplate, runScript: (p) => void runScript(p) });
   setSettingsPanelHandlers({ startLsp });
   // UI-25：欢迎页快捷键网格改由键位系统渲染，必须在首个 await（Monaco 动态包，首屏最慢的一步）
   // 之前同步画一次，否则覆盖层会露出空的「快捷键」区。此刻 app.settings 仍是 DEFAULT_SETTINGS，
@@ -1435,7 +1482,8 @@ async function init(): Promise<void> {
     if (!id) return;
     e.preventDefault();
     if (id === "save") void saveActive();
-    else if (id === "run") void runStickyTarget();
+    else if (id === "run_script") void runScript();
+    else if (id === "run_project") void runProject();
     else if (id === "stop") void stopRun();
     else if (id === "global_search") setSidebarTab("search");
     // P0：最近打开的文件（Ctrl+E）——后端数据早已在写，此前前端没有消费入口
@@ -1561,15 +1609,14 @@ async function init(): Promise<void> {
   void loadBookmarks().then(() => refreshBookmarkGutter());
   // P2-11（UX 审查）：启动恢复上次会话的断点（与书签同源同模式）
   void loadBreakpoints().then(() => refreshDebugGutter());
-  // P2：运行历史（输出面板按次留存，可回看）；P2-M：标签条 + P2-O 保存输出
+  // P2：运行历史（v3.4 M3-3.8：chip 标签条已删，Ctrl+Shift+R 列表；M4 收口：P2-O
+  // 保存输出随历史列表行，原 #run-tabs-row 的「保存当前」按钮一并删除）
   initRunHistory();
-  initRunTabs();
   setRunHistoryHandlers({
     clearOutput: () => clearOutput(outputEl),
     appendLine: (cls, text) => appendOutputLine(outputEl, text, cls, gotoFromLink),
     rerun: (r) => void rerunRecord(r),
   });
-  $btn("btn-save-output").addEventListener("click", () => void saveCurrentOutput());
   // P2：Breadcrumbs 面包屑（编辑区顶部层级链）
   initBreadcrumbs();
   setBreadcrumbHandlers({
@@ -1580,6 +1627,8 @@ async function init(): Promise<void> {
     },
   });
   app.editor.onDidChangeCursorPosition(() => scheduleBreadcrumbs());
+  // 编辑历史采集（低延迟编辑预测数据源 V1）：行对事件，攒语料，仅采集不预测
+  initEditHistory(app.editor);
   // P0：TODO 工具窗
   initTodoView();
   setTodoViewHandlers({ openFile: (path, line) => void openFile(path, line) });
@@ -1655,40 +1704,40 @@ async function init(): Promise<void> {
   wireEngineChip();
   renderEngineChip();
 
-  // 运行组（C3）：菜单栏 ▶/⏹/▾。main 拥有运行动作，runWidget 只负责渲染与派发
+  // 运行组（v3.4 §8 / M3-3.4）：四控件 [▶ 运行脚本] [▶ 运行项目] [⏹ 停止] [⚙ 运行配置…]。
+  // main 拥有运行动作，runWidget 只负责渲染与派发
   setRunWidgetHandlers({
-    run: () => void runStickyTarget(),
-    runInTerminal: () => void runStickyTargetInTerminal(),
-    runSelection: () => void runSelection(),
+    runScript: () => void runScript(),
+    runProject: () => void runProject(),
     // 调试态联动（D4）：运行组 ⏹ 在调试中路由到 debug_stop，避免「调试中误触停止脚本」
     stop: () => {
       const phase = dap.currentPhase();
       if (phase === "starting" || phase === "running" || phase === "stopped") void stopDebugSession();
       else void stopRun();
     },
-    restart: () => void restartRun(),
-    // 面板为工作区级：没有活动标签也可打开（活动文件仅用于预选回退，见 openRunConfig）
+    // 面板为工作区级：没有活动标签也可打开（活动文件仅用于脚本分区预选，见 openRunConfig）
     openRunConfig: () => void openRunConfig(app.activeTab?.path),
-    // 下拉只负责「选定」目标（不启动）：选定后由 ▶ 执行，对齐 PyCharm
-    setTarget: (t) => setRunTarget(t),
-    openCompound: () => openCompoundPanel(),
   });
   wireRunWidget();
   setRunWidgetRepaint(() => renderRunWidget(runWidgetState()));
 
-  // gutter 运行图标（C5）：__main__ 守卫行的 ▶，点击运行整个文件、右键弹出与 ▾ 同源菜单
+  // gutter 运行图标（C5）：__main__ 守卫行的 ▶，点击运行整个文件、右键弹出运行组同源菜单
   wireRunGutter(app.editor, app.monaco);
   // gutter 悬停预示（方案 1/2）：把真正可点的 glyph 那一档画出来 + 悬停行显示淡化断点，
   // 否则用户会点在行号两侧的空白上而以为「断点坏了」（CSS 侧见 style.css 同段注释）
   wireGutterHover(app.editor, app.monaco);
   setRunGutterHandlers({
-    // gutter ▶ 的语义是「运行这个文件」→ 显式指定目标（顺带把它设为 ▶ 的粘性目标）
-    run: () => { if (app.activeTab) void runFile(app.activeTab.path); },
-    menuItems: () => getRunMenuItems(),
+    // gutter ▶ 的语义是「运行这个文件」（v3.4 §2：gutter ▶ = 运行脚本）
+    run: () => { if (app.activeTab) void runScript(app.activeTab.path); },
+    menuItems: () => buildRunMenuItems(),
     state: () => {
       const tab = app.activeTab;
       const isPy = !!tab && (tab.path.endsWith(".py") || tab.path.endsWith(".pyw"));
-      return { canRun: !!app.workspaceRoot && !!tab && isPy, running: isRunning(), targetName: tab ? basename(tab.path) : "" };
+      // v3.4 M3 复查修复：gutter ▶ 的置灰只看**脚本运行**（项目实例不互斥，§12）+
+      // 调试态（§13.2 调试 ↔ 脚本运行互斥）——原 isRunning() 含项目实例会误置灰
+      const dbgPhase = dap.currentPhase();
+      const debugging = dbgPhase === "starting" || dbgPhase === "running" || dbgPhase === "stopped";
+      return { canRun: !!app.workspaceRoot && !!tab && isPy, running: scriptRunActive() || debugging, targetName: tab ? basename(tab.path) : "" };
     },
   });
 
@@ -1832,8 +1881,21 @@ async function init(): Promise<void> {
   // S3：终端里的 traceback 也可点击（坑 4）——复用输出面板同一个正则与跳转逻辑；
   // 顺带让在 shell 终端里手敲 `uv run` 产生的 traceback 同样可点（PTY 路线的额外收益）
   setTerminalLinkHandler(gotoFromLink);
+  // P2-L：终端里的 URL 可点开（uvicorn/FastAPI 等），与输出面板 URL / 自动开浏览器共用 open_external
+  setTerminalUrlHandler((url) => {
+    invoke("open_external", { url }).catch((e) =>
+      appendOutputLine(outputEl, `打开浏览器失败：${e}`, "stderr", gotoFromLink),
+    );
+  });
   // P2-L：输出中的 URL 可点开（invoke open_external 仅放行 http/https，后端二次校验）
   setOutputUrlHandler((url) => {
+    invoke("open_external", { url }).catch((e) =>
+      appendOutputLine(outputEl, `打开浏览器失败：${e}`, "stderr", gotoFromLink),
+    );
+  });
+  // v3.4 §9（M3-3.9）：FastAPI 服务就绪（Uvicorn running on http://…）自动开浏览器
+  // ——与输出面板 URL 点击共用同一 open_external 通道
+  setExternalUrlOpener((url) => {
     invoke("open_external", { url }).catch((e) =>
       appendOutputLine(outputEl, `打开浏览器失败：${e}`, "stderr", gotoFromLink),
     );
@@ -1844,7 +1906,7 @@ async function init(): Promise<void> {
     handleFsChanged(e.payload);
   });
 
-  // 运行事件（run-stdout / run-stderr / run-exit 流式输出，含 S4 partial 还原与 EOF 归因）——在 runFlow.ts
+  // 调试输出事件（debug-stdout / debug-stderr → 输出面板，§13.3）——接线在 runFlow.ts
   await initRunEvents();
 
   // 包安装 / 工具链引导事件流（pip-* / toolchain-*）——在 envPanel.ts

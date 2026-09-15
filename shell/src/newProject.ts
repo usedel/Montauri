@@ -32,6 +32,10 @@ const newProjectPreviewEl = $("new-project-preview");
 
 /** UI-05：模态焦点陷阱解除句柄，关闭时置 null */
 let releaseNewProjectFocus: (() => void) | null = null;
+/** tech-debt #18：Esc 关闭新建项目面板（document 级，open 时挂、close 时移除） */
+function onNewProjectKeydown(e: KeyboardEvent): void {
+  if (e.key === "Escape") closeNewProjectPanel();
+}
 /** main 注入的工作区切换 / 文件打开（wireNewProject） */
 let openWorkspaceFn: ((root: string) => Promise<void>) | null = null;
 let openFileFn: ((path: string, revealLine?: number) => Promise<void>) | null = null;
@@ -68,12 +72,14 @@ export async function openNewProjectPanel(): Promise<void> {
   updateNewProjectEnvFields();
   void populateNewProjectVersions();
   showEl(newProjectModalEl);
+  document.addEventListener("keydown", onNewProjectKeydown); // tech-debt #18：Esc 关闭
   releaseNewProjectFocus?.();
   releaseNewProjectFocus = trapFocus(newProjectModalEl);
   newProjectNameEl.focus();
 }
 
 function closeNewProjectPanel(): void {
+  document.removeEventListener("keydown", onNewProjectKeydown); // tech-debt #18
   releaseNewProjectFocus?.();
   releaseNewProjectFocus = null;
   hideEl(newProjectModalEl);
@@ -217,7 +223,5 @@ export function wireNewProject(deps: {
   newProjectLocationEl.addEventListener("keydown", (e) => {
     if (e.key === "Enter") createProject();
   });
-  newProjectModalEl.addEventListener("click", (e) => {
-    if (e.target === newProjectModalEl) closeNewProjectPanel();
-  });
+  // tech-debt #18：含可编辑内容，点遮罩不关闭（仅 X / 取消 / Esc 关闭）
 }

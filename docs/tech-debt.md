@@ -7,60 +7,20 @@
 
 > 2026-08-28 全项目代码检查新增。按严重度排序，处理时机均为「可作为独立 PR，任一项前先跑对应测试矩阵」。
 
-### 4. 跨包项目哈希大小写不一致（P2，正确性）
-- **根因**：`project_hash` 两处（`file_ops.rs` / `store.py`）只 `normpath` 未 `normcase`；Windows 同目录大小写不同会产生两个 trace 库，intel 读不到 probe 写的数据。
-- **建议**：Windows 下统一 `to_lowercase()` 归一后再哈希；加跨进程约束测试。
-- **涉及**：`shell/src-tauri/src/file_ops.rs`、`probe/src/opencharm_probe/store.py`
-
-### 6. 前端鲁棒性与设置单点（P3）
-- **根因**：`client.ts` `fileUriToPath`/`pathToFileUri` 仅 Windows 语义，`decodeURIComponent` 非法 `%` 未捕获；settings 默认值三处同步（Rust `default_keybindings` / `state.ts` `DEFAULT_SETTINGS` / `keybindings.ts` `META`）依赖测试锁易漂移。
-- **建议**：URI 编解码做跨平台 + 异常兜底；设置默认值收敛为单一来源。
-- **涉及**：`shell/src/lsp/client.ts`、`shell/src/state.ts`、`shell/src/keybindings.ts`、`shell/src-tauri/src/settings.rs`
-
-### 7. CI 自动化缺失（P1，工程）
-- **根因**：README 自述「升级回归 CI 自动化待建」，`build-release.ps1` 为手动脚本，「CI 全绿才可合并」未落地。
-- **建议**：接入一次性 CI 跑 4 个测试矩阵（前端 vitest / LSP 桥 cargo test / probe pytest / intel cargo test）+ bench 回归 + 打包烟测；把内存/冷启动红线纳入断言。
-- **涉及**：新增 CI 配置、`ci/`、`bench/`
-
 > 2026-09-09「运行体验对齐 PyCharm」（P0–P3 + stdin S1–S4）交付时新增。均为**可接受的小债**，非缺陷。
 > 第 8 条（S3+S4 公共前置）已随 S3/S4 交付偿还，移入「已归档」；第 5 条已于 2026-09-10 随 CR-19 偿还并归档（此前在待处理区重复登记，2026-09-13 复核移除）。下方编号保持原样（TD-9~TD-12）。
 
-### 9. 运行配置孤儿条目（P3，存储卫生）
-- **根因**：`run_configs` 以「相对工作区根、正斜杠规范化」的脚本路径为键；脚本重命名/移动/删除后旧键残留，无清理机制，配置文件只增不减。
-- **建议**：打开工作区或保存配置时做一次存在性清扫（键对应文件不存在即移除）；或提供设置面板「清理无效运行配置」入口（可复用 `storage-uv-prune` 的交互样式）。
-- **涉及**：`shell/src-tauri/src/env_cmds.rs`（`run_config_key` / `set_run_config`）
-
-### 10. stdin 重定向文件存绝对路径（P3，可移植性）
-- **根因**：`StdinConfig.path` 存绝对路径，工作区搬迁或换机即失效（表现为运行前 fail fast 报「标准输入文件无法打开」，可诊断但需手工重设）。
-- **建议**：改为「优先按工作区相对路径解析，回退绝对路径」；保存时若文件在工作区根下则存相对路径。与第 9 条可合并为一次运行配置存储格式演进（需保留 `#[serde(default)]` 兼容存量）。
-- **涉及**：`shell/src-tauri/src/env_cmds.rs`（`StdinConfig`）、`shell/src-tauri/src/lsp.rs`（`run_script` 打开文件处）
-
-### 11. `interpreter_version` 未缓存（P3，性能）
-- **根因**：`refreshInterpreterStatus` 每次都 spawn 一次 `<path> --version`（5s 超时）以渲染状态栏「来源 + 版本」；开工作区、换解释器、创建项目均会触发。非热路径，但属重复子进程。
-- **建议**：按解释器路径做进程内缓存（`HashMap<String, String>`），解释器变更时失效；或并入 `list_pythons` 已有的 `version_of` 结果复用。
-- **涉及**：`shell/src-tauri/src/env_cmds.rs`（`interpreter_version` / `version_of`）、`shell/src/main.ts`（`refreshInterpreterStatus`）
-
-### 12. `pyproject.toml` 两条生成路径的包名归一化可能不同（P4，观感）
-- **根因**：方案 A（`uv init --bare`）的 `[project].name` 取**目录名**并按 uv 自身规则归一化；方案 B（模板回退）走 `sanitize_pkg_name`。常规命名下二者一致，含特殊字符（空格/非 ASCII/首尾分隔符）时可能有差异。
-- **建议**：低优先。若要收敛，可在 uv 生成后校验并按 `sanitize_pkg_name` 结果改写 `name`；或接受差异并在文档记录（当前状态）。
-- **涉及**：`shell/src-tauri/src/fs_cmds.rs`（`ensure_pyproject` / `sanitize_pkg_name`）
-
 > 2026-09-13 PyCharm 调研报告落地复核（`pycharm_feature_research_report.md`）发现。均为「已宣称交付、实际未达对标效果」的缺口，经裁决**暂缓处理**。
 
-### 15. 位置轴把块头冒号误判为续行，块体首行的语句位模板全部失效（P2，正确性）
+> 2026-09-15 运行功能迁移收尾 + UI 细节改进（`python_run_migration_plan.md`）引出。均为「一致性 / 体验」债，非缺陷，全局落地时作为独立 PR。
 
-- **根因**：`scope.ts::classifyPosition` 的续行启发把 `:` 列入 `CONT_SUFFIX_RE`（见 `docs/live_templates上下文轴修订稿.md` §8.2），而 `def f(...):` / `class X:` / `if ...:` 等块头正以 `:` 结尾 → 其后首行被判为 `expression`。于是 `doc`/`docf`/`docc` 以及**所有** `positions:["statement"]` 模板（`def`/`class`/`if`/`for`/`while`/`try`/`with`/`main`/`ifmain`…）在「任何块头后的第一个语句行」被 `findByAbbreviation`（Tab 路径）与 `templatesForContext`（补全弹窗路径）双双过滤掉，从第二行起才恢复。
-- **复现**：临时单测对 `["def bar(self, x):", "    docf"]`、`["class Foo:", "    docc"]`、`["if x:", "    main"]` 及块体首行空行断言 `statement`，4/4 实得 `expression`（验证后已删除临时文件）。
-- **建议**：区分「块头 `:`」与「续行 `:`」——识别 `(async )?def`/`class`/`if`/`elif`/`else`/`for`/`while`/`try`/`except`/`finally`/`with`/`match`/`case`（含多行签名的 `):`）为块头而非续行；最小改法是直接从 `CONT_SUFFIX_RE` 移除 `:`（代价：`d = {` 换行后 `'a':` 这种「冒号后换行的值」会误判为语句位，极罕见）。需补 `scope.test.ts` 用例并同步修订上下文轴修订稿 §1.1 / §8.2。
-- **处理时机**：下次触碰 live templates 位置轴时独立 PR；改前先跑 `shell` vitest（含 `live-templates/__tests__/*`）。
-- **涉及**：`shell/src/live-templates/scope.ts`、`shell/src/live-templates/__tests__/scope.test.ts`、`docs/live_templates上下文轴修订稿.md`
+### TD-020 停止运行时 `[opencharm-probe]` 摘要日志重复打印（P3，观感/数据卫生）
 
-### 16. E4 Docstring 自动生成仅落地为 live template，缺 `"""`+Enter 自动生成（P3，对标缺口）
-
-- **现状**：`builtin.doc` / `docf` / `docc` 三个模板已内置（`allowInStrings` 已修正），但需用户主动键入缩写 + Tab，或从补全弹窗选取；PyCharm 的「输入 `"""` 回车即按函数签名生成 Args/Returns 骨架」未实现，也无 Alt+Insert 类入口。故 `pycharm_feature_research_report.md` §3 原标 ✅ 属过誉。
-- **建议**：监听 python 语言的 `"""` + Enter（onType / 命令入口），取 `documentSymbol` 或函数签名生成参数骨架，模板体可复用 `docf`；与第 15 条一并做更合适（否则模板仍触发不到）。
-- **处理时机**：作为独立特性排期（需产品裁决是否对标 PyCharm 触发方式），非顺手可还。
-- **涉及**：`shell/src/live-templates/builtin.ts`、`shell/src/live-templates/index.ts`、`shell/src/main.ts`
+- **起因**：停止运行（脚本/项目）时，终端里的 `[opencharm-probe] ✓ …` 摘要日志偶发重复打印。
+- **根因（初步定位，待 Python 3.12+ 环境复现确认）**：探针经 `sitecustomize` + `atexit._finalize` 在进程退出时打印一次摘要；运行注入的 `OPENCHARM_PROBE_*` 环境变量会被子进程继承，若同一次运行下存在多个通过 `argv[0]` 守卫的进程（如 uvicorn `--reload` 在 POSIX 用 `fork`、子进程 argv 与父进程相同；或脚本内部以相同 argv 的 `subprocess` 重启自身），多个进程各自触发 `_finalize` → 重复打印/重复落库。现有 `argv[0]` 守卫仅能拦截 `multiprocessing spawn`（Windows，sitecustomize 期 argv[0]='-c'，2026-09-15 已用最小实验验证），拦不住 argv 相同的父子进程。
+- **建议方案**：后端 `run_in_terminal` 注入「每次运行唯一」的 `OPENCHARM_PROBE_RUN_ID`（父子共享、不同次运行不同）；探针 `autostart._finalize` 用纯标准库跨进程原子锁（`os.open(O_CREAT|O_EXCL)` 墓碑文件）保证同一 run_id 只落库+打印一次；锁文件按 mtime 惰性清理。
+- **处理时机**：可作为独立 PR；需先在有 Python 3.12+ 的运行环境复现确认根因后落地。
+- **涉及文件**：`shell/src-tauri/src/run_env.rs`（或 `terminal.rs`）、`probe/src/opencharm_probe/autostart.py`。
 
 ## 已归档
 
@@ -69,6 +29,18 @@
 
 | 编号 | 标题 | 完成日期 | 结论摘要 |
 |---|---|---|---|
+| 12 | pyproject.toml 两条生成路径包名归一化（P4，观感） | 2026-09-15 | 收敛：`fs_cmds.rs` 新增 `normalize_project_name`（字符串行扫描，定位 `[project].name` 改写为 `sanitize_pkg_name` 结果，不引入 TOML 依赖）+ `is_name_field` 防误配同前缀键；`ensure_pyproject` uv 生成后调用；`test_normalize_project_name` 覆盖大小写/空格与 `[tool.uv]` 段不误改 |
+| 17 | 全项目输入框未统一 autocomplete="off"（P4，一致性） | 2026-09-15 | `index.html` 10 处 `type=text` 输入框补 `autocomplete="off"`（tree-filter/search/env-pkg/new-project-*/settings-*/lt-search/storage-migrate-path/palette-search）；动态输入补 `settingsPanel.ts` 键位行 / `git.ts` 新分支 / `fileTree.ts` 内联重命名 / `manager.ts` 两处 text input |
+| 18 | 模态点遮罩关闭不一致（P4，一致性/数据安全） | 2026-09-15 | 含可编辑内容的模态统一「点遮罩不关闭 + Esc 关闭」：`dialog.ts::openPrompt`、`settingsPanel.ts`、`newProject.ts` 三处去遮罩关闭、补 document 级 keydown（open 挂/close 移除，对齐 runConfigPanel 范式）；其余选择/确认框点遮罩=取消语义保留 |
+| 19 | 操作结果反馈散用输出面板（P4，一致性） | 2026-09-15 | 消除静默失败：`settingsPanel`（intel 开关/打开日志/数据目录）、`envPanel`（设置解释器×3）、`git`（空分支名校验）、`storagePanel`（首启标记/打开目录/选目录）共 10 处 `console.*` 静默改为 `toastFail`；`saveSettingsPanel` 成功补 `toast`；输出面板保留作命令级审计 |
+| 6 | 前端鲁棒性与设置单点（P3） | 2026-09-15 | ① URI 编解码跨平台 + 异常兜底：`client.ts` `fileUriToPath` 加 decodeURIComponent try/catch + 盘符检测定反斜杠、`pathToFileUri` 先转义 `%`/`#`/`?`；② 设置默认值收敛：新增零依赖 `keybindingDefaults.ts` 单一来源，`keybindings.ts` 与 `state.ts::DEFAULT_SETTINGS` 改为派生（`defaultKeybindings()`），前端两处不再手写 |
+| 9 | 运行配置孤儿条目（P3，存储卫生） | 2026-09-15 | 新增 `sweep_run_configs` 命令 + `sweep_run_configs_impl`（键对应文件不存在即移除）；`set_run_config` 保存时顺带清扫，`main.ts::openWorkspace` 打开工作区时调用一次；lib.rs 注册 |
+| 11 | interpreter_version 未缓存（P3，性能） | 2026-09-15 | `env_cmds.rs` 加 `VERSION_CACHE`（`LazyLock<Mutex<HashMap<String,String>>>`，路径为键），`interpreter_version` 命中缓存直接返回、空串不缓存；换解释器自然失效 |
+| 16 | E4 Docstring 自动生成缺口（P3，对标缺口） | 2026-09-15 | 新增 `docstring.ts`：`registerDocstringTrigger` 监听 python `"""`+Enter，`enclosingSignature`（单行 def/class 签名，过滤 self/cls、去注解/默认值/变参、顶层逗号分割）+ `buildDocstring`（Args/Returns 或 Attributes），接入 `index.ts`；`docstring.test.ts` 7 例全绿 |
+| 4 | 跨包项目哈希大小写不一致（P2，正确性） | 2026-09-15 | 两端大小写归一：`store.py::project_hash` 加 `os.path.normcase`、`file_ops.rs::project_hash` Windows 下 `to_lowercase()`（strip_verbatim_prefix 之后）；`test_store.py` 增 `test_project_hash_case_insensitive`（test_store 5 例全绿）、`file_ops.rs` 增大小写变体断言（cargo test project_hash 2 例全绿） |
+| 7 | CI 自动化缺失（P1，工程） | 2026-09-15 | 新增 `.github/workflows/ci.yml`：test job（windows-latest）跑 4 矩阵（前端 vitest+tsc / probe pytest / intel cargo test / shell cargo test），package-smoke job（打包 NSIS + bench 红线，workflow_dispatch 手动）；`bench/collect-metrics.ps1` 末尾把冷启动/内存红线纳入非零退出断言 |
+| 15 | 位置轴块头冒号误判续行（P2，正确性） | 2026-09-15 | `scope.ts` 从 `CONT_SUFFIX_RE` 移除 `:`，新增 `isBlockHeaderColon`（单行块头 + 跨行签名 `):`/`]:`）区分块头/续行冒号；`scope.test.ts` 增 4 例（块头后首行 / 跨行签名 / 空行 / 字典值冒号）并同步修订稿 §1.1/§8.2；vitest 11 例全绿 |
+| 10 | stdin 重定向文件存绝对路径（P3，可移植性） | 2026-09-15 | 随 v3.4 运行迁移删除 stdin 配置体系（`StdinConfig` / `run_script` 删净），该债连同功能一并消除 |
 | 1 | intel 补全/跳转/hover/type_infer 全量线性扫描（P2，性能） | 2026-09-10 | 已并入 CR-17 实施：索引层预建 `by_last_segment` / `by_second_last_segment` / `by_type_label` 倒排，7 处消费端全量扫描改索引查询 + shape 解析请求级缓存；intel `cargo test` 44 例全绿（含准确率红线） |
 | 2 | intel server.rs 锁 poison 与 async 持锁（P2） | 2026-09-10 | 已并入 CR-18 实施：改 `parking_lot::RwLock`（无中毒）+ `Arc` 快照锁外重计算 + 补全/hover/definition/inlay/诊断全部 `spawn_blocking` |
 | 5 | probe 打包/注入健壮性（P2） | 2026-09-10 | 已并入 CR-19 实施：hatch `force-include` 打包 `sitecustomize.py`（wheel 验证）；`mon.start()` 纳入 try/finally 恢复现场；argv[0] 守卫 `normcase` 归一化；probe `pytest` 63 例全绿 |

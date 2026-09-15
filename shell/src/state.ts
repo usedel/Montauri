@@ -3,6 +3,7 @@
 // 域内私有状态（如文件树选中集、Git 变更列表、终端会话）仍留在各域模块内部。
 
 import type * as MonacoApi from "monaco-editor/esm/vs/editor/editor.api";
+import { KEYBINDING_META } from "./keybindingDefaults";
 
 export type MonacoModule = typeof MonacoApi;
 
@@ -52,6 +53,13 @@ export interface Settings {
   log_stdout: boolean;
 }
 
+/** 从单一来源（keybindingDefaults.ts）派生出厂键位表，避免三处手写漂移（tech-debt #6） */
+function defaultKeybindings(): Record<string, string> {
+  const map: Record<string, string> = {};
+  for (const m of KEYBINDING_META) map[m.id] = m.def;
+  return map;
+}
+
 /** Settings 出厂默认值（「恢复默认」与 app.settings 初始值共用；须与 Rust Settings::default 保持一致） */
 export const DEFAULT_SETTINGS: Settings = {
   theme: "vs-dark",
@@ -74,53 +82,9 @@ export const DEFAULT_SETTINGS: Settings = {
   terminal_shell: "auto",
   // PyPI 包源默认官方源（须与 Rust Settings::default 保持同步）
   pypi_index: "https://pypi.org/simple",
-  // 出厂默认键位（PyCharm 风格）：与 keybindings.ts KEYBINDING_META 的 def、
-  // Rust settings.rs default_keybindings 三处保持同步（keybindings.test.ts 有漂移锁）。
-  keybindings: {
-    save: "Ctrl+S",
-    run: "Ctrl+F10",
-    stop: "Ctrl+F2",
-    run_selection: "Alt+Shift+E",
-    global_search: "Ctrl+Shift+F",
-    goto_definition: "Ctrl+B",
-    duplicate_line: "Ctrl+D",
-    comment_line: "Ctrl+/",
-    comment_block: "Ctrl+Shift+/",
-    template_palette: "Ctrl+J",
-    surround: "Ctrl+Alt+T",
-    // P0（PyCharm 调研）：Optimize Imports / 最近文件（与 keybindings.ts META、Rust default_keybindings 三处同步）
-    optimize_imports: "Ctrl+Alt+O",
-    recent_files: "Ctrl+E",
-    // P1（PyCharm 调研）：转到文件 / 转到行 / 导航后退前进 / 本地历史
-    //（三处同步：此处 / keybindings.ts META / Rust default_keybindings）
-    goto_file: "Ctrl+Shift+N",
-    goto_line: "Ctrl+G",
-    nav_back: "Ctrl+Alt+Left",
-    nav_forward: "Ctrl+Alt+Right",
-    local_history: "Ctrl+Shift+H",
-    // 调试五件套（debug dev plan §6.6；三处同步：此处 / keybindings.ts META / Rust default_keybindings）
-    debug: "F5",
-    debug_stop: "Shift+F5",
-    debug_step_over: "F10",
-    debug_step_into: "F11",
-    debug_step_out: "Shift+F11",
-    // P1：断点处求值
-    debug_evaluate: "Alt+F8",
-    // P2：调试打磨组 + 书签 / 草稿 / 运行历史
-    debug_run_to_cursor: "Alt+F9",
-    bookmark_toggle: "Ctrl+F11",
-    bookmark_list: "Ctrl+Shift+F11",
-    scratch_new: "Ctrl+Alt+Shift+Insert",
-    run_history: "Ctrl+Shift+R",
-    // Markdown 预览开关（与 keybindings.ts META / Rust default_keybindings 三处同步）
-    markdown_preview: "Ctrl+Shift+V",
-    // P1（UX 审查）：高频操作补键位（三处同步：此处 / keybindings.ts META / Rust default_keybindings）
-    close_tab: "Ctrl+F4",
-    new_file: "Ctrl+Alt+Insert",
-    open_settings: "Ctrl+Alt+S",
-    toggle_sidebar: "Ctrl+Shift+F12",
-    toggle_bottom: "Alt+F12",
-  },
+  // 出厂默认键位（PyCharm 风格）：由 keybindingDefaults.ts 单一来源派生（tech-debt #6），
+  // 与 Rust settings.rs default_keybindings 保持同步（keybindings.test.ts 有漂移锁）。
+  keybindings: defaultKeybindings(),
   // 日志默认（须与 Rust settings.rs Default 保持同步）
   log_enabled: true,
   log_level: "info",

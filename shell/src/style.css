@@ -544,35 +544,25 @@ button:focus-visible,
   align-self: center;
   margin: 0 var(--space-2);
 }
+/* UX：运行组（含「运行配置」）与「设置」两处图标易混淆，拉大设置按钮与前区的间距。
+   只影响右侧设置区；「设置│窗口控制」另一条分隔线观感不变。 */
+#btn-settings { margin-left: var(--space-4); }
 
-/* 运行组（C3）：三独立按钮，紧跟「工具」菜单后。按钮均为 <button>，天然不受拖窗区影响 */
+/* 运行组（v3.4 §8 / M3-3.4）：四控件 [▶ 运行脚本] [▶ 运行项目] [⏹ 停止] [⚙ 运行配置…]。
+   按钮均为 <button>，天然不受拖窗区影响 */
 /* UI-19：原 margin-left 由前置 .menubar-sep 的间距取代，避免分隔线两侧间距叠加过宽 */
 #run-group { display: flex; align-items: center; gap: var(--space-1); flex: none; }
 /* UX P0-3：运行组禁用态改用 .is-disabled（不用 disabled 属性）——
    Chromium 不向禁用控件派发鼠标事件，data-tip 会静默失效，
    而「为什么不能运行」的原因文案恰是灰按钮最需要展示的信息。 */
-#run-group #btn-run { color: var(--brand); }
-#run-group #btn-run:disabled, #run-group #btn-run.is-disabled { color: var(--fg-dim); }
+#run-group #btn-run-script { color: var(--brand); }
+#run-group #btn-run-script:disabled, #run-group #btn-run-script.is-disabled { color: var(--fg-dim); }
+#run-group #btn-run-project { color: var(--brand); }
+#run-group #btn-run-project:disabled, #run-group #btn-run-project.is-disabled { color: var(--fg-dim); }
 #run-group #btn-stop { color: var(--fg-dim); }
 #run-group #btn-stop:not(:disabled):not(.is-disabled) { color: var(--danger); }
-/* 运行目标下拉（PyCharm 布局：[目标名 ▾] [▶] [⏹]）：常驻显示「▶ 下次会跑什么」，
-   长名截断为 ellipsis，完整内容交给 data-tip 自绘 tooltip。 */
-#run-group #run-target {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  max-width: 168px;
-  padding: var(--space-1) var(--space-2);
-}
-#run-target .run-target-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--text-sm, var(--text-md));
-}
-/* 无目标占位态：不用主色，避免与真实目标名抢视觉权重 */
-#run-target.is-empty .run-target-label { color: var(--fg-dim); }
-#run-target .codicon { flex: none; }
+#run-group #btn-run-config { color: var(--fg-dim); }
+#run-group #btn-run-config:not(:disabled):not(.is-disabled) { color: var(--fg); }
 
 /* ---------- 标题栏窗口控制按钮（自绘，VS Code 风） ---------- */
 /* UI-19：原 margin-left 由前置 .menubar-sep 的间距取代（设置区│窗口控制区分隔线） */
@@ -678,6 +668,8 @@ button:focus-visible,
 .tree-item .name { overflow: hidden; text-overflow: ellipsis; }
 .tree-item.dir .name { color: var(--fg); }
 .tree-item.dir.git-dirty .name { color: var(--git-modified); }
+/* 工作区根节点：名称加粗，作为树的视觉锚点（对齐 VS Code / JetBrains 的根文件夹） */
+.tree-item.tree-root .name { font-weight: 600; }
 .tree-item .twisty { width: 12px; flex: none; color: var(--fg-dim); font-size: var(--text-sm); }
 
 /* Git 状态装饰标记 */
@@ -1365,7 +1357,6 @@ button:focus-visible,
 /* 折叠态：特异性 (1,1,0) > 基础规则 (1,0,0)，无论 --bottom-h 是否已设都能收回 28px */
 #bottom.collapsed { height: 28px; }
 #bottom.collapsed #output,
-#bottom.collapsed #run-stdin-row,
 #bottom.collapsed #terminal-panel { display: none; }
 
 /* 底部面板标签（输出 / 终端） */
@@ -1521,35 +1512,7 @@ button:focus-visible,
   word-break: break-all;
 }
 
-/* ---------- S4：交互式运行的输入行（仅 stdin=「交互式」且运行中可见） ---------- */
-#run-stdin-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-  flex: none;
-  padding: var(--space-2) var(--space-5);
-  border-top: 1px solid var(--border);
-  background: var(--bg-panel);
-  font-family: var(--mono);
-  font-size: var(--text-sm);
-}
-#run-stdin-row.hidden { display: none; }
-#run-stdin-label { color: var(--fg-dim); flex: none; }
-#run-stdin-input {
-  flex: 1;
-  min-width: 0;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  color: var(--fg);
-  padding: var(--space-2) var(--space-4);
-  font-family: inherit;
-  font-size: inherit;
-}
-#run-stdin-input:focus { outline: none; border-color: var(--accent); }
-#run-stdin-input::placeholder { color: var(--fg-dim); }
-/* 「等待输入…」状态可见化：脚本正阻塞在 input() 时给用户一个明确信号（缓解坑 2 的单实例阻塞焦虑） */
-#run-stdin-status { color: var(--meta, var(--fg-dim)); font-style: italic; flex: none; font-size: var(--text-xs); }
+/* v3.4 §6.5：S4 输入行样式已随 stdin 体系删除（运行统一走终端控制台，输入同屏） */
 
 .out-line { min-height: 1.2em; }
 .out-line.stderr { color: var(--danger); }
@@ -2463,7 +2426,35 @@ button:focus-visible,
   border-right: 1px solid var(--border-soft);
   padding-right: var(--space-5);
 }
-.run-config-list-toolbar { display: flex; gap: var(--space-2); padding-bottom: var(--space-3); }
+/* v3.4 §17-6（M3-3.6）：两分区切换（脚本配置（当前文件）/ 项目配置）+ 目标上下文 */
+.run-config-section-tabs { display: flex; flex-direction: column; gap: var(--space-1); padding-bottom: var(--space-2); }
+.run-config-sec-tab {
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  color: var(--fg-dim);
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+.run-config-sec-tab:hover { background: var(--hover); color: var(--fg); }
+.run-config-sec-tab.active {
+  color: var(--fg);
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+.run-config-context {
+  padding: var(--space-1) var(--space-3) var(--space-3);
+  color: var(--fg-dim);
+  font-size: var(--text-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border-soft);
+  margin-bottom: var(--space-3);
+}
 .run-config-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; min-height: 0; }
 .run-config-list-item {
   display: flex;
@@ -2480,8 +2471,52 @@ button:focus-visible,
 .run-config-list-item.selected { background: var(--accent-soft); }
 .run-config-list-item .rcl-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .run-config-list-item .rcl-tag { margin-left: auto; flex: none; color: var(--fg-dim); font-size: var(--text-xs); }
-.run-config-list-empty { padding: var(--space-3); color: var(--fg-dim); font-size: var(--text-xs); line-height: 1.5; }
 .run-config-editor { flex: 1; min-width: 0; overflow-y: auto; }
+/* .env 文件栏：label 与「添加…」按钮两端对齐 */
+.run-config-envfiles-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+
+/* ---------- 通用组合框（combobox.ts）----------
+   输入框 + fixed 下拉候选。fixed 定位（JS 按输入框坐标计算）避开任意祖先 overflow 裁剪
+   （如 .run-config-editor 的 overflow-y:auto）；wrap 在 .settings-row 里撑满剩余宽度。
+   视觉对齐 .lt-group-drop（Live Templates 自绘下拉），但定位改 fixed 以适配模态内滚动容器。 */
+.oc-combo-wrap { position: relative; flex: 1; min-width: 0; }
+.oc-combo-wrap input[type="text"] { width: 100%; box-sizing: border-box; }
+.oc-combo-drop {
+  display: none;
+  position: fixed;
+  z-index: 400;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  max-height: 240px;
+  overflow: auto;
+  box-shadow: var(--shadow);
+  padding: var(--space-1) 0;
+}
+.oc-combo-drop.open { display: block; }
+.oc-combo-item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--fg);
+  cursor: pointer;
+}
+.oc-combo-item.active { background: var(--hover); }
+.oc-combo-item.disabled { opacity: 0.55; cursor: default; }
+.oc-combo-item.disabled.active { background: transparent; }
+.oc-combo-item.action { color: var(--accent); }
+.oc-combo-item .oci-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.oc-combo-item .oci-detail {
+  margin-left: auto;
+  color: var(--fg-dim);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 60%;
+}
 /* 控件观感统一走上面的通用 .settings-row 规则（此处曾自带一套，造成两套观感） */
 .new-project-preview {
   font-size: var(--text-xs);
@@ -3339,42 +3374,7 @@ button:focus-visible,
   font-variant-numeric: tabular-nums;
 }
 
-/* ---------- P2-M：运行标签条（输出面板头部，每次运行一 chip：回看 / Pin / 重跑） ---------- */
-#run-tabs-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: 2px var(--space-3);
-  border-bottom: 1px solid var(--border);
-  min-height: 26px;
-}
-#run-tabs {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  overflow-x: auto;
-  min-width: 0;
-  flex: 1;
-  scrollbar-width: thin;
-}
-.run-tab {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: 1px var(--space-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  font-size: var(--text-xs);
-  color: var(--fg-dim);
-  cursor: pointer;
-  white-space: nowrap;
-  flex: none;
-}
-.run-tab:hover { background: var(--hover-subtle); color: var(--fg); }
-.run-tab.active { color: var(--fg); border-color: var(--accent); background: var(--accent-soft); }
-.run-tab.running .run-tab-meta { color: var(--accent); }
-.run-tab-name { overflow: hidden; text-overflow: ellipsis; max-width: 180px; }
-.run-tab-meta { font-variant-numeric: tabular-nums; opacity: 0.85; }
+/* ---------- 运行历史列表行动作按钮（runHistory.ts；原 chip 标签条样式已随 M3-3.8 删除） ---------- */
 .run-tab-btn {
   display: inline-flex;
   align-items: center;
@@ -3389,23 +3389,8 @@ button:focus-visible,
 .run-tab-btn:hover { color: var(--fg); }
 .run-tab-btn.pinned { color: var(--accent); }
 
-/* ---------- P2：并行运行勾选面板（Compound 最小集） ---------- */
-#run-compound-list { max-height: 300px; overflow-y: auto; display: flex; flex-direction: column; }
-.compound-item {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-1) 0;
-  font-size: var(--text-sm);
-  color: var(--fg);
-  cursor: pointer;
-  min-width: 0;
-}
-.compound-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* 必须显式锁宽高：.modal-card input{width:100%} 会命中此处的复选框（选择器只按元素名），
-   而 .settings-row input[type="checkbox"] 的 16px 兜底因选择器不匹配（本项不是 .settings-row）不生效。
-   不锁宽 → 复选框撑满整行、右侧 span 被压成 0 宽（overflow:hidden 把配置名裁没，只剩一行空复选框）。 */
-.compound-item input { flex: none; width: 16px; height: 16px; cursor: pointer; accent-color: var(--accent); }
+/* v3.4 §17-10：并行运行（Compound）面板样式已随模态删除；M4 收口：#run-tabs-row /
+   #run-tabs / .run-tab（chip 条）随「保存输出」入口收编进历史列表行一并删除 */
 
 /* ---------- 全局 toast 通知（UX 审查 P0-1；toast.ts） ---------- */
 /* 右下角堆叠（状态栏上方）；z-index 高于 confirm-modal（500），失败提示不被模态遮挡 */

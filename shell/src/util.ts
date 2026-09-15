@@ -38,6 +38,22 @@ export function basename(p: string): string {
   return p.split(/[\\/]/).pop() ?? p;
 }
 
+/** v3.4 §11（M3-3.8）：终端输出剥离 ANSI 转义序列（运行历史快照采集用）。
+ *  覆盖常见形态：CSI（\x1b[...cmd）、OSC（\x1b]...BEL/ST）、单字符转义（\x1b= 等）、
+ *  C0 控制字符（保留 \n 换行）。失败降级原样入档（§19-6）——本函数为纯函数，
+ *  放 util 与 basename 同层（termUi 的采集路径 re-export 引用）。 */
+export function stripAnsi(text: string): string {
+  try {
+    // eslint-disable-next-line no-control-regex
+    return text.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[0-~]|\x1b/g, "")
+      // C0 控制字符剥离，仅保留 \n（\x0a）：\t / \r / BEL 等对历史快照都是噪音
+      // eslint-disable-next-line no-control-regex
+      .replace(/[\x00-\x09\x0b\x0c\x0d-\x1f\x7f]/g, "");
+  } catch {
+    return text; // 降级：原样入档（§19-6）
+  }
+}
+
 /** 文件扩展名 → Monaco 语言 ID */
 export function languageOf(path: string): string {
   // 复合扩展名/特殊文件名：按完整文件名精确匹配（如 uv.lock 实为 TOML 而非 .lock 文本）

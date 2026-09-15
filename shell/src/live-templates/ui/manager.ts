@@ -406,6 +406,7 @@ function beginGroupRename(): void {
   wrap.className = "lt-rename-inline";
   const inp = document.createElement("input");
   inp.type = "text";
+  inp.autocomplete = "off";
   inp.className = "lt-rename-input";
   inp.value = oldName;
   inp.spellcheck = false;
@@ -711,6 +712,7 @@ function fieldRow(labelText: string, control: HTMLElement): HTMLElement {
 function input(id: string, value: string, placeholder: string): HTMLInputElement {
   const el = document.createElement("input");
   el.type = "text";
+  el.autocomplete = "off";
   el.id = id;
   el.value = value;
   el.placeholder = placeholder;

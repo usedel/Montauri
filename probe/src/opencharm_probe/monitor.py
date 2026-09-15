@@ -46,6 +46,12 @@ _CO_VARKEYWORDS = 0x08
 # 发现窗口参数
 _DISCOVERY_WINDOW = 2.0      # 启动后全局事件开启时长上限（秒）
 _QUIET_CLOSE = 2000          # 连续 N 次派发无新函数即提前关窗
+# 静默关窗的时间地板（M4 修复）：sitecustomize 链上的第三方代码（如宿主 IDE 的
+# 安全删除 shim）会在主脚本开始前的毫秒内涌入数千次库函数派发——全是「无新函数」，
+# 把 _QUIET_CLOSE 配额瞬间吃光导致发现窗口误关、主脚本 0 采集（实测 PTY 注入链）。
+# 要求静默关窗距 start() 至少本时长：库噪音在启动瞬间涌完，而主脚本的 <module>
+# 帧一旦开始执行，_active > 0 会接管保窗——地板只挡「启动噪音」，不影响正常关窗。
+_MIN_DISCOVERY_FLOOR = 0.25  # 秒
 _REDISCOVERY_INTERVAL = 5.0  # 窗口关闭后多久重开一次（秒）
 
 
@@ -69,6 +75,7 @@ class Monitor:
         self._next_win = 0.0         # 下次窗口开启时刻
         self._in_window = False
         self._quiet = 0              # 连续无新函数的派发计数
+        self._win_opened_at = 0.0    # 当前窗口开启时刻（静默关窗的时间地板基准）
         # 活跃的项目内调用数（进入 +1、返回 -1）：>0 时保持发现窗口开启，
         # 否则「模块顶部慢 import + 末尾才调用业务函数」的脚本会被 2s 时间窗漏采。
         # 注意：异常退出/静音/未耗尽生成器会造成计数漂移，靠 _sync_active 在决策点校准。
@@ -124,6 +131,7 @@ class Monitor:
         """开启全局 PY_START 发现窗口（RAISE 常开，不受窗口控制）。"""
         now = time.perf_counter()
         self._win_until = now + _DISCOVERY_WINDOW
+        self._win_opened_at = now
         self._next_win = self._win_until + _REDISCOVERY_INTERVAL
         self._in_window = True
         self._quiet = 0
@@ -149,15 +157,25 @@ class Monitor:
         采集（原设计意图不变）。
         """
         now = time.perf_counter()
+        # M4 修复：静默关窗加时间地板——窗口开启后 _MIN_DISCOVERY_FLOOR 内即便 quiet
+        # 已达阈值也不关（sitecustomize 链噪音在启动毫秒内涌完，见 _MIN_DISCOVERY_FLOOR
+        # 注释）。时间到期路径不受影响（2s 硬上限仍在）。
         if now < self._win_until and self._quiet < _QUIET_CLOSE:
             return  # 未到决策点：无论 _active 大小都保持窗口（避免每派发栈回溯）
+        if self._quiet >= _QUIET_CLOSE and now - self._win_opened_at < _MIN_DISCOVERY_FLOOR:
+            return  # 静默超限但仍在时间地板内：库噪音免疫，保持窗口（等待主脚本激活 _active）
         if self._active > 0:
             self._sync_active()  # 决策点校准：修复异常/生成器/静音造成的计数泄漏
         if self._active > 0:
             # 确有项目函数活跃（如慢 import 中的 <module> 帧），保持窗口；
-            # 同步推进窗口到期时刻，避免下个派发再次触发栈回溯（每窗口至多一次）
+            # 同步推进窗口到期时刻，避免下个派发再次触发栈回溯（每窗口至多一次）。
+            # M4 开销修复：**重置 _quiet**——否则 _quiet 已超 _QUIET_CLOSE 的长运行脚本
+            # （每次派发 +1、从不归零）会让本分支后的每次派发都再次命中决策点，
+            # 推进窗口也拦不住（时间条件早满足、静默条件永远不满足），节流失效
+            # 退化成 O(派发数×栈深)（实测 bench 60004 次派发跑出 57999 次栈回溯）。
             self._win_until = now + _DISCOVERY_WINDOW
             self._next_win = self._win_until + _REDISCOVERY_INTERVAL
+            self._quiet = 0
             return
         sys.monitoring.set_events(self._tid, sys.monitoring.events.RAISE)
         self._in_window = False

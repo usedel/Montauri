@@ -60,7 +60,7 @@ describe("validateKeybindingMap 校验", () => {
   });
 
   it("空串 = 解绑，合法", () => {
-    expect(validateKeybindingMap({ save: "", run: "Ctrl+F10" })).toBeNull();
+    expect(validateKeybindingMap({ save: "", run_script: "Ctrl+F10" })).toBeNull();
   });
 
   it("格式无效报错", () => {
@@ -68,7 +68,7 @@ describe("validateKeybindingMap 校验", () => {
   });
 
   it("重复键位报冲突（大小写 / 修饰键序不敏感）", () => {
-    const err = validateKeybindingMap({ save: "Ctrl+S", run: "ctrl+s" });
+    const err = validateKeybindingMap({ save: "Ctrl+S", run_script: "ctrl+s" });
     expect(err).toContain("冲突");
   });
 });
@@ -88,6 +88,9 @@ describe("三处默认值漂移锁", () => {
     expect(kb.comment_block).toBe("Ctrl+Shift+/");
     expect(kb.goto_definition).toBe("Ctrl+B");
     expect(kb.stop).toBe("Ctrl+F2");
+    // v3.4 §17-7（M3-3.5）：run 拆为 run_script + run_project
+    expect(kb.run_script).toBe("Ctrl+F10");
+    expect(kb.run_project).toBe("Ctrl+Shift+F10");
   });
 
   it("所有默认键均可解析", () => {

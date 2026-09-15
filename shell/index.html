@@ -43,16 +43,15 @@
         <!-- UI-19：菜单区与「运行/调试动作区」之间改由 .spacer 弹性间距分隔（动作区整体右移，
              与 PyCharm 窗口头部一致——运行控件在右上、不在菜单旁边）。 -->
         <span class="spacer"></span>
-        <!-- 运行组（C3）：PyCharm 布局 [运行目标 ▾] [▶] [⏹]，靠右并与设置区以分隔线区分 -->
+        <!-- 运行组（v3.4 §8 / §17-2）：四控件 [▶ 运行脚本] [▶ 运行项目] [⏹ 停止] [⚙ 运行配置…]，
+             替换原 [运行目标 ▾] [▶] [⏹]（粘性目标与配置列表下拉已删，§17-1/§17-2） -->
         <!-- UI-16：存量 data-tip 图标按钮补齐 aria-label（第四批登记的待办）。内部 <i> 带 aria-hidden，
              可访问名称只能由 aria-label 提供；data-tip 只服务视觉 tooltip，读屏不感知。 -->
         <div id="run-group">
-          <!-- 运行目标下拉：常驻显示「▶ 下次会跑什么」，点击弹出菜单（menu.ts showMenu）。
-               原独立的 ▾「更多运行选项」按钮的功能已并入本下拉——"选择目标"与"更多运行方式"
-               若为两份入口，用户会在两个菜单里分别找同一批配置。 -->
-          <button id="run-target" class="menubar-icon run-target" data-tip="选择运行目标" aria-label="运行目标" aria-haspopup="menu" aria-expanded="false"><span id="run-target-label" class="run-target-label">当前文件</span><i class="codicon codicon-chevron-down" aria-hidden="true"></i></button>
-          <button id="btn-run" class="menubar-icon" data-tip="运行" aria-label="运行"><i class="codicon codicon-run" aria-hidden="true"></i></button>
+          <button id="btn-run-script" class="menubar-icon" data-tip="运行脚本" aria-label="运行脚本"><i class="codicon codicon-run" aria-hidden="true"></i></button>
+          <button id="btn-run-project" class="menubar-icon" data-tip="运行项目" aria-label="运行项目"><i class="codicon codicon-run-all" aria-hidden="true"></i></button>
           <button id="btn-stop" class="menubar-icon" data-tip="停止运行" aria-label="停止运行"><i class="codicon codicon-debug-stop" aria-hidden="true"></i></button>
+          <button id="btn-run-config" class="menubar-icon" data-tip="运行配置…" aria-label="运行配置"><i class="codicon codicon-tools" aria-hidden="true"></i></button>
         </div>
         <!-- 调试按钮（debug dev plan §6.1）：运行组旁新增「调试」入口，随动作区一并右移 -->
         <button id="btn-debug" class="menubar-icon" data-tip="调试" aria-label="调试"><i class="codicon codicon-debug" aria-hidden="true"></i></button>
@@ -92,12 +91,14 @@
                      collapse/refresh 是既有 data-tip 但一直缺名的存量缺口，只补 hidden 一个会让同组 3 按钮不一致，故一并处理。
                      hidden 的静态文案与 fileTree.ts 初始态（showHiddenFiles=false）对齐，
                      之后由 syncHiddenFilesBtn() 统一改写 data-tip / aria-label / aria-pressed。 -->
+                <button id="btn-tree-new-file" class="btn btn--ghost btn--icon" data-tip="新建文件" aria-label="新建文件"><i class="codicon codicon-new-file" aria-hidden="true"></i></button>
+                <button id="btn-tree-new-folder" class="btn btn--ghost btn--icon" data-tip="新建文件夹" aria-label="新建文件夹"><i class="codicon codicon-new-folder" aria-hidden="true"></i></button>
                 <button id="btn-tree-collapse" class="btn btn--ghost btn--icon" data-tip="全部折叠" aria-label="全部折叠"><i class="codicon codicon-collapse-all" aria-hidden="true"></i></button>
                 <button id="btn-tree-hidden" class="btn btn--ghost btn--icon" data-tip="显示 dot 文件" aria-label="显示 dot 文件" aria-pressed="false"><i class="codicon codicon-eye" aria-hidden="true"></i></button>
                 <button id="btn-tree-refresh" class="btn btn--ghost btn--icon" data-tip="刷新文件树" aria-label="刷新文件树"><i class="codicon codicon-refresh" aria-hidden="true"></i></button>
               </div>
               <div id="tree-filter-box">
-                <input id="tree-filter-input" type="text" placeholder="过滤文件…" spellcheck="false" />
+                <input id="tree-filter-input" type="text" autocomplete="off" placeholder="过滤文件…" spellcheck="false" />
               </div>
               <!-- UI-16：tree 模式容器。treeitem/group 由 fileTree.ts 渲染时写入；
                    支持 Ctrl/Shift 多选，故声明 aria-multiselectable -->
@@ -118,7 +119,7 @@
             <div id="view-search" class="sidebar-view hidden" role="tabpanel" aria-labelledby="tab-search">
               <div id="search-panel">
                 <div class="search-box">
-                  <input id="search-input" type="text" placeholder="搜索工作区…" spellcheck="false" />
+                  <input id="search-input" type="text" autocomplete="off" placeholder="搜索工作区…" spellcheck="false" />
                   <!-- UI-09：可见文本「Aa」是符号而非语义名，补 aria-label 让可访问名称有意义；
                        UI-16：开关态用 aria-pressed 表达（main.ts 与 .active 类同源切换） -->
                   <button id="search-case" class="btn btn--sm" data-tip="区分大小写" aria-label="区分大小写" aria-pressed="false">Aa</button>
@@ -253,21 +254,11 @@
           <button id="btn-clear-output" class="btn btn--sm" data-tip="清空输出">清空</button>
           <button id="btn-toggle-output" class="btn btn--sm btn--icon" data-tip="收起/展开面板"><i class="codicon codicon-chevron-down" aria-hidden="true"></i></button>
         </div>
-        <!-- P2-M：运行标签条（每次运行一 chip：回看 / Pin / 重跑）；P2-O：保存输出到文件 -->
-        <div id="run-tabs-row">
-          <div id="run-tabs" role="tablist" aria-label="运行记录"></div>
-          <span class="spacer"></span>
-          <button id="btn-save-output" class="btn btn--sm btn--icon" data-tip="保存当前运行输出到文件" aria-label="保存当前运行输出到文件"><i class="codicon codicon-save" aria-hidden="true"></i></button>
-        </div>
+        <!-- v3.4 §17-8 + M4 收口：运行标签条（chip）与「保存当前输出」按钮已删——
+             历史与保存动作（P2-O）统一收编进 Ctrl+Shift+R 历史列表行（runHistory.ts）。 -->
         <div id="output" role="tabpanel" aria-labelledby="tab-output"></div>
-        <!-- S4：交互式运行的输入行（仅 stdin=「交互式」且运行中可见）。
-             提示符经 chunk 转发即时显示在上方输出里，用户在此逐行应答（Enter 发送，Esc 交回焦点） -->
-        <div id="run-stdin-row" class="hidden">
-          <span id="run-stdin-label">stdin&gt;</span>
-          <input id="run-stdin-input" type="text" spellcheck="false" autocomplete="off"
-                 placeholder="输入一行后回车发送给脚本（Esc 把焦点交回编辑器）" />
-          <span id="run-stdin-status">等待输入…</span>
-        </div>
+        <!-- v3.4 §6.5：S4 输入行已删——运行统一走终端控制台，输入与输出同屏（input() 由 PTY 原生承载）。
+             本面板保留**调试输出承载**（debug-stdout / debug-stderr 事件，§13.3）。 -->
         <div id="git-diff-panel" class="hidden" role="tabpanel" aria-labelledby="tab-diff">
           <div id="git-diff-header">
             <span id="git-diff-label">—</span>
@@ -362,7 +353,7 @@
             <div id="env-packages" class="env-packages"></div>
           </div>
           <div class="env-row">
-            <input id="env-pkg-input" type="text" placeholder="requests==2.31" spellcheck="false" />
+            <input id="env-pkg-input" type="text" autocomplete="off" placeholder="requests==2.31" spellcheck="false" />
             <button id="env-pkg-install" class="btn">安装</button>
           </div>
         </div>
@@ -394,11 +385,11 @@
         <div class="settings-body">
           <div class="settings-row">
             <label for="new-project-name">项目名称</label>
-            <input id="new-project-name" type="text" placeholder="my-project" spellcheck="false" />
+            <input id="new-project-name" type="text" autocomplete="off" placeholder="my-project" spellcheck="false" />
           </div>
           <div class="settings-row">
             <label for="new-project-location">位置</label>
-            <input id="new-project-location" type="text" placeholder="F:\path\to\parent" spellcheck="false" />
+            <input id="new-project-location" type="text" autocomplete="off" placeholder="F:\path\to\parent" spellcheck="false" />
             <button id="new-project-browse" class="btn">浏览…</button>
           </div>
           <div class="settings-row">
@@ -425,7 +416,8 @@
         </div>
       </div>
     </div>
-    <!-- 运行配置面板（模态，P0-C/D：工作区级命名配置列表 + 入口类型 + 工作目录；持久化到工作区配置，不侵入项目） -->
+    <!-- 运行配置面板（模态，v3.4 §17-6 M3-3.6：脚本配置（当前文件）/ 项目配置两分区，
+         左侧配置列表与新建/复制/删除已删；持久化到工作区配置，不侵入项目） -->
     <div id="run-config-modal" class="modal hidden">
       <div class="modal-card run-config-card" role="dialog" aria-modal="true" aria-labelledby="run-config-title">
         <div class="env-header">
@@ -434,23 +426,18 @@
           <button id="run-config-close" class="btn btn--ghost btn--icon" aria-label="关闭"><i class="codicon codicon-close" aria-hidden="true"></i></button>
         </div>
         <div class="run-config-body">
-          <!-- 左：工作区里**全部**运行配置（永久 + 跑文件自动生成的临时配置）。
-               形态对齐 PyCharm 的「左列表 + 右编辑」，与当前打开哪个文件无关。 -->
+          <!-- 左：两分区切换（脚本配置（当前文件）/ 项目配置） -->
           <div class="run-config-list-pane">
-            <div class="run-config-list-toolbar">
-              <button id="run-config-new" class="btn btn--sm">新建</button>
-              <button id="run-config-copy" class="btn btn--sm">复制</button>
-              <button id="run-config-delete" class="btn btn--sm btn--danger-outline" disabled>删除</button>
+            <div class="run-config-section-tabs" role="tablist" aria-label="配置分区">
+              <button id="run-config-sec-script" class="run-config-sec-tab active" role="tab" aria-selected="true" aria-controls="run-config-editor">脚本配置</button>
+              <button id="run-config-sec-project" class="run-config-sec-tab" role="tab" aria-selected="false" aria-controls="run-config-editor">项目配置</button>
             </div>
-            <ul id="run-config-list" class="run-config-list" role="listbox" aria-label="运行配置列表"></ul>
+            <div id="run-config-context" class="run-config-context">当前文件</div>
+            <ul id="run-config-list" class="run-config-list" role="listbox" aria-label="配置分区"></ul>
           </div>
-          <!-- 右：编辑选中的那一份 -->
+          <!-- 右：编辑当前分区的配置 -->
           <div class="settings-body run-config-editor">
             <div class="settings-hint hidden" id="run-config-target"></div>
-          <div class="settings-row" id="run-config-name-row">
-            <label for="run-config-name">配置名</label>
-            <input id="run-config-name" type="text" placeholder="FastAPI" spellcheck="false" />
-          </div>
           <div class="settings-row" id="run-config-entry-row">
             <label for="run-config-entry-kind">入口类型</label>
             <select id="run-config-entry-kind" title="脚本 = 运行一个 .py 文件；模块 = python -m（uvicorn / flask 等框架入口）">
@@ -460,60 +447,40 @@
           </div>
           <div class="settings-row" id="run-config-target-row">
             <label for="run-config-target-input" id="run-config-target-label">脚本路径 (Script path)</label>
-            <input id="run-config-target-input" type="text" placeholder="main.py（相对工作区根）" spellcheck="false" />
+            <div class="oc-combo-wrap">
+              <input id="run-config-target-input" type="text" autocomplete="off" placeholder="main.py（相对工作区根）" spellcheck="false" />
+              <div id="run-config-target-drop" class="oc-combo-drop"></div>
+            </div>
           </div>
-          <!-- P1：调试复用同一份运行配置（debug_start / debug_attach_debuggee 消费同一份 entry / cwd / 参数 / env），
-               并提前点出「stdin 重定向自文件」在调试下不支持——比启动失败后再报错友好 -->
-          <div class="settings-hint">此配置对「运行」与「调试」同时生效（同一份入口 / 参数 / 环境变量 / 工作目录）。标准输入选「重定向自文件」时无法启动调试（调试进程不经由文件重定向），其余两种模式不受影响。</div>
+          <!-- P1：调试复用同一份运行配置（debug_start / debug_attach_debuggee 消费同一份 entry / cwd / 参数 / env） -->
+          <div class="settings-hint">此配置对「运行」与「调试」同时生效（同一份入口 / 参数 / 环境变量 / 工作目录）。</div>
           <div class="settings-row">
             <label for="run-config-args">参数 (Parameters)</label>
-            <input id="run-config-args" type="text" placeholder="--flag value  含空格用引号" spellcheck="false" />
+            <input id="run-config-args" type="text" autocomplete="off" placeholder="--flag value  含空格用引号" spellcheck="false" />
           </div>
           <div class="settings-row">
             <label for="run-config-cwd">工作目录 (Working directory)</label>
-            <input id="run-config-cwd" type="text" placeholder="留空 = 默认（脚本→所在目录，模块→工作区根）；支持 ${workspaceRoot}" spellcheck="false" />
+            <div class="oc-combo-wrap">
+              <input id="run-config-cwd" type="text" autocomplete="off" placeholder="留空 = 默认（脚本→所在目录，模块→工作区根）；支持 ${workspaceRoot}" spellcheck="false" />
+              <div id="run-config-cwd-drop" class="oc-combo-drop"></div>
+            </div>
           </div>
           <div class="settings-row">
             <label for="run-config-interpreter">解释器（可选）</label>
-            <input id="run-config-interpreter" type="text" placeholder="留空 = 工作区解释器；或填解释器绝对路径" spellcheck="false" />
+            <div class="oc-combo-wrap">
+              <input id="run-config-interpreter" type="text" autocomplete="off" placeholder="留空 = 工作区解释器；或填解释器绝对路径" spellcheck="false" />
+              <div id="run-config-interpreter-drop" class="oc-combo-drop"></div>
+            </div>
           </div>
           <div class="settings-row settings-row-col">
-            <label for="run-config-env-files">.env 文件（每行一个路径，按序加载；相对工作区根）</label>
+            <div class="run-config-envfiles-head">
+              <label for="run-config-env-files">.env 文件（每行一个路径，按序加载；相对工作区根）</label>
+              <button id="run-config-env-files-add" class="btn btn--ghost btn--sm" type="button" title="选择一个 .env 文件并追加">添加…</button>
+            </div>
             <textarea id="run-config-env-files" rows="2" placeholder=".env&#10;config/prod.env" spellcheck="false"></textarea>
           </div>
-          <div class="settings-row">
-            <label for="run-config-allow-multiple">允许多实例</label>
-            <input id="run-config-allow-multiple" type="checkbox" title="已有实例在运行时仍可再启动一个（服务器类配置，如两个端口的 uvicorn）；额外实例标准输入恒为空、输出与首个实例共用输出面板" />
-          </div>
-          <div class="settings-row">
-            <label for="run-config-pre-run">启动前先运行</label>
-            <input id="run-config-pre-run" type="text" placeholder="配置名（可选）；等待其结束后再启动本配置" spellcheck="false" />
-          </div>
-          <div class="settings-row">
-            <label for="run-config-open-browser">启动后打开浏览器</label>
-            <input id="run-config-open-browser" type="text" placeholder="URL（可选），如 http://127.0.0.1:8000" spellcheck="false" />
-          </div>
-          <div class="settings-row">
-            <label for="run-config-auto-rerun">变更自动重启</label>
-            <input id="run-config-auto-rerun" type="checkbox" title="保存的源文件变更时自动停止并重启本次运行（Rerun automatically）；模块入口不适用（uvicorn --reload 自带内环）" />
-          </div>
-          <div class="settings-row">
-            <label for="run-config-python-console">跑完进入交互控制台</label>
-            <input id="run-config-python-console" type="checkbox" title="解释器加 -i：脚本跑完留在同一交互 REPL，输出面板输入行即 REPL 输入（Run with Python console）" />
-          </div>
-          <div class="settings-row">
-            <label for="run-config-stdin-mode">标准输入 (stdin)</label>
-            <select id="run-config-stdin-mode" title="脚本读取标准输入时的来源。交互式为默认（对齐 PyCharm：控制台可直接键入）；「在终端中运行」不支持重定向自文件">
-              <option value="interactive">交互式（在输出面板逐行应答）——默认</option>
-              <option value="file">重定向自文件（Redirect input from）</option>
-              <option value="null">不接输入（input() 立即 EOF）</option>
-            </select>
-          </div>
-          <div class="settings-row hidden" id="run-config-stdin-path-row">
-            <span class="settings-label-gap"></span>
-            <input id="run-config-stdin-path" type="text" placeholder="F:\data\in.txt" spellcheck="false" />
-            <button id="run-config-stdin-browse" class="btn">浏览…</button>
-          </div>
+          <!-- v3.4 §18 裁决 3 + §17-6：stdin / allow_multiple / pre_run / open_browser / auto_rerun / python_console
+               六个 v2 高级项的表单行已删（后端字段与 TS 接线同步删除） -->
           <div class="settings-row settings-row-col">
             <label for="run-config-env">环境变量（每行 KEY=VALUE）</label>
             <textarea id="run-config-env" rows="5" placeholder="MY_VAR=1&#10;OTHER=abc" spellcheck="false"></textarea>
@@ -527,25 +494,8 @@
         </div>
       </div>
     </div>
-    <!-- 并行运行（Compound 最小集）：勾选多个命名配置一次性并行启动（不持久化） -->
-    <div id="run-compound-modal" class="modal hidden">
-      <div class="modal-card new-project-card" role="dialog" aria-modal="true" aria-labelledby="run-compound-title">
-        <div class="env-header">
-          <span id="run-compound-title" class="env-title">并行运行配置</span>
-          <span class="spacer"></span>
-          <button id="run-compound-close" class="btn btn--ghost btn--icon"><i class="codicon codicon-close" aria-hidden="true"></i></button>
-        </div>
-        <div class="settings-body">
-          <div class="settings-hint">勾选要同时启动的配置：第一个占用常规运行槽，其余作为并行实例启动（标准输入恒为空、输出共用输出面板、随停止按钮一并终止）。</div>
-          <div id="run-compound-list"></div>
-        </div>
-        <div class="modal-actions">
-          <button id="run-compound-run" class="btn btn--primary">并行运行</button>
-          <button id="run-compound-cancel" class="btn">取消</button>
-        </div>
-      </div>
-    </div>
     <!-- 设置面板（模态，P25-T09；P1 左右分栏 + Live Templates 内嵌） -->
+    <!-- v3.4 §17-10/§20：并行运行（Compound）模态已删——同一项目入口的并行实例走 §6.4「新建实例（并行）」（M3-3.7） -->
     <div id="settings-modal" class="modal hidden">
       <div class="modal-card settings-card" role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <div class="env-header">
@@ -597,7 +547,7 @@
                   <option value='"Fira Code"'>Fira Code</option>
                   <option value="__custom__">自定义…</option>
                 </select>
-                <input id="settings-font-family" type="text" placeholder="字体栈（逗号分隔多个）" aria-label="自定义字体栈" spellcheck="false" />
+                <input id="settings-font-family" type="text" autocomplete="off" placeholder="字体栈（逗号分隔多个）" aria-label="自定义字体栈" spellcheck="false" />
               </div>
               <div class="settings-row">
                 <label for="settings-font-ligatures">连字（ligatures）</label>
@@ -685,7 +635,7 @@
                   <option value="https://pypi.mirrors.ustc.edu.cn/simple/">中国科学技术大学</option>
                   <option value="__custom__">自定义…</option>
                 </select>
-                <input id="settings-pypi-index" type="text" placeholder="https://pypi.org/simple" aria-label="自定义包源地址" spellcheck="false" />
+                <input id="settings-pypi-index" type="text" autocomplete="off" placeholder="https://pypi.org/simple" aria-label="自定义包源地址" spellcheck="false" />
               </div>
             </div>
             <div id="settings-section-templates" class="settings-section settings-section-templates hidden" role="tabpanel">
@@ -694,7 +644,7 @@
                   <option value="user">用户全局层</option>
                   <option value="workspace">工作区层</option>
                 </select>
-                <input id="lt-search" type="text" placeholder="搜索缩写 / 描述" spellcheck="false" />
+                <input id="lt-search" type="text" autocomplete="off" placeholder="搜索缩写 / 描述" spellcheck="false" />
                 <select id="lt-group-filter" title="按分组筛选模板">
                   <option value="__all__">全部分组</option>
                 </select>
@@ -793,7 +743,7 @@
               <div class="settings-hint">uv 缓存默认与其他项目通过硬链接共享；深度清理后已装环境不受影响，但重装包将重新落盘。uv 位置由用户自有环境变量（<code>UV_CACHE_DIR</code> 等）决定，OpenCharm 不代管。</div>
               <div class="settings-row">
                 <label for="storage-migrate-path">迁移数据到其他盘</label>
-                <input id="storage-migrate-path" type="text" placeholder="D:\opencharm-data" spellcheck="false" />
+                <input id="storage-migrate-path" type="text" autocomplete="off" placeholder="D:\opencharm-data" spellcheck="false" />
                 <button id="storage-migrate-browse" class="btn">浏览…</button>
               </div>
               <div class="settings-row">
@@ -816,7 +766,7 @@
     <!-- UI-16：无标题行，用 aria-label 提供可访问名称（输入框 placeholder 不是名称来源） -->
     <div id="palette-modal" class="modal hidden">
       <div class="modal-card palette-card" role="dialog" aria-modal="true" aria-label="插入模板">
-        <input id="palette-search" type="text" placeholder="过滤模板（缩写 / 描述），↑↓ 选择，Enter 插入，Esc 关闭" spellcheck="false" />
+        <input id="palette-search" type="text" autocomplete="off" placeholder="过滤模板（缩写 / 描述），↑↓ 选择，Enter 插入，Esc 关闭" spellcheck="false" />
         <div id="palette-list" class="palette-list"></div>
       </div>
     </div>

@@ -9,6 +9,7 @@ import { $, $btn } from "./state";
 import { hideEl, showEl } from "./anim";
 import { trapFocus } from "./focusTrap";
 import { openAlert, openConfirm } from "./dialog";
+import { toastFail } from "./toast";
 import { setBusy } from "./util"; // CR-27：按钮忙碌态收敛到 util
 
 // ---------- 类型（对应 storage_cmds.rs 的 serde 结构） ----------
@@ -309,7 +310,7 @@ export async function checkFirstRunStorage(): Promise<void> {
 function wireOnboarding(): void {
   $btn("storage-ob-default").addEventListener("click", () => {
     invoke("ack_first_run")
-      .catch((e) => console.warn("写首启标记失败", e))
+      .catch((e) => toastFail("保存首启设置", e))
       .finally(() => closeOnboarding());
   });
   $btn("storage-ob-custom").addEventListener("click", async () => {
@@ -340,7 +341,7 @@ export function wireStoragePanel(): void {
     void loadStorageUsage().finally(() => setBusy(btn, false));
   });
   $btn("storage-open").addEventListener("click", () => {
-    invoke("open_data_dir").catch((e) => console.warn("打开数据目录失败", e));
+    invoke("open_data_dir").catch((e) => toastFail("打开数据目录", e));
   });
   usageEl.addEventListener("click", (e) => {
     // UI-08：改按 [data-trace] 命中——按钮外观已由 .btn 体系承载，不再拿样式类名当事件钩子
@@ -360,7 +361,7 @@ export function wireStoragePanel(): void {
       const dir = await invoke<string | null>("pick_folder");
       if (dir) migratePathEl.value = dir;
     } catch (e) {
-      console.warn("选择目录失败", e);
+      toastFail("选择目录", e);
     }
   });
   $btn("storage-migrate").addEventListener("click", (e) =>

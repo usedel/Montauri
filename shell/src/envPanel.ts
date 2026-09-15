@@ -14,6 +14,7 @@ import { gotoFromLink } from "./tracebackLink";
 import { openConfirm } from "./dialog";
 import { hideEl, showEl } from "./anim";
 import { trapFocus } from "./focusTrap";
+import { toastFail } from "./toast";
 import * as toolchain from "./toolchain";
 
 // ---------- 域内类型 ----------
@@ -241,7 +242,7 @@ async function selectInterpreter(path: string | null): Promise<void> {
   try {
     await invoke("set_interpreter", { workspaceRoot: app.workspaceRoot, path });
   } catch (e) {
-    console.error("set_interpreter 失败", e);
+    toastFail("设置解释器", e);
     return;
   }
   await refreshInterpreterStatus();
@@ -377,7 +378,7 @@ async function createVenv(): Promise<void> {
     if (r.output) appendOutputLine(outputEl, r.output, "stdout", gotoFromLink);
     // 直接以创建出的解释器路径持久化选中（不依赖 .venv 自动检测）
     if (r.python) {
-      await invoke("set_interpreter", { workspaceRoot: app.workspaceRoot, path: r.python }).catch(console.error);
+      await invoke("set_interpreter", { workspaceRoot: app.workspaceRoot, path: r.python }).catch((e) => toastFail("设置解释器", e));
     }
   } catch (e) {
     appendOutputLine(outputEl, `创建环境失败：${e}`, "stderr", gotoFromLink);
@@ -540,7 +541,7 @@ export async function maybePromptVenv(): Promise<void> {
   const venv = pythons.find((p) => p.kind === "workspace-venv");
   if (!venv || venv.is_selected) return; // 无 .venv 或已显式选中则跳过
   if (await openConfirm({ message: "检测到工作区 .venv，是否设为当前解释器？", kind: "primary" })) {
-    await invoke("set_interpreter", { workspaceRoot: app.workspaceRoot, path: venv.path }).catch(console.error);
+    await invoke("set_interpreter", { workspaceRoot: app.workspaceRoot, path: venv.path }).catch((e) => toastFail("设置解释器", e));
     await refreshInterpreterStatus();
   }
 }

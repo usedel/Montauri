@@ -290,17 +290,15 @@ pub async fn debug_start(
     path: String,
     workspace_root: Option<String>,
 ) -> Result<(), String> {
-    // ---- 1. 三态互斥（§3.2）----
+    // ---- 1. 互斥检查（§3.2；v3.4 §13.2 裁决 10：收窄至脚本运行会话——piped 运行已删，
+    //      只看 PTY 脚本运行会话；项目实例（长驻服务）可与调试并存）----
     {
         let d = unpoison(DEBUG.lock());
         if d.is_some() {
             return Err("已有调试会话在运行".into());
         }
-        if crate::lsp::run_slot_busy() {
+        if crate::terminal::script_run_busy() {
             return Err("已有脚本在运行".into());
-        }
-        if crate::terminal::run_terminal_busy() {
-            return Err("已有脚本在终端中运行".into());
         }
     }
 
@@ -327,17 +325,10 @@ pub async fn debug_start(
         Some(profile_interpreter)
     };
 
-    if run_config.stdin.effective_mode() == "file" {
-        return Err(
-            "调试不支持标准输入重定向自文件（PTY 无法直接接管文件）。请在运行配置中把标准输入改为「不接输入」或「交互式」。"
-                .into(),
-        );
-    }
     // P0-C：module 入口必须有模块名（调试与运行同一份配置语义）
     if run_config.entry.kind == "module" && !run_config.entry.is_module() {
         return Err("运行配置选择了模块入口，但模块名为空".into());
     }
-
     // ---- 4. 定位自带 debugpy（含 verbatim 剥离）----
     let debugpy_dir = locate_debugpy_dir(&app).ok_or_else(|| {
         "未找到自带 debugpy（应用资源目录损坏，或开发环境未运行 tools/fetch-debugpy.ps1 拉取）。\
@@ -345,13 +336,15 @@ pub async fn debug_start(
             .to_string()
     })?;
 
-    // ---- 5. 环境装配（probe=false；§3.2 调试态 probe 恒 false）----
+    // ---- 5. 环境装配（probe=false；§3.2 调试态 probe 恒 false，instance 亦不注入——
+    //     调试不写运行 trace，§19-5 的实例归属只服务运行链路）----
     let run_env = crate::run_env::build_run_env(
         &app,
         &script_abs,
         workspace_root.as_deref(),
         &run_config,
         /* probe= */ false,
+        /* instance= */ None,
     );
 
     // 解释器：工作区配置 > 系统 Python 兜底（adapter 也需要一个 Python；
@@ -454,11 +447,14 @@ pub async fn debug_start(
                 }
             };
             if finished {
-                let sess = unpoison(DEBUG.lock()).take();
+                // 竞态修复：finished 判定阶段虽已确认 seq 匹配，但判定与 take 之间锁已释放；
+                // 需在同一锁内「检查 seq + take」原子完成，避免误清 debug_start 新建立的新会话。
+                let sess = {
+                    let mut d = unpoison(DEBUG.lock());
+                    let matches = d.as_ref().map(|s| s.seq) == Some(seq);
+                    if matches { d.take() } else { None }
+                };
                 if let Some(s) = sess {
-                    if s.seq != seq {
-                        return;
-                    }
                     // debuggee 可能还活着（adapter 死了 pydevd 会继续跑）：杀树
                     if let Some(pid) = s.debuggee_pid {
                         kill_pid_tree(pid);
@@ -525,6 +521,7 @@ pub async fn debug_attach_debuggee(
         workspace_root.as_deref(),
         &run_config,
         false,
+        None,
     );
 
     // debuggee 以管道模式 spawn（stdout/stderr → 输出面板，同 run_script 模式）。
@@ -579,7 +576,9 @@ pub async fn debug_attach_debuggee(
     let stdout = child.stdout.take().ok_or("无法获取 debuggee stdout")?;
     let stderr = child.stderr.take().ok_or("无法获取 debuggee stderr")?;
 
-    // debuggee 输出转发到前端（复用 run-stdout/run-stderr 事件 → 输出面板）
+    // debuggee 输出转发到前端（v3.4 §13.3/§17-16：独立事件 debug-stdout / debug-stderr → 输出面板。
+    // 运行角色的 run-stdout/run-stderr 已随 piped 路径下线，调试输出不再借道运行事件——
+    // 否则前端删运行监听时会误伤调试承载（§19-9 断链风险，前后端必须同步更名）。
     let app_out = app.clone();
     std::thread::spawn(move || {
         let mut reader = BufReader::new(stdout);
@@ -589,7 +588,7 @@ pub async fn debug_attach_debuggee(
             match reader.read_until(b'\n', &mut buf) {
                 Ok(0) => break,
                 Ok(_) => {
-                    let _ = app_out.emit("run-stdout", json!({ "data": String::from_utf8_lossy(&buf) }));
+                    let _ = app_out.emit("debug-stdout", json!({ "data": String::from_utf8_lossy(&buf) }));
                 }
                 Err(_) => break,
             }
@@ -604,14 +603,17 @@ pub async fn debug_attach_debuggee(
             match reader.read_until(b'\n', &mut buf) {
                 Ok(0) => break,
                 Ok(_) => {
-                    let _ = app_err.emit("run-stderr", json!({ "data": String::from_utf8_lossy(&buf) }));
+                    let _ = app_err.emit("debug-stderr", json!({ "data": String::from_utf8_lossy(&buf) }));
                 }
                 Err(_) => break,
             }
         }
     });
 
-    // debuggee 退出监视：清 DEBUG 槽（seq 防误报）+ 杀 adapter
+    // debuggee 退出监视：清 DEBUG 槽（seq 防误报）+ 杀 adapter。
+    // 竞态修复：「检查 seq + take」必须在同一锁临界区内原子完成——若先 take 再判 seq，
+    // 旧 debuggee 监视线程在 debug_stop → debug_start 新会话后迟到醒来时会 take 走新会话
+    // （seq 已变）→ 新会话失联（debug_busy 误判 false、debug_stop 拿不到会话、debugpy 孤儿）。
     let app_watch = app.clone();
     let seq_now = {
         let d = unpoison(DEBUG.lock());
@@ -620,20 +622,21 @@ pub async fn debug_attach_debuggee(
     let mut child_owned = child;
     std::thread::spawn(move || {
         let _ = child_owned.wait();
-        let sess = unpoison(DEBUG.lock()).take();
+        let sess = {
+            let mut d = unpoison(DEBUG.lock());
+            let matches = d.as_ref().map(|s| s.seq) == Some(seq_now);
+            if matches { d.take() } else { None }
+        };
         if let Some(s) = sess {
-            if s.seq != seq_now {
-                // 被新会话替换：不清（新会话已在槽里——此处 take 已拿走，回填不可能，
-                // 但 seq 不匹配说明旧线程迟到，仅记日志）
-                log_line(Level::Warn, "[dap] stale debuggee-exit watcher fired");
-                return;
-            }
             if let Some(mut adapter) = s.adapter {
                 let _ = adapter.kill();
                 let _ = adapter.wait();
             }
             log_line(Level::Info, "[dap] debuggee exited; session finished");
             let _ = app_watch.emit("debug-exited", json!({ "reason": "exited" }));
+        } else {
+            // 槽为空（已被 debug_stop/其它线程清）或已被新会话替换：本线程迟到，不碰新会话
+            log_line(Level::Warn, "[dap] stale debuggee-exit watcher fired");
         }
     });
 
