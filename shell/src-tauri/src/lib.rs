@@ -8,6 +8,8 @@ mod git_status;
 mod history;
 mod logging;
 mod lsp;
+mod plugin_cmds;
+mod plugin_pkg;
 mod run_env;
 mod settings;
 mod storage_cmds;
@@ -111,6 +113,20 @@ pub fn run() {
             file_ops::reveal_in_explorer,
             file_ops::open_external,
             file_ops::copy_to_clipboard,
+            // 插件域（PR-2，plugin_system_design §9.5）：开发工具插件发现/读取/监听
+            plugin_cmds::list_plugin_dirs,
+            plugin_cmds::read_plugin_file,
+            plugin_cmds::watch_plugins_dir,
+            plugin_cmds::unwatch_plugins_dir,
+            plugin_cmds::reveal_plugins_dir,
+            // P0 DX：真实路径查询 + 脚手架落盘
+            plugin_cmds::get_plugins_dir,
+            plugin_cmds::get_data_doc_path,
+            plugin_cmds::scaffold_plugin,
+            // P2 DX：插件包导出/导入（zip 分发）
+            plugin_pkg::export_plugin,
+            plugin_pkg::import_plugin,
+            plugin_pkg::plugin_export_filename,
             file_ops::get_recent,
             file_ops::add_recent,
             // P2：书签（行级，工作区级持久化）
@@ -143,6 +159,15 @@ pub fn run() {
             env_cmds::pip_uninstall,
             env_cmds::pip_upgrade,
             env_cmds::check_missing_imports,
+            // 依赖健康（dep health M1，docs/dep_health_dev_plan.md）
+            env_cmds::dep_style,
+            env_cmds::dep_scan,
+            env_cmds::dep_env_snapshot,
+            // 依赖健康 M3：修复动作（§5.1 矩阵）+ 忽略清单（§5.3/R9）
+            env_cmds::dep_fix,
+            env_cmds::dep_ignore_list,
+            env_cmds::dep_ignore_add,
+            env_cmds::dep_ignore_remove,
             // 全局设置（P25-T08/T09）
             settings::get_settings,
             settings::set_settings,
@@ -195,22 +220,52 @@ pub fn run() {
             // Git 写操作（暂存/取消暂存/提交/diff/分支）
             git_cmds::git_stage,
             git_cmds::git_unstage,
+            git_cmds::git_discard,
+            git_cmds::git_clean,
+            git_cmds::git_accept_current,
+            git_cmds::git_accept_incoming,
             git_cmds::git_commit,
-            git_cmds::git_diff,
             git_cmds::git_branches,
             git_cmds::git_checkout,
             git_cmds::git_create_branch,
             // Git 集成增强（TD-002）：行内 diff / 远程操作 / stash / log / blame
             git_cmds::git_diff_versions,
+            git_cmds::git_conflict_versions,
             git_cmds::git_push,
             git_cmds::git_pull,
             git_cmds::git_fetch,
             git_cmds::git_stash_push,
             git_cmds::git_stash_pop,
             git_cmds::git_stash_list,
+            git_cmds::git_stash_pop_at,
+            git_cmds::git_stash_drop_at,
             git_cmds::git_log,
             git_cmds::git_blame,
             git_cmds::git_show,
+            git_cmds::git_init,
+            git_cmds::git_diff_hunks,
+            git_cmds::git_apply_hunk,
+            // Git 高级工作流（迭代 3：cherry-pick/revert/reset/merge/rebase/tag/同步计数）
+            git_cmds::git_sync_status,
+            git_cmds::git_cherry_pick,
+            git_cmds::git_revert,
+            git_cmds::git_reset,
+            git_cmds::git_merge,
+            git_cmds::git_rebase,
+            git_cmds::git_abort_op,
+            git_cmds::git_tags,
+            git_cmds::git_create_tag,
+            git_cmds::git_stash_show,
+            git_cmds::git_create_branch_at,
+            // Git 远程与深度（迭代 4：remote 管理 + 流式可取消网络操作 + 凭据指引）
+            git_cmds::git_remote_list,
+            git_cmds::git_remote_add,
+            git_cmds::git_remote_remove,
+            git_cmds::git_cancel_op,
+            // Git worktree（迭代 5 · P2-9）
+            git_cmds::git_worktree_list,
+            git_cmds::git_worktree_add,
+            git_cmds::git_worktree_remove,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

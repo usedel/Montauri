@@ -11,41 +11,53 @@ import "@vscode/codicons/dist/codicon.css";
 import "./style.css";
 import type * as MonacoApi from "monaco-editor/esm/vs/editor/editor.api";
 import { invoke } from "@tauri-apps/api/core";
+import { getVersion } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 // @tauri-apps/api/window 的 ResizeDirection 未导出（上游类型导出缺失），本地声明同步。
 type ResizeDirection = "East" | "North" | "NorthEast" | "NorthWest" | "South" | "SouthEast" | "SouthWest" | "West";
 import { initLiveTemplates, type LiveTemplatesHandle } from "./live-templates";
 import * as ltUi from "./live-templates/ui/manager";
-import { initDevTools, openDevTools, listDevTools } from "./devtools";
+import { initDevTools, openDevTools, openDevToolsPanel, listDevTools, groupToolsByCategory } from "./devtools";
+// PR-2：插件域（plugin_system_design §9）——加载器 / facade 依赖注入 / inline 管线
+import { initPluginLoader, scanPlugins, schedulePluginRescan, listPluginRecords, setAppVersion } from "./extensions/loader";
+import { initInlineRunner, listInlineEntries, runInline, inlineCommandLabel } from "./extensions/inline";
+import { setPluginsTabHandlers, openGuide } from "./extensions/pluginsTab";
 import { formatPythonSource, optimizeImportsSource, registerRuffFormatter, setFormatErrorHandler } from "./format";
 import { runSearch, cancelSearch, resetSearch, setOpenMatchHandler, type SearchMatch } from "./search";
+import { findUsagesAtCursor, renameSymbolAtCursor, resetFindUsages, setOpenRefHandler } from "./findUsages";
 import { registerSidebarView, setSidebarTab, activeView } from "./views";
 import * as lsp from "./lsp/client";
 import * as kb from "./keybindings";
-import { appendOutputLine, clearOutput, setOutputUrlHandler } from "./output";
-import { openConfirm, openPrompt } from "./dialog";
+import { appendOutputLine, clearOutput, setOutputTracebackHandler, setOutputUrlHandler } from "./output";
+import { openAlert, openConfirm, openPrompt } from "./dialog";
 import { app, $, outputEl, statusFileEl, type Entry, type Tab } from "./state";
 import {
   createDirAt, createFileInteractive, isDirExpanded, isTreeEmpty, refreshTree, reloadDir,
   renderCtxMenu, resetTreeState, setFileTreeHandlers, wireFileTree, type CtxItem,
 } from "./fileTree";
-import { refreshGitStatus, renderGitPanel, refreshBranchPanel, resetGitState, wireGitUI } from "./git";
 import {
-  disposeTerminal, openTerminalAt, toggleBottomPanel, wireBottomPanel, wireTerminalEvents,
+  cleanupDiffTabState, commitAll, dismissDiffHost, gitInitRepo, gitRemoteOp, gitStash, gitStashPop,
+  presentDiffHost, refreshBranchPanel, refreshDiffIfViewing, refreshDiffOnActivate, refreshGitStatus,
+  renderGitPanel, resetGitState, setDiffTabHandlers, setGitOpenFileHandler, setGitReloadHandler, stageAllChanges,
+  toggleBranchList, toggleHistory, wireGitUI,
+} from "./git";
+import {
+  disposeTerminal, openTerminalAt, resetOutputChannelUi, toggleBottomPanel, wireBottomPanel, wireTerminalEvents,
 } from "./termUi";
 import { setTerminalLinkHandler, setTerminalUrlHandler } from "./terminal";
 import { setExternalUrlOpener } from "./termUi";
 import { loadSettings, saveSettings, applyFontStatus, openSettingsPanel, setSettingsPanelHandlers, wireSettingsPanel, buildEditorOptions } from "./settingsPanel";
 import { checkFirstRunStorage } from "./storagePanel";
 import { basename, codicon, DisposableStore, emptyState, languageOf, parentDirOf, relativePathOrName, renderFileIcon, symbolIcon } from "./util";
-import { toastFail } from "./toast";
+import { toast, toastFail } from "./toast";
 import { restoreLayout, toggleSidebar, wireSplitters } from "./layout";
 import { motionDisabled, restoreReduceMotion } from "./anim";
 import { wireTooltip } from "./tooltip";
 import { renderEngineChip, setEngineChipHandlers, wireEngineChip } from "./engineChip";
 import { renderRunWidget, setRunWidgetHandlers, setRunWidgetRepaint, wireRunWidget, runWidgetHandlers } from "./runWidget";
 import { clearRunGutter, isRunGutterLine, refreshRunGutter, setRunGutterHandlers, wireRunGutter } from "./runGutter";
+import { clearGitGutter, refreshGitGutter, scheduleGitGutter, wireGitGutter } from "./gitGutter"; // 迭代 2 · P0-5
 import { wireGutterHover } from "./gutterHover";
 import * as dap from "./dap/client";
 import {
@@ -84,11 +96,19 @@ import { renderWelcomeShortcuts } from "./welcomeShortcuts"; // UI-25：欢迎�
 import * as mdPreview from "./markdownPreview"; // Markdown 预览（markdown preview dev plan）
 // TD-14 拆分出的功能域：环境面板 / 新建项目 / 菜单栏机制 / 运行域 / 运行配置面板 / 输出链接
 import {
-  clearInterpreterStatus, currentInterpreter, initEnvPanel, initEnvPanelEvents,
+  clearInterpreterStatus, currentInterpreter, declarePackage, initEnvPanel, initEnvPanelEvents,
   installMissingPackage, maybePromptToolchain, maybePromptVenv, refreshInterpreterStatus,
-  resetEnvPanelState,
+  resetEnvPanelState, openEnvPanel, onEnvPanelOpened, refreshPackagesIfOpen, repaintPkgBadgesIfOpen,
 } from "./envPanel";
 import { openNewProjectPanel, wireNewProject } from "./newProject";
+import {
+  handleTracebackLine, runOpenWorkspaceCheck, resetDepHealth, initDepHealth,
+  setDepInstallHandler, wireDepHealthEvents,
+} from "./depHealth";
+import {
+  initDepHealthPanel, renderDepHealth, resetDepHealthPanel, handleScanComplete, setHealthStatus,
+  expandDepDetail,
+} from "./depHealthPanel";
 import { wireMenuBar, type MenuEntry } from "./menuBar";
 import {
   initRunEvents, isRunBusy,
@@ -144,6 +164,7 @@ function resetWorkspaceUiState(): void {
   resetGitState();              // git 状态 + diff 视图 + 分支列表
   outlineEl.textContent = "";   // 大纲符号树
   resetSearch();                // 搜索结果 + 作废在途请求
+  resetFindUsages();            // 查找引用结果面板 + 行缓存
   resetTodoView();              // P0：TODO 列表 + 作废在途扫描
   resetNavHistory();            // P1：导航历史（跨工作区的历史没有意义）
   invalidateQuickOpenFiles();   // P1：工作区文件清单缓存随工作区失效
@@ -153,10 +174,13 @@ function resetWorkspaceUiState(): void {
   resetBreakpoints();           // P2-11：断点内存表随工作区切换清空（盘上数据按工作区隔离）
   resetRunHistory();            // P2：运行历史（§15：切换/关闭工作区重置）
   resetEnvPanelState();          // 环境域状态（包面板 + 解释器缓存 + 在途请求令牌 + 提示去重）
+  resetDepHealth();              // 依赖健康域（在途体检令牌作废 + diff 快照清空，dep plan §4.7 规则 4）
+  resetDepHealthPanel();         // 健康面板 UI 投影（横幅/tab/折叠态/状态栏图标，dep plan M3）
   ($("search-input") as HTMLInputElement).value = ""; // 清空搜索关键词
   // v3.4 §15（M3-3.10）：停全部运行实例（teardownCurrent 已停止）+ 清实例表 + 清配置缓存
   resetRunSessionState();
   clearRunGutter(); // C5：切换/关闭工作区清空 gutter ▶
+  clearGitGutter(); // 迭代 2 · P0-5：git 行级装饰一并清空
   clearCurrentLine(); // D4：清调试当前行高亮
   renderDebugView(); // D4：调试侧栏复位到 idle 呈现
 }
@@ -221,6 +245,10 @@ async function openWorkspace(root: string): Promise<void> {
   await loadTemplatesConfig();
   await refreshInterpreterStatus(); // 先确定解释器，供 startLsp/run 使用
   await startLsp();
+  // 依赖健康体检（dep plan §4.7，M1 形态）：后台数据采集，绝不阻塞打开流程——
+  // L0 style 判定先行，1.5s 后若 venv 确认/工具链引导等弹窗在前台则排队轮询（R13 弹窗优先），
+  // 结果只进输出面板一行摘要（无横幅无弹窗，M3 才上 UI 投影）
+  void runOpenWorkspaceCheck(root);
   await maybePromptVenv();
   await startFileWatcher(); // 启动文件监听
   // P0-E：FastAPI 项目探测（仅提示，不打扰；v3.4 M3：配置缓存随粘性目标删除已无清空项）
@@ -337,6 +365,7 @@ async function clearRecentWorkspaces(): Promise<void> {
     await invoke("clear_recent_workspaces");
   } catch (e) {
     console.warn("清空最近工作区失败", e);
+    toastFail("清空最近工作区", e);
   }
   void renderEditorWelcomeRecents();
 }
@@ -347,6 +376,7 @@ async function removeRecentWorkspace(path: string): Promise<void> {
     await invoke("remove_recent_workspace", { path });
   } catch (e) {
     console.warn("删除最近工作区失败", e);
+    toastFail("删除最近工作区", e);
   }
   void renderEditorWelcomeRecents();
 }
@@ -488,6 +518,16 @@ function handleFsChanged(dirs: string[]): void {
           .filter((p) => p.length > 0)
       : [];
     await refreshGitStatus(relPaths);
+    // 体验修复（用户报告）：编辑器改文件后 SCM 面板不实时更新，须切走再切回——
+    // 此前只刷内存不重渲染。git 视图可见时立即重绘（不可见则等 onShow 兜底渲染）
+    if (activeView() === "git") {
+      renderGitPanel();
+    }
+    // 体验修复第 2 则：活动 diff tab 正展示某文件时，该文件变更 → 差异内容自动重拉
+    //（第 2 步迁移后 diff 在编辑区 tab；防抖与冲突保护在 refreshDiffIfViewing 内部）
+    if (app.activeTab?.kind === "diff") {
+      for (const dir of dirs) refreshDiffIfViewing(dir);
+    }
     // 增量刷新受影响的已展开目录
     for (const dir of dirs) {
       if (isDirExpanded(dir)) {
@@ -676,6 +716,19 @@ function revealAfterOpen(path: string, revealLine?: number): void {
 
 function activateTab(tab: Tab): void {
   app.activeTab = tab;
+  if (tab.kind === "diff") {
+    // 第 2 步迁移：diff tab——主编辑器隐藏（宿主由 git.presentDiffHost 显示），
+    // 模型不动（占位）、状态栏显示 diff: 前缀路径、编辑器专属装饰全部跳过
+    app.editor.setModel(null);
+    presentDiffHost(tab);
+    renderTabs();
+    statusFileEl.textContent = tab.path;
+    updateEditorOverlay(); // 诊断实证：diff tab 也是「有活动内容」，欢迎页覆盖层必须隐藏
+    refreshDiffOnActivate(tab); // 后台期间文件可能已变：按需重拉（冲突 tab 保护跳过）
+    return;
+  }
+  // 文件 tab：从 diff tab 切回时恢复主编辑器
+  dismissDiffHost();
   app.editor.setModel(tab.model);
   renderTabs();
   statusFileEl.textContent = tab.path;
@@ -683,6 +736,7 @@ function activateTab(tab: Tab): void {
   updateEditorOverlay();
   refreshRunGutter(); // C5：切换 tab 重算 __main__ 守卫行的 ▶
   refreshDebugGutter(); // D3：切换 tab 重算断点红点
+  refreshGitGutter(); // 迭代 2 · P0-5：切换 tab 重算 git 行级变更装饰
   scheduleBreadcrumbs(); // P2：面包屑跟随激活文件
   refreshBookmarkGutter(); // P2：书签标记跟随激活文件
   void lintActiveFile(); // P2：ruff 实时 lint（切 tab 立即跑，不等防抖）
@@ -692,7 +746,8 @@ function activateTab(tab: Tab): void {
 async function closeTab(tab: Tab): Promise<void> {
   const idx = app.tabs.indexOf(tab);
   if (idx === -1) return;
-  if (tab.dirty && !(await openConfirm({ message: `${basename(tab.path)} 有未保存修改，确认关闭？`, kind: "danger" }))) return;
+  // diff tab 恒不 dirty（占位模型只读），无需确认直接关
+  if (tab.kind !== "diff" && tab.dirty && !(await openConfirm({ message: `${basename(tab.path)} 有未保存修改，确认关闭？`, kind: "danger" }))) return;
   closeTabSilent(tab);
 }
 
@@ -701,10 +756,15 @@ export function closeTabSilent(tab: Tab): void {
   const idx = app.tabs.indexOf(tab);
   if (idx === -1) return;
   app.tabs.splice(idx, 1);
-  lsp.didClose(tab.path);
-  lsp.discardCachedDiagnostics(tab.path); // CR-22：关文件即释放诊断缓存
-  app.monaco.editor.setModelMarkers(tab.model, "opencharm-lsp", []);
-  tab.model.dispose();
+  if (tab.kind === "diff") {
+    // diff tab：不走 LSP/诊断/标记链（path 是 diff: 虚拟路径）；域内清理统一入口
+    cleanupDiffTabState(tab);
+  } else {
+    lsp.didClose(tab.path);
+    lsp.discardCachedDiagnostics(tab.path); // CR-22：关文件即释放诊断缓存
+    app.monaco.editor.setModelMarkers(tab.model, "opencharm-lsp", []);
+    tab.model.dispose();
+  }
   if (app.activeTab === tab) {
     app.activeTab = null;
     const next = app.tabs[Math.min(idx, app.tabs.length - 1)] ?? null;
@@ -712,6 +772,7 @@ export function closeTabSilent(tab: Tab): void {
     else {
       app.editor.setModel(null);
       statusFileEl.textContent = "";
+      dismissDiffHost(); // 最后一个 diff tab 关闭（无下一个 tab）：宿主一并隐藏
       updateEditorOverlay();
     }
   }
@@ -731,6 +792,9 @@ export function renderTabs(): void {
   tabbarEl.textContent = "";
   for (const t of app.tabs) {
     const active = t === app.activeTab;
+    const isDiff = t.kind === "diff";
+    // diff tab 的显示名：剥 diff: 前缀（VS Code 同款「文件名 (Working Tree)」语义）
+    const displayName = isDiff ? `${basename(t.path.slice("diff:".length))} · 差异` : basename(t.path);
     const el = document.createElement("div");
     el.className = `tab ${active ? "active" : ""}`;
     // UI-16：tabs 模式（#tabbar 的 role=tablist 在 index.html 静态声明）。
@@ -743,10 +807,11 @@ export function renderTabs(): void {
     // 悬停显示完整路径（tooltip.ts 规则 4：纯路径披露用原生 title，不挂 data-tip；
     // tab 内部无 data-tip，不触发规则 5 的父子不同轨冲突）
     el.title = t.path;
-    el.appendChild(renderFileIcon(basename(t.path))); // D2 P-08：标签页文件类型图标
+    // diff tab 用 diff 图标（与文件类型图标区分）；文件 tab 保持类型图标
+    el.appendChild(isDiff ? codicon("diff") : renderFileIcon(basename(t.path))); // D2 P-08：标签页文件类型图标
     const name = document.createElement("span");
     name.className = "name";
-    name.textContent = basename(t.path);
+    name.textContent = displayName;
     const dirty = document.createElement("span");
     dirty.className = "dirty";
     if (t.dirty) dirty.appendChild(codicon("circle-filled"));
@@ -756,7 +821,7 @@ export function renderTabs(): void {
     const isRunningHere = runningScripts.has(t.path);
     // UI-16：脏标记/运行指示的圆点是纯视觉装饰（aria-hidden），状态并入 tab 的可访问名称，
     // 读屏聚焦该 tab 时直接听到「已修改 / 运行中」（承接 UI-09 对 .tab-running 的遗留说明）
-    const labelParts = [basename(t.path)];
+    const labelParts = [displayName];
     if (t.dirty) labelParts.push("已修改");
     if (isRunningHere) labelParts.push("运行中");
     el.setAttribute("aria-label", labelParts.join("，"));
@@ -765,8 +830,7 @@ export function renderTabs(): void {
     close.className = "close";
     close.appendChild(codicon("close"));
     // UI-16：span 充当按钮 → 补 role/aria-label/tabindex + Enter/Space 键盘激活（第四批待办同款）
-    close.setAttribute("role", "button");
-    close.setAttribute("aria-label", `关闭 ${basename(t.path)}`);
+    close.setAttribute("aria-label", `关闭 ${displayName}`);
     close.tabIndex = 0;
     close.addEventListener("keydown", (ev) => {
       ev.stopPropagation(); // 不冒泡到 tab 本体的 Enter/方向键处理
@@ -828,14 +892,14 @@ async function optimizeImportsActive(): Promise<void> {
   const tab = app.activeTab;
   if (!tab) return;
   if (!tab.path.endsWith(".py") && !tab.path.endsWith(".pyw")) {
-    appendOutputLine(outputEl, `Optimize Imports 仅支持 Python 文件：${tab.path}`, "stderr", gotoFromLink);
+    toast(`Optimize Imports 仅支持 Python 文件（当前：${basename(tab.path)}）`, "info");
     return;
   }
   const before = tab.model.getValue();
   const optimized = await optimizeImportsSource(tab.path, before);
   if (optimized === null || optimized === before) return; // 失败已由 format 域提示；无改动则不动模型
   tab.model.setValue(optimized); // 单次 setValue → Ctrl+Z 可整体撤销
-  appendOutputLine(outputEl, `已整理导入：${basename(tab.path)}`, "stdout", gotoFromLink);
+  toast(`已整理导入：${basename(tab.path)}`, "success");
 }
 
 /**
@@ -890,10 +954,14 @@ async function snapshotHistory(path: string, content: string | null = null): Pro
   }
 }
 
-/** 从磁盘重新加载文件到编辑器（本地历史回滚后刷新内容用） */
-async function reloadFileFromDisk(path: string): Promise<void> {
+/** 从磁盘重新加载文件到编辑器（git 改写工作区 / 本地历史回滚后刷新内容用）。
+ *  体验修复第 5 则：force=false 时 dirty tab 跳过——git 改写工作区后，用户未保存
+ *  的修改绝不能被磁盘内容静默覆盖；本地历史回滚是用户主动替换（force=true）不受限。 */
+async function reloadFileFromDisk(path: string, force = false): Promise<void> {
   const tab = app.tabs.find((t) => t.path === path);
+  console.debug("[reloadFileFromDisk]", path, "命中 tab:", !!tab, "打开的 tab:", app.tabs.map((t) => t.path));
   if (!tab) return;
+  if (!force && tab.dirty) return; // 有未保存修改且非强制：跳过（调用方负责提示）
   const content = await invoke<string>("read_file", { path });
   tab.model.setValue(content);
   tab.dirty = false;
@@ -913,17 +981,17 @@ async function runDebug(): Promise<void> {
   if (!app.activeTab) return;
   const path = app.activeTab.path;
   if (!path.endsWith(".py") && !path.endsWith(".pyw")) {
-    appendOutputLine(outputEl, `不是 Python 文件：${path}`, "stderr", gotoFromLink);
+    toast(`不是 Python 文件：${basename(path)}`, "info");
     return;
   }
   // 调试态与运行态互斥（后端强制）：正在运行/准备时提示先停止
   if (isRunBusy()) {
-    appendOutputLine(outputEl, "已有脚本在运行，请先停止再调试", "hint", gotoFromLink);
+    toast("已有脚本在运行，请先停止再调试", "info");
     return;
   }
   const phase = dap.currentPhase();
   if (phase === "starting" || phase === "running" || phase === "stopped") {
-    appendOutputLine(outputEl, "已有调试会话在运行，请先停止（Shift+F5）", "hint", gotoFromLink);
+    toast("已有调试会话在运行，请先停止（Shift+F5）", "info");
     return;
   }
 
@@ -940,7 +1008,7 @@ async function runDebug(): Promise<void> {
     if (rc.args?.trim()) parts.push(`参数 ${rc.args.trim()}`);
     if (rc.env?.length) parts.push(`环境变量 ${rc.env.length} 项`);
     if (parts.length) {
-      appendOutputLine(outputEl, `调试复用运行配置：${parts.join("，")}`, "hint", gotoFromLink);
+      appendOutputLine(outputEl, `调试复用运行配置：${parts.join("，")}`, "hint", gotoFromLink, "debug");
     }
   }
 
@@ -950,16 +1018,20 @@ async function runDebug(): Promise<void> {
   try {
     detect = await invoke<DebugDetectResult>("debug_detect", { workspaceRoot: app.workspaceRoot });
   } catch (e) {
-    appendOutputLine(outputEl, `调试环境检测失败: ${e}`, "stderr", gotoFromLink);
+    appendOutputLine(outputEl, `调试环境检测失败: ${e}`, "stderr", gotoFromLink, "debug");
+    toastFail("调试环境检测", e);
     return;
   }
   if (!detect.debugpyOk) {
-    appendOutputLine(
-      outputEl,
-      "未找到自带 debugpy（应用资源目录损坏，或开发环境未运行 tools/fetch-debugpy.ps1 拉取）。请重新安装应用或在仓库根目录执行：powershell -ExecutionPolicy Bypass -File tools/fetch-debugpy.ps1",
-      "stderr",
-      gotoFromLink,
-    );
+    // E 类（长指导走 openAlert 对话框，非输出面板 stderr；附可复制命令）
+    void openAlert({
+      title: "未找到自带 debugpy",
+      message:
+        "应用资源目录损坏，或开发环境未运行 tools/fetch-debugpy.ps1 拉取。\n\n" +
+        "请重新安装应用，或在仓库根目录执行：\n" +
+        "powershell -ExecutionPolicy Bypass -File tools/fetch-debugpy.ps1",
+      okLabel: "知道了",
+    });
     return;
   }
   // §3.5：依赖清单命中 → 输出面板一次性提示（自带副本不冲突），不弹窗不阻断
@@ -973,11 +1045,12 @@ async function runDebug(): Promise<void> {
     );
   }
 
-  appendOutputLine(outputEl, `> [debug] ${basename(path)}  (${path})`, "cmd", gotoFromLink);
+  appendOutputLine(outputEl, `> [debug] ${basename(path)}  (${path})`, "cmd", gotoFromLink, "debug");
   try {
     await dap.startDebug(path, app.workspaceRoot, pushAllBreakpoints);
   } catch (e) {
-    appendOutputLine(outputEl, `调试启动失败: ${e}`, "stderr", gotoFromLink);
+    appendOutputLine(outputEl, `调试启动失败: ${e}`, "stderr", gotoFromLink, "debug");
+    toastFail("调试启动", e);
     dap.resetDebugState();
     return;
   }
@@ -1001,9 +1074,9 @@ async function newScratch(): Promise<void> {
   try {
     const path = await invoke<string>("create_scratch", { ext: ".py" });
     await openFile(path);
-    appendOutputLine(outputEl, `已新建草稿：${path}（不入库，可直接运行 / 调试）`, "hint", gotoFromLink);
+    toast(`已新建草稿（不入库，可直接运行 / 调试）`, "success");
   } catch (e) {
-    appendOutputLine(outputEl, `新建草稿失败: ${e}`, "stderr", gotoFromLink);
+    toastFail("新建草稿", e);
   }
 }
 
@@ -1014,7 +1087,7 @@ async function runToCursorAtCursor(): Promise<void> {
   const line = app.editor.getPosition()?.lineNumber;
   if (!line) return;
   if (dap.currentPhase() !== "stopped") {
-    appendOutputLine(outputEl, "Run to Cursor 需要在调试暂停时使用（先运行到断点处）", "hint", gotoFromLink);
+    toast("Run to Cursor 需要在调试暂停时使用（先运行到断点处）", "info");
     return;
   }
   await runToCursorIn(tab.path, line);
@@ -1028,6 +1101,65 @@ async function onEvaluateShortcut(): Promise<void> {
   }
   setSidebarTab("debug");
   await openEvaluatePrompt();
+}
+
+/**
+ * 插件 facade 依赖（PR-2）：编辑器选区/插入操作与工作区根。
+ * devtools host 与插件 facade 共用同一套编辑器语义，此处集中构造。
+ */
+function buildPluginFacadeDeps() {
+  return {
+    monaco: app.monaco,
+    workspaceRoot: () => app.workspaceRoot,
+    getSelectedText: () => {
+      const model = app.editor.getModel();
+      const sel = app.editor.getSelection();
+      if (!model || !sel || sel.isEmpty()) return null;
+      return model.getValueInRange(sel);
+    },
+    replaceSelection: (text: string) => {
+      const model = app.editor.getModel();
+      if (!model) return false;
+      const sel = app.editor.getSelection();
+      const range = sel ?? new app.monaco.Range(1, 1, 1, 1);
+      app.editor.executeEdits("plugin-inline", [{ range, text }]);
+      app.editor.focus();
+      return true;
+    },
+    insertToEditor: (text: string) => {
+      const model = app.editor.getModel();
+      if (!model) return false;
+      const sel = app.editor.getSelection() ?? {
+        startLineNumber: model.getLineCount(),
+        startColumn: model.getLineMaxColumn(model.getLineCount()),
+        endLineNumber: model.getLineCount(),
+        endColumn: model.getLineMaxColumn(model.getLineCount()),
+      };
+      app.editor.executeEdits("plugin-inline", [{ range: sel, text }]);
+      app.editor.focus();
+      return true;
+    },
+  };
+}
+
+/**
+ * 工具菜单（PR-1，plugin_system_design §9.8）：按 category 分组 → flyout 子菜单。
+ * groupToolsByCategory 处理预置有序集 + 自定义追加；空 category 归「其他」。
+ */
+function buildToolsMenu(): MenuEntry[] {
+  const groups = groupToolsByCategory(listDevTools());
+  const entries: MenuEntry[] = groups.map(([cat, tools]) => ({
+    label: cat,
+    submenu: () => tools.map((t) => ({
+      label: t.title,
+      detail: t.description,
+      action: () => openDevTools(t.id),
+    })),
+  }));
+  // §9.8：尾部固定「插件管理…」入口（设置页插件 tab）
+  if (groups.length > 0) entries.push({ label: "", sep: true });
+  entries.push({ label: "插件管理…", action: () => openSettingsPanel("plugins") });
+  return entries;
 }
 
 /**
@@ -1065,12 +1197,39 @@ function buildQuickOpenActions(): QuickOpenAction[] {
     { id: "open_settings", label: "打开设置", run: () => openSettingsPanel() },
     { id: "new_project", label: "新建项目", run: () => openNewProjectPanel() },
     { id: "git_panel", label: "Git 面板", run: () => setSidebarTab("git") },
+    // P0-1：git 高频操作进命令面板（对标 VS Code Git: * 命令族）——
+    // 此前仅 git_panel 一条，键盘流用户完全不可达（报告 D9）
+    { id: "git_init", label: "Git: 初始化仓库", run: () => void gitInitRepo() },
+    { id: "git_stage_all", label: "Git: 暂存全部更改", run: () => void stageAllChanges() },
+    { id: "git_commit", label: "Git: 提交", run: () => { setSidebarTab("git"); ($("git-commit-msg") as HTMLTextAreaElement).focus(); } },
+    { id: "git_commit_all", label: "Git: 提交全部更改", run: () => void commitAll() },
+    { id: "git_fetch", label: "Git: 抓取（Fetch）", run: () => void gitRemoteOp("fetch") },
+    { id: "git_pull", label: "Git: 拉取（Pull）", run: () => void gitRemoteOp("pull") },
+    { id: "git_push", label: "Git: 推送（Push）", run: () => void gitRemoteOp("push") },
+    { id: "git_stash", label: "Git: 贮藏更改（Stash）", run: () => void gitStash() },
+    { id: "git_stash_pop", label: "Git: 弹出贮藏（Stash Pop）", run: () => void gitStashPop() },
+    { id: "git_history", label: "Git: 提交历史", run: () => { setSidebarTab("git"); toggleHistory(); } },
+    { id: "git_branches", label: "Git: 切换分支", run: () => { setSidebarTab("git"); toggleBranchList(); } },
+    // 迭代 3：高级工作流进命令面板（cherry-pick/reset 等历史操作走历史条目右键）
+    { id: "git_sync_status", label: "Git: 查看同步状态（↑待推 ↓待拉）", run: () => { setSidebarTab("git"); toast("同步状态已更新到状态栏", "info"); void refreshBranchPanel(); } },
     { id: "todo_panel", label: "TODO 工具窗", run: () => setSidebarTab("todo") },
     // P1（UX 审查）：高频操作进命令面板（id 对齐键位表 → 提示自动跟随改键）
     { id: "close_tab", label: "关闭标签", run: () => { if (app.activeTab) void closeTab(app.activeTab); } },
     { id: "new_file", label: "新建文件", run: () => void createFileInteractive() },
     { id: "toggle_sidebar", label: "切换侧栏", run: () => toggleSidebar() },
     { id: "toggle_bottom", label: "切换底部面板", run: () => toggleBottomPanel() },
+    // PR-1（plugin_system_design §9.9）：注册表中的工具统一以「工具: <title>」前缀进命令面板
+    ...listDevTools().map((t) => ({
+      id: `tool_${t.id}`,
+      label: `工具: ${t.title}`,
+      run: () => openDevTools(t.id),
+    })),
+    // PR-2：插件 inline 变换入口（§9.15：命令面板「工具: <inline.label>」）
+    ...listInlineEntries(listPluginRecords(), true).map((e) => ({
+      id: `inline_${e.toolId}`,
+      label: inlineCommandLabel(e),
+      run: () => void runInline(e.toolId),
+    })),
   ];
 }
 
@@ -1282,15 +1441,33 @@ function getMenuItems(menu: string): MenuEntry[] {
           return items;
         },
       },
+      // MB-12：「最近的文件」自「视图」迁入（与「最近的工作区」同区，属文件范畴）
+      { label: "打开最近的文件", shortcut: kb.bindingLabel("recent_files") || undefined, action: () => void openRecentFiles() },
       { sep: true, label: "" },
       { label: "关闭工作区", action: () => void closeWorkspace() },
+      // MB-12：偏好设置归「文件」（VS Code File→Preferences / PyCharm File→Settings 同位），
+      // 自「视图」迁入；Live Templates 本就是设置面板 templates 分类
+      { sep: true, label: "" },
+      {
+        label: "偏好设置",
+        submenu: () => [
+          { label: "设置", shortcut: kb.bindingLabel("open_settings") || undefined, action: () => openSettingsPanel() },
+          { label: "Live Templates", action: () => openSettingsPanel("templates") },
+        ],
+      },
     ];
     case "edit": return [
       { label: "撤销", shortcut: "Ctrl+Z", action: () => { app.editor.trigger("menu", "undo", null); } },
       { label: "重做", shortcut: "Ctrl+Shift+Z", action: () => { app.editor.trigger("menu", "redo", null); } },
       { sep: true, label: "" },
+      // MB-15：注释切换（Monaco 内建，PyCharm Ctrl+/ 同款高频项）
+      { label: "注释 / 取消注释", shortcut: "Ctrl+/", action: () => { app.editor.trigger("menu", "editor.action.commentLine", null); } },
+      { sep: true, label: "" },
       { label: "查找", shortcut: "Ctrl+F", action: () => { app.editor.trigger("menu", "actions.find", null); } },
       { label: "替换", shortcut: "Ctrl+H", action: () => { app.editor.trigger("menu", "editor.action.startFindReplaceAction", null); } },
+      // MB-15：全局搜索入口（复用 global_search 键位；搜索侧栏目前无替换 UI，「在文件中查找/替换」
+      // 落地为切侧栏 + 聚焦，与 Ctrl+Shift+F 行为一致——侧栏补替换框属另一条独立需求）
+      { label: "在文件中查找", shortcut: kb.bindingLabel("global_search") || undefined, action: () => { setSidebarTab("search"); ($("search-input") as HTMLInputElement).focus(); } },
       { sep: true, label: "" },
       { label: "格式化文档", shortcut: "Shift+Alt+F", action: () => { void app.editor.getAction("editor.action.formatDocument")?.run(); } },
       // P0：Optimize Imports（PyCharm「编辑 → Optimize Imports」同位置）
@@ -1303,32 +1480,106 @@ function getMenuItems(menu: string): MenuEntry[] {
     case "view": return [
       { label: "文件树", action: () => setSidebarTab("files") },
       { label: "搜索", shortcut: kb.bindingLabel("global_search") || undefined, action: () => setSidebarTab("search") },
-      // P0：最近打开的文件（PyCharm「视图 → 最近的文件」同位置）
-      { label: "最近的文件", shortcut: kb.bindingLabel("recent_files") || undefined, action: () => void openRecentFiles() },
-      // P1：Search Everywhere / 本地历史
-      { label: "Search Everywhere", shortcut: "Double Shift", action: () => void openQuickOpen("all") },
-      { label: "转到文件", shortcut: kb.bindingLabel("goto_file") || undefined, action: () => void openQuickOpen("files") },
-      { label: "转到行 / 列", shortcut: kb.bindingLabel("goto_line") || undefined, action: () => void openQuickOpen("line") },
+      // P2：本地历史是工具窗入口，归属「视图」（MB-11 口径：布局开关 + 工具窗）
       { label: "本地历史", shortcut: kb.bindingLabel("local_history") || undefined, action: () => void openLocalHistory() },
-      { sep: true, label: "" },
-      { label: "后退", shortcut: kb.bindingLabel("nav_back") || undefined, action: () => void goBack() },
-      { label: "前进", shortcut: kb.bindingLabel("nav_forward") || undefined, action: () => void goForward() },
       { sep: true, label: "" },
       // P2：书签 / 运行历史
       { label: "书签列表", shortcut: kb.bindingLabel("bookmark_list") || undefined, action: () => void openBookmarks() },
-      { label: "运行历史", shortcut: kb.bindingLabel("run_history") || undefined, action: () => openRunHistory() },
       { sep: true, label: "" },
       { label: "Markdown 预览", shortcut: kb.bindingLabel("markdown_preview") || undefined, action: () => mdPreview.togglePreview() },
       // P1（UX 审查）：面板开关 + 设置补键位标签，菜单与快捷键同源（改键后自动跟随）
       { label: "切换侧栏", shortcut: kb.bindingLabel("toggle_sidebar") || undefined, action: () => toggleSidebar() },
       { label: "切换底部面板", shortcut: kb.bindingLabel("toggle_bottom") || undefined, action: () => toggleBottomPanel() },
-      { label: "设置", shortcut: kb.bindingLabel("open_settings") || undefined, action: () => openSettingsPanel() },
-      { label: "Live Templates", action: () => openSettingsPanel("templates") },
     ];
-    case "tools": return listDevTools().map((t) => ({
-      label: t.title,
-      action: () => openDevTools(t.id),
-    }));
+    // MB-11：前往（Go）——收编原「视图」的导航/跳转类命令（VS Code Go / PyCharm Navigate 同位）。
+    // 口径：命令面板 / Search Everywhere 属「搜索式导航」，归此处而非 VS Code View 菜单
+    case "go": return [
+      { label: "转到文件", shortcut: kb.bindingLabel("goto_file") || undefined, action: () => void openQuickOpen("files") },
+      { label: "转到行 / 列", shortcut: kb.bindingLabel("goto_line") || undefined, action: () => void openQuickOpen("line") },
+      { label: "Search Everywhere", shortcut: "Double Shift", action: () => void openQuickOpen("all") },
+      { label: "命令面板", shortcut: kb.bindingLabel("command_palette") || undefined, action: () => void openQuickOpen("commands") },
+      { sep: true, label: "" },
+      { label: "后退", shortcut: kb.bindingLabel("nav_back") || undefined, action: () => void goBack() },
+      { label: "前进", shortcut: kb.bindingLabel("nav_forward") || undefined, action: () => void goForward() },
+    ];
+    // MB-10：运行——运行 + 调试合并为一级菜单（裁决 2026-09-21）。运行区 / 调试区 / 收尾三分区，
+    // action 全部复用既有函数（与命令面板 / 标题栏图标同源）；单步三命令走命令面板同款动态导入
+    case "run": return [
+      { label: "运行脚本", shortcut: kb.bindingLabel("run_script") || undefined, action: () => { if (app.activeTab) void runScript(app.activeTab.path); } },
+      { label: "运行项目", shortcut: kb.bindingLabel("run_project") || undefined, action: () => void runProject() },
+      { label: "运行配置…", action: () => openRunConfig() },
+      { label: "停止运行", shortcut: kb.bindingLabel("stop") || undefined, action: () => void stopRun() },
+      { sep: true, label: "" },
+      { label: "启动调试 / 继续", shortcut: kb.bindingLabel("debug") || undefined, action: () => void runDebug() },
+      { label: "停止调试", shortcut: kb.bindingLabel("debug_stop") || undefined, action: () => void stopDebugSession() },
+      { label: "单步跳过", shortcut: kb.bindingLabel("debug_step_over") || undefined, action: () => void import("./dap/client").then((m) => m.dapNext(1)) },
+      { label: "单步进入", shortcut: kb.bindingLabel("debug_step_into") || undefined, action: () => void import("./dap/client").then((m) => m.dapStepIn(1)) },
+      { label: "单步退出", shortcut: kb.bindingLabel("debug_step_out") || undefined, action: () => void import("./dap/client").then((m) => m.dapStepOut(1)) },
+      { label: "运行到光标处", shortcut: kb.bindingLabel("debug_run_to_cursor") || undefined, action: () => void runToCursorAtCursor() },
+      { label: "求值表达式", shortcut: kb.bindingLabel("debug_evaluate") || undefined, action: () => void onEvaluateShortcut() },
+      { sep: true, label: "" },
+      { label: "运行历史", shortcut: kb.bindingLabel("run_history") || undefined, action: () => openRunHistory() },
+    ];
+    // PR-1（plugin_system_design §9.8）：工具菜单按 category 分组 flyout 子菜单，
+    // 渲染走 menuBar.ts 既有 submenu 机制（悬停延时展开 + →/← 键盘导航），此处只组装数据
+    case "tools": return buildToolsMenu();
+    // MB-13：帮助菜单（裁决 2026-09-21）——关于走 openAlert 轻量档；日志/数据目录复用设置页
+    // 既有 invoke 命令；作者指南复用插件 tab 的 openGuide（同一份指南文档，导出复用）。
+    // 欢迎页一期不纳入（需 force-show 逻辑，登记为后续可选）。
+    case "help": return [
+      {
+        label: "关于 OpenCharm",
+        action: () => {
+          void getVersion()
+            .then((v) => {
+              void openAlert({
+                title: "关于 OpenCharm",
+                message: `OpenCharm ${v}\n轻量级 Python IDE（Tauri 2 + Monaco）\n静态语义：Pyrefly / basedpyright · 运行时：opencharm-probe + opencharm-intel`,
+                okLabel: "关闭",
+              });
+            })
+            .catch((e) => toastFail("读取版本失败", e));
+        },
+      },
+      { sep: true, label: "" },
+      { label: "作者指南（插件开发）", action: () => void openGuide() },
+      { sep: true, label: "" },
+      { label: "打开日志目录", action: () => invoke("open_log_dir").catch((e) => toastFail("打开日志目录", e)) },
+      { label: "打开数据目录", action: () => invoke("open_data_dir").catch((e) => toastFail("打开数据目录", e)) },
+    ];
+    // P0-2：Git 一级菜单（报告 D10）——此前 git 操作只能从侧栏「更多操作」二级菜单触达
+    case "git": return [
+      { label: "初始化仓库…", action: () => void gitInitRepo() },
+      { sep: true, label: "" },
+      { label: "暂存全部更改", action: () => void stageAllChanges() },
+      {
+        label: "提交…",
+        action: () => { setSidebarTab("git"); ($("git-commit-msg") as HTMLTextAreaElement).focus(); },
+      },
+      { label: "提交全部更改…", action: () => void commitAll() },
+      { sep: true, label: "" },
+      // MB-14：同步 / 贮藏归组子菜单（原 5 项平铺 → 2 个父项），视觉长度减半；action 原样迁移
+      {
+        label: "同步",
+        submenu: () => [
+          { label: "抓取（Fetch）", action: () => void gitRemoteOp("fetch") },
+          { label: "拉取（Pull）", action: () => void gitRemoteOp("pull") },
+          { label: "推送（Push）", action: () => void gitRemoteOp("push") },
+        ],
+      },
+      {
+        label: "贮藏",
+        submenu: () => [
+          { label: "贮藏更改（Stash）", action: () => void gitStash() },
+          { label: "弹出贮藏（Stash Pop）", action: () => void gitStashPop() },
+        ],
+      },
+      { sep: true, label: "" },
+      { label: "切换 / 新建分支…", action: () => { setSidebarTab("git"); toggleBranchList(); } },
+      { label: "提交历史…", action: () => { setSidebarTab("git"); toggleHistory(); } },
+      { sep: true, label: "" },
+      { label: "打开 Git 面板", action: () => setSidebarTab("git") },
+    ];
     default: return [];
   }
 }
@@ -1347,6 +1598,8 @@ window.addEventListener("unhandledrejection", (e) => {
 async function init(): Promise<void> {
   // TD-14 / TD-13：功能域解环注入（须先于任何事件与运行调用）
   setTracebackOpenFile(openFile);
+  setGitReloadHandler(reloadFileFromDisk);
+  setGitOpenFileHandler(openFile);
   setRunFlowHandlers({ openFile, activateTab, renderTabs, saveActive, saveTab });
   setFileTreeHandlers({ openFile, renderTabs, closeTabSilent, insertHeaderTemplate, runScript: (p) => void runScript(p) });
   setSettingsPanelHandlers({ startLsp });
@@ -1367,9 +1620,9 @@ async function init(): Promise<void> {
     language: "python",
     theme: app.settings.theme,
     automaticLayout: true,
-    glyphMargin: true, // 灯泡在顶格行（如 import）显示于 glyph 边距，须开启（P3 快速修复）
-    // lightbulb 默认 onCode 已开启，无需显式设置
+    glyphMargin: true, // 断点/运行 glyph 依赖 glyph 边距，保留
     ...buildEditorOptions(app.settings), // P1：字号/连字/缩进/换行/迷你地图/字体族由设置统一注入
+    lightbulb: { enabled: app.monaco.editor.ShowLightbulbIconMode.Off }, // 关闭快速修复灯泡图标（保留 Ctrl+. 菜单）
     wordBasedSuggestions: "off", // 踩坑 #3
     quickSuggestions: { other: true, comments: false, strings: false },
   });
@@ -1409,6 +1662,19 @@ async function init(): Promise<void> {
     editor: app.editor,
     workspaceRoot: () => app.workspaceRoot,
   });
+  // PR-2：插件加载内核（§9.5/§9.15）——依赖注入 → 首扫 → 目录监听 → inline 管线
+  const pluginDeps = buildPluginFacadeDeps();
+  initPluginLoader(pluginDeps, () => registerQuickOpenActions(buildQuickOpenActions()));
+  initInlineRunner(pluginDeps, () => listPluginRecords());
+  // P0 DX：作者指南落盘后经 openFile 打开（.md 自动开预览）
+  setPluginsTabHandlers({ openFile: (p) => openFile(p) });
+  void getVersion()
+    .then((v) => setAppVersion(v))
+    .then(() => scanPlugins())
+    .then(() => registerQuickOpenActions(buildQuickOpenActions()))
+    .catch((e) => console.warn("[extensions] 插件首扫失败", e));
+  void invoke("watch_plugins_dir").catch(() => undefined); // 监听失败静默（设置页「重新扫描」兜底）
+  await listen("plugins-dir-changed", () => schedulePluginRescan());
   // 模板入口快捷键（可配置，默认 Ctrl+J / Ctrl+Alt+T）
   kb.setKeybindingHandler("template_palette", () => liveTemplatesHandle?.openPalette());
   kb.setKeybindingHandler("surround", () => liveTemplatesHandle?.openSurround());
@@ -1416,6 +1682,10 @@ async function init(): Promise<void> {
   kb.setKeybindingHandler("run_selection", () => void runSelection());
   // P0：Optimize Imports（默认 Ctrl+Alt+O，PyCharm 同款）
   kb.setKeybindingHandler("optimize_imports", () => void optimizeImportsActive());
+  // P1：查找引用（默认 Alt+F7，PyCharm 同款）——完整列表落底部「引用」面板
+  kb.setKeybindingHandler("find_usages", () => void findUsagesAtCursor());
+  // P2：跨文件重命名（默认 Shift+F6，PyCharm 同款）——定义 + 所有引用同步改名
+  kb.setKeybindingHandler("rename_symbol", () => void renameSymbolAtCursor());
   // CR-24：LSP providers 统一入应用级 DisposableStore——不再丢弃句柄。
   // providers 与引擎实例无关（内部按 engineStatus 短路），init 只注册一次；
   // store 便于应用级 teardown / 测试中整体清理，防句柄泄漏累积。
@@ -1436,9 +1706,22 @@ async function init(): Promise<void> {
     console.debug(`[opencharm-install] 命令触发 pkg=${String(pkg)}`);
     if (typeof pkg === "string" && pkg) void installMissingPackage(pkg);
   });
+  // 依赖健康 M3（§6.3）：「安装 X 并加入 pyproject」灯泡动作（E4/E3 → uv add，diff 数据源）
+  app.monaco.editor.registerCommand(lsp.DECLARE_PACKAGE_COMMAND, (_accessor, ...args: unknown[]) => {
+    const spec = args[0];
+    if (typeof spec === "string" && spec) void declarePackage(spec);
+  });
   registerRuffFormatter(app.monaco); // Shift+Alt+F / 右键「Format Document」
   setFormatErrorHandler((msg) => appendOutputLine(outputEl, msg, "stderr", gotoFromLink));
   setOpenMatchHandler((m) => openSearchMatch(m).catch(console.error));
+  // 查找引用结果跳转：打开文件 + 定位到引用行列 + 居中（复用 openFile 的 tab/model 管理）
+  setOpenRefHandler((path, line, col) => {
+    void openFile(path, line).then(() => {
+      app.editor.setPosition({ lineNumber: line, column: col });
+      app.editor.revealLineInCenter(line);
+      app.editor.focus();
+    });
+  });
   // P1-BUG-002：补全请求前冲刷防抖窗口内未同步的 didChange——`.` 触发的补全请求会赶在
   // 200ms 防抖同步之前到达引擎，引擎按旧文档计算（补全位置越界 → 空结果）
   lsp.setBeforeCompletionHook(async (model) => {
@@ -1517,6 +1800,10 @@ async function init(): Promise<void> {
     else if (id === "open_settings") openSettingsPanel();
     else if (id === "toggle_sidebar") toggleSidebar();
     else if (id === "toggle_bottom") toggleBottomPanel();
+    // 命令面板直达（VS Code Ctrl+Shift+P 同款）：不注册时该组合会触发浏览器/系统「打印」
+    else if (id === "command_palette") void openQuickOpen("commands");
+    // PR-1：开发工具面板 + picker（Ctrl+Shift+T，toggle 语义）
+    else if (id === "open_devtools") openDevToolsPanel();
   });
 
   // P1：Double Shift → Search Everywhere（键位表无法表达双击手势，故固定在此）。
@@ -1565,6 +1852,8 @@ async function init(): Promise<void> {
     scheduleRuffLint();
     // P2：书签按行号定位，行增删后装饰要跟着重算（与断点红点同款处理）
     window.setTimeout(() => refreshBookmarkGutter(), 300);
+    // 迭代 2 · P0-5：git 行级装饰随编辑防抖重算（dirty 文件实时反映新增/修改行）
+    scheduleGitGutter();
     // 自动保存（delay 模式，P25-T08）
     if (app.settings.autosave === "delay") {
       window.clearTimeout(editorTimers.autosave);
@@ -1600,7 +1889,7 @@ async function init(): Promise<void> {
   setNavHistoryHandlers({ openFile: (p, line) => openFile(p, line) });
   // P1：本地历史（Ctrl+Shift+H）——无 Git 工作区的回滚兜底
   initLocalHistory();
-  setLocalHistoryHandlers({ reloadFile: (p) => reloadFileFromDisk(p) });
+  setLocalHistoryHandlers({ reloadFile: (p) => reloadFileFromDisk(p, true) }); // 用户主动回滚：强制替换
   // P2：ruff 实时 lint（诊断第三桶，owner = opencharm-ruff）
   setRuffLintHandlers({ setMarkers });
   // P2：书签（Ctrl+F11 切换 / Ctrl+Shift+F11 列表）
@@ -1613,7 +1902,11 @@ async function init(): Promise<void> {
   // 保存输出随历史列表行，原 #run-tabs-row 的「保存当前」按钮一并删除）
   initRunHistory();
   setRunHistoryHandlers({
-    clearOutput: () => clearOutput(outputEl),
+    // P2：历史重放回填前重置 channel 过滤——历史行是 all，停在「调试/Git」过滤态下回放会看不到内容
+    clearOutput: () => {
+      resetOutputChannelUi();
+      clearOutput(outputEl);
+    },
     appendLine: (cls, text) => appendOutputLine(outputEl, text, cls, gotoFromLink),
     rerun: (r) => void rerunRecord(r),
   });
@@ -1723,6 +2016,8 @@ async function init(): Promise<void> {
 
   // gutter 运行图标（C5）：__main__ 守卫行的 ▶，点击运行整个文件、右键弹出运行组同源菜单
   wireRunGutter(app.editor, app.monaco);
+  // 迭代 2 · P0-5：git 行级变更装饰（绿/蓝条 + 删除红三角）
+  wireGitGutter(app.editor, app.monaco);
   // gutter 悬停预示（方案 1/2）：把真正可点的 glyph 那一档画出来 + 悬停行显示淡化断点，
   // 否则用户会点在行号两侧的空白上而以为「断点坏了」（CSS 侧见 style.css 同段注释）
   wireGutterHover(app.editor, app.monaco);
@@ -1780,6 +2075,23 @@ async function init(): Promise<void> {
 
   // 环境面板（P25-T05）：DOM 接线 + 装包后重启引擎（restartEngine = startLsp，TD-14 注入解环）
   initEnvPanel({ restartEngine: startLsp });
+  // 依赖健康面板（dep plan M3）：tab/刷新/状态栏图标接线；openEnvPanel 与包列表刷新经此注入
+  //（depHealthPanel 单向 import envPanel 的 shortInterpreter，反向调用全部走注入——无环）
+  initDepHealthPanel({ openEnvPanel: () => void openEnvPanel(), refreshPackagesIfOpen, repaintPackagesIfOpen: repaintPkgBadgesIfOpen });
+  // 面板打开即重绘健康分区（envPanel 的 openedHooks，避免 envPanel ↔ depHealthPanel 循环依赖）
+  onEnvPanelOpened(() => void renderDepHealth());
+  // 依赖健康域（dep plan M2/M3）：引擎重启器 + M3 UI 钩子（状态栏体检图标 / toast「查看」入口）
+  initDepHealth({
+    restartEngine: startLsp,
+    // toast「查看」入口语义是「看问题」——展开依赖明细再开面板（明细默认收起）
+    openHealthPanel: () => { expandDepDetail(); void openEnvPanel(); },
+    onScanStart: () => setHealthStatus("scanning"),
+    onScanComplete: handleScanComplete,
+  });
+  // 依赖健康 M4-3（§6.4 traceback 一键安装）：toast「安装」入口 → envPanel.installMissingPackage
+  //（内部走 runDepFix 统一编排 + M4-4 候选选择）；输出面板 stderr 行 → ModuleNotFoundError 检测。
+  setDepInstallHandler((module) => installMissingPackage(module));
+  setOutputTracebackHandler((line) => handleTracebackLine(line));
 
   // 侧栏视图注册表（TD-001）：单根容器 + 生命周期钩子，切换只操作注册表根节点
   registerSidebarView({
@@ -1845,6 +2157,11 @@ async function init(): Promise<void> {
   setSidebarTab("files");
   // Git 域 UI 接线（SCM 工具栏 / 历史 / diff / 提交 / 分支，TD-007）
   wireGitUI();
+  // 第 2 步迁移：diff tab 生命周期回调（git.ts 的 showDiff/关闭链 → main 的 tab 统一路径）
+  setDiffTabHandlers({
+    activate: (tab) => activateTab(tab),
+    close: (tab) => closeTabSilent(tab),
+  });
   const searchInputEl = $("search-input") as HTMLInputElement;
   // 回车确认搜索；清空输入则清空搜索结果（并使进行中的搜索作废，避免旧结果回填）
   searchInputEl.addEventListener("input", () => {
@@ -1883,22 +2200,16 @@ async function init(): Promise<void> {
   setTerminalLinkHandler(gotoFromLink);
   // P2-L：终端里的 URL 可点开（uvicorn/FastAPI 等），与输出面板 URL / 自动开浏览器共用 open_external
   setTerminalUrlHandler((url) => {
-    invoke("open_external", { url }).catch((e) =>
-      appendOutputLine(outputEl, `打开浏览器失败：${e}`, "stderr", gotoFromLink),
-    );
+    invoke("open_external", { url }).catch((e) => toastFail("打开浏览器", e));
   });
   // P2-L：输出中的 URL 可点开（invoke open_external 仅放行 http/https，后端二次校验）
   setOutputUrlHandler((url) => {
-    invoke("open_external", { url }).catch((e) =>
-      appendOutputLine(outputEl, `打开浏览器失败：${e}`, "stderr", gotoFromLink),
-    );
+    invoke("open_external", { url }).catch((e) => toastFail("打开浏览器", e));
   });
   // v3.4 §9（M3-3.9）：FastAPI 服务就绪（Uvicorn running on http://…）自动开浏览器
   // ——与输出面板 URL 点击共用同一 open_external 通道
   setExternalUrlOpener((url) => {
-    invoke("open_external", { url }).catch((e) =>
-      appendOutputLine(outputEl, `打开浏览器失败：${e}`, "stderr", gotoFromLink),
-    );
+    invoke("open_external", { url }).catch((e) => toastFail("打开浏览器", e));
   });
 
   // 文件监听事件（增量刷新树）
@@ -1914,6 +2225,9 @@ async function init(): Promise<void> {
 
   // 终端事件（P2-7 多会话）：按 id 分发到对应终端实例
   await wireTerminalEvents();
+
+  // 依赖健康失效矩阵（dep plan M2）：watcher 的 dep-fs-changed / dep-env-changed 事件接线
+  await wireDepHealthEvents();
 
   // 首次启动环境引导（第 4 步）：缺失 uv/pyrefly 时弹窗引导一键安装
   await maybePromptToolchain();

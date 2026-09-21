@@ -10,11 +10,23 @@ export type MonacoModule = typeof MonacoApi;
 /** 文件树条目 */
 export interface Entry { name: string; path: string; is_dir: boolean }
 
-/** 打开的文件标签 */
+/** 打开的文件标签。
+ *  diff 视图 tab（第 2 步迁移）：kind="diff" 时 path 为目标文件仓库相对路径，
+ *  diff 元数据携带三态基准与冲突态；model 为占位（diff 宿主不消费主编辑器模型，
+ *  但保留字段避免 90+ 处 t.model 访问点判空——占位模型随 tab 关闭一并 dispose）。 */
 export interface Tab {
   path: string;
   model: MonacoApi.editor.ITextModel;
   dirty: boolean;
+  /** tab 类型：普通文件（默认）| git diff 视图 */
+  kind?: "file" | "diff";
+  /** kind="diff" 时的元数据 */
+  diff?: {
+    /** 三态基准（auto/index/head），切 tab 恢复 */
+    base: "auto" | "index" | "head";
+    /** 冲突视图（当前 vs 传入 + 接受按钮组） */
+    conflict: boolean;
+  };
 }
 
 /** 全局设置（P25-T08/T09；P1 扩展编辑器高频项） */

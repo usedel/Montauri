@@ -251,12 +251,13 @@ fn read_dap_frame(reader: &mut impl BufRead) -> Result<Option<Value>, String> {
 fn kill_pid_tree(pid: u32) {
     #[cfg(windows)]
     {
-        let _ = std::process::Command::new("taskkill")
-            .args(["/PID", &pid.to_string(), "/T", "/F"])
+        // 体验修复：taskkill 补 CREATE_NO_WINDOW（防前台黑框闪，与 util.rs 同口径）
+        let mut kill = std::process::Command::new("taskkill");
+        kill.args(["/PID", &pid.to_string(), "/T", "/F"])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
+            .stderr(Stdio::null());
+        let _ = crate::util::no_window(&mut kill).status();
     }
     #[cfg(not(windows))]
     {

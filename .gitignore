@@ -20,6 +20,12 @@ target/
 node_modules/
 shell/dist/
 
+# Playwright（E2E 产物：trace/截图/last-run；tr-<id> 为调试期临时改名，防止误提交）
+playwright-report/
+test-results/
+.playwright-artifacts-*/
+old-tr-*/
+
 # Zed / IDE
 .DS_Store
 *.swp
@@ -35,3 +41,6 @@ vendor/
 
 # CI 本地缓存
 ci/.cache/
+
+# 临时提交信息文件（提交辅助脚本用）
+.git-commit-msg.tmp

@@ -4,10 +4,10 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { app, $, lazyEl, statusFileEl, type Entry, type Tab } from "./state";
-import { basename, codicon, ensurePyExtension, samePath, stripPyExtension, gitBadgeClass, gitStatusLabel, joinPath, parentDirOf, relativePath, relativePathOrName, renderFileIcon } from "./util";
+import { basename, ensurePyExtension, samePath, stripPyExtension, gitBadgeClass, gitStatusLabel, joinPath, parentDirOf, relativePath, relativePathOrName, renderFileIcon } from "./util";
 // CR-25：状态读取改从零依赖的 gitStatusState（切断 fileTree ↔ git 的状态耦合）；
 // refreshGitStatus 是运行时才调用的函数（无初始化期循环风险），保留从 git.ts 导入
-import { refreshGitStatus } from "./git";
+import { refreshGitStatus, stageFiles, showDiffForPath, showBlame, gitFileOriginalPath } from "./git";
 import { gitStatusOf, isGitRepoActive, isGitDirtyDir } from "./gitStatusState";
 import { openTerminalAt } from "./termUi";
 import * as mdPreview from "./markdownPreview"; // Markdown 预览（.md 右键「打开预览」）
@@ -66,6 +66,11 @@ const expandedDirs = new Set<string>();
 
 // ---------- 树渲染 ----------
 
+// 树节点缩进：基础缩进（根级距左）+ 每层递增步长。
+// depthOf 依赖这两个值反推深度，改动必须同步；步长已从 14px 收紧为 10px。
+const TREE_INDENT_BASE = 8;
+const TREE_INDENT_STEP = 10;
+
 export async function refreshTree(): Promise<void> {
   if (!app.workspaceRoot) return;
   await refreshGitStatus();
@@ -102,7 +107,7 @@ async function buildDir(dir: string, container: HTMLElement, depth: number): Pro
     // UI-16：role=tree 的容器期望子级为 treeitem/group；占位提示自身无语义，
     // 标 presentation 避免读屏把它当成结构节点（文本内容仍会被朗读）
     empty.setAttribute("role", "presentation");
-    empty.style.paddingLeft = `${8 + depth * 14}px`;
+    empty.style.paddingLeft = `${TREE_INDENT_BASE + depth * TREE_INDENT_STEP}px`;
     empty.textContent = "（空）";
     container.appendChild(empty);
     return;
@@ -115,7 +120,7 @@ function renderTreeItem(e: Entry, depth: number, opts?: { isRoot?: boolean }): H
   const isRoot = opts?.isRoot ?? false;
   const item = document.createElement("div");
   item.className = `tree-item ${e.is_dir ? "dir" : "file"}${isRoot ? " tree-root" : ""}`;
-  item.style.paddingLeft = `${8 + depth * 14}px`;
+  item.style.paddingLeft = `${TREE_INDENT_BASE + depth * TREE_INDENT_STEP}px`;
   item.title = e.path;
   item.dataset.path = e.path;
   if (isRoot) item.dataset.root = "true"; // 根节点标记：collapseAll/applyTreeFilter/键盘守卫据此豁免
@@ -130,20 +135,17 @@ function renderTreeItem(e: Entry, depth: number, opts?: { isRoot?: boolean }): H
   const twisty = document.createElement("i");
   twisty.className = "twisty" + (e.is_dir ? " codicon codicon-chevron-right" : "");
 
-  let icon: HTMLElement;
-  if (e.is_dir) {
-    icon = document.createElement("span");
-    icon.className = "icon";
-    icon.appendChild(codicon("folder")); // 展开时切 folder-opened（toggleDir）
-  } else {
-    icon = renderFileIcon(e.name);
-  }
-
   const name = document.createElement("span");
   name.className = "name";
   name.textContent = e.name;
 
-  item.append(twisty, icon, name);
+  if (e.is_dir) {
+    // 目录只保留展开箭头 + 名称：无文件夹图标、无图标占位（更紧凑）。
+    // 代价：目录名会比文件名靠左一个图标槽位（文件名前仍有类型图标）。
+    item.append(twisty, name);
+  } else {
+    item.append(twisty, renderFileIcon(e.name), name);
+  }
 
   // 目录级变更标记（P2：父目录含变更时高亮）
   if (e.is_dir && isGitRepoActive() && app.workspaceRoot) {
@@ -217,14 +219,6 @@ function setTwisty(el: HTMLElement | null, expanded: boolean): void {
   el.classList.toggle("codicon-chevron-down", expanded);
 }
 
-/** 切换文件夹图标两态（folder / folder-opened） */
-function setFolderIcon(item: HTMLElement, expanded: boolean): void {
-  const ic = item.querySelector(".icon .codicon");
-  if (!ic) return;
-  ic.classList.toggle("codicon-folder", !expanded);
-  ic.classList.toggle("codicon-folder-opened", expanded);
-}
-
 /** 展开/折叠目录（懒加载 + 登记 map 供局部刷新） */
 async function toggleDir(item: HTMLElement, e: Entry, depth: number): Promise<void> {
   const twisty = item.querySelector(".twisty") as HTMLElement | null;
@@ -234,12 +228,10 @@ async function toggleDir(item: HTMLElement, e: Entry, depth: number): Promise<vo
     dirContainers.delete(e.path);
     expandedDirs.delete(e.path);
     setTwisty(twisty, false);
-    setFolderIcon(item, false);
     item.setAttribute("aria-expanded", "false"); // UI-16：与 twisty 图标同源
     return;
   }
   setTwisty(twisty, true);
-  setFolderIcon(item, true);
   item.setAttribute("aria-expanded", "true"); // UI-16
   expandedDirs.add(e.path);
   const childContainer = document.createElement("div");
@@ -275,11 +267,10 @@ function collapseAll(): void {
     dirContainers.delete(path);
     expandedDirs.delete(path);
   }
-  // 重置所有 twisty 与文件夹图标为收起态（UI-16：aria-expanded 一并复位）。
+  // 重置所有 twisty 为收起态（UI-16：aria-expanded 一并复位）。
   // 根节点（data-root）豁免：它始终保持展开，是工作区的视觉锚点。
   treeEl.querySelectorAll<HTMLElement>(".tree-item.dir:not([data-root]) .twisty").forEach((el) => setTwisty(el, false));
   treeEl.querySelectorAll<HTMLElement>(".tree-item.dir:not([data-root])").forEach((el) => {
-    setFolderIcon(el, false);
     el.setAttribute("aria-expanded", "false");
   });
 }
@@ -466,6 +457,30 @@ function showContextMenu(entry: Entry, x: number, y: number, opts?: { background
       { label: "运行脚本", action: () => handlers?.runScript(entry.path) },
     );
   }
+  // P0-3：Git 操作进文件树右键（对标 VS Code / PyCharm）——暂存 / 打开差异 / Blame。
+  // is_dir 不提供（整目录暂存易误操作，diff/blame 只对单文件有意义）。
+  // 复核修正：gitStatusOf 的 key 与 relativePath 均为「小写归一化」路径——直接把它传给
+  // git add / blame 在大小写敏感文件系统上会 pathspec 失配。此处先做大小写无关匹配，
+  // 命中后改用 gitFiles 里的原始大小写路径。untracked（?）无 diff/blame 意义，只提供暂存。
+  if (!entry.is_dir && isGitRepoActive() && app.workspaceRoot) {
+    const rel = relativePath(app.workspaceRoot, entry.path);
+    const code = gitStatusOf(rel);
+    if (code !== undefined) {
+      const exact = gitFileOriginalPath(rel);
+      if (exact) {
+        items.push(
+          { sep: true },
+          { label: code === "?" ? "暂存新文件" : "暂存更改", action: () => void stageFiles([exact]) },
+        );
+        if (code !== "?") {
+          items.push(
+            { label: "打开差异", action: () => void showDiffForPath(exact) },
+            { label: "Blame（逐行溯源）", action: () => void showBlame(exact) },
+          );
+        }
+      }
+    }
+  }
 
   renderCtxMenu(items, x, y);
 }
@@ -528,7 +543,7 @@ function inlineInput(container: HTMLElement, beforeEl: HTMLElement | null, initi
     // UI-16：借用 .tree-item 只为行高/内边距样式，它不是树节点（role=tree 容器里
     // 出现第二个 treeitem 语义会误导读屏），标 presentation；内部 input 语义不受影响
     row.setAttribute("role", "presentation");
-    row.style.paddingLeft = `${8 + depth * 14}px`;
+    row.style.paddingLeft = `${TREE_INDENT_BASE + depth * TREE_INDENT_STEP}px`;
     const input = document.createElement("input");
     input.className = "inline-input";
     input.type = "text";
@@ -1085,7 +1100,7 @@ function entryFromEl(el: HTMLElement): Entry | null {
 /** 获取树节点的深度（通过 paddingLeft 反推） */
 function depthOf(el: HTMLElement): number {
   const pl = parseInt(el.style.paddingLeft || "8", 10);
-  return Math.max(0, Math.round((pl - 8) / 14));
+  return Math.max(0, Math.round((pl - TREE_INDENT_BASE) / TREE_INDENT_STEP));
 }
 
 // ---------- 文件树过滤 ----------

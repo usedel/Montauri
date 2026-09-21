@@ -38,6 +38,21 @@ const runConfigTargetDropEl = $("run-config-target-drop");
 const runConfigCwdDropEl = $("run-config-cwd-drop");
 const runConfigInterpreterDropEl = $("run-config-interpreter-drop");
 const runConfigEnvFilesAddEl = $btn("run-config-env-files-add");
+/** P1-F：字段级内联校验提示（就近显示在入口输入框下方，不再进输出面板） */
+const runConfigFieldErrorEl = $("run-config-field-error");
+
+/** P1-F：显示字段级错误（入口输入框下方的内联提示） */
+function showFieldError(msg: string): void {
+  runConfigFieldErrorEl.textContent = msg;
+  runConfigFieldErrorEl.classList.remove("hidden");
+}
+
+/** P1-F：清除字段级错误（输入/分区切换/保存成功时调用） */
+function clearFieldError(): void {
+  if (runConfigFieldErrorEl.classList.contains("hidden")) return;
+  runConfigFieldErrorEl.textContent = "";
+  runConfigFieldErrorEl.classList.add("hidden");
+}
 
 /** 当前分区：脚本配置（当前文件）| 项目配置 */
 type Section = "script" | "project";
@@ -95,6 +110,7 @@ function renderSections(): void {
 async function switchSection(sec: Section): Promise<void> {
   if (section === sec) return;
   section = sec;
+  clearFieldError();
   renderSections();
   await loadSection(sec);
 }
@@ -273,13 +289,14 @@ async function loadSection(sec: Section): Promise<void> {
  */
 export async function openRunConfig(path?: string): Promise<void> {
   if (!app.workspaceRoot) {
-    appendOutputLine(outputEl, "运行配置需先打开一个工作区", "stderr", gotoFromLink);
+    toast("运行配置需先打开一个工作区", "info");
     return;
   }
   scriptTargetPath = path && (path.endsWith(".py") || path.endsWith(".pyw")) ? path : (app.activeTab?.path ?? null);
   if (scriptTargetPath && !(scriptTargetPath.endsWith(".py") || scriptTargetPath.endsWith(".pyw"))) {
     scriptTargetPath = null;
   }
+  clearFieldError();
   showEl(runConfigModalEl);
   // 工作区可能已切换：作废三个组合框的候选缓存，下次展开重拉
   targetCombo?.invalidate();
@@ -303,9 +320,14 @@ function closeRunConfig(): void {
   hideEl(runConfigModalEl);
 }
 
-/** Esc 关闭配置面板（点外部不关闭后，Esc 是键盘关闭入口之一，与 X /「关闭」按钮并列） */
+/** Esc 关闭配置面板（点外部不关闭后，Esc 是键盘关闭入口之一，与 X /「关闭」按钮并列）。
+ *  守卫：前台还有更上层对话框（openConfirm/openAlert/openPrompt/openChoice 均走 .modal 显隐
+ *  约定）时 Esc 归对话框——其处理器挂在按钮 keydown 上，事件仍会冒泡到 document，不挡会
+ *  连带关掉底下的配置面板、丢失未保存编辑（与 envPanel.onEnvKeydown / bookmarks 同款守卫）。 */
 function onRunConfigKeydown(e: KeyboardEvent): void {
-  if (e.key === "Escape") closeRunConfig();
+  if (e.key !== "Escape") return;
+  if (document.querySelectorAll(".modal:not(.hidden)").length > 1) return;
+  closeRunConfig();
 }
 
 // ---------- 保存 ----------
@@ -340,19 +362,20 @@ async function saveRunConfig(): Promise<void> {
     ? (scriptTargetPath ?? "")
     : runConfigTargetInputEl.value.trim();
   if (section === "script" && !entryTarget) {
-    appendOutputLine(outputEl, "脚本配置需要一个活动 Python 文件（先打开 .py 文件再配置）", "stderr", gotoFromLink);
+    showFieldError("脚本配置需要一个活动 Python 文件（先打开 .py 文件再配置）");
     return;
   }
   if (section === "project" && entryKind === "module" && !entryTarget) {
-    appendOutputLine(outputEl, "模块入口需指定模块名（如 uvicorn）", "stderr", gotoFromLink);
+    showFieldError("模块入口需指定模块名（如 uvicorn）");
     runConfigTargetInputEl.focus();
     return;
   }
   if (section === "project" && entryKind === "script" && !entryTarget) {
-    appendOutputLine(outputEl, "脚本入口需指定脚本路径（相对工作区根）", "stderr", gotoFromLink);
+    showFieldError("脚本入口需指定脚本路径（相对工作区根）");
     runConfigTargetInputEl.focus();
     return;
   }
+  clearFieldError();
   const config: RunConfig = {
     entry: { kind: entryKind, target: entryTarget },
     args: runConfigArgsEl.value,
@@ -368,21 +391,18 @@ async function saveRunConfig(): Promise<void> {
     if (section === "project") {
       // 项目配置：入口为空保存 = 移除（后端语义）；模块入口原样写入
       await invoke("set_project_run", { workspaceRoot: app.workspaceRoot, config });
-      appendOutputLine(
-        outputEl,
+      toast(
         entryTarget
           ? `已保存项目运行配置：${entryKind === "module" ? `python -m ${entryTarget}` : entryTarget}`
           : "已移除项目运行配置（入口为空）",
-        "stdout",
-        gotoFromLink,
+        "success",
       );
     } else {
       // 脚本配置：以文件路径为键（entry.target 由后端按 run_config_key 解析覆盖）
       await invoke("set_run_config", { workspaceRoot: app.workspaceRoot, scriptPath: entryTarget, config });
-      appendOutputLine(outputEl, `已保存脚本运行配置：${basename(entryTarget)}`, "stdout", gotoFromLink);
+      toast(`已保存脚本运行配置：${basename(entryTarget)}`, "success");
     }
     setBusy(saveBtn, false);
-    toast("运行配置已保存", "success");
   } catch (e) {
     setBusy(saveBtn, false);
     toastFail("保存运行配置", e);
@@ -400,6 +420,8 @@ export function wireRunConfigPanel(): void {
   runConfigSecScriptBtn.addEventListener("click", () => void switchSection("script"));
   runConfigSecProjectBtn.addEventListener("click", () => void switchSection("project"));
   runConfigEntryKindEl.addEventListener("change", syncEntryTargetLabel);
+  // P1-F：输入即清除字段错误（错误是「上次校验」的状态，用户已在修正）
+  runConfigTargetInputEl.addEventListener("input", clearFieldError);
   runConfigArgsEl.addEventListener("keydown", (e) => {
     if (e.key === "Enter") void saveRunConfig();
   });

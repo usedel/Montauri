@@ -1,5 +1,5 @@
 // 终端功能域（TD-007 迁出 main.ts）：集成终端多会话 UI（Phase 4 / P2-7）+
-// 底部面板标签切换（输出 / 终端 / 差异）。term-data/term-exit 事件分发也在此接线。
+// 底部面板标签切换（输出 / 终端 / 差异 / Git）。term-data/term-exit 事件分发也在此接线。
 //
 // v3.4 M3（§17-5）：termUi 按实例化——运行终端的退出回调 / runActive / tab 查找 /
 // 停止路由全部按实例 id 绑定（多实例：脚本唯一「运行」+「项目 N」并行）；启动前确保
@@ -13,9 +13,10 @@ import { invoke } from "@tauri-apps/api/core";
 import { app, $, outputEl } from "./state";
 import { basename, codicon, emptyState, parentDirOf, stripAnsi } from "./util"; // UI-12：终端无会话时的空态；stripAnsi（§11 历史采集）
 import { IntegratedTerminal } from "./terminal";
-import { clearOutput } from "./output";
-import { ensureDiffEditor } from "./git";
+import { clearOutput, refilterOutputChannel, setOutputChannelFilter, type OutputChannel } from "./output";
+import { hasGitDetailContent, renderGitDetailEmptyState } from "./git";
 import { showMenu } from "./menu";
+import { sniffTerminalOutput, handleTracebackLine } from "./depHealth"; // M2 §4.4 嗅探 / M4-3 traceback 一键安装
 
 // ---------- 域内状态 ----------
 
@@ -63,34 +64,47 @@ export function setOutputPanelHooks(h: OutputPanelHooks): void {
   outputHooks = h;
 }
 
-/** 底部面板可切换标签 */
-export type BottomTab = "output" | "terminal" | "diff";
-/** 底部面板当前激活标签（输出 / 终端 / 差异） */
+/** 底部面板可切换标签（差异视图已迁入编辑区 tab，不再属于底部） */
+export type BottomTab = "output" | "terminal" | "git" | "findUsages";
+/** 底部面板当前激活标签（输出 / 终端 / 差异 / Git） */
 let bottomTab: BottomTab = "output";
+
+/** 当前底部激活标签（只读查询：diff 自动刷新等场景判断 diff 是否前台） */
+export function activeBottomTab(): BottomTab {
+  return bottomTab;
+}
 
 const terminalPanelEl = $("terminal-panel");
 const terminalTabsEl = $("terminal-tabs");
 const terminalViewsEl = $("terminal-views");
-const gitDiffPanelEl = $("git-diff-panel");
+const gitDetailPanelEl = $("git-detail-panel");
+const findUsagesPanelEl = $("find-usages-panel");
 
 // ---------- 底部面板 ----------
 
-/** 切换底部面板标签（输出 / 终端 / 差异） */
+/** 切换底部面板标签（输出 / 终端 / Git 详情；差异视图已迁入编辑区 tab） */
 export function setBottomTab(tab: BottomTab): void {
   bottomTab = tab;
   // UI-16：role=tab 的 aria-selected 与 .active 类同源切换（单一写入点）
-  for (const [id, sel] of [["tab-output", tab === "output"], ["tab-terminal", tab === "terminal"], ["tab-diff", tab === "diff"]] as const) {
+  for (const [id, sel] of [
+    ["tab-output", tab === "output"],
+    ["tab-terminal", tab === "terminal"],
+    ["tab-git-detail", tab === "git"],
+    ["tab-find-usages", tab === "findUsages"],
+  ] as const) {
     const el = $(id);
     el.classList.toggle("active", sel);
     el.setAttribute("aria-selected", String(sel));
   }
   outputEl.classList.toggle("hidden", tab !== "output");
   terminalPanelEl.classList.toggle("hidden", tab !== "terminal");
-  gitDiffPanelEl.classList.toggle("hidden", tab !== "diff");
+  gitDetailPanelEl.classList.toggle("hidden", tab !== "git");
+  findUsagesPanelEl.classList.toggle("hidden", tab !== "findUsages");
   $("terminal-cmd").classList.toggle("hidden", tab !== "terminal");
+  // P2：输出过滤 chips 只在输出 tab 下出现（其他 tab 下无意义）
+  $("output-channels").classList.toggle("hidden", tab !== "output");
   $("bottom").classList.remove("collapsed");
   if (tab === "terminal") void ensureAnyTerminal();
-  if (tab === "diff") ensureDiffEditor().layout();
   outputHooks?.onTabChange();
 }
 
@@ -662,14 +676,21 @@ export async function disposeTerminal(): Promise<void> {
   termSeq = 0;
   projectRunSeq = 1;
   uvicornOpenedFor.clear();
+  resetOutputChannelUi();
   renderTerminalTabs();
   bottomTab = "output";
-  $("tab-output").classList.add("active");
-  $("tab-terminal").classList.remove("active");
-  $("tab-diff").classList.remove("active");
+  // class 与 aria-selected 同源切换（UI-16 单一写入点本应走 setBottomTab；此处是复位路径，
+  // 不宜触发 ensureAnyTerminal 等副作用，故手动同步两态）
+  for (const [id, active] of [
+    ["tab-output", true], ["tab-terminal", false], ["tab-git-detail", false], ["tab-find-usages", false],
+  ] as const) {
+    $(id).classList.toggle("active", active);
+    $(id).setAttribute("aria-selected", String(active));
+  }
   outputEl.classList.remove("hidden");
   terminalPanelEl.classList.add("hidden");
-  gitDiffPanelEl.classList.add("hidden");
+  gitDetailPanelEl.classList.add("hidden");
+  findUsagesPanelEl.classList.add("hidden");
 }
 
 // ---------- 事件接线 ----------
@@ -689,12 +710,27 @@ export function wireBottomPanel(): void {
   // 底部面板：输出 / 终端标签 + 清空 + 展开收起
   $("tab-output").addEventListener("click", () => setBottomTab("output"));
   $("tab-terminal").addEventListener("click", () => setBottomTab("terminal"));
-  $("tab-diff").addEventListener("click", () => setBottomTab("diff"));
+  // Git 标签：无内容时渲染空态引导（show/blame 是被动填充，直接点击原本只有一片空白）
+  $("tab-git-detail").addEventListener("click", () => {
+    if (!hasGitDetailContent()) renderGitDetailEmptyState();
+    setBottomTab("git");
+  });
+  $("tab-find-usages").addEventListener("click", () => setBottomTab("findUsages"));
   $("btn-clear-output").addEventListener("click", () => {
     outputHooks?.onClear(); // S4：先丢弃未完结行状态，再清空容器
     clearOutput(outputEl);
   });
   $("btn-toggle-output").addEventListener("click", toggleBottomPanel);
+  // P2：输出 channel 过滤 chips（全部 / 调试 / 环境 / Git）——点击切过滤并重刷已有行
+  $("output-channels").addEventListener("click", (e) => {
+    const chip = (e.target as HTMLElement).closest(".out-chip") as HTMLElement | null;
+    if (!chip?.dataset.ch) return;
+    setOutputChannelFilter(chip.dataset.ch as OutputChannel);
+    refilterOutputChannel(outputEl);
+    for (const c of $("output-channels").querySelectorAll(".out-chip")) {
+      c.classList.toggle("active", c === chip);
+    }
+  });
   // 高频命令下拉（P2-6）：选中即发送到终端
   ($("terminal-cmd") as HTMLSelectElement).addEventListener("change", (e) => {
     const sel = e.target as HTMLSelectElement;
@@ -705,6 +741,14 @@ export function wireBottomPanel(): void {
     sel.selectedIndex = 0;
     void runTerminalCommand(cmd, run);
   });
+}
+
+/** P2：重置输出 channel 过滤到「全部」（关闭/切换工作区、运行历史重放前调用） */
+export function resetOutputChannelUi(): void {
+  setOutputChannelFilter(null);
+  for (const c of $("output-channels").querySelectorAll(".out-chip")) {
+    c.classList.toggle("active", (c as HTMLElement).dataset.ch === "all");
+  }
 }
 
 // ---------- ANSI 剥离（§11 运行历史采集；实现在 util.ts，纯函数同 basename 层） ----------
@@ -718,14 +762,20 @@ export async function wireTerminalEvents(): Promise<void> {
     const s = termSessions.find((x) => x.id === e.payload.id);
     if (!s) return;
     s.iterm.writeData(e.payload.data);
-    // 按实例采集（运行历史，§11）+ FastAPI 服务就绪行监听（§9）。
-    // 两者都用剥离 ANSI 后的文本：uvicorn 彩色输出中 URL 后可能紧跟重置码（\x1b[0m），
-    // 对原始数据跑 \S+ 会把转义码吃进 URL（复查修复）
+    // 剥离 ANSI 后的纯文本：运行历史采集（§11）/ Uvicorn 监听（§9）/ 包管理器完成摘要嗅探（M2 §4.4）共用。
+    // uvicorn 彩色输出中 URL 后可能紧跟重置码（\x1b[0m），对原始数据跑 \S+ 会把转义码吃进 URL（复查修复）
+    const plain = stripAnsi(e.payload.data);
     if (s.kind === "run") {
-      const plain = stripAnsi(e.payload.data);
       s.runOnData?.(plain);
       watchUvicornLine(s.id, plain);
     }
+    // M4-3 §6.4：traceback 的 ModuleNotFoundError → toast +「安装」按钮（复核修复 #4：
+    // shell 与 run 会话都喂——用户在 shell 手敲 `uv run main.py` 的报错同样要触达；
+    // 按行喂入，跨块截断由 modNotFoundHinted 会话去重兜底，罕见漏检不误报）。
+    for (const line of plain.split("\n")) handleTracebackLine(line);
+    // M2 §4.4：shell 会话里用户手敲 uv/pip 装包 → 完成摘要嗅探触发环境信号（反馈 3-4：终端装包后
+    // 红线随 restartEngine 消失）。run 会话也一并嗅探（正则足够特异，脚本极少打印装包完成摘要）。
+    sniffTerminalOutput(plain);
   });
   await listen<{ id: string; code?: number }>("term-exit", (e) => {
     const s = termSessions.find((x) => x.id === e.payload.id);

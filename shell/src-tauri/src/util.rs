@@ -126,12 +126,14 @@ pub(crate) fn kill_process_tree(child: &mut std::process::Child) {
     #[cfg(windows)]
     {
         let pid = child.id().to_string();
-        let _ = std::process::Command::new("taskkill")
-            .args(["/PID", &pid, "/T", "/F"])
+        // 体验修复：taskkill 也须 CREATE_NO_WINDOW——编辑 .py 触发 LSP 重启/停止运行时
+        // 走到这里，裸 spawn 的 taskkill 会在前台闪黑框（用户报告的「老是有黑框闪」）
+        let mut kill = std::process::Command::new("taskkill");
+        kill.args(["/PID", &pid, "/T", "/F"])
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status();
+            .stderr(std::process::Stdio::null());
+        let _ = no_window(&mut kill).status();
     }
     #[cfg(not(windows))]
     {
@@ -153,12 +155,15 @@ pub(crate) fn kill_process_tree_async(child: std::process::Child) {
     std::thread::spawn(move || {
         let t0 = std::time::Instant::now();
         #[cfg(windows)]
-        let _ = std::process::Command::new("taskkill")
-            .args(["/PID", &pid.to_string(), "/T", "/F"])
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status();
+        {
+            // 体验修复：同 kill_process_tree——taskkill 补 CREATE_NO_WINDOW（防黑框闪）
+            let mut kill = std::process::Command::new("taskkill");
+            kill.args(["/PID", &pid.to_string(), "/T", "/F"])
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null());
+            let _ = no_window(&mut kill).status();
+        }
 
         let mut child = child;
         #[cfg(not(windows))]

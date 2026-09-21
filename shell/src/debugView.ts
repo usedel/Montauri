@@ -13,6 +13,7 @@ import { openPrompt } from "./dialog";
 import { clearInlineValues, updateInlineValues } from "./inlineValues";
 import { $ } from "./state";
 import { codicon, basename, emptyState, spinIcon } from "./util"; // UI-12：空态改用统一组件
+import { toastFail } from "./toast";
 // UI-09：工具栏提示的快捷键副文本改为读键位系统（原先把 "(F5)" 等硬编码进提示文本，
 // 用户在设置里改键后提示就是错的）。keybindings 仅依赖 state，此处导入不成环。
 import { bindingLabel, type KeybindingId } from "./keybindings";
@@ -638,6 +639,7 @@ async function setValue(name: string, current: string, parentRef: number): Promi
     await refreshVariables(); // expandedRefs 保留：已展开的子树按新值重建
   } catch (e) {
     console.warn("[debugView] setVariable 失败:", e);
+    toastFail("修改变量", e);
   }
 }
 
@@ -675,6 +677,7 @@ async function onContinue(): Promise<void> {
     await dap.dapContinue(activeThreadId);
   } catch (e) {
     console.warn("[debugView] continue 失败:", e);
+    toastFail("继续执行", e);
   }
 }
 
@@ -683,6 +686,7 @@ async function onPause(): Promise<void> {
     await dap.request("pause", { threadId: activeThreadId });
   } catch (e) {
     console.warn("[debugView] pause 失败:", e);
+    toastFail("暂停", e);
   }
 }
 
@@ -693,5 +697,6 @@ async function onStep(kind: "next" | "stepIn" | "stepOut"): Promise<void> {
     else await dap.dapStepOut(activeThreadId);
   } catch (e) {
     console.warn(`[debugView] ${kind} 失败:`, e);
+    toastFail(kind === "next" ? "单步跳过" : kind === "stepIn" ? "单步进入" : "单步跳出", e);
   }
 }

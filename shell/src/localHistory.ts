@@ -16,6 +16,7 @@ import { openAlert, openConfirm } from "./dialog";
 import { trapFocus } from "./focusTrap";
 import { app, $ } from "./state";
 import { basename, emptyState, languageOf, relativePath } from "./util";
+import { toastFail } from "./toast";
 
 /** 后端 history.rs 的 HistoryEntry 镜像 */
 export interface HistoryEntry {
@@ -168,6 +169,7 @@ async function markCurrent(): Promise<void> {
     await load();
   } catch (e) {
     console.warn("[localHistory] 标记失败", e);
+    toastFail("标记快照", e);
   }
 }
 
@@ -191,6 +193,7 @@ async function revertSelected(): Promise<void> {
     await load();
   } catch (e) {
     console.warn("[localHistory] 回滚失败", e);
+    toastFail("回滚历史版本", e);
   }
 }
 
@@ -210,6 +213,7 @@ async function clearHistory(): Promise<void> {
     await load();
   } catch (e) {
     console.warn("[localHistory] 清空历史失败", e);
+    toastFail("清空历史", e);
   }
 }
 

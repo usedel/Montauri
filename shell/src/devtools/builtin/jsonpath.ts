@@ -1,23 +1,9 @@
-// JSONPath 提取器：输入 JSON → 树状展示 → 点击节点显示路径（JSONPath / Python 下标可切换）并可复制。
-// 窄面板适配：树占满纵向空间，值预览收在底部可折叠区，避免左右分栏被压扁。
+// JSONPath 提取器（PR-3 迁移为内置插件形态）：JSON 树状浏览 + 点击节点复制路径。
+// 原实现见 devtools/jsonpath/（tree 纯函数保留原位，此处仅迁移 UI 壳）。
 
-import type { DevTool, ToolHost, ToolInstance } from "../types";
-import { codicon } from "../../util";
+import type { PanelHost } from "../../extensions/facade";
 import { flashError, flashSuccess } from "../feedback";
-import { buildJsonTree, toJsonPath, toPythonSubscript, tryParseJson, type JsonNode } from "./tree";
-import { motionDisabled } from "../../anim"; // UI-11：只读预览的光标闪烁也随「减少动画」
-import { app } from "../../state"; // UI-29：字号/字体族跟随用户设置
-
-export const jsonpathTool: DevTool = {
-  id: "jsonpath",
-  title: "JSONPath 提取器",
-  description: "JSON 树状浏览，点击节点复制其路径",
-  category: "爬虫",
-  icon: "json",
-  mount(host: ToolHost): ToolInstance {
-    return mountJsonPath(host);
-  },
-};
+import { buildJsonTree, toJsonPath, toPythonSubscript, tryParseJson, type JsonNode } from "../jsonpath/tree";
 
 const SAMPLE = JSON.stringify(
   {
@@ -33,7 +19,6 @@ const SAMPLE = JSON.stringify(
   2,
 );
 
-/** 标量值预览文本（长字符串截断） */
 function scalarPreview(v: unknown): string {
   if (typeof v === "string") {
     const s = JSON.stringify(v);
@@ -43,7 +28,6 @@ function scalarPreview(v: unknown): string {
   return "null";
 }
 
-/** 「复制值」的内容：字符串裸值，object/array 序列化，其余字面量 */
 function valueText(node: JsonNode): string {
   if (typeof node.value === "string") return node.value;
   if (node.value === null || typeof node.value === "number" || typeof node.value === "boolean") {
@@ -52,35 +36,20 @@ function valueText(node: JsonNode): string {
   return JSON.stringify(node.value, null, 2);
 }
 
-function mountJsonPath(host: ToolHost): ToolInstance {
-  const root = host.root;
-  root.textContent = "";
+export function mount(host: PanelHost): { dispose(): void } | void {
+  const { kit } = host;
+  host.root.textContent = "";
 
   let mode: "jsonpath" | "python" = "jsonpath";
   let selected: JsonNode | null = null;
 
-  const wrap = document.createElement("div");
-  wrap.className = "tool-body";
+  const wrap = kit.body();
+  const input = kit.textarea({ placeholder: "粘贴 JSON 文本…" });
+  const errEl = kit.errorSlot();
 
-  const input = document.createElement("textarea");
-  input.className = "tool-textarea";
-  input.placeholder = "粘贴 JSON 文本…";
-  input.spellcheck = false;
-
-  const bar = document.createElement("div");
-  bar.className = "tool-toolbar";
-  // UI-08：走通用 .btn 体系（flash 反馈依赖 .btn.flash-ok/.flash-error）
-  const parseBtn = document.createElement("button");
-  parseBtn.className = "btn btn--primary";
-  parseBtn.textContent = "解析";
-  const sampleBtn = document.createElement("button");
-  sampleBtn.className = "btn";
-  sampleBtn.textContent = "示例";
-  const clearBtn = document.createElement("button");
-  clearBtn.className = "btn";
-  clearBtn.textContent = "清空";
-  const errEl = document.createElement("div");
-  errEl.className = "tool-error";
+  const parseBtn = kit.primaryButton("解析", "play");
+  const sampleBtn = kit.button("示例");
+  const clearBtn = kit.button("清空");
 
   // 路径区：只读输入框 + 复制按钮（首行）、格式切换（次行）
   const pathBox = document.createElement("div");
@@ -92,20 +61,18 @@ function mountJsonPath(host: ToolHost): ToolInstance {
   pathInput.type = "text";
   pathInput.readOnly = true;
   pathInput.spellcheck = false;
+  pathInput.autocomplete = "off";
   pathInput.placeholder = "点击树节点显示路径";
-  // UI-08：窄面板（默认 360px）内用紧凑档 .btn--sm；切换态由 .btn.active 承载
-  // UI-09 例外：下面两个按钮在未选中节点时即为 disabled（见本文件末尾的初始化与 selectNode），
-  // 而 Chromium 不向禁用表单控件派发鼠标事件，data-tip 会静默失效——初始态就收不到提示。
-  // 故保留原生 title（由渲染层命中测试驱动，禁用态仍显示）。
+  // UI-09 例外：未选中节点时按钮 disabled，data-tip 静默失效——保留原生 title
   const copyPathBtn = document.createElement("button");
   copyPathBtn.className = "btn btn--sm";
   copyPathBtn.title = "复制路径";
-  copyPathBtn.appendChild(codicon("copy"));
-  copyPathBtn.append("路径"); // 间距由 .btn 的 gap 提供，不再靠前导空格
+  copyPathBtn.appendChild(kit.icon("copy"));
+  copyPathBtn.append("路径");
   const copyValueBtn = document.createElement("button");
   copyValueBtn.className = "btn btn--sm";
   copyValueBtn.title = "复制值";
-  copyValueBtn.appendChild(codicon("copy"));
+  copyValueBtn.appendChild(kit.icon("copy"));
   copyValueBtn.append("值");
   pathRow.append(pathInput, copyPathBtn, copyValueBtn);
 
@@ -121,34 +88,19 @@ function mountJsonPath(host: ToolHost): ToolInstance {
 
   pathBox.append(pathRow, modeRow);
 
-  // 值预览（底部可折叠）
+  // 值预览（底部可折叠）——kit.output 封装 Monaco
   const valueToggle = document.createElement("button");
   valueToggle.className = "jp-value-toggle";
-  const valueCaret = codicon("chevron-down");
+  const valueCaret = kit.icon("chevron-down");
   valueToggle.appendChild(valueCaret);
   valueToggle.append(" 值预览");
   const valueBox = document.createElement("div");
   valueBox.className = "jp-value-box";
+  const valueOut = kit.output({ language: "json" });
+  valueBox.appendChild(valueOut.el);
 
   const treeBox = document.createElement("div");
   treeBox.className = "jp-tree";
-
-  // UI-29：字号/字体族读用户设置（原硬编码 fontSize:12）。与 UI-11 同一裁决：
-  // 实例随工具挂载新建、卸载即销毁，创建时读一次即可；重新挂载自然拿到新值。
-  const fontFamily = app.settings.font_family.trim();
-  const valueEditor = host.monaco.editor.create(valueBox, {
-    value: "",
-    language: "json",
-    readOnly: true,
-    automaticLayout: true,
-    minimap: { enabled: false },
-    fontSize: app.settings.font_size,
-    ...(fontFamily ? { fontFamily } : {}),
-    scrollBeyondLastLine: false,
-    wordWrap: "on",
-    // UI-11：实例随工具挂载新建、卸载即销毁，故创建时读一次开关即可，无需运行时接线
-    cursorBlinking: motionDisabled() ? "solid" : "blink",
-  });
 
   const setMode = (m: "jsonpath" | "python"): void => {
     mode = m;
@@ -165,11 +117,11 @@ function mountJsonPath(host: ToolHost): ToolInstance {
     copyPathBtn.disabled = !selected;
     copyValueBtn.disabled = !selected;
     if (selected) {
-      valueEditor.setValue(
+      valueOut.set(
         typeof selected.value === "string" ? selected.value : JSON.stringify(selected.value, null, 2),
       );
     } else {
-      valueEditor.setValue("");
+      valueOut.clear();
     }
   };
 
@@ -190,7 +142,7 @@ function mountJsonPath(host: ToolHost): ToolInstance {
     const hasChildren = !!node.children && node.children.length > 0;
     const toggle = document.createElement("span");
     toggle.className = `jp-toggle${hasChildren ? "" : " hidden"}`;
-    toggle.appendChild(codicon("chevron-right"));
+    toggle.appendChild(kit.icon("chevron-right"));
     row.appendChild(toggle);
 
     const key = document.createElement("span");
@@ -297,22 +249,20 @@ function mountJsonPath(host: ToolHost): ToolInstance {
     valueOpen = open;
     valueBox.classList.toggle("hidden", !open);
     valueCaret.classList.toggle("expanded", open);
-    if (open) valueEditor.layout();
   };
   valueToggle.addEventListener("click", () => setValueOpen(!valueOpen));
   setValueOpen(false);
 
-  bar.append(parseBtn, sampleBtn, clearBtn);
-  wrap.append(input, bar, errEl, pathBox, treeBox, valueToggle, valueBox);
-  root.appendChild(wrap);
+  wrap.append(input, kit.toolbar(parseBtn, sampleBtn, clearBtn), errEl, pathBox, treeBox, valueToggle, valueBox);
+  host.root.appendChild(wrap);
 
   copyPathBtn.disabled = true;
   copyValueBtn.disabled = true;
-  setMode("jsonpath"); // UI-16：初始态改走 setMode（原直接加 .active 类，会漏掉 aria-pressed）
+  setMode("jsonpath");
 
   return {
     dispose() {
-      valueEditor.dispose();
+      valueOut.dispose();
     },
   };
 }

@@ -113,7 +113,7 @@
      信息——Git 状态徽标（M/A/D/U/R/C）、模板类型徽标、JSON 类型徽标、tooltip 里的快捷键 kbd、
      解释器种类徽标、大纲折叠箭头。
      6 处用点均已逐一核实无溢出风险：所在容器都带一个可截断的弹性成员来吸收 ~10% 的宽度增量
-     （.tree-item .name / .env-item .path / .lt-row .lt-desc / .jp-row .jp-value 均为
+     （.tree-item .name / .lt-row .lt-desc / .jp-row .jp-value 均为
      overflow:hidden + text-overflow:ellipsis），或本身宽度自适应（.oc-tooltip 是 nowrap 浮层、
      宽度由内容撑开；#outline-toggle 是图标字形，不占文本宽度）。
      另：.lt-badge 与 .git-badge 的高度由 line-height/padding 决定而非字号，故纵向排布不受影响。
@@ -244,7 +244,7 @@ html[data-reduce-motion] .codicon-modifier-spin { animation: none; }
      --warn-soft 底色上」的组合，合成后更低到 3.57:1——浅色主题下今天就不满足 AA 4.5:1。
      加深到 #6f5800：面板底 5.79:1、叠在 --warn-soft 合成底上 4.96:1，两处均达标。
      影响面（均为改善）：.search-hit 命中词、.git-commit-item .hash、.lt-kind-surround 徽标、
-     .storage-badge-part、.pkg-outdated，以及 .tab .dirty / .lsp-dot.dot-starting 两个状态点。
+     .storage-badge-part、.env-pkg-line .pkg-upgrade（过时升级箭头），以及 .tab .dirty / .lsp-dot.dot-starting 两个状态点。
      注：--warn-soft / --warn-border 是填充与描边（非文字），保持原值不动。 */
   --warn: #6f5800;
   --warn-soft: rgba(189, 155, 0, 0.2);
@@ -261,6 +261,8 @@ html[data-reduce-motion] .codicon-modifier-spin { animation: none; }
   --git-added: #45804f;
   --git-untracked: #35835b;
   --git-branch: #946c00;
+  /* gutter 删除指示（红三角）与 SCM badge D 共用 danger 红 */
+  --git-deleted: var(--danger);
   --diff-hunk: #3070c0;
   --diff-add: #4d7a3f;
   /* 语法色浅色适配（UI-15）：取 VS Code Light+ 的对应 token 色，与深色侧同源同一套体系。
@@ -321,7 +323,6 @@ button:focus-visible,
 .ctx-menu-item:focus-visible,
 .tab:focus-visible,
 .scm-item:focus-visible,
-.env-item:focus-visible,
 .git-branch-item:focus-visible,
 .git-commit-item:focus-visible,
 .ew-recent-item:focus-visible,
@@ -514,7 +515,13 @@ button:focus-visible,
   cursor: pointer;
   font-size: var(--text-sm);
 }
-.menubar-item:hover, .menubar-item.active {
+/* MB-03：hover 降为浅色（与 .ctx-menu-item:hover / .tree-item:hover 等轻量 hover 体系一致），
+   实心 --accent 只保留给 .active（当前展开态指示）。hover 与 active 语义分离（VS Code 同款）。 */
+.menubar-item:hover {
+  background: var(--hover);
+  color: var(--fg);
+}
+.menubar-item.active {
   background: var(--accent);
   color: var(--on-accent);
 }
@@ -1361,6 +1368,22 @@ button:focus-visible,
 
 /* 底部面板标签（输出 / 终端） */
 #bottom-tabs { display: flex; align-items: center; gap: var(--space-1); }
+/* P2：输出面板 channel 过滤 chips（调试 / 环境 / Git） */
+#output-channels { display: flex; align-items: center; gap: var(--space-1); }
+.out-chip {
+  background: transparent;
+  color: var(--fg-dim);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-3);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  line-height: 1.2;
+}
+.out-chip:hover { color: var(--fg); border-color: var(--fg-dim); }
+.out-chip.active { color: var(--fg); border-color: var(--fg-dim); background: var(--hover); }
+/* P2：channel 过滤下的隐藏行（纯显示层，行仍在 DOM 与历史采集里） */
+.out-line.out-ch-hidden { display: none; }
 .bottom-tab {
   background: transparent;
   color: var(--fg-dim);
@@ -1591,6 +1614,14 @@ button:focus-visible,
   #status-font { display: none; }
 }
 
+/* MB-16：menubar 窄窗口缓解（第一批实测落地）。8 个顶级菜单 + 右侧动作区在 800px 最小窗口下
+   粗算 ≈840px 超限；标题文字是菜单区信息价值最低且 logo 仍在（品牌感不丢），优先收起。
+   复用 UI-21 的 900px 断点：窗口下限 800 < 900，断点在可调区间内可达（与 #status-font 同款推导）。
+   窗口拉宽后标题自动恢复；#menubar 是 flex 容器无换行，收起标题后菜单按钮不再互相挤压。 */
+@media (max-width: 900px) {
+  .menubar-title { display: none; }
+}
+
 /* ---------- 空状态（D4：搜索无结果 / 无 Git 变更 / 无符号等统一） ---------- */
 .empty-state {
   display: flex;
@@ -1709,8 +1740,9 @@ button:focus-visible,
   text-overflow: ellipsis;
   max-width: 300px;
 }
-/* 有子菜单的父项：hover 展开态指示 */
-.ctx-menu-item.with-submenu .sub-arrow { margin-left: auto; color: var(--fg-dim); font-size: var(--text-xs); padding-left: var(--space-6); }
+/* 有子菜单的父项：hover 展开态指示。MB-09：字号提到 --text-sm——❯（U+276F）字形比原 ▸ 细长，
+   xs 档下发虚、与 label 重心不齐；同档后视觉对齐（颜色/对齐方式不变） */
+.ctx-menu-item.with-submenu .sub-arrow { margin-left: auto; color: var(--fg-dim); font-size: var(--text-sm); padding-left: var(--space-6); }
 .ctx-menu-item.with-submenu.open { background: var(--hover-subtle); color: var(--fg); }
 
 /* ---------- 模态（新建/重命名输入框） ---------- */
@@ -1838,15 +1870,17 @@ button:focus-visible,
 /* UI-08：对话框按钮迁移到 .btn 体系（.btn / .btn--primary / .btn--danger）。
    原 `.modal-actions button` 特异性 (0,1,1) 高于 .btn 的 (0,1,0)，故整块删除而非并存。
    注：#confirm-ok 的 primary/danger 形态由 dialog.ts::applyKind 动态切换类名。 */
-.confirm-message { font-size: var(--text-base); color: var(--fg); margin-bottom: var(--space-6); white-space: pre-line; word-break: break-all; }
+.confirm-message { font-size: var(--text-base); color: var(--fg); margin-bottom: var(--space-6); white-space: pre-line; word-break: break-all; max-height: 50vh; overflow-y: auto; }
 /* 统一消息框（confirm/alert）常由设置面板等模态内的操作触发：
    必须压在所有 .modal（z-index: 300）之上，否则会被面板遮挡、看起来像「点了没反应」。
    同时高于 tooltip（400）。 */
 #confirm-modal { z-index: 500; }
 
 /* ---------- 环境面板 ---------- */
-.env-card { min-width: 520px; max-width: 640px; max-height: 70vh; display: flex; flex-direction: column; }
-.env-header { display: flex; align-items: center; margin-bottom: var(--space-5); }
+/* 2026-09-16 重构：包管理是面板主体 → 卡片加宽（820px，94vw 兜底同 settings/run-config 惯例），
+   包列表弹性撑满剩余高度，消灭原 .env-list/.env-packages 各自 160px + 外层滚动的嵌套滚动。 */
+.env-card { width: 820px; max-width: 94vw; max-height: 82vh; display: flex; flex-direction: column; }
+.env-header { display: flex; align-items: center; margin-bottom: var(--space-5); flex: none; }
 .env-header .spacer { flex: 1; }
 /* UI-18：模态标题档，原 15px 归到 16px（--text-lg）以保住「标题 > 正文 13px」的层级差 */
 .env-title { font-size: var(--text-lg); font-weight: 600; color: var(--fg); }
@@ -1855,6 +1889,10 @@ button:focus-visible,
    正是原 .env-close 观感，故按域规则整条删除。
    ⚠ 可见变化：关闭图标 16px→14px（由 .btn .codicon 统一），按钮因 1px 透明边框而各边大 1px。 */
 .env-body { overflow: auto; display: flex; flex-direction: column; gap: var(--space-5); }
+.env-section { flex: none; }
+.env-section--pkgs { flex: 1; min-height: 220px; display: flex; flex-direction: column; }
+/* 安装行与列表框原本零间距贴死（同环境区行距问题） */
+.env-section--pkgs > .env-row { margin-top: var(--space-3); }
 .env-section-title { font-size: var(--text-xs); letter-spacing: 1px; color: var(--fg-dim); margin-bottom: var(--space-2); }
 /* P2（建议 5）：裸目录 pyproject.toml 引导横幅 */
 .env-banner {
@@ -1873,30 +1911,20 @@ button:focus-visible,
   color: var(--fg-dim);
 }
 .env-banner.hidden { display: none; }
+/* 态A 无环境警示横幅（#2 决策 4）：warn 色填充，强于普通 info 横幅 */
+.env-banner--warn { border-left-color: var(--warn); background: var(--warn-soft); color: var(--warn); }
 .env-banner-text { flex: 1; }
 .env-banner-text code { color: var(--fg); background: transparent; padding: 0 var(--space-1); }
 /* UI-08：横幅内按钮的 flex:none / nowrap 已由 .btn 基类提供，原 .env-banner .env-mini-btn 覆盖成为死规则 */
-.env-list, .env-packages {
+/* 原 .env-list/.env-item 已退役（解释器列表降为单行下拉） */
+.env-packages {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  max-height: 160px;
+  flex: 1;
+  min-height: 0; /* flex 子项允许收缩，否则内容撑破容器 */
   overflow: auto;
   background: var(--bg);
 }
-.env-item {
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-  padding: var(--space-3) var(--space-5);
-  cursor: pointer;
-  font-size: var(--text-sm);
-  border-bottom: 1px solid var(--border-soft);
-}
-.env-item:last-child { border-bottom: none; }
-.env-item:hover { background: var(--hover); }
-.env-item.selected { background: var(--accent-soft); }
-.env-item .badge { font-size: var(--text-xs); color: var(--fg-dim); border: 1px solid var(--border); border-radius: var(--radius-xs); padding: 0 var(--space-2); flex: none; }
-.env-item .path { color: var(--fg-dim); font-size: var(--text-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .env-row { display: flex; gap: var(--space-4); align-items: center; }
 .env-row select, .env-row input {
   flex: 1;
@@ -1907,44 +1935,309 @@ button:focus-visible,
   padding: var(--space-3) var(--space-4);
   font-size: var(--text-sm);
 }
+/* 环境区纵向节奏（2026-09-16 补）：两个 .env-row 块级紧邻原本零间距、视觉贴死；
+   改 flex 列 + 统一 gap，标题 margin 区内归零使节奏均一。 */
+.env-section--interp { display: flex; flex-direction: column; gap: var(--space-4); }
+.env-section--interp .env-section-title { margin-bottom: 0; }
+/* 自定义解释器下拉（#2 决策 1=3b）：trigger 按钮 + 绝对定位 popover listbox（分组 + 底部动作行）。
+   宽度对齐原下拉（480px，窄卡可收缩）；popover 锚在 trigger 下方、同宽，浮层范式同 .ctx-menu。 */
+.interp-select { position: relative; flex: 0 1 480px; }
+.interp-trigger {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  text-align: left;
+}
+.interp-trigger:hover { border-color: var(--accent); }
+.interp-trigger:focus-visible { outline: none; border-color: var(--accent); }
+.interp-trigger-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.interp-trigger-caret { flex: none; color: var(--fg-dim); transition: transform 0.12s; }
+.interp-trigger[aria-expanded="true"] .interp-trigger-caret { transform: rotate(180deg); }
+
+.interp-popover {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 400;
+  max-height: 360px;
+  overflow-y: auto;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow);
+  padding: var(--space-2) 0;
+}
+.interp-popover.hidden { display: none; }
+.interp-group-label {
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-xs);
+  letter-spacing: 1px;
+  color: var(--fg-dim);
+}
+.interp-item, .interp-action {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  color: var(--fg);
+  background: transparent;
+  border: none;
+  text-align: left;
+}
+.interp-item:hover, .interp-item.active,
+.interp-action:hover, .interp-action.active { background: var(--hover-subtle); }
+.interp-item[aria-selected="true"] .interp-item-label { color: var(--accent); }
+.interp-item-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.interp-item-path {
+  flex: none; max-width: 45%;
+  color: var(--fg-dim); font-size: var(--text-xs);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.interp-item-check { flex: none; width: 16px; color: var(--accent); }
+.interp-sep { height: 1px; background: var(--border); margin: var(--space-2) 0; }
+.interp-action .codicon { flex: none; color: var(--fg-dim); }
+.interp-action.accent { color: var(--accent); }
+.interp-action.accent .codicon { color: var(--accent); }
+
+/* 创建 .venv 的版本选择模态（#2 决策 2：版本选择收进创建流程，移除面板独立版本下拉行） */
+.venv-version-card { width: 440px; max-width: 92vw; }
+.venv-version-hint {
+  margin-bottom: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  background: var(--warn-soft);
+  border: 1px solid var(--warn-border);
+  border-radius: var(--radius-sm);
+  color: var(--warn);
+  font-size: var(--text-sm);
+}
+.venv-version-hint.hidden { display: none; }
+.venv-version-list { max-height: 320px; overflow-y: auto; }
+.venv-version-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  color: var(--fg);
+  border-radius: var(--radius-sm);
+}
+.venv-version-item:hover, .venv-version-item.active { background: var(--hover-subtle); }
+.venv-version-item .spacer { flex: 1; }
+.venv-version-item .tag { flex: none; color: var(--fg-dim); font-size: var(--text-xs); }
 /* UI-08：迁移到 .btn 体系。顺带修正一处旧的 hover 不一致——原 `.env-row button:hover`
    直接变成实心 accent 蓝底白字，跳变强度远超其它按钮（只变 border-color 或浅底），
    收敛后统一走 .btn 的轻量 hover。 */
-.env-pkg-line { display: flex; gap: var(--space-4); padding: var(--space-2) var(--space-5); font-size: var(--text-sm); border-bottom: 1px solid var(--border-soft); }
-.env-pkg-line:last-child { border-bottom: none; }
-.env-pkg-line .pkg-name { color: var(--fg); }
-.env-pkg-line .pkg-version { color: var(--fg-dim); }
 /* UI-12：原 .env-empty 被搜索面板跨域借用（类名带 env 业务前缀却用在无关区域，属命名泄漏，
    后续维护者改环境面板样式时会误伤搜索面板）。改为中性的 .hint-text：
    一行次要提示文字，覆盖「空结果 / 加载中 / 需先满足前置条件」三类场景。
    需要「图标 + 标题 + 说明」的完整空态请改用 util.ts::emptyState()（.empty-state）。 */
 .hint-text { padding: var(--space-5); color: var(--fg-dim); font-size: var(--text-sm); }
 .env-pkg-count { color: var(--fg-dim); font-weight: normal; letter-spacing: 0; }
+/* 2026-09-16：包工具栏新增筛选框——输入框弹性占宽，两个操作按钮 flex:none 不被挤压；
+   合并删除上方被 1916 行覆盖的重复 .env-pkg-line 定义（死规则） */
 .env-pkg-toolbar { display: flex; gap: var(--space-3); margin-bottom: var(--space-2); }
-/* UI-08：迁移到 .btn .btn--sm（紧凑档，原 4px 10px / 11px 收敛到 2px 8px / 11px） */
-.env-pkg-line { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-4); font-size: var(--text-sm); border-bottom: 1px solid var(--border-soft); }
+.env-pkg-toolbar #env-pkg-filter {
+  flex: 1;
+  min-width: 120px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-sm);
+}
+.env-pkg-toolbar #env-pkg-filter:focus { outline: none; border-color: var(--accent); }
+.env-pkg-toolbar .btn { flex: none; }
+/* 2026-09-16：包行改 grid 定列（勾选 / 包名 / 版本 / 升级 / 卸载）——820px 宽下原
+   margin-left:auto 右对齐会在每行中部留大空洞，定列后 96 行纵向对齐成表格观感。
+   过时信号 = warn 色升级箭头（原「有新版 x」文字徽章退役：逐行黄字噪音过大，
+   版本细节改悬停 tip；--warn 取值沿用 UI-15 的修正，随主题变化）。 */
+.env-pkg-line {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) 96px 24px 24px;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-sm);
+  border-bottom: 1px solid var(--border-soft);
+}
 .env-pkg-line:last-child { border-bottom: none; }
-.env-pkg-line .pkg-check { flex: none; width: 14px; height: 14px; cursor: pointer; }
-.env-pkg-line .pkg-name { color: var(--fg); flex: none; }
-.env-pkg-line .pkg-version { color: var(--fg-dim); flex: none; }
-/* UI-15：修掉 --warning 笔误。token 里定义的从来是 --warn，故这行一直落到硬编码兜底 #e2b93d，
-   而浅色主题覆盖层改的是 --warn，对它毫无作用——「有新版」标记在浅色主题下只有 1.58:1。
-   改用 --warn 后即随主题变化（浅色值也已在本批加深，见 [data-theme="light"] 的 --warn 注释）。 */
-.env-pkg-line .pkg-outdated { color: var(--warn); font-size: var(--text-xs); flex: none; }
-.env-pkg-line .pkg-actions { margin-left: auto; display: flex; gap: var(--space-2); flex: none; }
-.env-pkg-line .pkg-actions button {
+.env-pkg-line .pkg-check { width: 14px; height: 14px; cursor: pointer; }
+.env-pkg-line .pkg-name { color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.env-pkg-line .pkg-version { color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.env-pkg-line > button {
+  width: 24px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: transparent;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
   color: var(--fg-dim);
   cursor: pointer;
-  padding: 0 var(--space-3);
   font-size: var(--text-sm);
-  line-height: 20px;
 }
-.env-pkg-line .pkg-actions button:hover { color: var(--fg); border-color: var(--border); }
-.env-pkg-line .pkg-actions button.danger:hover { color: var(--danger); border-color: var(--danger-border); }
+.env-pkg-line > button:hover { color: var(--fg); border-color: var(--border); }
+.env-pkg-line > button.danger:hover { color: var(--danger); border-color: var(--danger-border); }
+.env-pkg-line > button.pkg-upgrade { color: var(--warn); }
+.env-pkg-line > button.pkg-upgrade:hover { color: var(--warn); border-color: var(--border); }
+/* #4：包行「未声明」徽标（E3 漂移）——warn 色小徽标，内联在包名后，连通包管理与依赖健康 */
+.pkg-drift-tag {
+  display: inline-block;
+  margin-left: var(--space-2);
+  padding: 0 var(--space-2);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  color: var(--warn);
+  background: var(--warn-soft);
+  border: 1px solid var(--warn-border);
+  border-radius: var(--radius-sm);
+  vertical-align: middle;
+}
 /* UI-08：按钮忙碌态（内联转圈 + 禁用交互）已收敛到 .btn.busy，见「通用按钮体系」 */
+
+/* ---------- 依赖健康（dep plan M3，§6.1 三视图 + §6.2 横幅/持续存在感） ---------- */
+.dep-banner-actions { display: flex; gap: var(--space-3); flex: none; }
+.dep-health-top { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-3); }
+.dep-health-top .spacer { flex: 1; }
+.dep-health-top .badge {
+  font-size: var(--text-xs);
+  color: var(--fg-dim);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  padding: 0 var(--space-2);
+  flex: none;
+}
+/* external/bare 徽章可点击（§6.1：展开边界说明 / 生成 pyproject 引导） */
+.dep-health-top .badge.clickable { cursor: pointer; }
+.dep-health-top .badge.clickable:hover { color: var(--fg); border-color: var(--fg-dim); }
+.dep-health-meta {
+  color: var(--fg-dim);
+  font-size: var(--text-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dep-tabs { display: flex; gap: var(--space-2); margin-bottom: var(--space-3); }
+.dep-tab {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--fg-dim);
+  font-size: var(--text-sm);
+  padding: var(--space-2) var(--space-4);
+  cursor: pointer;
+}
+.dep-tab:hover { color: var(--fg); }
+.dep-tab[aria-selected="true"] { color: var(--fg); background: var(--accent-soft); font-weight: 600; }
+.dep-health-content {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  max-height: 260px;
+  overflow: auto;
+}
+/* 依赖明细默认收起（2026-09-16）：面板首屏留给包管理主体；「有问题」信号由横幅与
+   常驻头部承载，明细是按需下钻（横幅「查看」/ 状态栏体检图标 / toast「查看」自动展开）。
+   hidden 类 + aria-expanded 同源切换（ARIA 状态单一写入点 = syncDepDetail）。 */
+.dep-section-title { display: flex; align-items: center; gap: var(--space-2); }
+.dep-collapse-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-xs);
+  color: var(--fg-dim);
+  cursor: pointer;
+  font-size: var(--text-sm);
+}
+.dep-collapse-btn:hover { color: var(--fg); background: var(--hover); }
+.dep-collapse-btn .codicon { transition: transform var(--transition-fast); }
+.dep-collapse-btn[aria-expanded="false"] .codicon { transform: rotate(-90deg); }
+.dep-health-detail.hidden { display: none; }
+.dep-group + .dep-group { border-top: 1px solid var(--border-soft); }
+.dep-group-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  user-select: none;
+}
+.dep-group-head:hover { background: var(--hover); }
+.dep-group-head .dep-caret { flex: none; color: var(--fg-dim); transition: transform var(--transition-fast); }
+.dep-group-head .dep-caret.expanded { transform: rotate(90deg); }
+.dep-group-title { color: var(--fg); flex: none; }
+.dep-group-count { color: var(--fg-dim); font-size: var(--text-xs); flex: none; }
+.dep-group-head .spacer { flex: 1; }
+.dep-group-note {
+  padding: var(--space-2) var(--space-4) var(--space-2) 28px;
+  color: var(--fg-dim);
+  font-size: var(--text-xs);
+  border-top: 1px solid var(--border-soft);
+}
+.dep-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4) var(--space-2) 28px;
+  font-size: var(--text-sm);
+  border-top: 1px solid var(--border-soft);
+}
+.dep-row .dep-name { color: var(--fg); flex: none; }
+.dep-row .dep-detail {
+  color: var(--fg-dim);
+  font-size: var(--text-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dep-row .dep-link { color: var(--accent); cursor: pointer; font-size: var(--text-xs); flex: none; }
+.dep-row .dep-link:hover { text-decoration: underline; }
+.dep-row .spacer { flex: 1; }
+.dep-row .dep-actions { display: flex; gap: var(--space-2); flex: none; }
+/* 行级动作按钮（安装/忽略/恢复检测）：透明底 hover 出框，对齐 .env-pkg-line > button 先例 */
+.dep-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--fg-dim);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  padding: 0 var(--space-3);
+}
+.dep-btn:hover { color: var(--fg); border-color: var(--border); }
+.dep-btn:disabled { opacity: 0.5; cursor: default; }
+.dep-btn.accent:hover { color: var(--accent); border-color: var(--accent); }
+.dep-lazy-tag { color: var(--fg-dim); border: 1px solid var(--border); border-radius: var(--radius-xs); font-size: var(--text-xs); padding: 0 var(--space-1); flex: none; }
+/* v1.7 B：E1 模块聚合——文件计数徽标 + 展开明细行（缩进弱化） */
+.dep-count-tag { color: var(--fg-dim); font-size: var(--text-xs); flex: none; }
+.dep-row--sub { padding-left: var(--space-6); opacity: 0.85; }
+.dep-empty { padding: var(--space-5); color: var(--fg-dim); font-size: var(--text-sm); }
+.dep-uv-note { margin-top: var(--space-3); color: var(--fg-dim); font-size: var(--text-xs); }
+/* 状态栏体检图标（§4.5：扫描中转圈 / 异常驻留警示色，点击开面板） */
+#dep-health-status { display: inline-flex; align-items: center; color: var(--fg-dim); }
+#dep-health-status.hidden { display: none; }
+#dep-health-status.issues { color: var(--warn); }
 
 /* ---------- Activity Bar（TD-001 步骤2：竖排图标栏）+ 单一视图容器 ---------- */
 #activity-bar {
@@ -2002,8 +2295,14 @@ button:focus-visible,
 }
 
 /* ---------- Git / SCM 面板（P1 最小可写闭环） ---------- */
-#git-panel { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+/* overflow:hidden 是溢出收容兜底：面板内任何子节点（分支列表 / 提交框）内容超高时，
+   溢出不得画出侧栏。缺它时溢出会盖到状态栏上——#sidebar 是 position:relative，整棵子树
+   按 CSS 绘制顺序在「定位后代」阶段绘制，晚于无定位的 #statusbar，分支名会在状态栏上
+   重影（#bottom 同为定位且 DOM 在后，恰好遮住中段，只漏出状态栏一条）。 */
+#git-panel { flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
 #git-commit-box { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4); border-bottom: 1px solid var(--border); }
+/* P1-F：git 提交信息空值的内联校验（红色小字，就近显示在 textarea 下方） */
+.git-field-error { font-size: var(--text-sm); color: var(--danger); line-height: 1.5; }
 #git-commit-msg {
   width: 100%;
   box-sizing: border-box;
@@ -2017,10 +2316,13 @@ button:focus-visible,
   resize: vertical;
 }
 #git-commit-msg:focus { outline: none; border-color: var(--accent); }
-/* UI-08：外观改由 .btn .btn--primary 承载，此处只保留布局职责（靠右对齐） */
-#git-commit-btn { align-self: flex-end; }
+/* UI-08：外观改由 .btn .btn--primary 承载，此处只保留布局职责（容器靠右对齐） */
+#git-commit-actions { display: flex; gap: var(--space-1); align-self: flex-end; }
 #git-changes { flex: 1; overflow: auto; padding: var(--space-2) 0; }
 .git-section-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   padding: var(--space-3) var(--space-5) var(--space-1);
   font-size: var(--text-xs);
   font-weight: 700;
@@ -2028,6 +2330,25 @@ button:focus-visible,
   /* UI-13：文本实际是中文（已暂存/更改，见 git.ts::gitSectionTitle），uppercase 对其无效，去掉死代码 */
   color: var(--fg-dim);
 }
+/* P1：分组标题栏的批量操作（全部暂存 / 全部取消暂存），hover 才显现（对标 VSCode SCM） */
+.git-section-title .scm-section-action {
+  width: 16px; height: 16px;
+  flex: none;
+  display: flex; align-items: center; justify-content: center;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg-dim);
+  font-size: var(--text-md);
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--transition-fast), visibility var(--transition-fast);
+}
+.git-section-title:hover .scm-section-action,
+.git-section-title:focus-within .scm-section-action { opacity: 1; visibility: visible; }
+.git-section-title .scm-section-action:hover { background: var(--control-hover); color: var(--fg); }
 .scm-item {
   display: flex;
   align-items: center;
@@ -2048,10 +2369,37 @@ button:focus-visible,
   color: var(--fg-dim);
   font-size: var(--text-md);
   cursor: pointer;
+  /* P0：行内操作按钮 hover / 键盘聚焦该行才显现（对标 VSCode SCM），平时列表行只留
+     文件图标 + 状态字母 + 文件名。用 visibility 而非仅 opacity——隐藏态必须不可点击，
+     否则点文件名首（按钮热区）会误触「暂存」而非查看 diff。 */
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--transition-fast), visibility var(--transition-fast);
 }
+.scm-item:hover .scm-action,
+.scm-item:focus-within .scm-action { opacity: 1; visibility: visible; }
 .scm-item .scm-action:hover { background: var(--control-hover); color: var(--fg); }
 .scm-item .scm-action.staged { color: var(--ok); }
-.scm-item .scm-action.conflict { color: var(--danger); cursor: not-allowed; }
+/* 冲突项 ! 需始终可见（提示需手动解决），不受 hover 显现规则约束 */
+.scm-item .scm-action.conflict { color: var(--danger); cursor: not-allowed; opacity: 1; visibility: visible; }
+/* 行内丢弃更改按钮（未暂存项行尾，hover 显现） */
+.scm-item .scm-discard {
+  width: 16px; height: 16px;
+  flex: none;
+  display: flex; align-items: center; justify-content: center;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg-dim);
+  font-size: var(--text-md);
+  cursor: pointer;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--transition-fast), visibility var(--transition-fast);
+}
+.scm-item:hover .scm-discard,
+.scm-item:focus-within .scm-discard { opacity: 1; visibility: visible; }
+.scm-item .scm-discard:hover { background: var(--control-hover); color: var(--danger); }
 .scm-item .scm-name { overflow: hidden; text-overflow: ellipsis; flex: 1; }
 .scm-item.untracked .scm-name { color: var(--git-untracked); }
 /* D2：SCM 条目文件类型图标槽位 */
@@ -2085,6 +2433,33 @@ button:focus-visible,
 #git-branch-list {
   border-bottom: 1px solid var(--border);
   padding: var(--space-2) var(--space-4);
+  /* 分支多时内容高远超 flex 分配高度：必须内部滚动（overflow:auto 同时让 min-height:auto
+     归 0，列表才可收缩），否则溢出条目画出盒外、盖到状态栏上形成重影（见 #git-panel 注释）。 */
+  overflow: auto;
+  min-height: 0;
+}
+/* SCM 贮藏列表面板（P2：每项「弹出」「丢弃」） */
+#git-stash-panel {
+  border-bottom: 1px solid var(--border);
+  padding: var(--space-2) var(--space-4);
+  /* 同样遵守列表容器范式：内部滚动 + min-height:0，防溢出画出 #git-panel */
+  overflow: auto;
+  min-height: 0;
+  max-height: 220px;
+}
+.stash-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+}
+.stash-item .stash-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-dim);
 }
 .git-branch-item {
   display: flex;
@@ -2100,6 +2475,20 @@ button:focus-visible,
 .git-branch-item:hover { background: var(--hover); }
 .git-branch-item.current { color: var(--brand); font-weight: 600; }
 .git-branch-item .scm-name { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+/* P1：新建分支触发按钮（点击展开输入框，本身常驻列表底部） */
+.git-branch-new-btn {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+}
+.git-branch-new-btn:hover { background: var(--hover); }
 .git-branch-new {
   display: flex;
   gap: var(--space-2);
@@ -2290,6 +2679,50 @@ button:focus-visible,
   .settings-content { padding-left: 0; padding-top: var(--space-5); }
 }
 .settings-section { flex: none; display: flex; flex-direction: column; gap: var(--space-6); }
+/* PR-2：插件 tab（§9.14）——列表可滚（插件多时不撑爆卡片） */
+.settings-section-plugins { flex: 1; min-height: 0; overflow-y: auto; }
+.plugins-panel { display: flex; flex-direction: column; gap: var(--space-4); }
+.plugins-dir-row { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-3) var(--space-4); flex: none; color: var(--fg-dim); font-size: var(--text-sm); }
+.plugins-dir-row .btn { flex: none; }
+.plugins-dir-label { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* P0 DX 行：新建插件 / 作者指南 */
+.plugins-dx-row { display: flex; align-items: center; gap: var(--space-3); flex: none; }
+/* 脚手架表单模态（P1：单表单 + 模板单选） */
+.scaffold-card { display: flex; flex-direction: column; gap: var(--space-4); min-width: 380px; padding: var(--space-6); }
+.scaffold-card .scaffold-title { font-size: var(--text-base); color: var(--fg); }
+.scaffold-field-label { font-size: var(--text-sm); color: var(--fg-dim); }
+.scaffold-card input {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-sm);
+}
+.scaffold-card input:focus { border-color: var(--accent); outline: none; }
+/* 模板单选：竖排大卡（label + 描述两行） */
+.scaffold-templates { flex-direction: column; align-items: stretch; gap: var(--space-2); }
+.scaffold-template { align-items: flex-start; text-align: left; }
+.scaffold-template .tool-radio-text { display: flex; flex-direction: column; gap: 2px; }
+.scaffold-template-desc { font-size: var(--text-xs); color: var(--fg-dim); font-weight: normal; }
+.plugin-log-empty { font-style: italic; }
+.plugins-list { display: flex; flex-direction: column; gap: var(--space-3); }
+.plugins-empty { padding: var(--space-6); text-align: center; color: var(--fg-dim); font-size: var(--text-sm); border: 1px dashed var(--border); border-radius: var(--radius-sm); }
+.plugin-row { border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
+.plugin-row-head { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); cursor: pointer; }
+.plugin-row-head:hover { background: var(--hover-subtle); }
+.plugin-caret { color: var(--fg-dim); font-size: var(--text-xs); }
+.plugin-name { font-size: var(--text-sm); color: var(--fg); }
+.plugin-meta { margin-left: auto; font-size: var(--text-xs); color: var(--fg-dim); }
+.plugin-row--error .plugin-meta { color: var(--danger); }
+.plugin-detail { padding: var(--space-4); border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: var(--space-3); background: var(--bg); }
+.plugin-detail-line { display: flex; gap: var(--space-4); font-size: var(--text-sm); }
+.plugin-detail-label { flex: none; width: 72px; color: var(--fg-dim); }
+.plugin-error-msg { font-size: var(--text-sm); color: var(--danger); white-space: pre-wrap; }
+.plugin-actions { display: flex; gap: var(--space-3); }
+.plugin-logs { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: var(--space-3); max-height: 180px; overflow-y: auto; }
+.plugin-logs-title { font-size: var(--text-xs); color: var(--fg-dim); margin-bottom: var(--space-2); }
+.plugin-log-line { font-family: var(--mono); font-size: var(--text-xs); color: var(--fg-dim); white-space: pre-wrap; }
 .settings-section-templates { flex: 1; min-height: 0; }
 .settings-section-templates .lt-toolbar { flex: none; margin-bottom: 0; }
 .settings-section-templates .lt-body { flex: 1; min-height: 320px; }
@@ -2326,6 +2759,8 @@ button:focus-visible,
    flex:none，该修复由体系天然承载，无需再按域重复一遍。 */
 .settings-row input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; }
 .settings-hint { font-size: var(--text-sm); color: var(--fg-dim); line-height: 1.6; }
+/* P1-F：运行配置面板字段级内联校验（红色小字，覆盖 .settings-hint 的中性色） */
+.settings-hint.run-config-field-error { color: var(--danger); }
 .settings-hint code {
   background: var(--bg);
   border: 1px solid var(--border);
@@ -2820,12 +3255,24 @@ button:focus-visible,
 .palette-empty { padding: var(--space-8); text-align: center; color: var(--fg-dim); font-size: var(--text-sm); }
 
 /* ---------- Git 集成增强（TD-002）：工具栏 / 差异视图 / 历史 ---------- */
-#git-toolbar { display: flex; gap: var(--space-2); padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+#git-toolbar { display: flex; gap: var(--space-2); padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border); justify-content: flex-end; }
 /* UI-08：迁移到 .btn .btn--sm（原 2px 8px / 11px 与紧凑档完全一致，视觉零变化）。
    本条原为 ID 后代选择器，特异性 (1,0,1) 远高于 .btn 的 (0,1,0)——不删除会让新体系被完全压过。 */
 
 /* 差异视图（Monaco diff editor 容器） */
-#git-diff-panel { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+/* 第 2 步迁移：diff 宿主从底部面板迁入编辑区——绝对定位铺满 #editor-row
+ *（与 #editor 互斥显示：diff tab 激活时 #editor 隐藏由 JS 切换 .hidden；
+ *   不参与横向 flex，避免与 md-preview/splitter 并排挤压）。
+ * 底部面板时代的 flex:1 布局（header/块级面板/编辑器纵向分配）整体保留。 */
+#git-diff-panel {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg);
+}
 #git-diff-header {
   display: flex;
   align-items: center;
@@ -2841,7 +3288,98 @@ button:focus-visible,
    原 ID 后代选择器特异性 (1,1,1)，不删除会压过 .btn。
    注：这里的 .ghost-btn 其实是「有边框的次要按钮」而非无边框幽灵按钮，语义与 .btn--ghost
    （border-color: transparent）不符，故映射到默认变体而不是 --ghost。 */
+/* 冲突块级合并列表（阶段 3：逐块保留当前/传入/两者） */
+#git-merge-blocks {
+  flex: none;
+  max-height: 220px;
+  overflow: auto;
+  border-bottom: 1px solid var(--border);
+  padding: var(--space-2) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.merge-block {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+.merge-block-title {
+  flex: none;
+  color: var(--fg-dim);
+  font-weight: 600;
+  margin-right: var(--space-2);
+}
+.merge-choice {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--fg);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+}
+.merge-choice:hover { background: var(--hover-subtle); border-color: var(--fg-dim); }
+.merge-choice.active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 #git-diff-editor { flex: 1; min-height: 0; overflow: hidden; }
+
+/* Git 详情视图（提交详情 git show / 逐行 blame，P0：从输出面板迁出的独立承载） */
+#git-detail-panel { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+/* 查找引用结果面板（P1「Find Usages」）：顶部种类过滤 chips + 复用 .search-* 结果树 */
+#find-usages-panel { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.find-usages-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-5);
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+.find-usages-results { flex: 1; overflow: auto; }
+.fu-toolbar-spacer { flex: 1; }
+.fu-chip {
+  background: transparent;
+  color: var(--fg-dim);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-3);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  line-height: 1.2;
+}
+.fu-chip:hover { color: var(--fg); border-color: var(--fg-dim); }
+.fu-chip.active { color: var(--fg); border-color: var(--fg-dim); background: var(--hover); }
+.fu-kind-header {
+  padding: var(--space-3) var(--space-5) var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--fg-dim);
+  letter-spacing: .5px;
+}
+#git-detail-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-5);
+  border-bottom: 1px solid var(--border);
+  font-size: var(--text-sm);
+  color: var(--fg-dim);
+  flex: none;
+}
+#git-detail-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 与 #output 同源的只读输出流样式（.out-line / .out-link 复用全局定义） */
+#git-detail-view {
+  flex: 1;
+  overflow: auto;
+  padding: var(--space-3) var(--space-5);
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  user-select: text;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
 
 /* 历史提交列表 */
 #git-history { flex: 1; overflow: auto; padding: var(--space-2) 0; }
@@ -2870,6 +3408,173 @@ button:focus-visible,
 .git-commit-item .date { color: var(--fg-dim); font-size: var(--text-xs); flex: none; }
 .git-commit-item .subject { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); }
 .git-commit-item .author { color: var(--fg-dim); font-size: var(--text-xs); flex: none; }
+/* P0-6：refs 装饰标签（HEAD -> main / tag: v1.0）+ 当前分支行高亮（对标 VS Code Graph） */
+.git-commit-item .git-commit-refs {
+  flex: none;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--brand);
+  font-size: var(--text-xs);
+  border: 1px solid var(--ok-border);
+  border-radius: var(--radius-xs);
+  padding: 0 var(--space-2);
+}
+.git-commit-item.current-head { background: var(--hover-subtle); }
+/* 迭代 3：分支列表分组标题 + 状态栏可点击 + blame 结构化行 */
+.git-branch-group-title {
+  padding: var(--space-2) var(--space-4) var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--fg-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+#status-git.git-status-clickable { cursor: pointer; }
+#status-git.git-status-clickable:hover { color: var(--fg); text-decoration: underline; }
+.git-blame-row {
+  display: flex;
+  gap: var(--space-3);
+  padding: 0 var(--space-4);
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  line-height: 1.7;
+}
+.git-blame-line { color: var(--fg-dim); flex: none; }
+.git-blame-hash {
+  flex: none;
+  border: none;
+  background: transparent;
+  color: var(--warn);
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  padding: 0;
+}
+.git-blame-hash:hover { text-decoration: underline; }
+.git-blame-author { color: var(--fg-dim); flex: none; }
+.git-blame-date { color: var(--fg-dim); flex: none; }
+.git-blame-summary { color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------- 迭代 4：远程操作 busy 条 + 远程管理面板 ---------- */
+#git-remote-busy {
+  position: fixed;
+  bottom: 32px; /* 状态栏上方 */
+  right: var(--space-5);
+  z-index: 900;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-panel);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
+  font-size: var(--text-sm);
+}
+.git-remote-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 420px;
+  max-height: 300px;
+  overflow: auto;
+  padding: var(--space-2) 0;
+}
+.git-remote-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.git-remote-info { flex: 1; overflow: hidden; }
+.git-remote-name { font-weight: 600; font-size: var(--text-sm); }
+.git-remote-url { color: var(--fg-dim); font-size: var(--text-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.git-remote-add-row {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+.git-remote-add-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ---------- 迭代 5 · C3：SCM 内嵌 tab + C6 多选态 ---------- */
+#git-subtabs {
+  display: flex;
+  gap: var(--space-1);
+  padding: 0 var(--space-4) var(--space-2);
+  border-bottom: 1px solid var(--border);
+}
+.git-subtab {
+  border: none;
+  background: transparent;
+  color: var(--fg-dim);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+.git-subtab:hover { color: var(--fg); background: var(--hover-subtle); }
+.git-subtab.active {
+  color: var(--fg);
+  background: var(--hover);
+  font-weight: 600;
+}
+/* C6：多选态条目（Ctrl/Shift 点选） */
+.scm-item.selected {
+  background: var(--hover);
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+.git-scm-bulk {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  margin-bottom: var(--space-2);
+  background: var(--hover-subtle);
+  border-bottom: 1px solid var(--border);
+  font-size: var(--text-sm);
+  color: var(--fg-dim);
+}
+/* P2-7：提交建议 chips */
+#git-commit-suggest {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) 0;
+}
+.git-suggest-label { font-size: var(--text-xs); color: var(--fg-dim); }
+.git-suggest-chip {
+  border: 1px dashed var(--ok-border);
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--brand);
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  padding: 0 var(--space-2);
+  cursor: pointer;
+}
+.git-suggest-chip:hover { background: var(--hover-subtle); border-style: solid; }
+/* P2-5：graph 车道着色（按列 index 循环 4 色） */
+.git-lane-c0 { color: #4fc1ff; }
+.git-lane-c1 { color: #81b88b; }
+.git-lane-c2 { color: #d7ba7d; }
+.git-lane-c3 { color: #c586c0; }
+/* P0-6：graph 车道列——等宽字体保列对齐，紧凑行高避免与提交信息错位 */
+.git-commit-item .graph-lane {
+  flex: none;
+  color: var(--fg-dim);
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  white-space: pre;
+  letter-spacing: 0;
+}
 
 /* ---------- 开发工具面板（右侧辅助面板，非模态） ---------- */
 #right-panel {
@@ -2892,24 +3597,30 @@ button:focus-visible,
   padding: var(--space-2) var(--space-3);
 }
 #devtools-header .spacer { flex: 1; }
-#devtools-tabs { display: flex; gap: var(--space-1); min-width: 0; overflow-x: auto; }
-.devtools-tab {
+/* 当前工具区（picker 触发器）：图标 + 标题 + ▾（PR-1：替代原 #devtools-tabs 平铺） */
+#devtools-current {
   display: flex;
   align-items: center;
   gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--fg);
-  border: none;
-  border-bottom: 2px solid transparent;
-  padding: var(--space-3) var(--space-5);
   cursor: pointer;
   font-size: var(--text-sm);
   white-space: nowrap;
 }
-.devtools-tab:hover { background: var(--hover-subtle); }
-/* UI-06：激活态与 .tab/.bottom-tab/.term-tab/.activity-item/.settings-nav-item 统一到 --brand（激活=品牌识别色，非功能交互色） */
-.devtools-tab.active { border-bottom-color: var(--brand); color: var(--brand); }
-.devtools-tab .codicon { font-size: var(--text-base); }
+#devtools-current:hover { background: var(--hover-subtle); }
+#devtools-current > span:first-child { /* 标题文本 */
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#devtools-current .codicon { font-size: var(--text-base); flex: none; }
+#devtools-current .codicon:last-child { /* ▾ 指示 */
+  color: var(--fg-dim);
+  font-size: var(--text-xs);
+}
 .devtools-body {
   flex: 1;
   min-width: 0;
@@ -2918,9 +3629,113 @@ button:focus-visible,
   overflow: hidden;
   padding: var(--space-4);
 }
+/* 每工具独立 rootEl（实例缓存并存，激活者可见） */
+.devtools-tool-root { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+/* ---------- 工具选择器（picker 浮层） ---------- */
+#devtools-picker {
+  position: absolute;
+  top: calc(var(--space-2) * 2 + 30px); /* header 下缘（header 高约 37px，含 padding） */
+  left: var(--space-3);
+  right: var(--space-3);
+  z-index: 30; /* 高于面板内容，低于模态（.modal z-index 50+） */
+  display: flex;
+  flex-direction: column;
+  max-height: 70%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 35%);
+  overflow: hidden;
+}
+#devtools-picker-search {
+  flex: none;
+  margin: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+  font-size: var(--text-sm);
+}
+#devtools-picker-search:focus { border-color: var(--accent); outline: none; }
+#devtools-picker-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: var(--space-2);
+}
+.picker-group-head {
+  position: sticky;
+  top: 0;
+  padding: var(--space-2) var(--space-4);
+  background: var(--bg-panel);
+  color: var(--fg-dim);
+  font-size: var(--text-xs);
+  border-bottom: 1px solid var(--border);
+}
+.picker-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  cursor: pointer;
+}
+.picker-item:hover, .picker-item.active { background: var(--hover-subtle); }
+.picker-item .codicon { font-size: var(--text-base); flex: none; color: var(--fg-dim); }
+.picker-item-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.picker-item-title { font-size: var(--text-sm); color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picker-item-desc { font-size: var(--text-xs); color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picker-item-cat { flex: none; font-size: var(--text-xs); color: var(--fg-dim); }
+.picker-empty { padding: var(--space-6) var(--space-4); text-align: center; color: var(--fg-dim); font-size: var(--text-sm); }
 
 /* 工具通用骨架 */
 .tool-body { flex: 1; display: flex; flex-direction: column; gap: var(--space-4); min-height: 0; }
+.tool-row { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-3) var(--space-4); flex: none; }
+.tool-label { flex: none; font-size: var(--text-sm); color: var(--fg-dim); white-space: nowrap; }
+/* 互斥单选组（kit.radioGroup，WAI-ARIA radiogroup；视觉对齐 .btn--sm 紧凑档） */
+.tool-radiogroup { display: inline-flex; align-items: center; gap: var(--space-2); flex: none; }
+.tool-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+.tool-radio:hover { background: var(--hover-subtle); }
+.tool-radio:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* 勾选指示点：aria-checked 驱动（占位常驻防跳动） */
+.tool-radio-dot {
+  flex: none;
+  width: var(--space-3);
+  height: var(--space-3);
+  border-radius: 50%;
+  border: 1px solid var(--fg-dim);
+  background: transparent;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+.tool-radio[aria-checked="true"] { border-color: var(--brand); color: var(--brand); } /* UI-06：选中=品牌识别色 */
+.tool-radio[aria-checked="true"] .tool-radio-dot { border-color: var(--brand); background: var(--brand); }
+.tool-row .spacer, .tool-toolbar .spacer { flex: 1; }
+/* 固定窄宽输入框（时间戳当前值 / 计数）：宽度用 scale token 组合（最小 11px 字号合规） */
+.ts-now, .uuid-count { flex: none; width: calc(var(--space-4) * 11); }
+.ts-input { flex: 1; min-width: calc(var(--space-4) * 8); }
+.tool-input {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-sm);
+}
+.tool-input:focus { border-color: var(--accent); outline: none; }
 .tool-textarea {
   width: 100%;
   min-height: 84px;
@@ -2935,10 +3750,14 @@ button:focus-visible,
   font-family: var(--mono);
   flex: none;
 }
+/* flex 档：纵向撑满剩余空间（大输入区场景，如 JSON 美化） */
+.tool-textarea--flex { flex: 1; min-height: 0; max-height: none; resize: none; }
 .tool-textarea:focus { border-color: var(--accent); outline: none; }
-/* UI-08：工具栏按钮已迁移到通用 .btn 体系（容器只负责排布，不再自带按钮外观） */
-.tool-toolbar { display: flex; align-items: center; gap: var(--space-4); flex: none; }
-.tool-toolbar .spacer { flex: 1; }
+/* UI-08：工具栏按钮已迁移到通用 .btn 体系（容器只负责排布，不再自带按钮外观）。
+   窄面板（默认 360px）下按钮多时会溢出裁切（jsonfmt 六按钮曾截断「复制」）——允许换行兜底；
+   spacer 保留 flex:1 撑开语义，但换行后不再压缩按钮。 */
+.tool-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-3) var(--space-4); flex: none; }
+.tool-toolbar .spacer { flex: 1; min-width: var(--space-6); }
 .tool-output {
   flex: 1;
   min-height: 0;
@@ -3014,7 +3833,7 @@ button:focus-visible,
   white-space: nowrap;
 }
 .jp-row:hover { background: var(--hover-subtle); }
-/* UI-07：选中态降级为柔和底（与 .env-item.selected / .palette-item.selected 一致），不再用实心 accent */
+/* UI-07：选中态降级为柔和底（与 .palette-item.selected 一致），不再用实心 accent */
 .jp-row.selected { background: var(--accent-soft); color: var(--fg); }
 .jp-toggle { width: 14px; flex: none; display: inline-flex; cursor: pointer; color: var(--fg-dim); }
 .jp-toggle.expanded .codicon { transform: rotate(90deg); }
@@ -3285,6 +4104,27 @@ button:focus-visible,
   color: var(--accent);
 }
 
+/* ---------- Git gutter 行级变更（迭代 2 · P0-5，gitGutter.ts） ----------
+   行号槽左缘 3px 色条：绿=新增 / 蓝=修改；删除画红色下指三角（标在删除点上方行）。
+   对标 VS Code 的 gutter diff 指示。 */
+.git-gutter-added {
+  margin-left: 3px;
+  border-left: 3px solid var(--git-added);
+}
+.git-gutter-modified {
+  margin-left: 3px;
+  border-left: 3px solid var(--git-modified);
+}
+.git-gutter-deleted::after {
+  content: "";
+  display: block;
+  margin-left: 3px;
+  width: 0; height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid var(--git-deleted);
+}
+
 .bookmark-card { min-width: 620px; padding: var(--space-6); }
 
 .bookmark-list {
@@ -3439,3 +4279,15 @@ button:focus-visible,
 }
 .toast-close:hover { color: var(--fg); }
 .toast-close .codicon { font-size: var(--text-sm); }
+/* toast 动作按钮（dep plan §5.5/§6.2：如 envDrift 提示的「查看」→ 打开健康面板） */
+.toast-action {
+  flex: none;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+  font-size: var(--text-xs);
+  padding: var(--space-1) var(--space-3);
+  cursor: pointer;
+}
+.toast-action:hover { border-color: var(--accent); color: var(--accent); }

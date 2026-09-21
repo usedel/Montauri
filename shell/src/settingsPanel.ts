@@ -16,6 +16,7 @@ import { trapFocus } from "./focusTrap";
 import { openAlert } from "./dialog";
 import { toast, toastFail } from "./toast";
 import { loadStorageUsage, wireStoragePanel } from "./storagePanel";
+import { renderPluginsTab } from "./extensions/pluginsTab";
 // UI-26：主题选择改自绘预览色卡（原生 <option> 放不下色卡），值读写经 themePicker
 import { getSelectedTheme, setSelectedTheme, wireThemePicker } from "./themePicker";
 // UI-25：欢迎页快捷键网格跟随键位系统，改键保存后需刷新
@@ -73,7 +74,7 @@ const settingsDataOpenEl = $("settings-data-open") as HTMLButtonElement;
 
 // ---------- 分类导航（P1） ----------
 
-export type SettingsCategory = "appearance" | "editor" | "keybindings" | "save" | "python" | "templates" | "terminal" | "logging" | "storage";
+export type SettingsCategory = "appearance" | "editor" | "keybindings" | "save" | "python" | "templates" | "terminal" | "logging" | "storage" | "plugins";
 
 /** 切换到指定分类并更新导航高亮；进入 Live Templates 分类时渲染模板列表 */
 function switchCategory(cat: SettingsCategory): void {
@@ -90,6 +91,8 @@ function switchCategory(cat: SettingsCategory): void {
   if (cat === "templates") ltUi.openPanel();
   // 存储页每次进入刷新占用明细（体积随使用变化）
   if (cat === "storage") void loadStorageUsage();
+  // 插件页每次进入重渲染（启停/热重载后记录变化）
+  if (cat === "plugins") void renderPluginsTab();
 }
 
 /** UI-24：窄窗口断点，须与 style.css 的 `@media (max-width: 720px)` 保持一致。
@@ -318,9 +321,13 @@ function fillForm(settings: Settings): void {
 /** UI-05：设置面板模态的焦点陷阱解除句柄 */
 let releaseSettingsFocus: (() => void) | null = null;
 
-/** tech-debt #18：Esc 关闭设置面板（document 级，open 时挂、close 时移除） */
+/** tech-debt #18：Esc 关闭设置面板（document 级，open 时挂、close 时移除）。
+ *  守卫：前台有更上层对话框（.modal 显隐约定）时 Esc 归对话框，防连带关闭丢失未保存改动
+ * （与 envPanel.onEnvKeydown / bookmarks 同款守卫） */
 function onSettingsKeydown(e: KeyboardEvent): void {
-  if (e.key === "Escape") closeSettingsPanel();
+  if (e.key !== "Escape") return;
+  if (document.querySelectorAll(".modal:not(.hidden)").length > 1) return;
+  closeSettingsPanel();
 }
 
 /** 打开设置面板（可指定初始分类；「视图 → Live Templates」快捷入口复用） */

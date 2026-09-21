@@ -40,7 +40,15 @@ export type KeybindingId =
   | "new_file"
   | "open_settings"
   | "toggle_sidebar"
-  | "toggle_bottom";
+  | "toggle_bottom"
+  // 命令面板直达（VS Code Ctrl+Shift+P 同款；E2E 验收依赖此入口）
+  | "command_palette"
+  // PR-1（plugin_system_design §9.9）：开发工具面板 + 选择器（picker 专用，不触发 inline 变换）
+  | "open_devtools"
+  // P1（查找引用）：PyCharm 同款 Alt+F7，完整引用列表落底部「引用」面板（Shift+F12 仍是 Monaco peek）
+  | "find_usages"
+  // P2（重命名）：PyCharm 同款 Shift+F6，跨文件重命名（定义 + 所有引用同步改名）
+  | "rename_symbol";
 
 export interface KeybindingMeta {
   id: KeybindingId;
@@ -61,6 +69,10 @@ export const KEYBINDING_META: KeybindingMeta[] = [
   { id: "run_selection", label: "运行选区 / 行", def: "Alt+Shift+E", scope: "editor" },
   { id: "global_search", label: "全局搜索", def: "Ctrl+Shift+F", scope: "window" },
   { id: "goto_definition", label: "跳转定义（F12 / Ctrl+点击固定保留）", def: "Ctrl+B", scope: "editor" },
+  // P1（查找引用）：完整引用列表（PyCharm Alt+F7 同款）；Shift+F12 仍保留 Monaco peek 快速预览
+  { id: "find_usages", label: "查找引用", def: "Alt+F7", scope: "editor" },
+  // P2（重命名）：跨文件重命名（PyCharm Shift+F6 同款）；F2 仍是单文件快捷重命名
+  { id: "rename_symbol", label: "重命名符号（跨文件）", def: "Shift+F6", scope: "editor" },
   { id: "duplicate_line", label: "复制行 / 选区", def: "Ctrl+D", scope: "editor" },
   { id: "comment_line", label: "行注释开关", def: "Ctrl+/", scope: "editor" },
   { id: "comment_block", label: "块注释开关", def: "Ctrl+Shift+/", scope: "editor" },
@@ -100,4 +112,8 @@ export const KEYBINDING_META: KeybindingMeta[] = [
   { id: "open_settings", label: "打开设置", def: "Ctrl+Alt+S", scope: "window" },
   { id: "toggle_sidebar", label: "切换侧栏", def: "Ctrl+Shift+F12", scope: "window" },
   { id: "toggle_bottom", label: "切换底部面板", def: "Alt+F12", scope: "window" },
+  // 命令面板直达（VS Code 同款；不注册时 Ctrl+Shift+P 会落进浏览器「打印」，E2E 验收也被堵）
+  { id: "command_palette", label: "命令面板（只搜命令）", def: "Ctrl+Shift+P", scope: "window" },
+  // PR-1：开发工具面板（右侧）+ picker；window 级——工具动作不应依赖编辑器聚焦
+  { id: "open_devtools", label: "开发工具面板", def: "Ctrl+Shift+T", scope: "window" },
 ];

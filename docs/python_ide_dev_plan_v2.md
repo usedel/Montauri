@@ -116,7 +116,7 @@ open-charm/
 | 任务 | 说明 | 状态 |
 |---|---|---|
 | 上游跟随 | Tauri / Monaco / Pyrefly / basedpyright / ruff 升级走回归 CI | ⚠️ 版本已锁定（`ci/versions.toml`），升级回归 CI 自动化待建 |
-| 外壳基本功补齐 | 集成终端（xterm.js + portable-pty 多会话）、Git 集成（状态装饰 + 暂存/提交/diff/分支，见 tech-debt TD-002）、全局搜索（ripgrep 引擎） | ✅ 已交付 |
+| 外壳基本功补齐 | 集成终端（xterm.js + portable-pty 多会话）、Git 集成（状态装饰 + 暂存/提交/diff/分支起步，后续扩展远程/worktree/rebase 等，见 `docs/git_improvement_report.md`）、全局搜索（`ignore` crate 遍历 + 自实现并行匹配） | ✅ 已交付 |
 | 打包发布 + 首次启动环境引导 | 自研组件（`opencharm-intel`、`probe/src`）随 NSIS 安装包分发（`bundle.resources`，运行时按 `locate_*` 查找资源目录）；外部命令（uv/pyrefly/ruff/git）统一经 `shell/src-tauri/src/tool_paths.rs` 解析（环境变量 → `~/.opencharm/bin`/`~/.local/bin` → 系统 PATH）；全新系统缺 uv/pyrefly 时由 `toolchain.rs` 探测、前端弹「环境引导」一键安装到用户目录；`build-release.ps1` 一键打包（清理 → intel release 构建 → 前端依赖 → `tauri build` nsis） | ✅ 已交付（Phase 4 第 1~4 步） |
 | 调试评估 | debugpy DAP 集成是否立项（Phase 3 后裁决） | ✅ 已立项并交付最小闭环（`docs/python_debug_dev_plan.md` v1.3：debugpy 1.8.21 随包分发 + DAP 桥 + 断点/步进/调用栈/变量；验收记录 `docs/debug_acceptance_record.md`，人工验收清单待办） |
 | 运行交互重构 | 「两种运行 + 统一运行控制台」（`docs/python_run_dev_plan.md` v3.4：脚本/项目运行 + PTY 终端控制台 + 多实例并行 + 运行历史按实例归属；probe 运行路径开启并实测 1.35x < 1.5x） | ✅ 已交付（迁移计划 M1-M4 全部完成；验收记录 `docs/run_acceptance_record.md`） |

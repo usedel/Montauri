@@ -6,13 +6,19 @@
 // - 失败时透传 git 的 stderr 作为错误信息。
 
 use serde::Serialize;
-use std::io::Read;
+use serde_json::json;
+use std::collections::HashMap;
+use std::io::{BufRead, Read};
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
+use tauri::{AppHandle, Emitter};
+
 use crate::tool_paths::{tool_command, ENV_GIT};
-use crate::util::{kill_process_tree, no_window};
+use crate::util::{kill_process_tree, no_window, unpoison};
 
 /// 执行一个已构建好的 git 子命令（cwd 锚定到仓库根），成功返回 stdout，失败返回 stderr。
 fn exec_git(root: &str, mut cmd: Command) -> Result<String, String> {
@@ -33,70 +39,8 @@ fn exec_git(root: &str, mut cmd: Command) -> Result<String, String> {
     }
 }
 
-/// 网络 git 操作超时上限（push/pull/fetch 会挂到远程，必须可中断）。
-const GIT_NETWORK_TIMEOUT: Duration = Duration::from_secs(120);
-
-/// 带超时的 git 子命令：spawn + 轮询退出（超时杀进程树），供 push/pull/fetch 使用，
-/// 避免网络挂起无限占用 spawn_blocking 线程池。
-fn exec_git_timeout(root: &str, mut cmd: Command) -> Result<String, String> {
-    let mut child = no_window(&mut cmd)
-        .current_dir(root)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("无法启动 git（可能未安装）：{e}"))?;
-    let stdout = child.stdout.take().unwrap();
-    let stderr = child.stderr.take().unwrap();
-    // 独立读线程避免管道缓冲满导致子进程写阻塞（与 .output() 同策略）
-    let out_reader = std::thread::spawn(move || {
-        let mut s = String::new();
-        let mut r = std::io::BufReader::new(stdout);
-        let _ = r.read_to_string(&mut s);
-        s
-    });
-    let err_reader = std::thread::spawn(move || {
-        let mut s = String::new();
-        let mut r = std::io::BufReader::new(stderr);
-        let _ = r.read_to_string(&mut s);
-        s
-    });
-
-    let start = Instant::now();
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) => {
-                if start.elapsed() > GIT_NETWORK_TIMEOUT {
-                    kill_process_tree(&mut child);
-                    let _ = out_reader.join();
-                    let _ = err_reader.join();
-                    return Err(format!("git 网络操作超时（{}s）", GIT_NETWORK_TIMEOUT.as_secs()));
-                }
-                std::thread::sleep(Duration::from_millis(100));
-            }
-            Err(e) => {
-                kill_process_tree(&mut child);
-                let _ = out_reader.join();
-                let _ = err_reader.join();
-                return Err(e.to_string());
-            }
-        }
-    };
-    let out = out_reader.join().unwrap_or_default();
-    let err = err_reader.join().unwrap_or_default();
-
-    if status.success() {
-        Ok(out)
-    } else {
-        let msg = err.trim().to_string();
-        Err(if msg.is_empty() {
-            format!("git 命令执行失败（退出码 {:?}）", status.code())
-        } else {
-            msg
-        })
-    }
-}
+/// 网络 git 操作超时兜底上限（迭代 4 · P2-3：正常路径靠取消而非超时；此值仅防泄漏）。
+const GIT_NET_TIMEOUT: Duration = Duration::from_secs(240);
 
 async fn spawn_blocking<T, F>(f: F) -> Result<T, String>
 where
@@ -144,31 +88,95 @@ pub async fn git_unstage(root: String, paths: Vec<String>) -> Result<(), String>
     .await
 }
 
-/// 提交已暂存更改（`git commit -m <message>`），返回 commit 输出（含摘要）。
+/// 丢弃已跟踪文件的未暂存更改（`git checkout -- <paths>`），恢复到暂存区/HEAD 内容。
 #[tauri::command]
-pub async fn git_commit(root: String, message: String) -> Result<String, String> {
+pub async fn git_discard(root: String, paths: Vec<String>) -> Result<(), String> {
+    spawn_blocking(move || {
+        if paths.is_empty() {
+            return Ok(());
+        }
+        let mut cmd = tool_command("git", ENV_GIT);
+        cmd.arg("checkout").arg("--");
+        for p in &paths {
+            cmd.arg(p);
+        }
+        exec_git(&root, cmd)?;
+        Ok(())
+    })
+    .await
+}
+
+/// 删除未跟踪文件/目录（丢弃「未跟踪」= 直接从文件系统删除）。
+/// 相较 `git clean -f`，fs 删除不依赖 pathspec / -d / .gitignore 的细微语义，行为确定：
+/// 未跟踪文件逐条移除，未跟踪目录递归移除，路径先做防穿越校验（与 diff 视图同款守卫）。
+#[tauri::command]
+pub async fn git_clean(root: String, paths: Vec<String>) -> Result<(), String> {
+    spawn_blocking(move || {
+        for p in &paths {
+            validate_repo_relative(&root, p)?;
+            let full = Path::new(&root).join(p);
+            if full.is_dir() {
+                std::fs::remove_dir_all(&full)
+                    .map_err(|e| format!("删除目录失败：{p}（{e}）"))?;
+            } else {
+                match std::fs::remove_file(&full) {
+                    Ok(()) => {}
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(e) => return Err(format!("删除文件失败：{p}（{e}）")),
+                }
+            }
+        }
+        Ok(())
+    })
+    .await
+}
+
+/// 接受冲突文件的「当前」版本：`git checkout --ours -- <path>` 后 `git add`（两步 = 解决该冲突）。
+#[tauri::command]
+pub async fn git_accept_current(root: String, path: String) -> Result<(), String> {
+    spawn_blocking(move || {
+        validate_repo_relative(&root, &path)?;
+        let mut co = tool_command("git", ENV_GIT);
+        co.arg("checkout").arg("--ours").arg("--").arg(&path);
+        exec_git(&root, co)?;
+        let mut add = tool_command("git", ENV_GIT);
+        add.arg("add").arg("--").arg(&path);
+        exec_git(&root, add)?;
+        Ok(())
+    })
+    .await
+}
+
+/// 接受冲突文件的「传入」版本：`git checkout --theirs -- <path>` 后 `git add`。
+#[tauri::command]
+pub async fn git_accept_incoming(root: String, path: String) -> Result<(), String> {
+    spawn_blocking(move || {
+        validate_repo_relative(&root, &path)?;
+        let mut co = tool_command("git", ENV_GIT);
+        co.arg("checkout").arg("--theirs").arg("--").arg(&path);
+        exec_git(&root, co)?;
+        let mut add = tool_command("git", ENV_GIT);
+        add.arg("add").arg("--").arg(&path);
+        exec_git(&root, add)?;
+        Ok(())
+    })
+    .await
+}
+
+/// 提交已暂存更改（`git commit -m <message>`，amend=true 时 `--amend` 并入上一次提交）。
+#[tauri::command]
+pub async fn git_commit(root: String, message: String, amend: bool) -> Result<String, String> {
     spawn_blocking(move || {
         let msg = message.trim();
         if msg.is_empty() {
             return Err("提交信息不能为空".to_string());
         }
         let mut cmd = tool_command("git", ENV_GIT);
-        cmd.arg("commit").arg("-m").arg(msg);
-        exec_git(&root, cmd)
-    })
-    .await
-}
-
-/// 查看单文件 diff（`git diff [--cached] -- <path>`）。staged=true 查看暂存区相对 HEAD 的差异。
-#[tauri::command]
-pub async fn git_diff(root: String, path: String, staged: bool) -> Result<String, String> {
-    spawn_blocking(move || {
-        let mut cmd = tool_command("git", ENV_GIT);
-        cmd.arg("diff");
-        if staged {
-            cmd.arg("--cached");
+        cmd.arg("commit");
+        if amend {
+            cmd.arg("--amend");
         }
-        cmd.arg("--").arg(&path);
+        cmd.arg("-m").arg(msg);
         exec_git(&root, cmd)
     })
     .await
@@ -179,47 +187,88 @@ pub async fn git_diff(root: String, path: String, staged: bool) -> Result<String
 pub struct GitBranch {
     pub name: String,
     pub current: bool,
+    /// 远程分支（remotes/ 前缀已去除；本地检出需走 checkout 自动建跟踪分支）
+    pub remote: bool,
 }
 
-/// 列出本地分支及当前分支（`git branch`）。
+/// 列出本地 + 远程分支及当前分支（迭代 3 · B8：`git branch -a`，远程条目标 remote=true）。
 #[tauri::command]
 pub async fn git_branches(root: String) -> Result<Vec<GitBranch>, String> {
     spawn_blocking(move || {
         let mut cmd = tool_command("git", ENV_GIT);
-        cmd.arg("branch");
+        // B8 真相：用完整 %(refname) 而非 :short——git 2.45 实测 %(refname:short) 对远程分支
+        // 输出 origin/x（无 remotes/ 前缀），此前按前缀判 remote 恒 false：远程分支混进本地组、
+        // 无云图标、点击走裸 checkout 进 detached HEAD。完整 refname 自行剥前缀，无歧义。
+        cmd.arg("branch").arg("-a").arg("--format")
+            .arg("%(HEAD)%09%(refname)%09%(objectname:short)");
         let out = exec_git(&root, cmd)?;
         let mut branches = Vec::new();
         for line in out.lines() {
-            if line.is_empty() {
+            if line.trim().is_empty() {
                 continue;
             }
-            let (current, name) = if let Some(rest) = line.strip_prefix("* ") {
-                (true, rest)
-            } else if let Some(rest) = line.strip_prefix("  ") {
-                (false, rest)
+            let mut parts = line.splitn(3, '\t');
+            let head_mark = parts.next().unwrap_or("");
+            let name = parts.next().unwrap_or("").trim().to_string();
+            let _hash = parts.next().unwrap_or("");
+            if name.is_empty() || name == "HEAD" {
+                continue;
+            }
+            // refs/heads/x → 本地 x；refs/remotes/origin/x → 远程 origin/x（保留远程命名空间）
+            let (display, remote) = if let Some(rest) = name.strip_prefix("refs/remotes/") {
+                (rest.to_string(), true)
+            } else if let Some(rest) = name.strip_prefix("refs/heads/") {
+                (rest.to_string(), false)
             } else {
-                (false, line.trim())
+                (name, false) // branch -a 不出其他 ref；兜底当本地处理
             };
-            if name.is_empty() {
-                continue;
-            }
-            branches.push(GitBranch { name: name.to_string(), current });
+            branches.push(GitBranch {
+                name: display,
+                current: head_mark.trim() == "*",
+                remote,
+            });
         }
         Ok(branches)
     })
     .await
 }
 
-/// 切换分支（`git checkout <branch>`）。
+/// 切换分支（`git checkout <branch>`）。track=true 时 `checkout --track <branch>`：
+/// 远程分支（如 origin/feature-x）检出为本地同名分支并建立跟踪（B8 遗留闭环——
+/// 此前点远程分支走裸 checkout 进 detached HEAD，与 UI 提示「创建跟踪分支」不符）。
 #[tauri::command]
-pub async fn git_checkout(root: String, branch: String) -> Result<(), String> {
+pub async fn git_checkout(root: String, branch: String, track: Option<bool>) -> Result<(), String> {
     spawn_blocking(move || {
         let b = branch.trim();
         if b.is_empty() {
             return Err("分支名不能为空".to_string());
         }
         let mut cmd = tool_command("git", ENV_GIT);
-        cmd.arg("checkout").arg(b);
+        cmd.arg("checkout");
+        if track.unwrap_or(false) {
+            cmd.arg("--track");
+        }
+        cmd.arg(b);
+        exec_git(&root, cmd)?;
+        Ok(())
+    })
+    .await
+}
+
+/// 在指定提交上创建分支（不切换；迭代 3 · P1-4 右键「在此提交上新建分支」）。
+#[tauri::command]
+pub async fn git_create_branch_at(root: String, name: String, hash: String) -> Result<(), String> {
+    spawn_blocking(move || {
+        let n = name.trim();
+        let h = hash.trim();
+        if n.is_empty() {
+            return Err("分支名不能为空".to_string());
+        }
+        if h.is_empty() {
+            return Err("提交哈希不能为空".to_string());
+        }
+        let mut cmd = tool_command("git", ENV_GIT);
+        cmd.arg("branch").arg(n).arg(h);
         exec_git(&root, cmd)?;
         Ok(())
     })
@@ -301,16 +350,39 @@ fn validate_repo_relative(root: &str, path: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// 取左右对照内容：staged=true 为 HEAD vs Index；否则 Index vs 工作区。
+/// 取左右对照内容（迭代 2 三态扩展）：base 决定对比基准——
+/// - "index"（默认）：staged=true 为 HEAD vs Index；staged=false 为 Index vs 工作区
+/// - "head"：staged 恒视为 false 语义，HEAD vs 工作区（总差异视图，P1-2）
 /// 缺失一侧（新文件 / 删除 / 未跟踪）以空字符串表示，供 diff 编辑器渲染为空。
 #[tauri::command]
 pub async fn git_diff_versions(
     root: String,
     path: String,
     staged: bool,
+    base: Option<String>,
+    ignore_whitespace: Option<bool>,
 ) -> Result<GitDiffVersions, String> {
     spawn_blocking(move || {
         validate_repo_relative(&root, &path)?;
+        // ignore_whitespace 只作用于 Monaco 端 diff 计算（ignoreTrimWhitespace），
+        // versions 返回整文件内容，git 侧无需 -w——保留参数为前端协议一致性
+        let _ = ignore_whitespace;
+        // 工作区 vs HEAD（P1-2 三态之「总差异」）
+        if base.as_deref() == Some("head") {
+            let old = git_show_blob(&root, "HEAD", &path).unwrap_or_default();
+            let full = Path::new(&root).join(&path);
+            let new = if full.is_file() {
+                std::fs::read_to_string(&full).unwrap_or_default()
+            } else {
+                String::new()
+            };
+            return Ok(GitDiffVersions {
+                old,
+                new,
+                old_label: "HEAD".to_string(),
+                new_label: "工作区".to_string(),
+            });
+        }
         if staged {
             Ok(GitDiffVersions {
                 old: git_show_blob(&root, "HEAD", &path).unwrap_or_default(),
@@ -340,49 +412,616 @@ pub async fn git_diff_versions(
     .await
 }
 
-// ---------- 远程操作（push / pull / fetch，TD-002） ----------
+// ---------- Hunk 级操作（迭代 2 · P1-1/P0-5） ----------
 
-/// 推送到远程（`git push`），错误透传 git stderr。
+/// 单个 hunk 的行号信息（工作区 vs HEAD 口径，供 gutter 装饰与 hunk 定位共用）。
+#[derive(Serialize)]
+pub struct GitHunk {
+    /// 旧文件（HEAD）起始行（1 基；新文件时为 0）
+    pub old_start: u32,
+    /// 旧文件行数（0 = 纯新增）
+    pub old_lines: u32,
+    /// 新文件（工作区）起始行（1 基；删除时为 0）
+    pub new_start: u32,
+    /// 新文件行数（0 = 纯删除）
+    pub new_lines: u32,
+}
+
+/// 解析 `@@ -a,b +c,d @@` hunk 头。格式变体：省略 `,b`（= 1）与 `,0`。
+fn parse_hunk_header(line: &str) -> Option<GitHunk> {
+    let rest = line.strip_prefix("@@ -")?;
+    let (old_part, rest) = rest.split_once(' ')?;
+    let rest = rest.strip_prefix('+')?;
+    let (new_part, _ctx) = rest.split_once(" @@")?;
+    let parse = |s: &str| -> Option<(u32, u32)> {
+        match s.split_once(',') {
+            Some((a, b)) => Some((a.parse().ok()?, b.parse().ok()?)),
+            None => Some((s.parse().ok()?, 1)),
+        }
+    };
+    let (old_start, old_lines) = parse(old_part)?;
+    let (new_start, new_lines) = parse(new_part)?;
+    Some(GitHunk { old_start, old_lines, new_start, new_lines })
+}
+
+/// 列出文件「工作区 vs HEAD」的全部 hunk（`git diff HEAD --`）。
+/// 同时返回原始 unified diff 文本（`diff_text`），前端可按 hunk 边界切分出 patch 片段。
+/// gutter 装饰（P0-5）与 hunk 级暂存（P1-1）共用此口径。
 #[tauri::command]
-pub async fn git_push(root: String) -> Result<String, String> {
+pub async fn git_diff_hunks(
+    root: String,
+    path: String,
+    ignore_whitespace: bool,
+) -> Result<GitHunksResult, String> {
+    spawn_blocking(move || {
+        validate_repo_relative(&root, &path)?;
+        let mut cmd = tool_command("git", ENV_GIT);
+        cmd.arg("diff").arg("HEAD");
+        if ignore_whitespace {
+            cmd.arg("-w");
+        }
+        cmd.arg("-U3").arg("--").arg(&path);
+        let diff_text = exec_git(&root, cmd)?;
+        let hunks: Vec<GitHunk> = diff_text
+            .lines()
+            .filter(|l| l.starts_with("@@ "))
+            .filter_map(parse_hunk_header)
+            .collect();
+        Ok(GitHunksResult { hunks, diff_text })
+    })
+    .await
+}
+
+/// hunk 列表 + 原始 diff 文本（前端按 `@@` 边界切 patch 片段用）。
+#[derive(Serialize)]
+pub struct GitHunksResult {
+    pub hunks: Vec<GitHunk>,
+    pub diff_text: String,
+}
+
+/// 应用一个 hunk 片段到暂存区或工作区（P1-1）。
+/// `patch` 为前端从 `diff_text` 切出的单个 hunk（含 `@@` 头与上下文行）。
+/// - stage：`git apply --cached`（把该块从工作区放进暂存区）
+/// - unstage：`git apply --cached -R`（把该块从暂存区拿回工作区侧）
+/// - discard：`git apply -R`（直接丢弃该块的工作区改动）
+#[tauri::command]
+pub async fn git_apply_hunk(
+    root: String,
+    path: String,
+    patch: String,
+    mode: String,
+) -> Result<(), String> {
+    spawn_blocking(move || {
+        validate_repo_relative(&root, &path)?;
+        if patch.trim().is_empty() {
+            return Err("patch 不能为空".to_string());
+        }
+        // Windows 三坑（E2E 实测）：stdin pipe 与 git 锁冲突；系统临时目录路径被
+        // MSYS git 拒开；前端传来的 root 为正斜杠、join 产物被 git 路径转换弄丢。
+        // → patch 落 .git/ 内（永不进 status），且用 dunce/canonicalize 风格的
+        //   原生分隔符路径。std::fs::canonicalize 前缀 \\?\ 会被部分 git 版本拒开，
+        //   故手动把 / 替换为 \（Windows）。
+        let patch_path = {
+            let p = Path::new(&root).join(".git").join(".opencharm-hunk.patch");
+            if cfg!(windows) {
+                std::path::PathBuf::from(p.to_string_lossy().replace('/', "\\"))
+            } else {
+                p
+            }
+        };
+        std::fs::write(&patch_path, &patch).map_err(|e| format!("写入临时 patch 失败：{e}"))?;
+        let result = (|| {
+            let mut cmd = tool_command("git", ENV_GIT);
+            cmd.arg("apply").arg("--recount").arg("--unidiff-zero");
+            match mode.as_str() {
+                "stage" => {
+                    cmd.arg("--cached");
+                }
+                "unstage" => {
+                    cmd.arg("--cached").arg("-R");
+                }
+                "discard" => {
+                    cmd.arg("-R");
+                }
+                other => return Err(format!("未知 mode：{other}")),
+            }
+            cmd.arg(&patch_path);
+            exec_git(&root, cmd).map(|_| ())
+        })();
+        let _ = std::fs::remove_file(&patch_path); // 无论成败都清理临时文件
+        result
+    })
+    .await
+}
+
+// ---------- 高级工作流（迭代 3 · P1-4/5/6 + P0-4 + B3/B6/B8） ----------
+
+/// 分支同步状态（P0-4）：当前分支相对上游的 ahead/behind 计数。
+#[derive(Serialize)]
+pub struct GitSync {
+    /// 上游分支名（如 origin/main）；无上游为 None
+    pub upstream: Option<String>,
+    /// 本地领先（待推送）数
+    pub ahead: u32,
+    /// 本地落后（待拉取）数
+    pub behind: u32,
+}
+
+/// 查询当前分支的上游与 ahead/behind（`git rev-list --left-right --count @{upstream}...HEAD`）。
+/// 无上游时返回 (None, 0, 0)——不视为错误（本地新仓库常态）。
+#[tauri::command]
+pub async fn git_sync_status(root: String) -> Result<GitSync, String> {
+    spawn_blocking(move || {
+        let mut cmd = tool_command("git", ENV_GIT);
+        cmd.arg("rev-parse").arg("--abbrev-ref").arg("--symbolic-full-name")
+            .arg("@{upstream}");
+        let upstream = exec_git(&root, cmd).ok().map(|s| s.trim().to_string());
+        if upstream.is_none() {
+            return Ok(GitSync { upstream: None, ahead: 0, behind: 0 });
+        }
+        let mut cmd = tool_command("git", ENV_GIT);
+        cmd.arg("rev-list").arg("--left-right").arg("--count")
+            .arg("@{upstream}...HEAD");
+        let out = exec_git(&root, cmd)?;
+        let mut parts = out.split_whitespace();
+        let behind: u32 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+        let ahead: u32 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+        Ok(GitSync { upstream, ahead, behind })
+    })
+    .await
+}
+
+/// cherry-pick 指定提交（P1-4）。`-n` 时不自动提交（冲突场景留给用户处理后再提交）。
+#[tauri::command]
+pub async fn git_cherry_pick(root: String, hash: String, no_commit: bool) -> Result<String, String> {
+    spawn_blocking(move || {
+        let h = hash.trim();
+        if h.is_empty() {
+            return Err("提交哈希不能为空".to_string());
+        }
+        let mut cmd = tool_command("git", ENV_GIT);
+        cmd.arg("cherry-pick");
+        if no_commit {
+            cmd.arg("-n");
+        }
+        cmd.arg(h);
+        exec_git(&root, cmd)
+    })
+    .await
+}
+
+/// revert 指定提交（P1-4，生成反向提交）。
+#[tauri::command]
+pub async fn git_revert(root: String, hash: String) -> Result<String, String> {
+    spawn_blocking(move || {
+        let h = hash.trim();
+        if h.is_empty() {
+            return Err("提交哈希不能为空".to_string());
+        }
+        let mut cmd = tool_command("git", ENV_GIT);
+        cmd.arg("revert").arg("--no-edit").arg(h);
+        exec_git(&root, cmd)
+    })
+    .await
+}
+
+/// reset 当前分支到指定提交（P1-4）。mode: soft=只动 HEAD / mixed=HEAD+索引 / hard=HEAD+索引+工作区。
+#[tauri::command]
+pub async fn git_reset(root: String, hash: String, mode: String) -> Result<String, String> {
+    spawn_blocking(move || {
+        let h = hash.trim();
+        if h.is_empty() {
+            return Err("提交哈希不能为空".to_string());
+        }
+        let m = match mode.as_str() {
+            "soft" => "soft",
+            "mixed" => "mixed",
+            "hard" => "hard",
+            other => return Err(format!("未知 reset 模式：{other}")),
+        };
+        let mut cmd = tool_command("git", ENV_GIT);
+        cmd.arg("reset").arg(format!("--{m}")).arg(h);
+        exec_git(&root, cmd)
+    })
+    .await
+}
+
+/// merge 指定分支到当前分支（P1-5）。no_ff=强制生成合并提交；squash=压平合并。
+#[tauri::command]
+pub async fn git_merge(root: String, branch: String, no_ff: bool, squash: bool) -> Result<String, String> {
+    spawn_blocking(move || {
+        let b = branch.trim();
+        if b.is_empty() {
+            return Err("分支名不能为空".to_string());
+        }
+        let mut cmd = tool_command("git", ENV_GIT);
+        cmd.arg("merge");
+        if no_ff {
+            cmd.arg("--no-ff");
+        }
+        if squash {
+            cmd.arg("--squash");
+        }
+        cmd.arg(b);
+        exec_git(&root, cmd)
+    })
+    .await
+}
+
+/// rebase 当前分支到指定分支（P1-5）。失败时提示用户 abort。
+#[tauri::command]
+pub async fn git_rebase(root: String, branch: String) -> Result<String, String> {
+    spawn_blocking(move || {
+        let b = branch.trim();
+        if b.is_empty() {
+            return Err("分支名不能为空".to_string());
+        }
+        let mut cmd = tool_command("git", ENV_GIT);
+        cmd.arg("rebase").arg(b);
+        exec_git(&root, cmd)
+    })
+    .await
+}
+
+/// 中止进行中的 merge / rebase / cherry-pick（P1-5：冲突后的逃生口）。
+#[tauri::command]
+pub async fn git_abort_op(root: String, op: String) -> Result<String, String> {
+    spawn_blocking(move || {
+        let mut cmd = tool_command("git", ENV_GIT);
+        match op.as_str() {
+            "merge" => { cmd.arg("merge").arg("--abort"); }
+            "rebase" => { cmd.arg("rebase").arg("--abort"); }
+            "cherry-pick" => { cmd.arg("cherry-pick").arg("--abort"); }
+            other => return Err(format!("未知操作：{other}")),
+        }
+        exec_git(&root, cmd)
+    })
+    .await
+}
+
+/// 标签信息（P1-6）。
+#[derive(Serialize)]
+pub struct GitTag {
+    pub name: String,
+    /// 指向的提交短哈希
+    pub short_hash: String,
+}
+
+/// 列出标签（P1-6）。
+#[tauri::command]
+pub async fn git_tags(root: String) -> Result<Vec<GitTag>, String> {
+    spawn_blocking(move || {
+        let mut cmd = tool_command("git", ENV_GIT);
+        cmd.arg("tag").arg("--format").arg("%(refname:short)%09%(objectname:short)");
+        let out = exec_git(&root, cmd)?;
+        let mut tags = Vec::new();
+        for line in out.lines() {
+            if line.trim().is_empty() { continue; }
+            let mut parts = line.splitn(2, '\t');
+            let name = parts.next().unwrap_or("").trim().to_string();
+            let hash = parts.next().unwrap_or("").trim().to_string();
+            if name.is_empty() { continue; }
+            tags.push(GitTag { name, short_hash: hash });
+        }
+        tags.sort_by(|a, b| b.name.cmp(&a.name));
+        Ok(tags)
+    })
+    .await
+}
+
+/// 创建标签（P1-6）。
+#[tauri::command]
+pub async fn git_create_tag(root: String, name: String, hash: String) -> Result<String, String> {
+    spawn_blocking(move || {
+        let n = name.trim();
+        if n.is_empty() {
+            return Err("标签名不能为空".to_string());
+        }
+        let mut cmd = tool_command("git", ENV_GIT);
+        cmd.arg("tag").arg(n);
+        let h = hash.trim();
+        if !h.is_empty() {
+            cmd.arg(h);
+        }
+        exec_git(&root, cmd)?;
+        Ok(format!("已创建标签 {n}"))
+    })
+    .await
+}
+
+/// 冲突文件的三方内容（index 三个 stage）。
+#[derive(Serialize)]
+pub struct GitConflictVersions {
+    /// 共同祖先（`:1:path`；新增/缺失侧时为空）
+    pub base: String,
+    /// 当前更改（`:2:path`，HEAD 侧）
+    pub current: String,
+    /// 传入更改（`:3:path`，MERGE_HEAD / rebase 来源侧）
+    pub incoming: String,
+}
+
+/// 读取冲突文件的三方版本（`git show :1/:2/:3:path`）。阶段 2：两路「当前 vs 传入」对比。
+#[tauri::command]
+pub async fn git_conflict_versions(root: String, path: String) -> Result<GitConflictVersions, String> {
+    spawn_blocking(move || {
+        validate_repo_relative(&root, &path)?;
+        Ok(GitConflictVersions {
+            base: git_show_blob(&root, ":1", &path).unwrap_or_default(),
+            current: git_show_blob(&root, ":2", &path).unwrap_or_default(),
+            incoming: git_show_blob(&root, ":3", &path).unwrap_or_default(),
+        })
+    })
+    .await
+}
+
+// ---------- 远程操作（push / pull / fetch，TD-002；迭代 4 · P2-1/P2-2/P2-3 重构） ----------
+
+/// 进行中网络操作句柄表（迭代 4 · P2-3：可取消）。key = "push"/"pull"/"fetch"。
+static GIT_NET_OPS: LazyLock<Mutex<HashMap<String, GitNetOp>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// 一个进行中的网络 git 操作：取消标志（轮询线程见标志即杀进程树）。
+struct GitNetOp {
+    cancel: Arc<AtomicBool>,
+}
+
+/// 流式网络 git 执行（迭代 4 · P2-3）：
+/// - stderr 逐行经 `git-op-stdout` 事件推前端（git 进度走 stderr：Enumerating/Counting/Writing objects）
+/// - 取消标志轮询：`git_cancel_op` 置位后杀进程树，立即返回「已取消」
+/// - 240s 兜底超时（保留，防泄漏；正常操作远早于此完成或被用户取消）
+/// - GIT_TERMINAL_PROMPT=0（P2-2 务实降级）：拒绝交互式凭据提示，HTTPS 无凭据时
+///   快速失败并把「如何配置 credential helper」的指引带回给用户，而非挂死等输入
+fn exec_git_streaming(
+    app: &AppHandle,
+    root: &str,
+    mut cmd: Command,
+    op: &str,
+) -> Result<String, String> {
+    cmd.env("GIT_TERMINAL_PROMPT", "0")
+        .env("GIT_ASKPASS", "echo") // askpass=echo：任何凭据询问立即返回空串 → git 自行报错而非挂起
+        .current_dir(root)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = no_window(&mut cmd)
+        .spawn()
+        .map_err(|e| format!("无法启动 git（可能未安装）：{e}"))?;
+
+    let cancel = Arc::new(AtomicBool::new(false));
+    {
+        let mut ops = unpoison(GIT_NET_OPS.lock());
+        ops.insert(op.to_string(), GitNetOp { cancel: cancel.clone() });
+    }
+
+    // stderr 逐行流式转发（git 的进度输出在 stderr）
+    let stderr = child.stderr.take().unwrap();
+    let app_err = app.clone();
+    let op_err = op.to_string();
+    let err_stream = std::thread::spawn(move || {
+        let reader = std::io::BufReader::new(stderr);
+        let mut collected = String::new();
+        for line in reader.lines() {
+            let Ok(l) = line else { break };
+            collected.push_str(&l);
+            collected.push('\n');
+            let _ = app_err.emit("git-op-stdout", json!({ "op": op_err, "data": format!("{l}\n") }));
+        }
+        collected
+    });
+    // stdout 全量收集（push/pull 的正常输出少且非进度）
+    let stdout = child.stdout.take().unwrap();
+    let out_reader = std::thread::spawn(move || {
+        let mut s = String::new();
+        let mut r = std::io::BufReader::new(stdout);
+        let _ = r.read_to_string(&mut s);
+        s
+    });
+
+    let start = Instant::now();
+    let status = loop {
+        if cancel.load(Ordering::Relaxed) {
+            kill_process_tree(&mut child);
+            let _ = out_reader.join();
+            let _ = err_stream.join();
+            cleanup_net_op(op);
+            return Err("已取消".to_string());
+        }
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {
+                if start.elapsed() > GIT_NET_TIMEOUT {
+                    kill_process_tree(&mut child);
+                    let _ = out_reader.join();
+                    let _ = err_stream.join();
+                    cleanup_net_op(op);
+                    return Err(format!("git 网络操作超时（{}s）", GIT_NET_TIMEOUT.as_secs()));
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            Err(e) => {
+                kill_process_tree(&mut child);
+                let _ = out_reader.join();
+                let _ = err_stream.join();
+                cleanup_net_op(op);
+                return Err(e.to_string());
+            }
+        }
+    };
+    let out = out_reader.join().unwrap_or_default();
+    let err = err_stream.join().unwrap_or_default();
+    cleanup_net_op(op);
+
+    if status.success() {
+        Ok(if out.trim().is_empty() { err } else { out })
+    } else {
+        let msg = err.trim().to_string();
+        // P2-2：凭据失败的针对性指引（Authentication failed / could not read Username）
+        if msg.contains("Authentication failed") || msg.contains("could not read Username") || msg.contains("terminal prompts disabled") {
+            Err(format!(
+                "{msg}\n\n远程需要认证。可在终端配置凭据缓存后重试：\n  git config --global credential.helper store\n（首次 push/pull 时输入一次密码，之后记住；或改用 SSH 远程地址）"
+            ))
+        } else {
+            Err(msg)
+        }
+    }
+}
+
+/// 从句柄表移除（操作结束/失败/取消统一走这里）。
+fn cleanup_net_op(op: &str) {
+    if let Ok(mut ops) = GIT_NET_OPS.lock() {
+        ops.remove(op);
+    }
+}
+
+/// 取消进行中的网络 git 操作（P2-3）。无进行中操作时静默成功。
+#[tauri::command]
+pub async fn git_cancel_op(op: String) -> Result<(), String> {
+    spawn_blocking(move || {
+        if let Ok(ops) = GIT_NET_OPS.lock() {
+            if let Some(handle) = ops.get(&op) {
+                handle.cancel.store(true, Ordering::Relaxed);
+            }
+        }
+        Ok(())
+    })
+    .await
+}
+
+/// 推送到远程（`git push`；可选 remote/branch——空则默认上游）。迭代 4：流式 + 可取消。
+#[tauri::command]
+pub async fn git_push(app: AppHandle, root: String, remote: Option<String>, branch: Option<String>) -> Result<String, String> {
     spawn_blocking(move || {
         let mut cmd = tool_command("git", ENV_GIT);
         cmd.arg("push");
-        exec_git_timeout(&root, cmd)
+        if let Some(r) = remote.as_deref().filter(|s| !s.is_empty()) {
+            cmd.arg(r);
+            if let Some(b) = branch.as_deref().filter(|s| !s.is_empty()) {
+                cmd.arg(format!("HEAD:refs/heads/{b}"));
+            }
+        } else if let Some(b) = branch.as_deref().filter(|s| !s.is_empty()) {
+            cmd.arg("-u").arg("origin").arg(format!("HEAD:refs/heads/{b}"));
+        }
+        exec_git_streaming(&app, &root, cmd, "push")
     })
     .await
 }
 
-/// 拉取远程（`git pull`）。
+/// 拉取远程（`git pull`；可选 remote/branch）。迭代 4：流式 + 可取消。
 #[tauri::command]
-pub async fn git_pull(root: String) -> Result<String, String> {
+pub async fn git_pull(app: AppHandle, root: String, remote: Option<String>, branch: Option<String>) -> Result<String, String> {
     spawn_blocking(move || {
         let mut cmd = tool_command("git", ENV_GIT);
         cmd.arg("pull");
-        exec_git_timeout(&root, cmd)
+        if let Some(r) = remote.as_deref().filter(|s| !s.is_empty()) {
+            cmd.arg(r);
+            if let Some(b) = branch.as_deref().filter(|s| !s.is_empty()) {
+                cmd.arg(b);
+            }
+        }
+        exec_git_streaming(&app, &root, cmd, "pull")
     })
     .await
 }
 
-/// 抓取远程（`git fetch`）。
+/// 抓取远程（`git fetch [--prune]`）。迭代 4：流式 + 可取消 + prune 选项。
 #[tauri::command]
-pub async fn git_fetch(root: String) -> Result<String, String> {
+pub async fn git_fetch(app: AppHandle, root: String, prune: bool) -> Result<String, String> {
     spawn_blocking(move || {
         let mut cmd = tool_command("git", ENV_GIT);
         cmd.arg("fetch");
-        exec_git_timeout(&root, cmd)
+        if prune {
+            cmd.arg("--prune");
+        }
+        cmd.arg("--all");
+        exec_git_streaming(&app, &root, cmd, "fetch")
+    })
+    .await
+}
+
+// ---------- Remote 管理（迭代 4 · P2-1） ----------
+
+/// 远程仓库条目。
+#[derive(Serialize)]
+pub struct GitRemote {
+    pub name: String,
+    pub url: String,
+    /// fetch refspec（展示用；无则空）
+    pub fetch: String,
+}
+
+/// 列出远程仓库（`git remote -v` + refspec）。
+#[tauri::command]
+pub async fn git_remote_list(root: String) -> Result<Vec<GitRemote>, String> {
+    spawn_blocking(move || {
+        let out = {
+            let mut cmd = tool_command("git", ENV_GIT);
+            cmd.arg("remote").arg("-v");
+            exec_git(&root, cmd)?
+        };
+        let mut remotes = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for line in out.lines() {
+            // 形如 "origin\thttps://... (fetch)"
+            if !line.ends_with("(fetch)") { continue; }
+            let body = line.trim_end_matches(" (fetch)");
+            let Some((name, url)) = body.split_once('\t') else { continue };
+            if seen.insert(name.to_string()) {
+                let fetch = {
+                    let mut c = tool_command("git", ENV_GIT);
+                    c.arg("config").arg(format!("remote.{name}.fetch"));
+                    exec_git(&root, c).unwrap_or_default().trim().to_string()
+                };
+                remotes.push(GitRemote { name: name.to_string(), url: url.to_string(), fetch });
+            }
+        }
+        Ok(remotes)
+    })
+    .await
+}
+
+/// 添加远程仓库。
+#[tauri::command]
+pub async fn git_remote_add(root: String, name: String, url: String) -> Result<(), String> {
+    spawn_blocking(move || {
+        let n = name.trim();
+        let u = url.trim();
+        if n.is_empty() || u.is_empty() {
+            return Err("远程名与 URL 不能为空".to_string());
+        }
+        let mut cmd = tool_command("git", ENV_GIT);
+        cmd.arg("remote").arg("add").arg(n).arg(u);
+        exec_git(&root, cmd)?;
+        Ok(())
+    })
+    .await
+}
+
+/// 移除远程仓库。
+#[tauri::command]
+pub async fn git_remote_remove(root: String, name: String) -> Result<(), String> {
+    spawn_blocking(move || {
+        let n = name.trim();
+        if n.is_empty() {
+            return Err("远程名不能为空".to_string());
+        }
+        let mut cmd = tool_command("git", ENV_GIT);
+        cmd.arg("remote").arg("remove").arg(n);
+        exec_git(&root, cmd)?;
+        Ok(())
     })
     .await
 }
 
 // ---------- Stash（TD-002） ----------
 
-/// 暂存当前更改（`git stash push`，可选 `-m` 说明）。
+/// 暂存当前更改（`git stash push`，可选 `-m` 说明与 `-u` 未跟踪文件）。迭代 3 · B6。
 #[tauri::command]
-pub async fn git_stash_push(root: String, message: String) -> Result<String, String> {
+pub async fn git_stash_push(root: String, message: String, include_untracked: bool) -> Result<String, String> {
     spawn_blocking(move || {
         let mut cmd = tool_command("git", ENV_GIT);
         cmd.arg("stash").arg("push");
+        if include_untracked {
+            cmd.arg("-u");
+        }
         let msg = message.trim();
         if !msg.is_empty() {
             cmd.arg("-m").arg(msg);
@@ -415,6 +1054,39 @@ pub async fn git_stash_list(root: String) -> Result<Vec<String>, String> {
     .await
 }
 
+/// 弹出指定索引的 stash（`git stash pop stash@{index}`）。
+#[tauri::command]
+pub async fn git_stash_pop_at(root: String, index: u32) -> Result<String, String> {
+    spawn_blocking(move || {
+        let mut cmd = tool_command("git", ENV_GIT);
+        cmd.arg("stash").arg("pop").arg(format!("stash@{{{index}}}"));
+        exec_git(&root, cmd)
+    })
+    .await
+}
+
+/// 查看指定 stash 的 diff 内容（迭代 3 · B6：stash 列表项点击查看）。
+#[tauri::command]
+pub async fn git_stash_show(root: String, index: u32) -> Result<String, String> {
+    spawn_blocking(move || {
+        let mut cmd = tool_command("git", ENV_GIT);
+        cmd.arg("stash").arg("show").arg("-p").arg(format!("stash@{{{index}}}"));
+        exec_git(&root, cmd)
+    })
+    .await
+}
+
+/// 丢弃指定索引的 stash（`git stash drop stash@{index}`）。
+#[tauri::command]
+pub async fn git_stash_drop_at(root: String, index: u32) -> Result<String, String> {
+    spawn_blocking(move || {
+        let mut cmd = tool_command("git", ENV_GIT);
+        cmd.arg("stash").arg("drop").arg(format!("stash@{{{index}}}"));
+        exec_git(&root, cmd)
+    })
+    .await
+}
+
 // ---------- 历史（log，TD-002） ----------
 
 /// 单条提交信息。
@@ -425,9 +1097,15 @@ pub struct GitCommit {
     pub author: String,
     pub date: String,
     pub subject: String,
+    /// 提交图形状（`--graph` 输出的 `* | /\` 前缀列，无则为空）。P0-6：历史图谱。
+    pub graph: String,
+    /// 分支/标签装饰（`%d`：HEAD -> main, tag: v1.0 等，无则为空）。
+    pub refs: String,
 }
 
-/// 列出最近 count 条提交（`git log`），字段以 \x1f 分隔、记录以换行分隔。
+/// 列出最近 count 条提交（`git log --graph --all --decorate`），字段以 \x1f 分隔、记录以换行分隔。
+/// graph 为 `--graph` 的车道前缀（`*` / `| *` / `| |\` 等，去掉尾随空格）；纯连接线行（无 \x1f）跳过。
+/// P0-6：前端按 graph 列渲染拓扑缩进，refs 显示分支/标签装饰。
 #[tauri::command]
 pub async fn git_log(root: String, count: u32) -> Result<Vec<GitCommit>, String> {
     spawn_blocking(move || {
@@ -435,12 +1113,27 @@ pub async fn git_log(root: String, count: u32) -> Result<Vec<GitCommit>, String>
         let mut cmd = tool_command("git", ENV_GIT);
         cmd.arg("log")
             .arg(format!("-n{n}"))
+            .arg("--graph")
+            .arg("--all")
             .arg("--date=short")
-            .arg("--pretty=format:%H%x1f%h%x1f%an%x1f%ad%x1f%s");
+            .arg("--pretty=format:%H%x1f%h%x1f%an%x1f%ad%x1f%s%x1f%d");
         let out = exec_git(&root, cmd)?;
         let mut commits = Vec::new();
         for line in out.lines() {
-            let fields: Vec<&str> = line.split('\u{1f}').collect();
+            // 有 \x1f 的行才是提交行；前导 `*|/\_ .<>` 车道字符之后才是 hash 起点
+            //（`.` 点线与 `><` 方向箭头见于 git 2.39+ 的 --graph 输出）
+            let Some(sep) = line.find('\u{1f}') else { continue };
+            let hash_start = line
+                .char_indices()
+                .find(|(_, c)| !matches!(c, ' ' | '*' | '|' | '/' | '\\' | '_' | '.' | '>' | '<'))
+                .map(|(i, _)| i)
+                .unwrap_or(0);
+            // 防御：hash 起点须落在第一个 \x1f 之前（车道前缀格式异常时整行放弃）
+            if hash_start >= sep {
+                continue;
+            }
+            let graph = line[..hash_start].trim_end().to_string();
+            let fields: Vec<&str> = line[hash_start..].split('\u{1f}').collect();
             if fields.len() < 5 {
                 continue;
             }
@@ -450,9 +1143,31 @@ pub async fn git_log(root: String, count: u32) -> Result<Vec<GitCommit>, String>
                 author: fields[2].to_string(),
                 date: fields[3].to_string(),
                 subject: fields[4].to_string(),
+                graph,
+                // %d 输出形如 ` (HEAD -> main, tag: v1.0)`：前导空格 + 两侧括号一并去除
+                refs: fields.get(5).unwrap_or(&"").trim_matches(|c: char| matches!(c, '(' | ')' | ' ')).to_string(),
             });
         }
         Ok(commits)
+    })
+    .await
+}
+
+/// 初始化 Git 仓库（`git init -b main`）。P0-7：SCM 空态按钮入口（此前仅新建项目向导内部可用）。
+/// -b main：现代默认分支名（验收实测宿主 git 2.45 无 init.defaultBranch 配置时回落 master，
+/// 与「新建项目向导 -b main」及用户预期不一致）。
+#[tauri::command]
+pub async fn git_init(root: String) -> Result<String, String> {
+    spawn_blocking(move || {
+        let mut cmd = tool_command("git", ENV_GIT);
+        // git < 2.28 不支持 -b：先试新语法，失败回落裸 init
+        cmd.arg("init").arg("--quiet").arg("-b").arg("main");
+        if exec_git(&root, cmd).is_err() {
+            let mut fallback = tool_command("git", ENV_GIT);
+            fallback.arg("init").arg("--quiet");
+            exec_git(&root, fallback)?;
+        }
+        Ok("仓库已初始化".to_string())
     })
     .await
 }
@@ -499,27 +1214,40 @@ pub async fn git_blame(root: String, path: String) -> Result<Vec<GitBlameLine>, 
 
 /// 解析 `git blame --line-porcelain` 输出：行头为 `<40hex> <orig> <final> [num]`，
 /// 其后的 header 字段按 `author ` / `author-time ` / `summary ` 截取。
+///
+/// 实测 panic 修复（2026-09-18 用户仓库复现）：中文提交信息（summary/author）
+/// 的行字节长超 40，原实现盲目 `split_at(40)` 按字节切——第 40 字节落在多字节
+/// 字符中间时 Rust panic「end byte index 40 is not a char boundary」。
+/// blame porcelain 的行头**恒为 40 个 ASCII hex + 空格**，正确判定方式是
+/// 逐字符校验前 40 个是否 ASCII hexdigit 且第 41 个是空格——不依赖字节切分。
 fn parse_blame(out: &str) -> Vec<GitBlameLine> {
     let mut result = Vec::new();
     let mut cur: Option<GitBlameLine> = None;
     for line in out.lines() {
-        if line.len() > 40 {
-            let (hash_part, rest) = line.split_at(40);
-            if hash_part.chars().all(|c| c.is_ascii_hexdigit()) && rest.starts_with(' ') {
-                if let Some(c) = cur.take() {
-                    result.push(c);
-                }
-                let toks: Vec<&str> = rest.split_whitespace().collect();
-                let final_line = toks.get(1).and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
-                cur = Some(GitBlameLine {
-                    line: final_line,
-                    short_hash: hash_part[..8].to_string(),
-                    author: String::new(),
-                    time: 0,
-                    summary: String::new(),
-                });
-                continue;
+        // 行头判定：前 40 字符均为 ASCII hex 且其后紧跟空格（char_indices 安全，
+        // 不做字节 split——中文字符的行在此直接不命中，走 header 解析分支）
+        let is_header = line.chars().count() > 40 && {
+            let chars: Vec<char> = line.chars().collect();
+            chars[..40].iter().all(|c| c.is_ascii_hexdigit()) && chars[40] == ' '
+        };
+        if is_header {
+            if let Some(c) = cur.take() {
+                result.push(c);
             }
+            // 40 个 hex 字符后的剩余部分（char 安全取值）
+            let rest: String = line.chars().skip(41).collect();
+            let toks: Vec<&str> = rest.split_whitespace().collect();
+            let final_line = toks.get(1).and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
+            let hash_str: String = line.chars().take(40).collect();
+            let short: String = hash_str.chars().take(8).collect();
+            cur = Some(GitBlameLine {
+                line: final_line,
+                short_hash: short,
+                author: String::new(),
+                time: 0,
+                summary: String::new(),
+            });
+            continue;
         }
         if let Some(c) = cur.as_mut() {
             if let Some(author) = line.strip_prefix("author ") {
@@ -537,9 +1265,161 @@ fn parse_blame(out: &str) -> Vec<GitBlameLine> {
     result
 }
 
+// ---------- Worktree（迭代 5 · P2-9） ----------
+
+/// worktree 条目。
+#[derive(Serialize)]
+pub struct GitWorktree {
+    /// 绝对路径
+    pub path: String,
+    /// 检出的分支（detached 为 None）
+    pub branch: Option<String>,
+    /// 是否主工作树（仓库本体）
+    pub main: bool,
+}
+
+/// 列出 worktree（`git worktree list --porcelain`）。
+#[tauri::command]
+pub async fn git_worktree_list(root: String) -> Result<Vec<GitWorktree>, String> {
+    spawn_blocking(move || {
+        let mut cmd = tool_command("git", ENV_GIT);
+        cmd.arg("worktree").arg("list").arg("--porcelain");
+        let out = exec_git(&root, cmd)?;
+        let mut trees = Vec::new();
+        let mut path = String::new();
+        let mut branch: Option<String> = None;
+        let mut main = false;
+        let mut started = false;
+        let flush = |trees: &mut Vec<GitWorktree>, path: &str, branch: Option<String>, main: bool| {
+            if !path.is_empty() {
+                trees.push(GitWorktree { path: path.to_string(), branch, main });
+            }
+        };
+        for line in out.lines() {
+            if let Some(p) = line.strip_prefix("worktree ") {
+                if started {
+                    flush(&mut trees, &path, branch.take(), main);
+                }
+                path = p.to_string();
+                main = false;
+                started = true;
+            } else if let Some(b) = line.strip_prefix("branch ") {
+                // refs/heads/xxx → xxx
+                branch = Some(b.trim_start_matches("refs/heads/").to_string());
+            } else if line.trim() == "detached" {
+                branch = None;
+            } else if line.trim() == "bare" {
+                main = true; // bare 也标 main（不可操作）
+            }
+        }
+        if started {
+            flush(&mut trees, &path, branch, main);
+        }
+        // 第一项即主工作树
+        if let Some(first) = trees.first_mut() {
+            first.main = true;
+        }
+        Ok(trees)
+    })
+    .await
+}
+
+/// 创建 worktree（`git worktree add <path> <branch>`；branch 空 = 新建分支名取 path 的 basename）。
+#[tauri::command]
+pub async fn git_worktree_add(
+    root: String,
+    path: String,
+    branch: String,
+    new_branch: bool,
+) -> Result<String, String> {
+    spawn_blocking(move || {
+        let p = path.trim();
+        if p.is_empty() {
+            return Err("worktree 路径不能为空".to_string());
+        }
+        // 路径安全：必须在仓库根之外且是普通相对/绝对路径（拒绝 .. 上跳）
+        let full = std::path::Path::new(p);
+        if full.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+            return Err("worktree 路径不得包含 ..".to_string());
+        }
+        let mut cmd = tool_command("git", ENV_GIT);
+        cmd.arg("worktree").arg("add");
+        if new_branch {
+            cmd.arg("-b").arg(branch.trim());
+        } else {
+            cmd.arg("--track").arg("-c").arg("protocol.file.allow=always");
+            // 复用已有分支（含远程）：checkout 语义
+        }
+        cmd.arg(p);
+        if !new_branch && !branch.trim().is_empty() {
+            cmd.arg(branch.trim());
+        }
+        exec_git(&root, cmd)
+    })
+    .await
+}
+
+/// 移除 worktree（`git worktree remove`；force 用于含未提交改动的树）。
+#[tauri::command]
+pub async fn git_worktree_remove(root: String, path: String, force: bool) -> Result<(), String> {
+    spawn_blocking(move || {
+        let p = path.trim();
+        if p.is_empty() {
+            return Err("worktree 路径不能为空".to_string());
+        }
+        let mut cmd = tool_command("git", ENV_GIT);
+        cmd.arg("worktree").arg("remove");
+        if force {
+            cmd.arg("--force");
+        }
+        cmd.arg(p);
+        exec_git(&root, cmd)?;
+        Ok(())
+    })
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// parse_blame 中文行不 panic（用户仓库实测：summary 含中文时原 split_at(40)
+    /// 字节切分切进多字节字符 → Rust panic "not a char boundary"）。
+    /// 复现数据取自真实仓库的 blame porcelain 输出（中文 summary 超 40 字节）。
+    #[test]
+    fn test_parse_blame_chinese_summary_no_panic() {
+        // 40 个 hex 字符的行头（abcdef×6 + abcd，与 ASCII 版同长度）
+        let h1 = "abcdefabcdefabcdefabcdefabcdefabcdefabcd 12 34 2";
+        let h2 = "abcdefabcdefabcdefabcdefabcdefabcdefabcd 35 35 1";
+        let out = format!(
+            "{h1}\nauthor qinx\nauthor-time 1737000000\nsummary 商品长详图功能中选择 使用场景图生成提示词，返回的结果里中文也有乱码\nfilename _check_venv.py\n{h2}\nauthor qinx\nauthor-time 1737000000\nsummary 修复：返回值中的中文字符乱码问题\nfilename _check_venv.py\n"
+        );
+        let rows = parse_blame(&out);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].line, 34);
+        assert_eq!(rows[0].author, "qinx");
+        assert!(rows[0].summary.contains("商品长详图"));
+        assert!(rows[1].summary.contains("中文字符乱码"));
+    }
+
+    /// parse_blame 常规 ASCII 输出（回归保护：改字符安全判定时不得破坏原行为）
+    #[test]
+    fn test_parse_blame_ascii() {
+        let out = "\
+abcdefabcdefabcdefabcdefabcdefabcdefabcd 3 3 1
+author Dev
+author-time 1700000000
+summary init commit
+filename a.py
+";
+        let rows = parse_blame(out);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].short_hash, "abcdefab");
+        assert_eq!(rows[0].line, 3);
+        assert_eq!(rows[0].author, "Dev");
+        assert_eq!(rows[0].summary, "init commit");
+        assert_eq!(rows[0].time, 1700000000);
+    }
 
     /// 在临时目录初始化一个 git 仓库，便于端到端验证命令层（需要环境已安装 git）。
     #[test]
@@ -674,6 +1554,8 @@ mod tests {
             root.clone(),
             "../opencharm-git-diff-guard-secret.txt".into(),
             false,
+            None,
+            None,
         ));
         assert!(bad.is_err(), "穿越路径必须被拒绝");
         if let Err(e) = &bad {
@@ -682,11 +1564,11 @@ mod tests {
 
         // 绝对路径：拒绝
         let abs = secret.to_string_lossy().to_string();
-        let bad2 = tauri::async_runtime::block_on(git_diff_versions(root.clone(), abs, false));
+        let bad2 = tauri::async_runtime::block_on(git_diff_versions(root.clone(), abs, false, None, None));
         assert!(bad2.is_err(), "绝对路径必须被拒绝");
 
         // 正常路径（未跟踪新文件）：左空右为工作区内容
-        let ok = tauri::async_runtime::block_on(git_diff_versions(root, "a.py".into(), false));
+        let ok = tauri::async_runtime::block_on(git_diff_versions(root, "a.py".into(), false, None, None));
         assert!(ok.is_ok());
         let v = ok.unwrap();
         assert_eq!(v.new, "print(1)\n");

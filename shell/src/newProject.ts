@@ -9,6 +9,8 @@ import { appendOutputLine } from "./output";
 import { gotoFromLink } from "./tracebackLink";
 import { hideEl, showEl } from "./anim";
 import { trapFocus } from "./focusTrap";
+import { openAlert } from "./dialog";
+import { toast, toastFail } from "./toast";
 import { refreshInterpreterStatus, type CreateVenvResult, type PythonVersionOption } from "./envPanel";
 
 interface CreateProjectResult {
@@ -32,9 +34,13 @@ const newProjectPreviewEl = $("new-project-preview");
 
 /** UI-05：模态焦点陷阱解除句柄，关闭时置 null */
 let releaseNewProjectFocus: (() => void) | null = null;
-/** tech-debt #18：Esc 关闭新建项目面板（document 级，open 时挂、close 时移除） */
+/** tech-debt #18：Esc 关闭新建项目面板（document 级，open 时挂、close 时移除）。
+ *  守卫：前台有更上层对话框（.modal 显隐约定）时 Esc 归对话框，防连带关闭丢失未保存输入
+ * （与 envPanel.onEnvKeydown / bookmarks 同款守卫） */
 function onNewProjectKeydown(e: KeyboardEvent): void {
-  if (e.key === "Escape") closeNewProjectPanel();
+  if (e.key !== "Escape") return;
+  if (document.querySelectorAll(".modal:not(.hidden)").length > 1) return;
+  closeNewProjectPanel();
 }
 /** main 注入的工作区切换 / 文件打开（wireNewProject） */
 let openWorkspaceFn: ((root: string) => Promise<void>) | null = null;
@@ -151,42 +157,44 @@ async function createProject(): Promise<void> {
     return;
   }
   if (!result.git_ok) {
-    appendOutputLine(outputEl, `git init 失败（项目已创建）：${result.git_message}`, "stderr", gotoFromLink);
+    appendOutputLine(outputEl, `git init 失败（项目已创建）：${result.git_message}`, "stderr", gotoFromLink, "env");
+    toastFail("git init", result.git_message);
   }
   // P2（建议 1）：回显 pyproject.toml 的生成路径（uv 脚手架 / 模板回退），让“裸目录 uv run 语义不明”可见地收敛
   if (result.pyproject_note) {
-    appendOutputLine(outputEl, result.pyproject_note, "stdout", gotoFromLink);
+    appendOutputLine(outputEl, result.pyproject_note, "stdout", gotoFromLink, "env");
   }
   await openWorkspaceFn?.(result.path);
   await openFileFn?.(joinPath(result.path, "main.py"));
 
   try {
     if (envType === "venv") {
-      appendOutputLine(outputEl, `> uv venv .venv${version ? " --python " + version : ""}  (${result.path})`, "cmd", gotoFromLink);
+      appendOutputLine(outputEl, `> uv venv .venv${version ? " --python " + version : ""}  (${result.path})`, "cmd", gotoFromLink, "env");
       setBusy(createBtn, true, "创建环境…");
       const r = await invoke<CreateVenvResult>("create_venv", { workspaceRoot: result.path, version });
-      if (r.output) appendOutputLine(outputEl, r.output, "stdout", gotoFromLink);
+      if (r.output) appendOutputLine(outputEl, r.output, "stdout", gotoFromLink, "env");
       if (r.python) await invoke("set_interpreter", { workspaceRoot: result.path, path: r.python }).catch(console.error);
     } else if (envType === "system") {
       const interp = await invoke<string | null>("pick_default_system_interpreter");
       if (interp) {
         await invoke("set_interpreter", { workspaceRoot: result.path, path: interp }).catch(console.error);
-        appendOutputLine(outputEl, `已选用系统解释器：${interp}`, "stdout", gotoFromLink);
+        toast(`已选用系统解释器：${interp}`, "info");
       } else {
-        // P1（建议 4）：未检测到解释器时给出可执行引导，而非静默兜底
-        appendOutputLine(
-          outputEl,
-          "未检测到已安装的 Python 解释器，可任选其一：\n" +
-            "  1) 用 uv 安装托管 Python（环境面板或终端执行：uv python install 3.13）\n" +
-            "  2) 手动指定已安装的 python 可执行文件路径（环境面板 → 解释器）\n" +
-            "  在完成前将使用 uv run 兜底运行（首次运行可能联网下载 Python）。",
-          "stderr",
-          gotoFromLink,
-        );
+        // P1（建议 4）：未检测到解释器时给出可执行引导（长指导走 openAlert 对话框，非输出面板 stderr）
+        void openAlert({
+          title: "未检测到 Python 解释器",
+          message:
+            "可任选其一：\n\n" +
+            "1) 用 uv 安装托管 Python（环境面板或终端执行：uv python install 3.13）\n" +
+            "2) 手动指定已安装的 python 可执行文件路径（环境面板 → 解释器）\n\n" +
+            "在完成前将使用 uv run 兜底运行（首次运行可能联网下载 Python）。",
+          okLabel: "知道了",
+        });
       }
     }
   } catch (e) {
-    appendOutputLine(outputEl, `环境配置失败：${e}`, "stderr", gotoFromLink);
+    appendOutputLine(outputEl, `环境配置失败：${e}`, "stderr", gotoFromLink, "env");
+    toastFail("环境配置", e);
   }
 
   closeNewProjectPanel();

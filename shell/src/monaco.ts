@@ -13,7 +13,11 @@ import "monaco-editor/esm/vs/editor/contrib/cursorUndo/browser/cursorUndo";
 import "monaco-editor/esm/vs/editor/contrib/find/browser/findController"; // Ctrl+F 查找
 import "monaco-editor/esm/vs/editor/contrib/folding/browser/folding"; // 代码折叠
 import "monaco-editor/esm/vs/editor/contrib/format/browser/formatActions"; // Shift+Alt+F 格式化
-import "monaco-editor/esm/vs/editor/contrib/gotoSymbol/browser/goToCommands"; // Shift+F12 查找引用
+import "monaco-editor/esm/vs/editor/contrib/gotoSymbol/browser/goToCommands"; // Shift+F12 查找引用（命令 + 语言服务）
+// 查找引用的 peek 结果视图：goToCommands 只带命令与 referenceProvider 语言服务，
+// ReferencesController（peek 窗口）是独立 contribution，需显式引入才会 registerEditorContribution，
+// 否则引擎算出了引用但结果窗口静默不显示（实测 Shift+F12 无任何 UI 反应）。
+import "monaco-editor/esm/vs/editor/standalone/browser/referenceSearch/standaloneReferenceSearch";
 import "monaco-editor/esm/vs/editor/contrib/hover/browser/hoverContribution"; // hover
 import "monaco-editor/esm/vs/editor/contrib/inlayHints/browser/inlayHintsContribution"; // 编辑器内联类型标注（runtime intel）
 import "monaco-editor/esm/vs/editor/contrib/indentation/browser/indentation"; // 自动缩进

@@ -21,7 +21,7 @@ import * as lsp from "./lsp/client";
 import { app } from "./state";
 import { basename, codicon, emptyState, relativePath, renderFileIcon, symbolIcon } from "./util";
 
-export type QuickOpenMode = "all" | "files" | "line";
+export type QuickOpenMode = "all" | "files" | "line" | "commands";
 
 /** 一条可执行的命令（由 main.ts 注入） */
 export interface QuickOpenAction {
@@ -211,6 +211,24 @@ function buildItems(mode: QuickOpenMode, query: string): Item[] {
   const out: Item[] = [];
   if (mode === "line") return out; // 行号模式不参与列表检索
 
+  // 命令直达模式（Ctrl+Shift+P）：只列命令，不做行号后缀解析（对齐 VS Code）
+  if (mode === "commands") {
+    for (const a of actions) {
+      const score = fuzzyScore(a.label, query.trim());
+      if (score === null) continue;
+      out.push({
+        kind: "action",
+        title: a.label,
+        sub: "命令",
+        score: score + 10,
+        icon: "chevron-right",
+        hint: actionHint(a),
+        run: a.run,
+      });
+    }
+    return out;
+  }
+
   // `:行号` 后缀在混搜与文件模式都支持（PyCharm 的 Ctrl+Shift+N 同款）。
   // 上文已对 line 模式提前返回，此处 mode 只可能是 all / files。
   const { query: q, line } = parseLineSuffix(query);
@@ -284,6 +302,7 @@ const PLACEHOLDERS: Record<QuickOpenMode, string> = {
   all: "搜索文件 / 符号 / 命令（支持 :行号）",
   files: "搜索文件名（支持 :行号）",
   line: "行号 或 行:列，Enter 跳转，Esc 关闭",
+  commands: "输入命令名（Ctrl+Shift+P）",
 };
 
 /** 初始化弹窗 DOM（init 时调用一次；容器 #quick-open-modal 已在 index.html 声明） */
@@ -389,7 +408,10 @@ export function isQuickOpenOpen(): boolean {
 /** 重新计算候选项（数据源就绪后渲染） */
 async function refresh(): Promise<void> {
   const token = ++loadToken;
-  if (mode !== "line") {
+  if (mode === "commands") {
+    // 命令直达：不加载文件/符号索引（Ctrl+Shift+P 秒开）
+    items = buildItems(mode, inputEl?.value ?? "");
+  } else if (mode !== "line") {
     await Promise.all([ensureFiles(), ensureSymbols()]);
     if (token !== loadToken) return;
     items = buildItems(mode, inputEl?.value ?? "");

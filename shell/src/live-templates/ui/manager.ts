@@ -726,6 +726,7 @@ function textarea(id: string, value: string, placeholder: string): HTMLTextAreaE
   el.value = value;
   el.placeholder = placeholder;
   el.spellcheck = false;
+  el.autocomplete = "off";
   return el;
 }
 

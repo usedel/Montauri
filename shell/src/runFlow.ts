@@ -14,6 +14,8 @@ import { basename, joinPath, parentDirOf, samePath } from "./util";
 import { appendOutputLine } from "./output";
 import { gotoFromLink } from "./tracebackLink";
 import { openChoice, openConfirm } from "./dialog";
+import { toast, toastFail } from "./toast";
+import { openRunConfig } from "./runConfigPanel";
 import * as kb from "./keybindings";
 import * as dap from "./dap/client";
 import {
@@ -21,6 +23,10 @@ import {
   setRunTabClosedHook, setRunTabStopHook, setRunAbortProbe,
 } from "./termUi";
 import { currentInterpreter, shortInterpreter } from "./envPanel";
+import {
+  freshDiffForInterpreter, latestDiff, lazyHintLine, lazyMissingForFile,
+  missingForFile, toWorkspaceRelative, uvRunSyncRisk,
+} from "./depHealth";
 import {
   EMPTY_RUN_CONFIG, addRunInstance, clearRunInstances, findRunInstance,
   latestActiveInstance, listRunInstances, normalizeRunConfig, projectRunActive,
@@ -78,6 +84,12 @@ function isPreparing(kind: "script" | "project"): boolean {
 /** P0-E：FastAPI 提示按工作区每会话最多一次 */
 let fastApiHintShownFor: string | null = null;
 
+/** §5.4：uv run 隐式同步风险提示按「工作区+状态」会话去重（venvPrompted 同款模式，§4.7 规则 2） */
+const uvRunRiskHinted = new Set<string>();
+
+/** M4-1：lazy 导入提示按「工作区+文件+内容」会话去重（每次运行同类提示只出一次） */
+const lazyHinted = new Set<string>();
+
 // ---------- 运行前公共准备 ----------
 
 /** 运行前公共准备的产物 */
@@ -102,22 +114,42 @@ function interpreterSource(): string {
  * 运行与调试（main 的 runDebug）共用，避免「预检只在某条路径生效」这类漂移（§13.1）。 */
 export async function prepareRun(path: string): Promise<RunPrep | null> {
   if (!path.endsWith(".py") && !path.endsWith(".pyw")) {
-    appendOutputLine(outputEl, `不是 Python 文件：${path}`, "stderr", gotoFromLink);
+    toast(`不是 Python 文件：${basename(path)}`, "info");
     return null;
   }
   // 运行前自动保存：保存的是**本次运行目标所在的 tab**，而不是活动 tab——运行目标文件
   // 往往不是当前打开的文件，只存活动 tab 会让它跑到磁盘上的旧内容（表现为「改了没生效」）。
   const targetTab = app.tabs.find((t) => samePath(t.path, path));
   if (targetTab?.dirty) await h().saveTab(targetTab);
-  // 运行前依赖预检：文件顶层 import 的第三方模块须在当前解释器中可解析，否则提前提示（避免「补全可用但运行 ImportError」）
+  // 运行前依赖预检（§5.4 升级：消费 dep diff 快照，检测真值唯一化 R1）：
+  // 快照新鲜（<30s，R8）→ 直接用该文件的 E1 条目，避免运行前再 spawn 探针；
+  // 过期/缺失 → 保留现有 check_missing_imports 单文件快路径（兜底不降级体验）。
   if (currentInterpreter) {
-    const missing = await invoke<Array<{ name: string; line: number; stmt: string }>>(
-      "check_missing_imports",
-      { path, workspaceRoot: app.workspaceRoot },
-    ).catch((e) => {
-      console.warn("[pre-run] 依赖检测失败，跳过:", e);
-      return [] as Array<{ name: string; line: number; stmt: string }>;
-    });
+    const rel = toWorkspaceRelative(path, app.workspaceRoot);
+    // 快照须「新鲜且扫描时解释器与当前一致」才可复用（v1.3 ⑫：切解释器后环境事实已变，
+    // 旧快照的 missingInEnv 不可信）；不匹配自动回退单文件快路径
+    const fresh = rel !== null ? freshDiffForInterpreter(currentInterpreter) : null;
+    const missing = fresh && rel !== null
+      ? missingForFile(fresh, rel)
+      : await invoke<Array<{ name: string; line: number; stmt: string }>>(
+          "check_missing_imports",
+          { path, workspaceRoot: app.workspaceRoot },
+        ).catch((e) => {
+          console.warn("[pre-run] 依赖检测失败，跳过:", e);
+          return [] as Array<{ name: string; line: number; stmt: string }>;
+        });
+    // M4-1 惰性导入「仅提示」：lazy 条目不阻塞（不出现在确认框），但运行前输出面板
+    // hint 一行——纯 lazy 文件此前是「零感知直到运行报错」的盲区（会话去重防刷屏）。
+    if (fresh && rel !== null) {
+      const hint = lazyHintLine(lazyMissingForFile(fresh, rel));
+      if (hint) {
+        const key = `${app.workspaceRoot}|${rel}|${hint}`;
+        if (!lazyHinted.has(key)) {
+          lazyHinted.add(key);
+          appendOutputLine(outputEl, hint, "hint", gotoFromLink);
+        }
+      }
+    }
     if (missing.length > 0) {
       const lines = missing.map((m) => `第 ${m.line} 行  ${m.stmt}`).join("\n");
       const proceed = await openConfirm({
@@ -126,6 +158,19 @@ export async function prepareRun(path: string): Promise<RunPrep | null> {
         okLabel: "仍要运行", cancelLabel: "取消", kind: "danger",
       });
       if (!proceed) return null;
+    }
+  } else {
+    // uv run 兜底路径（§5.4）：lock 过期 / requirements 整体未装 / 声明依赖大量缺失时，
+    // uv run 会按声明**隐式同步环境**（可能移除手动装的包）——反馈场景里最反直觉的坑，
+    // 必须显性化。仅输出面板提示行不阻塞运行（预检本身无新 UI，§4.5）；快照略旧也可用
+    //（提示性质非闸门），按工作区+状态会话去重防每次运行重复刷屏。
+    const risk = uvRunSyncRisk(latestDiff());
+    if (risk) {
+      const key = `${app.workspaceRoot}|${risk}`;
+      if (!uvRunRiskHinted.has(key)) {
+        uvRunRiskHinted.add(key);
+        appendOutputLine(outputEl, risk, "hint", gotoFromLink);
+      }
     }
   }
   // 读取持久化的运行配置（后端同样读取并应用，此处用于运行前显式化回显）
@@ -197,6 +242,8 @@ export function resetRunSessionState(): void {
   runPreparingByKind.script = false;
   runPreparingByKind.project = false;
   fastApiHintShownFor = null;
+  uvRunRiskHinted.clear(); // §5.4 提示去重随工作区会话失效
+  lazyHinted.clear();     // M4-1 lazy 提示去重同口径
 }
 
 /** 关闭工作区：FastAPI 提示去重均为工作区级，一并清空 */
@@ -336,7 +383,7 @@ export async function rerunRecord(r: RunRecord): Promise<void> {
     try {
       await h().openFile(r.path);
     } catch {
-      appendOutputLine(outputEl, `无法重新运行：${r.path}（文件可能已不存在）`, "stderr", gotoFromLink);
+      toast(`无法重新运行：${basename(r.path)}（文件可能已不存在）`, "error");
       return;
     }
   }
@@ -405,6 +452,7 @@ async function launchScript(path: string, selection: SelectionRunMeta | null = n
     // preparing 期 tab 被关闭（canceled）→ 实例已移除，幂等收尾
     if (!findRunInstance("run-term-script")) return;
     appendOutputLine(outputEl, `在终端中运行失败: ${e}`, "stderr", gotoFromLink);
+    toastFail("运行", e);
     removeRunInstance("run-term-script");
     h().renderTabs();
   }
@@ -416,11 +464,11 @@ export async function runScript(path?: string): Promise<void> {
   const target = path ?? app.activeTab?.path;
   if (!target) return;
   if (!app.workspaceRoot) {
-    appendOutputLine(outputEl, "运行脚本需先打开一个工作区", "stderr", gotoFromLink);
+    toast("运行脚本需先打开一个工作区", "info");
     return;
   }
   if (!target.endsWith(".py") && !target.endsWith(".pyw")) {
-    appendOutputLine(outputEl, `不是 Python 文件：${target}`, "stderr", gotoFromLink);
+    toast(`不是 Python 文件：${basename(target)}`, "info");
     return;
   }
   await launchScript(target);
@@ -455,6 +503,7 @@ async function loadOrDetectProjectConfig(): Promise<RunConfig | null> {
     { workspaceRoot: app.workspaceRoot },
   ).catch(() => null);
   if (detected) {
+    // 被动发现型信息：持久 hint（可回看），非易逝 toast
     appendOutputLine(outputEl, `已自动配置项目入口：${detected.summary}`, "hint", gotoFromLink);
     return normalizeRunConfig(detected.config);
   }
@@ -495,6 +544,7 @@ async function launchProject(p: RunConfig, instanceId: string, label: string, st
   } catch (e) {
     if (!findRunInstance(instanceId)) return; // preparing 期 tab 被关闭 → 幂等收尾
     appendOutputLine(outputEl, `运行项目失败: ${e}`, "stderr", gotoFromLink);
+    toastFail("运行项目", e);
     removeRunInstance(instanceId);
     h().renderTabs();
   }
@@ -532,7 +582,11 @@ export async function runProject(): Promise<void> {
     if (!p) endRunPreparing("project");
   }
   if (!p) {
-    appendOutputLine(outputEl, "项目未配置入口：请先在「运行配置 → 项目配置」中设置（模块名或入口脚本）", "stderr", gotoFromLink);
+    // G 类（toast + action）：一键直达配置面板，省掉「找菜单 → 切项目分区」两步
+    toast("项目未配置入口（模块名或入口脚本）", "info", {
+      actionLabel: "去配置",
+      onAction: () => void openRunConfig(),
+    });
     return;
   }
   // 会话 id / tab 分配（§17-12）：复用「项目」主 tab 或新建「项目 N+1」
@@ -578,6 +632,10 @@ export async function maybeSuggestFastApi(): Promise<void> {
   const hasUvicornEntry = (): boolean =>
     projectRun?.entry?.kind === "module" && projectRun.entry.target.trim().toLowerCase() === "uvicorn";
   if (hasUvicornEntry()) return;
+  // 反馈通道复核（P2 全面核查修正）：FastAPI 探测是**被动发现**而非操作结果——原设计走
+  // 输出面板持久 hint 是对的（用户可能稍后才注意到）；改 toast 后 4s 即逝，而
+  // fastApiHintShownFor 已标记本会话不再提示，错过 = 永久丢失入口。回退为持久 hint
+  // 行 + 可点击链接（原方案），动作结果仍走 toast 即时反馈。
   const el = appendOutputLine(
     outputEl,
     `检测到 FastAPI 项目（${hit.file}）。${hit.has_uvicorn ? "" : "尚未安装 uvicorn（可 uv add uvicorn）。"}可一键生成运行配置：`,
@@ -588,9 +646,7 @@ export async function maybeSuggestFastApi(): Promise<void> {
   a.className = "out-link";
   a.textContent = "生成「FastAPI」配置并运行";
   a.addEventListener("click", () => {
-    void createFastApiProfile(hit).catch((e) =>
-      appendOutputLine(outputEl, `生成 FastAPI 配置失败：${e}`, "stderr", gotoFromLink),
-    );
+    void createFastApiProfile(hit).catch((e) => toastFail("生成 FastAPI 配置", e));
   });
   el.appendChild(document.createTextNode("　"));
   el.appendChild(a);
@@ -611,7 +667,7 @@ async function createFastApiProfile(hit: { module: string; app_var: string }): P
       cwd: "${workspaceRoot}",
     };
     await invoke("set_project_run", { workspaceRoot: app.workspaceRoot, config: profile });
-    appendOutputLine(outputEl, `已写入项目运行配置：uvicorn ${profile.args}`, "stdout", gotoFromLink);
+    toast(`已写入项目运行配置：uvicorn ${profile.args}`, "success");
     await runProject();
   }
 }
@@ -625,7 +681,7 @@ export async function runSelection(): Promise<void> {
   if (!app.activeTab || (scriptRunActive() && !isPreparing("script"))) return;
   const path = app.activeTab.path;
   if (!path.endsWith(".py") && !path.endsWith(".pyw")) {
-    appendOutputLine(outputEl, `不是 Python 文件：${path}`, "stderr", gotoFromLink);
+    toast(`不是 Python 文件：${basename(path)}`, "info");
     return;
   }
   const editor = app.editor;
@@ -647,7 +703,7 @@ export async function runSelection(): Promise<void> {
     code = model.getValueInRange(sel);
   }
   if (!code.trim()) {
-    appendOutputLine(outputEl, "选区为空，无可运行代码", "stderr", gotoFromLink);
+    toast("选区为空，无可运行代码", "info");
     return;
   }
   // CR-07：准备期闸门——保存 / 写临时文件都是 await，期间连点不得并发进入
@@ -666,6 +722,7 @@ export async function runSelection(): Promise<void> {
       await invoke("write_file", { path: tempPath, content: code });
     } catch (e) {
       appendOutputLine(outputEl, `写入选区临时文件失败: ${e}`, "stderr", gotoFromLink);
+      toastFail("写入选区临时文件", e);
       return;
     }
 
@@ -708,6 +765,7 @@ export async function runSelection(): Promise<void> {
       startRunRecord("run-term-script", { kind: "script", path: tempPath, label, selection: selMeta });
     } catch (e) {
       appendOutputLine(outputEl, `运行失败: ${e}`, "stderr", gotoFromLink);
+      toastFail("运行", e);
       removeRunInstance("run-term-script");
       h().renderTabs();
     }
@@ -767,12 +825,12 @@ export function wireRunFlow(): void {
 export async function initRunEvents(): Promise<void> {
   await listen<{ data: string }>("debug-stdout", (e) => {
     for (const line of splitLines(e.payload.data)) {
-      appendOutputLine(outputEl, line, "stdout", gotoFromLink);
+      appendOutputLine(outputEl, line, "stdout", gotoFromLink, "debug");
     }
   });
   await listen<{ data: string }>("debug-stderr", (e) => {
     for (const line of splitLines(e.payload.data)) {
-      appendOutputLine(outputEl, line, "stderr", gotoFromLink);
+      appendOutputLine(outputEl, line, "stderr", gotoFromLink, "debug");
     }
   });
 }

@@ -7,6 +7,7 @@ import { app, outputEl } from "./state";
 import { joinPath } from "./util";
 import { appendOutputLine, type OutputLink } from "./output";
 import { selectionMetaOf } from "./runState";
+import { toastFail } from "./toast";
 
 type OpenFileFn = (path: string, revealLine?: number) => Promise<void>;
 
@@ -32,7 +33,8 @@ export function gotoFromLink(link: OutputLink): void {
     path = joinPath(app.workspaceRoot, path);
   }
   if (!openFileFn) return; // init 前不可能有链接点击（未接线即无面板输出）
-  openFileFn(path, line).catch(() => {
+  openFileFn(path, line).catch((e) => {
     appendOutputLine(outputEl, `无法打开: ${link.path}`, "stderr", gotoFromLink);
+    toastFail("打开 traceback 文件", e);
   });
 }

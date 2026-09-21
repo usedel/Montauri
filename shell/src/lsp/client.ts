@@ -5,6 +5,8 @@ import type * as MonacoApi from "monaco-editor/esm/vs/editor/editor.api";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { STDLIB_MODULES } from "../stdlib";
+import { app } from "../state";
+import { depActionsForLine, latestDiff, toWorkspaceRelative } from "../depHealth";
 
 // Monaco 实例注入（配合 main.ts 动态加载；providers 注册前必须先注入）
 let monaco: typeof MonacoApi;
@@ -330,6 +332,12 @@ export async function startEngine(engine: string, rootUri: string, interpreter: 
       codeActionProvider: true,
       renameProvider: true,
       referencesProvider: true,
+      // 面包屑/大纲修复：pyrefly 在客户端未声明 hierarchicalDocumentSymbolSupport 时，
+      // 会让 textDocument/documentSymbol 返回空（facebook/pyrefly#3555）。
+      // 声明后才会返回层次化 DocumentSymbol[]。
+      textDocument: {
+        documentSymbol: { hierarchicalDocumentSymbolSupport: true },
+      },
     },
   });
   notify("initialized", {});
@@ -494,6 +502,7 @@ export async function documentSymbols(path: string): Promise<LspDocumentSymbol[]
     const result = await request("textDocument/documentSymbol", {
       textDocument: { uri: pathToFileUri(path) },
     });
+    // LSP 允许 documentSymbol 返回 null（无符号）；非数组一律按空处理
     return Array.isArray(result) ? (result as LspDocumentSymbol[]) : [];
   } catch {
     return [];
@@ -786,20 +795,26 @@ export function wireGotoTriggers(editor: MonacoApi.editor.IStandaloneCodeEditor)
 
 // ---------- 符号重命名（textDocument/rename） ----------
 
-interface LspWorkspaceEdit {
-  changes?: Record<string, LspRange[] & { range: LspRange; newText?: string }[]>;
+interface LspTextEdit {
+  range: LspRange;
+  newText?: string;
 }
 
-/** LSP WorkspaceEdit.changes → Monaco 单文件 edits（只处理当前打开的 model） */
+interface LspWorkspaceEdit {
+  changes?: Record<string, LspTextEdit[]>;
+  documentChanges?: unknown;
+}
+
+/** LSP WorkspaceEdit.changes → Monaco 单文件 edits（仅当前 model；F2 快捷重命名用） */
 function workspaceEditToMonaco(
-  changes: Record<string, Array<{ range: LspRange; newText?: string }>> | undefined,
+  changes: Record<string, LspTextEdit[]> | undefined,
   model: MonacoApi.editor.ITextModel,
 ): MonacoApi.languages.IWorkspaceTextEdit[] {
   if (!changes) return [];
   const modelUri = model.uri.toString();
   const edits: MonacoApi.languages.IWorkspaceTextEdit[] = [];
   for (const [uri, items] of Object.entries(changes)) {
-    if (uri !== modelUri) continue; // 跨文件编辑暂不支持（需工作区级 apply），跳过
+    if (uri !== modelUri) continue;
     for (const it of items) {
       const start = lspPosToMonaco(it.range.start);
       const end = lspPosToMonaco(it.range.end);
@@ -816,7 +831,108 @@ function workspaceEditToMonaco(
   return edits;
 }
 
-/** 注册重命名 provider（F2）：LSP rename → 单文件 edits；跨文件编辑提示不支持 */
+/** LSP TextEdit[] → 字符串层应用（对未打开文件；UTF-16 offset 计算，CRLF/LF 均正确） */
+function applyEditsToString(content: string, edits: LspTextEdit[]): string {
+  const lines = content.split("\n");
+  const lineStarts: number[] = [];
+  let pos = 0;
+  for (const ln of lines) {
+    lineStarts.push(pos);
+    pos += ln.length + 1; // +1 为分隔符 '\n'；CRLF 的 '\r' 已计入 ln.length
+  }
+  const offsetOf = (line: number, character: number): number => lineStarts[line] + character;
+  const ops = edits.map((e) => ({
+    start: offsetOf(e.range.start.line, e.range.start.character),
+    end: offsetOf(e.range.end.line, e.range.end.character),
+    text: e.newText ?? "",
+  }));
+  ops.sort((a, b) => b.start - a.start); // 倒序应用，避免后续 offset 偏移
+  let result = content;
+  for (const op of ops) {
+    result = result.slice(0, op.start) + op.text + result.slice(op.end);
+  }
+  return result;
+}
+
+/** LSP TextEdit[] → 已打开 model（倒序 pushEditOperations，触发 didChange 同步） */
+function applyEditsToModel(model: MonacoApi.editor.ITextModel, edits: LspTextEdit[]): void {
+  const ops = edits.map((e) => {
+    const start = lspPosToMonaco(e.range.start);
+    const end = lspPosToMonaco(e.range.end);
+    return {
+      range: new monaco.Range(start.lineNumber, start.column, end.lineNumber, end.column),
+      text: e.newText ?? "",
+    };
+  });
+  ops.sort((a, b) => (b.range.startLineNumber - a.range.startLineNumber) || (b.range.startColumn - a.range.startColumn));
+  model.pushEditOperations([], ops as MonacoApi.editor.IIdentifiedSingleEditOperation[], () => null);
+}
+
+/**
+ * 应用跨文件 WorkspaceEdit（除 localPath 归一路径外）：已打开文件走 model 编辑 + 写盘 +
+ * didSave；未打开文件走读盘 → 字符串应用 → 写盘。返回应用到的 edit 总数。
+ */
+async function applyWorkspaceChanges(
+  changes: Record<string, LspTextEdit[]>,
+  localPath: string,
+): Promise<number> {
+  let applied = 0;
+  for (const [uri, edits] of Object.entries(changes)) {
+    const path = fileUriToPath(uri);
+    if (normPath(path) === localPath) continue;
+    const openModel = app.tabs.find((t) => normPath(t.path) === normPath(path))?.model;
+    if (openModel) {
+      applyEditsToModel(openModel, edits);
+      await invoke("write_file", { path, content: openModel.getValue() });
+      didSave(path, openModel);
+    } else {
+      const content = await invoke<string>("read_file", { path });
+      await invoke("write_file", { path, content: applyEditsToString(content, edits) });
+    }
+    applied += edits.length;
+  }
+  return applied;
+}
+
+export interface RenameResult {
+  /** 涉及改动的文件数 */
+  changedFiles: number;
+  /** 改动的定义 / 引用总数 */
+  totalEdits: number;
+}
+
+/**
+ * 跨文件重命名（Shift+F6 / 引用面板「重命名」）：textDocument/rename → 工作区级 apply。
+ * 当前 model 与其他所有文件统一应用并写盘，返回改动规模供 UI 提示。
+ */
+export async function renameSymbol(
+  model: MonacoApi.editor.ITextModel,
+  position: MonacoApi.Position,
+  newName: string,
+): Promise<RenameResult> {
+  if (engineStatus !== "ready") throw new Error("LSP 引擎未就绪");
+  const result = await request("textDocument/rename", {
+    textDocument: { uri: pathToFileUri(currentPath(model)) },
+    position: monacoPosToLsp(position),
+    newName,
+  });
+  const we = result as LspWorkspaceEdit;
+  const changes = we?.changes ?? {};
+  const localNorm = normPath(currentPath(model));
+  const localEdits: LspTextEdit[] = [];
+  for (const [uri, edits] of Object.entries(changes)) {
+    if (normPath(fileUriToPath(uri)) === localNorm) localEdits.push(...edits);
+  }
+  applyEditsToModel(model, localEdits);
+  if (localEdits.length > 0) {
+    await invoke("write_file", { path: currentPath(model), content: model.getValue() });
+    didSave(currentPath(model), model);
+  }
+  const crossApplied = await applyWorkspaceChanges(changes, localNorm);
+  return { changedFiles: Object.keys(changes).length, totalEdits: localEdits.length + crossApplied };
+}
+
+/** 注册重命名 provider（F2）：LSP rename → 单文件 edits（跨文件请走 renameSymbol / Shift+F6） */
 export function registerLspRename(): MonacoApi.IDisposable {
   return monaco.languages.registerRenameProvider("python", {
     async provideRenameEdits(model, position, newName) {
@@ -830,12 +946,12 @@ export function registerLspRename(): MonacoApi.IDisposable {
         const we = result as LspWorkspaceEdit;
         const edits = workspaceEditToMonaco(we?.changes, model);
         if (edits.length === 0) {
-          // 可能是跨文件 rename（其他文件的变更被跳过）或引擎不支持
-          const hasOtherFiles = we?.changes && Object.keys(we.changes).some((u) => u !== model.uri.toString());
+          // 当前文件内无改动、但其他文件有：提示改用 Shift+F6（跨文件）而非静默失败
+          const hasOtherFiles = we?.changes && Object.keys(we.changes).some((u) => normPath(fileUriToPath(u)) !== normPath(currentPath(model)));
           if (hasOtherFiles) {
             return {
               edits: [],
-              rejectReason: "重命名涉及其他文件，暂不支持跨文件重命名",
+              rejectReason: "此符号的改动涉及其他文件，请用 Shift+F6 跨文件重命名",
             };
           }
           return null;
@@ -998,7 +1114,10 @@ function missingModuleFromMarker(m: MonacoApi.editor.IMarkerData): string | null
   return top;
 }
 
-/** 从一批 markers 提取缺失包，生成「安装 X」CodeAction（去重） */
+/** 从一批 markers 提取缺失包，生成「安装 X」CodeAction（去重）。
+ *  M3 定位（§6.3）：marker 兜底路径——包名解析已不再依赖硬编码别名（handler 侧
+ *  installMissingPackage 用 diff 的 dist 归一结果）；diff 光标行动作命中同一模块时由
+ *  provideCodeActions 去重，本路径只在引擎诊断先于 diff 快照到达时兜底。 */
 function buildInstallActions(markers: MonacoApi.editor.IMarkerData[]): MonacoApi.languages.CodeAction[] {
   const byPkg = new Map<string, MonacoApi.editor.IMarkerData>();
   for (const m of markers) {
@@ -1012,6 +1131,38 @@ function buildInstallActions(markers: MonacoApi.editor.IMarkerData[]): MonacoApi
     diagnostics: [marker], // 关联具体诊断，灯泡 hover 与菜单分组更准确
     command: { id: INSTALL_PACKAGE_COMMAND, title: `安装 ${pkg}`, arguments: [pkg] },
   }));
+}
+
+/** 「安装 X 并加入 pyproject」动作的命令 id（§6.3 E4/E3 → declare = uv add；main.ts 注册） */
+export const DECLARE_PACKAGE_COMMAND = "opencharm.declarePackage";
+
+/** 依赖健康灯泡动作（§6.3 M3：diff 数据源 + 光标行匹配定案）：
+ *  E1 →「安装 X」（marker 路径保留为兜底）；E4 →「安装 X 并加入 pyproject」。
+ *  E4/E3 的 import 可正常解析、无红色 marker——依赖 Monaco 光标移动时自动询问 provider 亮灯泡；
+ *  E3 漂移包被本文件 import 时与 E4 是同一事实，收敛为同一 declare 动作（§11 v1.5 口径）。 */
+function buildDepLineActions(
+  model: MonacoApi.editor.ITextModel,
+  range: MonacoApi.Range,
+): MonacoApi.languages.CodeAction[] {
+  const diff = latestDiff();
+  if (!diff) return [];
+  const rel = toWorkspaceRelative(currentPath(model), app.workspaceRoot);
+  if (!rel) return [];
+  const lineText = model.getLineContent(range.startLineNumber);
+  const out: MonacoApi.languages.CodeAction[] = [];
+  for (const a of depActionsForLine(diff, rel, lineText)) {
+    out.push({
+      title: a.title,
+      kind: "quickfix",
+      command: {
+        id: a.kind === "install" ? INSTALL_PACKAGE_COMMAND : DECLARE_PACKAGE_COMMAND,
+        title: a.title,
+        // install 传模块名（handler 从 diff 解析 dist）；declare 传归一后的 spec
+        arguments: [a.kind === "install" ? a.module : a.spec],
+      },
+    });
+  }
+  return out;
 }
 
 // ---------- Code Action 快速修复（textDocument/codeAction） ----------
@@ -1075,12 +1226,17 @@ function codeActionEditToMonaco(
 export function registerLspCodeAction(): MonacoApi.IDisposable {
   return monaco.languages.registerCodeActionProvider("python", {
     async provideCodeActions(model, range, context) {
-      if (engineStatus !== "ready") return { actions: [], dispose: () => {} };
+      const actions: MonacoApi.languages.CodeAction[] = [];
+      // 依赖健康动作（§6.3 diff 数据源）：不依赖引擎状态——引擎未 ready 时灯泡仍可装包
+      const depActions = buildDepLineActions(model, range);
+      actions.push(...depActions);
+      if (engineStatus !== "ready") return { actions, dispose: () => {} };
       if (beforeCompletionHook) await beforeCompletionHook(model);
 
-      const actions: MonacoApi.languages.CodeAction[] = [];
-      // 缺失包安装提示：独立于 LSP codeAction，直接从诊断 markers 生成（引擎无 codeAction 亦生效）
-      actions.push(...buildInstallActions(context.markers));
+      // 缺失包安装提示（marker 兜底路径）：与 diff 光标行动作同模块时去重（dep 动作优先——
+      // 其 spec 已经 dist 归一），仅补 diff 快照尚未覆盖的诊断（引擎先于体检到达的窗口期）
+      const depModules = new Set(depActions.map((a) => a.command?.arguments?.[0]));
+      actions.push(...buildInstallActions(context.markers).filter((a) => !depModules.has(a.command?.arguments?.[0])));
 
       const diagnostics = context.markers.map((m) => ({
         range: {

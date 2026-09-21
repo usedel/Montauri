@@ -13,7 +13,7 @@ v2 的核心判断（运行时采样是立项核心、静态语义复用 pyrefly
 | 智能 live template | 依赖 Zed，实测不可达 | **外壳内置，完全可控**（换壳直接动因） |
 | 编辑器基本功 | Zed 免费提供 | 自建（文件树/标签页/终端/搜索/Git） |
 | 内存预算 | < 400 MB（Zed 基线） | **≤ 600 MB**（spike 实测 ~420 MB + 余量） |
-| 调试 | Zed 内置 debugpy 零成本 | 自建 DAP UI 成本高，**推迟到 Phase 3 后** |
+| 调试 | Zed 内置 debugpy 零成本 | 自建 DAP UI 成本高，**原定推迟到 Phase 3 后；Phase 4 已交付最小闭环**（见 ADR-0004） |
 
 ## 1. 项目定位（不变）
 
@@ -44,7 +44,7 @@ v2 的核心判断（运行时采样是立项核心、静态语义复用 pyrefly
 | 前端 | **Vanilla TypeScript + Vite** | 与 spike 一脉相承；零框架运行时开销、内存最低；单人维护代码量可控（产品负责人裁决） |
 | 编辑器 | **Monaco 0.52.2**（本地 npm 打包，去 CDN） | spike 已验证补全管线（sortText/preselect/上下文）完全可控 |
 | 终端 | xterm.js（Phase 1 后期） | 基本功补齐项，非首期范围 |
-| 调试 | 不做（Phase 3 后再评估） | DAP UI 自建成本高；期间用 print + traceback 跳转过渡 |
+| 调试 | **已立项并交付最小闭环**（debugpy 随包分发 + 自研 DAP 桥，见 `docs/python_debug_dev_plan.md` / ADR-0004） | 原裁决推迟到 Phase 3 后；Phase 4 已交付断点/单步/调用栈/变量 |
 
 ### 2.2 工程结构
 

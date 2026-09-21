@@ -79,7 +79,7 @@ provider:
 ## 补全三层合并（sortText 段，顺序固定）
 
 1. 智能模板 `0xx`
-2. 运行时 intel `1xx`（Phase 3 预留）
+2. 运行时 intel `1xx`（Phase 3 已交付）
 3. 静态引擎 `2xx`
 
 ## Live Templates 配置（Schema v2）

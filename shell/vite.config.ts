@@ -1,4 +1,5 @@
 import { realpathSync } from "node:fs";
+import { join } from "node:path";
 import { defineConfig } from "vite";
 
 /**
@@ -24,6 +25,9 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    // P0 DX：pluginsTab 经 ?raw 引用仓库 docs/ 的作者指南（内置分发）——
+    // dev server 默认 fs.allow 只有 root，放开到仓库根（= root 的上一级）
+    fs: { allow: [root, realpathSync.native(join(root, ".."))] },
     watch: {
       // Rust 编译产物目录，前端无需监听；且 Windows 下 cargo 写入 dll 时
       // 会被 fs.watch 占用导致 EBUSY 崩溃（beforeDevCommand 退出）。
@@ -35,5 +39,10 @@ export default defineConfig({
     target: "chrome105",
     minify: "esbuild",
     sourcemap: false,
+  },
+  // E2E 用例（e2e/）只归 Playwright 管：vitest 默认会扫 *.spec.ts，
+  // 不排除会出现「vitest 误跑 Playwright 用例 → import @playwright/test 报错」。
+  test: {
+    exclude: ["**/node_modules/**", "**/e2e/**"],
   },
 });

@@ -53,8 +53,35 @@ function appendTextWithUrls(el: HTMLElement, text: string): void {
   if (last < text.length) el.appendChild(document.createTextNode(text.slice(last)));
 }
 
-/** 把整行文本渲染进元素：识别 traceback 帧并渲染为可点击链接（只在行「定型」后调用）；
- * P2-L：非帧文本段中的 URL 同样渲染为可点击链接。 */
+// ---------- 输出 channel（P2：调试 / 环境 / Git 分组过滤） ----------
+//
+// 输出面板此前是单一混流：调试输出、pip/工具链安装输出、git 命令回显互相交错
+// （「同时跑调试+装包」时无法阅读）。channel 体系给每行输出打域标签，头部 chips
+// 按 channel 过滤显示；未标注的调用点归入 "all"（普通运行输出 / 运行历史重放，
+// 永远显示）。过滤是**纯显示层**（display:none），行仍留在 DOM 与运行历史采集里。
+
+/** 输出行的来源域；"all" 表示未分组的普通输出（兼容存量调用点，永远显示） */
+export type OutputChannel = "all" | "debug" | "env" | "git";
+
+/** 当前激活的过滤 channel（null = 不过滤，全部显示；默认） */
+let channelFilter: OutputChannel | null = null;
+
+/** 设置 channel 过滤（termUi 的 chips 点击驱动）；null = 恢复全部显示 */
+export function setOutputChannelFilter(ch: OutputChannel | null): void {
+  channelFilter = ch;
+}
+
+/** 行是否在当前过滤下可见：未标注（undefined）与 "all" 永远显示 */
+function channelVisible(ch: OutputChannel | undefined): boolean {
+  if (ch === undefined || ch === "all") return true;
+  return channelFilter === null || channelFilter === "all" || ch === channelFilter;
+}
+
+/** 渲染一行的可见性并返回行元素（appendOutputLine 内部 + 已入 DOM 行的重过滤共用） */
+function applyChannelVisibility(line: HTMLElement, ch: OutputChannel | undefined): void {
+  line.dataset.channel = ch ?? "all";
+  line.classList.toggle("out-ch-hidden", !channelVisible(ch));
+}
 function renderLineContent(
   el: HTMLElement,
   text: string,
@@ -85,18 +112,37 @@ function renderLineContent(
   if (last < text.length) appendTextWithUrls(el, text.slice(last));
 }
 
-/** 渲染一行输出，返回创建的行元素；识别 traceback 帧并渲染为可点击链接 */
+/** 渲染一行输出，返回创建的行元素；识别 traceback 帧并渲染为可点击链接。
+ *  M4-3（§6.4）：stderr 行同时喂 dep 域的 ModuleNotFoundError 检测（toast +「安装」）；
+ *  注入式回调防循环依赖（output 不 import depHealth，main 接线同 setOutputUrlHandler 先例）。 */
+let tracebackHandler: ((line: string) => void) | null = null;
+export function setOutputTracebackHandler(fn: ((line: string) => void) | null): void {
+  tracebackHandler = fn;
+}
+
 export function appendOutputLine(
   container: HTMLElement,
   text: string,
   cls: string,
   onLink: (link: OutputLink) => void,
+  channel?: OutputChannel,
 ): HTMLElement {
+  if (cls === "stderr") tracebackHandler?.(text);
   const line = document.createElement("div");
   renderLineContent(line, text, cls, onLink);
+  applyChannelVisibility(line, channel);
   container.appendChild(line);
   container.scrollTop = container.scrollHeight;
   return line;
+}
+
+/** 切换过滤后重刷已有行（termUi 的 chips 点击驱动）：遍历容器行，按 dataset.channel 重算显隐 */
+export function refilterOutputChannel(container: HTMLElement): void {
+  for (const line of Array.from(container.children)) {
+    if (!(line instanceof HTMLElement)) continue;
+    const ch = line.dataset.channel as OutputChannel | undefined;
+    line.classList.toggle("out-ch-hidden", !channelVisible(ch));
+  }
 }
 
 export function clearOutput(container: HTMLElement): void {

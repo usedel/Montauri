@@ -9,7 +9,7 @@ OpenCharm 运行时探针：基于 **PEP 669（`sys.monitoring`，Python 3.12+�
 ```powershell
 cd probe
 uv sync                 # 建 venv（Python 3.13.7）
-uv run pytest           # 61 个单测全绿
+uv run pytest           # 71 个单测全绿
 
 # 采集运行（同进程模式：脚本无第三方依赖时）
 uv run opencharm-probe run <script.py>
@@ -129,7 +129,7 @@ uv run opencharm-probe check <script.py> [--expect file.json] [--uv] [--threshol
 - `atexit` 落库：正常退出 / `sys.exit()` / 未捕获异常都会落库；
 - 探针任何失败（注入/落库）只打警告，绝不改写用户进程退出码。
 
-shell 运行按钮集成（P2-T06，已交付）：`lsp.rs` 的 `run_script` 在 `uv run` 前注入同款环境变量（`PYTHONPATH` 前置 `probe/src` + `OPENCHARM_PROBE_AUTOSTART=1` + `OPENCHARM_PROBE_SCRIPT=<绝对路径>`）；probe/src 定位顺序：环境变量 `OPENCHARM_PROBE_SRC` → 相对 exe 上溯仓库布局；找不到则照常运行仅提示（探针缺席不拖垮脚本）。探针摘要走 stderr，输出面板以中性色透传。
+shell 运行按钮集成（P2-T06，已交付，运行已统一迁移至 PTY 入口）：`terminal::run_in_terminal` 经 `run_env.rs::build_run_env` 在脚本启动前注入同款环境变量（`PYTHONPATH` 前置 `probe/src` + `OPENCHARM_PROBE_AUTOSTART=1` + `OPENCHARM_PROBE_SCRIPT=<绝对路径>`，多实例并行时附 `OPENCHARM_PROBE_INSTANCE`）；probe/src 定位顺序：环境变量 `OPENCHARM_PROBE_SRC` → `<data_root>/runtime/probe/src` → Tauri 资源目录 → 相对 exe 上溯仓库布局；找不到则照常运行仅提示（探针缺席不拖垮脚本）。探针摘要走 stderr，输出面板以中性色透传。
 
 ## PEP 669 实测语义备忘（2026-08-21，Python 3.13.7）
 
@@ -151,7 +151,7 @@ shell 运行按钮集成（P2-T06，已交付）：`lsp.rs` 的 `run_script` 在
 | 指标 | 目标 | 当前 |
 |---|---|---|
 | 探针开销 | < 1.5x | ✅ Phase 2 实测 1.00x；**M4 基准 1.35x**（`bench_probe.ps1`，见下） |
-| trace 正确率抽检 | ≥ 98% | ✅ **100.0%**（`check` 命令，8 项全命中）+ 70 单测全绿 |
+| trace 正确率抽检 | ≥ 98% | ✅ **100.0%**（`check` 命令，8 项全命中）+ 71 单测全绿 |
 | 采集无感 | 无感 | ✅ shell 运行按钮一键采集；摘要仅 stderr 一行，quiet 可关 |
 | trace 库稳定 | 稳定 | ✅ 跨运行累加正确 + 陈旧标记 + clean 防膨胀 + WAL 并发（M4：8 进程并行写库零丢失） |
 

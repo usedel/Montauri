@@ -18,7 +18,8 @@
 //    并顺带让按钮保留在 tab 序列内、读屏能听到「已禁用」。
 // 3) 【保留原生 title】表单控件 <select>/<input>：已有可见 label，自绘浮层反而会盖住下拉区域。
 // 4) 【保留原生 title】纯截断披露场景（路径、长文件名、`名称:行号`、变量值、提交详情）：
-//    原生 title 语义恰当且无需统一视觉，如 .tree-item / .scm-name / .outline-item / .env-item。
+//    原生 title 语义恰当且无需统一视觉，如 .tree-item / .scm-name / .outline-item / .env-item
+//    （.env-item 已随解释器列表退役，此例仅作规则示意）。
 // 5) 【嵌套约束】原生 title 会沿祖先链继承解析——若某祖先保留了 title，其后代禁止用 data-tip，
 //    否则悬停后代时两个提示同时出现。因此父子必须同轨：迁移子元素前先检查祖先，
 //    必要时把祖先一并迁走（.term-tab 与其 stop/close、.ew-recent-item 与其「×」即此例）；

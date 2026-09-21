@@ -26,8 +26,13 @@
 | [`docs/markdown_preview_dev_plan.md`](docs/markdown_preview_dev_plan.md) | Markdown 预览开发计划 v1.0（已实施）：编辑区分栏实时预览 + GFM / 图片 / 链接 |
 | [`docs/live_templates上下文轴修订稿.md`](docs/live_templates上下文轴修订稿.md) | Live Templates 上下文位置轴修订稿 v1.1（相位 A 已实现）：容器 × 位置 × 词法三维 |
 | [`docs/pycharm_feature_research_report.md`](docs/pycharm_feature_research_report.md) | PyCharm 功能调研报告 v1.1（调研，非排期依据） |
-| [`docs/plugin_system_design.md`](docs/plugin_system_design.md) | 插件系统设计方案 v0.1（方向稿） |
+| [`docs/plugin_system_design.md`](docs/plugin_system_design.md) | 插件系统设计方案 v0.2（方向稿 + 工具切片详细设计，**切片已实现**） |
+| [`docs/devtools_plugin_guide.md`](docs/devtools_plugin_guide.md) | 开发工具插件作者指南 v1（manifest / host API / kit 积木 / 热重载） |
+| [`docs/devtools_plugin_acceptance_record.md`](docs/devtools_plugin_acceptance_record.md) | 工具插件切片验收记录（PR-1~4 / 490 测试 / 决策落地核对） |
 | [`docs/edit_prediction_research_plan.md`](docs/edit_prediction_research_plan.md) | 低延迟编辑预测研究方案 v0.1（探索中） |
+| [`docs/dep_health_dev_plan.md`](docs/dep_health_dev_plan.md) | 依赖健康开发计划（已实施）：依赖风格/扫描/修复 + 忽略清单 |
+| [`docs/git_improvement_report.md`](docs/git_improvement_report.md) | Git 集成交付报告：远程/worktree/rebase/cherry-pick/stash/log/blame 等增强 |
+| [`docs/menubar_improvement_plan.md`](docs/menubar_improvement_plan.md) | 菜单栏改进计划 |
 | [`docs/adr/`](docs/adr/) | 技术决策记录（ADR） |
 
 > 技术方案与开发计划冲突时，以开发计划为准并反馈修订。
@@ -56,7 +61,7 @@ open-charm/
 全新 Windows 系统开箱即用依赖「随包分发 + 首次启动引导」，已落地（Phase 4 第 1~4 步）：
 
 - **外部命令解析**：`uv` / `pyrefly` / `ruff` / `git` 统一经 `shell/src-tauri/src/tool_paths.rs` 定位（环境变量 → `~/.opencharm/bin` / `~/.local/bin` → 系统 PATH）；
-- **自研组件随包分发**：`opencharm-intel` 与 `probe/src` 经 `tauri.conf.json` 的 `bundle.resources` 打进安装包，运行时按 `lsp.rs` 的 `locate_*` 查找（环境变量 → `~/.opencharm/runtime` → Tauri 资源目录 → dev 仓库布局）；
+- **自研组件随包分发**：`opencharm-intel` 与 `probe/src` 经 `tauri.conf.json` 的 `bundle.resources` 打进安装包；运行时分别由 `lsp.rs::locate_intel_binary` 与 `run_env.rs::locate_probe_src` 查找（环境变量 → `<data_root>/runtime` → Tauri 资源目录 → dev 仓库布局）；
 - **调试器随包分发**：`debugpy`（锁定版本 + 五个 sha256，见 `ci/versions.toml [debugger]`）经 `tools/fetch-debugpy.ps1` 拉取合并到 `vendor/debugpy/`（`.gitignore` 不入库），再经 `bundle.resources` 打进安装包，运行时按 `dap.rs::locate_debugpy_dir` 四级查找（同上）；零安装、零网络、切换 venv 无感（见 ADR-0004）；
 - **首次启动环境引导**：`shell/src-tauri/src/toolchain.rs` 提供探测与一键安装；缺失 `uv` / `pyrefly`（或 `basedpyright`）时，前端弹「环境引导」确认框，安装进度经 `toolchain-stdout/stderr` 流式展示，工具装到用户目录（不影响系统）。
 
@@ -94,7 +99,7 @@ powershell -File .\build-release.ps1
 
 ## 当前状态
 
-- 项目阶段：**Phase 1 / Phase 2 / Phase 2.5 均已交付，Phase 3（opencharm-intel）已交付**；当前进入 **Phase 4（持续打磨）**，进度见 `docs/python_ide_dev_plan_v2.md` §7。
+- 项目阶段：**Phase 1 / Phase 2 / Phase 3（opencharm-intel）均已交付**；当前进入 **Phase 4（持续打磨）**，进度见 `docs/python_ide_dev_plan_v2.md` §7。
 - **调试功能（DAP / debugpy 最小闭环）已交付**：D1–D5 / Gate E 见 [`docs/debug_acceptance_record.md`](docs/debug_acceptance_record.md)；协议层与打包均已验证，部分 UI 交互项待人工抽查（清单见验收记录 §五）。
 - **运行功能迁移（M1–M4）已交付**：脚本/项目两种运行 + 统一 PTY 运行控制台 + 多实例并行 + 运行历史按实例归属；交互口径 [`docs/python_run_dev_plan.md`](docs/python_run_dev_plan.md) v3.4、验收记录 [`docs/run_acceptance_record.md`](docs/run_acceptance_record.md)。
 - **界面设计改进计划已收官**（十批，30/30 项 + 2 条遗留）：按钮体系 / scale token / Tooltip 双轨收敛 / ARIA 语义（tree·tabs·dialog·tooltip·menu）/ 浅色主题对比度达标 / 响应式下限 / 字号字体族全局跟随设置；沉淀的硬规则已固化到 `.codebuddy/rules/typescript-code-style`，逐批可见变化的人工抽查清单见计划文档 §7。

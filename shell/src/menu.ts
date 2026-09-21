@@ -2,7 +2,7 @@
 //
 // 分工说明（勿误以为是漏改）：本模块 = **无子菜单的扁平弹出菜单**；
 // 菜单栏那套带 flyout 子菜单（MenuEntry / showMenuDropdown / openSubmenu / positionSubmenu）
-// **故意留在 main.ts 不合并**——它需要「悬停延时展开 + 右缘折叠 + 异步子项」，
+// **在 menuBar.ts，刻意不与本模块合并**——它需要「悬停延时展开 + 右缘折叠 + 异步子项」，
 // 与本模块的「即时弹出 + 单击执行」语义不同，强行合并只会互相拖累。
 //
 // 渲染约定：复用既有 #ctx-menu 容器与 .ctx-menu-item / .sep-item > .sep / .menu-shortcut

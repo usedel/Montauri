@@ -19,6 +19,13 @@ const EXIT_MS = 100;
 
 const ICON: Record<ToastKind, string> = { info: "info", success: "check", error: "error" };
 
+/** 可选动作按钮（dep plan §5.5/§6.2：如 envDrift toast 的「查看」→ 打开健康面板）。
+ *  点击后立即收起 toast 并执行回调——动作入口不该在自动消失后还占着屏幕。 */
+export interface ToastOptions {
+  actionLabel?: string;
+  onAction?: () => void;
+}
+
 let stackEl: HTMLElement | null = null;
 
 function stack(): HTMLElement {
@@ -32,8 +39,9 @@ function stack(): HTMLElement {
   return stackEl;
 }
 
-/** 弹出一条通知（不阻塞、自动消失：error 8s / info 4s / success 3s；悬停暂停倒计时） */
-export function toast(message: string, kind: ToastKind = "info"): void {
+/** 弹出一条通知（不阻塞、自动消失：error 8s / info 4s / success 3s；悬停暂停倒计时）。
+ *  opts.actionLabel 提供时追加动作按钮（点击即收起并执行回调）。 */
+export function toast(message: string, kind: ToastKind = "info", opts: ToastOptions = {}): void {
   const root = stack();
   const el = document.createElement("div");
   el.className = `toast toast--${kind}`;
@@ -56,6 +64,17 @@ export function toast(message: string, kind: ToastKind = "info"): void {
     el.classList.add("closing");
     window.setTimeout(() => el.remove(), EXIT_MS);
   };
+
+  if (opts.actionLabel) {
+    const act = document.createElement("button");
+    act.className = "toast-action";
+    act.textContent = opts.actionLabel;
+    act.addEventListener("click", () => {
+      dismiss();
+      opts.onAction?.();
+    });
+    el.appendChild(act);
+  }
 
   const close = document.createElement("button");
   close.className = "toast-close";

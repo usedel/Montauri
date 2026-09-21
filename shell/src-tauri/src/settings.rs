@@ -56,6 +56,14 @@ fn default_keybindings() -> HashMap<String, String> {
     m.insert("open_settings".into(), "Ctrl+Alt+S".into());
     m.insert("toggle_sidebar".into(), "Ctrl+Shift+F12".into());
     m.insert("toggle_bottom".into(), "Alt+F12".into());
+    // 命令面板直达（VS Code 同款；与前端 KEYBINDING_META / DEFAULT_SETTINGS 三处同步）
+    m.insert("command_palette".into(), "Ctrl+Shift+P".into());
+    // PR-1（plugin_system_design §9.9）：开发工具面板 + picker（与前端三处同步）
+    m.insert("open_devtools".into(), "Ctrl+Shift+T".into());
+    // P1（查找引用）：PyCharm 同款 Alt+F7，完整引用列表落底部「引用」面板（与前端三处同步）
+    m.insert("find_usages".into(), "Alt+F7".into());
+    // P2（重命名）：跨文件重命名（PyCharm Shift+F6 同款；F2 仍是单文件快捷）（与前端三处同步）
+    m.insert("rename_symbol".into(), "Shift+F6".into());
     m
 }
 
@@ -249,8 +257,10 @@ mod tests {
         assert_eq!(d.keybindings.get("open_settings").map(String::as_str), Some("Ctrl+Alt+S"));
         assert_eq!(d.keybindings.get("toggle_sidebar").map(String::as_str), Some("Ctrl+Shift+F12"));
         assert_eq!(d.keybindings.get("toggle_bottom").map(String::as_str), Some("Alt+F12"));
+        // PR-1：开发工具面板
+        assert_eq!(d.keybindings.get("open_devtools").map(String::as_str), Some("Ctrl+Shift+T"));
         // 键位表条目数 = 前端 KEYBINDING_META 条目数（漂移锁，新增键须同步改这里）
-        assert_eq!(d.keybindings.len(), 36);
+        assert_eq!(d.keybindings.len(), 40);
         assert_eq!(d.optimize_imports_on_save, false);
     }
 
@@ -296,7 +306,9 @@ mod tests {
         // v3.4 §17-7（M3-3.5）：run 拆分后旧配置无 run_script/run_project 字段 → 回落默认
         assert_eq!(s.keybindings.get("run_script").map(String::as_str), Some("Ctrl+F10"));
         assert_eq!(s.keybindings.get("run_project").map(String::as_str), Some("Ctrl+Shift+F10"));
-        assert_eq!(s.keybindings.len(), 36);
+        // PR-1：旧配置无 open_devtools → 回落默认
+        assert_eq!(s.keybindings.get("open_devtools").map(String::as_str), Some("Ctrl+Shift+T"));
+        assert_eq!(s.keybindings.len(), 40);
         assert_eq!(s.optimize_imports_on_save, false); // 旧配置文件无此字段 → 默认关闭
     }
 }
