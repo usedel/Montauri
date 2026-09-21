@@ -104,6 +104,8 @@ pub struct Settings {
     pub optimize_imports_on_save: bool,
     /// 运行时智能层（opencharm-intel）开关——关闭时 LSP 桥不启动 intel（P3-T09）
     pub runtime_intel_enabled: bool,
+    /// 零引擎静态关键字补全开关（无 LSP 引擎的语言；python 不受影响）
+    pub keyword_completion: bool,
     /// 终端默认启动目录："workspace"（工作区根）| "file"（活动文件所在目录）
     pub terminal_cwd: String,
     /// 集成终端默认 shell："auto" | "pwsh" | "powershell" | "cmd"
@@ -144,6 +146,8 @@ impl Default for Settings {
             format_on_save: false,
             optimize_imports_on_save: false,
             runtime_intel_enabled: true,
+            // 与前端 DEFAULT_SETTINGS.keyword_completion 保持同步
+            keyword_completion: true,
             terminal_cwd: "workspace".into(),
             terminal_shell: "auto".into(),
             pypi_index: "https://pypi.org/simple".into(),
@@ -219,6 +223,7 @@ mod tests {
         assert_eq!(d.lsp_engine, "pyrefly");
         assert_eq!(d.format_on_save, false);
         assert_eq!(d.runtime_intel_enabled, true);
+        assert_eq!(d.keyword_completion, true);
         assert_eq!(d.terminal_cwd, "workspace");
         assert_eq!(d.terminal_shell, "auto");
         // 快捷键默认值（PyCharm 风格）

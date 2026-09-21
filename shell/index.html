@@ -715,6 +715,12 @@
                 <label for="settings-minimap">迷你地图</label>
                 <input id="settings-minimap" type="checkbox" />
               </div>
+              <!-- 零引擎静态关键字补全：只作用于没有 LSP 引擎的语言（Python 由语义引擎负责，不叠加） -->
+              <div class="settings-row">
+                <label for="settings-keyword-completion">静态关键字补全</label>
+                <input id="settings-keyword-completion" type="checkbox" />
+              </div>
+              <div class="settings-hint">为 JSON / YAML / SQL / Rust 等无引擎语言补全关键字（Python 不受影响）。</div>
             </div>
             <div id="settings-section-keybindings" class="settings-section hidden" role="tabpanel">
               <div id="settings-keybinding-rows"></div>

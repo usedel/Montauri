@@ -18,6 +18,8 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 type ResizeDirection = "East" | "North" | "NorthEast" | "NorthWest" | "South" | "SouthEast" | "SouthWest" | "West";
 import { initLiveTemplates, type LiveTemplatesHandle } from "./live-templates";
 import * as ltUi from "./live-templates/ui/manager";
+import { registerKeywordCompletion, setKeywordCompletionEnabled } from "./completion/keywordCompletion"; // 零引擎关键字补全（无 LSP 引擎的语言）
+import { wireWordBasedSuggestions } from "./completion/wordBasedSuggestions"; // 文档词补全按语言开关
 import { initDevTools, openDevTools, openDevToolsPanel, listDevTools, groupToolsByCategory } from "./devtools";
 // PR-2：插件域（plugin_system_design §9）——加载器 / facade 依赖注入 / inline 管线
 import { initPluginLoader, scanPlugins, schedulePluginRescan, listPluginRecords, setAppVersion } from "./extensions/loader";
@@ -1698,6 +1700,13 @@ async function init(): Promise<void> {
   lspProviders.add(lsp.registerLspSignatureHelp()); // 签名帮助（参数提示）
   lspProviders.add(lsp.registerLspCodeAction()); // Ctrl+. 快速修复
   lspProviders.add(lsp.registerLspInlayHints()); // 运行时类型标注（opencharm-intel）
+  // 零引擎关键字补全：非 LSP 的静态兜底（无引擎语言才生效，python 由上面三段负责），
+  // 段位 `3xx` 最低。与 LSP providers 同入应用级 store，便于统一 teardown。
+  // 开关初值在此读一次；设置保存路径会再刷一次（与 intel 开关同模式）。
+  setKeywordCompletionEnabled(app.settings.keyword_completion);
+  lspProviders.add(registerKeywordCompletion(app.monaco));
+  // 文档词补全按语言开关：python 恒 off（避免淹没语义补全），其余语言取当前文档的词。
+  lspProviders.add(wireWordBasedSuggestions(app.editor));
   // 缺失包安装：注册全局命令供 CodeAction 的 command 引用（灯泡「安装 X」→ pip install）。
   // CodeAction 的 command 走 commandService.executeCommand(id)，必须用 registerCommand 全局注册 id；
   // 不能用 editor.addAction——addAction 内部会把 id 加 editorId 前缀（`editorId:id`），导致 executeCommand 找不到。

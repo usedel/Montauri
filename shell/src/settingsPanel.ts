@@ -21,6 +21,8 @@ import { renderPluginsTab } from "./extensions/pluginsTab";
 import { getSelectedTheme, setSelectedTheme, wireThemePicker } from "./themePicker";
 // UI-25：欢迎页快捷键网格跟随键位系统，改键保存后需刷新
 import { renderWelcomeShortcuts } from "./welcomeShortcuts";
+// 零引擎关键字补全开关（provider 只注册一次，此处只翻运行时真值）
+import { setKeywordCompletionEnabled } from "./completion/keywordCompletion";
 
 // ---------- 注入（main 的 init 中 setSettingsPanelHandlers） ----------
 // TD-13：解「settingsPanel.ts → main.ts」循环边——切换静态引擎后需重启 LSP，
@@ -53,6 +55,7 @@ const settingsTabSizeEl = $("settings-tab-size") as HTMLInputElement;
 const settingsInsertSpacesEl = $("settings-insert-spaces") as HTMLInputElement;
 const settingsWordWrapEl = $("settings-word-wrap") as HTMLSelectElement;
 const settingsMinimapEl = $("settings-minimap") as HTMLInputElement;
+const settingsKeywordCompletionEl = $("settings-keyword-completion") as HTMLInputElement;
 const settingsAutosaveEl = $("settings-autosave") as HTMLSelectElement;
 const settingsProbeEl = $("settings-probe") as HTMLInputElement;
 const settingsIntelEl = $("settings-intel") as HTMLInputElement;
@@ -295,6 +298,8 @@ function fillForm(settings: Settings): void {
   settingsInsertSpacesEl.checked = settings.insert_spaces;
   settingsWordWrapEl.value = settings.word_wrap;
   settingsMinimapEl.checked = settings.minimap;
+  // 旧配置缺字段时兜底出厂默认（Rust 侧 struct 级 serde(default) 已保证整表缺省）
+  settingsKeywordCompletionEl.checked = settings.keyword_completion ?? DEFAULT_SETTINGS.keyword_completion;
   settingsAutosaveEl.value = settings.autosave;
   settingsProbeEl.checked = settings.probe_enabled;
   settingsIntelEl.checked = settings.runtime_intel_enabled;
@@ -378,6 +383,7 @@ async function saveSettingsPanel(): Promise<void> {
   const formatOnSave = settingsFormatOnSaveEl.checked;
   const optimizeImportsOnSave = settingsOptimizeImportsOnSaveEl.checked;
   const runtimeIntelEnabled = settingsIntelEl.checked;
+  const keywordCompletion = settingsKeywordCompletionEl.checked;
   const terminalCwd = settingsTerminalCwdEl.value;
   const terminalShell = settingsTerminalShellEl.value;
   const pypiIndex = settingsPypiIndexEl.value.trim();
@@ -404,6 +410,7 @@ async function saveSettingsPanel(): Promise<void> {
     format_on_save: formatOnSave,
     optimize_imports_on_save: optimizeImportsOnSave,
     runtime_intel_enabled: runtimeIntelEnabled,
+    keyword_completion: keywordCompletion,
     terminal_cwd: terminalCwd,
     terminal_shell: terminalShell,
     pypi_index: pypiIndex,
@@ -427,6 +434,8 @@ async function saveSettingsPanel(): Promise<void> {
   refreshTerminalMotion();
   app.editor.updateOptions(buildEditorOptions(app.settings)); // UI-11：内部按 motionDisabled() 决定光标闪烁
   applyModelIndent(app.settings);
+  // 关键字补全开关：provider 内部短路，不重注册（「恢复默认」同样经本路径落地）
+  setKeywordCompletionEnabled(app.settings.keyword_completion);
   applyFontStatus();
   applyEditorKeybindings(); // 编辑器级键位即时重建（window 级实时匹配无需处理）
   repaintRunWidget(); // 改键后运行组 tooltip 副文本跟随新键位（window 级键位变化不走 renderTabs）

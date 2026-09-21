@@ -47,6 +47,8 @@ export interface Settings {
   /** 保存时用 ruff 整理导入（Ctrl+Alt+O 的保存联动；与 format_on_save 同模式） */
   optimize_imports_on_save: boolean;
   runtime_intel_enabled: boolean;
+  /** 零引擎静态关键字补全（无 LSP 引擎的语言；python 不受影响——由三段语义补全负责） */
+  keyword_completion: boolean;
   terminal_cwd: string;
   /** 集成终端 shell："auto" | "pwsh" | "powershell" | "cmd"（auto 按顺序回退） */
   terminal_shell: string;
@@ -90,6 +92,8 @@ export const DEFAULT_SETTINGS: Settings = {
   format_on_save: false,
   optimize_imports_on_save: false,
   runtime_intel_enabled: true,
+  // 关键字补全默认开（须与 Rust Settings::default 保持同步）
+  keyword_completion: true,
   terminal_cwd: "workspace",
   terminal_shell: "auto",
   // PyPI 包源默认官方源（须与 Rust Settings::default 保持同步）

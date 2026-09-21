@@ -28,6 +28,7 @@ describe("Settings 前端单源一致性（P2-A）", () => {
     expect(DEFAULT_SETTINGS.minimap).toBe(false);
     expect(DEFAULT_SETTINGS.probe_enabled).toBe(true);
     expect(DEFAULT_SETTINGS.runtime_intel_enabled).toBe(true);
+    expect(DEFAULT_SETTINGS.keyword_completion).toBe(true);
     expect(DEFAULT_SETTINGS.terminal_cwd).toBe("workspace");
     expect(DEFAULT_SETTINGS.pypi_index).toBe("https://pypi.org/simple");
     // 快捷键默认（PyCharm 风格；完整漂移锁见 keybindings.test.ts）
