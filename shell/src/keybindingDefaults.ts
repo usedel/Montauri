@@ -47,7 +47,8 @@ export type KeybindingId =
   | "open_devtools"
   // P1（查找引用）：PyCharm 同款 Alt+F7，完整引用列表落底部「引用」面板（Shift+F12 仍是 Monaco peek）
   | "find_usages"
-  // P2（重命名）：PyCharm 同款 Shift+F6，跨文件重命名（定义 + 所有引用同步改名）
+  // P2（重命名）：PyCharm 同款 Shift+F6，就地改名（prepareRename 锚定 + ghost 预览 +
+  // Enter 全部文件一次性写入，见 renameWidget.ts）；F2 为同一入口的固定快捷键
   | "rename_symbol";
 
 export interface KeybindingMeta {
@@ -71,7 +72,7 @@ export const KEYBINDING_META: KeybindingMeta[] = [
   { id: "goto_definition", label: "跳转定义（F12 / Ctrl+点击固定保留）", def: "Ctrl+B", scope: "editor" },
   // P1（查找引用）：完整引用列表（PyCharm Alt+F7 同款）；Shift+F12 仍保留 Monaco peek 快速预览
   { id: "find_usages", label: "查找引用", def: "Alt+F7", scope: "editor" },
-  // P2（重命名）：跨文件重命名（PyCharm Shift+F6 同款）；F2 仍是单文件快捷重命名
+  // P2（重命名）：就地改名（PyCharm Shift+F6 同款）；F2 触发同一入口（编辑器级固定键）
   { id: "rename_symbol", label: "重命名符号（跨文件）", def: "Shift+F6", scope: "editor" },
   { id: "duplicate_line", label: "复制行 / 选区", def: "Ctrl+D", scope: "editor" },
   { id: "comment_line", label: "行注释开关", def: "Ctrl+/", scope: "editor" },

@@ -689,8 +689,8 @@ function realPyreflyBridgeFor(page: Page, cwd: string) {
   };
 
   return {
-    start(command: string, args: string[]): void {
-      proc = spawn(command, args, { cwd, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+    start(command: string, args: string[], lspCwd?: string): void {
+      proc = spawn(command, args, { cwd: lspCwd ?? cwd, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
       proc.stdout!.on("data", (c: Buffer) => feedStdout(c));
       proc.stderr!.on("data", (c: Buffer) => emit("lsp-stderr", { engine: "static", data: c.toString("utf8") }));
       proc.on("exit", (code) => emit("lsp-exit", { engine: "static", code }));
@@ -879,7 +879,7 @@ export async function equipPage(page: Page, repo: GitRepo, opts: { slowGitMs?: R
       const a = (args ?? {}) as Record<string, unknown>;
       switch (cmd) {
         case "lsp_start":
-          pyrefly.start(String(a.command ?? "pyrefly"), Array.isArray(a.args) ? (a.args as string[]) : []);
+          pyrefly.start(String(a.command ?? "pyrefly"), Array.isArray(a.args) ? (a.args as string[]) : [], a.cwd ? String(a.cwd) : undefined);
           return null;
         case "lsp_send_request":
           pyrefly.sendRequest(String(a.engine ?? "static"), a.id, String(a.method), a.params);

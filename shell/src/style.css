@@ -4043,6 +4043,140 @@ button:focus-visible,
   overflow: hidden;
 }
 
+/* ---------- 就地重命名（P0；renameWidget.ts）----------
+   原地输入框（content widget）+ 当前文件引用 ghost 预览 */
+
+/* 编辑器内：将被同步改名的引用位置高亮（ghost 预览） */
+.oc-rename-ghost {
+  background: var(--accent-faint);
+  outline: 1px solid var(--accent-soft);
+  border-radius: 2px;
+}
+
+/* 原地输入框 widget：锚定在标识符位置下方 */
+.oc-rename-widget {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  background: var(--bg-alt);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  z-index: 40;
+}
+
+.oc-rename-input {
+  min-width: 220px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--fg);
+  font-size: var(--text-sm);
+  font-family: inherit;
+}
+
+.oc-rename-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.oc-rename-input.is-invalid { border-color: var(--danger); }
+
+.oc-rename-hint {
+  display: flex;
+  gap: var(--space-4);
+  font-size: var(--text-xs);
+  color: var(--fg-dim);
+}
+
+.oc-rename-hint-count { color: var(--accent); }
+
+/* ---------- 引用计数 Code Vision（P0；codeVision.ts）----------
+   声明行上方「N 处引用」由 Monaco CodeLens 自带样式渲染；此处只做点击弹层 */
+
+.oc-cv-popup {
+  display: flex;
+  flex-direction: column;
+  max-width: 520px;
+  max-height: 320px;
+  padding: var(--space-2);
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow);
+  z-index: 40;
+}
+
+.oc-cv-popup-header {
+  padding: var(--space-1) var(--space-2) var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--fg-dim);
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.oc-cv-popup-list { overflow-y: auto; padding: var(--space-1) 0; }
+
+.oc-cv-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-1) var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg);
+  font-size: var(--text-xs);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.oc-cv-row:hover { background: var(--hover-subtle); }
+
+.oc-cv-row-loc {
+  flex: 0 0 auto;
+  color: var(--link);
+  font-variant-numeric: tabular-nums;
+}
+
+.oc-cv-row-text {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-dim);
+}
+
+.oc-cv-popup-more-count {
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--fg-dim);
+}
+
+.oc-cv-popup-empty {
+  padding: var(--space-3) var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--fg-dim);
+}
+
+.oc-cv-popup-footer {
+  margin-top: var(--space-1);
+  padding: var(--space-2);
+  border: 0;
+  border-top: 1px solid var(--border-soft);
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  background: transparent;
+  color: var(--link);
+  font-size: var(--text-xs);
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.oc-cv-popup-footer:hover { background: var(--hover-subtle); }
+
 /* ---------- Breadcrumbs 面包屑（P2；breadcrumbs.ts） ---------- */
 /* 一条细条：它的价值是「一直看得见」，故只占一行高度、不加边框分隔（与 tabbar 同层）。 */
 

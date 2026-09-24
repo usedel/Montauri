@@ -25,7 +25,9 @@ import { initInlineRunner, listInlineEntries, runInline, inlineCommandLabel } fr
 import { setPluginsTabHandlers, openGuide } from "./extensions/pluginsTab";
 import { formatPythonSource, optimizeImportsSource, registerRuffFormatter, setFormatErrorHandler } from "./format";
 import { runSearch, cancelSearch, resetSearch, setOpenMatchHandler, type SearchMatch } from "./search";
-import { findUsagesAtCursor, renameSymbolAtCursor, resetFindUsages, setOpenRefHandler } from "./findUsages";
+import { findUsagesAtCursor, renameSymbolAtCursor, resetFindUsages, setOpenRefHandler, queryAndRender, initFindUsagesAction } from "./findUsages";
+import { initCodeVision, refreshCodeVision } from "./codeVision";
+import { initRenameWidget, setAfterRenameHandler } from "./renameWidget";
 import { registerSidebarView, setSidebarTab, activeView } from "./views";
 import * as lsp from "./lsp/client";
 import * as kb from "./keybindings";
@@ -1342,7 +1344,7 @@ export async function startLsp(): Promise<void> {
   const engine = app.settings.lsp_engine || "pyrefly";
   const rootUri = lsp.workspaceRootUri(app.workspaceRoot); // CR-29：正确百分号编码（空格/中文路径）
   try {
-    await lsp.startEngine(engine, rootUri, currentInterpreter);
+    await lsp.startEngine(engine, rootUri, currentInterpreter, app.workspaceRoot ?? undefined);
   } catch (e) {
     statusLspEl.textContent = `LSP 启动失败: ${e}`;
     return;
@@ -1693,8 +1695,10 @@ async function init(): Promise<void> {
   lspProviders.add(lsp.registerLspCompletion());
   lspProviders.add(lsp.registerLspHover());
   lspProviders.add(lsp.registerLspDefinition());
-  lspProviders.add(lsp.registerLspRename()); // F2 编辑器内重命名
   lspProviders.add(lsp.registerLspReferences()); // Shift+F12 查找引用（peek 视图）
+  lspProviders.add(initCodeVision(app.editor)); // 引用计数 Code Vision（声明行上方「N 处引用」）
+  lspProviders.add(initFindUsagesAction(app.editor)); // 右键菜单「查找引用」
+  lspProviders.add(initRenameWidget(app.editor)); // F2 就地重命名 + 右键菜单「重命名…」
   lspProviders.add(lsp.registerLspSignatureHelp()); // 签名帮助（参数提示）
   lspProviders.add(lsp.registerLspCodeAction()); // Ctrl+. 快速修复
   lspProviders.add(lsp.registerLspInlayHints()); // 运行时类型标注（opencharm-intel）
@@ -1714,13 +1718,29 @@ async function init(): Promise<void> {
   registerRuffFormatter(app.monaco); // Shift+Alt+F / 右键「Format Document」
   setFormatErrorHandler((msg) => appendOutputLine(outputEl, msg, "stderr", gotoFromLink));
   setOpenMatchHandler((m) => openSearchMatch(m).catch(console.error));
-  // 查找引用结果跳转：打开文件 + 定位到引用行列 + 居中（复用 openFile 的 tab/model 管理）
-  setOpenRefHandler((path, line, col) => {
+  // 查找引用结果跳转：打开文件 + **选中标识符**（范围来自引用 Location）+ 居中聚焦，
+  // 对齐 PyCharm「点击引用后落点一目了然」的体验（复用 openFile 的 tab/model 管理）
+  setOpenRefHandler((path, line, col, endLine, endCol) => {
     void openFile(path, line).then(() => {
-      app.editor.setPosition({ lineNumber: line, column: col });
+      const sel = {
+        startLineNumber: line,
+        startColumn: col,
+        endLineNumber: endLine ?? line,
+        endColumn: endCol ?? col,
+      };
+      app.editor.setSelection(sel);
       app.editor.revealLineInCenter(line);
       app.editor.focus();
     });
+  });
+  // 就地重命名落盘后刷新引用面板（符号名已变，位置仍在原符号处）；Code Vision 计数
+  // 需等引擎重索引完成，延迟刷两次拿最终值（引擎侧慢时第二次兜底）
+  setAfterRenameHandler(() => {
+    const model = app.editor.getModel();
+    const pos = app.editor.getPosition();
+    if (model && pos) void queryAndRender(model, pos);
+    window.setTimeout(() => refreshCodeVision(), 1500);
+    window.setTimeout(() => refreshCodeVision(), 4000);
   });
   // P1-BUG-002：补全请求前冲刷防抖窗口内未同步的 didChange——`.` 触发的补全请求会赶在
   // 200ms 防抖同步之前到达引擎，引擎按旧文档计算（补全位置越界 → 空结果）
@@ -1730,6 +1750,9 @@ async function init(): Promise<void> {
       await syncPendingChanges(); // CR-13：串行冲刷（含本文件在内的全部待同步变更，保 FIFO）
     }
   });
+  // 语义请求（references / rename / prepareRename / documentSymbol）同理前置冲刷：
+  // 引擎按旧缓冲算 rename 会漏改/错位，引用计数也会错
+  lsp.setBeforeSemanticHook(() => syncPendingChanges());
   lsp.wireGotoTriggers(app.editor); // F12 / Ctrl+点击 显式跳转（Ctrl+悬停不跳）
   lsp.setGotoDefinitionHandler((path, line, col) => {
     openFile(path, line).then(() => app.editor.setPosition({ lineNumber: line, column: col }));

@@ -8,6 +8,8 @@ import * as editorApi from "monaco-editor/esm/vs/editor/editor.api";
 import "monaco-editor/esm/vs/editor/contrib/bracketMatching/browser/bracketMatching"; // 括号匹配
 import "monaco-editor/esm/vs/editor/contrib/caretOperations/browser/caretOperations"; // 光标操作
 import "monaco-editor/esm/vs/editor/contrib/codeAction/browser/codeActionContributions"; // 灯泡 + 快速修复菜单入口（Ctrl+. / hover Quick Fix）
+import "monaco-editor/esm/vs/editor/contrib/contextmenu/browser/contextmenu"; // 编辑器右键菜单（此前未引入 → 编辑器内右键无任何菜单，addAction 的入口全部不可达）
+import "monaco-editor/esm/vs/editor/contrib/codelens/browser/codelensController"; // 引用计数 Code Vision（codeVision.ts）
 import "monaco-editor/esm/vs/editor/contrib/comment/browser/comment"; // Ctrl+/ 行注释 / Ctrl+Shift+/ 块注释
 import "monaco-editor/esm/vs/editor/contrib/cursorUndo/browser/cursorUndo";
 import "monaco-editor/esm/vs/editor/contrib/find/browser/findController"; // Ctrl+F 查找
@@ -25,7 +27,8 @@ import "monaco-editor/esm/vs/editor/contrib/lineSelection/browser/lineSelection"
 import "monaco-editor/esm/vs/editor/contrib/links/browser/links"; // 链接点击
 import "monaco-editor/esm/vs/editor/contrib/multicursor/browser/multicursor"; // 多光标
 import "monaco-editor/esm/vs/editor/contrib/parameterHints/browser/parameterHints"; // 签名帮助 widget
-import "monaco-editor/esm/vs/editor/contrib/rename/browser/rename"; // F2 重命名（含 renameWidget）
+// 注：内建 rename contribution（F2 单文件 rename widget）已移除——重命名统一走自研就地改名
+// renameWidget.ts（prepareRename 锚定 + ghost 预览 + 跨文件 diff 确认），F2 由其 addCommand 接管。
 import "monaco-editor/esm/vs/editor/contrib/snippet/browser/snippetController2"; // snippet 占位符会话（live templates 展开依赖，显式声明避免仅靠 suggest 传递引入）
 import "monaco-editor/esm/vs/editor/contrib/suggest/browser/suggestController"; // 补全 UI
 import "monaco-editor/esm/vs/editor/contrib/wordHighlighter/browser/wordHighlighter"; // 词高亮

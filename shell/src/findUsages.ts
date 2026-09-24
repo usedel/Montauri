@@ -1,9 +1,9 @@
-// 查找引用结果面板（Alt+F7，对标 PyCharm「Find Usages」工具窗口）+ 跨文件重命名入口。
+// 查找引用结果面板（Alt+F7，对标 PyCharm「Find Usages」工具窗口）+ 重命名入口。
 //
 // - Alt+F7：全量跨文件引用落底部「引用」标签，按「引用种类」（定义/导入/调用/引用）分组
-//   + 顶栏 chips 过滤。
-// - Shift+F6 / 面板「重命名」按钮：跨文件重命名（定义 + 所有引用同步改名），走
-//   lsp.renameSymbol（textDocument/rename → 工作区级 apply）。
+//   + 顶栏 chips 过滤；点击条目跳转并选中标识符（openRef → main.ts 注入的回调）。
+// - Shift+F6 / 面板「重命名」按钮：就地改名入口（renameWidget.ts：prepareRename 锚定 +
+//   ghost 预览 + Enter 全部文件一次性写入）。
 // 结果树复用全局搜索面板视觉（search-file / search-match / search-hit）；跳转到文件的动作
 // 经 main.ts 注入的回调执行（避免本域反向依赖 main.ts 造成循环导入）。
 
@@ -11,10 +11,10 @@ import type * as MonacoApi from "monaco-editor/esm/vs/editor/editor.api";
 import { invoke } from "@tauri-apps/api/core";
 import { app, $ } from "./state";
 import { setBottomTab } from "./termUi";
-import { fetchReferencesAt, renameSymbol, type LspReferenceLocation } from "./lsp/client";
+import { waitReferencesStable, type LspReferenceLocation } from "./lsp/client";
 import { basename, emptyState } from "./util";
-import { toast, toastFail } from "./toast";
-import { openPrompt } from "./dialog";
+import { toast } from "./toast";
+import { startRenameAtCursor } from "./renameWidget";
 
 /** 引用种类（启发式归类，对齐 PyCharm Find Usages 的核心分组） */
 type RefKind = "definition" | "import" | "call" | "reference";
@@ -25,10 +25,19 @@ interface RefItem extends LspReferenceLocation {
   kind: RefKind;
 }
 
-/** 跳转回调（main.ts 注入：打开文件 + 定位 + 居中 + 聚焦） */
-let onOpenRef: ((path: string, line: number, col: number) => void) | null = null;
-export function setOpenRefHandler(fn: (path: string, line: number, col: number) => void): void {
+/** 跳转回调（main.ts 注入：打开文件 + 选中标识符 + 居中 + 聚焦） */
+let onOpenRef:
+  | ((path: string, line: number, col: number, endLine?: number, endCol?: number) => void)
+  | null = null;
+export function setOpenRefHandler(
+  fn: (path: string, line: number, col: number, endLine?: number, endCol?: number) => void,
+): void {
   onOpenRef = fn;
+}
+
+/** 跳转到某个引用（引用面板 / Code Vision 弹层共用；由 main.ts 注入的回调执行） */
+export function openRef(ref: LspReferenceLocation): void {
+  onOpenRef?.(ref.path, ref.line, ref.col, ref.endLine, ref.endCol);
 }
 
 /** 引用行文本缓存（单次查询内同文件复用） */
@@ -45,6 +54,11 @@ async function readLines(path: string): Promise<string[]> {
   } catch {
     return [];
   }
+}
+
+/** 引用行文本（Code Vision 弹层复用；带单次查询内缓存） */
+export async function readRefLines(path: string): Promise<string[]> {
+  return readLines(path);
 }
 
 function panelEl(): HTMLElement {
@@ -104,7 +118,7 @@ function buildRefLine(it: RefItem): HTMLElement {
   textEl.className = "search-match-text";
   renderRefText(textEl, it);
   lineEl.append(lineNo, textEl);
-  const go = (): void => onOpenRef?.(it.path, it.line, it.col);
+  const go = (): void => openRef(it);
   lineEl.addEventListener("click", go);
   lineEl.addEventListener("keydown", (e) => {
     if (e.key === "Enter") go();
@@ -197,11 +211,12 @@ function renderEmpty(desc: string): void {
 }
 
 /** 查询并渲染引用列表（Alt+F7 与重命名后刷新共用） */
-async function queryAndRender(model: MonacoApi.editor.ITextModel, position: MonacoApi.Position): Promise<void> {
+export async function queryAndRender(model: MonacoApi.editor.ITextModel, position: MonacoApi.Position): Promise<void> {
   fileLinesCache.clear();
   let refs: LspReferenceLocation[];
   try {
-    refs = await fetchReferencesAt(model, position);
+    // 稳定采样：pyrefly lazy 索引推进期间不落瞬时值（已稳定时只多一次请求）
+    refs = await waitReferencesStable(model, position, { maxTries: 4, intervalMs: 500 });
   } catch (e) {
     toast(`查找引用失败：${e instanceof Error ? e.message : e}`, "error");
     return;
@@ -237,37 +252,20 @@ export async function findUsagesAtCursor(): Promise<void> {
   await queryAndRender(model, pos);
 }
 
-/** Shift+F6 / 面板按钮：跨文件重命名光标处符号，完成后刷新引用面板 */
-export async function renameSymbolAtCursor(): Promise<void> {
-  const editor = app.editor;
-  const model = editor.getModel();
-  const pos = editor.getPosition();
-  if (!model || !pos) {
-    toast("请先定位到要重命名的符号上", "info");
-    return;
-  }
-  const word = model.getWordAtPosition(pos);
-  const currentName = word?.word ?? "";
-  const newName = await openPrompt({
-    title: "重命名符号",
-    label: currentName ? `将「${currentName}」及其所有引用同步重命名（跨文件）` : "输入新名称（跨文件同步）",
-    value: currentName,
-    okLabel: "重命名",
+/** 编辑器右键菜单「查找引用」入口（可发现性；键位仍归键位系统 Alt+F7 管） */
+export function initFindUsagesAction(editor: MonacoApi.editor.IStandaloneCodeEditor): MonacoApi.IDisposable {
+  return editor.addAction({
+    id: "opencharm.findUsages",
+    label: "查找引用",
+    contextMenuGroupId: "navigation",
+    contextMenuOrder: 1.7,
+    run: () => void findUsagesAtCursor(),
   });
-  if (newName === null) return; // 取消 / Esc
-  if (!newName) {
-    toast("新名称不能为空", "info");
-    return;
-  }
-  if (newName === currentName) return;
-  try {
-    const r = await renameSymbol(model, pos, newName);
-    toast(`已重命名「${currentName}」→「${newName}」：${r.changedFiles} 个文件 ${r.totalEdits} 处`, "success");
-    // 刷新引用面板（符号名已变，位置仍在原符号处）
-    await queryAndRender(model, pos);
-  } catch (e) {
-    toastFail("重命名", e);
-  }
+}
+
+/** Shift+F6 / 面板按钮：就地重命名光标处符号（ghost 预览 + 多文件 diff 确认，见 renameWidget.ts） */
+export async function renameSymbolAtCursor(): Promise<void> {
+  await startRenameAtCursor();
 }
 
 /** 清空面板与行缓存（工作区切换 / 关闭时调用） */

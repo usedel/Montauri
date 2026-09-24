@@ -479,6 +479,95 @@
     return null;
   }
 
+  /** 光标处单词（references / rename / prepareRename 共用锚定语义；无词返回 null） */
+  function lspWordAt(uri, pos) {
+    var doc = lspDoc(uri);
+    if (!doc) return null;
+    var line = doc.lines[pos.line] || "";
+    var col = Math.min(Math.max(pos.character, 0), line.length);
+    var isW = function (c) { return /[A-Za-z0-9_]/.test(c || ""); };
+    if (!isW(line[col]) && col > 0 && isW(line[col - 1])) col = col - 1; // 光标贴在词尾
+    if (!isW(line[col])) return null;
+    var start = col, end = col;
+    while (start > 0 && isW(line[start - 1])) start--;
+    while (end < line.length && isW(line[end])) end++;
+    return { word: line.slice(start, end), start: start, end: end };
+  }
+
+  /** 查找引用：该词在全部已镜像文档中的所有出现（含定义；\b 词边界，字符串/注释不区分） */
+  function lspReferences(uri, pos) {
+    var w = lspWordAt(uri, pos);
+    if (!w) return [];
+    var out = [];
+    lspDocs.forEach(function (doc, docUri) {
+      for (var i = 0; i < doc.lines.length; i++) {
+        var re = new RegExp("\\b" + w.word + "\\b", "g");
+        var m;
+        while ((m = re.exec(doc.lines[i])) !== null) {
+          out.push({
+            uri: docUri,
+            range: { start: { line: i, character: m.index }, end: { line: i, character: m.index + w.word.length } },
+          });
+        }
+      }
+    });
+    return out;
+  }
+
+  /** prepareRename：返回光标处单词范围与占位名（无词 → null，前端据此提示「不可重命名」） */
+  function lspPrepareRename(uri, pos) {
+    var w = lspWordAt(uri, pos);
+    if (!w) return null;
+    return {
+      range: { start: { line: pos.line, character: w.start }, end: { line: pos.line, character: w.end } },
+      placeholder: w.word,
+    };
+  }
+
+  /** 重命名：全部已镜像文档中该词的所有出现 → WorkspaceEdit.changes */
+  function lspRename(uri, pos, newName) {
+    var w = lspWordAt(uri, pos);
+    if (!w) return { changes: {} };
+    var changes = {};
+    lspDocs.forEach(function (doc, docUri) {
+      var edits = [];
+      for (var i = 0; i < doc.lines.length; i++) {
+        var re = new RegExp("\\b" + w.word + "\\b", "g");
+        var m;
+        while ((m = re.exec(doc.lines[i])) !== null) {
+          edits.push({
+            range: { start: { line: i, character: m.index }, end: { line: i, character: m.index + w.word.length } },
+            newText: newName,
+          });
+        }
+      }
+      if (edits.length) changes[docUri] = edits;
+    });
+    return { changes: changes };
+  }
+
+  /** documentSymbol：def/class 平铺列表（kind: class=5 / 方法=6 / 顶层函数=12），Code Vision 与面包屑共用 */
+  function lspDocumentSymbols(uri) {
+    var doc = lspDoc(uri);
+    if (!doc) return [];
+    var out = [];
+    for (var i = 0; i < doc.lines.length; i++) {
+      var raw = doc.lines[i];
+      var indent = raw.length - raw.replace(/^\s+/, "").length;
+      var code = raw.replace(/^\s+/, "");
+      var m = /^(def|class)\s+([A-Za-z_][A-Za-z0-9_]*)/.exec(code);
+      if (!m) continue;
+      var nameChar = raw.indexOf(m[2], indent + m[1].length);
+      out.push({
+        name: m[2],
+        kind: m[1] === "class" ? 5 : indent > 0 ? 6 : 12,
+        range: { start: { line: i, character: indent }, end: { line: i, character: raw.length } },
+        selectionRange: { start: { line: i, character: nameChar }, end: { line: i, character: nameChar + m[2].length } },
+      });
+    }
+    return out;
+  }
+
   /** 诊断（「提醒」）：对 `import nonexistent_*` / `import missing_*` 生成 missing-import 错误，
    *  对齐真实 pyrefly 的 missing-import 诊断形态（severity=1 / code=missing-import）。 */
   function lspComputeDiagnostics(uri) {
@@ -553,7 +642,7 @@
       var eng0 = args.engine, rid = args.id, method0 = args.method, params0 = args.params || {};
       var result0 = null;
       if (method0 === "initialize") {
-        result0 = { capabilities: { textDocumentSync: 2, completionProvider: { triggerCharacters: [".", "_"], resolveProvider: true }, hoverProvider: true, definitionProvider: true } };
+        result0 = { capabilities: { textDocumentSync: 2, completionProvider: { triggerCharacters: [".", "_"], resolveProvider: true }, hoverProvider: true, definitionProvider: true, referencesProvider: true, documentSymbolProvider: true, renameProvider: { prepareProvider: true } } };
       } else if (method0 === "textDocument/completion") {
         var td0 = params0.textDocument || {};
         result0 = { isIncomplete: false, items: lspComplete(td0.uri, params0.position || { line: 0, character: 0 }) };
@@ -565,6 +654,18 @@
       } else if (method0 === "textDocument/definition") {
         var td2 = params0.textDocument || {};
         result0 = lspDefinition(td2.uri, params0.position || { line: 0, character: 0 });
+      } else if (method0 === "textDocument/documentSymbol") {
+        var td4 = params0.textDocument || {};
+        result0 = lspDocumentSymbols(td4.uri);
+      } else if (method0 === "textDocument/references") {
+        var td5 = params0.textDocument || {};
+        result0 = lspReferences(td5.uri, params0.position || { line: 0, character: 0 });
+      } else if (method0 === "textDocument/prepareRename") {
+        var td6 = params0.textDocument || {};
+        result0 = lspPrepareRename(td6.uri, params0.position || { line: 0, character: 0 });
+      } else if (method0 === "textDocument/rename") {
+        var td7 = params0.textDocument || {};
+        result0 = lspRename(td7.uri, params0.position || { line: 0, character: 0 }, String(params0.newName ?? ""));
       }
       emitEvent("lsp-message", { engine: eng0, id: rid, result: result0 });
       // 诊断用：记录 LSP 请求方法 + 结果（供 E2E 调试读取 window.__OPENCHARM_LSP_LOG__）

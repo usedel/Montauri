@@ -33,8 +33,11 @@ static LSP_SEQ: AtomicU64 = AtomicU64::new(0);
 
 /// 启动 LSP 引擎进程（stdio），spawn stdout 帧 / stderr / 退出监视三个线程。
 /// `engine` 为实例键（如 "static" / "intel"）；同名重启先杀旧实例。
+/// `cwd`：引擎进程工作目录（= 用户工作区根）。pyrefly 等引擎从 **cwd** 发现
+/// pyproject.toml / pyrefly.toml 并启动工作区索引——不设 cwd 时引擎继承本应用
+/// 的进程目录，永远找不到用户项目的 config，references/rename 只覆盖已 open 的文件。
 #[tauri::command]
-pub fn lsp_start(app: AppHandle, engine: String, command: String, args: Vec<String>) -> Result<(), String> {
+pub fn lsp_start(app: AppHandle, engine: String, command: String, args: Vec<String>, cwd: Option<String>) -> Result<(), String> {
     {
         let inst = unpoison(LSP.lock()).remove(&engine);
         if let Some(mut inst) = inst {
@@ -45,15 +48,18 @@ pub fn lsp_start(app: AppHandle, engine: String, command: String, args: Vec<Stri
         }
     }
 
-    let mut child = no_window(
-        resolve_lsp_command(&command)
-            .args(&args)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped()),
-    )
-    .spawn()
-    .map_err(|e| format!("无法启动 `{command}`: {e}（请确认已安装并在 PATH 中）"))?;
+    let mut start_cmd = resolve_lsp_command(&command);
+    start_cmd.args(&args);
+    if let Some(dir) = cwd.as_deref() {
+        start_cmd.current_dir(dir);
+    }
+    start_cmd
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = no_window(&mut start_cmd)
+        .spawn()
+        .map_err(|e| format!("无法启动 `{command}`: {e}（请确认已安装并在 PATH 中）"))?;
 
     let stdin = child.stdin.take().ok_or("无法获取 stdin")?;
     let stdout = child.stdout.take().ok_or("无法获取 stdout")?;
