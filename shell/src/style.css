@@ -2758,6 +2758,34 @@ button:focus-visible,
    默认外观」而补的（矮一截、系统灰底、字体不继承）——.btn 基类已含 font-family:inherit 与
    flex:none，该修复由体系天然承载，无需再按域重复一遍。 */
 .settings-row input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; }
+/* 快捷键「按键录入」框（settingsPanel.ts::wireKeybindingCapture）：聚焦后直接按组合键写入，
+   不接收手输文本。品牌色描边 + 等宽字体提示「这是按键捕获区」，去掉文本光标避免误以为可编辑。 */
+.settings-row input[type="text"].kb-capture {
+  border-color: var(--brand);
+  font-family: var(--mono);
+  cursor: default;
+}
+/* 快捷键分区：每行各自 flex 时，标签长短不一（"保存" ↔ "转到文件（Search Everywhere 文件模式）"）
+   会把输入框挤成不同宽度。改「一个共享网格 + 行 display:contents」：所有行的标签列与控件列
+   同属一张网格，列宽由全局统一决定（标签列取最长标签、控件列 1fr），输入框右边界即对齐。
+   ⚠ 依赖 display:contents（行 div 仅作 JS 结构容器，无语义/无样式，故无 a11y 顾虑）。
+   超长标签改换行（white-space:normal）而不是撑宽列——否则又回到挤窄控件的老问题。 */
+#settings-keybinding-rows {
+  display: grid;
+  /* --settings-label-w 定义在 .settings-row 上，容器取不到，故带 160px 兜底 */
+  grid-template-columns: minmax(var(--settings-label-w, 160px), 220px) minmax(0, 1fr);
+  align-items: center;
+  column-gap: var(--space-7);
+  row-gap: var(--space-4); /* 此前各行之间没有任何垂直间距 */
+}
+#settings-keybinding-rows .settings-row { display: contents; }
+#settings-keybinding-rows .settings-row label {
+  min-width: 0;
+  white-space: normal;
+  line-height: 1.35;
+}
+/* 键位串最长约 "Ctrl+Alt+Shift+Insert"，260px 足够；不随卡片变宽无限拉伸 */
+#settings-keybinding-rows .settings-row input[type="text"] { max-width: 260px; }
 .settings-hint { font-size: var(--text-sm); color: var(--fg-dim); line-height: 1.6; }
 /* P1-F：运行配置面板字段级内联校验（红色小字，覆盖 .settings-hint 的中性色） */
 .settings-hint.run-config-field-error { color: var(--danger); }

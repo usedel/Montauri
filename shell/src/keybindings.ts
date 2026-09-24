@@ -73,6 +73,34 @@ export function parseKeyToken(token: string): string | null {
   return named ?? null;
 }
 
+/**
+ * `KeyboardEvent.code` → 键位串里的键 token（`parseKeyToken` 的反向，用于设置面板「按键录入」）。
+ * 例：KeyS → S、Digit0 → 0、Slash → /、F10 → F10、ArrowLeft → ArrowLeft。
+ * 无法用键位串表达的键（Numpad*、CapsLock、纯修饰键 ControlLeft 等）返回 null。
+ */
+export function codeToKeyToken(code: string): string | null {
+  const letter = /^Key([A-Z])$/.exec(code);
+  if (letter) return letter[1];
+  const digit = /^Digit([0-9])$/.exec(code);
+  if (digit) return digit[1];
+  if (/^F([1-9]|1[0-9]|2[0-4])$/.test(code)) return code;
+  if (NAMED_KEYS.includes(code)) return code;
+  for (const [sym, c] of Object.entries(SYMBOL_KEYS)) if (c === code) return sym;
+  return null;
+}
+
+/** 事件当前按下的修饰键（规范序 Ctrl → Shift → Alt）；Ctrl 与 Cmd 同归一为 Ctrl（与 eventMatches 一致） */
+export function modsFromEvent(e: KeyboardEvent): string[] {
+  return [(e.ctrlKey || e.metaKey ? "Ctrl" : ""), e.shiftKey ? "Shift" : "", e.altKey ? "Alt" : ""].filter(Boolean);
+}
+
+/** 键盘事件 → 键位串（如 "Ctrl+0"）；未成键（纯修饰键 / 不支持的键）返回 null */
+export function chordFromEvent(e: KeyboardEvent): string | null {
+  const token = codeToKeyToken(e.code);
+  if (!token) return null;
+  return [...modsFromEvent(e), token].join("+");
+}
+
 /** 解析 "Ctrl+Shift+F" 形式的键位串；空串 / 非法格式 / 未知键名返回 null */
 export function parseBinding(raw: string): ParsedBinding | null {
   const tokens = raw.split("+").map((t) => t.trim()).filter((t) => t.length > 0);

@@ -9,7 +9,7 @@ import * as lsp from "./lsp/client";
 import { renderEngineChip } from "./engineChip";
 import { repaintRunWidget } from "./runWidget";
 import * as ltUi from "./live-templates/ui/manager";
-import { KEYBINDING_META, validateKeybindingMap, applyEditorKeybindings } from "./keybindings";
+import { KEYBINDING_META, chordFromEvent, modsFromEvent, validateKeybindingMap, applyEditorKeybindings } from "./keybindings";
 import { refreshTerminalFonts, refreshTerminalMotion, refreshTerminalThemes } from "./termUi";
 import { applyReduceMotion, hideEl, motionDisabled, reduceMotionEnabled, showEl } from "./anim";
 import { trapFocus } from "./focusTrap";
@@ -209,17 +209,72 @@ function renderKeybindingRows(): void {
     input.placeholder = m.def;
     input.spellcheck = false;
     label.htmlFor = input.id; // 遗留修复：动态生成的行同样要 label↔控件关联（读屏聚焦输入框报得出动作名）
+    wireKeybindingCapture(input); // UX：改为「按键录入」，不必手写字面量
     row.append(label, input);
     container.appendChild(row);
   }
 }
 
-/** 读取快捷键表单 → id → 键位串（已 trim） */
+/** 修饰键的 keydown/keyup（用于「按住 Ctrl 还没按主键」的预览与回退） */
+const MODIFIER_KEYS = new Set(["Control", "Shift", "Alt", "Meta"]);
+
+/** 写入键位输入框并同步「已成键基线」（回退/预览以基线为准，见 wireKeybindingCapture） */
+function setKeybindingValue(input: HTMLInputElement, v: string): void {
+  input.value = v;
+  input.dataset.kbCommitted = v;
+}
+
+/**
+ * 快捷键输入框改「按键录入」（PyCharm / VS Code 同款）：聚焦后直接按组合键即写入，
+ * 不再是逐字母手输字面量（用户按 Ctrl+0 想改保存键时，此前只会触发浏览器/外壳行为）。
+ * 语义：
+ * - 主键按下即成键（"Ctrl+0"）；按住修饰键未成键时显示 "Ctrl+" 预览，抬起回退到基线；
+ * - Backspace / Delete 清空（= 解绑）；Esc 撤销本次录入（吞掉事件，避免连带关闭面板丢掉其它未保存改动）；
+ * - Tab 不拦截（保留键盘在表单里移动焦点）；输入框 readOnly，杜绝 IME/手输产生非键位串文本。
+ */
+function wireKeybindingCapture(input: HTMLInputElement): void {
+  input.readOnly = true;
+  input.title = "点击后直接按下要使用的组合键；Backspace 清除（留空 = 解绑）";
+  const committed = (): string => input.dataset.kbCommitted ?? input.value;
+  const commit = (v: string): void => setKeybindingValue(input, v);
+  input.addEventListener("focus", () => input.classList.add("kb-capture"));
+  input.addEventListener("blur", () => {
+    input.classList.remove("kb-capture");
+    input.value = committed(); // 离开时丢弃未成键的预览
+  });
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Tab") return;
+    e.preventDefault();
+    e.stopPropagation(); // 不让 event 冒泡到 window 级快捷键分发（虽已按 INPUT 排除，仍显式隔离）
+    if (e.key === "Escape") {
+      input.value = committed();
+      return;
+    }
+    if (e.key === "Backspace" || e.key === "Delete") {
+      commit("");
+      return;
+    }
+    if (MODIFIER_KEYS.has(e.key)) {
+      const mods = modsFromEvent(e);
+      input.value = mods.length > 0 ? `${mods.join("+")}+` : ""; // 预览：等主键
+      return;
+    }
+    const chord = chordFromEvent(e);
+    if (chord) commit(chord);
+  });
+  input.addEventListener("keyup", (e) => {
+    if (!MODIFIER_KEYS.has(e.key)) return;
+    if (input.value !== committed()) input.value = committed(); // 只按了修饰键：回退预览
+  });
+}
+
+/** 读取快捷键表单 → id → 键位串（已 trim；未成键的预览回退到基线） */
 function readKeybindingForm(): Record<string, string> {
   const map: Record<string, string> = {};
   for (const m of KEYBINDING_META) {
     const input = document.getElementById(kbInputId(m.id)) as HTMLInputElement | null;
-    map[m.id] = (input?.value ?? "").trim();
+    const raw = (input?.value ?? "").trim();
+    map[m.id] = raw.endsWith("+") ? (input?.dataset.kbCommitted ?? "").trim() : raw;
   }
   return map;
 }
@@ -314,7 +369,8 @@ function fillForm(settings: Settings): void {
   settingsLogStdoutEl.checked = settings.log_stdout ?? DEFAULT_SETTINGS.log_stdout;
   for (const m of KEYBINDING_META) {
     const input = document.getElementById(kbInputId(m.id)) as HTMLInputElement | null;
-    if (input) input.value = settings.keybindings[m.id] ?? "";
+    // 经 setKeybindingValue：同步成键基线，否则录入器回退时会用上一次的旧基线
+    if (input) setKeybindingValue(input, settings.keybindings[m.id] ?? "");
   }
 }
 
