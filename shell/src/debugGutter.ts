@@ -387,3 +387,23 @@ export function clearCurrentLine(): void {
   currentLineDecorations?.clear();
   currentLineDecorations = null;
 }
+
+// ---------- E2E 调试测试钩子（仅 vite dev，不影响生产构建/行为）----------
+// 复刻真实 gutter 点击进入的同一条 toggleBreakpoint 逻辑，供 Playwright 确定性地下断点，
+// 规避 headless 下 Monaco glyph-margin 像素点击的命中抖动；gutter 点击本身由 D-FUNC-1 单点覆盖。
+if ((import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV) {
+  (window as unknown as { __OC_DEBUG_TEST__?: unknown }).__OC_DEBUG_TEST__ = {
+    toggleActive(line: number) {
+      const tab = app.activeTab;
+      if (!tab) return false;
+      toggleBreakpoint(tab.path, line);
+      refreshDebugGutter(); // 真实 gutter 点击在 onMouseDown 中也会显式刷新装饰
+      return true;
+    },
+    list() {
+      const out: Record<string, number[]> = {};
+      for (const [p, m] of breakpoints.entries()) out[p] = Array.from(m.keys());
+      return out;
+    },
+  };
+}

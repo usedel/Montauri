@@ -418,7 +418,10 @@ export function wireDebugViewEvents(): void {
   });
 
   dap.onEvent("terminated", () => {
-    // debugpy 报告会话终止（脚本自然跑完）；后端退出监视会随后 emit debug-exited
+    // debugpy 报告会话终止（脚本自然跑完）；后端退出监视会随后 emit debug-exited。
+    // 清掉执行行高亮与行内变量快照（否则程序跑完后黄色当前行会残留，体验割裂）。
+    clearCurrentLine();
+    clearInlineValues();
   });
 
   // 注：`output` 事件**不在此处**订阅——它归调试控制台（debugConsole.ts）所有。
@@ -469,6 +472,12 @@ async function refreshVariables(): Promise<void> {
     activeScopeRef = locals.variablesReference;
     activeVars = await dap.dapVariables(activeScopeRef);
     if (token !== varToken) return;
+    // 空局部帧（如停在函数首行、局部变量尚未赋值）也要给空态提示，而非留白——
+    // 真机实测（CDP 验收 R-REAL）：pydevd 此时返回 {"variables":[]}，此前面板空白无任何解释。
+    if (activeVars.length === 0) {
+      el.appendChild(emptyState("debug-alt", "无局部变量", "此帧尚未创建局部变量", true));
+      return;
+    }
     // P2-11（UX 审查）：树形渲染——variablesReference>0 的行可展开，懒加载子级（递归）
     for (const v of activeVars) renderVarRow(el, v, activeScopeRef, 0, token);
     // P2：行内变量值——复用本次 variables 请求的结果，不再额外发 DAP 请求

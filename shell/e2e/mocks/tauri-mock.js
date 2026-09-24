@@ -115,6 +115,18 @@
     "plugin:dialog|save": function () {
       return (window.__E2E_DIALOG_PRESET__ && window.__E2E_DIALOG_PRESET__.save) || null;
     },
+    // 调试环境探测：全就绪 → 不弹「缺失 debugpy」引导（runDebug 直接进 DAP 握手）
+    debug_detect: function () {
+      return { debugpyOk: true, debugpyDir: "C:\\mock\\vendor\\debugpy", depFound: false, depFiles: [] };
+    },
+    // 运行/调试配置：返回空配置（调用方用 .catch(()=>({})) 兜底，但非空解析值会绕过 .catch）
+    get_run_config: function () {
+      return { args: "", env: [], scriptPath: "", cwd: null };
+    },
+    // 断点持久化：工作区打开时回填为空（E2E 不依赖盘上断点）
+    get_breakpoints: function () {
+      return [];
+    },
   };
 
   /** 同上：已知返回数组的命令（未在静态表时兜底 []，防 for...of 崩） */
@@ -152,6 +164,145 @@
         }
       }
     });
+  }
+
+  // ============ 调试 DAP mock（E2E 专用，无真实 debugpy）============
+  // 模拟 stdio adapter 架构的 DAP 时序：debug_start → initialize → attach →
+  // debugpyWaitingForServer → debug_attach_debuggee → initialized → setBreakpoints
+  // → configurationDone → stopped(at breakpoint)。步进/继续按断点行与帧深推演；
+  // 不触达真实进程，仅驱动前端状态机与渲染，用于功能与体验验收。
+  var DBG = {
+    active: false, path: null, wsRoot: null, bps: {}, attachId: 0,
+    currentLine: 0, threadId: 1, frameDepth: 1, failNext: false,
+  };
+  function dbgBasename(p) { var m = /([^\\/]+)$/.exec(p || ""); return m ? m[1] : (p || "script.py"); }
+  function dapRespond(reqId, body) {
+    emitEvent("dap-message", { type: "response", request_seq: reqId, success: true, command: "dap", body: body || {} });
+  }
+  function dapEvent(event, body) {
+    emitEvent("dap-message", { type: "event", event: event, body: body || {} });
+  }
+  function dbgNextBpAfter(line) {
+    var lines = (DBG.bps[DBG.path] || []).map(function (b) { return b.line; }).sort(function (a, b) { return a - b; });
+    for (var i = 0; i < lines.length; i++) if (lines[i] > line) return lines[i];
+    return null;
+  }
+  function dbgTerminate() {
+    dapEvent("continued", { threadId: DBG.threadId });
+    dapEvent("terminated", {});
+    setTimeout(function () { emitEvent("debug-exited", { reason: "exited" }); }, 30);
+  }
+  function dbgStopped() {
+    setTimeout(function () { dapEvent("stopped", { threadId: DBG.threadId, reason: "breakpoint", hitBreakpointIds: [] }); }, 30);
+  }
+  // 测试侧控制面：失败注入 / 状态读取（window.__OC_DEBUG__）
+  window.__OC_DEBUG__ = {
+    reset: function () {
+      DBG.active = false; DBG.path = null; DBG.wsRoot = null; DBG.bps = {};
+      DBG.attachId = 0; DBG.currentLine = 0; DBG.threadId = 1; DBG.frameDepth = 1; DBG.failNext = false;
+    },
+    setFailNext: function (v) { DBG.failNext = !!v; },
+    state: function () { return { active: DBG.active, path: DBG.path, currentLine: DBG.currentLine, frameDepth: DBG.frameDepth, bps: JSON.parse(JSON.stringify(DBG.bps)) }; },
+  };
+
+  function handleDebugCommand(cmd, args) {
+    args = args || {};
+    if (cmd === "debug_start") {
+      if (DBG.failNext) { DBG.failNext = false; throw new Error("debugpy 资源缺失或解释器不可用（E2E 模拟）"); }
+      DBG.active = true;
+      DBG.path = args.path || null;
+      DBG.wsRoot = args.workspaceRoot || null;
+      DBG.currentLine = 0; DBG.frameDepth = 1; DBG.attachId = 0;
+      emitEvent("debug-started", { port: 0, pid: 5678 });
+      return null;
+    }
+    if (cmd === "debug_attach_debuggee") {
+      setTimeout(function () { dapEvent("initialized", {}); }, 30);
+      return null;
+    }
+    if (cmd === "debug_stop") {
+      DBG.active = false;
+      setTimeout(function () { emitEvent("debug-exited", { reason: "user" }); }, 0);
+      return null;
+    }
+    if (cmd === "dap_send_request") {
+      var id = args.id, method = args.method, params = args.params || {};
+      if (method === "initialize") {
+        dapRespond(id, { supportsConfigurationDoneRequest: true, supportsEvaluateForHovers: true, supportsTerminateRequest: true });
+        return null;
+      }
+      if (method === "attach") {
+        DBG.attachId = id;
+        setTimeout(function () { dapEvent("debugpyWaitingForServer", { host: "127.0.0.1", port: 0 }); }, 30);
+        return null;
+      }
+      if (method === "setBreakpoints") {
+        var sp = (params.source && params.source.path) || DBG.path;
+        var reqBps = params.breakpoints || [];
+        DBG.bps[sp] = reqBps.map(function (b) { return { line: b.line, condition: b.condition || null, hitCondition: b.hitCondition || null, logMessage: b.logMessage || null }; });
+        var verified = reqBps.map(function (b) { return { verified: true, line: b.line, source: { path: sp } }; });
+        dapRespond(id, { breakpoints: verified });
+        return null;
+      }
+      if (method === "configurationDone") {
+        if (DBG.attachId) dapRespond(DBG.attachId, {});
+        var bl = (DBG.bps[DBG.path] || []).map(function (b) { return b.line; }).sort(function (a, b) { return a - b; });
+        DBG.currentLine = bl.length ? bl[0] : 1;
+        DBG.frameDepth = 1;
+        dbgStopped();
+        dapRespond(id, {});
+        return null;
+      }
+      if (method === "threads") { dapRespond(id, { threads: [{ id: DBG.threadId, name: "MainThread" }] }); return null; }
+      if (method === "stackTrace") {
+        var frames = [];
+        var names = ["<module>", "compute", "main"];
+        for (var i = 0; i < DBG.frameDepth; i++) {
+          frames.push({ id: i + 1, name: names[i] || ("frame" + i), source: { path: DBG.path, name: dbgBasename(DBG.path) }, line: DBG.currentLine - i * 2, column: 1 });
+        }
+        dapRespond(id, { stackFrames: frames, totalFrames: frames.length });
+        return null;
+      }
+      if (method === "scopes") {
+        dapRespond(id, { scopes: [{ name: "Locals", presentationHint: "locals", variablesReference: 1000 }, { name: "Globals", presentationHint: "globals", variablesReference: 2000 }] });
+        return null;
+      }
+      if (method === "variables") {
+        var ref = params.variablesReference;
+        if (ref === 2000) {
+          dapRespond(id, { variables: [{ name: "__name__", value: "'__main__'", type: "str", variablesReference: 0 }, { name: "__file__", value: "'" + dbgBasename(DBG.path) + "'", type: "str", variablesReference: 0 }] });
+        } else if (ref === 1000) {
+          dapRespond(id, { variables: [{ name: "i", value: "3", type: "int", variablesReference: 0 }, { name: "name", value: "'world'", type: "str", variablesReference: 0 }, { name: "data", value: "{...}", type: "dict", variablesReference: 5000 }, { name: "ok", value: "True", type: "bool", variablesReference: 0 }] });
+        } else if (ref === 5000) {
+          dapRespond(id, { variables: [{ name: "a", value: "1", type: "int", variablesReference: 0 }, { name: "b", value: "2", type: "int", variablesReference: 0 }] });
+        } else {
+          dapRespond(id, { variables: [] });
+        }
+        return null;
+      }
+      if (method === "continue") {
+        var nl = dbgNextBpAfter(DBG.currentLine);
+        dapRespond(id, { allThreadsContinued: true });
+        if (nl == null) dbgTerminate();
+        else { DBG.currentLine = nl; dapEvent("continued", { threadId: DBG.threadId }); dbgStopped(); }
+        return null;
+      }
+      if (method === "next") { DBG.currentLine = DBG.currentLine + 1; dapRespond(id, {}); dapEvent("continued", { threadId: DBG.threadId }); dbgStopped(); return null; }
+      if (method === "stepIn") { DBG.currentLine = DBG.currentLine + 1; DBG.frameDepth = Math.min(DBG.frameDepth + 1, 3); dapRespond(id, {}); dapEvent("continued", { threadId: DBG.threadId }); dbgStopped(); return null; }
+      if (method === "stepOut") {
+        DBG.frameDepth = DBG.frameDepth - 1;
+        dapRespond(id, {});
+        if (DBG.frameDepth < 1) dbgTerminate();
+        else { DBG.currentLine = DBG.currentLine + 1; dapEvent("continued", { threadId: DBG.threadId }); dbgStopped(); }
+        return null;
+      }
+      if (method === "pause") { dapRespond(id, {}); return null; }
+      if (method === "evaluate") { dapRespond(id, { result: String(params.expression) + " ⇒ <value>", type: "str", variablesReference: 0 }); return null; }
+      if (method === "setVariable") { dapRespond(id, { name: params.name, value: params.value, variablesReference: 0 }); return null; }
+      dapRespond(id, {}); // 兜底，避免前端 pending 15s 超时
+      return null;
+    }
+    return "__unhandled__";
   }
 
   var LSP_KIND_METHOD = 2;
@@ -445,6 +596,9 @@
       return null;
     }
     if (cmd === "lsp_send_response" || cmd === "lsp_start" || cmd === "lsp_stop") return null;
+    // 4.6) 调试 DAP mock（E2E 专用，无真实 debugpy）：模拟 stdio adapter 架构时序与步进推演
+    var dh = handleDebugCommand(cmd, args);
+    if (dh !== "__unhandled__") return dh;
     // 5) 静态表
     var h = staticHandlers[cmd];
     if (h) return h();
