@@ -39,7 +39,7 @@ import {
   renderCtxMenu, resetTreeState, setFileTreeHandlers, wireFileTree, type CtxItem,
 } from "./fileTree";
 import {
-  cleanupDiffTabState, commitAll, dismissDiffHost, gitInitRepo, gitRemoteOp, gitStash, gitStashPop,
+  cleanupDiffTabState, commitAll, currentDiffEditor, dismissDiffHost, gitInitRepo, gitRemoteOp, gitStash, gitStashPop,
   presentDiffHost, refreshBranchPanel, refreshDiffIfViewing, refreshDiffOnActivate, refreshGitStatus,
   renderGitPanel, resetGitState, setDiffTabHandlers, setGitOpenFileHandler, setGitReloadHandler, stageAllChanges,
   toggleBranchList, toggleHistory, wireGitUI,
@@ -122,6 +122,8 @@ import {
 import { openRunConfig, wireRunConfigPanel } from "./runConfigPanel";
 import { gotoFromLink, setTracebackOpenFile } from "./tracebackLink";
 import { isRunning, scriptRunActive, runningPathsOf, type RunConfig } from "./runState";
+import { installFindShortcut, setFindDiffEditorProvider } from "./editorFind";
+import { installBrowserKeyGuard } from "./browserKeys";
 
 // ---------- 模块级状态（本层私有；TD-14 后运行态归 runState.ts / runFlow.ts） ----------
 
@@ -1894,6 +1896,11 @@ async function init(): Promise<void> {
   $("tab-search").dataset.tipKey = kb.bindingLabel("global_search"); // tooltip 快捷键副文本（跟随自定义键位）
   wireBottomPanel();
   wireFileTree();
+  // Ctrl+F：活动标签内查找（无活动标签则吞键，且永不弹 WebView2 原生查找条）
+  setFindDiffEditorProvider(() => currentDiffEditor()?.getModifiedEditor() ?? null);
+  installFindShortcut();
+  // 其余浏览器加速器护栏（Ctrl+R 重载 / Ctrl+P 打印 / Ctrl+W 关窗口 …）
+  installBrowserKeyGuard();
   // P0：最近打开的文件（Ctrl+E 弹窗）
   initRecentFiles();
   setRecentFilesHandlers({ openFile: (p) => void openFile(p) });

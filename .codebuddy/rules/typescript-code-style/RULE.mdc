@@ -63,6 +63,8 @@ provider:
 - `navHistory.ts` — 导航历史（P1 · Ctrl+Alt+←/→）：位置栈 + 游标模型，跳转定义后原路返回。
 - `localHistory.ts` — 本地历史（P1 · Local History）：无 Git 也能回退；列表 + diff 预览 + 回滚。
 - `editHistory.ts` — 编辑历史采集（低延迟编辑预测数据源）：行对事件落盘 Rust JSONL。
+- `browserKeys.ts` — 浏览器原生快捷键护栏（capture 阶段）：吞掉应用未认领的 WebView2 加速器（Ctrl+R/Ctrl+F5 重载、Ctrl+P 打印、Ctrl+O/U、Ctrl+N/T/W、Ctrl+Shift+Delete、F7、Alt+←→、编辑器外的 Ctrl+D/H/J/K/L、F3/F12 等）；应用已认领的组合只 `preventDefault` 不 `stopPropagation`（补 main.ts 在输入框内整段跳过的泄漏口）。焦点在 Monaco 内只拦「危险级」子集，避免误伤 Monaco 自带键位。判定纯函数 `isBlockedCombo(combo, inMonaco)` 可单测。
+- `editorFind.ts` — Ctrl+F 活动标签内查找：window 级 capture 拦截（**必须 preventDefault，否则 WebView2 会弹原生查找条**）；有活动标签 → 打开该标签的 Monaco `actions.find`（diff 标签走 modified 侧，编辑器实例由 `setFindDiffEditorProvider` 注入防循环），无活动标签 / 有模态 / Quick Open 打开时只吞键。焦点已在 `.monaco-editor` 内时不 stopPropagation，交回 Monaco 自带键位。
 - `ruffLint.ts` — ruff 实时 lint（P2）：诊断第三桶（owner=`opencharm-ruff`），与静态引擎 / 运行时 intel 三桶并存。
 - `todoView.ts` — TODO 工具窗（P0）：扫描 TODO/FIXME 等标记分组列出并跳转（Rust `fs_cmds::scan_todos`）。
 - `envPanel.ts` — Python 环境面板域（TD-14 拆分）：解释器状态栏 / 环境面板 / venv / 包管理 / 装包 / .venv 检测 / 工具链首启引导。
@@ -97,6 +99,7 @@ provider:
 | 键（默认） | 功能 | 可自定义 |
 |---|---|---|
 | `Tab` | 缩写直接展开（无弹窗时）/ snippet 占位符前进 | 否（固定） |
+| `Ctrl+F` | 活动标签内查找（无活动标签 → 吞键；永不弹浏览器原生查找条） | 否（固定，Monaco `actions.find` + `editorFind.ts` 拦截） |
 | `Ctrl+S` | 保存（推送 didSave） | 是（window 级） |
 | `Ctrl+F10` | 运行脚本（当前文件） | 是（window 级） |
 | `Ctrl+Shift+F10` | 运行项目 | 是（window 级） |

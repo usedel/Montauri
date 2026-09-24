@@ -1,0 +1,100 @@
+// 浏览器原生快捷键护栏（补 editorFind.ts 之外的全局兜底）。
+//
+// 背景：Ctrl+F 之外还有一批 WebView2 的「浏览器加速器键」（AreBrowserAcceleratorKeysEnabled
+// 默认开启）。前端无人 preventDefault 时，WebView2 会执行浏览器动作——轻则弹打印/查找条，
+// 重则 Ctrl+R 重载、Ctrl+W 关窗口、Ctrl+Shift+Delete 清浏览数据，对 IDE 外壳全是灾难。
+// 二类泄漏（更隐蔽）：main.ts 的 window 级键位分发在焦点位于 INPUT/TEXTAREA 时整段 return，
+// 于是侧栏搜索框里按 Ctrl+S 会变成「保存网页」、Ctrl+Shift+R 变成「硬刷新」。
+//
+// 策略（capture 阶段，赶在浏览器与各面板之前）：
+//  1. 应用**未认领**的浏览器加速器 → preventDefault + stopPropagation（彻底吞掉）；
+//  2. 应用**已认领**的（键位表 window 级）→ 只 preventDefault、不 stopPropagation：
+//     动作仍由 main.ts 原来的分发执行，但焦点在输入框时也不会漏给浏览器；
+//  3. 焦点在 Monaco 内时只拦「Monaco 与键位表都不认领」的危险组合（Ctrl+R/Ctrl+P/…），
+//     其余交回 Monaco——否则会误伤它的 Ctrl+D / Ctrl+K 和弦 / F3 等自带键位。
+
+import * as kb from "./keybindings";
+
+/** 事件 → 组合签名（与 keybindings.ts 的 eventMatches 同口径：Ctrl 与 Cmd 归一，主键取物理 code） */
+export function comboOf(e: KeyboardEvent): string | null {
+  if (!e.code) return null;
+  const parts: string[] = [];
+  if (e.ctrlKey || e.metaKey) parts.push("Ctrl");
+  if (e.shiftKey) parts.push("Shift");
+  if (e.altKey) parts.push("Alt");
+  parts.push(e.code);
+  return parts.join("+");
+}
+
+/** 危险级：即使焦点在 Monaco 内也要拦（Monaco 不认领，落浏览器即破坏性动作） */
+const DANGER = new Set([
+  "Ctrl+KeyR",   // 重载
+  "Ctrl+F5",     // 硬重载（F5 是调试键，不拦）
+  "Ctrl+KeyP",   // 打印
+  "Ctrl+KeyO",   // 打开文件
+  "Ctrl+KeyU",   // 查看源代码
+  "Ctrl+KeyN",   // 新窗口
+  "Ctrl+KeyT",   // 新标签
+  "Ctrl+KeyW",   // 关窗口/标签
+  "Ctrl+Shift+KeyW",
+  "Ctrl+Shift+KeyQ",
+  "Ctrl+Shift+Delete", // 清除浏览数据
+  "F7",               // 插入符浏览（页面变光标模式）
+  "Alt+ArrowLeft",    // 浏览器后退
+  "Alt+ArrowRight",   // 浏览器前进
+]);
+
+/** 焦点不在 Monaco 时追加拦截（编辑器内这些键由 Monaco 认领：Ctrl+D 复制行 / F3 查找下一个…） */
+const OUTSIDE_MONACO = new Set([
+  ...DANGER,
+  "F3",
+  "Shift+F3",
+  "Ctrl+Shift+KeyG",
+  "Ctrl+KeyD", // 浏览器加书签（编辑器内 = 复制行）
+  "Ctrl+KeyH", // 浏览器历史（编辑器内 = 替换）
+  "Ctrl+KeyJ", // 浏览器下载（编辑器内 = Live Templates 面板）
+  "Ctrl+KeyK", // 浏览器地址栏搜索（编辑器内 = Monaco 和弦前缀）
+  "Ctrl+KeyL", // 浏览器地址栏
+  "Ctrl+Shift+KeyB", // 书签栏
+  "Ctrl+Shift+KeyO", // 书签管理器
+  "Ctrl+Shift+KeyD", // 全部加书签
+  "Ctrl+Shift+KeyM", // 切换配置文件
+  "Ctrl+Shift+KeyS", // Edge 网页捕获
+  "F12",             // DevTools（编辑器内 = 跳转定义）
+]);
+
+/** 生产版追加：DevTools 快捷键（dev 版保留以便调试；生产版 wry 已禁用 devtools，拦了也是空操作）
+ *  Ctrl+Shift+C 不拦——预留给终端复制。 */
+const PROD_ONLY = new Set(["Ctrl+Shift+KeyI", "Ctrl+Shift+KeyJ"]);
+
+/** 该组合是否应被护栏吞掉（纯函数，便于单测；inMonaco = 焦点在 Monaco 内） */
+export function isBlockedCombo(combo: string, inMonaco: boolean): boolean {
+  if (inMonaco) return DANGER.has(combo);
+  if (OUTSIDE_MONACO.has(combo)) return true;
+  return import.meta.env.PROD && PROD_ONLY.has(combo);
+}
+
+/** 焦点是否在 Monaco 编辑器内（主编辑器 / diff / 本地历史 / 查找条都算） */
+function focusInMonaco(): boolean {
+  const ae = document.activeElement as HTMLElement | null;
+  return !!ae?.closest?.(".monaco-editor");
+}
+
+/** 安装 window 级捕获监听（幂等由调用方保证：main.ts 接线区只调一次） */
+export function installBrowserKeyGuard(): void {
+  window.addEventListener(
+    "keydown",
+    (e) => {
+      const combo = comboOf(e);
+      if (!combo) return;
+      if (isBlockedCombo(combo, focusInMonaco())) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+      // 应用认领的组合：main.ts 在输入框内会整段跳过，这里补一道阻断（动作照旧由原分发决定）
+      if (kb.matchWindowBinding(e)) e.preventDefault();
+    },
+    true,
+  );
+}

@@ -637,6 +637,11 @@ export async function commitAll(): Promise<void> {
   await commitChanges();
 }
 
+/** 当前 diff 编辑器实例（未创建时 null，不触发创建）——供 Ctrl+F 等外部复用（editorFind.ts） */
+export function currentDiffEditor(): MonacoApi.editor.IStandaloneDiffEditor | null {
+  return diffEditor;
+}
+
 /** 懒创建 diff 编辑器（首次查看差异时） */
 export function ensureDiffEditor(): MonacoApi.editor.IStandaloneDiffEditor {
   // UI-11：光标闪烁随「减少动画」。实例懒创建后长期复用，故每次取用都重设一次——
