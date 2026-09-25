@@ -11,7 +11,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { app } from "./state";
-import { relativePathRaw, samePath } from "./util";
+import { relativePathRaw, joinPath, samePath } from "./util";
 
 export interface SessionTab {
   /** 工作区相对路径 */
@@ -55,12 +55,14 @@ function toRel(abs: string): string | null {
   return relativePathRaw(root, abs);
 }
 
-/** 工作区相对路径 → 绝对路径 */
+/** 工作区相对路径 → 绝对路径。
+ *  用 joinPath 按 root 的分隔符风格拼接（Windows 下与 Rust 文件树返回的反斜杠路径
+ *  字符串一致）。此前用 "/" 硬拼产生 D:\proj/src/a.py 混合分隔符路径，与文件树点击
+ *  传入的路径字符串不等，openFile 查重落空 → 同一文件开出第二个标签。 */
 function toAbs(rel: string): string | null {
   const root = app.workspaceRoot;
   if (!root) return null;
-  const trimmed = root.replace(/[\\/]+$/, "");
-  return `${trimmed}/${rel}`;
+  return joinPath(root, rel);
 }
 
 /** 当前现场 → 快照；无工作区返回 null */

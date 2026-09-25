@@ -57,7 +57,7 @@ import { loadSettings, saveSettings, applyFontStatus, openSettingsPanel, setSett
 import { checkFirstRunStorage } from "./storagePanel";
 import { cancelPendingSessionSave, restoreSession, scheduleSessionSave, saveSessionNow, setSessionHandlers } from "./session"; // A-5 会话恢复
 import { wireResourcePanel } from "./resourcePanel"; // A-1 资源可观测
-import { basename, codicon, DisposableStore, emptyState, languageOf, parentDirOf, relativePathOrName, renderFileIcon, samePath, symbolIcon } from "./util";
+import { basename, codicon, DisposableStore, emptyState, languageOf, normalizePath, parentDirOf, relativePathOrName, renderFileIcon, samePath, symbolIcon } from "./util";
 import { toast, toastFail } from "./toast";
 import { restoreLayout, toggleSidebar, wireSplitters } from "./layout";
 import { motionDisabled, restoreReduceMotion } from "./anim";
@@ -701,20 +701,21 @@ export interface OpenFileOptions {
 export async function openFile(path: string, revealLine?: number, opts?: OpenFileOptions): Promise<void> {
   // CR-08：in-flight 去重——双击/多入口并发打开同一文件时，两次调用都查不到 tab、
   // 都进 read_file → createModel 对重复 URI 返回既有 model → 两 Tab 持同一 model，
-  // closeTabSilent dispose 掉另一个仍在用的 model。以 path 为键串行化，
+  // closeTabSilent dispose 掉另一个仍在用的 model。以归一化路径（斜杠/大小写无关）为键串行化，
   // 后续调用 await 同一个 Promise（含 gotoFromLink / openSearchMatch / 历史重跑双击路径）。
-  const inflight = openFileInflight.get(path);
+  const key = normalizePath(path);
+  const inflight = openFileInflight.get(key);
   if (inflight) {
     await inflight;
     await revealAfterOpen(path, revealLine);
     return;
   }
   const p = doOpenFile(path, revealLine, opts);
-  openFileInflight.set(path, p);
+  openFileInflight.set(key, p);
   try {
     await p;
   } finally {
-    openFileInflight.delete(path);
+    openFileInflight.delete(key);
   }
 }
 
@@ -722,7 +723,10 @@ export async function openFile(path: string, revealLine?: number, opts?: OpenFil
 async function doOpenFile(path: string, revealLine?: number, opts?: OpenFileOptions): Promise<void> {
   // P1：导航历史——先记「离开前的位置」，末尾记「到达的位置」，后退才能回到出发点
   pushCurrent();
-  let tab = app.tabs.find((t) => t.path === path);
+  // 路径等价比较用 samePath（斜杠/大小写无关）：会话恢复的 tab 路径与文件树/Rust
+  // 返回的路径分隔符方向可能不同（如 D:\proj/src/a.py vs D:\proj\src\a.py），
+  // 严格 === 会导致同一文件开出第二个标签。
+  let tab = app.tabs.find((t) => samePath(t.path, path));
   if (!tab) {
     let content: string;
     try {
@@ -765,7 +769,7 @@ async function doOpenFile(path: string, revealLine?: number, opts?: OpenFileOpti
 /** CR-08：打开完成后按需跳行（去重等待路径也要走，故独立成函数） */
 function revealAfterOpen(path: string, revealLine?: number): void {
   if (revealLine === undefined) return;
-  const tab = app.tabs.find((t) => t.path === path);
+  const tab = app.tabs.find((t) => samePath(t.path, path));
   if (tab && app.activeTab === tab) {
     app.editor.revealLineInCenter(revealLine);
     app.editor.setPosition({ lineNumber: revealLine, column: 1 });
