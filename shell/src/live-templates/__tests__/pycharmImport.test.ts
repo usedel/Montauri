@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from "vitest";
-import { parsePycharmXml, translatePycharmExpression } from "../pycharmImport";
+import { parsePycharmXml, translatePycharmContext, translatePycharmExpression } from "../pycharmImport";
 
 describe("translatePycharmExpression", () => {
   it("同名函数原样保留", () => {
@@ -73,5 +73,90 @@ describe("parsePycharmXml", () => {
   it("非 XML / 无模板 → null 或空集", () => {
     expect(parsePycharmXml("not xml at all <<<")?.templates ?? []).toEqual([]);
     expect(parsePycharmXml("<templateSet></templateSet>")!.templates).toEqual([]);
+  });
+});
+
+describe("translatePycharmContext（相位 B：<context> → 容器 + 位置）", () => {
+  const o = (name: string, value: boolean): { name: string; value: boolean } => ({ name, value });
+
+  it("TOP_LEVEL_STATEMENT → module 容器 + 语句位", () => {
+    expect(translatePycharmContext([o("PYTHON_TOP_LEVEL_STATEMENT", true)])).toEqual({
+      scopes: ["python:module"],
+      positions: ["statement"],
+      unknown: [],
+    });
+  });
+
+  it("TOP_LEVEL + EXPRESSION → 两位置都保留", () => {
+    expect(
+      translatePycharmContext([o("PYTHON_TOP_LEVEL_STATEMENT", true), o("PYTHON_EXPRESSION", true)]),
+    ).toEqual({ scopes: ["python:module"], positions: ["statement", "expression"], unknown: [] });
+  });
+
+  it("STATEMENT / EXPRESSION 单独或组合", () => {
+    expect(translatePycharmContext([o("PYTHON_STATEMENT", true)])).toEqual({
+      positions: ["statement"],
+      unknown: [],
+    });
+    expect(translatePycharmContext([o("PYTHON_EXPRESSION", true)])).toEqual({
+      positions: ["expression"],
+      unknown: [],
+    });
+    expect(translatePycharmContext([o("PYTHON_STATEMENT", true), o("PYTHON_EXPRESSION", true)])).toEqual({
+      positions: ["statement", "expression"],
+      unknown: [],
+    });
+  });
+
+  it("false 选项不计入；全 false → 回落缺省（positions undefined）", () => {
+    expect(translatePycharmContext([o("PYTHON_STATEMENT", false)])).toEqual({ positions: undefined, unknown: [] });
+    expect(
+      translatePycharmContext([o("PYTHON_STATEMENT", false), o("PYTHON_EXPRESSION", false)]),
+    ).toEqual({ positions: undefined, unknown: [] });
+  });
+
+  it("未知选项（true）记录 unknown；未知（false）忽略", () => {
+    expect(translatePycharmContext([o("PYTHON_STATEMENT", true), o("PYTHON_COMMENT", true)])).toEqual({
+      positions: ["statement"],
+      unknown: ["PYTHON_COMMENT"],
+    });
+    expect(translatePycharmContext([o("PYTHON_COMMENT", false)])).toEqual({ positions: undefined, unknown: [] });
+  });
+});
+
+describe("parsePycharmXml <context> 导入（相位 B）", () => {
+  it("TOP_LEVEL_STATEMENT 保真为 module + statement", () => {
+    const xml = `<templateSet group="Python">
+      <template name="main2" value="main" description="">
+        <context>
+          <option name="PYTHON_TOP_LEVEL_STATEMENT" value="true" />
+          <option name="PYTHON_EXPRESSION" value="false" />
+        </context>
+      </template>
+    </templateSet>`;
+    const result = parsePycharmXml(xml)!;
+    expect(result.templates[0].scopes).toEqual(["python:module"]);
+    expect(result.templates[0].positions).toEqual(["statement"]);
+  });
+
+  it("无 <context> → 缺省三容器 + 不写 positions", () => {
+    const xml = `<templateSet><template name="plain" value="x" description="" /></templateSet>`;
+    const result = parsePycharmXml(xml)!;
+    expect(result.templates[0].scopes).toEqual(["python:module", "python:class", "python:function"]);
+    expect(result.templates[0].positions).toBeUndefined();
+  });
+
+  it("未知 context 选项进 downgraded（不整体失败）", () => {
+    const xml = `<templateSet>
+      <template name="weird" value="x" description="">
+        <context>
+          <option name="PYTHON_STATEMENT" value="true" />
+          <option name="OTHER_CONTEXT" value="true" />
+        </context>
+      </template>
+    </templateSet>`;
+    const result = parsePycharmXml(xml)!;
+    expect(result.templates[0].positions).toEqual(["statement"]);
+    expect(result.downgraded).toContainEqual({ abbreviation: "weird", variable: "<context>", expression: "OTHER_CONTEXT" });
   });
 });

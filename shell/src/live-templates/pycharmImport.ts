@@ -1,9 +1,12 @@
 // PyCharm XML 导入（M4，方案 §5.4）：解析导出的 <templateSet>/<template> XML。
 // 模板体同为 $VAR$/$END$ 语法直接沿用；表达式按函数映射表尽力翻译，
 // 不支持的函数整条降级为 defaultValue 并记录待人工确认。
+// 上下文位置轴（修订稿 §6.1，相位 B）：<context> 不再整段丢弃，按
+// PYTHON_TOP_LEVEL_STATEMENT / PYTHON_STATEMENT / PYTHON_EXPRESSION 三选项
+// 翻译为「容器 + 位置」；未识别选项记入 downgraded 计数提示（不整体失败）。
 
 import { parseExpression, type Expr } from "./engine";
-import type { TemplateDef, TemplateVariableDef } from "./schema";
+import type { PositionKind, TemplateDef, TemplateVariableDef } from "./schema";
 
 export interface PycharmDowngrade {
   abbreviation: string;
@@ -79,6 +82,42 @@ export function translatePycharmExpression(src: string): string | null {
   }
 }
 
+// ---------- <context> → 容器 + 位置（修订稿 §6.1） ----------
+
+const CTX_TOP = "PYTHON_TOP_LEVEL_STATEMENT";
+const CTX_STATEMENT = "PYTHON_STATEMENT";
+const CTX_EXPRESSION = "PYTHON_EXPRESSION";
+const KNOWN_CONTEXTS = new Set([CTX_TOP, CTX_STATEMENT, CTX_EXPRESSION]);
+
+export interface ContextTranslation {
+  /** 未给出 = 三容器缺省（module/class/function） */
+  scopes?: string[];
+  /** 未给出 = 缺省适用位置（statement + expression，即不写 positions 字段） */
+  positions?: PositionKind[];
+  /** value="true" 但未识别的选项名（记录降级提示） */
+  unknown: string[];
+}
+
+/** 纯函数（vitest 直测）：PyCharm <context> 选项 → 适用环境翻译。
+ *  语义：选项缺失 = 未适用（false）；显式 true 才计入。TOP_LEVEL 优先于 STATEMENT
+ *  （前者同时编码「module 容器 + 语句位」，需先判）。 */
+export function translatePycharmContext(options: { name: string; value: boolean }[]): ContextTranslation {
+  const unknown = options.filter((o) => o.value && !KNOWN_CONTEXTS.has(o.name)).map((o) => o.name);
+  const has = (n: string): boolean => options.some((o) => o.name === n && o.value);
+  const top = has(CTX_TOP);
+  const stmt = has(CTX_STATEMENT);
+  const expr = has(CTX_EXPRESSION);
+  if (top) {
+    // 顶层语句 = module 容器 + 语句位；若同时勾了表达式，两位置都保留
+    return { scopes: ["python:module"], positions: expr ? ["statement", "expression"] : ["statement"], unknown };
+  }
+  const positions: PositionKind[] = [];
+  if (stmt) positions.push("statement");
+  if (expr) positions.push("expression");
+  // 两位置都未适用（全 false / 仅未知项）→ 回落缺省（degenerate 导出，宁多勿漏）
+  return { positions: positions.length > 0 ? positions : undefined, unknown };
+}
+
 /** PyCharm defaultValue 为带引号的字符串字面量（如 "&quot;text&quot;"）→ 去引号 */
 function unquoteDefault(v: string): string {
   if (v.length >= 2 && v.startsWith('"') && v.endsWith('"')) return v.slice(1, -1);
@@ -131,12 +170,27 @@ export function parsePycharmXml(xml: string): PycharmImportResult | null {
       variables.push({ name, expression, defaultValue: defaultValue || undefined, skipIfDefined });
     }
 
+    // 相位 B：<context> → 适用环境（无 <context> = 缺省：三容器 + statement/expression）
+    const ctxNode = node.getElementsByTagName("context")[0] ?? null;
+    let ctx: ContextTranslation | null = null;
+    if (ctxNode) {
+      const opts = Array.from(ctxNode.getElementsByTagName("option")).map((o) => ({
+        name: o.getAttribute("name") ?? "",
+        value: o.getAttribute("value") === "true",
+      }));
+      ctx = translatePycharmContext(opts);
+      for (const u of ctx.unknown) {
+        result.downgraded.push({ abbreviation: abbr, variable: "<context>", expression: u });
+      }
+    }
+
     result.templates.push({
       id: `pycharm.${abbr}`,
       abbreviation: abbr,
       description: node.getAttribute("description") || abbr,
       body,
-      scopes: [...PY_SCOPES],
+      scopes: ctx?.scopes ?? [...PY_SCOPES],
+      positions: ctx?.positions,
       kind: "normal",
       enabled: true,
       tabExpand: true,

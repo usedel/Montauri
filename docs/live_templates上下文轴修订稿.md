@@ -1,6 +1,6 @@
 # OpenCharm Live Templates 上下文位置轴修订稿
 
-> 版本：v1.1 · 日期：2026-08-25 · 状态：已实现（相位 A 落地，实现注记见 §8；相位 B/C 待排期）
+> 版本：v1.1 · 日期：2026-08-25 · 状态：已实现（相位 A/B 落地，实现注记见 §8/§9；相位 C 为可选项，待 LSP AST 成熟再评估）
 > 上游文档：live templates 重构方案 v1.0（M1-M4 已交付，文档已归档）
 > 本文档修订：重构方案 v1.0 的 §5.1（Schema）、§6（作用域/上下文系统）、§9.2（补全路径）、§9.1（Tab 展开）、§10（管理 UI）、§5.4（PyCharm 导入）
 > 冲突裁决：本文档版本号高于 v1.0，冲突处以本文档为准（符合「新旧版本文档冲突时以版本号更高者为准」约定）。
@@ -166,3 +166,13 @@ classify(model, position, symbols) -> SyntaxContext
 4. **缩写分工**：`builtin.ifmain` 为 `__main__` 守卫，`builtin.main` 为「`def main()` 函数定义」模板，均 `scopes:["python:module"] + positions:["statement"]`。
 5. **结构模板标注**：`def`/`class`/`dataclass`/`if`/`ife`/`for`/`while`/`try`/`with`/`header`/`adef`/`afor`/`awith`/`init`/`prop`/`iter`/`repr`/`docf` 均 `positions:["statement"]`；`super`/`print`/`lambda` 走缺省。
 6. **测试**：新增 `scope.test.ts`（`classifyPosition` 6 项）；`registry.test.ts` 增「位置轴过滤」用例；`builtin.test.ts` 改为断言 `main`/`ifmain`/`header` 三者为 module + statement。
+
+## 9. 实现注记（2026-09-25，相位 B 落地）
+
+相位 B（§6 对标闭环）已实现并全绿（验收标准 5 达成）：
+
+1. **XML 导入映射**（`pycharmImport.ts`）：新增纯函数 `translatePycharmContext(options)`，按 §6.1 表翻译三选项（TOP_LEVEL → `module + statement`，且同时勾选 EXPRESSION 时两位置保留；STATEMENT/EXPRESSION 各自映射）；选项缺失语义 = 未适用（false），显式 true 才计入；两位置都未适用（degenerate 导出）回落缺省不写字段；未识别且 value="true" 的选项记入 `downgraded`（`variable: "<context>"`），与表达式降级同套展示，不整体失败。`parsePycharmXml` 写入 `scopes`/`positions`（无 `<context>` = 缺省三容器 + 不写 positions）。
+2. **管理面板适用环境**（`ui/manager.ts`）：「作用域」行旁新增「适用位置」行（语句/表达式/名字位多选，复用 `.lt-scope-opt` 交互范式、`data-position` 区分勾选域）；勾选基准 = 本层定义 > 生效定义 > 缺省；保存时与 `DEFAULT_POSITIONS` 一致则不写字段（配置精简）；空选校验报错。`makeTombstone` 随原定义保留 `positions`（墓碑覆盖语义一致）。列表行悬停 title 在位置轴非缺省时追加 `positions:` 披露。
+3. **registry**：`EffectiveEntry` 补 `positions`（`positionsOf(最窄生效定义)`），供面板展示；查询面/键粒度不变（相位 A 偏差 3 继续有效）。
+4. **测试**：`pycharmImport.test.ts` +8 项（context 翻译 5 项：TOP_LEVEL / TOP_LEVEL+EXPRESSION / 单独与组合 / 全 false 回落 / 未知选项；XML 导入 3 项：保真、无 context 缺省、未知降级不失败）。
+5. **已知边界**：管理面板此前即无 e2e（registry 单测 + 手工验收覆盖策略），相位 B 沿用；「名字位」勾选属高级用法（PyCharm ContextType 无此粒度），默认不勾。
