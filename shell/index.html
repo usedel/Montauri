@@ -359,6 +359,8 @@
         <span id="dep-health-status" class="hidden" style="cursor:pointer" role="button" tabindex="0" data-tip="依赖体检"></span>
         <!-- §6.2 uv 建议的持续存在感：解释器芯片 tooltip 常驻「uv 管理依赖」事实 -->
         <span id="status-interpreter" data-tip="点击管理 Python 环境 · OpenCharm 以 uv 管理依赖" style="cursor:pointer" role="button" aria-haspopup="dialog" aria-expanded="false" tabindex="0"></span>
+        <!-- A-1（PyCharm 调研）：资源可观测芯片——「轻」要可感知；点击打开资源面板（默认隐藏，首次采样成功后显示） -->
+        <span id="status-mem" class="hidden" data-tip="资源占用（外壳 + 子进程）· 点击查看明细" style="cursor:pointer" role="button" aria-haspopup="dialog" aria-expanded="false" tabindex="0"></span>
         <span id="status-engine" data-tip="点击切换静态语义引擎" style="cursor:pointer" role="button" aria-haspopup="menu" aria-expanded="false" tabindex="0"></span>
         <span id="status-lsp"></span>
       </footer>
@@ -630,6 +632,31 @@
       </div>
     </div>
     <!-- 设置面板（模态，P25-T09；P1 左右分栏 + Live Templates 内嵌） -->
+    <!-- A-1（PyCharm 调研）：资源面板（M1 只观测：明细 + 重启 LSP，不做 kill） -->
+    <div id="resource-modal" class="modal hidden">
+      <div class="modal-card resource-card" role="dialog" aria-modal="true" aria-labelledby="resource-title">
+        <div class="env-header">
+          <span id="resource-title" class="env-title">资源占用</span>
+          <span class="spacer"></span>
+          <button id="resource-close" class="btn btn--ghost btn--icon" aria-label="关闭资源面板"><i class="codicon codicon-close" aria-hidden="true"></i></button>
+        </div>
+        <div id="resource-summary" class="resource-summary"></div>
+        <div class="resource-table-wrap">
+          <table class="resource-table">
+            <thead>
+              <tr><th scope="col">进程</th><th scope="col">PID</th><th scope="col">内存</th><th scope="col">CPU</th></tr>
+            </thead>
+            <tbody id="resource-rows"></tbody>
+          </table>
+        </div>
+        <div class="settings-hint">CPU 为两次采样间隔内的滑动均值，首次显示为「—」；采样仅在本面板打开时进行。</div>
+        <div class="modal-actions">
+          <button id="resource-restart-lsp" class="btn">重启 LSP 引擎</button>
+          <span class="spacer"></span>
+          <button id="resource-refresh" class="btn btn--primary">刷新</button>
+        </div>
+      </div>
+    </div>
     <!-- v3.4 §17-10/§20：并行运行（Compound）模态已删——同一项目入口的并行实例走 §6.4「新建实例（并行）」（M3-3.7） -->
     <div id="settings-modal" class="modal hidden">
       <div class="modal-card settings-card" role="dialog" aria-modal="true" aria-labelledby="settings-title">
@@ -715,6 +742,15 @@
                 <label for="settings-minimap">迷你地图</label>
                 <input id="settings-minimap" type="checkbox" />
               </div>
+              <!-- C-6（PyCharm 调研）：可读性配置，默认开（「默认就对」——PyCharm 出厂即有缩进线） -->
+              <div class="settings-row">
+                <label for="settings-indent-guides">缩进参考线</label>
+                <input id="settings-indent-guides" type="checkbox" />
+              </div>
+              <div class="settings-row">
+                <label for="settings-bracket-colors">括号彩色化</label>
+                <input id="settings-bracket-colors" type="checkbox" />
+              </div>
             </div>
             <div id="settings-section-keybindings" class="settings-section hidden" role="tabpanel">
               <div id="settings-keybinding-rows"></div>
@@ -774,6 +810,12 @@
                 </select>
                 <input id="settings-pypi-index" type="text" autocomplete="off" placeholder="https://pypi.org/simple" aria-label="自定义包源地址" spellcheck="false" />
               </div>
+              <!-- B-3（PyCharm 调研）：只步进我的代码；改动需重启调试会话生效 -->
+              <div class="settings-row">
+                <label for="settings-debug-jmc">调试只步进我的代码（跳过库代码）</label>
+                <input id="settings-debug-jmc" type="checkbox" />
+              </div>
+              <div class="settings-hint">开启后单步进入不会误入 site-packages / 标准库；改动需停止并重新启动调试会话生效。</div>
             </div>
             <div id="settings-section-templates" class="settings-section settings-section-templates hidden" role="tabpanel">
               <div class="lt-toolbar">

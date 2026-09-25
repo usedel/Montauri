@@ -172,7 +172,9 @@ test("D-EXP-7：调试启动失败有明确错误反馈且不卡死", async ({ p
   await page.evaluate(() => (window as any).__OC_DEBUG__.setFailNext(true));
   await page.locator("#btn-debug").click();
   await expect(page.locator(".toast").first()).toBeVisible({ timeout: 10_000 });
-  await expect(page.locator(".toast")).toContainText("调试启动");
+  // 按文案过滤：环境检查 info toast 可能与错误 toast 并存（openWorkspace 的 init 失败
+  // 修复后，dep/环境检查能正常完成并弹提示），strict mode 下裸 .toast 会歧义
+  await expect(page.locator(".toast", { hasText: "调试启动" })).toContainText("调试启动");
   // 未进入调试态：控件仍禁用、仍处空闲可重试
   await expect(page.locator("#debug-step-over")).toHaveAttribute("aria-disabled", "true");
   // 编辑器仍可用（点击 gutter 仍能下断点，证明界面未冻结）

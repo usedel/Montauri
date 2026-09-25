@@ -51,7 +51,9 @@ import { setTerminalLinkHandler, setTerminalUrlHandler } from "./terminal";
 import { setExternalUrlOpener } from "./termUi";
 import { loadSettings, saveSettings, applyFontStatus, openSettingsPanel, setSettingsPanelHandlers, wireSettingsPanel, buildEditorOptions } from "./settingsPanel";
 import { checkFirstRunStorage } from "./storagePanel";
-import { basename, codicon, DisposableStore, emptyState, languageOf, parentDirOf, relativePathOrName, renderFileIcon, symbolIcon } from "./util";
+import { cancelPendingSessionSave, restoreSession, scheduleSessionSave, saveSessionNow, setSessionHandlers } from "./session"; // A-5 会话恢复
+import { wireResourcePanel } from "./resourcePanel"; // A-1 资源可观测
+import { basename, codicon, DisposableStore, emptyState, languageOf, parentDirOf, relativePathOrName, renderFileIcon, samePath, symbolIcon } from "./util";
 import { toast, toastFail } from "./toast";
 import { restoreLayout, toggleSidebar, wireSplitters } from "./layout";
 import { motionDisabled, restoreReduceMotion } from "./anim";
@@ -63,8 +65,8 @@ import { clearGitGutter, refreshGitGutter, scheduleGitGutter, wireGitGutter } fr
 import { wireGutterHover } from "./gutterHover";
 import * as dap from "./dap/client";
 import {
-  breakpointKind, clearCurrentLine, getBreakpointSpec, loadBreakpoints, pushAllBreakpoints,
-  refreshDebugGutter, removeBreakpoint, resetBreakpoints, setBreakpointMenuHandler, toggleBreakpoint,
+  breakpointKind, clearCurrentLine, getBreakpointSpec, isBreakpointEnabled, loadBreakpoints, pushAllBreakpoints,
+  refreshDebugGutter, removeBreakpoint, resetBreakpoints, setBreakpointEnabled, setBreakpointMenuHandler, toggleBreakpoint,
   updateBreakpoint, wireDebugGutter,
 } from "./debugGutter";
 import { showMenu, type MenuItem } from "./menu";
@@ -192,7 +194,9 @@ function resetWorkspaceUiState(): void {
 /** 清理当前工作区（关闭标签 + 停 LSP + 销毁终端）；有未保存修改时先确认，取消则返回 false */
 async function teardownCurrent(): Promise<boolean> {
   if (app.workspaceRoot) {
-    if (app.tabs.some((t) => t.dirty) && !(await openConfirm({ message: "存在未保存的修改，继续将丢失，确认关闭工作区？", kind: "danger" }))) {
+    // A-5：草稿会随会话快照保留（重开工作区自动恢复），故文案不再是「将丢失」——
+    // 保留确认（用户仍应知道有未落盘的改动），但不再暗示数据会没。
+    if (app.tabs.some((t) => t.dirty) && !(await openConfirm({ message: "存在未保存的修改（将以草稿形式保留，重开工作区自动恢复），确认关闭工作区？", kind: "danger" }))) {
       return false;
     }
     // v3.4 §15（M3-3.10）：切换/关闭工作区前停掉**全部**运行实例（脚本 + 所有项目实例）。
@@ -210,6 +214,8 @@ async function teardownCurrent(): Promise<boolean> {
     // CR-30：teardown 计时改 console.debug（绕过日志系统的 console.log 清理；release 默认不显示）
     let t0 = performance.now();
     console.debug("[teardown] closeTabs begin, tabs=", app.tabs.length);
+    // A-5：关标签之前先落一次会话快照（tab / 光标 / 未保存草稿），下次打开原地恢复
+    await saveSessionNow();
     for (const t of [...app.tabs]) closeTabSilent(t);
     console.debug("[teardown] closeTabs done, took=", (performance.now() - t0).toFixed(0), "ms");
 
@@ -230,6 +236,7 @@ async function openWorkspace(root: string): Promise<void> {
   // 切换工作区：先清理旧工作区状态
   if (app.workspaceRoot && app.workspaceRoot !== root) {
     if (!(await teardownCurrent())) return;
+    cancelPendingSessionSave(); // A-5：teardown 已同步存过旧工作区快照，挂起的防抖不得用新 root 覆盖
     await stopFileWatcher();
     resetWorkspaceUiState();
   }
@@ -255,6 +262,7 @@ async function openWorkspace(root: string): Promise<void> {
   void runOpenWorkspaceCheck(root);
   await maybePromptVenv();
   await startFileWatcher(); // 启动文件监听
+  await restoreSession(); // A-5：恢复上次现场（标签 / 光标 / 未保存草稿）
   // P0-E：FastAPI 项目探测（仅提示，不打扰；v3.4 M3：配置缓存随粘性目标删除已无清空项）
   void maybeSuggestFastApi();
   updateEditorOverlay();
@@ -694,6 +702,7 @@ async function doOpenFile(path: string, revealLine?: number): Promise<void> {
       }
       // 标记待同步（200ms 防抖后发全量，见 init 中的 changeTimer）
       if (t) app.pendingChanges.add(t.path);
+      scheduleSessionSave(); // A-5：编辑后刷新会话快照（草稿随内容一起留存）
     });
     tab = { path, model, dirty: false };
     app.tabs.push(tab);
@@ -720,6 +729,7 @@ function revealAfterOpen(path: string, revealLine?: number): void {
 
 function activateTab(tab: Tab): void {
   app.activeTab = tab;
+  scheduleSessionSave(); // A-5：切标签后刷新会话快照（恢复期间由 session.ts 的 restoring 标志屏蔽）
   if (tab.kind === "diff") {
     // 第 2 步迁移：diff tab——主编辑器隐藏（宿主由 git.presentDiffHost 显示），
     // 模型不动（占位）、状态栏显示 diff: 前缀路径、编辑器专属装饰全部跳过
@@ -1313,6 +1323,17 @@ async function showBreakpointMenu(path: string, line: number, x: number, y: numb
         disabledReason: "当前已是普通断点",
         action: () => apply(null),
       },
+      {
+        // B-6：启用/禁用（禁用 = 保留断点与全部属性，但不下发 debugger；gutter 灰点）
+        label: has && isBreakpointEnabled(spec) ? "禁用断点" : "启用断点",
+        icon: "eye-closed",
+        disabled: !has,
+        disabledReason: "该行没有断点",
+        action: () => {
+          setBreakpointEnabled(path, line, !isBreakpointEnabled(spec));
+          refreshDebugGutter();
+        },
+      },
       { sep: true },
       has
         ? {
@@ -1607,6 +1628,15 @@ async function init(): Promise<void> {
   setRunFlowHandlers({ openFile, activateTab, renderTabs, saveActive, saveTab });
   setFileTreeHandlers({ openFile, renderTabs, closeTabSilent, insertHeaderTemplate, runScript: (p) => void runScript(p) });
   setSettingsPanelHandlers({ startLsp });
+  // A-5：会话恢复（session.ts 不反向 import main，能力经注入）
+  setSessionHandlers({
+    openFile,
+    activateTabByPath: (p) => {
+      const t = app.tabs.find((x) => samePath(x.path, p));
+      if (t) activateTab(t);
+    },
+    renderTabs,
+  });
   // UI-25：欢迎页快捷键网格改由键位系统渲染，必须在首个 await（Monaco 动态包，首屏最慢的一步）
   // 之前同步画一次，否则覆盖层会露出空的「快捷键」区。此刻 app.settings 仍是 DEFAULT_SETTINGS，
   // 画的是出厂键位；loadSettings 完成后由 updateEditorOverlay 刷成真实值（多数用户二者相同）。
@@ -1630,6 +1660,8 @@ async function init(): Promise<void> {
     wordBasedSuggestions: "off", // 踩坑 #3
     quickSuggestions: { other: true, comments: false, strings: false },
   });
+  // A-5：光标移动同样刷新会话快照（防抖），恢复时才落回原处
+  app.editor.onDidChangeCursorPosition(() => scheduleSessionSave());
   applyFontStatus();
   
 
@@ -2026,6 +2058,8 @@ async function init(): Promise<void> {
   setEngineChipHandlers({ startLsp, saveSettings });
   wireEngineChip();
   renderEngineChip();
+  // A-1：资源可观测（状态栏 MEM 芯片 + 面板；明细采样仅面板打开时进行）
+  wireResourcePanel({ restartLsp: startLsp });
 
   // 运行组（v3.4 §8 / M3-3.4）：四控件 [▶ 运行脚本] [▶ 运行项目] [⏹ 停止] [⚙ 运行配置…]。
   // main 拥有运行动作，runWidget 只负责渲染与派发

@@ -53,6 +53,11 @@ const settingsTabSizeEl = $("settings-tab-size") as HTMLInputElement;
 const settingsInsertSpacesEl = $("settings-insert-spaces") as HTMLInputElement;
 const settingsWordWrapEl = $("settings-word-wrap") as HTMLSelectElement;
 const settingsMinimapEl = $("settings-minimap") as HTMLInputElement;
+// C-6（PyCharm 调研）：可读性配置
+const settingsIndentGuidesEl = $("settings-indent-guides") as HTMLInputElement;
+const settingsBracketColorsEl = $("settings-bracket-colors") as HTMLInputElement;
+// B-3（PyCharm 调研）：调试只步进我的代码
+const settingsDebugJmcEl = $("settings-debug-jmc") as HTMLInputElement;
 const settingsAutosaveEl = $("settings-autosave") as HTMLSelectElement;
 const settingsProbeEl = $("settings-probe") as HTMLInputElement;
 const settingsIntelEl = $("settings-intel") as HTMLInputElement;
@@ -163,6 +168,13 @@ export function buildEditorOptions(settings: Settings): MonacoApi.editor.IEditor
     fontLigatures: settings.font_ligatures,
     wordWrap: settings.word_wrap === "on" ? "on" : "off",
     minimap: { enabled: settings.minimap },
+    // C-6（PyCharm 调研）：可读性——缩进参考线（含当前层级高亮）+ 括号彩色化。
+    // 旧配置无这两个字段时 serde(default) 落在 false，故用 `!== false` 兜底为开。
+    guides: {
+      indentation: settings.indent_guides !== false,
+      highlightActiveIndentation: settings.indent_guides !== false,
+    },
+    bracketPairColorization: { enabled: settings.bracket_colors !== false },
   };
   const family = settings.font_family.trim();
   if (family) opts.fontFamily = family;
@@ -350,6 +362,9 @@ function fillForm(settings: Settings): void {
   settingsInsertSpacesEl.checked = settings.insert_spaces;
   settingsWordWrapEl.value = settings.word_wrap;
   settingsMinimapEl.checked = settings.minimap;
+  settingsIndentGuidesEl.checked = settings.indent_guides !== false; // C-6
+  settingsBracketColorsEl.checked = settings.bracket_colors !== false;
+  settingsDebugJmcEl.checked = settings.debug_just_my_code !== false; // B-3
   settingsAutosaveEl.value = settings.autosave;
   settingsProbeEl.checked = settings.probe_enabled;
   settingsIntelEl.checked = settings.runtime_intel_enabled;
@@ -428,6 +443,8 @@ async function saveSettingsPanel(): Promise<void> {
   const insertSpaces = settingsInsertSpacesEl.checked;
   const wordWrap = settingsWordWrapEl.value;
   const minimap = settingsMinimapEl.checked;
+  const indentGuides = settingsIndentGuidesEl.checked; // C-6
+  const bracketColors = settingsBracketColorsEl.checked;
   const autosave = settingsAutosaveEl.value;
   const probeEnabled = settingsProbeEl.checked;
   const lspEngine = settingsEngineEl.value;
@@ -453,6 +470,9 @@ async function saveSettingsPanel(): Promise<void> {
     insert_spaces: insertSpaces,
     word_wrap: wordWrap,
     minimap,
+    indent_guides: indentGuides,
+    bracket_colors: bracketColors,
+    debug_just_my_code: settingsDebugJmcEl.checked, // B-3
     autosave,
     autosave_delay: app.settings.autosave_delay,
     probe_enabled: probeEnabled,

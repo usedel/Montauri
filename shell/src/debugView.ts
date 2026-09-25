@@ -7,10 +7,12 @@ import type { DapStackFrame, DapVariable } from "./dap/client";
 import {
   getBreakpoints, getBreakpointSpec, removeBreakpoint, breakpointFiles, breakpointKind,
   clearCurrentLine, highlightCurrentLine, setBreakpointsChangeCallback, syncBreakpointsToDebugger, updateBreakpoint,
+  isBreakpointEnabled, setBreakpointEnabled,
 } from "./debugGutter";
 import type { DapSourceBreakpoint } from "./dap/client";
 import { openPrompt } from "./dialog";
 import { clearInlineValues, updateInlineValues } from "./inlineValues";
+import { clearWatchesValues, initWatchesPanel, refreshWatches } from "./debugWatches"; // B-1
 import { $ } from "./state";
 import { codicon, basename, emptyState, spinIcon } from "./util"; // UI-12：空态改用统一组件
 import { toastFail } from "./toast";
@@ -42,6 +44,9 @@ export function setDebugViewHandlers(h: DebugViewHandlers): void {
 let activeThreadId = 1;
 let activeFrameId: number | null = null;
 let activeFrames: DapStackFrame[] = [];
+/** B-7：变量值显示截断与展开深度上限（完整值挂 title；防止巨型对象拖垮侧栏） */
+const MAX_VAR_VALUE_LEN = 200;
+const MAX_VAR_DEPTH = 5;
 /** 当前帧的 locals 变量（P2：行内变量值 / Set Value 都要用） */
 let activeVars: DapVariable[] = [];
 /** locals 容器的引用（setVariable 需要「容器 + 名字」，不是变量自身） */
@@ -157,6 +162,12 @@ export function initDebugView(): void {
   root.appendChild(stackHeader);
   root.appendChild(stack);
 
+  // B-1：Watches 监视表达式（变量面板上方；面板 DOM 由 debugWatches 自建）
+  const watchesHost = document.createElement("div");
+  watchesHost.id = "debug-watches";
+  root.appendChild(watchesHost);
+  initWatchesPanel(watchesHost, () => activeFrameId);
+
   // 变量（P2-11：树形展开——容器走 tree 语义，行 treeitem / 子级 group）
   const varsHeader = document.createElement("div");
   varsHeader.className = "debug-section-header";
@@ -262,6 +273,7 @@ function renderStack(): void {
       const path = frame.source?.path;
       if (path) {
         activeFrameId = frame.id;
+        dap.setActiveFrameId(frame.id); // B-8：帧镜像同步（hover 求值等只读消费方取用）
         handlers?.openFile(path, frame.line);
         renderStack();
         void refreshVariables();
@@ -314,6 +326,41 @@ function renderBreakpoints(): void {
   const el = $soft("debug-breakpoints");
   if (!el) return;
   el.textContent = "";
+
+  // B-2：异常断点开关（不依赖普通断点是否存在，常驻断点面板顶部）
+  const excHeader = document.createElement("div");
+  excHeader.className = "debug-section-header";
+  excHeader.textContent = "异常断点";
+  el.appendChild(excHeader);
+  const filters = dap.getExceptionFilters();
+  for (const opt of [
+    { id: "uncaught", label: "未捕获异常时暂停（推荐常开）" },
+    { id: "raised", label: "任何异常抛出时暂停（更吵）" },
+  ]) {
+    const row = document.createElement("div");
+    row.className = "debug-exc-row";
+    const chk = document.createElement("input");
+    chk.type = "checkbox";
+    chk.id = `debug-exc-${opt.id}`;
+    chk.checked = filters.includes(opt.id);
+    chk.addEventListener("change", () => {
+      const next = new Set(dap.getExceptionFilters());
+      if (chk.checked) next.add(opt.id);
+      else next.delete(opt.id);
+      void dap.setExceptionFilters([...next]);
+    });
+    const lb = document.createElement("label");
+    lb.htmlFor = chk.id;
+    lb.textContent = opt.label;
+    row.append(chk, lb);
+    el.appendChild(row);
+  }
+
+  const bpHeader = document.createElement("div");
+  bpHeader.className = "debug-section-header";
+  bpHeader.textContent = "断点";
+  el.appendChild(bpHeader);
+
   const files = breakpointFiles();
   const entries: [string, DapSourceBreakpoint[]][] = files.map((p) => [p, getBreakpoints(p)]);
   if (entries.length === 0) {
@@ -326,8 +373,20 @@ function renderBreakpoints(): void {
     for (const bp of bps) {
       const line = bp.line;
       const kind = breakpointKind(bp);
+      const enabled = isBreakpointEnabled(bp);
       const row = document.createElement("div");
-      row.className = "debug-bp-row";
+      row.className = enabled ? "debug-bp-row" : "debug-bp-row debug-bp-disabled";
+      // B-6：启用/禁用勾选（禁用 = 保留断点但不下发 debugger，gutter 显示灰点）
+      const chk = document.createElement("input");
+      chk.type = "checkbox";
+      chk.checked = enabled;
+      chk.title = enabled ? "已启用（取消勾选即禁用）" : "已禁用（勾选即启用）";
+      chk.setAttribute("aria-label", `启用断点 ${basename(path)}:${line}`);
+      chk.addEventListener("change", () => {
+        setBreakpointEnabled(path, line, chk.checked);
+        handlers?.refreshGutter();
+      });
+      row.appendChild(chk);
       const icon = document.createElement("span");
       // P0：条件断点 / Logpoint 用不同图形，与编辑器 gutter 的装饰同源
       icon.className = `debug-bp-dot${kind === "plain" ? "" : ` debug-bp-dot-${kind}`}`;
@@ -396,9 +455,11 @@ export function wireDebugViewEvents(): void {
     if (dap.currentPhase() === "exited" || dap.currentPhase() === "idle") {
       activeFrames = [];
       activeFrameId = null;
+      dap.setActiveFrameId(null); // B-8：会话结束清帧镜像
       activeVars = [];
       activeScopeRef = 0;
       tempBreakpoint = null;
+      clearWatchesValues(); // B-1：清监视值（表达式保留）
       expandedRefs.clear();
       clearInlineValues();
     }
@@ -439,6 +500,7 @@ async function handleStopped(body: { threadId?: number; reason?: string }): Prom
   try {
     activeFrames = await dap.dapStackTrace(activeThreadId);
     activeFrameId = activeFrames[0]?.id ?? null;
+    dap.setActiveFrameId(activeFrameId); // B-8：帧镜像同步
     // 当前行高亮：栈顶帧
     const top = activeFrames[0];
     if (top?.source?.path) {
@@ -483,6 +545,8 @@ async function refreshVariables(): Promise<void> {
     // P2：行内变量值——复用本次 variables 请求的结果，不再额外发 DAP 请求
     const path = activeFrames[0]?.source?.path;
     if (path) updateInlineValues(path, activeVars);
+    // B-1：Watches 随帧刷新（求值用 "watch" context，无副作用）
+    void refreshWatches(activeFrameId);
   } catch (e) {
     console.warn("[debugView] 变量刷新失败:", e);
   }
@@ -530,7 +594,9 @@ function renderVarRow(container: HTMLElement, v: DapVariable, parentRef: number,
 
   const value = document.createElement("span");
   value.className = "debug-var-value";
-  value.textContent = v.value;
+  // B-7：值截断（巨型字符串/长列表会让侧栏表格与 tooltip 卡顿；完整值挂 title）
+  const display = v.value.length > MAX_VAR_VALUE_LEN ? `${v.value.slice(0, MAX_VAR_VALUE_LEN - 1)}…` : v.value;
+  value.textContent = display;
   value.title = v.value;
   // P2：Set Value——点击值即可改写（PyCharm 同款交互）。
   // 嵌套项的容器是父变量自身的 variablesReference（debugpy 的 setVariable 需要「容器 + 名字」）。
@@ -608,6 +674,16 @@ export function resetVarTreeForTest(): void {
 
 /** 拉取并渲染某容器的子变量（递归；令牌失效或已非暂停态则丢弃响应） */
 async function loadChildren(group: HTMLElement, ref: number, depth: number, token: number): Promise<void> {
+  // B-7：展开深度上限——巨型嵌套对象（递归结构/大 DataFrame）的懒加载仍可能被用户
+  // 一路点开撑爆侧栏；到上限后停在提示行，不再发 variables 请求（G-1：任何展开必须有界）。
+  if (depth >= MAX_VAR_DEPTH) {
+    const cap = document.createElement("div");
+    cap.className = "debug-var-row debug-var-empty";
+    cap.style.paddingLeft = varPad(depth + 1);
+    cap.textContent = `（已展开到第 ${MAX_VAR_DEPTH} 层，折叠上级后可继续查看更深层级）`;
+    group.appendChild(cap);
+    return;
+  }
   try {
     const children = await dap.dapVariables(ref);
     if (token !== varToken || dap.currentPhase() !== "stopped") return;

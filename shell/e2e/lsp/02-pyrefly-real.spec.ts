@@ -73,6 +73,9 @@ test("跳转定义：真实 pyrefly 从调用处跳到 lib.py 定义行", async 
   const line = page
     .locator("#editor .monaco-editor .view-line", { hasText: "add_score(2, 3)" })
     .first();
+  // 必须等该行渲染就绪再取 boundingBox：Monaco 是异步渲染，全量跑（资源紧张）时
+  // 过早取会拿到 null → 用例偶发失败（与 Hover 用例同一处理，见下方）
+  await expect(line).toBeVisible({ timeout: 10_000 });
   const box = await line.boundingBox();
   expect(box).not.toBeNull();
   await page.mouse.click(box!.x + 30, box!.y + box!.height / 2);

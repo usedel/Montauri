@@ -74,6 +74,21 @@ export function isBlockedCombo(combo: string, inMonaco: boolean): boolean {
   return import.meta.env.PROD && PROD_ONLY.has(combo);
 }
 
+/**
+ * 危险键中**已被应用认领**的（P1：智能选区 Ctrl+W / Ctrl+Shift+W）。
+ *
+ * 这些键若彻底 stopPropagation，Monaco 就收不到，我们注册的键位形同虚设；
+ * 若完全不拦，一旦键位被用户改掉或编辑器未聚焦，落浏览器就是「关闭窗口」的灾难。
+ * 折中：**仍然 preventDefault（浏览器永不执行关闭动作），但放行事件继续传播**给
+ * Monaco —— 由编辑器的键位规则决定执行什么，无人认领时也只是空操作，无害。
+ */
+const CLAIMED_IN_MONACO = new Set(["Ctrl+KeyW", "Ctrl+Shift+KeyW"]);
+
+/** 该组合在 Monaco 内是否只阻断浏览器、放行给编辑器（纯函数，便于单测） */
+export function isClaimedInMonaco(combo: string, inMonaco: boolean): boolean {
+  return inMonaco && CLAIMED_IN_MONACO.has(combo);
+}
+
 /** 焦点是否在 Monaco 编辑器内（主编辑器 / diff / 本地历史 / 查找条都算） */
 function focusInMonaco(): boolean {
   const ae = document.activeElement as HTMLElement | null;
@@ -87,9 +102,11 @@ export function installBrowserKeyGuard(): void {
     (e) => {
       const combo = comboOf(e);
       if (!combo) return;
-      if (isBlockedCombo(combo, focusInMonaco())) {
+      const inMonaco = focusInMonaco();
+      if (isBlockedCombo(combo, inMonaco)) {
         e.preventDefault();
-        e.stopPropagation();
+        // 应用已认领的危险键（Ctrl+W 智能选区）：放行给 Monaco，否则键位永远触发不到
+        if (!isClaimedInMonaco(combo, inMonaco)) e.stopPropagation();
         return;
       }
       // 应用认领的组合：main.ts 在输入框内会整段跳过，这里补一道阻断（动作照旧由原分发决定）

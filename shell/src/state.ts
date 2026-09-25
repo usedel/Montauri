@@ -39,6 +39,12 @@ export interface Settings {
   insert_spaces: boolean;
   word_wrap: string;
   minimap: boolean;
+  /** 缩进参考线（C-6：长脚本可读性；含当前缩进层级高亮） */
+  indent_guides: boolean;
+  /** 括号彩色化（C-6：多层嵌套括号配对辨识） */
+  bracket_colors: boolean;
+  /** 调试「只步进我的代码」（B-3：不误入 site-packages；改动需重启调试会话生效） */
+  debug_just_my_code: boolean;
   autosave: string;
   autosave_delay: number;
   probe_enabled: boolean;
@@ -83,6 +89,11 @@ export const DEFAULT_SETTINGS: Settings = {
   insert_spaces: true,
   word_wrap: "off",
   minimap: false,
+  // C-6（PyCharm 调研）：可读性默认开——PyCharm 出厂即有缩进参考线，「默认就对」
+  indent_guides: true,
+  bracket_colors: true,
+  // B-3（PyCharm 调研）：只步进我的代码，默认开（与 DAP attach 硬编码时代行为一致）
+  debug_just_my_code: true,
   autosave: "off",
   autosave_delay: 1000,
   probe_enabled: true,

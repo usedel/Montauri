@@ -61,6 +61,73 @@ describe("appendOutputLine（一次性整行；调试输出承载）", () => {
   });
 });
 
+describe("输出护栏（P0：环形缓冲 + 条件滚动跟随）", () => {
+  // 护栏由来：输出面板原为「无限 appendChild + 无条件拽到底部」，狂打印的长任务会把 DOM
+  // 撑爆并对抗用户上翻（对标调研 §3.3 / A-2）。
+  it("超出上限丢弃最前面的行，顶部提示累计省略行数", async () => {
+    const { setMaxOutputLines, getMaxOutputLines } = await import("../output");
+    const prev = getMaxOutputLines();
+    setMaxOutputLines(100); // 下限 100（更小的取值会回落出厂默认，防误设自伤）
+    const container = document.createElement("div");
+    for (let i = 0; i < 103; i++) appendOutputLine(container, `行 ${i}`, "stdout", vi.fn());
+    const rows = Array.from(container.children).filter(
+      (el) => !(el as HTMLElement).classList.contains("out-omitted"),
+    );
+    expect(rows.length).toBe(100);
+    expect(rows[0].textContent).toBe("行 3"); // 最旧的 0..2 被丢弃
+    const omitted = container.querySelector(".out-omitted") as HTMLElement;
+    expect(omitted.hidden).toBe(false);
+    expect(omitted.textContent).toContain("已省略前 3 行");
+    setMaxOutputLines(prev); // 复位，不污染后续用例
+  });
+
+  it("clearOutput 复位省略计数与提示行", async () => {
+    const { setMaxOutputLines, getMaxOutputLines, clearOutput } = await import("../output");
+    const prev = getMaxOutputLines();
+    setMaxOutputLines(100);
+    const container = document.createElement("div");
+    for (let i = 0; i < 103; i++) appendOutputLine(container, `行 ${i}`, "stdout", vi.fn());
+    expect(container.querySelector(".out-omitted")).toBeTruthy();
+    clearOutput(container);
+    expect(container.querySelector(".out-omitted")).toBeNull();
+    appendOutputLine(container, "新行", "stdout", vi.fn()); // 计数已复位 → 不再出现提示行
+    expect(container.querySelector(".out-omitted")).toBeNull();
+    setMaxOutputLines(prev);
+  });
+
+  it("用户上滚即暂停自动跟随，回到底部恢复", async () => {
+    const { isScrollFollowPaused } = await import("../output");
+    const container = document.createElement("div");
+    // 自管 scrollTop/scrollHeight/clientHeight，不依赖 happy-dom 的滚动实现
+    let top = 0;
+    Object.defineProperty(container, "scrollTop", {
+      configurable: true,
+      get: () => top,
+      set: (v: number) => {
+        top = v;
+      },
+    });
+    Object.defineProperty(container, "scrollHeight", { configurable: true, get: () => 1000 });
+    Object.defineProperty(container, "clientHeight", { configurable: true, get: () => 500 });
+
+    appendOutputLine(container, "第一行", "stdout", vi.fn());
+    top = 500; // 贴底：gap = 1000 - 500 - 500 = 0
+    container.dispatchEvent(new Event("scroll"));
+    expect(isScrollFollowPaused(container)).toBe(false);
+
+    top = 0; // 上滚：暂停跟随
+    container.dispatchEvent(new Event("scroll"));
+    expect(isScrollFollowPaused(container)).toBe(true);
+
+    appendOutputLine(container, "第二行", "stdout", vi.fn());
+    expect(top).toBe(0); // 新行不再把视图拽到底部
+
+    top = 500; // 回到底部：自动恢复跟随
+    container.dispatchEvent(new Event("scroll"));
+    expect(isScrollFollowPaused(container)).toBe(false);
+  });
+});
+
 describe("URL 链接识别（P2-L）", () => {
   it("行内 URL 渲染为可点击链接，点击回传 URL", async () => {
     const { setOutputUrlHandler } = await import("../output");

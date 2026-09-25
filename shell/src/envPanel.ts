@@ -932,6 +932,10 @@ export async function maybePromptVenv(): Promise<void> {
   } catch {
     return;
   }
+  // 空值防御：invoke「成功但返回 null」（mock 未覆盖 / 后端异常路径）会让 find 抛
+  // TypeError 并炸掉 openWorkspace 后半段（曾致每个 E2E 用例 init 都带
+  // "Cannot read properties of null (reading 'find')"，且会话恢复永不可达）。
+  if (!Array.isArray(pythons)) return;
   const venv = pythons.find((p) => p.kind === "workspace-venv");
   // currentInterpreter 已由 openWorkspace 的 refreshInterpreterStatus 刷新（= get_interpreter 结果）。
   // get_interpreter 修复后：.venv 存在时 currentInterpreter 要么 === .venv（自动检测/显式选中），

@@ -10,7 +10,9 @@ mod logging;
 mod lsp;
 mod plugin_cmds;
 mod plugin_pkg;
+mod proc_stats;
 mod run_env;
+mod sessions;
 mod settings;
 mod storage_cmds;
 mod terminal;
@@ -136,6 +138,11 @@ pub fn run() {
             // P2-11（UX 审查）：断点随工作区持久化（与书签同模式）
             file_ops::get_breakpoints,
             file_ops::set_breakpoints,
+            // A-5（PyCharm 调研）：会话快照（tab / 光标 / 未保存草稿）随工作区持久化
+            sessions::get_session,
+            sessions::save_session,
+            // A-1（PyCharm 调研）：资源可观测（外壳 + 子进程内存/CPU）
+            proc_stats::proc_stats,
             // Python 环境管理（P25-T04）
             env_cmds::list_pythons,
             env_cmds::list_python_versions,

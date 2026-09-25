@@ -48,6 +48,18 @@ export function setTerminalUrlHandler(cb: (url: string) => void): void {
   urlHandler = cb;
 }
 
+// ---------- 输出背压（P0：与 output.ts 的环形护栏同源） ----------
+//
+// 依据同 `docs/pycharm_ux_review_and_proposal.md` §3.3 / A-3：终端此前是
+// `writeData → term.write()` 直通，脚本狂打印时每一帧都在同步解析并渲染几 MB 文本，
+// 主线程被吃满 → 界面冻结、Ctrl+C 也发不出去（社区对 JetBrains 系最尖锐的批评之一）。
+// 护栏：写入按帧合并 + 单帧字节预算，超预算的排队到下一帧（不丢数据，只削峰）。
+
+/** 单帧写入 xterm 的字节上限（超出部分顺延到下一帧） */
+const MAX_WRITE_BYTES_PER_FRAME = 256 * 1024;
+/** 积压超过该字节数即提示一次「已限流」（洪峰结束才允许再次提示，防刷屏） */
+const THROTTLE_WARN_BYTES = 1024 * 1024;
+
 export class IntegratedTerminal {
   readonly id: string;
   private term: Terminal;
@@ -56,6 +68,14 @@ export class IntegratedTerminal {
   private started = false;
   private resizeObserver: ResizeObserver;
   private onExit?: () => void;
+  /** 待写入的文本块队列（按帧合并，削峰不丢数据） */
+  private pendingChunks: string[] = [];
+  /** 队列当前字节数（与 pendingChunks 同步维护，避免每帧 reduce 大数组） */
+  private pendingBytes = 0;
+  /** 本帧是否已排了 flush */
+  private flushScheduled = false;
+  /** 本次洪峰是否已提示过限流（队列清空时复位） */
+  private throttleNotified = false;
 
   constructor(id: string, container: HTMLElement) {
     this.id = id;
@@ -182,9 +202,67 @@ export class IntegratedTerminal {
     this.term.focus();
   }
 
-  /** （外部事件分发）term-data → xterm 渲染 */
+  /** （外部事件分发）term-data → 排队，按帧合并后写入 xterm（背压，见文件头「输出背压」） */
   writeData(data: string): void {
-    this.term.write(data);
+    if (!data) return;
+    this.pendingChunks.push(data);
+    this.pendingBytes += data.length;
+    // 积压过大时只提示一次：让用户知道「输出被削峰」而非「程序卡了」
+    if (this.pendingBytes >= THROTTLE_WARN_BYTES && !this.throttleNotified) {
+      this.throttleNotified = true;
+      this.pendingChunks.push("\r\n\x1b[33m[输出过快，已限流显示（数据未丢，仍在接收）]\x1b[0m\r\n");
+    }
+    this.scheduleFlush();
+  }
+
+  /** 排一帧 flush（已在队列中则跳过：同一帧内的多次 writeData 合并为一次渲染） */
+  private scheduleFlush(): void {
+    if (this.flushScheduled) return;
+    this.flushScheduled = true;
+    requestAnimationFrame(() => {
+      this.flushScheduled = false;
+      this.flushPending();
+    });
+  }
+
+  /** 同步写出队列（按单帧字节预算削峰；剩余留到下一帧）。
+   *  markStopped / handleExit 在写提示行前先调它，保证「进程输出 → 退出提示」的时序不乱。 */
+  private flushPending(): void {
+    if (this.pendingChunks.length === 0) return;
+    let budget = MAX_WRITE_BYTES_PER_FRAME;
+    let out = "";
+    while (budget > 0 && this.pendingChunks.length > 0) {
+      const head = this.pendingChunks[0];
+      if (head.length <= budget) {
+        out += head;
+        budget -= head.length;
+        this.pendingChunks.shift();
+      } else {
+        // 单块比预算还大：切一部分写入，剩下的留在队首
+        out += head.slice(0, budget);
+        this.pendingChunks[0] = head.slice(budget);
+        budget = 0;
+      }
+    }
+    this.pendingBytes -= out.length;
+    if (this.pendingBytes < 0) this.pendingBytes = 0;
+    this.term.write(out);
+    if (this.pendingChunks.length === 0) {
+      // 洪峰结束补一行收尾提示：洪峰中途那次提示会被后续输出冲出 scrollback（看不到），
+      // 结束时没有后续输出，这一行才真正留得住。
+      if (this.throttleNotified) {
+        this.term.writeln("\r\n\x1b[33m[输出洪峰已结束，期间已限流显示]\x1b[0m\r\n");
+        this.throttleNotified = false; // 允许下次洪峰再提示
+      }
+    }
+    if (this.pendingChunks.length > 0) this.scheduleFlush(); // 还有积压 → 下一帧继续
+  }
+
+  /** 丢弃待写队列（startRun 的 reset / dispose 用：旧输出已无意义） */
+  private dropPendingWrites(): void {
+    this.pendingChunks = [];
+    this.pendingBytes = 0;
+    this.throttleNotified = false;
   }
 
   /** 为一整行终端缓冲提供全部链接（traceback + URL），供 registerLinkProvider 按需回调。
@@ -271,6 +349,7 @@ export class IntegratedTerminal {
       await invoke("term_kill", { id: this.id }).catch(() => undefined);
     }
     this.started = false;
+    this.dropPendingWrites(); // reset 会清屏，上一轮残留的排队输出已无意义
     this.term.reset();
     this.term.write(`\x1b[90m${banner}\x1b[0m\r\n`);
     this.started = true;
@@ -296,12 +375,14 @@ export class IntegratedTerminal {
   markStopped(): void {
     if (!this.started) return;
     this.started = false;
+    this.flushPending(); // 先把排队输出写完，再写提示行，时序才对
     this.term.writeln("\r\n\x1b[90m[已停止]\x1b[0m");
   }
 
   /** （外部事件分发）term-exit → 提示退出 */
   handleExit(): void {
     this.started = false;
+    this.flushPending(); // 同上：退出提示必须排在进程输出之后
     this.term.writeln("\r\n\x1b[90m[进程已退出]\x1b[0m");
     // 结论 5：写入完成后刷新可视区，让 link provider 立刻为已渲染的行提供 traceback 链接
     this.term.refresh(0, this.term.rows - 1);
@@ -314,6 +395,7 @@ export class IntegratedTerminal {
       this.started = false;
       await invoke("term_kill", { id: this.id }).catch(() => undefined);
     }
+    this.dropPendingWrites();
     this.resizeObserver.disconnect();
     this.term.dispose();
   }

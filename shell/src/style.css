@@ -834,6 +834,64 @@ button:focus-visible,
 .gutter-breakpoint-log::after {
   content: "\eaab"; /* codicon-debug-breakpoint-log */
 }
+/* B-6：禁用断点（灰点、半透明——保留位置与属性，但不下发 debugger） */
+.gutter-breakpoint-disabled::after {
+  color: var(--fg-dim);
+  opacity: 0.55;
+}
+
+/* B-2：异常断点开关行（断点面板顶部，常驻） */
+.debug-exc-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
+  font-size: var(--text-sm);
+}
+.debug-exc-row label { cursor: pointer; }
+
+/* B-6：断点列表禁用态（整行淡化，勾选框仍可点） */
+.debug-bp-row.debug-bp-disabled .debug-bp-dot,
+.debug-bp-row.debug-bp-disabled .debug-bp-label,
+.debug-bp-row.debug-bp-disabled .debug-bp-detail { opacity: 0.45; }
+
+/* B-1：Watches 监视表达式 */
+.debug-watch-input {
+  width: 100%;
+  margin-bottom: var(--space-2);
+}
+.debug-watch-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
+  min-height: 1.2em;
+}
+.debug-watch-expr {
+  font-family: var(--mono);
+  color: var(--fg);
+  white-space: nowrap;
+}
+.debug-watch-value {
+  font-family: var(--mono);
+  color: var(--fg-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+.debug-watch-value-failed { color: var(--meta, var(--fg-dim)); font-style: italic; }
+.debug-watch-del {
+  cursor: pointer;
+  color: var(--fg-dim);
+  padding: 0 var(--space-1);
+}
+.debug-watch-del:hover { color: var(--danger); }
+.debug-watch-empty {
+  color: var(--fg-dim);
+  font-size: var(--text-sm);
+  padding: var(--space-1) 0;
+}
 
 /* ---------- gutter 可发现性（方案 1/2） ----------
    断点只认 glyph margin 这一档（Monaco 按 x 把 gutter 分三档，默认宽度 ≈ 一个行高 ≈ 21px），
@@ -1536,6 +1594,54 @@ button:focus-visible,
 }
 
 /* v3.4 §6.5：S4 输入行样式已随 stdin 体系删除（运行统一走终端控制台，输入同屏） */
+
+/* P0 输出护栏：环形缓冲丢弃最旧行后的顶部提示（不占行数配额、不参与 channel 过滤） */
+.out-omitted {
+  color: var(--fg-dim);
+  font-style: italic;
+  padding-bottom: var(--space-1);
+  border-bottom: 1px dashed var(--border);
+}
+
+/* A-1（PyCharm 调研）：资源面板 */
+.resource-card {
+  width: min(560px, 92vw);
+}
+.resource-summary {
+  color: var(--fg-dim);
+  font-size: var(--text-sm);
+  margin-bottom: var(--space-3);
+}
+.resource-table-wrap {
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  margin-bottom: var(--space-3);
+}
+.resource-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+  font-family: var(--mono);
+}
+.resource-table th,
+.resource-table td {
+  text-align: left;
+  padding: var(--space-1) var(--space-3);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.resource-table th {
+  color: var(--fg-dim);
+  font-weight: normal;
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+}
+.resource-table td:nth-child(n + 3) {
+  text-align: right;
+}
 
 .out-line { min-height: 1.2em; }
 .out-line.stderr { color: var(--danger); }

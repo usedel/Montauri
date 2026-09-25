@@ -57,6 +57,7 @@ interface PersistedBreakpoint {
   condition?: string;
   hitCondition?: string;
   logMessage?: string;
+  enabled?: boolean;
 }
 
 /** 全量覆盖写盘（fire-and-forget；invoke 参数在调用点同步捕获，切换工作区无竞态） */
@@ -72,6 +73,7 @@ function persistBreakpoints(): void {
         condition: spec.condition ?? "",
         hitCondition: spec.hitCondition ?? "",
         logMessage: spec.logMessage ?? "",
+        enabled: spec.enabled !== false, // B-6
       });
     }
   }
@@ -103,6 +105,7 @@ export async function loadBreakpoints(): Promise<void> {
       if (b.condition) spec.condition = b.condition;
       if (b.hitCondition) spec.hitCondition = b.hitCondition;
       if (b.logMessage) spec.logMessage = b.logMessage;
+      if (b.enabled === false) spec.enabled = false; // B-6：旧快照无此字段 = 启用
       map.set(b.line, spec);
     }
     // 回填后刷新侧栏断点列表——否则打开工作区后旧断点只在 gutter 可见，列表却是空的
@@ -225,6 +228,25 @@ export function updateBreakpoint(path: string, line: number, spec: BreakpointSpe
 }
 
 /**
+ * 设置断点启用/禁用（B-6）。
+ * 禁用的断点保留在表里（gutter 灰点、面板可见）但**不下发 debugger**——
+ * 启用时重新 sync 即恢复生效，条件/日志属性原样保留。
+ */
+export function setBreakpointEnabled(path: string, line: number, enabled: boolean): void {
+  const spec = breakpoints.get(path)?.get(line);
+  if (!spec) return;
+  if (enabled) delete spec.enabled;
+  else spec.enabled = false;
+  syncBreakpointsToDebugger(path);
+  notifyChange();
+}
+
+/** 单个断点是否启用（缺省 = 启用；gutter/面板渲染与菜单文案共用） */
+export function isBreakpointEnabled(spec: BreakpointSpec | null): boolean {
+  return spec?.enabled !== false;
+}
+
+/**
  * 同步单文件断点到 debugger（§6.4：断点变化 → setBreakpoints）。
  * 仅在会话存活期间发送（starting/running/stopped 均可：暂停态增删断点同样生效）。
  */
@@ -298,15 +320,17 @@ export function wireDebugGutter(
   });
 }
 
-/** 断点类型 → glyph 装饰类名（普通红点 / 条件红点带问号 / Logpoint 菱形） */
+/** 断点类型 → glyph 装饰类名（普通红点 / 条件红点带问号 / Logpoint 菱形 / 禁用灰点） */
 function breakpointGlyphClass(spec: BreakpointSpec | null): string {
-  switch (breakpointKind(spec)) {
+  const base = breakpointKind(spec);
+  const disabled = !isBreakpointEnabled(spec);
+  switch (base) {
     case "log":
-      return "gutter-breakpoint gutter-breakpoint-log";
+      return disabled ? "gutter-breakpoint gutter-breakpoint-log gutter-breakpoint-disabled" : "gutter-breakpoint gutter-breakpoint-log";
     case "condition":
-      return "gutter-breakpoint gutter-breakpoint-cond";
+      return disabled ? "gutter-breakpoint gutter-breakpoint-cond gutter-breakpoint-disabled" : "gutter-breakpoint gutter-breakpoint-cond";
     default:
-      return "gutter-breakpoint";
+      return disabled ? "gutter-breakpoint gutter-breakpoint-disabled" : "gutter-breakpoint";
   }
 }
 

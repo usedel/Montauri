@@ -64,6 +64,12 @@ fn default_keybindings() -> HashMap<String, String> {
     m.insert("find_usages".into(), "Alt+F7".into());
     // P2（重命名）：跨文件重命名（PyCharm Shift+F6 同款；F2 仍是单文件快捷）（与前端三处同步）
     m.insert("rename_symbol".into(), "Shift+F6".into());
+    // P1（PyCharm 调研 C-1/C-2）：编辑器基本功（与前端 KEYBINDING_META / DEFAULT_SETTINGS 三处同步）。
+    // 注：Ctrl+W / Ctrl+Shift+W 是浏览器危险键，由 browserKeys.ts 在编辑器内放行给 Monaco。
+    m.insert("smart_select_expand".into(), "Ctrl+W".into());
+    m.insert("smart_select_shrink".into(), "Ctrl+Shift+W".into());
+    m.insert("move_line_up".into(), "Ctrl+Shift+Up".into());
+    m.insert("move_line_down".into(), "Ctrl+Shift+Down".into());
     m
 }
 
@@ -90,6 +96,12 @@ pub struct Settings {
     pub word_wrap: String,
     /// 迷你地图开关
     pub minimap: bool,
+    /// 缩进参考线（C-6：长脚本可读性；含当前缩进层级高亮）
+    pub indent_guides: bool,
+    /// 括号彩色化（C-6：多层嵌套括号配对辨识）
+    pub bracket_colors: bool,
+    /// 调试「只步进我的代码」（B-3：不误入 site-packages；改动需重启调试会话生效）
+    pub debug_just_my_code: bool,
     /// 自动保存："off" | "delay" | "blur"
     pub autosave: String,
     /// delay 模式的延迟毫秒
@@ -137,6 +149,11 @@ impl Default for Settings {
             insert_spaces: true,
             word_wrap: "off".into(),
             minimap: false,
+            // C-6（PyCharm 调研）：可读性默认开（与前端 DEFAULT_SETTINGS 保持一致）
+            indent_guides: true,
+            bracket_colors: true,
+            // B-3（PyCharm 调研）：只步进我的代码，默认开
+            debug_just_my_code: true,
             autosave: "off".into(),
             autosave_delay: 1000,
             probe_enabled: true,
@@ -214,6 +231,11 @@ mod tests {
         assert_eq!(d.insert_spaces, true);
         assert_eq!(d.word_wrap, "off");
         assert_eq!(d.minimap, false);
+        // C-6（PyCharm 调研）：可读性默认开
+        assert_eq!(d.indent_guides, true);
+        assert_eq!(d.bracket_colors, true);
+        // B-3（PyCharm 调研）：只步进我的代码，默认开
+        assert_eq!(d.debug_just_my_code, true);
         assert_eq!(d.autosave, "off");
         assert_eq!(d.probe_enabled, true);
         assert_eq!(d.lsp_engine, "pyrefly");
@@ -259,8 +281,13 @@ mod tests {
         assert_eq!(d.keybindings.get("toggle_bottom").map(String::as_str), Some("Alt+F12"));
         // PR-1：开发工具面板
         assert_eq!(d.keybindings.get("open_devtools").map(String::as_str), Some("Ctrl+Shift+T"));
+        // P1（PyCharm 调研 C-1/C-2）：智能选区 + 移动行
+        assert_eq!(d.keybindings.get("smart_select_expand").map(String::as_str), Some("Ctrl+W"));
+        assert_eq!(d.keybindings.get("smart_select_shrink").map(String::as_str), Some("Ctrl+Shift+W"));
+        assert_eq!(d.keybindings.get("move_line_up").map(String::as_str), Some("Ctrl+Shift+Up"));
+        assert_eq!(d.keybindings.get("move_line_down").map(String::as_str), Some("Ctrl+Shift+Down"));
         // 键位表条目数 = 前端 KEYBINDING_META 条目数（漂移锁，新增键须同步改这里）
-        assert_eq!(d.keybindings.len(), 40);
+        assert_eq!(d.keybindings.len(), 44);
         assert_eq!(d.optimize_imports_on_save, false);
     }
 
@@ -292,6 +319,10 @@ mod tests {
         assert_eq!(s.word_wrap, "off");
         assert_eq!(s.minimap, false);
         assert_eq!(s.font_ligatures, false);
+        // C-6：旧配置文件无这两个字段 → 回落默认开
+        assert_eq!(s.indent_guides, true);
+        assert_eq!(s.bracket_colors, true);
+        assert_eq!(s.debug_just_my_code, true);
         // 快捷键：旧配置文件无此字段 → 整体回落默认键位表
         assert_eq!(s.keybindings.get("duplicate_line").map(String::as_str), Some("Ctrl+D"));
         assert_eq!(s.keybindings.get("debug").map(String::as_str), Some("F5"));
@@ -308,7 +339,10 @@ mod tests {
         assert_eq!(s.keybindings.get("run_project").map(String::as_str), Some("Ctrl+Shift+F10"));
         // PR-1：旧配置无 open_devtools → 回落默认
         assert_eq!(s.keybindings.get("open_devtools").map(String::as_str), Some("Ctrl+Shift+T"));
-        assert_eq!(s.keybindings.len(), 40);
+        // P1（PyCharm 调研 C-1/C-2）：旧配置无智能选区/移动行 → 回落默认
+        assert_eq!(s.keybindings.get("smart_select_expand").map(String::as_str), Some("Ctrl+W"));
+        assert_eq!(s.keybindings.get("move_line_down").map(String::as_str), Some("Ctrl+Shift+Down"));
+        assert_eq!(s.keybindings.len(), 44);
         assert_eq!(s.optimize_imports_on_save, false); // 旧配置文件无此字段 → 默认关闭
     }
 }

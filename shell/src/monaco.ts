@@ -25,11 +25,17 @@ import "monaco-editor/esm/vs/editor/contrib/inlayHints/browser/inlayHintsContrib
 import "monaco-editor/esm/vs/editor/contrib/indentation/browser/indentation"; // 自动缩进
 import "monaco-editor/esm/vs/editor/contrib/lineSelection/browser/lineSelection";
 import "monaco-editor/esm/vs/editor/contrib/links/browser/links"; // 链接点击
+// 行操作（PyCharm 的移动行/复制行/删除行/缩进调整等命令都在这里）：此前未引入 →
+// editor.action.moveLinesUpAction / moveLinesDownAction 均不可达（C-2 依赖）。
+import "monaco-editor/esm/vs/editor/contrib/linesOperations/browser/linesOperations";
 import "monaco-editor/esm/vs/editor/contrib/multicursor/browser/multicursor"; // 多光标
 import "monaco-editor/esm/vs/editor/contrib/parameterHints/browser/parameterHints"; // 签名帮助 widget
 // 注：内建 rename contribution（F2 单文件 rename widget）已移除——重命名统一走自研就地改名
 // renameWidget.ts（prepareRename 锚定 + ghost 预览 + 跨文件 diff 确认），F2 由其 addCommand 接管。
 import "monaco-editor/esm/vs/editor/contrib/snippet/browser/snippetController2"; // snippet 占位符会话（live templates 展开依赖，显式声明避免仅靠 suggest 传递引入）
+// 智能选区（PyCharm Ctrl+W）：按语法层级逐级扩大/缩小选区，命令 id =
+// editor.action.smartSelect.expand / .shrink（grow 是其别名）。此前未引入 → 命令不可达。
+import "monaco-editor/esm/vs/editor/contrib/smartSelect/browser/smartSelect";
 import "monaco-editor/esm/vs/editor/contrib/suggest/browser/suggestController"; // 补全 UI
 import "monaco-editor/esm/vs/editor/contrib/wordHighlighter/browser/wordHighlighter"; // 词高亮
 

@@ -247,6 +247,20 @@ export function initKeybindingCommands(monaco: MonacoModule): void {
   setKeybindingHandler("comment_block", () => {
     app.editor.trigger("keybindings", "editor.action.blockComment", null);
   });
+  // P1（C-1）：语法感知选区扩展/收缩（Monaco smartSelect contrib，命令 id 见 monaco.ts 注释）
+  setKeybindingHandler("smart_select_expand", () => {
+    app.editor.trigger("keybindings", "editor.action.smartSelect.expand", null);
+  });
+  setKeybindingHandler("smart_select_shrink", () => {
+    app.editor.trigger("keybindings", "editor.action.smartSelect.shrink", null);
+  });
+  // P1（C-2）：行/选区上下移动（Monaco linesOperations contrib，自动修正缩进）
+  setKeybindingHandler("move_line_up", () => {
+    app.editor.trigger("keybindings", "editor.action.moveLinesUpAction", null);
+  });
+  setKeybindingHandler("move_line_down", () => {
+    app.editor.trigger("keybindings", "editor.action.moveLinesDownAction", null);
+  });
   for (const m of KEYBINDING_META) {
     if (m.scope !== "editor") continue;
     monaco.editor.addCommand({
@@ -256,9 +270,23 @@ export function initKeybindingCommands(monaco: MonacoModule): void {
   }
 }
 
+/**
+ * `KeyboardEvent.code` 形态 → Monaco `KeyCode` 枚举名（P1：移动行 Ctrl+Shift+↑/↓ 暴露的坑）。
+ * Monaco 的方位键枚举叫 `UpArrow`/`DownArrow`/`LeftArrow`/`RightArrow`（没有 `Arrow*` 前缀），
+ * 直接拿解析结果去查表会得到 undefined → 规则被静默跳过、键位看似没生效。
+ * 此前方位键只用于 window 级键位（不经此函数），故一直没暴露。
+ */
+const MONACO_KEY_ALIASES: Record<string, string> = {
+  ArrowUp: "UpArrow",
+  ArrowDown: "DownArrow",
+  ArrowLeft: "LeftArrow",
+  ArrowRight: "RightArrow",
+};
+
 /** ParsedBinding → Monaco keybinding 数值；未知键返回 null */
 export function toMonacoKeybinding(monaco: MonacoModule, p: ParsedBinding): number | null {
-  const code = (monaco.KeyCode as unknown as Record<string, number | undefined>)[p.key];
+  const name = MONACO_KEY_ALIASES[p.key] ?? p.key;
+  const code = (monaco.KeyCode as unknown as Record<string, number | undefined>)[name];
   if (code === undefined) return null;
   let kb = code;
   if (p.ctrl) kb |= monaco.KeyMod.CtrlCmd;

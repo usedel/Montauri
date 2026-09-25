@@ -49,7 +49,14 @@ export type KeybindingId =
   | "find_usages"
   // P2（重命名）：PyCharm 同款 Shift+F6，就地改名（prepareRename 锚定 + ghost 预览 +
   // Enter 全部文件一次性写入，见 renameWidget.ts）；F2 为同一入口的固定快捷键
-  | "rename_symbol";
+  | "rename_symbol"
+  // P1（PyCharm 调研 C-1/C-2）：编辑器基本功——语法感知选区扩展/收缩 + 行上下移动。
+  // 注：Ctrl+W / Ctrl+Shift+W 属浏览器危险键（关窗口），已由 browserKeys.ts 在编辑器内
+  // 「只 preventDefault、不 stopPropagation」放行给 Monaco（见该文件 CLAIMED_IN_MONACO）。
+  | "smart_select_expand"
+  | "smart_select_shrink"
+  | "move_line_up"
+  | "move_line_down";
 
 export interface KeybindingMeta {
   id: KeybindingId;
@@ -117,4 +124,10 @@ export const KEYBINDING_META: KeybindingMeta[] = [
   { id: "command_palette", label: "命令面板（只搜命令）", def: "Ctrl+Shift+P", scope: "window" },
   // PR-1：开发工具面板（右侧）+ picker；window 级——工具动作不应依赖编辑器聚焦
   { id: "open_devtools", label: "开发工具面板", def: "Ctrl+Shift+T", scope: "window" },
+  // P1（PyCharm 调研 C-1/C-2）：编辑器基本功。默认值取 PyCharm 同款
+  // （Ctrl+W / Ctrl+Shift+W 扩大/缩小选区；Ctrl+Shift+↑/↓ 移动行）。
+  { id: "smart_select_expand", label: "扩大选区（语法感知）", def: "Ctrl+W", scope: "editor" },
+  { id: "smart_select_shrink", label: "缩小选区（语法感知）", def: "Ctrl+Shift+W", scope: "editor" },
+  { id: "move_line_up", label: "行 / 选区上移", def: "Ctrl+Shift+Up", scope: "editor" },
+  { id: "move_line_down", label: "行 / 选区下移", def: "Ctrl+Shift+Down", scope: "editor" },
 ];

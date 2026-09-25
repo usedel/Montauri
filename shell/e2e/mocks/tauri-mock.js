@@ -127,10 +127,22 @@
     get_breakpoints: function () {
       return [];
     },
+    // A-1 资源快照（面板 E2E）：固定样本（外壳 + 两个子进程）
+    proc_stats: function () {
+      return {
+        shell: { pid: 4242, name: "OpenCharm（外壳）", rssMb: 182.3, cpu: 0 },
+        children: [
+          { pid: 5151, name: "pyrefly.exe", rssMb: 96.4, cpu: 1.2 },
+          { pid: 5152, name: "python.exe", rssMb: 48.1, cpu: 0 },
+        ],
+        totalMb: 326.8,
+      };
+    },
   };
 
-  /** 同上：已知返回数组的命令（未在静态表时兜底 []，防 for...of 崩） */
-  var ARRAY_CMDS = ["get_breakpoints", "get_bookmarks", "run_config_list", "list_python_versions",
+  /** 同上：已知返回数组的命令（未在静态表时兜底 []，防 for...of 崩 / .find 抛 TypeError）
+   *  list_pythons 曾缺失 → maybePromptVenv 里 pythons.find 抛错炸掉 openWorkspace 后半段 */
+  var ARRAY_CMDS = ["get_breakpoints", "get_bookmarks", "run_config_list", "list_python_versions", "list_pythons",
     "list_workspace_files", "dep_env_snapshot", "get_recent_files"];
 
   /** bridge 缺失时 git 命令的空返回（形状与 Rust 对齐，防前端渲染崩） */
@@ -700,6 +712,22 @@
     // 4.6) 调试 DAP mock（E2E 专用，无真实 debugpy）：模拟 stdio adapter 架构时序与步进推演
     var dh = handleDebugCommand(cmd, args);
     if (dh !== "__unhandled__") return dh;
+    // 4.7) A-5 会话快照：存 sessionStorage（addInitScript 每次导航都会重跑，模块级变量会丢；
+    //      sessionStorage 在 reload 后仍在，才能验证「重启后恢复」）。
+    //      注：静态表调用形如 `h()` 不传 args，故这里必须单独分支才能拿到 root/state。
+    if (cmd === "save_session") {
+      try {
+        sessionStorage.setItem("oc-session:" + String(args.root), JSON.stringify(args.state));
+      } catch (e) {}
+      return null;
+    }
+    if (cmd === "get_session") {
+      try {
+        var sraw = sessionStorage.getItem("oc-session:" + String(args.root));
+        if (sraw) return JSON.parse(sraw);
+      } catch (e) {}
+      return { tabs: [], active: null };
+    }
     // 5) 静态表
     var h = staticHandlers[cmd];
     if (h) return h();

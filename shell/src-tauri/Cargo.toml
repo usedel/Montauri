@@ -26,3 +26,4 @@ ignore = "0.4"
 shell-words = "1.1"
 # P2 DX：插件包导出/导入（zip）。仅 deflate（默认压缩格式，Windows 资源管理器可直接解压）
 zip = { version = "2", default-features = false, features = ["deflate"] }
+sysinfo = "0.39.6"

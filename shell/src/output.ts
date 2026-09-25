@@ -120,6 +120,100 @@ export function setOutputTracebackHandler(fn: ((line: string) => void) | null): 
   tracebackHandler = fn;
 }
 
+// ---------- 输出护栏（P0：无界增长的 DOM 是界面冻结的头号来源） ----------
+//
+// 依据：PyCharm 最受诟病的一条就是「输出一大就冻结」（调研见
+// `docs/pycharm_ux_review_and_proposal.md` §3.3 / A-2）。本面板此前是「无限 appendChild +
+// 无条件拽到底部」：跑一个狂打印的长任务会把 DOM 撑到几十万节点，且用户想往上翻会被强行
+// 拉回底部。护栏两件事：①环形缓冲（超上限丢最前面的行，顶部显示已省略计数）；
+// ②条件自动滚动（用户上滚即暂停跟随，回到底部自动恢复）。
+
+/** 输出面板保留的最大行数（不含顶部「已省略」提示行） */
+const DEFAULT_MAX_OUTPUT_LINES = 5000;
+let maxOutputLines = DEFAULT_MAX_OUTPUT_LINES;
+
+/** 供设置项/单测调整上限；非法值回落出厂默认（下限 100 行，防止自伤） */
+export function setMaxOutputLines(n: number): void {
+  maxOutputLines = Number.isFinite(n) && n >= 100 ? Math.floor(n) : DEFAULT_MAX_OUTPUT_LINES;
+}
+export function getMaxOutputLines(): number {
+  return maxOutputLines;
+}
+
+/** 距底部多少像素内算「贴着底部」（决定自动滚动是否恢复跟随） */
+const FOLLOW_BOTTOM_EPSILON_PX = 24;
+
+/** 已被丢弃的行数（按容器计；clearOutput 复位） */
+const omittedCounts = new WeakMap<HTMLElement, number>();
+/** 顶部「已省略 N 行」提示行（惰性创建，永远是容器的第一个子节点） */
+const omittedRows = new WeakMap<HTMLElement, HTMLElement>();
+/** 用户手动上滚 → 暂停自动跟随（回到底部自动恢复） */
+const followPaused = new WeakSet<HTMLElement>();
+/** 已挂 scroll 监听的容器（每容器只挂一次；监听随元素一同回收） */
+const scrollWired = new WeakSet<HTMLElement>();
+
+/** 该容器当前是否处于「用户上滚、暂停跟随」状态（导出供单测） */
+export function isScrollFollowPaused(container: HTMLElement): boolean {
+  return followPaused.has(container);
+}
+
+function wireScrollFollow(container: HTMLElement): void {
+  if (scrollWired.has(container)) return;
+  scrollWired.add(container);
+  container.addEventListener("scroll", () => {
+    const gap = container.scrollHeight - container.scrollTop - container.clientHeight;
+    if (gap <= FOLLOW_BOTTOM_EPSILON_PX) followPaused.delete(container);
+    else followPaused.add(container);
+  });
+}
+
+/** 顶部提示行的存活判定：用 parentNode 而非 isConnected——容器可能尚未挂进 document
+ *  （单测与离屏渲染场景），isConnected 会恒为 false 从而反复创建提示行。 */
+function liveOmittedRow(container: HTMLElement): HTMLElement | null {
+  const row = omittedRows.get(container);
+  return row && row.parentNode === container ? row : null;
+}
+
+/** 取（必要时创建）顶部提示行：它不参与行数上限计算，也不带 channel */
+function ensureOmittedRow(container: HTMLElement): HTMLElement {
+  let row = liveOmittedRow(container);
+  if (!row) {
+    row = document.createElement("div");
+    row.className = "out-omitted";
+    row.hidden = true;
+    container.insertBefore(row, container.firstChild);
+    omittedRows.set(container, row);
+  }
+  return row;
+}
+
+function renderOmittedRow(container: HTMLElement): void {
+  const n = omittedCounts.get(container) ?? 0;
+  if (n <= 0) return;
+  const row = ensureOmittedRow(container);
+  row.textContent = `已省略前 ${n} 行（输出上限 ${maxOutputLines} 行）`;
+  row.hidden = false;
+}
+
+/** 超出上限时从头部丢弃最旧的行（跳过顶部提示行） */
+function trimOutput(container: HTMLElement): void {
+  const row = liveOmittedRow(container);
+  const hasRow = row ? 1 : 0;
+  const over = container.children.length - hasRow - maxOutputLines;
+  if (over <= 0) return;
+  let removed = 0;
+  for (let i = 0; i < over; i++) {
+    const first = row ? row.nextElementSibling : container.firstElementChild;
+    if (!first) break;
+    container.removeChild(first);
+    removed++;
+  }
+  if (removed > 0) {
+    omittedCounts.set(container, (omittedCounts.get(container) ?? 0) + removed);
+    renderOmittedRow(container);
+  }
+}
+
 export function appendOutputLine(
   container: HTMLElement,
   text: string,
@@ -132,7 +226,10 @@ export function appendOutputLine(
   renderLineContent(line, text, cls, onLink);
   applyChannelVisibility(line, channel);
   container.appendChild(line);
-  container.scrollTop = container.scrollHeight;
+  wireScrollFollow(container);
+  // 只在用户没往上翻时才拽到底部（上滚即"锁定"，回到底部自动解锁）
+  if (!followPaused.has(container)) container.scrollTop = container.scrollHeight;
+  trimOutput(container);
   return line;
 }
 
@@ -140,6 +237,7 @@ export function appendOutputLine(
 export function refilterOutputChannel(container: HTMLElement): void {
   for (const line of Array.from(container.children)) {
     if (!(line instanceof HTMLElement)) continue;
+    if (line.classList.contains("out-omitted")) continue; // 顶部提示行不参与过滤
     const ch = line.dataset.channel as OutputChannel | undefined;
     line.classList.toggle("out-ch-hidden", !channelVisible(ch));
   }
@@ -147,6 +245,9 @@ export function refilterOutputChannel(container: HTMLElement): void {
 
 export function clearOutput(container: HTMLElement): void {
   container.textContent = "";
+  omittedCounts.delete(container);
+  omittedRows.delete(container);
+  followPaused.delete(container);
 }
 
 // v3.4 §17-3：RunTranscript（S4 半行累积交互逻辑）已随 stdin 体系删除——运行输出统一走终端
