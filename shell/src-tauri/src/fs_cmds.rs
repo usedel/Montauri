@@ -49,6 +49,19 @@ pub fn read_dir(path: &str, show_hidden: bool) -> Result<Vec<Entry>, String> {
 
 #[tauri::command]
 pub fn read_file(path: &str) -> Result<String, String> {
+    // 大文件守卫：整读入 Monaco model 无行数上限，超大文本会整窗卡顿。
+    // 超过 10 MB 直接报错（由前端 toast 呈现），而不是读入后假死。
+    const MAX_READ_BYTES: u64 = 10 * 1024 * 1024;
+    let meta = fs::metadata(path).map_err(|e| e.to_string())?;
+    if meta.is_dir() {
+        return Err(format!("路径是目录而非文件：{}", path));
+    }
+    if meta.len() > MAX_READ_BYTES {
+        return Err(format!(
+            "文件过大（{:.1} MB），超过 10 MB 上限，编辑器不支持打开",
+            meta.len() as f64 / 1048576.0
+        ));
+    }
     fs::read_to_string(path).map_err(|e| e.to_string())
 }
 
@@ -1227,6 +1240,24 @@ mod tests {
         let d = std::env::temp_dir().join(format!("opencharm-test-{tag}-{nanos}"));
         fs::create_dir_all(&d).unwrap();
         d
+    }
+
+    #[test]
+    fn test_read_file_rejects_oversized_and_dir() {
+        let dir = tmpdir("readguard");
+        // 超过 10 MB 上限：报「文件过大」而非整读卡死
+        let big = dir.join("big.txt");
+        fs::write(&big, vec![b'a'; 10 * 1024 * 1024 + 1]).unwrap();
+        let err = read_file(big.to_str().unwrap()).unwrap_err();
+        assert!(err.contains("文件过大"), "实际错误：{err}");
+        // 目录路径：明确报错而非 io 错误裸串
+        let err = read_file(dir.to_str().unwrap()).unwrap_err();
+        assert!(err.contains("目录"), "实际错误：{err}");
+        // 正常小文件照常可读
+        let ok = dir.join("ok.txt");
+        fs::write(&ok, "hello").unwrap();
+        assert_eq!(read_file(ok.to_str().unwrap()).unwrap(), "hello");
+        fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

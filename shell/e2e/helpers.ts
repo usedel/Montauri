@@ -14,7 +14,7 @@ import { execFile, spawn } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, renameSync, rmSync, cpSync } from "node:fs";
 import { basename } from "node:path";
 import { tmpdir } from "node:os";
-import { join, dirname, resolve } from "node:path";
+import { join, dirname, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import type { Page } from "@playwright/test";
 import { fileURLToPath } from "node:url";
@@ -561,6 +561,22 @@ async function dispatchGit(cmd: string, args: Record<string, unknown>, repo: Git
     }
     case "git_create_branch": {
       return inRepo(["checkout", "-b", String(args.name ?? "")]);
+    }
+    case "git_discard": {
+      // 对齐 git_cmds.rs::git_discard：tracked 文件 `git checkout -- <paths>`
+      const paths = arg<string[]>("paths");
+      if (Array.isArray(paths) && paths.length > 0) await inRepo(["checkout", "--", ...paths]);
+      return null;
+    }
+    case "git_clean": {
+      // 对齐 git_cmds.rs::git_clean：未跟踪文件/目录直接 fs 删除（不依赖 git clean 语义）
+      const paths = arg<string[]>("paths");
+      for (const rel of paths ?? []) {
+        const target = resolve(join(root, String(rel)));
+        if (target !== root && !target.startsWith(root + sep)) throw new Error(`[e2e-bridge] 越权路径: ${rel}`);
+        rmSync(target, { recursive: true, force: true });
+      }
+      return null;
     }
     default:
       throw new Error(`[e2e-bridge] 未实现的 git 命令: ${cmd}`);

@@ -19,6 +19,20 @@ export interface SidebarView {
 const views: SidebarView[] = [];
 let activeId: SidebarViewId | null = null;
 
+/** B 批：激活视图持久化（启动时恢复上次的选择；习惯开 git/search 视图的用户不再每次回到 files） */
+const VIEW_KEY = "opencharm.sidebar_view";
+
+/** 启动恢复上次激活视图；无记录/非法值/存储不可用时回退 fallback（须在视图注册完成后调用） */
+export function restoreSidebarView(fallback: SidebarViewId): void {
+  let saved: string | null = null;
+  try {
+    saved = localStorage.getItem(VIEW_KEY);
+  } catch {
+    // 存储不可用：直接用 fallback
+  }
+  setSidebarTab(views.some((v) => v.id === saved) ? (saved as SidebarViewId) : fallback);
+}
+
 /** 登记一个侧栏视图（需在首次 setSidebarTab 之前完成） */
 export function registerSidebarView(view: SidebarView): void {
   views.push(view);
@@ -48,5 +62,10 @@ export function setSidebarTab(id: SidebarViewId): void {
   }
   views.find((v) => v.id === activeId)?.onHide?.();
   activeId = id;
+  try {
+    localStorage.setItem(VIEW_KEY, id); // B 批：激活视图写穿持久化
+  } catch {
+    // 存储不可用：本次会话内仍生效
+  }
   cur.onShow?.();
 }

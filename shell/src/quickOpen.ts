@@ -298,6 +298,36 @@ let sel = 0;
 /** 异步刷新令牌（照搬 search.ts 范本：慢响应不得覆盖新结果） */
 let loadToken = 0;
 
+// ---------- B 批：最近查询历史（有界 20 条，localStorage） ----------
+
+const HISTORY_KEY = "opencharm.quickopen_history";
+const HISTORY_MAX = 20;
+/** -1 = 未处于历史浏览态；≥0 指向 queryHistory 下标（↑/↓ 在输入为空时回溯） */
+let histIdx = -1;
+
+function loadQueryHistory(): string[] {
+  // 顶层调用（模块状态初始化），try/catch 兜底纯 Node 测试环境无 localStorage 的情况
+  try {
+    const raw = localStorage.getItem(HISTORY_KEY);
+    const arr: unknown = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr.filter((s): s is string => typeof s === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+let queryHistory: string[] = loadQueryHistory();
+
+/** 记录一次生效的查询（去重置顶，有界截断）；line 模式的「123:45」不入史 */
+function rememberQuery(q: string): void {
+  queryHistory = [q, ...queryHistory.filter((s) => s !== q)].slice(0, HISTORY_MAX);
+  try {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(queryHistory));
+  } catch {
+    // 存储不可用：本次会话内存仍生效
+  }
+}
+
 const PLACEHOLDERS: Record<QuickOpenMode, string> = {
   all: "搜索文件 / 符号 / 命令（支持 :行号）",
   files: "搜索文件名（支持 :行号）",
@@ -339,6 +369,7 @@ export function initQuickOpen(): void {
 
   input.addEventListener("input", () => {
     sel = 0;
+    histIdx = -1; // 手动输入退出历史浏览态
     void refresh();
   });
   input.addEventListener("keydown", (e) => {
@@ -346,6 +377,15 @@ export function initQuickOpen(): void {
     e.stopPropagation();
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
+      // B 批：输入为空时 ↑/↓ 回溯最近查询历史
+      const q = inputEl?.value.trim() ?? "";
+      if (!q && mode !== "line" && queryHistory.length > 0) {
+        histIdx = Math.min(histIdx + (e.key === "ArrowUp" ? 1 : -1), queryHistory.length - 1);
+        if (inputEl) inputEl.value = histIdx >= 0 ? queryHistory[histIdx] : "";
+        sel = 0;
+        void refresh();
+        return;
+      }
       const n = items.length;
       if (n === 0) return;
       sel = (sel + (e.key === "ArrowDown" ? 1 : -1) + n) % n;
@@ -384,6 +424,7 @@ export async function openQuickOpen(next: QuickOpenMode = "all", seed = ""): Pro
   if (!modalEl || !inputEl) return;
   mode = next;
   sel = 0;
+  histIdx = -1; // B 批：新开弹窗重置历史浏览态
   inputEl.placeholder = PLACEHOLDERS[next];
   inputEl.value = seed;
   showEl(modalEl);
@@ -431,6 +472,8 @@ async function activate(): Promise<void> {
     handlers?.gotoLine(parsed.line, parsed.column);
     return;
   }
+  const q = inputEl?.value.trim() ?? "";
+  if (q) rememberQuery(q); // B 批：生效的查询入最近历史
   const it = items[sel];
   if (!it) return;
   closeQuickOpen();

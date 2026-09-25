@@ -37,6 +37,9 @@ export type KeybindingId =
   | "markdown_preview"
   // P1（UX 审查）：高频但此前无键位的操作
   | "close_tab"
+  // 标签页循环切换（VS Code 风格 Ctrl+Tab / Ctrl+Shift+Tab；Alt+←/→ 被 browserKeys 护栏占用）
+  | "next_tab"
+  | "prev_tab"
   | "new_file"
   | "open_settings"
   | "toggle_sidebar"
@@ -121,6 +124,9 @@ export const KEYBINDING_META: KeybindingMeta[] = [
   // P1（UX 审查）：高频操作补键位。默认值取 PyCharm 同款（Ctrl+F4 关闭标签 / Ctrl+Alt+Insert 新建
   // / Ctrl+Alt+S 设置）；侧栏/底部面板取 PyCharm 工具窗口习惯键（Ctrl+Shift+F12 / Alt+F12）
   { id: "close_tab", label: "关闭标签", def: "Ctrl+F4", scope: "window" },
+  // 标签页循环切换（VS Code 同款默认键；不取 PyCharm 的 Alt+→/←，那组键被浏览器护栏吞掉）
+  { id: "next_tab", label: "下一个标签", def: "Ctrl+Tab", scope: "window" },
+  { id: "prev_tab", label: "上一个标签", def: "Ctrl+Shift+Tab", scope: "window" },
   { id: "new_file", label: "新建文件", def: "Ctrl+Alt+Insert", scope: "window" },
   { id: "open_settings", label: "打开设置", def: "Ctrl+Alt+S", scope: "window" },
   { id: "toggle_sidebar", label: "切换侧栏", def: "Ctrl+Shift+F12", scope: "window" },

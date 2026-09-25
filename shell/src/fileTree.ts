@@ -4,7 +4,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { app, $, lazyEl, statusFileEl, type Entry, type Tab } from "./state";
-import { basename, ensurePyExtension, samePath, stripPyExtension, gitBadgeClass, gitStatusLabel, joinPath, parentDirOf, relativePath, relativePathOrName, relativePathRaw, renderFileIcon } from "./util";
+import { basename, ensurePyExtension, normalizePath, samePath, stripPyExtension, gitBadgeClass, gitStatusLabel, joinPath, parentDirOf, relativePath, relativePathOrName, relativePathRaw, renderFileIcon } from "./util";
 // CR-25：状态读取改从零依赖的 gitStatusState（切断 fileTree ↔ git 的状态耦合）；
 // refreshGitStatus 是运行时才调用的函数（无初始化期循环风险），保留从 git.ts 导入
 import { refreshGitStatus, stageFiles, showDiffForPath, showBlame, showFileHistory, gitFileOriginalPath } from "./git";
@@ -66,6 +66,58 @@ let showHiddenFiles = false;
 /** 已展开目录路径集合（持久化用） */
 const expandedDirs = new Set<string>();
 
+// ---------- 展开状态持久化（按工作区，localStorage；B 批体验项） ----------
+
+const TREE_EXPANDED_KEY_PREFIX = "opencharm.tree_expanded:";
+/** G-1 红线：持久化必须有界——超出视为异常膨胀（如循环符号链接误展开），放弃落盘 */
+const MAX_PERSISTED_DIRS = 500;
+
+/** 当前工作区的展开状态存储 key；无工作区返回 null */
+function treeExpandedKey(): string | null {
+  if (!app.workspaceRoot) return null;
+  return TREE_EXPANDED_KEY_PREFIX + normalizePath(app.workspaceRoot);
+}
+
+/** 展开集合 → localStorage（toggleDir / collapseAll 变更点写穿） */
+function saveExpandedDirs(): void {
+  const key = treeExpandedKey();
+  if (!key) return;
+  try {
+    if (expandedDirs.size > MAX_PERSISTED_DIRS) return;
+    localStorage.setItem(key, JSON.stringify([...expandedDirs]));
+  } catch {
+    // 存储满/被禁用：静默（与 layout.ts 同款降级）
+  }
+}
+
+/** localStorage → 展开集合（refreshTree 在清空后调用，恢复当前工作区的持久化状态） */
+function loadExpandedDirs(): void {
+  const key = treeExpandedKey();
+  if (!key) return;
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return;
+    const arr: unknown = JSON.parse(raw);
+    if (Array.isArray(arr)) {
+      for (const d of arr) if (typeof d === "string") expandedDirs.add(d);
+    }
+  } catch {
+    // 数据损坏：忽略，按无持久化处理
+  }
+}
+
+/** 把指定集合中已渲染的目录逐个重新展开（refreshTree / refreshTreeWithExpandedState 共用；
+ *  根节点已在 renderRootNode 中展开，跳过） */
+async function restoreExpandedDirs(dirs: Iterable<string>): Promise<void> {
+  for (const dir of dirs) {
+    if (dir === app.workspaceRoot) continue;
+    const itemEl = treeEl.querySelector<HTMLElement>(`.tree-item[data-path="${CSS.escape(dir)}"]`);
+    if (!itemEl) continue;
+    const entry = entryFromEl(itemEl);
+    if (entry?.is_dir) await toggleDir(itemEl, entry, depthOf(itemEl));
+  }
+}
+
 // ---------- 树渲染 ----------
 
 // 树节点缩进：基础缩进（根级距左）+ 每层递增步长。
@@ -79,7 +131,10 @@ export async function refreshTree(): Promise<void> {
   treeEl.textContent = "";
   dirContainers.clear();
   expandedDirs.clear();
+  loadExpandedDirs(); // B 批：打开工作区时按持久化恢复展开状态（重启后不再全部收起）
   await renderRootNode();
+  await restoreExpandedDirs(expandedDirs);
+  saveExpandedDirs(); // 清掉存储里已不存在的陈旧目录
 }
 
 /** 渲染工作区根节点（可见、可折叠、默认展开），其子项装入根节点的子容器。
@@ -229,6 +284,7 @@ async function toggleDir(item: HTMLElement, e: Entry, depth: number): Promise<vo
     existing.container.remove();
     dirContainers.delete(e.path);
     expandedDirs.delete(e.path);
+    saveExpandedDirs(); // B 批：展开状态变更写穿持久化
     setTwisty(twisty, false);
     item.setAttribute("aria-expanded", "false"); // UI-16：与 twisty 图标同源
     return;
@@ -236,6 +292,7 @@ async function toggleDir(item: HTMLElement, e: Entry, depth: number): Promise<vo
   setTwisty(twisty, true);
   item.setAttribute("aria-expanded", "true"); // UI-16
   expandedDirs.add(e.path);
+  saveExpandedDirs(); // B 批：展开状态变更写穿持久化
   const childContainer = document.createElement("div");
   childContainer.className = "tree-children";
   childContainer.setAttribute("role", "group"); // UI-16：treeitem 的子级分组
@@ -269,6 +326,7 @@ function collapseAll(): void {
     dirContainers.delete(path);
     expandedDirs.delete(path);
   }
+  saveExpandedDirs(); // B 批：全部折叠也落盘（下次打开工作区保持折叠态）
   // 重置所有 twisty 为收起态（UI-16：aria-expanded 一并复位）。
   // 根节点（data-root）豁免：它始终保持展开，是工作区的视觉锚点。
   treeEl.querySelectorAll<HTMLElement>(".tree-item.dir:not([data-root]) .twisty").forEach((el) => setTwisty(el, false));
@@ -309,22 +367,16 @@ async function toggleHiddenFiles(): Promise<void> {
 export async function refreshTreeWithExpandedState(): Promise<void> {
   if (!app.workspaceRoot) return;
   const prevExpanded = new Set(expandedDirs);
+  // B 批：快照滚动位置——重建 DOM 会归零，展开态恢复了滚动也该恢复
+  const scrollTop = treeEl.scrollTop;
   await refreshGitStatus();
   treeEl.textContent = "";
   dirContainers.clear();
   expandedDirs.clear();
   await renderRootNode();
-  // 恢复之前展开的子目录（根节点已在 renderRootNode 中展开，跳过）
-  for (const dir of prevExpanded) {
-    if (dir === app.workspaceRoot) continue;
-    const itemEl = treeEl.querySelector<HTMLElement>(`.tree-item[data-path="${CSS.escape(dir)}"]`);
-    if (itemEl) {
-      const entry = entryFromEl(itemEl);
-      if (entry?.is_dir) {
-        await toggleDir(itemEl, entry, depthOf(itemEl));
-      }
-    }
-  }
+  await restoreExpandedDirs(prevExpanded);
+  saveExpandedDirs(); // 清掉已不存在的陈旧目录
+  treeEl.scrollTop = scrollTop;
 }
 
 /** UI-16：选中态的单一写入点——.active 类（视觉）与 aria-selected（读屏）必须同源，
@@ -611,12 +663,13 @@ async function ensureDirExpanded(path: string): Promise<{ container: HTMLElement
 // ---------- E-3（PyCharm 调研）：文件树定位到当前文件 ----------
 
 /** 在树中定位到指定路径：逐级展开父目录 → 滚动到可见 → 置为选中。
- *  节点未渲染（如新建后未刷新的文件）时先刷新其父目录再找一次。 */
-export async function revealInTree(path: string): Promise<void> {
+ *  节点未渲染（如新建后未刷新的文件）时先刷新其父目录再找一次。
+ *  opts.switchView=false 时不强制切到 files 视图（自动跟随用；手动按钮入口保持切换）。 */
+export async function revealInTree(path: string, opts?: { switchView?: boolean }): Promise<void> {
   if (!app.workspaceRoot) return;
   const rel = relativePathRaw(app.workspaceRoot, path);
   if (!rel) return; // 不在工作区内，无从定位
-  setSidebarTab("files");
+  if (opts?.switchView !== false) setSidebarTab("files");
   const parts = rel.split(/[\\/]/).filter(Boolean);
   let cur = app.workspaceRoot;
   for (const part of parts.slice(0, -1)) {
@@ -645,6 +698,53 @@ export async function revealActiveFile(): Promise<void> {
     return;
   }
   await revealInTree(tab.path);
+}
+
+// ---------- B 批：切文件自动在树中定位（可关开关，localStorage 持久化） ----------
+
+const TREE_FOLLOW_KEY = "opencharm.tree_follow";
+/** 默认开启；存 "0" 视为关闭（用户主动关过）。顶层取值兜底 try/catch——
+ *  纯 Node 测试环境无 localStorage，import 不可即炸（CR-26 同款考虑） */
+let followActiveFile = (() => {
+  try {
+    return localStorage.getItem(TREE_FOLLOW_KEY) !== "0";
+  } catch {
+    return true;
+  }
+})();
+/** 跟随防抖 timer（域内私有状态）：快速连续切 tab（Ctrl+Tab 长按）只定位最后一个 */
+let followTimer: number | null = null;
+
+function syncFollowBtn(): void {
+  // 无按钮则跳过（精简 DOM 环境 / closeWorkspace 路径，同 syncHiddenFilesBtn 处理）
+  const btn = document.getElementById("btn-tree-follow");
+  if (!btn) return;
+  const tip = followActiveFile ? "切换文件时自动定位（已开）" : "切换文件时自动定位（已关）";
+  btn.classList.toggle("active", followActiveFile);
+  btn.dataset.tip = tip;
+  btn.setAttribute("aria-label", tip);
+  btn.setAttribute("aria-pressed", String(followActiveFile));
+}
+
+function toggleTreeFollow(): void {
+  followActiveFile = !followActiveFile;
+  try {
+    localStorage.setItem(TREE_FOLLOW_KEY, followActiveFile ? "1" : "0");
+  } catch {
+    // 存储不可用：本次会话内仍生效
+  }
+  syncFollowBtn();
+}
+
+/** 切标签后由 main.ts::activateTab 调用（仅 files 视图可见时）：防抖 120ms 后自动定位 */
+export function scheduleFollowReveal(): void {
+  if (!followActiveFile) return;
+  if (followTimer !== null) window.clearTimeout(followTimer);
+  followTimer = window.setTimeout(() => {
+    followTimer = null;
+    const tab = app.activeTab;
+    if (tab && tab.kind !== "diff") void revealInTree(tab.path, { switchView: false });
+  }, 120);
 }
 
 /** 新建文件（内联输入，支持相对路径 pkg/mod.py；创建后立即打开） */
@@ -1000,6 +1100,8 @@ export function wireFileTree(): void {
   $("btn-tree-refresh").addEventListener("click", () => void refreshTreeWithExpandedState());
   $("btn-tree-collapse").addEventListener("click", collapseAll);
   $("btn-tree-reveal").addEventListener("click", () => void revealActiveFile()); // E-3
+  $("btn-tree-follow").addEventListener("click", () => toggleTreeFollow()); // B 批：自动定位开关
+  syncFollowBtn(); // 恢复上次会话的开关视觉态（aria-pressed / .active / data-tip）
   $("btn-tree-hidden").addEventListener("click", () => void toggleHiddenFiles());
   // 文件树过滤
   const filterInput = $("tree-filter-input") as HTMLInputElement;
@@ -1199,6 +1301,10 @@ export function resetTreeState(): void {
   showHiddenFiles = false;
   syncHiddenFilesBtn(); // UI-09：同步复位按钮的 .active / 提示 / aria 态（此前遗漏，详见该函数注释）
   expandedDirs.clear();
+  if (followTimer !== null) {
+    window.clearTimeout(followTimer); // 工作区已关：挂起的自动定位作废（revealInTree 也会自行早退）
+    followTimer = null;
+  }
   treeEl.textContent = "";
   dirContainers.clear();
 }

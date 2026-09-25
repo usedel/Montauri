@@ -256,12 +256,22 @@ export function renderGitPanel(): void {
   }
   if (unstaged.length > 0) {
     box.appendChild(
-      gitSectionTitle(`更改（${unstaged.length}）`, {
-        symbol: "+",
-        tip: "全部暂存",
-        ariaLabel: "全部暂存更改",
-        action: () => void stageFiles(unstaged.map((f) => f.path)),
-      }),
+      // B 批（对齐 VS Code Changes 分组）：↩ 丢弃全部更改 + + 全部暂存 双动作
+      gitSectionTitle(`更改（${unstaged.length}）`, [
+        {
+          symbol: "",
+          icon: "discard", // 与行内「丢弃更改」同一图标（对标 VS Code 分组头 Discard All）
+          tip: "丢弃全部更改…",
+          ariaLabel: "丢弃全部更改",
+          action: () => void discardAllChanges(),
+        },
+        {
+          symbol: "+",
+          tip: "全部暂存",
+          ariaLabel: "全部暂存更改",
+          action: () => void stageFiles(unstaged.map((f) => f.path)),
+        },
+      ]),
     );
     for (const f of unstaged) box.appendChild(renderScmItem(f, false));
   }
@@ -301,6 +311,18 @@ export async function gitInitRepo(): Promise<void> {
   await refreshTreeWithExpandedState();
 }
 
+/** 丢弃全部更改（B 批对齐 VS Code「Discard All Changes」：更改分组头部 ↩ 入口 +
+ *  命令面板 / Git 菜单；确认弹窗、tracked checkout / untracked 删除、编辑器重载
+ *  均复用 discardFiles 单一实现） */
+export async function discardAllChanges(): Promise<void> {
+  const unstaged = gitFiles.filter((f) => !gitFileStaged(f));
+  if (unstaged.length === 0) {
+    toast("没有可丢弃的更改", "info");
+    return;
+  }
+  await discardFiles(unstaged);
+}
+
 /** 暂存全部更改（命令面板 / Git 菜单 / 文件树右键共用入口） */
 export async function stageAllChanges(): Promise<void> {
   const unstaged = gitFiles.filter((f) => !gitFileStaged(f));
@@ -337,26 +359,29 @@ export function gitFileOriginalPath(normalizedRel: string): string | null {
 /** 分组标题栏的可选批量操作（hover 显现的 +/−） */
 interface GitSectionAction {
   symbol: string;
+  /** 可选：codicon 图标名，提供时替代 symbol 文本渲染（如分组头「丢弃全部」与行内「丢弃更改」同图标） */
+  icon?: string;
   tip: string;
   ariaLabel: string;
   action: () => void;
 }
 
-function gitSectionTitle(text: string, act?: GitSectionAction): HTMLElement {
+function gitSectionTitle(text: string, act?: GitSectionAction | GitSectionAction[]): HTMLElement {
   const el = document.createElement("div");
   el.className = "git-section-title";
   const label = document.createElement("span");
   label.textContent = text;
   el.appendChild(label);
-  if (act) {
+  for (const a of act ? (Array.isArray(act) ? act : [act]) : []) {
     const btn = document.createElement("button");
     btn.className = "scm-section-action";
-    btn.dataset.tip = act.tip;
-    btn.setAttribute("aria-label", act.ariaLabel);
-    btn.textContent = act.symbol;
+    btn.dataset.tip = a.tip;
+    btn.setAttribute("aria-label", a.ariaLabel);
+    if (a.icon) btn.appendChild(codicon(a.icon)); // 图标态（内部 <i> aria-hidden，语义由 aria-label 承担）
+    else btn.textContent = a.symbol;
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
-      act.action();
+      a.action();
     });
     el.appendChild(btn);
   }

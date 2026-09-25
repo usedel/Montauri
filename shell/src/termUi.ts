@@ -695,10 +695,18 @@ export async function disposeTerminal(): Promise<void> {
 
 // ---------- 事件接线 ----------
 
-/** P1（UX 审查）：切换底部面板展开/收起（#btn-toggle-output 与键位 Alt+F12 共用唯一实现） */
+/** P1（UX 审查）：切换底部面板展开/收起（#btn-toggle-output 与键位 Alt+F12 共用唯一实现）。
+ *  B 批：折叠态写穿 localStorage，启动时恢复（wireBottomPanel）。 */
+const BOTTOM_COLLAPSED_KEY = "opencharm.bottom_collapsed";
+
 export function toggleBottomPanel(): void {
   const bottom = $("bottom");
   bottom.classList.toggle("collapsed");
+  try {
+    localStorage.setItem(BOTTOM_COLLAPSED_KEY, bottom.classList.contains("collapsed") ? "1" : "0");
+  } catch {
+    // 存储不可用：本次会话内仍生效
+  }
   // 展开时若终端可见，重新 fit + resize（收起期间尺寸归零）
   if (!bottom.classList.contains("collapsed") && bottomTab === "terminal") {
     activeTermSession()?.iterm.relayout();
@@ -707,6 +715,8 @@ export function toggleBottomPanel(): void {
 
 /** 接线底部面板交互：标签切换 / 清空输出 / 展开收起 / 高频命令下拉 */
 export function wireBottomPanel(): void {
+  // B 批：恢复上次会话的折叠态（习惯收起终端的用户重启后不再重新展开）
+  if (localStorage.getItem(BOTTOM_COLLAPSED_KEY) === "1") $("bottom").classList.add("collapsed");
   // 底部面板：输出 / 终端标签 + 清空 + 展开收起
   $("tab-output").addEventListener("click", () => setBottomTab("output"));
   $("tab-terminal").addEventListener("click", () => setBottomTab("terminal"));

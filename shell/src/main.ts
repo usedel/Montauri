@@ -32,7 +32,7 @@ import { initClipboardDiffAction } from "./clipboardDiff"; // C-5：与剪贴板
 import { initNoqaAction } from "./ruffLint"; // D-4：忽略此规则（# noqa，右键菜单）
 import { initQuickFixActions, resetQuickFixCache } from "./quickFix"; // P4：D-1 缺失 import 兜底 + D-2 就地创建符号
 import * as splitEditor from "./splitEditor"; // P4（C-4）：向右分屏（handlers 注入，防 settingsPanel 成环）
-import { registerSidebarView, setSidebarTab, activeView } from "./views";
+import { registerSidebarView, setSidebarTab, activeView, restoreSidebarView } from "./views";
 import * as lsp from "./lsp/client";
 import * as kb from "./keybindings";
 import { appendOutputLine, clearOutput, setOutputTracebackHandler, setOutputUrlHandler } from "./output";
@@ -40,10 +40,10 @@ import { openAlert, openConfirm, openPrompt } from "./dialog";
 import { app, $, outputEl, statusFileEl, type Entry, type Tab } from "./state";
 import {
   createDirAt, createFileInteractive, isDirExpanded, isTreeEmpty, refreshTree, reloadDir,
-  renderCtxMenu, resetTreeState, setFileTreeHandlers, wireFileTree, type CtxItem,
+  renderCtxMenu, resetTreeState, scheduleFollowReveal, setFileTreeHandlers, wireFileTree, type CtxItem,
 } from "./fileTree";
 import {
-  cleanupDiffTabState, commitAll, currentDiffEditor, dismissDiffHost, gitInitRepo, gitRemoteOp, gitStash, gitStashPop,
+  cleanupDiffTabState, commitAll, currentDiffEditor, discardAllChanges, dismissDiffHost, gitInitRepo, gitRemoteOp, gitStash, gitStashPop,
   presentDiffHost, refreshBranchPanel, refreshDiffIfViewing, refreshDiffOnActivate, refreshGitStatus,
   renderGitPanel, resetGitState, setDiffTabHandlers, setGitOpenFileHandler, setGitReloadHandler, stageAllChanges,
   toggleBranchList, toggleHistory, wireGitUI,
@@ -705,7 +705,14 @@ async function doOpenFile(path: string, revealLine?: number): Promise<void> {
   pushCurrent();
   let tab = app.tabs.find((t) => t.path === path);
   if (!tab) {
-    const content = await invoke<string>("read_file", { path });
+    let content: string;
+    try {
+      content = await invoke<string>("read_file", { path });
+    } catch (e) {
+      // 大文件守卫 / 目录 / 编码错误等：toast 呈现而非静默 unhandled rejection
+      toast(`打开文件失败：${String(e)}`, "error");
+      return;
+    }
     // CR-08：并发防线二——创建前再查既有 model 命中则复用（防其它入口已建）
     const uri = app.monaco.Uri.file(path);
     const model = app.monaco.editor.getModel(uri) ?? app.monaco.editor.createModel(content, languageOf(path), uri);
@@ -744,7 +751,12 @@ function revealAfterOpen(path: string, revealLine?: number): void {
   }
 }
 
-function activateTab(tab: Tab): void {
+function activateTab(tab: Tab, opts?: { focusEditor?: boolean }): void {
+  // 切标签记忆视图状态：离开前保存前一文件 tab 的光标/滚动，切回时恢复
+  const prev = app.activeTab;
+  if (prev && prev !== tab && prev.kind !== "diff" && app.editor.getModel() === prev.model) {
+    prev.viewState = app.editor.saveViewState() ?? undefined;
+  }
   app.activeTab = tab;
   scheduleSessionSave(); // A-5：切标签后刷新会话快照（恢复期间由 session.ts 的 restoring 标志屏蔽）
   if (tab.kind === "diff") {
@@ -763,9 +775,13 @@ function activateTab(tab: Tab): void {
   dismissDiffHost();
   splitEditor.setDiffActive(false); // C-4：分屏若开着则恢复显示
   app.editor.setModel(tab.model);
+  if (tab.viewState) app.editor.restoreViewState(tab.viewState);
   renderTabs();
   statusFileEl.textContent = tab.path;
-  if (activeView() === "files") refreshOutline();
+  if (activeView() === "files") {
+    refreshOutline();
+    scheduleFollowReveal(); // B 批：文件树自动跟随当前文件（可关开关，防抖 120ms 去抖动）
+  }
   updateEditorOverlay();
   refreshRunGutter(); // C5：切换 tab 重算 __main__ 守卫行的 ▶
   refreshDebugGutter(); // D3：切换 tab 重算断点红点
@@ -774,6 +790,17 @@ function activateTab(tab: Tab): void {
   refreshBookmarkGutter(); // P2：书签标记跟随激活文件
   void lintActiveFile(); // P2：ruff 实时 lint（切 tab 立即跑，不等防抖）
   mdPreview.updatePreviewVisibility(); // Markdown 预览：切换 tab 后按「是否 md + 开关」刷新显隐
+  // 鼠标切 tab / 关 tab 后焦点落回编辑器（打字立即生效）；tab 键盘激活路径传 false，
+  // 保住 UI-16 的 tabbar 方向键漫游（Enter 激活后继续 ←→ 移动）
+  if (opts?.focusEditor !== false) app.editor.focus();
+}
+
+/** 下一个/上一个标签（Ctrl+Tab / Ctrl+Shift+Tab）：按 tabs 数组顺序循环切换 */
+function cycleTab(dir: 1 | -1): void {
+  if (app.tabs.length < 2) return;
+  const idx = app.activeTab ? app.tabs.indexOf(app.activeTab) : -1;
+  const next = app.tabs[(idx + dir + app.tabs.length) % app.tabs.length] ?? null;
+  if (next) activateTab(next);
 }
 
 async function closeTab(tab: Tab): Promise<void> {
@@ -891,10 +918,20 @@ export function renderTabs(): void {
       el.append(name, dirty, close);
     }
     el.addEventListener("click", () => activateTab(t));
+    // 中键关闭（编辑器惯例）：mousedown 先拦掉 Chromium 的 autoscroll，auxclick 执行关闭
+    el.addEventListener("mousedown", (ev) => {
+      if (ev.button === 1) ev.preventDefault();
+    });
+    el.addEventListener("auxclick", (ev) => {
+      if (ev.button !== 1) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      void closeTab(t); // dirty 时仍走 closeTab 的确认弹窗，与关闭按钮一致
+    });
     el.addEventListener("keydown", (ev) => {
       if (ev.key === "Enter" || ev.key === " ") {
         ev.preventDefault();
-        activateTab(t);
+        activateTab(t, { focusEditor: false }); // 键盘激活：焦点留在 tabbar，方向键漫游继续
       } else if (ev.key === "ArrowRight" || ev.key === "ArrowLeft") {
         ev.preventDefault();
         const tabs = Array.from(tabbarEl.querySelectorAll<HTMLElement>(".tab"));
@@ -917,6 +954,9 @@ export function renderTabs(): void {
       tabbarEl.querySelector<HTMLElement>(".tab.active");
     target?.focus();
   }
+  // 激活标签滚入可视区（Ctrl+E / 跳转定义打开远处文件时激活 tab 可能完全在屏外；
+  // nearest 只在屏外时才滚，不影响日常重绘）
+  tabbarEl.querySelector<HTMLElement>(".tab.active")?.scrollIntoView({ block: "nearest", inline: "nearest" });
   // 运行组按钮随 tab / 运行态一起重绘（renderTabs 覆盖了大多数状态变化点）
   renderRunWidget(runWidgetState());
 }
@@ -997,7 +1037,9 @@ async function reloadFileFromDisk(path: string, force = false): Promise<void> {
   if (!tab) return;
   if (!force && tab.dirty) return; // 有未保存修改且非强制：跳过（调用方负责提示）
   const content = await invoke<string>("read_file", { path });
-  tab.model.setValue(content);
+  // 全文替换用 pushEditOperations 而非 setValue——setValue 会清空该 model 的 undo 栈，
+  // git 改写工作区/本地历史回滚后 Ctrl+Z 将无法回到替换前内容；pushEditOperations 保栈
+  tab.model.pushEditOperations([], [{ range: tab.model.getFullModelRange(), text: content }], () => null);
   tab.dirty = false;
   renderTabs();
   await lsp.didChangeFull(path, tab.model);
@@ -1236,6 +1278,7 @@ function buildQuickOpenActions(): QuickOpenAction[] {
     // 此前仅 git_panel 一条，键盘流用户完全不可达（报告 D9）
     { id: "git_init", label: "Git: 初始化仓库", run: () => void gitInitRepo() },
     { id: "git_stage_all", label: "Git: 暂存全部更改", run: () => void stageAllChanges() },
+    { id: "git_discard_all", label: "Git: 丢弃全部更改…", run: () => void discardAllChanges() },
     { id: "git_commit", label: "Git: 提交", run: () => { setSidebarTab("git"); ($("git-commit-msg") as HTMLTextAreaElement).focus(); } },
     { id: "git_commit_all", label: "Git: 提交全部更改", run: () => void commitAll() },
     { id: "git_fetch", label: "Git: 抓取（Fetch）", run: () => void gitRemoteOp("fetch") },
@@ -1598,6 +1641,7 @@ function getMenuItems(menu: string): MenuEntry[] {
       { label: "初始化仓库…", action: () => void gitInitRepo() },
       { sep: true, label: "" },
       { label: "暂存全部更改", action: () => void stageAllChanges() },
+      { label: "丢弃全部更改…", action: () => void discardAllChanges() },
       {
         label: "提交…",
         action: () => { setSidebarTab("git"); ($("git-commit-msg") as HTMLTextAreaElement).focus(); },
@@ -1703,6 +1747,14 @@ async function init(): Promise<void> {
     app.editor.updateOptions({ fontSize: next });
     applyFontStatus();
     void saveSettings();
+  }, { passive: false });
+
+  // 标签栏滚轮横滚（标签多时鼠标滚轮纵向增量转横向滚动，与触控板行为一致）
+  tabbarEl.addEventListener("wheel", (e: WheelEvent) => {
+    if (e.ctrlKey) return; // Ctrl+滚轮留给编辑器字体缩放语义
+    if (tabbarEl.scrollWidth <= tabbarEl.clientWidth) return;
+    e.preventDefault();
+    tabbarEl.scrollLeft += e.deltaY + e.deltaX;
   }, { passive: false });
 
   // 失焦自动保存（P25-T08）
@@ -1884,6 +1936,9 @@ async function init(): Promise<void> {
     else if (id === "run_history") openRunHistory();
     // P1（UX 审查）：高频操作键位（关闭标签 / 新建文件 / 设置 / 侧栏 / 底部面板）
     else if (id === "close_tab") { if (app.activeTab) void closeTab(app.activeTab); }
+    // 标签页循环切换（Ctrl+Tab / Ctrl+Shift+Tab）
+    else if (id === "next_tab") cycleTab(1);
+    else if (id === "prev_tab") cycleTab(-1);
     else if (id === "new_file") void createFileInteractive();
     else if (id === "open_settings") openSettingsPanel();
     else if (id === "toggle_sidebar") toggleSidebar();
@@ -2240,6 +2295,11 @@ async function init(): Promise<void> {
   const toggleOutline = () => {
     const collapsed = $("outline-section").classList.toggle("collapsed");
     outlineHeader.setAttribute("aria-expanded", String(!collapsed));
+    try {
+      localStorage.setItem("opencharm.outline_collapsed", collapsed ? "1" : "0"); // B 批：写穿持久化
+    } catch {
+      // 存储不可用：本次会话内仍生效
+    }
   };
   outlineHeader.addEventListener("click", toggleOutline);
   outlineHeader.addEventListener("keydown", (e) => {
@@ -2248,8 +2308,10 @@ async function init(): Promise<void> {
       toggleOutline();
     }
   });
-  // 初始化默认激活视图（files 默认显示，使 activeView() 非 null，outline 随文件打开刷新）
-  setSidebarTab("files");
+  // B 批：恢复上次的大纲折叠态（存 "1" 且默认展开 → 切一次即折叠）
+  if (localStorage.getItem("opencharm.outline_collapsed") === "1") toggleOutline();
+  // 初始化激活视图：优先恢复上次会话的选择（B 批持久化），无记录/非法值回退 files
+  restoreSidebarView("files");
   // Git 域 UI 接线（SCM 工具栏 / 历史 / diff / 提交 / 分支，TD-007）
   wireGitUI();
   // 第 2 步迁移：diff tab 生命周期回调（git.ts 的 showDiff/关闭链 → main 的 tab 统一路径）

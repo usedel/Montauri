@@ -52,6 +52,9 @@ fn default_keybindings() -> HashMap<String, String> {
     m.insert("markdown_preview".into(), "Ctrl+Shift+V".into());
     // P1（UX 审查）：高频操作补键位（与前端 KEYBINDING_META / DEFAULT_SETTINGS 三处同步）
     m.insert("close_tab".into(), "Ctrl+F4".into());
+    // 标签页循环切换（VS Code 同款；与前端 KEYBINDING_META / DEFAULT_SETTINGS 三处同步）
+    m.insert("next_tab".into(), "Ctrl+Tab".into());
+    m.insert("prev_tab".into(), "Ctrl+Shift+Tab".into());
     m.insert("new_file".into(), "Ctrl+Alt+Insert".into());
     m.insert("open_settings".into(), "Ctrl+Alt+S".into());
     m.insert("toggle_sidebar".into(), "Ctrl+Shift+F12".into());
@@ -289,6 +292,9 @@ mod tests {
         assert_eq!(d.keybindings.get("scratch_new").map(String::as_str), Some("Ctrl+Alt+Shift+Insert"));
         // P1（UX 审查）：关闭标签 / 新建文件 / 打开设置 / 切换侧栏 / 切换底部面板
         assert_eq!(d.keybindings.get("close_tab").map(String::as_str), Some("Ctrl+F4"));
+        // 标签页循环切换
+        assert_eq!(d.keybindings.get("next_tab").map(String::as_str), Some("Ctrl+Tab"));
+        assert_eq!(d.keybindings.get("prev_tab").map(String::as_str), Some("Ctrl+Shift+Tab"));
         assert_eq!(d.keybindings.get("new_file").map(String::as_str), Some("Ctrl+Alt+Insert"));
         assert_eq!(d.keybindings.get("open_settings").map(String::as_str), Some("Ctrl+Alt+S"));
         assert_eq!(d.keybindings.get("toggle_sidebar").map(String::as_str), Some("Ctrl+Shift+F12"));
@@ -305,7 +311,7 @@ mod tests {
         // P4（C-4）：向右分屏
         assert_eq!(d.keybindings.get("split_editor").map(String::as_str), Some("Ctrl+\\"));
         // 键位表条目数 = 前端 KEYBINDING_META 条目数（漂移锁，新增键须同步改这里）
-        assert_eq!(d.keybindings.len(), 46);
+        assert_eq!(d.keybindings.len(), 48);
         assert_eq!(d.optimize_imports_on_save, false);
     }
 
@@ -360,7 +366,7 @@ mod tests {
         // P1（PyCharm 调研 C-1/C-2）：旧配置无智能选区/移动行 → 回落默认
         assert_eq!(s.keybindings.get("smart_select_expand").map(String::as_str), Some("Ctrl+W"));
         assert_eq!(s.keybindings.get("move_line_down").map(String::as_str), Some("Ctrl+Shift+Down"));
-        assert_eq!(s.keybindings.len(), 46);
+        assert_eq!(s.keybindings.len(), 48);
         assert_eq!(s.optimize_imports_on_save, false); // 旧配置文件无此字段 → 默认关闭
     }
 }

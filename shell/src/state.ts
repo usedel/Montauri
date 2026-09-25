@@ -18,6 +18,8 @@ export interface Tab {
   path: string;
   model: MonacoApi.editor.ITextModel;
   dirty: boolean;
+  /** 切标签时的编辑器视图状态（光标/滚动/选区），activateTab 保存与恢复 */
+  viewState?: MonacoApi.editor.ICodeEditorViewState;
   /** tab 类型：普通文件（默认）| git diff 视图 */
   kind?: "file" | "diff";
   /** kind="diff" 时的元数据 */
