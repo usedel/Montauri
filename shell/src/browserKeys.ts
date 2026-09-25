@@ -8,10 +8,13 @@
 //
 // 策略（capture 阶段，赶在浏览器与各面板之前）：
 //  1. 应用**未认领**的浏览器加速器 → preventDefault + stopPropagation（彻底吞掉）；
-//  2. 应用**已认领**的（键位表 window 级）→ 只 preventDefault、不 stopPropagation：
-//     动作仍由 main.ts 原来的分发执行，但焦点在输入框时也不会漏给浏览器；
+//  2. 应用**已认领**的（键位表 window 级，含危险键被用户改键认领的情况）→ 只 preventDefault、
+//     不 stopPropagation：动作仍由 main.ts 原来的分发执行，但焦点在输入框时也不会漏给浏览器；
 //  3. 焦点在 Monaco 内时只拦「Monaco 与键位表都不认领」的危险组合（Ctrl+R/Ctrl+P/…），
-//     其余交回 Monaco——否则会误伤它的 Ctrl+D / Ctrl+K 和弦 / F3 等自带键位。
+//     其余交回 Monaco——否则会误伤它的 Ctrl+D / Ctrl+K 和弦 / F3 等自带键位；
+//  4. 焦点在设置面板「按键录入」框（.kb-capture）中 → 只 preventDefault、不 stopPropagation：
+//     危险键（Ctrl+W 等）也要送进录入框成键，否则用户无法把此类键设为自定义键位。
+//     两个放行口的判定收口在纯函数 shouldSwallowGuardEvent（单测覆盖）。
 
 import * as kb from "./keybindings";
 
@@ -89,10 +92,34 @@ export function isClaimedInMonaco(combo: string, inMonaco: boolean): boolean {
   return inMonaco && CLAIMED_IN_MONACO.has(combo);
 }
 
+/**
+ * 护栏是否应**吞掉事件**（stopPropagation，连应用自己的分发也不给）。
+ * 两个放行口（仍 preventDefault 阻断浏览器动作，只是事件继续传播）：
+ * - captureMode：焦点在设置面板「按键录入」框中——组合键要送进录入框成键；
+ * - windowClaimed：危险组合已被某条 window 级键位认领（如用户把关闭标签改成 Ctrl+W）——
+ *   事件放行给 main.ts 的 window 分发执行动作。
+ */
+export function shouldSwallowGuardEvent(
+  combo: string,
+  inMonaco: boolean,
+  captureMode: boolean,
+  windowClaimed: boolean,
+): boolean {
+  if (captureMode) return false;
+  if (!isBlockedCombo(combo, inMonaco)) return false;
+  return !isClaimedInMonaco(combo, inMonaco) && !windowClaimed;
+}
+
 /** 焦点是否在 Monaco 编辑器内（主编辑器 / diff / 本地历史 / 查找条都算） */
 function focusInMonaco(): boolean {
   const ae = document.activeElement as HTMLElement | null;
   return !!ae?.closest?.(".monaco-editor");
+}
+
+/** 焦点是否在快捷键「按键录入」框中（settingsPanel 聚焦时挂 kb-capture class） */
+function focusInKeybindingCapture(): boolean {
+  const ae = document.activeElement as HTMLElement | null;
+  return !!ae?.classList?.contains("kb-capture");
 }
 
 /** 安装 window 级捕获监听（幂等由调用方保证：main.ts 接线区只调一次） */
@@ -103,14 +130,18 @@ export function installBrowserKeyGuard(): void {
       const combo = comboOf(e);
       if (!combo) return;
       const inMonaco = focusInMonaco();
-      if (isBlockedCombo(combo, inMonaco)) {
+      // 危险键已被 window 级键位认领（如 close_tab=Ctrl+W）：preventDefault 后放行给 main.ts 分发
+      const windowClaimed = kb.matchWindowBinding(e) !== null;
+      if (shouldSwallowGuardEvent(combo, inMonaco, focusInKeybindingCapture(), windowClaimed)) {
         e.preventDefault();
-        // 应用已认领的危险键（Ctrl+W 智能选区）：放行给 Monaco，否则键位永远触发不到
-        if (!isClaimedInMonaco(combo, inMonaco)) e.stopPropagation();
+        e.stopPropagation();
         return;
       }
-      // 应用认领的组合：main.ts 在输入框内会整段跳过，这里补一道阻断（动作照旧由原分发决定）
-      if (kb.matchWindowBinding(e)) e.preventDefault();
+      // 应用认领的组合（含上方的 windowClaimed）：只阻断浏览器动作，事件继续传播给应用分发；
+      // 非认领组合一律不动（否则普通输入框打字会被 preventDefault 吞掉）
+      if (windowClaimed) {
+        e.preventDefault();
+      }
     },
     true,
   );
