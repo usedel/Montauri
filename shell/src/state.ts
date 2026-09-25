@@ -31,6 +31,14 @@ export interface Tab {
   };
 }
 
+/** 保存选项：自动保存路径（autosave 定时器 / 失焦 / 运行前落盘）传 runOnSaveActions=false——
+ *  ruff isort/format 只跟显式 Ctrl+S 走（保存动作与落盘解耦，避免 autosave 每 2s 跑 ruff、
+ *  产生意外 diff；PyCharm 移除 reformat-on-save 的同一结论） */
+export interface SaveOptions {
+  /** 是否执行保存时动作（isort / format），默认 true */
+  runOnSaveActions?: boolean;
+}
+
 /** 全局设置（P25-T08/T09；P1 扩展编辑器高频项） */
 export interface Settings {
   theme: string;
@@ -102,8 +110,10 @@ export const DEFAULT_SETTINGS: Settings = {
   bracket_colors: true,
   // B-3（PyCharm 调研）：只步进我的代码，默认开（与 DAP attach 硬编码时代行为一致）
   debug_just_my_code: true,
-  autosave: "off",
-  autosave_delay: 1000,
+  // autosave 默认 delay 2s（PyCharm 式数据安全优先，对标 VSCode/PyCharm 调研结论）；
+  // 与 Rust Settings::default 保持同步
+  autosave: "delay",
+  autosave_delay: 2000,
   probe_enabled: true,
   lsp_engine: "pyrefly",
   format_on_save: false,

@@ -37,7 +37,7 @@ import * as lsp from "./lsp/client";
 import * as kb from "./keybindings";
 import { appendOutputLine, clearOutput, setOutputTracebackHandler, setOutputUrlHandler } from "./output";
 import { openAlert, openConfirm, openPrompt } from "./dialog";
-import { app, $, outputEl, statusFileEl, type Entry, type Tab } from "./state";
+import { app, $, outputEl, statusFileEl, type Entry, type SaveOptions, type Tab } from "./state";
 import {
   createDirAt, createFileInteractive, isDirExpanded, isTreeEmpty, refreshTree, reloadDir,
   renderCtxMenu, resetTreeState, scheduleFollowReveal, setFileTreeHandlers, wireFileTree, type CtxItem,
@@ -45,7 +45,7 @@ import {
 import {
   cleanupDiffTabState, commitAll, currentDiffEditor, discardAllChanges, dismissDiffHost, gitInitRepo, gitRemoteOp, gitStash, gitStashPop,
   presentDiffHost, refreshBranchPanel, refreshDiffIfViewing, refreshDiffOnActivate, refreshGitStatus,
-  renderGitPanel, resetGitState, setDiffTabHandlers, setGitOpenFileHandler, setGitReloadHandler, stageAllChanges,
+  renderGitPanel, resetGitState, setDiffTabHandlers, setGitEditorBridge, setGitOpenFileHandler, setGitReloadHandler, stageAllChanges,
   toggleBranchList, toggleHistory, wireGitUI,
 } from "./git";
 import {
@@ -153,15 +153,26 @@ const statusLspEl = $("status-lsp");
 const editorTimers = {
   change: undefined as number | undefined,
   outline: undefined as number | undefined,
-  autosave: undefined as number | undefined,
+  /** autosave delay 模式：每个脏 tab 独立计时（path → timer；对标 VSCode 语义，
+   *  后台 tab 的编辑静默到期也落盘，不再是只存 activeTab） */
+  autosave: new Map<string, number>(),
   gutter: undefined as number | undefined,
   /** 全部 clearTimeout（切换/关闭工作区时调用，防旧工作区回调跨生命周期触发） */
   clearAll(): void {
     window.clearTimeout(this.change);
     window.clearTimeout(this.outline);
-    window.clearTimeout(this.autosave);
+    for (const t of this.autosave.values()) window.clearTimeout(t);
+    this.autosave.clear();
     window.clearTimeout(this.gutter);
-    this.change = this.outline = this.autosave = this.gutter = undefined;
+    this.change = this.outline = this.gutter = undefined;
+  },
+  /** 清除指定文件的 autosave 计时器（关闭 tab 时调用，防 dispose 后回调触发） */
+  clearAutosave(path: string): void {
+    const t = this.autosave.get(path);
+    if (t !== undefined) {
+      window.clearTimeout(t);
+      this.autosave.delete(path);
+    }
   },
 };
 
@@ -679,7 +690,15 @@ const lspProviders = new DisposableStore();
 /** CR-08：openFile 进行中去重表（path → 未完成的打开 Promise），防并发双开同文件 */
 const openFileInflight = new Map<string, Promise<void>>();
 
-export async function openFile(path: string, revealLine?: number): Promise<void> {
+/** openFile 选项 */
+export interface OpenFileOptions {
+  /** 打开后是否把焦点交给编辑器（默认 true）。文件树单击/键盘打开传 false：
+   *  焦点留在树内可继续浏览与键盘漫游（VSCode/PyCharm 同款）——修复 tree 点击
+   *  已打开文件时焦点被编辑器抢走的回归（activateTab 焦点改造引入）。 */
+  focusEditor?: boolean;
+}
+
+export async function openFile(path: string, revealLine?: number, opts?: OpenFileOptions): Promise<void> {
   // CR-08：in-flight 去重——双击/多入口并发打开同一文件时，两次调用都查不到 tab、
   // 都进 read_file → createModel 对重复 URI 返回既有 model → 两 Tab 持同一 model，
   // closeTabSilent dispose 掉另一个仍在用的 model。以 path 为键串行化，
@@ -690,7 +709,7 @@ export async function openFile(path: string, revealLine?: number): Promise<void>
     await revealAfterOpen(path, revealLine);
     return;
   }
-  const p = doOpenFile(path, revealLine);
+  const p = doOpenFile(path, revealLine, opts);
   openFileInflight.set(path, p);
   try {
     await p;
@@ -700,7 +719,7 @@ export async function openFile(path: string, revealLine?: number): Promise<void>
 }
 
 /** CR-08：openFile 的实际执行体（由 in-flight 去重表保证同一 path 串行） */
-async function doOpenFile(path: string, revealLine?: number): Promise<void> {
+async function doOpenFile(path: string, revealLine?: number, opts?: OpenFileOptions): Promise<void> {
   // P1：导航历史——先记「离开前的位置」，末尾记「到达的位置」，后退才能回到出发点
   pushCurrent();
   let tab = app.tabs.find((t) => t.path === path);
@@ -727,6 +746,8 @@ async function doOpenFile(path: string, revealLine?: number): Promise<void> {
       // 标记待同步（200ms 防抖后发全量，见 init 中的 changeTimer）
       if (t) app.pendingChanges.add(t.path);
       scheduleSessionSave(); // A-5：编辑后刷新会话快照（草稿随内容一起留存）
+      // autosave delay 模式：每个文件独立计时（model 级监听，后台 tab 的编辑也触发）
+      if (t) scheduleAutosave(t.path);
     });
     tab = { path, model, dirty: false };
     app.tabs.push(tab);
@@ -734,7 +755,7 @@ async function doOpenFile(path: string, revealLine?: number): Promise<void> {
     // 应用引擎已发布的诊断（打开前就收到的 publishDiagnostics）
     lsp.applyCachedDiagnostics(path, setMarkers);
   }
-  activateTab(tab);
+  activateTab(tab, opts?.focusEditor === false ? { focusEditor: false } : undefined);
   void recordRecent(path);
   revealAfterOpen(path, revealLine);
   // P1：记录到达位置（未指定行时取编辑器当前行，与用户所见一致）
@@ -820,6 +841,7 @@ export function closeTabSilent(tab: Tab): void {
     // diff tab：不走 LSP/诊断/标记链（path 是 diff: 虚拟路径）；域内清理统一入口
     cleanupDiffTabState(tab);
   } else {
+    editorTimers.clearAutosave(tab.path); // 在途 autosave 计时器随 tab 关闭作废（防 dispose 后写盘复活内容）
     lsp.didClose(tab.path);
     lsp.discardCachedDiagnostics(tab.path); // CR-22：关文件即释放诊断缓存
     app.monaco.editor.setModelMarkers(tab.model, "opencharm-lsp", []);
@@ -980,19 +1002,22 @@ async function optimizeImportsActive(): Promise<void> {
  * 保存**指定** tab（保存时整理导入 → 格式化 → 写盘 → 本地历史 → 通知引擎）。
  * 从 saveActive 抽出来是为了运行域：▶ 的粘性目标可能不是活动 tab，只靠 saveActive
  * 会漏存目标文件，导致「跑了磁盘上的旧内容」（表现为改了没生效）。
+ * @param opts.runOnSaveActions 保存时动作（isort/format）开关：显式保存（Ctrl+S/菜单）为 true；
+ *  自动保存与运行前落盘传 false——落盘与保存动作解耦，避免 autosave 高频跑 ruff（PyCharm 教训）。
  */
-async function saveTab(tab: Tab): Promise<void> {
+async function saveTab(tab: Tab, opts?: SaveOptions): Promise<void> {
   const isPy = tab.path.endsWith(".py") || tab.path.endsWith(".pyw");
+  const runActions = opts?.runOnSaveActions !== false;
   // 保存时整理导入（ruff I,F401，设置开关）：**先整理后格式化**——ruff format 不重排导入，
   // 二者正交，此顺序与 PyCharm 的「Optimize Imports → Reformat」一致。失败不阻断保存。
-  if (app.settings.optimize_imports_on_save && isPy) {
+  if (runActions && app.settings.optimize_imports_on_save && isPy) {
     const optimized = await optimizeImportsSource(tab.path, tab.model.getValue());
     if (optimized !== null && optimized !== tab.model.getValue()) {
       tab.model.setValue(optimized); // 单次 setValue → Ctrl+Z 可整体撤销
     }
   }
   // 保存时格式化（ruff，设置开关）：失败不阻断保存
-  if (app.settings.format_on_save && isPy) {
+  if (runActions && app.settings.format_on_save && isPy) {
     const formatted = await formatPythonSource(tab.path, tab.model.getValue());
     if (formatted !== null && formatted !== tab.model.getValue()) {
       tab.model.setValue(formatted); // 单次 setValue → Ctrl+Z 可整体撤销
@@ -1008,9 +1033,25 @@ async function saveTab(tab: Tab): Promise<void> {
   lsp.didSave(tab.path, tab.model);
 }
 
-async function saveActive(): Promise<void> {
+async function saveActive(opts?: SaveOptions): Promise<void> {
   if (!app.activeTab) return;
-  await saveTab(app.activeTab);
+  await saveTab(app.activeTab, opts);
+}
+
+/** autosave delay 模式的核心：为指定文件安排独立计时器（每个脏 tab 各自静默到期落盘）。
+ *  timer 回调再次校验模式（设置中途改 off 时在途计时器自然失效）与 dirty 状态；
+ *  写盘走 runOnSaveActions=false（autosave 不跑 ruff，保存动作只跟显式保存走）。 */
+function scheduleAutosave(path: string): void {
+  if (app.settings.autosave !== "delay") return;
+  editorTimers.clearAutosave(path);
+  const timer = window.setTimeout(() => {
+    editorTimers.autosave.delete(path);
+    if (app.settings.autosave !== "delay") return;
+    const tab = app.tabs.find((x) => x.path === path);
+    // 失败 toast 兜底：autosave 静默失败比显式保存更危险（用户以为已落盘）
+    if (tab?.dirty) saveTab(tab, { runOnSaveActions: false }).catch((e) => toastFail("自动保存", e));
+  }, app.settings.autosave_delay);
+  editorTimers.autosave.set(path, timer);
 }
 
 /** 本地历史快照（保存前自动留痕）；无工作区时静默跳过 */
@@ -1689,6 +1730,28 @@ async function init(): Promise<void> {
   // TD-14 / TD-13：功能域解环注入（须先于任何事件与运行调用）
   setTracebackOpenFile(openFile);
   setGitReloadHandler(reloadFileFromDisk);
+  setGitEditorBridge({
+    // git 改写磁盘前落盘受影响脏文件（autosave 语义：不跑 ruff，保存动作只跟显式保存走）
+    saveTabsBeforeGit: async (paths) => {
+      for (const p of paths) {
+        const tab = app.tabs.find((t) => t.path === p && t.dirty && t.kind !== "diff");
+        if (tab) await saveTab(tab, { runOnSaveActions: false });
+      }
+    },
+    // 未跟踪文件被丢弃删除：先留本地历史快照再关 tab（防 autosave 把缓冲写回复活文件）
+    closeTabOf: (p) => {
+      const tab = app.tabs.find((t) => t.path === p);
+      if (!tab || tab.kind === "diff") return;
+      void snapshotHistory(tab.path, tab.model.getValue()).then(() => closeTabSilent(tab));
+    },
+    // autosave 开启时批量改写后的 dirty tab：缓冲留历史 → 强制从磁盘重载（覆盖旧缓冲）
+    reloadDirtyWithHistory: async (p) => {
+      const tab = app.tabs.find((t) => t.path === p);
+      if (!tab || tab.kind === "diff") return;
+      await snapshotHistory(tab.path, tab.model.getValue());
+      await reloadFileFromDisk(p, true);
+    },
+  });
   setGitOpenFileHandler(openFile);
   setRunFlowHandlers({ openFile, activateTab, renderTabs, saveActive, saveTab });
   setFileTreeHandlers({ openFile, renderTabs, closeTabSilent, insertHeaderTemplate, runScript: (p) => void runScript(p) });
@@ -1757,9 +1820,11 @@ async function init(): Promise<void> {
     tabbarEl.scrollLeft += e.deltaY + e.deltaX;
   }, { passive: false });
 
-  // 失焦自动保存（P25-T08）
+  // 失焦自动保存（P25-T08）：runOnSaveActions=false，与 delay 模式同口径（不跑 ruff）
   app.editor.onDidBlurEditorText(() => {
-    if (app.settings.autosave === "blur" && app.activeTab?.dirty) void saveActive();
+    if (app.settings.autosave === "blur" && app.activeTab?.dirty) {
+      saveActive({ runOnSaveActions: false }).catch((e) => toastFail("自动保存", e));
+    }
   });
 
   liveTemplatesHandle = await initLiveTemplates(app.monaco, app.editor, {
@@ -1997,13 +2062,8 @@ async function init(): Promise<void> {
     window.setTimeout(() => refreshBookmarkGutter(), 300);
     // 迭代 2 · P0-5：git 行级装饰随编辑防抖重算（dirty 文件实时反映新增/修改行）
     scheduleGitGutter();
-    // 自动保存（delay 模式，P25-T08）
-    if (app.settings.autosave === "delay") {
-      window.clearTimeout(editorTimers.autosave);
-      editorTimers.autosave = window.setTimeout(() => {
-        if (app.activeTab?.dirty) void saveActive();
-      }, app.settings.autosave_delay);
-    }
+    // （autosave delay 模式已迁移到 model 级监听 doOpenFile → scheduleAutosave：
+    //  每个脏 tab 独立计时，不再只针对活动 tab）
   });
 
   // 各功能域事件接线（TD-007 域拆分后由各域自行提供）

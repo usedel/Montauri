@@ -63,8 +63,16 @@
     "plugin:window|close": function () { return null; },
     "plugin:window|start_dragging": function () { return null; },
     "plugin:window|start_resize_dragging": function () { return null; },
-    // 设置
-    get_settings: function () { return SETTINGS; },
+    // 设置：支持测试侧经 window.__E2E_SETTINGS_PRESET__（addInitScript 预置）按字段覆写。
+    // 基线 SETTINGS 的 autosave 保持 "off"——存量 spec（dirty tab 保护 / 关闭确认等语义）依赖它；
+    // autosave 验收 spec（e2e/autosave/）用 preset 显式开启 delay/blur。
+    get_settings: function () {
+      var merged = {}, k;
+      for (k in SETTINGS) merged[k] = SETTINGS[k];
+      var preset = window.__E2E_SETTINGS_PRESET__;
+      if (preset) for (k in preset) merged[k] = preset[k];
+      return merged;
+    },
     save_settings: function () { return null; },
     // 工具链探测：全就绪 → 不弹安装引导（maybePromptToolchain 静默通过）
     detect_toolchain: function () {
@@ -107,6 +115,11 @@
     "plugin:clipboard-manager|read_text": function () {
       return window.__E2E_CLIPBOARD__ !== undefined ? window.__E2E_CLIPBOARD__ : "";
     },
+    // ruff lint / 保存时动作（FormatResult 形状：formatted=null = 失败不阻断保存；
+    // mock 不接真实 ruff，仅让 format_python/optimize_imports 命令出现在 invoke 流水里
+    // 供 A-S-3 断言「autosave 不跑 ruff、显式保存才跑」的调用时序）
+    format_python: function () { return { formatted: null, message: "E2E mock：ruff 未接入" }; },
+    optimize_imports: function () { return { formatted: null, message: "E2E mock：ruff 未接入" }; },
     // ruff lint / 终端 shell 探测（近期功能：mock 兜底防 null 被迭代 pageerror）
     ruff_lint: function () { return []; },
     list_shells: function () { return ["pwsh", "powershell", "cmd"]; },

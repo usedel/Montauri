@@ -167,8 +167,9 @@ impl Default for Settings {
             bracket_colors: true,
             // B-3（PyCharm 调研）：只步进我的代码，默认开
             debug_just_my_code: true,
-            autosave: "off".into(),
-            autosave_delay: 1000,
+            // autosave 默认 delay 2s（须与前端 DEFAULT_SETTINGS 保持同步）
+            autosave: "delay".into(),
+            autosave_delay: 2000,
             probe_enabled: true,
             lsp_engine: "pyrefly".into(),
             format_on_save: false,
@@ -253,7 +254,8 @@ mod tests {
         assert_eq!(d.bracket_colors, true);
         // B-3（PyCharm 调研）：只步进我的代码，默认开
         assert_eq!(d.debug_just_my_code, true);
-        assert_eq!(d.autosave, "off");
+        assert_eq!(d.autosave, "delay");
+        assert_eq!(d.autosave_delay, 2000);
         assert_eq!(d.probe_enabled, true);
         assert_eq!(d.lsp_engine, "pyrefly");
         assert_eq!(d.format_on_save, false);

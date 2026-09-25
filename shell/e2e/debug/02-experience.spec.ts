@@ -7,7 +7,7 @@
  * 桩实现同 01-functional：tauri-mock.js 调试 DAP 模拟。
  */
 import { test, expect, type Page } from "@playwright/test";
-import { equipPage, makeGitRepo, type GitRepo } from "../helpers";
+import { clickGlyph, equipPage, makeGitRepo, type GitRepo } from "../helpers";
 
 const SCRIPT = `def compute(x):
     y = x + 1
@@ -29,19 +29,6 @@ const pageErrors: string[] = [];
 async function openScript(page: Page): Promise<void> {
   await page.locator("#tree .tree-item .name", { hasText: "script.py" }).first().dblclick();
   await expect(page.locator(".monaco-editor")).toBeVisible({ timeout: 10_000 });
-}
-
-async function glyphBox(page: Page): Promise<{ x: number; y: number; lh: number }> {
-  const glyph = page.locator(".glyph-margin").first();
-  const box = await glyph.boundingBox();
-  const lh = (await page.locator(".view-line").first().boundingBox())?.height ?? 19;
-  if (!box) throw new Error("glyph-margin 不可见");
-  return { x: box.x, y: box.y, lh };
-}
-
-async function clickGlyph(page: Page, line: number): Promise<void> {
-  const { x, y, lh } = await glyphBox(page);
-  await page.mouse.click(x + 6, y + (line - 1) * lh + lh / 2);
 }
 
 /** 确定性下/取消断点（复刻真实 gutter 点击进入的同一条 toggleBreakpoint 逻辑） */

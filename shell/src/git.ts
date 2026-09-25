@@ -37,6 +37,25 @@ let openFileHandler: ((path: string) => Promise<void>) | null = null;
 export function setGitOpenFileHandler(fn: (path: string) => Promise<void>): void {
   openFileHandler = fn;
 }
+
+/** git 改写编辑器缓冲的能力注入（main.ts 实现）。autosave 与 git 的次序问题：
+ *  丢弃/批量改写若不先落盘（或关闭）dirty tab，在途 autosave 计时器会把编辑器
+ *  旧缓冲写回磁盘，让 checkout 结果「复活」（丢弃看起来失败）。 */
+export interface GitEditorBridge {
+  /** git 改写磁盘前保存指定脏文件（autosave 语义：只写内容，不跑 ruff isort/format） */
+  saveTabsBeforeGit(absPaths: string[]): Promise<void>;
+  /** 未跟踪文件被丢弃删除后关闭其编辑器 tab（关闭前先留本地历史快照，防丢内容） */
+  closeTabOf(absPath: string): void;
+  /** autosave 开启时的批量改写（pull/merge/checkout…）：dirty tab 留本地历史后强制重载 */
+  reloadDirtyWithHistory(absPath: string): Promise<void>;
+}
+
+let editorBridge: GitEditorBridge | null = null;
+
+/** main.ts 注入 GitEditorBridge */
+export function setGitEditorBridge(bridge: GitEditorBridge | null): void {
+  editorBridge = bridge;
+}
 // CR-25：状态存储下沉到零依赖的 gitStatusState（fileTree 装饰只读，不再 import 本模块）
 import { gitStatuses, gitDirtyDirs, gitRepoActive, rebuildStatusIndex } from "./gitStatusState";
 
@@ -492,6 +511,17 @@ async function discardFiles(files: GitStatusFile[]): Promise<void> {
     kind: "danger",
   });
   if (!ok) return;
+  const root = app.workspaceRoot;
+  // 次序修复：先把受影响脏文件落盘（autosave 语义，不跑 ruff）。否则 checkout 覆盖磁盘后，
+  // 在途 autosave 计时器会把编辑器旧缓冲写回去——丢弃失败、旧内容「复活」。
+  if (editorBridge && tracked.length > 0) {
+    try {
+      await editorBridge.saveTabsBeforeGit(tracked.map((f) => joinPath(root, f.path)));
+    } catch (e) {
+      toastFail("保存修改（丢弃中止）", e);
+      return;
+    }
+  }
   try {
     if (tracked.length > 0) {
       await invoke("git_discard", { root: app.workspaceRoot, paths: tracked.map((f) => f.path) });
@@ -507,12 +537,16 @@ async function discardFiles(files: GitStatusFile[]): Promise<void> {
   toast(`已丢弃 ${files.length} 个文件的更改`, "success");
   // 丢弃会改写磁盘内容：已打开该文件的编辑器需从磁盘重载，否则留下旧内容（未跟踪文件已删除，不重载）
   // CR-28：git 返回的 f.path 是仓库相对路径，而 tab.path 是绝对路径，须 joinPath 转绝对路径再匹配
-  const root = app.workspaceRoot;
   for (const f of tracked) {
     if (!reloadOpenedFile || !root) continue;
     const abs = joinPath(root, f.path);
     console.debug("[git] discard 后重载已打开文件", { rel: f.path, abs });
     await reloadOpenedFile(abs);
+  }
+  // 未跟踪文件已从磁盘删除：关闭其编辑器 tab（先留本地历史快照）。若只把 tab 留在内存，
+  // autosave 会把缓冲重新写回磁盘，被删除的文件「复活」。
+  if (editorBridge && root) {
+    for (const f of untracked) editorBridge.closeTabOf(joinPath(root, f.path));
   }
   await refreshTreeWithExpandedState();
   renderGitPanel();
@@ -550,29 +584,45 @@ async function afterConflictResolve(relPath: string): Promise<void> {
   await refreshTreeWithExpandedState();
   renderGitPanel();
   const root = app.workspaceRoot;
-  if (root && reloadOpenedFile) await reloadOpenedFile(joinPath(root, relPath));
+  if (!root) return;
+  const abs = joinPath(root, relPath);
+  // autosave 开启时 dirty 旧缓冲必须留历史后强制重载，否则在途 autosave 计时器
+  // 会把解决冲突前的缓冲写回磁盘——刚接受的版本被「复活」（与 reloadTabsFromGitChange 同类）
+  const dirtyTab = app.tabs.find((t) => t.path === abs && t.dirty);
+  if (dirtyTab && app.settings.autosave !== "off" && editorBridge) {
+    await editorBridge.reloadDirtyWithHistory(abs);
+    return;
+  }
+  if (reloadOpenedFile) await reloadOpenedFile(abs);
 }
 
 /** git 操作改写了工作区后，重载全部已打开的文件 tab（体验修复第 5 则：
  *  丢弃块 / cherry-pick / revert / merge / rebase / stash pop / pull /
  *  切分支都会改写磁盘，但编辑器里的旧内容纹丝不动——用户看到的是幽灵内容）。
- *  - dirty tab 跳过并提示（用户正在编辑的未保存内容不能被磁盘覆盖）
+ *  - autosave 关闭：dirty tab 跳过并提示（未保存内容不能被磁盘覆盖）
+ *  - autosave 开启（delay/blur）：dirty tab 的内容本就随 autosave 落盘，磁盘≈缓冲；
+ *    留本地历史快照后强制重载，否则在途 autosave 计时器会把旧缓冲写回、改写被「复活」
  *  - 批量场景（merge/pull/checkout 改多文件）与单文件场景（hunk 丢弃）共用
  *  - diff tab 不参与（kind==="diff" 无文件实体） */
 async function reloadTabsFromGitChange(): Promise<void> {
   const root = app.workspaceRoot;
   if (!root || !reloadOpenedFile) return;
   const fileTabs = app.tabs.filter((t) => t.kind !== "diff");
-  const dirty = fileTabs.filter((t) => t.dirty);
+  const autosaveOn = app.settings.autosave !== "off";
+  const skipped: Tab[] = [];
   for (const t of fileTabs) {
-    if (t.dirty) continue; // 有未保存修改：不覆盖（下面统一提示）
+    if (t.dirty) {
+      if (autosaveOn && editorBridge) await editorBridge.reloadDirtyWithHistory(t.path);
+      else skipped.push(t); // autosave 关闭：不覆盖未保存内容（下面统一提示）
+      continue;
+    }
     await reloadOpenedFile(t.path);
   }
-  if (dirty.length > 0) {
+  if (skipped.length > 0) {
     toast(
-      dirty.length === 1
-        ? `「${basename(dirty[0].path)}」有未保存修改，未从磁盘重载（其余 ${fileTabs.length - dirty.length} 个文件已刷新）`
-        : `${dirty.length} 个文件有未保存修改，未从磁盘重载（其余 ${fileTabs.length - dirty.length} 个文件已刷新）`,
+      skipped.length === 1
+        ? `「${basename(skipped[0].path)}」有未保存修改，未从磁盘重载（其余 ${fileTabs.length - skipped.length} 个文件已刷新）`
+        : `${skipped.length} 个文件有未保存修改，未从磁盘重载（其余 ${fileTabs.length - skipped.length} 个文件已刷新）`,
       "info",
     );
   }

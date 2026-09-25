@@ -9,8 +9,8 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { app, outputEl, type Tab } from "./state";
-import { basename, joinPath, parentDirOf, samePath } from "./util";
+import { app, outputEl, type SaveOptions, type Tab } from "./state";
+import { basename, joinPath, parentDirOf } from "./util";
 import { appendOutputLine } from "./output";
 import { gotoFromLink } from "./tracebackLink";
 import { openChoice, openConfirm } from "./dialog";
@@ -42,9 +42,9 @@ interface RunFlowHandlers {
   openFile: (path: string, revealLine?: number) => Promise<void>;
   activateTab: (tab: Tab) => void;
   renderTabs: () => void;
-  saveActive: () => Promise<void>;
+  saveActive: (opts?: SaveOptions) => Promise<void>;
   /** 保存**指定** tab（运行目标可能不是活动 tab，只靠 saveActive 会漏存） */
-  saveTab: (tab: Tab) => Promise<void>;
+  saveTab: (tab: Tab, opts?: SaveOptions) => Promise<void>;
 }
 
 let handlers: RunFlowHandlers | null = null;
@@ -117,10 +117,15 @@ export async function prepareRun(path: string): Promise<RunPrep | null> {
     toast(`不是 Python 文件：${basename(path)}`, "info");
     return null;
   }
-  // 运行前自动保存：保存的是**本次运行目标所在的 tab**，而不是活动 tab——运行目标文件
-  // 往往不是当前打开的文件，只存活动 tab 会让它跑到磁盘上的旧内容（表现为「改了没生效」）。
-  const targetTab = app.tabs.find((t) => samePath(t.path, path));
-  if (targetTab?.dirty) await h().saveTab(targetTab);
+  // 运行前强制保存**所有**脏 tab（PyCharm 式「运行/调试前保存」，与 autosave 开关无关——
+  // 显式触发运行即隐式表达持久化意图）。autosave 语义：只写内容，不跑 ruff isort/format。
+  // 旧实现只存运行目标 tab，会漏掉「脚本 import 的兄弟模块」——import 的还是磁盘旧内容。
+  // 单个文件写盘失败 toast 提示但不中止运行（运行用磁盘内容，失败文件保持 dirty 由用户处置）。
+  for (const t of app.tabs) {
+    if (t.dirty && t.kind !== "diff") {
+      await h().saveTab(t, { runOnSaveActions: false }).catch((e) => toastFail(`运行前保存 ${basename(t.path)}`, e));
+    }
+  }
   // 运行前依赖预检（§5.4 升级：消费 dep diff 快照，检测真值唯一化 R1）：
   // 快照新鲜（<30s，R8）→ 直接用该文件的 E1 条目，避免运行前再 spawn 探针；
   // 过期/缺失 → 保留现有 check_missing_imports 单文件快路径（兜底不降级体验）。
@@ -709,7 +714,7 @@ export async function runSelection(): Promise<void> {
   // CR-07：准备期闸门——保存 / 写临时文件都是 await，期间连点不得并发进入
   if (!beginRunPreparing("script")) return;
   try {
-    if (app.activeTab.dirty) await h().saveActive(); // 运行前保存（与整文件运行一致）
+    if (app.activeTab.dirty) await h().saveActive({ runOnSaveActions: false }); // 运行前保存（不跑 ruff，与整文件运行同口径）
 
     // 临时文件写到源文件同目录：保证 import 相对导入 / 相对路径资源与源文件一致。
     // CR-05：文件名带进程内随机后缀——并发运行选区 / 跨目录源文件互不覆盖；

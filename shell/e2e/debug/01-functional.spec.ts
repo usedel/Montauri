@@ -6,7 +6,7 @@
  * 帧深推演），不触达真实 debugpy，仅驱动前端状态机与渲染（与 LSP 静态桩同思路）。
  */
 import { test, expect, type Page } from "@playwright/test";
-import { equipPage, makeGitRepo, type GitRepo } from "../helpers";
+import { clickGlyph, equipPage, makeGitRepo, type GitRepo } from "../helpers";
 
 const SCRIPT = `def compute(x):
     y = x + 1
@@ -28,20 +28,6 @@ const pageErrors: string[] = [];
 async function openScript(page: Page): Promise<void> {
   await page.locator("#tree .tree-item .name", { hasText: "script.py" }).first().dblclick();
   await expect(page.locator(".monaco-editor")).toBeVisible({ timeout: 10_000 });
-}
-
-async function glyphBox(page: Page): Promise<{ x: number; y: number; lh: number }> {
-  const glyph = page.locator(".glyph-margin").first();
-  const box = await glyph.boundingBox();
-  const lh = (await page.locator(".view-line").first().boundingBox())?.height ?? 19;
-  if (!box) throw new Error("glyph-margin 不可见");
-  return { x: box.x, y: box.y, lh };
-}
-
-/** 点击编辑器第 line 行的 glyph 边距（模拟用户点行号左侧空白下断点） */
-async function clickGlyph(page: Page, line: number): Promise<void> {
-  const { x, y, lh } = await glyphBox(page);
-  await page.mouse.click(x + 6, y + (line - 1) * lh + lh / 2);
 }
 
 /** 确定性下/取消断点（复刻真实 gutter 点击进入的同一条 toggleBreakpoint 逻辑） */
@@ -70,13 +56,21 @@ test.afterEach(() => {
 
 test("D-FUNC-1：gutter 真实点击设置断点并能取消", async ({ page }) => {
   await openScript(page);
-  await clickGlyph(page, 6); // 真实 gutter 点击
-  await expect(page.locator(".gutter-breakpoint").first()).toBeVisible({ timeout: 10_000 });
-  await expect(page.locator(".gutter-breakpoint")).toHaveCount(1); // 点行号左侧空白处 → 出现红点
-  // 读取真实命中的行，用同一 toggle 逻辑取消（真实点击的逐行命中由上方单点覆盖）
-  const info = await page.evaluate(() => (window as any).__OC_DEBUG_TEST__.list());
-  const lines = Object.values(info as Record<string, number[]>)[0] as number[];
-  await page.evaluate((l) => (window as any).__OC_DEBUG_TEST__.toggleActive(l), lines[0]);
+  // clickGlyph 按渲染后的行定位（helpers 注释：view zone 会让 (line-1)*lh 取法点空）。
+  // 仍保留重试：CodeLens 的 zone 是 LSP 异步插入的，极端时序下仍有点击噪声；
+  // 重试前先清掉上次可能落在别的行的残留。
+  await expect(async () => {
+    const prev = await page.evaluate(() => (window as any).__OC_DEBUG_TEST__.list());
+    for (const ls of Object.values(prev as Record<string, number[]>))
+      for (const l of ls) await page.evaluate((x) => (window as any).__OC_DEBUG_TEST__.toggleActive(x), l);
+    await clickGlyph(page, 6);
+    await expect(page.locator(".gutter-breakpoint").first()).toBeVisible({ timeout: 2_000 });
+    const info = await page.evaluate(() => (window as any).__OC_DEBUG_TEST__.list());
+    const lines = Object.values(info as Record<string, number[]>)[0] as number[];
+    expect(lines).toEqual([6]); // 渲染行定位下应精确命中目标行
+  }, { timeout: 15_000 }).toPass();
+  // 用同一 toggle 逻辑取消（真实点击 → 真实取消闭环）
+  await page.evaluate((x) => (window as any).__OC_DEBUG_TEST__.toggleActive(x), 6);
   await expect(page.locator(".gutter-breakpoint")).toHaveCount(0, { timeout: 10_000 });
 });
 

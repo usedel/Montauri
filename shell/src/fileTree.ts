@@ -24,7 +24,8 @@ import { diffFileWithClipboard } from "./clipboardDiff"; // C-5：右键「与�
 // 都是运行时函数引用，改由 main 注入（参照 terminal.ts::setTerminalLinkHandler 先例）。
 
 interface FileTreeHandlers {
-  openFile: (path: string, revealLine?: number) => Promise<void>;
+  /** opts.focusEditor=false：焦点留在文件树（单击/键盘打开不抢编辑器焦点，可继续漫游） */
+  openFile: (path: string, revealLine?: number, opts?: { focusEditor?: boolean }) => Promise<void>;
   renderTabs: () => void;
   closeTabSilent: (tab: Tab) => void;
   insertHeaderTemplate: () => Promise<boolean>;
@@ -228,7 +229,8 @@ function renderTreeItem(e: Entry, depth: number, opts?: { isRoot?: boolean }): H
   item.addEventListener("click", (ev) => {
     selectEntry(e, item, ev);
     if (e.is_dir && !ev.ctrlKey && !ev.shiftKey) void toggleDir(item, e, depth);
-    else if (!e.is_dir && !ev.ctrlKey && !ev.shiftKey) void fh().openFile(e.path);
+    // focusEditor=false：焦点留在树内，连续浏览/键盘漫游不被编辑器抢焦点（VSCode 式）
+    else if (!e.is_dir && !ev.ctrlKey && !ev.shiftKey) void fh().openFile(e.path, undefined, { focusEditor: false });
   });
   item.addEventListener("contextmenu", (ev) => {
     ev.preventDefault();
@@ -1225,7 +1227,7 @@ function handleTreeKeyNav(key: string): void {
       if (entry) {
         selectEntry(entry, current);
         if (entry.is_dir) void toggleDir(current, entry, depthOf(current));
-        else void fh().openFile(entry.path);
+        else void fh().openFile(entry.path, undefined, { focusEditor: false }); // 键盘漫游：焦点留在树内
       }
       break;
     }

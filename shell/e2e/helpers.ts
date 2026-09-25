@@ -748,6 +748,21 @@ function realPyreflyBridgeFor(page: Page, cwd: string) {
   };
 }
 
+// ---------- 编辑器 gutter 交互（debug 验收共享） ----------
+
+/** 点击编辑器第 line 行的 glyph 边距（模拟用户点行号左侧空白下断点）。
+ *  以「渲染后的行」定位（.view-line 序 = 行序，前提是无软换行）：引用计数 CodeLens
+ *  会在 def/class 上方插入 view zone 改变行的视口位置——按 (line-1)*lineHeight 计算
+ *  会点进 zone，Monaco 判为 GUTTER_VIEW_ZONE 而非 GUTTER_GLYPH_MARGIN，断点静默丢失
+ *  （D-FUNC-1 flake 根因）。真实用户点的就是渲染后的行，此取法对 zone 免疫。 */
+export async function clickGlyph(page: Page, line: number): Promise<void> {
+  const glyph = await page.locator(".glyph-margin").first().boundingBox();
+  if (!glyph) throw new Error("glyph-margin 不可见");
+  const row = await page.locator(".view-line").nth(line - 1).boundingBox();
+  if (!row) throw new Error(`第 ${line} 行未渲染（.view-line 不足）`);
+  await page.mouse.click(glyph.x + 6, row.y + row.height / 2);
+}
+
 // ---------- Page 装配 ----------
 
 /** 给 page 装上 Tauri mock + E2E bridge，并让应用启动即打开 repo 工作区。
