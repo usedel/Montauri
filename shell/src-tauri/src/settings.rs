@@ -70,6 +70,8 @@ fn default_keybindings() -> HashMap<String, String> {
     m.insert("smart_select_shrink".into(), "Ctrl+Shift+W".into());
     m.insert("move_line_up".into(), "Ctrl+Shift+Up".into());
     m.insert("move_line_down".into(), "Ctrl+Shift+Down".into());
+    // P4（C-3）：列选择开关（与前端 KEYBINDING_META / DEFAULT_SETTINGS 三处同步）
+    m.insert("toggle_column_selection".into(), "Alt+Shift+Insert".into());
     m
 }
 
@@ -114,6 +116,12 @@ pub struct Settings {
     pub format_on_save: bool,
     /// 保存时用 ruff 整理导入（Ctrl+Alt+O 的保存联动，与 format_on_save 同模式）
     pub optimize_imports_on_save: bool,
+    /// D-4：ruff 规则严重度映射——E（pycodestyle 风格）/ W（pycodestyle 警告）/
+    /// F（pyflakes）三类规则的显示级别："hint" | "info" | "warning" | "error"
+    /// （与前端字段逐一对应；非法值由前端归一化为 warning）
+    pub ruff_severity_e: String,
+    pub ruff_severity_w: String,
+    pub ruff_severity_f: String,
     /// 运行时智能层（opencharm-intel）开关——关闭时 LSP 桥不启动 intel（P3-T09）
     pub runtime_intel_enabled: bool,
     /// 终端默认启动目录："workspace"（工作区根）| "file"（活动文件所在目录）
@@ -160,6 +168,10 @@ impl Default for Settings {
             lsp_engine: "pyrefly".into(),
             format_on_save: false,
             optimize_imports_on_save: false,
+            // D-4：默认全 Warning（维持映射引入前的行为，与前端 DEFAULT_SETTINGS 一致）
+            ruff_severity_e: "warning".into(),
+            ruff_severity_w: "warning".into(),
+            ruff_severity_f: "warning".into(),
             runtime_intel_enabled: true,
             terminal_cwd: "workspace".into(),
             terminal_shell: "auto".into(),
@@ -286,8 +298,10 @@ mod tests {
         assert_eq!(d.keybindings.get("smart_select_shrink").map(String::as_str), Some("Ctrl+Shift+W"));
         assert_eq!(d.keybindings.get("move_line_up").map(String::as_str), Some("Ctrl+Shift+Up"));
         assert_eq!(d.keybindings.get("move_line_down").map(String::as_str), Some("Ctrl+Shift+Down"));
+        // P4（C-3）：列选择开关
+        assert_eq!(d.keybindings.get("toggle_column_selection").map(String::as_str), Some("Alt+Shift+Insert"));
         // 键位表条目数 = 前端 KEYBINDING_META 条目数（漂移锁，新增键须同步改这里）
-        assert_eq!(d.keybindings.len(), 44);
+        assert_eq!(d.keybindings.len(), 45);
         assert_eq!(d.optimize_imports_on_save, false);
     }
 
@@ -342,7 +356,7 @@ mod tests {
         // P1（PyCharm 调研 C-1/C-2）：旧配置无智能选区/移动行 → 回落默认
         assert_eq!(s.keybindings.get("smart_select_expand").map(String::as_str), Some("Ctrl+W"));
         assert_eq!(s.keybindings.get("move_line_down").map(String::as_str), Some("Ctrl+Shift+Down"));
-        assert_eq!(s.keybindings.len(), 44);
+        assert_eq!(s.keybindings.len(), 45);
         assert_eq!(s.optimize_imports_on_save, false); // 旧配置文件无此字段 → 默认关闭
     }
 }

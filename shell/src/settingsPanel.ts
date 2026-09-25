@@ -18,6 +18,7 @@ import { fuzzyScore } from "./quickOpen";
 import { toast, toastFail } from "./toast";
 import { loadStorageUsage, wireStoragePanel } from "./storagePanel";
 import { renderPluginsTab } from "./extensions/pluginsTab";
+import { lintActiveFile, normalizeSeverity } from "./ruffLint"; // D-4：映射保存后立即重查当前文件
 // UI-26：主题选择改自绘预览色卡（原生 <option> 放不下色卡），值读写经 themePicker
 import { getSelectedTheme, setSelectedTheme, wireThemePicker } from "./themePicker";
 // UI-25：欢迎页快捷键网格跟随键位系统，改键保存后需刷新
@@ -65,6 +66,10 @@ const settingsIntelEl = $("settings-intel") as HTMLInputElement;
 const settingsEngineEl = $("settings-engine") as HTMLSelectElement;
 const settingsFormatOnSaveEl = $("settings-format-on-save") as HTMLInputElement;
 const settingsOptimizeImportsOnSaveEl = $("settings-optimize-imports-on-save") as HTMLInputElement;
+// D-4（PyCharm 调研）：ruff 规则严重度映射（E/W/F 三类）
+const settingsRuffSeverityEEl = $("settings-ruff-severity-e") as HTMLSelectElement;
+const settingsRuffSeverityWEl = $("settings-ruff-severity-w") as HTMLSelectElement;
+const settingsRuffSeverityFEl = $("settings-ruff-severity-f") as HTMLSelectElement;
 const settingsTerminalCwdEl = $("settings-terminal-cwd") as HTMLSelectElement;
 const settingsTerminalShellEl = $("settings-terminal-shell") as HTMLSelectElement;
 const settingsReduceMotionEl = $("settings-reduce-motion") as HTMLInputElement;
@@ -107,6 +112,9 @@ const SETTINGS_ROW_KEYWORDS: Record<string, string> = {
   "settings-autosave": "autosave 自动保存",
   "settings-format-on-save": "format ruff 格式化",
   "settings-optimize-imports-on-save": "imports isort 整理导入",
+  "settings-ruff-severity-e": "ruff severity pycodestyle E 风格 级别 诊断",
+  "settings-ruff-severity-w": "ruff severity pycodestyle W 警告 级别 诊断",
+  "settings-ruff-severity-f": "ruff severity pyflakes F 级别 诊断",
   "settings-engine": "lsp engine pyrefly basedpyright 引擎",
   "settings-probe": "probe profiling 探针",
   "settings-intel": "intel runtime 运行时智能",
@@ -487,6 +495,10 @@ function fillForm(settings: Settings): void {
   settingsFormatOnSaveEl.checked = settings.format_on_save;
   settingsOptimizeImportsOnSaveEl.checked =
     settings.optimize_imports_on_save ?? DEFAULT_SETTINGS.optimize_imports_on_save;
+  // D-4：旧配置缺字段回落 warning（select 的 value 若不在候选中会显示空白，故先归一）
+  settingsRuffSeverityEEl.value = normalizeSeverity(settings.ruff_severity_e);
+  settingsRuffSeverityWEl.value = normalizeSeverity(settings.ruff_severity_w);
+  settingsRuffSeverityFEl.value = normalizeSeverity(settings.ruff_severity_f);
   settingsTerminalCwdEl.value = settings.terminal_cwd;
   settingsTerminalShellEl.value = settings.terminal_shell ?? DEFAULT_SETTINGS.terminal_shell;
   // 旧配置缺 pypi_index 时兜底出厂默认（官方源）
@@ -566,6 +578,10 @@ async function saveSettingsPanel(): Promise<void> {
   const lspEngine = settingsEngineEl.value;
   const formatOnSave = settingsFormatOnSaveEl.checked;
   const optimizeImportsOnSave = settingsOptimizeImportsOnSaveEl.checked;
+  // D-4：严重度映射（select 固定候选；normalizeSeverity 兜底归一，双保险）
+  const ruffSeverityE = normalizeSeverity(settingsRuffSeverityEEl.value);
+  const ruffSeverityW = normalizeSeverity(settingsRuffSeverityWEl.value);
+  const ruffSeverityF = normalizeSeverity(settingsRuffSeverityFEl.value);
   const runtimeIntelEnabled = settingsIntelEl.checked;
   const terminalCwd = settingsTerminalCwdEl.value;
   const terminalShell = settingsTerminalShellEl.value;
@@ -595,6 +611,9 @@ async function saveSettingsPanel(): Promise<void> {
     lsp_engine: lspEngine,
     format_on_save: formatOnSave,
     optimize_imports_on_save: optimizeImportsOnSave,
+    ruff_severity_e: ruffSeverityE,
+    ruff_severity_w: ruffSeverityW,
+    ruff_severity_f: ruffSeverityF,
     runtime_intel_enabled: runtimeIntelEnabled,
     terminal_cwd: terminalCwd,
     terminal_shell: terminalShell,
@@ -626,6 +645,8 @@ async function saveSettingsPanel(): Promise<void> {
   renderWelcomeShortcuts();
   await saveSettings();
   toast("设置已保存", "success"); // tech-debt #19：即时操作结果统一轻提示
+  // D-4：严重度映射保存后立即重查当前文件（波浪线级别即时生效，无需等下次编辑）
+  void lintActiveFile();
   closeSettingsPanel();
 
   if (engineChanged) {

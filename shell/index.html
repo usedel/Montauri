@@ -833,6 +833,36 @@
                 <input id="settings-debug-jmc" type="checkbox" />
               </div>
               <div class="settings-hint">开启后单步进入不会误入 site-packages / 标准库；改动需停止并重新启动调试会话生效。</div>
+              <!-- D-4（PyCharm 调研）：ruff 规则严重度映射（E/W/F 三类；其余类别恒为 Warning）。
+                   禁止原生 select 之外的取值：非法存储值由 ruffLint.ts 归一化为 Warning（G-3 可见降级）。 -->
+              <div class="settings-row">
+                <label for="settings-ruff-severity-e">ruff 风格规则（E）级别</label>
+                <select id="settings-ruff-severity-e">
+                  <option value="hint">提示</option>
+                  <option value="info">信息</option>
+                  <option value="warning">警告</option>
+                  <option value="error">错误</option>
+                </select>
+              </div>
+              <div class="settings-row">
+                <label for="settings-ruff-severity-w">ruff 警告规则（W）级别</label>
+                <select id="settings-ruff-severity-w">
+                  <option value="hint">提示</option>
+                  <option value="info">信息</option>
+                  <option value="warning">警告</option>
+                  <option value="error">错误</option>
+                </select>
+              </div>
+              <div class="settings-row">
+                <label for="settings-ruff-severity-f">ruff pyflakes（F）级别</label>
+                <select id="settings-ruff-severity-f">
+                  <option value="hint">提示</option>
+                  <option value="info">信息</option>
+                  <option value="warning">警告</option>
+                  <option value="error">错误</option>
+                </select>
+              </div>
+              <div class="settings-hint">ruff 规则按首字母分类映射到编辑器波浪线级别；保存后立即生效（自动重查当前文件）。行内忽略见编辑器右键「忽略此规则」。</div>
             </div>
             <div id="settings-section-templates" class="settings-section settings-section-templates hidden" role="tabpanel">
               <div class="lt-toolbar">

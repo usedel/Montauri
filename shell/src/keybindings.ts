@@ -11,6 +11,7 @@
 import type * as MonacoApi from "monaco-editor/esm/vs/editor/editor.api";
 import { app, type MonacoModule } from "./state";
 import { KEYBINDING_META, type KeybindingId } from "./keybindingDefaults";
+import { toast } from "./toast"; // P4（C-3）：列选择开关的可见反馈（G-3）
 
 // re-export 出厂键位元数据，保持既有 `import ... from "./keybindings"` 调用方不变
 export { KEYBINDING_META } from "./keybindingDefaults";
@@ -257,6 +258,16 @@ export function initKeybindingCommands(monaco: MonacoModule): void {
   // P1（C-2）：行/选区上下移动（Monaco linesOperations contrib，自动修正缩进）
   setKeybindingHandler("move_line_up", () => {
     app.editor.trigger("keybindings", "editor.action.moveLinesUpAction", null);
+  });
+  // P4（C-3）：列（矩形）选择开关。Monaco 0.52 中列选择是核心 editor option
+  // （columnSelection，无独立 contrib/命令），开启后鼠标拖拽/Shift+点击按矩形选择；
+  // Alt+Shift+方向键的列向扩展不受此开关影响（内建行为）。
+  setKeybindingHandler("toggle_column_selection", () => {
+    const ed = app.editor;
+    const on = !ed.getOption(app.monaco.editor.EditorOption.columnSelection);
+    ed.updateOptions({ columnSelection: on });
+    // G-3：模式切换必须可见——否则用户忘记开过列选择，会把矩形选中当成 bug
+    toast(on ? "列选择模式已开启：鼠标拖拽将按矩形选择（再按退出）" : "列选择模式已关闭", on ? "success" : "info");
   });
   setKeybindingHandler("move_line_down", () => {
     app.editor.trigger("keybindings", "editor.action.moveLinesDownAction", null);

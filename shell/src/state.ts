@@ -52,6 +52,12 @@ export interface Settings {
   format_on_save: boolean;
   /** 保存时用 ruff 整理导入（Ctrl+Alt+O 的保存联动；与 format_on_save 同模式） */
   optimize_imports_on_save: boolean;
+  /** D-4：ruff 规则严重度映射——E（pycodestyle 风格）/ W（pycodestyle 警告）/
+   *  F（pyflakes）三类规则各自的显示级别："hint" | "info" | "warning" | "error"
+   *  （其余规则类别回落 warning；非法值由 ruffLint.ts 归一化为 warning） */
+  ruff_severity_e: string;
+  ruff_severity_w: string;
+  ruff_severity_f: string;
   runtime_intel_enabled: boolean;
   terminal_cwd: string;
   /** 集成终端 shell："auto" | "pwsh" | "powershell" | "cmd"（auto 按顺序回退） */
@@ -100,6 +106,10 @@ export const DEFAULT_SETTINGS: Settings = {
   lsp_engine: "pyrefly",
   format_on_save: false,
   optimize_imports_on_save: false,
+  // D-4：默认全 Warning（维持映射引入前的行为，默认值保守）
+  ruff_severity_e: "warning",
+  ruff_severity_w: "warning",
+  ruff_severity_f: "warning",
   runtime_intel_enabled: true,
   terminal_cwd: "workspace",
   terminal_shell: "auto",

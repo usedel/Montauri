@@ -647,8 +647,9 @@ Search Everywhere（Double Shift）、Go to File/Line、Recent Files/Locations�
 | P1 | A-1 资源可观测面板 | ✅ §13（e2e 3 条） |
 | P2 | B-1 Watches、B-2 异常断点、B-3 justMyCode、B-6 断点启禁、B-7 变量护栏、B-8 hover 求值 | ✅ §15（e2e 3 条） |
 | P3 | E-1 设置搜索、E-2 引擎忙碌态、E-3 文件树定位+本地历史入口、E-4 Git 文件历史+提交框预填、E-5 搜索 scope+分组折叠、C-5 与剪贴板对比 | ✅ §17（e2e 5 条） |
+| P4 | C-3 列选择、D-4 诊断严重度映射+# noqa、D-1 缺失 import 兜底、D-2 就地创建符号、A-4 红线入 CI 补项（C-4 分屏留待单独批次） | ✅ §18（e2e +1 条 / vitest +16 用例） |
 
-**P0 / P1 / P2 / P3 四批（共 19 个功能项）全部交付并验收。**
+**P0 / P1 / P2 / P3 / P4 五批（共 24 个功能项）全部交付并验收。**
 
 **连带修复的先在性缺陷**（均为验收过程发现）：
 1. 输出/终端无界增长（迟早会撞上的坑）；
@@ -709,9 +710,9 @@ mock 罐头的 evaluate/variables 都是静态值，以下两点需真机（CDP�
 
 ### 16.2 当前进度
 
-- **已交付**：P0（A-2/A-3）+ P1（A-1/A-5/C-1/C-2/C-6）+ P2（B-1/B-2/B-3/B-6/B-7/B-8）+ P3（E-1/E-2/E-3/E-4/E-5/C-5），共 19 项（详见 §17）；
-- **测试基线**：e2e 101 条（Playwright，覆盖 perf / session / editor / debug / lsp / git / plugins / p3 各组）；`cargo test` 190；`vitest` 516（53 文件）；`tsc --noEmit` 0 错；
-- **未交付**：见 §14「剩余候选池」。
+- **已交付**：P0（A-2/A-3）+ P1（A-1/A-5/C-1/C-2/C-6）+ P2（B-1/B-2/B-3/B-6/B-7/B-8）+ P3（E-1/E-2/E-3/E-4/E-5/C-5）+ P4（C-3/D-4/D-1/D-2/A-4），共 24 项（详见 §17/§18）；
+- **测试基线**：e2e 102 条（Playwright，覆盖 perf / session / editor / debug / lsp / git / plugins / p3 各组）；`cargo test` 190；`vitest` 532（54 文件）；`tsc --noEmit` 0 错；
+- **未交付**：C-4 分屏（P4 唯一余项，留待单独批次）；其余见 §14「剩余候选池」。
 
 ### 16.3 工程纪律（每次改动必查；细则以 `.codebuddy/rules/typescript-code-style/RULE.mdc` 为准）
 
@@ -783,4 +784,43 @@ mock 罐头的 evaluate/variables 都是静态值，以下两点需真机（CDP�
 ### 下一步建议（P4，量级为单人日）
 
 - **P4**：A-4 红线入 CI 补项（长跑内存 / 大文件打开 / 输出洪峰）→ C-3 列选择（0.5）→ D-1 缺失 import 修复（1.5）→ D-2 就地创建符号（1.5）→ D-4 诊断可配置（1.5）→ C-4 分屏（2~3）；
+- **每完成一批的固定动作**：更新 §5 表状态 → 追加落地记录节 → 在 §14 表加行 → 四件套回归（tsc / vitest / cargo / playwright）→ git commit（**禁止 push**）。
+
+---
+
+## 18. P4 落地记录（2026-09-25）：智能与质量批次（§6-C-3 / §6-D / §6-A-4，除 C-4）
+
+> P4 的主题是「智能与质量」：把诊断从「只能看」变成「能处理」，把「轻」的资产用红线钉死。本次五项：C-3 列选择、D-4 诊断严重度映射 + `# noqa` 抑制、D-1 缺失 import 自研兜底、D-2 就地创建符号、A-4 红线入 CI 补项。**C-4 分屏（2~3 天）留待单独批次**（触及 tab/布局架构，不宜与本批叠加）。
+
+### 实现
+
+| 项 | 内容 |
+|---|---|
+| **C-3 列选择**（`keybindings.ts` / `keybindingDefaults.ts` / `settings.rs`） | 键位 `Alt+Shift+Insert`「切换列选择模式」：Monaco 0.52 中列选择是**核心 editor option**（`columnSelection`，无独立 contrib/命令），handler 切换 option + toast 可见反馈（G-3：模式切换必须可见，否则用户忘记开过会把矩形选中当 bug）。键位三处同步 + 漂移锁 44→45（settings.rs 两处断言）。Alt+Shift+Insert 非浏览器危险键（Insert 不在 browserKeys 护栏清单） |
+| **D-4 诊断严重度映射 + `# noqa`**（`ruffLint.ts` / `settingsPanel.ts` / `index.html` / `state.ts` / `settings.rs` / `main.ts`） | 设置项 `ruff_severity_e/w/f`（hint/info/warning/error，默认全 warning = 维持既有行为），Python 设置区三个下拉，保存后立即重查当前文件；`lintActiveFile` 按规则码首字母（E/W/F）映射到 MarkerSeverity，其余类别回落 warning，非法存储值 `normalizeSeverity` 归一（G-3 防静默失效）；编辑器右键「忽略此规则（行尾添加 # noqa）」：定位光标处 ruff 诊断（`getModelMarkers` 按 owner 过滤）→ `buildNoqaLine` 纯函数构造/扩展/判重 → 行尾写入并立即重查（波浪线即时消失） |
+| **D-1 + D-2 自研快速修复**（新域 `quickFix.ts`） | `registerCodeActionProvider("python")`（Ctrl+. / 灯泡）：从两桶（opencharm-lsp / opencharm-ruff）诊断文案提取未定义名字（`extractUndefinedName` 覆盖 pyrefly / basedpyright / ruff F821 句式）；本文件已有顶层定义则不出主意（作用域/拼写问题对症的是人）。**D-1**：工作区同名顶层符号扫描（`list_workspace_files` 过滤 .py 取前 200 个 + `read_file` 逐个 `scanTopLevelSymbol` 轻量解析；`modulePathOf` 走 `relativePathRaw` 归一（CR-28）；命中 ≤3 个来源 → 「从 pkg.mod 导入 X」，插入行由 `findImportInsertLine` 定位（shebang/编码注释/模块 docstring 之后、最后一条顶层 import 之下），当前文件自身定义跳过）。**D-2**：工作区也没有 → 「创建函数（`inferCallArity` 按调用形态数实参，含字符串/注释/嵌套括号处理；`*` 展开传参 → `*args, **kwargs`）/ 创建类 / 创建变量」，stub 追加文件末尾。G-1：扫描文件数与来源缓存（上限 50，工作区切换失效）均有界 |
+| **A-4 红线入 CI 补项**（`bench/collect-metrics.ps1` / `e2e/perf/03-large-file.spec.ts`） | bench 脚本加 `-SoakMinutes` 参数：长跑内存采样（暖机 60s 取基线，每 30s 一采），**暖机后增量 ≤ 150 MB** 红线纳入报告与退出码断言（CI 门禁复用）；「大文件打开」新增 e2e `perf/03`（2MB / ≈17 万行 .py 打开耗时 < 5000ms + 打开后可定位可交互）；「输出洪峰」红线由既有 `perf/01-output-guard`（环形缓冲 + 背压）钉住——三项分别落在最合适的载体，脚本不重复驱动 UI |
+
+### 验收
+
+| 项 | 结果 |
+|---|---|
+| 新增 `src/__tests__/quickFix.test.ts` | **16/16 绿**：诊断文案提取（7 句式 + 反例）、顶层定义解析（缩进/注解/注释边界）、插入点定位（shebang+docstring / 单行 docstring / import 区 / 无头部）、实参推断（零参/多参/嵌套/展开/未闭合 → null）、stub 文案、noqa 行构造（追加/扩展/判重/裸 noqa）、严重度归一 |
+| 新增 `e2e/perf/03-large-file.spec.ts` | **1/1 绿**：2MB 文件打开（model 行数到位 + 耗时红线）与打开后可用性 |
+| 全量回归 | **e2e 102/102 全绿**；`tsc` 0 错；`cargo test` **190 passed**（漂移锁 45 断言验证通过）；`vitest` **54 文件 532 用例全绿** |
+
+### 连带修复（单测抓出的真 bug）
+
+1. **inferCallArity 字符串内逗号误计**（`run('x,y', [1,2], helper)` 计成 4 参）——补字符串字面量/转义/行注释扫描后 16 例全绿。
+
+### 设计取舍备忘
+
+- **C-4 分屏单独成批**：同 model 双 editor 实例、独立 viewState、layout 持久化与 tab 架构耦合，风险高于本批五项之和，不与已 102 条全绿的大 diff 叠加；
+- D-1 扫描上限 200 文件是「兜底」而非「全量索引」：命中即修复，未命中则走 D-2 创建——自研路径的定位是引擎缺位时的 80 分答案；
+- 严重度映射按规则码**首字母**分类（E/W/F）而非逐规则配置：三个下拉已覆盖高频诉求，逐规则 UI 的配置成本与可发现性税不成比例（G-7）。
+
+### 下一步建议
+
+- **C-4 分屏**（2~3，单独批次）：同 model 第二 editor 实例 + 独立 viewState + `layout.ts` 分栏持久化 + sessions 快照兼容；
+- 其余候选（D-3 rename 跨文件预览、D-5 补全模糊、B-4/B-5、F 组）见 §14「剩余候选池」；
 - **每完成一批的固定动作**：更新 §5 表状态 → 追加落地记录节 → 在 §14 表加行 → 四件套回归（tsc / vitest / cargo / playwright）→ git commit（**禁止 push**）。

@@ -29,6 +29,8 @@ import { findUsagesAtCursor, renameSymbolAtCursor, resetFindUsages, setOpenRefHa
 import { initCodeVision, refreshCodeVision } from "./codeVision";
 import { initRenameWidget, setAfterRenameHandler } from "./renameWidget";
 import { initClipboardDiffAction } from "./clipboardDiff"; // C-5：与剪贴板对比（右键菜单）
+import { initNoqaAction } from "./ruffLint"; // D-4：忽略此规则（# noqa，右键菜单）
+import { initQuickFixActions, resetQuickFixCache } from "./quickFix"; // P4：D-1 缺失 import 兜底 + D-2 就地创建符号
 import { registerSidebarView, setSidebarTab, activeView } from "./views";
 import * as lsp from "./lsp/client";
 import * as kb from "./keybindings";
@@ -177,6 +179,7 @@ function resetWorkspaceUiState(): void {
   invalidateQuickOpenFiles();   // P1：工作区文件清单缓存随工作区失效
   resetBreadcrumbs();           // P2：面包屑（含符号缓存与防抖 timer）
   resetRuffLint();              // P2：ruff lint（防抖 timer + 在途请求）
+  resetQuickFixCache();          // P4：自研快速修复的符号来源缓存随工作区失效
   resetBookmarks();             // P2：书签（列表缓存 + gutter 装饰）
   resetBreakpoints();           // P2-11：断点内存表随工作区切换清空（盘上数据按工作区隔离）
   resetRunHistory();            // P2：运行历史（§15：切换/关闭工作区重置）
@@ -1746,6 +1749,8 @@ async function init(): Promise<void> {
   lspProviders.add(initFindUsagesAction(app.editor)); // 右键菜单「查找引用」
   lspProviders.add(initRenameWidget(app.editor)); // F2 就地重命名 + 右键菜单「重命名…」
   lspProviders.add(initClipboardDiffAction(app.editor)); // C-5：右键菜单「与剪贴板对比」
+  lspProviders.add(initNoqaAction(app.editor)); // D-4：右键菜单「忽略此规则（# noqa）」
+  initQuickFixActions(); // P4：D-1/D-2 自研快速修复（Ctrl+. 灯泡；registerCodeActionProvider 自持 dispose 无需入 store）
   lspProviders.add(lsp.registerLspSignatureHelp()); // 签名帮助（参数提示）
   lspProviders.add(lsp.registerLspCodeAction()); // Ctrl+. 快速修复
   lspProviders.add(lsp.registerLspInlayHints()); // 运行时类型标注（opencharm-intel）
