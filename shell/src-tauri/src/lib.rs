@@ -249,6 +249,7 @@ pub fn run() {
             git_cmds::git_log,
             git_cmds::git_blame,
             git_cmds::git_show,
+            git_cmds::git_log_file,
             git_cmds::git_init,
             git_cmds::git_diff_hunks,
             git_cmds::git_apply_hunk,

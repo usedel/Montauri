@@ -11,7 +11,8 @@ import type * as MonacoApi from "monaco-editor/esm/vs/editor/editor.api";
 import { invoke } from "@tauri-apps/api/core";
 import { app, $ } from "./state";
 import { setBottomTab } from "./termUi";
-import { waitReferencesStable, type LspReferenceLocation } from "./lsp/client";
+import { getEngineStatus, waitReferencesStable, type LspReferenceLocation } from "./lsp/client";
+import { setEngineBusy } from "./engineChip";
 import { basename, emptyState } from "./util";
 import { toast } from "./toast";
 import { startRenameAtCursor } from "./renameWidget";
@@ -86,6 +87,8 @@ function classifyRef(it: { text: string; col: number; endCol: number }): RefKind
 
 let lastItems: RefItem[] = [];
 let activeKind: RefKind | "all" = "all";
+/** E-2：上次查询索引是否已稳定（false → 结果面板顶部显示完整性提示，chips 切换重渲染时保留） */
+let lastStable = true;
 
 function renderRefText(container: HTMLElement, it: RefItem): void {
   const text = it.text;
@@ -183,6 +186,14 @@ function buildResults(filter: RefKind | "all"): HTMLElement {
   return root;
 }
 
+/** E-2：结果完整性提示条（对应 lazy 索引「结果不完整但不说」的教训，§3.2） */
+function buildIntegrityHint(): HTMLElement {
+  const el = document.createElement("div");
+  el.className = "fu-integrity-hint";
+  el.textContent = "工作区索引可能尚未完成，结果可能不完整——可稍后重新查询";
+  return el;
+}
+
 function render(): void {
   const panel = panelEl();
   panel.textContent = "";
@@ -198,6 +209,7 @@ function render(): void {
   toolbar.appendChild(spacer);
   toolbar.appendChild(buildRenameButton());
   panel.appendChild(toolbar);
+  if (!lastStable) panel.appendChild(buildIntegrityHint()); // E-2
   const results = document.createElement("div");
   results.className = "find-usages-results";
   results.appendChild(buildResults(activeKind));
@@ -213,18 +225,36 @@ function renderEmpty(desc: string): void {
 /** 查询并渲染引用列表（Alt+F7 与重命名后刷新共用） */
 export async function queryAndRender(model: MonacoApi.editor.ITextModel, position: MonacoApi.Position): Promise<void> {
   fileLinesCache.clear();
+  lastStable = true;
+  // E-2：引擎未就绪时 references 会静默返回空——「无引用」是误导，必须显式告知（G-3）
+  if (getEngineStatus() !== "ready") {
+    lastItems = [];
+    activeKind = "all";
+    renderEmpty("静态引擎未就绪（可能正在启动），结果可能不完整——稍后重试");
+    setBottomTab("findUsages");
+    return;
+  }
+  setEngineBusy(true); // E-2：查询期间引擎 chip 显示忙碌态
   let refs: LspReferenceLocation[];
   try {
     // 稳定采样：pyrefly lazy 索引推进期间不落瞬时值（已稳定时只多一次请求）
-    refs = await waitReferencesStable(model, position, { maxTries: 4, intervalMs: 500 });
+    refs = await waitReferencesStable(model, position, {
+      maxTries: 4,
+      intervalMs: 500,
+      onSettled: (stable) => {
+        lastStable = stable;
+      },
+    });
   } catch (e) {
     toast(`查找引用失败：${e instanceof Error ? e.message : e}`, "error");
     return;
+  } finally {
+    setEngineBusy(false);
   }
   if (refs.length === 0) {
     lastItems = [];
     activeKind = "all";
-    renderEmpty("光标处符号未找到任何引用");
+    renderEmpty(lastStable ? "光标处符号未找到任何引用" : "索引未稳定，结果可能不完整——稍后重新查询");
     setBottomTab("findUsages");
     return;
   }
@@ -273,6 +303,7 @@ export function resetFindUsages(): void {
   fileLinesCache.clear();
   lastItems = [];
   activeKind = "all";
+  lastStable = true;
   const el = $("find-usages-panel");
   if (el) el.textContent = "";
 }

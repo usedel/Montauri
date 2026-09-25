@@ -89,6 +89,11 @@ export function onEngineStatus(fn: (s: EngineStatus) => void): void {
   engineStatusListeners.push(fn);
   fn(engineStatus);
 }
+
+/** E-2：同步读当前引擎状态（findUsages 等 UI 判断「引擎未就绪 → 结果可能不完整」用） */
+export function getEngineStatus(): EngineStatus {
+  return engineStatus;
+}
 function setEngineStatus(s: EngineStatus): void {
   engineStatus = s;
   for (const fn of engineStatusListeners) fn(s);
@@ -1123,11 +1128,13 @@ function sameRefs(a: LspReferenceLocation[], b: LspReferenceLocation[]): boolean
  * 打开首个文件后才在后台建索引，未完成时 references / rename 只覆盖已索引文件 →
  * 重命名漏改 / 引用计数偏小）。连续两次结果全等即认为稳定；已稳定时只多一次请求。
  * onSample：每次采样回调（renameWidget 借此实时刷新 ghost 计数）。
+ * onSettled：结束回调（E-2），stable=false 表示轮询次数用尽仍未收敛——调用方应提示
+ * 「工作区索引可能尚未完成，结果可能不完整」（G-3：禁止静默不完整）。
  */
 export async function waitReferencesStable(
   model: MonacoApi.editor.ITextModel,
   position: MonacoApi.Position,
-  opts: { maxTries?: number; intervalMs?: number; onSample?: (refs: LspReferenceLocation[]) => void } = {},
+  opts: { maxTries?: number; intervalMs?: number; onSample?: (refs: LspReferenceLocation[]) => void; onSettled?: (stable: boolean) => void } = {},
 ): Promise<LspReferenceLocation[]> {
   const maxTries = opts.maxTries ?? 6;
   const intervalMs = opts.intervalMs ?? 700;
@@ -1135,10 +1142,14 @@ export async function waitReferencesStable(
   for (let i = 0; i < maxTries; i++) {
     const cur = await fetchReferencesAt(model, position);
     opts.onSample?.(cur);
-    if (prev && sameRefs(prev, cur)) return cur;
+    if (prev && sameRefs(prev, cur)) {
+      opts.onSettled?.(true);
+      return cur;
+    }
     prev = cur;
     if (i < maxTries - 1) await new Promise((r) => setTimeout(r, intervalMs));
   }
+  opts.onSettled?.(false);
   return prev ?? [];
 }
 

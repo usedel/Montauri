@@ -105,6 +105,8 @@
                 <button id="btn-tree-new-file" class="btn btn--ghost btn--icon" data-tip="新建文件" aria-label="新建文件"><i class="codicon codicon-new-file" aria-hidden="true"></i></button>
                 <button id="btn-tree-new-folder" class="btn btn--ghost btn--icon" data-tip="新建文件夹" aria-label="新建文件夹"><i class="codicon codicon-new-folder" aria-hidden="true"></i></button>
                 <button id="btn-tree-collapse" class="btn btn--ghost btn--icon" data-tip="全部折叠" aria-label="全部折叠"><i class="codicon codicon-collapse-all" aria-hidden="true"></i></button>
+                <!-- E-3（PyCharm 调研）：定位到当前编辑文件（展开 + 滚动 + 选中） -->
+                <button id="btn-tree-reveal" class="btn btn--ghost btn--icon" data-tip="定位到当前文件" aria-label="定位到当前文件"><i class="codicon codicon-go-to-file" aria-hidden="true"></i></button>
                 <button id="btn-tree-hidden" class="btn btn--ghost btn--icon" data-tip="显示 dot 文件" aria-label="显示 dot 文件" aria-pressed="false"><i class="codicon codicon-eye" aria-hidden="true"></i></button>
                 <button id="btn-tree-refresh" class="btn btn--ghost btn--icon" data-tip="刷新文件树" aria-label="刷新文件树"><i class="codicon codicon-refresh" aria-hidden="true"></i></button>
               </div>
@@ -131,6 +133,12 @@
               <div id="search-panel">
                 <div class="search-box">
                   <input id="search-input" type="text" autocomplete="off" placeholder="搜索工作区…" spellcheck="false" />
+                  <!-- E-5（PyCharm 调研）：搜索范围（PyCharm 的 Find in Files scope 意识） -->
+                  <select id="search-scope" aria-label="搜索范围" title="搜索范围">
+                    <option value="workspace">整个工作区</option>
+                    <option value="tabs">打开的标签</option>
+                    <option value="file">当前文件</option>
+                  </select>
                   <!-- UI-09：可见文本「Aa」是符号而非语义名，补 aria-label 让可访问名称有意义；
                        UI-16：开关态用 aria-pressed 表达（main.ts 与 .active 类同源切换） -->
                   <button id="search-case" class="btn btn--sm" data-tip="区分大小写" aria-label="区分大小写" aria-pressed="false">Aa</button>
@@ -682,6 +690,15 @@
             <button class="settings-nav-item" role="tab" aria-selected="false" aria-controls="settings-section-plugins" data-cat="plugins">插件</button>
           </nav>
           <div class="settings-content">
+            <!-- E-1（PyCharm 调研）：设置搜索——按标题/提示文本/关键词过滤所有分类的行 -->
+            <div class="settings-search-box">
+              <input id="settings-search" type="text" autocomplete="off" placeholder="搜索设置（如：字号、theme、缩进）" spellcheck="false" aria-label="搜索设置" />
+            </div>
+            <!-- E-1：搜索无结果时的空态；「找键位」跳转快捷键分类 -->
+            <div id="settings-search-empty" class="settings-search-empty hidden" role="status">
+              <span>没有匹配的设置。</span>
+              <button id="settings-search-goto-kb" class="btn btn--sm">查找快捷键…</button>
+            </div>
             <div id="settings-section-appearance" class="settings-section" role="tabpanel">
               <div class="settings-row">
                 <label id="settings-theme-label">主题</label>
@@ -957,6 +974,17 @@
     <div id="recent-modal" class="modal hidden"></div>
     <!-- Search Everywhere（P1，Double Shift / Ctrl+Shift+N / Ctrl+G；内容由 quickOpen.ts 构建） -->
     <div id="quick-open-modal" class="modal hidden"></div>
+    <!-- C-5（PyCharm 调研）：与剪贴板对比（当前文件/选区 vs 剪贴板；内容由 clipboardDiff.ts 构建） -->
+    <div id="clipboard-diff-modal" class="modal hidden">
+      <div class="modal-card clipboard-diff-card" role="dialog" aria-modal="true" aria-label="与剪贴板对比">
+        <div class="env-header">
+          <span class="env-title" id="clipboard-diff-title">与剪贴板对比</span>
+          <span class="spacer"></span>
+          <button id="clipboard-diff-close" class="btn btn--ghost btn--icon" aria-label="关闭"><i class="codicon codicon-close" aria-hidden="true"></i></button>
+        </div>
+        <div id="clipboard-diff-host"></div>
+      </div>
+    </div>
     <!-- 书签列表（P2，Ctrl+Shift+F11；内容由 bookmarks.ts 构建） -->
     <div id="bookmark-modal" class="modal hidden"></div>
     <!-- 运行历史（P2；内容由 runHistory.ts 构建） -->

@@ -646,8 +646,9 @@ Search Everywhere（Double Shift）、Go to File/Line、Recent Files/Locations�
 | P1 | A-5 会话恢复 | ✅ §12（e2e 2 条） |
 | P1 | A-1 资源可观测面板 | ✅ §13（e2e 3 条） |
 | P2 | B-1 Watches、B-2 异常断点、B-3 justMyCode、B-6 断点启禁、B-7 变量护栏、B-8 hover 求值 | ✅ §15（e2e 3 条） |
+| P3 | E-1 设置搜索、E-2 引擎忙碌态、E-3 文件树定位+本地历史入口、E-4 Git 文件历史+提交框预填、E-5 搜索 scope+分组折叠、C-5 与剪贴板对比 | ✅ §17（e2e 5 条） |
 
-**P0 / P1 / P2 三批（共 13 个功能项）全部交付并验收。**
+**P0 / P1 / P2 / P3 四批（共 19 个功能项）全部交付并验收。**
 
 **连带修复的先在性缺陷**（均为验收过程发现）：
 1. 输出/终端无界增长（迟早会撞上的坑）；
@@ -656,7 +657,7 @@ Search Everywhere（Double Shift）、Go to File/Line、Recent Files/Locations�
 4. **mock 缺 `list_pythons` → 每个 e2e 用例 init 都在带病运行**（`maybePromptVenv` 空值炸掉 openWorkspace 后半段，会话恢复等新能力全部不可达）；
 5. lsp e2e 跳转定义用例未等渲染取 boundingBox 的时序脆弱。
 
-**剩余候选池**（未排期）：P3 可发现性组（§6-E：E-1 设置搜索、E-2 引擎忙碌/结果完整性提示、E-3 文件树跟随 + 本地历史入口、E-4 Git 文件历史 + 提交信息预填、E-5 搜索 scope）、P4 智能与质量组（§6-D：D-1 缺失 import 修复、D-2 就地创建符号、D-3 rename 跨文件预览、D-5 补全模糊、D-4 诊断可配置）、编辑器余项（C-3 列选择、C-4 分屏、C-5 与剪贴板对比）、A-4 红线入 CI 补项（长跑内存 / 大文件打开 / 输出洪峰）、调试候选（B-4 智能步进、B-5 线程切换）、F 组战略候选。是否立项以 `python_ide_dev_plan_v2.md` 及产品负责人裁决为准。
+**剩余候选池**（未排期）：P4 智能与质量组（§6-D：D-1 缺失 import 修复、D-2 就地创建符号、D-3 rename 跨文件预览、D-5 补全模糊、D-4 诊断可配置）、编辑器余项（C-3 列选择、C-4 分屏）、A-4 红线入 CI 补项（长跑内存 / 大文件打开 / 输出洪峰）、调试候选（B-4 智能步进、B-5 线程切换）、F 组战略候选。是否立项以 `python_ide_dev_plan_v2.md` 及产品负责人裁决为准。
 
 ---
 
@@ -708,8 +709,8 @@ mock 罐头的 evaluate/variables 都是静态值，以下两点需真机（CDP�
 
 ### 16.2 当前进度
 
-- **已交付**：P0（A-2/A-3）+ P1（A-1/A-5/C-1/C-2/C-6）+ P2（B-1/B-2/B-3/B-6/B-7/B-8），共 13 项；
-- **测试基线**：e2e 96 条（Playwright，覆盖 perf / session / editor / debug / lsp / git / plugins 各组）；`cargo test` 190；`vitest` 205；`tsc --noEmit` 0 错；
+- **已交付**：P0（A-2/A-3）+ P1（A-1/A-5/C-1/C-2/C-6）+ P2（B-1/B-2/B-3/B-6/B-7/B-8）+ P3（E-1/E-2/E-3/E-4/E-5/C-5），共 19 项（详见 §17）；
+- **测试基线**：e2e 101 条（Playwright，覆盖 perf / session / editor / debug / lsp / git / plugins / p3 各组）；`cargo test` 190；`vitest` 516（53 文件）；`tsc --noEmit` 0 错；
 - **未交付**：见 §14「剩余候选池」。
 
 ### 16.3 工程纪律（每次改动必查；细则以 `.codebuddy/rules/typescript-code-style/RULE.mdc` 为准）
@@ -738,5 +739,48 @@ mock 罐头的 evaluate/variables 都是静态值，以下两点需真机（CDP�
 ### 16.5 下一步建议（按 §7 排期，量级为单人日）
 
 - **P3**：E-1 设置搜索（0.5）→ E-2 引擎忙碌/结果完整性提示（1）→ E-3 文件树跟随 + 本地历史入口（0.5）→ E-5 搜索 scope（0.5）→ C-5 与剪贴板对比（0.5）→ E-4 Git 文件历史 + 提交信息预填（1.5）；
+- **P4**：A-4 红线入 CI 补项（长跑内存 / 大文件打开 / 输出洪峰）→ C-3 列选择（0.5）→ D-1 缺失 import 修复（1.5）→ D-2 就地创建符号（1.5）→ D-4 诊断可配置（1.5）→ C-4 分屏（2~3）；
+- **每完成一批的固定动作**：更新 §5 表状态 → 追加落地记录节 → 在 §14 表加行 → 四件套回归（tsc / vitest / cargo / playwright）→ git commit（**禁止 push**）。
+
+---
+
+## 17. P3 落地记录（2026-09-25）：可发现性与细节批次（§6-E / §6-C-5）
+
+> P3 的主题是「可发现性」：能力已交付但入口藏得深，用户感知为零等于不存在。本次六项：E-1 设置搜索、E-2 引擎忙碌态、E-3 文件树定位 + 本地历史入口、E-4 Git 文件历史 + 提交框预填、E-5 搜索 scope + 分组折叠、C-5 与剪贴板对比。
+
+### 实现
+
+| 项 | 内容 |
+|---|---|
+| **E-1 设置搜索**（`settingsPanel.ts` + `index.html`） | 搜索框跨分类过滤：匹配行 = 行文本 + 集中关键词表 `SETTINGS_ROW_KEYWORDS`（G-7「可发现性税」：控件 id → 英文/别名关键词，单一出处防逐行 `data-kw` 漂移）+ `data-kw`；行命中用 quickOpen 的 `fuzzyScore`（与 Search Everywhere 同一手感）；分类无命中整节隐藏（命中行仍归属其分类标题，可定位）；模板/插件两个动态内容页整体隐藏（非表单行，搜索无意义）；无匹配出空态 +「查找快捷键」按钮直接跳快捷键分类（顺手解决「设置里改键找不到」）；切分类/关面板/空态跳转一律退出搜索态。**恢复路径刻意不走 `switchCategory`**（它对插件/模板页有渲染副作用，恢复显隐触发重渲染会与 `openSettingsPanel` 的 `switchCategory("plugins")` 并发双渲染插件列表——e2e plugins spec 抓出后已修：恢复只做纯显隐还原 + `searchActive` 单次守卫） |
+| **E-2 引擎忙碌态**（`engineChip.ts` + `style.css`） | `setEngineBusy(true)`：`starting` / 引用稳定采样期间 chip 显示「引擎启动中/索引中…」+ `.busy`（`--warn` 色光标 progress），保存设置时浮现「结果可能不完整」1.5s（PyCharm 索引提示意识）；终态恢复。零新命令、纯前端状态展示 |
+| **E-3 文件树定位**（`fileTree.ts` + `index.html`） | 工具栏「定位到当前文件」按钮（`codicon-go-to-file`）：`revealInTree(path)` 逐级 `ensureDirExpanded` 展开父目录 → 走 `selectEntry` 单选路径（UI-16 aria-selected 单一写入点）→ `scrollIntoView(nearest)`；节点未渲染时先展开父目录再 `reloadDir` 局部刷新（覆盖根节点折叠态/顶层文件/新建未刷新文件）；右键菜单「本地历史」下沉（`Ctrl+Shift+H` 已有但不可发现——文件级历史对任意文件有意义） |
+| **E-4 Git 文件历史 + 提交框预填**（`git_cmds.rs` / `git.ts` / `fileTree.ts`） | Rust `git_log_file`（`git log --follow --date=short --pretty=format:%H\x1f…`，`--follow` 跟随重命名；单文件历史不画 graph 无信息量；输出形状复用 `GitCommit`）；前端 `showFileHistory(relPath)` 渲染进 Git 详情视图（与 blame 同容器，hash 可点进 `git show` 提交详情）；文件树右键「Git 文件历史」对仓库内任何文件可用（含当前无改动的已跟踪文件）；提交框预填：`renderGitPanel` 中仅暂存单文件且框为空时填文件名（可编辑，框非空永不覆盖），暂存数不再是 1 且框内仍是自动预填值时自动清掉 |
+| **E-5 搜索 scope + 分组折叠**（`search.ts` / `main.ts` / `index.html` / `style.css`） | 搜索框加 scope 下拉（整个工作区 / 打开的标签 / 当前文件）：scope 模式走 TS 侧 `searchInFiles`（`read_file` 逐文件行扫描，匹配上限 5000 对齐后端 `MAX_MATCHES`，G-1 有界；diff 视图 tab 的 path 是仓库相对路径不可读，自动排除）；工作区模式照旧走 Rust 全仓搜索，返回结构零变化、渲染链路全复用；文件分组头可点击折叠/展开（UI-16 disclosure 语义：role=button + Enter/Space + aria-expanded 同源）；mock 侧 `e2e/helpers.ts` git bridge 补 `git_log_file` |
+| **C-5 与剪贴板对比**（`clipboardDiff.ts` 新域 + `index.html` + `style.css`） | 编辑器右键「与剪贴板对比」（`addAction`，有选区比选区、无选区比整个文件）+ 文件树右键（整个文件）；Monaco diff 模态独立懒创建（**刻意不复用 git.ts diff 宿主**：三态基准/冲突开关/hunk 状态机与仓库语义深度耦合，剪贴板 diff 只需两侧文本只读展示）；关闭/换内容时先 `setModel` 解绑再 dispose 旧 model（Monaco 0.52 契约：`TextModel got disposed before DiffEditorWidget model got reset`——实测两次踩坑：重置必须 `setModel(null)` 而非 `{original:null,modified:null}`，换内容必须先挂新再释旧）；剪贴板空/读失败、文件读失败均有可见 toast（G-3） |
+
+**范围说明**：§7 排期表 P3 批次中的「C-3 列选择」未列入本批（§16.5 的操作清单已不含它）——Monaco 原生已提供列选择（Alt+Shift+方向键/拖拽），无需开发；§16.5 清单为本批的唯一口径。
+
+### 验收
+
+| 项 | 结果 |
+|---|---|
+| 新增 `e2e/p3/01-discoverability.spec.ts` | **5/5 绿**：P3-1 设置搜索（关键词过滤跨分类 + 空态跳转快捷键分类 + 输入重置）；P3-2 搜索 scope=当前文件（分组头全部 main.py）+ 文件组折叠/展开；P3-3 文件树定位（折叠根目录后重新展开 + `.active` 选中）；P3-4 Git 文件历史（右键 → 详情视图真实提交 → hash 点进提交详情）；P3-5 剪贴板对比模态（mock 预置 `__E2E_CLIPBOARD__` 哨兵文本 → diff original 侧可见 → Esc 关闭） |
+| 全量回归 | **e2e 101/101 全绿**（mock + debug + lsp + git + p3 五套）；`tsc` 0 错；`cargo test` **190 passed / 0 failed**（含 git_log_file 编译）；`vitest` **53 文件 516 用例全绿**（此前的 DOM 环境 "No test suite found" 故障已不复现） |
+
+### 连带修复的先在性缺陷
+
+1. **breakpointPersist 两条过期断言**（B-6 起 payload 恒含 `enabled`，测试未同步）——非本批引入，顺带修正；
+2. **revealInTree 顶层文件定位失效**（工作区直接子文件 `parts.slice(0,-1)` 为空不触发父目录展开，e2e P3-3 抓出）——补 `ensureDirExpanded(parentDirOf(path))` 兜底；
+3. **设置搜索恢复态双渲染**（见 E-1 行内说明，plugins spec 4 例 strict violation 抓出）——`switchCategory` 恢复改为纯显隐还原。
+
+### 设计取舍备忘
+
+- 搜索 scope 的「打开的标签」模式**同步读盘而非读 model**：diff tab 占位模型/多 tab 同文件等边界下「磁盘内容」语义更可预测；缓存一致性由既有 watcher 体系保证；
+- 文件历史不进 SCM 历史 tab 复用 `renderCommitItem`：单文件列表不需要 graph 车道与右键全家桶，详情视图轻量行 + hash 跳转已覆盖「这个文件谁改的、为什么」的主诉求；
+- 引擎忙碌态不挂 spinner 动画（`--reduce-motion` 联动成本 > 信息价值），色变 + 文案即可。
+
+### 下一步建议（P4，量级为单人日）
+
 - **P4**：A-4 红线入 CI 补项（长跑内存 / 大文件打开 / 输出洪峰）→ C-3 列选择（0.5）→ D-1 缺失 import 修复（1.5）→ D-2 就地创建符号（1.5）→ D-4 诊断可配置（1.5）→ C-4 分屏（2~3）；
 - **每完成一批的固定动作**：更新 §5 表状态 → 追加落地记录节 → 在 §14 表加行 → 四件套回归（tsc / vitest / cargo / playwright）→ git commit（**禁止 push**）。

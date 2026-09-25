@@ -1703,6 +1703,8 @@ button:focus-visible,
 /* 引擎 chip（C2）：可点击身份/切换入口；状态点职责在 #status-lsp，两者分工不重复 */
 #status-engine { overflow: hidden; text-overflow: ellipsis; max-width: 110px; }
 #status-engine:hover { color: var(--fg); }
+/* E-2（PyCharm 调研）：引擎忙碌态（starting / 引用稳定采样期间），提示「结果可能不完整」 */
+#status-engine.busy { color: var(--warn); cursor: progress; }
 /* UI-21：LSP 状态文本（含异常时的「LSP 启动失败: …」长串）补 max-width + 截断 */
 #status-lsp { overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
 /* LSP 状态点（● 灰未启动 / 黄启动中 / 绿就绪 / 红错误） */
@@ -1887,6 +1889,9 @@ button:focus-visible,
 /* 输入模态（P0：条件断点 / Logpoint 表达式录入；dialog.ts::openPrompt） */
 .prompt-card { min-width: 460px; }
 .prompt-card .settings-hint { margin-bottom: var(--space-4); }
+/* C-5（PyCharm 调研）：与剪贴板对比模态（宽幅 + diff 宿主占满剩余高度） */
+.clipboard-diff-card { width: min(1100px, 92vw); height: min(720px, 82vh); display: flex; flex-direction: column; }
+#clipboard-diff-host { flex: 1; min-height: 0; border-top: 1px solid var(--border); }
 /* 最近打开的文件（P0，Ctrl+E；recentFiles.ts） */
 .recent-card { min-width: 520px; padding: var(--space-6); }
 .recent-list {
@@ -2698,6 +2703,12 @@ button:focus-visible,
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* E-5（PyCharm 调研）：文件分组头可点击折叠/展开（▾/▸ 指示 + hover 反馈） */
+.search-file-name { cursor: pointer; user-select: none; }
+.search-file-name:hover { background: var(--hover); }
+.search-file-name::before { content: "▾ "; color: var(--fg-dim); }
+.search-file.collapsed .search-file-name::before { content: "▸ "; }
+.search-file.collapsed .search-match { display: none; }
 .search-match {
   display: flex;
   gap: var(--space-4);
@@ -2785,6 +2796,20 @@ button:focus-visible,
   .settings-content { padding-left: 0; padding-top: var(--space-5); }
 }
 .settings-section { flex: none; display: flex; flex-direction: column; gap: var(--space-6); }
+
+/* ---------- E-1（PyCharm 调研）：设置搜索 ---------- */
+.settings-search-box { flex: none; margin-bottom: var(--space-6); }
+.settings-search-box input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-sm);
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.settings-search-empty { flex: none; display: flex; align-items: center; gap: var(--space-4); color: var(--fg-dim); font-size: var(--text-sm); padding: var(--space-2) 0; }
 /* PR-2：插件 tab（§9.14）——列表可滚（插件多时不撑爆卡片） */
 .settings-section-plugins { flex: 1; min-height: 0; overflow-y: auto; }
 .plugins-panel { display: flex; flex-direction: column; gap: var(--space-4); }
@@ -3472,6 +3497,17 @@ button:focus-visible,
   flex: none;
 }
 .find-usages-results { flex: 1; overflow: auto; }
+/* E-2（PyCharm 调研）：结果完整性提示条（索引未稳定时显示在 toolbar 与结果之间） */
+.fu-integrity-hint {
+  flex: none;
+  margin: 0 var(--space-4);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--warn);
+  background: var(--warn-soft);
+  border: 1px solid var(--warn-border);
+  border-radius: var(--radius-sm);
+}
 .fu-toolbar-spacer { flex: 1; }
 .fu-chip {
   background: transparent;
@@ -3575,6 +3611,17 @@ button:focus-visible,
   line-height: 1.7;
 }
 .git-blame-line { color: var(--fg-dim); flex: none; }
+/* E-4（PyCharm 调研）：Git 文件历史行（hash 可点击进提交详情，复用 .git-blame-hash） */
+.git-file-history-row {
+  display: flex;
+  gap: var(--space-3);
+  padding: 0 var(--space-4);
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  line-height: 1.7;
+}
+.git-file-history-meta { color: var(--fg-dim); flex: none; white-space: nowrap; }
+.git-file-history-subject { color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .git-blame-hash {
   flex: none;
   border: none;

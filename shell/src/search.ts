@@ -27,6 +27,60 @@ export function setOpenMatchHandler(fn: (m: SearchMatch) => void): void {
   onOpenMatch = fn;
 }
 
+// ---------- E-5（PyCharm 调研）：搜索 scope（当前文件 / 打开的标签 / 整个工作区） ----------
+
+export type SearchScopeMode = "workspace" | "tabs" | "file";
+
+/** scope 参数：tabs / file 模式由调用方给出文件路径列表；workspace 走 Rust 全仓搜索 */
+export interface SearchScope {
+  mode: SearchScopeMode;
+  paths: string[];
+}
+
+/** scope 内搜索的匹配上限（对齐后端 MAX_MATCHES，G-1 有界） */
+const SCOPE_MAX_MATCHES = 5000;
+
+/** 在指定文件列表内做子串匹配（读文件走 read_file，与引用面板行文本同源）。
+ *  返回 null = 令牌过期（在途结果应丢弃）。text 存整行原文（列号即原行列，跳转/高亮都精确）。 */
+async function searchInFiles(
+  query: string,
+  caseSensitive: boolean,
+  paths: string[],
+  token: number,
+): Promise<SearchResult | null> {
+  const matches: SearchMatch[] = [];
+  let scanned = 0;
+  let truncated = false;
+  const needle = caseSensitive ? query : query.toLowerCase();
+  for (const path of paths) {
+    let content: string;
+    try {
+      content = await invoke<string>("read_file", { path });
+    } catch {
+      continue; // 文件已被删除/不可读：跳过，不算失败
+    }
+    if (token !== searchToken) return null; // 过期请求，丢弃
+    scanned++;
+    const lines = content.split(/\r?\n/);
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const hay = caseSensitive ? line : line.toLowerCase();
+      let idx = hay.indexOf(needle);
+      while (idx >= 0) {
+        if (matches.length >= SCOPE_MAX_MATCHES) {
+          truncated = true;
+          break;
+        }
+        matches.push({ path, line: i + 1, text: line, column: idx + 1, length: query.length });
+        idx = hay.indexOf(needle, idx + needle.length);
+      }
+      if (truncated) break;
+    }
+    if (truncated) break;
+  }
+  return { matches, files_scanned: scanned, files_skipped: 0, files_skipped_binary: 0, truncated };
+}
+
 /** 高亮匹配片段：匹配前 40 字符 + 匹配段 + 后文（截断长行） */
 function renderMatchLine(container: HTMLElement, m: SearchMatch): void {
   const text = m.text;
@@ -68,7 +122,7 @@ function buildMatchLine(m: SearchMatch): HTMLElement {
   return lineEl;
 }
 
-/** 构建文件分组头（文件名 + 该文件匹配总数） */
+/** 构建文件分组头（文件名 + 该文件匹配总数；E-5：可点击折叠/展开该文件组） */
 function buildFileHeader(path: string, total: number): HTMLElement {
   const fileEl = document.createElement("div");
   fileEl.className = "search-file";
@@ -76,6 +130,21 @@ function buildFileHeader(path: string, total: number): HTMLElement {
   name.className = "search-file-name";
   name.textContent = `${path.split(/[\\/]/).pop()} (${total})`;
   name.title = path;
+  // E-5：折叠切换。可点击 div 补 disclosure 语义（UI-16：role=button + 键盘激活 + aria-expanded）
+  name.setAttribute("role", "button");
+  name.tabIndex = 0;
+  name.setAttribute("aria-expanded", "true");
+  const toggle = (): void => {
+    const collapsed = fileEl.classList.toggle("collapsed");
+    name.setAttribute("aria-expanded", String(!collapsed));
+  };
+  name.addEventListener("click", toggle);
+  name.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      toggle();
+    }
+  });
   fileEl.appendChild(name);
   return fileEl;
 }
@@ -95,12 +164,13 @@ export function resetSearch(): void {
   if (results) results.textContent = "";
 }
 
-/** 执行搜索并渲染结果树（文件分组 + 分批渲染） */
+/** 执行搜索并渲染结果树（文件分组 + 分批渲染；E-5：scope 非工作区时在指定文件内搜索） */
 export async function runSearch(
   root: string,
   query: string,
   caseSensitive: boolean,
   resultEl: HTMLElement,
+  scope?: SearchScope,
 ): Promise<void> {
   const token = ++searchToken;
   resultEl.textContent = "";
@@ -110,13 +180,19 @@ export async function runSearch(
   }
   appendHint(resultEl, "搜索中…");
   let r: SearchResult;
-  try {
-    r = await invoke<SearchResult>("search_workspace", { root, query, caseSensitive });
-  } catch (e) {
-    if (token !== searchToken) return; // 过期请求，丢弃
-    resultEl.textContent = "";
-    appendHint(resultEl, `搜索失败：${e}`);
-    return;
+  if (scope && scope.mode !== "workspace") {
+    const local = await searchInFiles(query, caseSensitive, scope.paths, token);
+    if (!local) return; // 过期请求，丢弃
+    r = local;
+  } else {
+    try {
+      r = await invoke<SearchResult>("search_workspace", { root, query, caseSensitive });
+    } catch (e) {
+      if (token !== searchToken) return; // 过期请求，丢弃
+      resultEl.textContent = "";
+      appendHint(resultEl, `搜索失败：${e}`);
+      return;
+    }
   }
   if (token !== searchToken) return; // 过期请求，丢弃（避免旧结果覆盖新结果）
   resultEl.textContent = "";

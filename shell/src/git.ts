@@ -190,6 +190,26 @@ function gitFileStaged(f: GitStatusFile): boolean {
   return f.x !== " ";
 }
 
+// ---------- E-4（PyCharm 调研）：提交信息预填文件名 ----------
+
+let lastPrefill = "";
+
+/** 仅暂存单文件时，提交框预填该文件名（可编辑——后续输入即覆盖）。
+ *  框非空永不覆盖（不动用户正在写的信息）；暂存数不再是 1 且框内仍是上次的自动预填值时清掉。 */
+function prefillCommitMessage(staged: GitStatusFile[]): void {
+  const msgEl = $("git-commit-msg") as HTMLTextAreaElement;
+  if (staged.length === 1) {
+    if (!msgEl.value.trim()) {
+      const name = basename(staged[0].path);
+      msgEl.value = name;
+      lastPrefill = name;
+    }
+  } else if (lastPrefill && msgEl.value === lastPrefill) {
+    msgEl.value = "";
+    lastPrefill = "";
+  }
+}
+
 /** 渲染 SCM 变更列表（按「已暂存 / 更改」分组） */
 export function renderGitPanel(): void {
   const box = $("git-changes");
@@ -252,6 +272,7 @@ export function renderGitPanel(): void {
     commitBtn.textContent = staged.length > 0 ? `提交(${staged.length})` : "提交";
   }
   commitBtn.toggleAttribute("disabled", staged.length === 0);
+  prefillCommitMessage(staged); // E-4：仅暂存单文件时预填文件名
   // C6：多选批量操作条（选中集在 stage/unstage 后可能含已消失路径，先清幽灵）
   for (const p of [...scmSelected]) {
     if (!gitFiles.some((f) => f.path === p)) scmSelected.delete(p);
@@ -1756,6 +1777,40 @@ export async function showBlame(path: string): Promise<void> {
 }
 
 interface GitCommitInfo { hash: string; short_hash: string; author: string; date: string; subject: string; graph: string; refs: string }
+
+/** E-4（PyCharm 调研）：文件历史（git log --follow）——单文件的提交列表，hash 可点进提交详情。
+ *  与 blame 同用 Git 详情视图（openGitDetailView 渲染任意行内容）。 */
+export async function showFileHistory(relPath: string): Promise<void> {
+  if (!app.workspaceRoot) return;
+  openGitDetailView(`文件历史 · ${relPath}`, `git log --follow -- ${relPath}`);
+  try {
+    const commits = await invoke<GitCommitInfo[]>("git_log_file", { root: app.workspaceRoot, path: relPath, count: 100 });
+    if (commits.length === 0) {
+      appendDetailLine("该文件尚无提交历史", "hint");
+      return;
+    }
+    for (const c of commits) {
+      const row = document.createElement("div");
+      row.className = "git-file-history-row";
+      const hash = document.createElement("button");
+      hash.className = "git-blame-hash";
+      hash.textContent = c.short_hash;
+      hash.title = `${c.subject}\n点击查看提交详情`;
+      hash.addEventListener("click", () => void showCommitDetail(c.short_hash));
+      const meta = document.createElement("span");
+      meta.className = "git-file-history-meta";
+      meta.textContent = `${c.date} · ${c.author}`;
+      const subject = document.createElement("span");
+      subject.className = "git-file-history-subject";
+      subject.textContent = c.refs ? `${c.subject}  (${c.refs})` : c.subject;
+      row.append(hash, meta, subject);
+      gitDetailViewEl.appendChild(row);
+    }
+  } catch (e) {
+    appendDetailLine(`读取文件历史失败：${e}`, "stderr");
+    toastFail("读取文件历史", e);
+  }
+}
 
 /** 历史面板开关（迭代 5 · C3：改走 tab 切换） */
 export function toggleHistory(): void {

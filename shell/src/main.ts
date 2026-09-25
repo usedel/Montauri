@@ -24,10 +24,11 @@ import { initPluginLoader, scanPlugins, schedulePluginRescan, listPluginRecords,
 import { initInlineRunner, listInlineEntries, runInline, inlineCommandLabel } from "./extensions/inline";
 import { setPluginsTabHandlers, openGuide } from "./extensions/pluginsTab";
 import { formatPythonSource, optimizeImportsSource, registerRuffFormatter, setFormatErrorHandler } from "./format";
-import { runSearch, cancelSearch, resetSearch, setOpenMatchHandler, type SearchMatch } from "./search";
+import { runSearch, cancelSearch, resetSearch, setOpenMatchHandler, type SearchMatch, type SearchScope, type SearchScopeMode } from "./search";
 import { findUsagesAtCursor, renameSymbolAtCursor, resetFindUsages, setOpenRefHandler, queryAndRender, initFindUsagesAction } from "./findUsages";
 import { initCodeVision, refreshCodeVision } from "./codeVision";
 import { initRenameWidget, setAfterRenameHandler } from "./renameWidget";
+import { initClipboardDiffAction } from "./clipboardDiff"; // C-5：与剪贴板对比（右键菜单）
 import { registerSidebarView, setSidebarTab, activeView } from "./views";
 import * as lsp from "./lsp/client";
 import * as kb from "./keybindings";
@@ -58,7 +59,7 @@ import { toast, toastFail } from "./toast";
 import { restoreLayout, toggleSidebar, wireSplitters } from "./layout";
 import { motionDisabled, restoreReduceMotion } from "./anim";
 import { wireTooltip } from "./tooltip";
-import { renderEngineChip, setEngineChipHandlers, wireEngineChip } from "./engineChip";
+import { renderEngineChip, setEngineBusy, setEngineChipHandlers, wireEngineChip } from "./engineChip";
 import { renderRunWidget, setRunWidgetHandlers, setRunWidgetRepaint, wireRunWidget, runWidgetHandlers } from "./runWidget";
 import { clearRunGutter, isRunGutterLine, refreshRunGutter, setRunGutterHandlers, wireRunGutter } from "./runGutter";
 import { clearGitGutter, refreshGitGutter, scheduleGitGutter, wireGitGutter } from "./gitGutter"; // 迭代 2 · P0-5
@@ -573,11 +574,22 @@ async function openSearchMatch(m: SearchMatch): Promise<void> {
   app.editor.focus();
 }
 
-/** 执行搜索（工作区未打开时忽略） */
+/** 执行搜索（工作区未打开时忽略；E-5：scope 支持 当前文件 / 打开的标签 / 整个工作区） */
 async function executeSearch(): Promise<void> {
   if (!app.workspaceRoot) return;
   const input = $("search-input") as HTMLInputElement;
-  await runSearch(app.workspaceRoot, input.value, searchCaseSensitive, $("search-results"));
+  const mode = ($("search-scope") as HTMLSelectElement).value as SearchScopeMode;
+  let scope: SearchScope | undefined;
+  if (mode === "file") {
+    const t = app.activeTab;
+    // 无普通文件 tab（未打开/diff 视图）时给空列表 →「已扫描 0 个文件」空态；
+    // 静默回退全工作区搜索反而误导（scope 选择与实际行为不符）
+    scope = { mode, paths: t && t.kind !== "diff" ? [t.path] : [] };
+  } else if (mode === "tabs") {
+    // 只搜普通文件 tab（diff 视图的 path 是仓库相对路径，不是可读文件路径）
+    scope = { mode, paths: app.tabs.filter((t) => t.kind !== "diff").map((t) => t.path) };
+  }
+  await runSearch(app.workspaceRoot, input.value, searchCaseSensitive, $("search-results"), scope);
 }
 
 /** CR-20：本批大纲符号所属 tab（点击回调校验用，渲染时记录） */
@@ -1733,6 +1745,7 @@ async function init(): Promise<void> {
   lspProviders.add(initCodeVision(app.editor)); // 引用计数 Code Vision（声明行上方「N 处引用」）
   lspProviders.add(initFindUsagesAction(app.editor)); // 右键菜单「查找引用」
   lspProviders.add(initRenameWidget(app.editor)); // F2 就地重命名 + 右键菜单「重命名…」
+  lspProviders.add(initClipboardDiffAction(app.editor)); // C-5：右键菜单「与剪贴板对比」
   lspProviders.add(lsp.registerLspSignatureHelp()); // 签名帮助（参数提示）
   lspProviders.add(lsp.registerLspCodeAction()); // Ctrl+. 快速修复
   lspProviders.add(lsp.registerLspInlayHints()); // 运行时类型标注（opencharm-intel）
@@ -1797,6 +1810,7 @@ async function init(): Promise<void> {
     lsp.handleDiagnostics(params, engine, setMarkers);
   });
   lsp.onEngineStatus((s) => {
+    setEngineBusy(s === "starting"); // E-2：引擎启动期 chip 显示忙碌态
     const map: Record<lsp.EngineStatus, string> = {
       off: "LSP: 未启动", starting: "LSP: 启动中…", ready: "LSP: 就绪",
       error: "LSP: 错误", exited: "LSP: 已退出",
@@ -2244,6 +2258,10 @@ async function init(): Promise<void> {
     $("search-case").classList.toggle("active", searchCaseSensitive);
     // UI-16：开关按钮的按下态用 aria-pressed 表达，与 .active 类同源切换
     $("search-case").setAttribute("aria-pressed", String(searchCaseSensitive));
+    if (searchInputEl.value.trim()) executeSearch().catch(console.error);
+  });
+  // E-5：scope 切换即重搜（当前文件 / 打开的标签 / 整个工作区）
+  $("search-scope").addEventListener("change", () => {
     if (searchInputEl.value.trim()) executeSearch().catch(console.error);
   });
 

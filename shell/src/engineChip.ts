@@ -17,6 +17,22 @@ export interface EngineChipHandlers {
 let handlers: EngineChipHandlers | null = null;
 const statusEngineEl = $("status-engine");
 
+// E-2（PyCharm 调研）：引擎忙碌态（引用计数：引擎 starting 与 references/rename 查询可叠加）
+let busyDepth = 0;
+
+/** 忙碌态开关（引用计数）：main 在引擎 starting/ready 切换，findUsages/renameWidget 在查询期间置位 */
+export function setEngineBusy(busy: boolean): void {
+  const next = Math.max(0, busyDepth + (busy ? 1 : -1));
+  if (next === busyDepth) return;
+  busyDepth = next;
+  renderEngineChip();
+}
+
+/** 供 e2e/展示读取（内部判定用 busyDepth） */
+export function isEngineBusy(): boolean {
+  return busyDepth > 0;
+}
+
 const ENGINES = [
   { id: "pyrefly", label: "pyrefly" },
   { id: "basedpyright", label: "basedpyright" },
@@ -26,9 +42,13 @@ export function setEngineChipHandlers(h: EngineChipHandlers): void {
   handlers = h;
 }
 
-/** 渲染 chip 文本（唯一真值来源 = app.settings.lsp_engine） */
+/** 渲染 chip 文本（唯一真值来源 = app.settings.lsp_engine；忙碌时追加「索引中…」） */
 export function renderEngineChip(): void {
-  statusEngineEl.textContent = app.settings.lsp_engine || "pyrefly";
+  const name = app.settings.lsp_engine || "pyrefly";
+  statusEngineEl.classList.toggle("busy", busyDepth > 0);
+  statusEngineEl.textContent = busyDepth > 0 ? `${name} · 索引中…` : name;
+  // 纯截断披露：chip 有 max-width + ellipsis，忙碌长文案可能被截断，title 补全量
+  statusEngineEl.title = busyDepth > 0 ? "静态引擎正在后台索引/查询，期间引用与重命名结果可能不完整" : "";
 }
 
 /** 切换引擎：同值跳过；否则写回 settings → 持久化 → 重绘 chip → 重启 LSP */

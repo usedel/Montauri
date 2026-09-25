@@ -4,10 +4,10 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { app, $, lazyEl, statusFileEl, type Entry, type Tab } from "./state";
-import { basename, ensurePyExtension, samePath, stripPyExtension, gitBadgeClass, gitStatusLabel, joinPath, parentDirOf, relativePath, relativePathOrName, renderFileIcon } from "./util";
+import { basename, ensurePyExtension, samePath, stripPyExtension, gitBadgeClass, gitStatusLabel, joinPath, parentDirOf, relativePath, relativePathOrName, relativePathRaw, renderFileIcon } from "./util";
 // CR-25：状态读取改从零依赖的 gitStatusState（切断 fileTree ↔ git 的状态耦合）；
 // refreshGitStatus 是运行时才调用的函数（无初始化期循环风险），保留从 git.ts 导入
-import { refreshGitStatus, stageFiles, showDiffForPath, showBlame, gitFileOriginalPath } from "./git";
+import { refreshGitStatus, stageFiles, showDiffForPath, showBlame, showFileHistory, gitFileOriginalPath } from "./git";
 import { gitStatusOf, isGitRepoActive, isGitDirtyDir } from "./gitStatusState";
 import { openTerminalAt } from "./termUi";
 import * as mdPreview from "./markdownPreview"; // Markdown 预览（.md 右键「打开预览」）
@@ -16,6 +16,8 @@ import { toast, toastFail } from "./toast";
 import { setSidebarTab } from "./views";
 import * as lsp from "./lsp/client";
 import { hideMenu, showMenu, type MenuItem } from "./menu";
+import { openLocalHistory } from "./localHistory"; // E-3：右键「本地历史」入口（localHistory 不反向依赖本模块，无环）
+import { diffFileWithClipboard } from "./clipboardDiff"; // C-5：右键「与剪贴板对比」（clipboardDiff 不依赖本模块，无环）
 
 // ---------- 注入（main 的 init 中 setFileTreeHandlers） ----------
 // TD-13：解「fileTree.ts → main.ts」循环边——打开文件 / 重绘标签 / 静默关标签 / 插入文件头
@@ -443,6 +445,11 @@ function showContextMenu(entry: Entry, x: number, y: number, opts?: { background
     { label: "在终端中打开", action: () => void openTerminalAt(entry.is_dir ? entry.path : parentDirOf(entry.path)) },
     { label: "在资源管理器中显示", action: () => revealEntry(entry) },
   );
+  // E-3（PyCharm 调研）：本地历史入口下沉（Ctrl+Shift+H 已交付但不可发现——文件级历史对任意文件有意义）
+  if (!entry.is_dir) {
+    items.push({ label: "本地历史", action: () => void openLocalHistory(entry.path) });
+    items.push({ label: "与剪贴板对比", action: () => void diffFileWithClipboard(entry.path) }); // C-5
+  }
   // Markdown 预览（markdown preview dev plan §5-T4）：.md 文件右键「打开预览」= 打开 + 开启分栏
   if (!entry.is_dir && mdPreview.isMarkdownPath(entry.path)) {
     items.push(
@@ -480,6 +487,8 @@ function showContextMenu(entry: Entry, x: number, y: number, opts?: { background
         }
       }
     }
+    // E-4（PyCharm 调研）：Git 文件历史——对任何仓库内文件都有意义（含当前无改动的已跟踪文件）
+    items.push({ label: "Git 文件历史", action: () => void showFileHistory(relativePath(app.workspaceRoot!, entry.path)) });
   }
 
   renderCtxMenu(items, x, y);
@@ -597,6 +606,45 @@ async function ensureDirExpanded(path: string): Promise<{ container: HTMLElement
     if (st2) return st2;
   }
   return { container: treeEl, depth: 0 };
+}
+
+// ---------- E-3（PyCharm 调研）：文件树定位到当前文件 ----------
+
+/** 在树中定位到指定路径：逐级展开父目录 → 滚动到可见 → 置为选中。
+ *  节点未渲染（如新建后未刷新的文件）时先刷新其父目录再找一次。 */
+export async function revealInTree(path: string): Promise<void> {
+  if (!app.workspaceRoot) return;
+  const rel = relativePathRaw(app.workspaceRoot, path);
+  if (!rel) return; // 不在工作区内，无从定位
+  setSidebarTab("files");
+  const parts = rel.split(/[\\/]/).filter(Boolean);
+  let cur = app.workspaceRoot;
+  for (const part of parts.slice(0, -1)) {
+    cur = joinPath(cur, part);
+    await ensureDirExpanded(cur);
+  }
+  let el = treeEl.querySelector<HTMLElement>(`.tree-item[data-path="${CSS.escape(path)}"]`);
+  if (!el) {
+    // 节点未渲染：先保证父目录展开（覆盖根节点折叠态 / 顶层文件——上面的逐级循环
+    // 只处理中间目录，工作区直接子文件的 slice 结果为空不会触发展开），再局部刷新找一次
+    await ensureDirExpanded(parentDirOf(path));
+    await reloadDir(parentDirOf(path));
+    el = treeEl.querySelector<HTMLElement>(`.tree-item[data-path="${CSS.escape(path)}"]`);
+    if (!el) return;
+  }
+  const entry = entryFromEl(el);
+  if (entry) selectEntry(entry, el); // 普通单选路径（无 ev 参数）
+  el.scrollIntoView({ block: "nearest" });
+}
+
+/** 「滚动到当前文件」工具栏按钮入口：无活动文件时轻提示 */
+export async function revealActiveFile(): Promise<void> {
+  const tab = app.activeTab;
+  if (!tab) {
+    toast("没有活动文件可定位", "info");
+    return;
+  }
+  await revealInTree(tab.path);
 }
 
 /** 新建文件（内联输入，支持相对路径 pkg/mod.py；创建后立即打开） */
@@ -951,6 +999,7 @@ export function wireFileTree(): void {
   $("btn-tree-new-folder").addEventListener("click", () => void createDirInteractive());
   $("btn-tree-refresh").addEventListener("click", () => void refreshTreeWithExpandedState());
   $("btn-tree-collapse").addEventListener("click", collapseAll);
+  $("btn-tree-reveal").addEventListener("click", () => void revealActiveFile()); // E-3
   $("btn-tree-hidden").addEventListener("click", () => void toggleHiddenFiles());
   // 文件树过滤
   const filterInput = $("tree-filter-input") as HTMLInputElement;

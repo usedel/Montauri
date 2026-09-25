@@ -102,8 +102,11 @@
     reveal_plugins_dir: function () { return null; },
     // 应用版本（loader 的 engines 兼容检查用，@tauri-apps/api/app::getVersion）
     "plugin:app|version": function () { return "0.1.0"; },
-    // 剪贴板读（devtools paste 按钮 / facade readClipboard）
-    "plugin:clipboard-manager|read_text": function () { return ""; },
+    // 剪贴板读（devtools paste 按钮 / facade readClipboard / C-5 与剪贴板对比）
+    // 测试可经 window.__E2E_CLIPBOARD__ 预置文本（未预置 = 空串）
+    "plugin:clipboard-manager|read_text": function () {
+      return window.__E2E_CLIPBOARD__ !== undefined ? window.__E2E_CLIPBOARD__ : "";
+    },
     // ruff lint / 终端 shell 探测（近期功能：mock 兜底防 null 被迭代 pageerror）
     ruff_lint: function () { return []; },
     list_shells: function () { return ["pwsh", "powershell", "cmd"]; },

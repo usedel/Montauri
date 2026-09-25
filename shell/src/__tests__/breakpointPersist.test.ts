@@ -37,11 +37,11 @@ function lastPersist(): Array<Record<string, unknown>> {
 }
 
 describe("断点持久化（P2-11）", () => {
-  it("toggle 断点即落盘：全量覆盖写，普通断点的高级属性为空串", () => {
+  it("toggle 断点即落盘：全量覆盖写，普通断点的高级属性为空串（B-6 起 payload 恒含 enabled）", () => {
     toggleBreakpoint(`${ROOT}/a.py`, 5);
     const list = lastPersist();
     expect(list).toEqual([
-      { path: `${ROOT}/a.py`, line: 5, condition: "", hitCondition: "", logMessage: "" },
+      { path: `${ROOT}/a.py`, line: 5, condition: "", hitCondition: "", logMessage: "", enabled: true },
     ]);
   });
 
@@ -50,7 +50,7 @@ describe("断点持久化（P2-11）", () => {
     updateBreakpoint(`${ROOT}/a.py`, 5, { condition: "i > 10", logMessage: "hit {i}" });
     let list = lastPersist();
     expect(list).toEqual([
-      { path: `${ROOT}/a.py`, line: 5, condition: "i > 10", hitCondition: "", logMessage: "hit {i}" },
+      { path: `${ROOT}/a.py`, line: 5, condition: "i > 10", hitCondition: "", logMessage: "hit {i}", enabled: true },
     ]);
     removeBreakpoint(`${ROOT}/a.py`, 5);
     expect(lastPersist()).toEqual([]);

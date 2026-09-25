@@ -234,6 +234,26 @@ async function dispatchGit(cmd: string, args: Record<string, unknown>, repo: Git
       if (!hash) throw new Error("提交哈希不能为空");
       return inRepo(["show", hash]);
     }
+    case "git_log_file": {
+      // E-4（PyCharm 调研）：单文件历史（--follow），对齐 git_cmds.rs::git_log_file 输出形状
+      const count = Math.min(Math.max(arg<number>("count", 50), 1), 200);
+      const path = String(args.path ?? "").trim();
+      if (!path) throw new Error("文件路径不能为空");
+      const out = await inRepo([
+        "log", `-n${count}`, "--follow", "--date=short",
+        "--pretty=format:%H%x1f%h%x1f%an%x1f%ad%x1f%s%x1f%d", "--", path,
+      ]);
+      const commits = out.split("\n").flatMap((line) => {
+        const f = line.split("\x1f");
+        if (f.length < 5) return [];
+        return [{
+          hash: f[0], short_hash: f[1], author: f[2], date: f[3], subject: f[4],
+          graph: "",
+          refs: (f[5] ?? "").trim().replace(/^\(+|\)+$/g, "").trim(),
+        }];
+      });
+      return commits;
+    }
     case "git_blame": {
       const path = String(args.path ?? "");
       const out = await inRepo(["blame", "--line-porcelain", "--", path]);

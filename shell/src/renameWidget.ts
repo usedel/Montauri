@@ -21,6 +21,7 @@ import {
 } from "./lsp/client";
 import { samePath } from "./util";
 import { toast, toastFail } from "./toast";
+import { setEngineBusy } from "./engineChip";
 
 // ---------- 就地改名 widget（editor content widget） ----------
 
@@ -34,6 +35,8 @@ let editorKeys: MonacoApi.IDisposable | null = null;
 let ghostDecorations: string[] = [];
 let localRefCount = 0;
 let crossFileCount = 0;
+/** E-2：引用索引是否稳定（false → 提示条与落地后 toast 都会告知「可能不完整」） */
+let refsUnstable = false;
 
 function closeWidget(): void {
   active = false;
@@ -85,10 +88,12 @@ function applyGhost(model: MonacoApi.editor.ITextModel, path: string, refs: LspR
 
 function updateHint(): void {
   if (!countEl) return;
-  countEl.textContent =
+  const base =
     crossFileCount > 0
       ? `本文件 ${localRefCount} 处 · 其他 ${crossFileCount} 个文件`
       : `将更新本文件 ${localRefCount} 处`;
+  // E-2：索引未稳定时显式告知（G-3 禁止静默不完整）
+  countEl.textContent = refsUnstable ? `${base} · 索引未稳定，结果可能不完整` : base;
 }
 
 function buildWidget(): void {
@@ -172,6 +177,7 @@ async function startSession(): Promise<void> {
   active = true;
   anchor = a.range;
   widgetModel = model;
+  refsUnstable = false; // E-2：新会话重置稳定性
   buildWidget();
   ed.revealRange(a.range);
   // 预填当前符号名并全选（对齐 PyCharm：直接键入即整体替换）
@@ -218,11 +224,21 @@ async function confirmRename(): Promise<void> {
   // 只会覆盖已索引文件 → 漏改。先轮询 references 直到连续两次全等（期间实时刷 ghost 计数），
   // 已稳定时只多一次请求（毫秒级）。
   const path = modelPath(model);
-  await waitReferencesStable(model, start, {
-    onSample: (refs) => {
-      if (path) applyGhost(model, path, refs);
-    },
-  });
+  refsUnstable = false;
+  setEngineBusy(true); // E-2：稳定采样期间引擎 chip 显示忙碌态
+  try {
+    await waitReferencesStable(model, start, {
+      onSample: (refs) => {
+        if (path) applyGhost(model, path, refs);
+      },
+      onSettled: (stable) => {
+        refsUnstable = !stable;
+      },
+    });
+  } finally {
+    setEngineBusy(false);
+  }
+  updateHint(); // E-2：稳定结果落地后刷新提示（含未稳定警示）
   let files: RenameFileEdits[];
   try {
     files = await fetchRenameChanges(model, start, newName);
@@ -240,6 +256,10 @@ async function confirmRename(): Promise<void> {
     await applyRenameChanges(model, files);
     const total = files.reduce((n, f) => n + f.edits.length, 0);
     toast(`已重命名「${currentName}」→「${newName}」：${files.length} 个文件 ${total} 处`, "success");
+    if (refsUnstable) {
+      // E-2：索引未稳定时落地的重命名可能漏改未打开文件——显式提醒复查（G-3）
+      toast("工作区索引未稳定，重命名可能漏改未打开的文件——建议稍后用 Alt+F7 复查引用", "info");
+    }
     afterRename?.();
   } catch (e) {
     toastFail("重命名", e);

@@ -14,6 +14,7 @@ import { refreshTerminalFonts, refreshTerminalMotion, refreshTerminalThemes } fr
 import { applyReduceMotion, hideEl, motionDisabled, reduceMotionEnabled, showEl } from "./anim";
 import { trapFocus } from "./focusTrap";
 import { openAlert } from "./dialog";
+import { fuzzyScore } from "./quickOpen";
 import { toast, toastFail } from "./toast";
 import { loadStorageUsage, wireStoragePanel } from "./storagePanel";
 import { renderPluginsTab } from "./extensions/pluginsTab";
@@ -76,13 +77,127 @@ const settingsLogKeepEl = $("settings-log-keep") as HTMLInputElement;
 const settingsLogStdoutEl = $("settings-log-stdout") as HTMLInputElement;
 const settingsLogOpenEl = $("settings-log-open") as HTMLButtonElement;
 const settingsDataOpenEl = $("settings-data-open") as HTMLButtonElement;
+// E-1（PyCharm 调研）：设置搜索
+const settingsSearchEl = $("settings-search") as HTMLInputElement;
+const settingsSearchEmptyEl = $("settings-search-empty");
+
+// ---------- E-1：设置搜索 ----------
+
+/** 动态内容页（列表 + 编辑器形态，不是 settings-row 表单行），搜索时整体隐藏 */
+const NON_ROW_SECTIONS = new Set(["settings-section-templates", "settings-section-plugins"]);
+
+/**
+ * 控件 id → 搜索关键词（G-7「可发现性税」：每个设置行的英文/别名关键词，集中一处，
+ * 避免给 index.html 每行加 data-kw 的漂移风险）。匹配时拼进行搜索域。
+ */
+const SETTINGS_ROW_KEYWORDS: Record<string, string> = {
+  "settings-theme-picker": "theme 主题 appearance",
+  "settings-font": "font size 字号",
+  "settings-font-family": "font family 字体",
+  "settings-font-family-preset": "font family 字体",
+  "settings-font-ligatures": "ligatures 连字",
+  "settings-reduce-motion": "motion animation 动画",
+  "settings-tab-size": "tab indent 缩进",
+  "settings-insert-spaces": "indent spaces 缩进空格",
+  "settings-word-wrap": "wrap 换行",
+  "settings-minimap": "minimap 小地图",
+  "settings-indent-guides": "indent guides 参考线",
+  "settings-bracket-colors": "bracket colorization 括号颜色",
+  "settings-debug-jmc": "debug just my code 调试步进",
+  "settings-autosave": "autosave 自动保存",
+  "settings-format-on-save": "format ruff 格式化",
+  "settings-optimize-imports-on-save": "imports isort 整理导入",
+  "settings-engine": "lsp engine pyrefly basedpyright 引擎",
+  "settings-probe": "probe profiling 探针",
+  "settings-intel": "intel runtime 运行时智能",
+  "settings-pypi-index": "pypi mirror pip 源",
+  "settings-pypi-index-preset": "pypi mirror pip 源",
+  "settings-terminal-cwd": "terminal cwd 终端目录",
+  "settings-terminal-shell": "terminal shell pwsh cmd powershell 终端",
+  "settings-log-enabled": "log logging 日志",
+  "settings-log-level": "log level 日志级别",
+  "settings-log-keep": "log rotate 日志轮转",
+  "settings-log-stdout": "log stdout 日志输出",
+  "settings-data-open": "data directory 数据目录",
+  "settings-log-open": "log directory 日志目录",
+  "storage-open": "storage 磁盘",
+  "storage-refresh": "storage usage 磁盘占用",
+  "storage-clean-webview": "cache webview 清理缓存",
+  "storage-clean-logs": "logs 清理日志",
+  "storage-uv-prune": "uv cache 缓存",
+  "storage-uv-clean": "uv cache 深度清理",
+  "storage-migrate-path": "migrate 迁移",
+  "storage-migrate": "migrate 迁移",
+};
+
+/** 行的搜索域：行文本 + 提示文本不在此（hint 归 section 层）+ 控件关键词 + data-kw */
+function settingsRowHaystack(row: HTMLElement): string {
+  const kws: string[] = [];
+  if (row.dataset.kw) kws.push(row.dataset.kw);
+  row.querySelectorAll("[id]").forEach((el) => {
+    const kw = SETTINGS_ROW_KEYWORDS[el.id];
+    if (kw) kws.push(kw);
+  });
+  return `${row.textContent ?? ""} ${kws.join(" ")}`;
+}
+
+/** 是否处于搜索态（E-1：空态恢复只在此为 true 时做一次，防止重复触发动态页渲染） */
+let searchActive = false;
+
+/** 应用设置搜索过滤：query 非空时跨分类显示所有含匹配行的 section，隐藏不匹配的行 */
+function applySettingsFilter(rawQuery: string): void {
+  const query = rawQuery.trim();
+  const sections = Array.from(document.querySelectorAll<HTMLElement>(".settings-section"));
+  if (!query) {
+    if (!searchActive) return; // 本就是分类视图：无状态可恢复（多余 switchCategory 会双渲染插件/模板页）
+    searchActive = false;
+    settingsSearchEmptyEl.classList.add("hidden");
+    // 恢复：清掉行级 hidden，按当前分类还原 section 显隐。
+    // 刻意不走 switchCategory——它对 plugins/templates 有渲染副作用，恢复显隐不该触发重渲染
+    for (const s of sections) {
+      s.classList.toggle("hidden", s.id !== `settings-section-${currentCategory}`);
+      s.querySelectorAll<HTMLElement>(".settings-row").forEach((r) => r.classList.remove("hidden"));
+    }
+    document.querySelector(".settings-card")?.classList.toggle("settings-card--wide", currentCategory === "templates");
+    return;
+  }
+  searchActive = true;
+  document.querySelector(".settings-card")?.classList.remove("settings-card--wide");
+  let totalMatches = 0;
+  for (const s of sections) {
+    if (NON_ROW_SECTIONS.has(s.id)) {
+      s.classList.add("hidden");
+      continue;
+    }
+    let sectionMatches = 0;
+    s.querySelectorAll<HTMLElement>(".settings-row").forEach((row) => {
+      const hit = fuzzyScore(settingsRowHaystack(row), query) !== null;
+      row.classList.toggle("hidden", !hit);
+      if (hit) sectionMatches++;
+    });
+    s.classList.toggle("hidden", sectionMatches === 0);
+    totalMatches += sectionMatches;
+  }
+  settingsSearchEmptyEl.classList.toggle("hidden", totalMatches > 0);
+}
+
+/** 清空搜索框并恢复分类视图（切分类 / 关闭面板 / 空态跳转时调用） */
+function clearSettingsSearch(): void {
+  if (!searchActive && !settingsSearchEl.value) return;
+  settingsSearchEl.value = "";
+  applySettingsFilter("");
+}
 
 // ---------- 分类导航（P1） ----------
 
 export type SettingsCategory = "appearance" | "editor" | "keybindings" | "save" | "python" | "templates" | "terminal" | "logging" | "storage" | "plugins";
 
+/** 当前分类（E-1 设置搜索：清空搜索后恢复到该分类的显隐状态） */
+let currentCategory: SettingsCategory = "appearance";
+
 /** 切换到指定分类并更新导航高亮；进入 Live Templates 分类时渲染模板列表 */
 function switchCategory(cat: SettingsCategory): void {
+  currentCategory = cat;
   document.querySelectorAll<HTMLElement>(".settings-nav-item").forEach((b) => {
     const sel = b.dataset.cat === cat;
     b.classList.toggle("active", sel);
@@ -403,6 +518,7 @@ function onSettingsKeydown(e: KeyboardEvent): void {
 
 /** 打开设置面板（可指定初始分类；「视图 → Live Templates」快捷入口复用） */
 export function openSettingsPanel(category: SettingsCategory = "appearance"): void {
+  clearSettingsSearch(); // E-1：每次打开重置搜索状态
   fillForm(app.settings);
   void refreshTerminalShellSelect(); // 异步探测可用 shell，完成后重建下拉
   switchCategory(category);
@@ -552,7 +668,20 @@ export function wireSettingsPanel(): void {
   $btn("settings-save").addEventListener("click", () => saveSettingsPanel());
   $btn("settings-reset").addEventListener("click", resetSettingsPanel);
   document.querySelectorAll<HTMLElement>(".settings-nav-item").forEach((b) => {
-    b.addEventListener("click", () => switchCategory((b.dataset.cat ?? "appearance") as SettingsCategory));
+    b.addEventListener("click", () => {
+      clearSettingsSearch(); // E-1：切分类即退出搜索态（搜索覆盖所有分类，与单分类视图互斥）
+      switchCategory((b.dataset.cat ?? "appearance") as SettingsCategory);
+    });
+  });
+  // E-1：设置搜索（防抖 150ms；空态提供「查找快捷键」跳转）
+  let searchTimer: ReturnType<typeof setTimeout> | undefined;
+  settingsSearchEl.addEventListener("input", () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => applySettingsFilter(settingsSearchEl.value), 150);
+  });
+  $("settings-search-goto-kb").addEventListener("click", () => {
+    clearSettingsSearch();
+    switchCategory("keybindings");
   });
   // tech-debt #18：含可编辑内容，点遮罩不关闭（仅 X / 取消 / Esc 关闭）
   // D3 P-14：字体族下拉候选 → 写入自定义框 + 实时预览
