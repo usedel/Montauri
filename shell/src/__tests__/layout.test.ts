@@ -37,6 +37,9 @@ function setupDom(): { outline: HTMLElement; viewFiles: HTMLElement; splitter: H
   mk("editor-row");
   mk("md-preview");
   mk("md-splitter");
+  // C-4 分屏两元素（同上，wireSplitters 接线需要）
+  mk("split-editor-panel");
+  mk("split-splitter");
   // 大纲拖拽三元素
   const viewFiles = mk("view-files");
   const outline = mk("outline-section");
@@ -180,6 +183,8 @@ function setupPanels(
   mk("editor-row");
   mk("md-preview");
   mk("md-splitter");
+  mk("split-editor-panel");
+  mk("split-splitter");
   mk("view-files");
   mk("outline-section");
   mk("outline-splitter", "splitter splitter-row");
@@ -202,7 +207,6 @@ describe("面板拖拽上限（UI-23）", () => {
     vi.unstubAllGlobals();
     localStorage.clear();
   });
-
   it("窄窗口下侧栏上限 = 窗口宽 − 编辑区下限 − 对面面板宽（而非硬上限 480）", () => {
     const { sidebar, sidebarSplitter } = setupPanels(800, 280, 360);
     wireSplitters();
@@ -236,5 +240,40 @@ describe("面板拖拽上限（UI-23）", () => {
     dragX(sidebarSplitter, 40);
     expect(sidebar.style.width).toBe("180px");
     expect(Number(CENTER_MIN)).toBe(240); // 与 style.css `#center{min-width}` 同值（无样式表时的回落常量）
+  });
+});
+
+// ---------- C-4：分屏面板宽度拖拽（--split-w + localStorage + 双击重置） ----------
+
+describe("分屏面板宽度拖拽（C-4）", () => {
+  function setupSplit(): { panel: HTMLElement; splitter: HTMLElement } {
+    setupDom();
+    const panel = document.getElementById("split-editor-panel")!;
+    const splitter = document.getElementById("split-splitter")!;
+    const row = document.getElementById("editor-row")!;
+    // editor-row 底边锚定在 500、宽 800（拖拽宽度 = 500 − toX；上限 = 800 − 240 = 560）
+    row.getBoundingClientRect = () => ({ right: 500 } as unknown as DOMRect);
+    Object.defineProperty(row, "clientWidth", { value: 800, configurable: true });
+    return { panel, splitter };
+  }
+
+  it("拖拽写 --split-w 自定义属性并持久化；下限 240", () => {
+    const { panel, splitter } = setupSplit();
+    wireSplitters();
+    dragX(splitter, 150); // 500 − 150 = 350（在 [240, 560] 内）
+    expect(panel.style.getPropertyValue("--split-w")).toBe("350px");
+    expect(localStorage.getItem("opencharm-split-w")).toBe("350");
+    dragX(splitter, 450); // 500 − 450 = 50 → 下限 240
+    expect(panel.style.getPropertyValue("--split-w")).toBe("240px");
+  });
+
+  it("双击清除 --split-w（回落 CSS 默认 50%）并移除持久化", () => {
+    const { panel, splitter } = setupSplit();
+    wireSplitters();
+    dragX(splitter, 150);
+    expect(localStorage.getItem("opencharm-split-w")).toBe("350");
+    splitter.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true }));
+    expect(panel.style.getPropertyValue("--split-w")).toBe("");
+    expect(localStorage.getItem("opencharm-split-w")).toBeNull();
   });
 });

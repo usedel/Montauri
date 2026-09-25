@@ -19,6 +19,7 @@ import { toast, toastFail } from "./toast";
 import { loadStorageUsage, wireStoragePanel } from "./storagePanel";
 import { renderPluginsTab } from "./extensions/pluginsTab";
 import { lintActiveFile, normalizeSeverity } from "./ruffLint"; // D-4：映射保存后立即重查当前文件
+import { refreshSplitEditorOptions } from "./splitEditor"; // C-4：分屏编辑器参数同步（splitEditor 不 import 本模块，无环）
 // UI-26：主题选择改自绘预览色卡（原生 <option> 放不下色卡），值读写经 themePicker
 import { getSelectedTheme, setSelectedTheme, wireThemePicker } from "./themePicker";
 // UI-25：欢迎页快捷键网格跟随键位系统，改键保存后需刷新
@@ -640,6 +641,7 @@ async function saveSettingsPanel(): Promise<void> {
   applyModelIndent(app.settings);
   applyFontStatus();
   applyEditorKeybindings(); // 编辑器级键位即时重建（window 级实时匹配无需处理）
+  refreshSplitEditorOptions(); // C-4：分屏编辑器同源 options（字号/主题/连字等即时生效）
   repaintRunWidget(); // 改键后运行组 tooltip 副文本跟随新键位（window 级键位变化不走 renderTabs）
   // UI-25：欢迎页快捷键网格同理——保存路径不经 updateEditorOverlay，不显式刷就会留着旧键位
   renderWelcomeShortcuts();

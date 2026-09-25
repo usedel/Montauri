@@ -12,6 +12,7 @@ import type * as MonacoApi from "monaco-editor/esm/vs/editor/editor.api";
 import { app, type MonacoModule } from "./state";
 import { KEYBINDING_META, type KeybindingId } from "./keybindingDefaults";
 import { toast } from "./toast"; // P4（C-3）：列选择开关的可见反馈（G-3）
+import { toggleSplit } from "./splitEditor"; // P4（C-4）：向右分屏（splitEditor 不反向依赖本模块，无环）
 
 // re-export 出厂键位元数据，保持既有 `import ... from "./keybindings"` 调用方不变
 export { KEYBINDING_META } from "./keybindingDefaults";
@@ -269,6 +270,8 @@ export function initKeybindingCommands(monaco: MonacoModule): void {
     // G-3：模式切换必须可见——否则用户忘记开过列选择，会把矩形选中当成 bug
     toast(on ? "列选择模式已开启：鼠标拖拽将按矩形选择（再按退出）" : "列选择模式已关闭", on ? "success" : "info");
   });
+  // P4（C-4）：向右分屏（splitEditor.ts 钉住式双编辑器）
+  setKeybindingHandler("split_editor", () => toggleSplit());
   setKeybindingHandler("move_line_down", () => {
     app.editor.trigger("keybindings", "editor.action.moveLinesDownAction", null);
   });

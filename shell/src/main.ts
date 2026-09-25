@@ -31,6 +31,7 @@ import { initRenameWidget, setAfterRenameHandler } from "./renameWidget";
 import { initClipboardDiffAction } from "./clipboardDiff"; // C-5：与剪贴板对比（右键菜单）
 import { initNoqaAction } from "./ruffLint"; // D-4：忽略此规则（# noqa，右键菜单）
 import { initQuickFixActions, resetQuickFixCache } from "./quickFix"; // P4：D-1 缺失 import 兜底 + D-2 就地创建符号
+import * as splitEditor from "./splitEditor"; // P4（C-4）：向右分屏（handlers 注入，防 settingsPanel 成环）
 import { registerSidebarView, setSidebarTab, activeView } from "./views";
 import * as lsp from "./lsp/client";
 import * as kb from "./keybindings";
@@ -179,6 +180,7 @@ function resetWorkspaceUiState(): void {
   invalidateQuickOpenFiles();   // P1：工作区文件清单缓存随工作区失效
   resetBreadcrumbs();           // P2：面包屑（含符号缓存与防抖 timer）
   resetRuffLint();              // P2：ruff lint（防抖 timer + 在途请求）
+  splitEditor.resetSplitEditor(); // C-4：分屏随工作区切换收起（快照不含分屏态）
   resetQuickFixCache();          // P4：自研快速修复的符号来源缓存随工作区失效
   resetBookmarks();             // P2：书签（列表缓存 + gutter 装饰）
   resetBreakpoints();           // P2-11：断点内存表随工作区切换清空（盘上数据按工作区隔离）
@@ -750,6 +752,7 @@ function activateTab(tab: Tab): void {
     // 模型不动（占位）、状态栏显示 diff: 前缀路径、编辑器专属装饰全部跳过
     app.editor.setModel(null);
     presentDiffHost(tab);
+    splitEditor.setDiffActive(true); // C-4：diff 占满编辑区，分屏（若开着）一并隐藏
     renderTabs();
     statusFileEl.textContent = tab.path;
     updateEditorOverlay(); // 诊断实证：diff tab 也是「有活动内容」，欢迎页覆盖层必须隐藏
@@ -758,6 +761,7 @@ function activateTab(tab: Tab): void {
   }
   // 文件 tab：从 diff tab 切回时恢复主编辑器
   dismissDiffHost();
+  splitEditor.setDiffActive(false); // C-4：分屏若开着则恢复显示
   app.editor.setModel(tab.model);
   renderTabs();
   statusFileEl.textContent = tab.path;
@@ -792,6 +796,7 @@ export function closeTabSilent(tab: Tab): void {
     lsp.didClose(tab.path);
     lsp.discardCachedDiagnostics(tab.path); // CR-22：关文件即释放诊断缓存
     app.monaco.editor.setModelMarkers(tab.model, "opencharm-lsp", []);
+    splitEditor.onModelDisposed(tab.model); // C-4：分屏钉住该 model 时同步收起（先于 dispose）
     tab.model.dispose();
   }
   if (app.activeTab === tab) {
@@ -1211,6 +1216,7 @@ function buildQuickOpenActions(): QuickOpenAction[] {
     { id: "bookmark_toggle", label: "切换书签", run: () => void toggleBookmarkAtCursor() },
     { id: "bookmark_list", label: "书签列表", run: () => void openBookmarks() },
     { id: "scratch_new", label: "新建草稿文件", run: () => void newScratch() },
+    { id: "split_editor", label: "向右分屏", run: () => splitEditor.toggleSplit() }, // P4（C-4）
     { id: "run_history", label: "运行历史", run: () => openRunHistory() },
     { id: "goto_file", label: "转到文件", run: () => void openQuickOpen("files") },
     { id: "goto_line", label: "转到行 / 列", run: () => void openQuickOpen("line") },
@@ -1678,6 +1684,12 @@ async function init(): Promise<void> {
   // A-5：光标移动同样刷新会话快照（防抖），恢复时才落回原处
   app.editor.onDidChangeCursorPosition(() => scheduleSessionSave());
   applyFontStatus();
+
+  // C-4：分屏域接线（buildOptions 注入防 settingsPanel ⇄ splitEditor 成环；
+  // 右键动作入 lspProviders 随编辑器生命周期统一释放）
+  splitEditor.setSplitEditorHandlers({ buildOptions: () => buildEditorOptions(app.settings) });
+  splitEditor.wireSplitEditor();
+  lspProviders.add(splitEditor.initSplitEditorAction(app.editor));
   
 
   // 字体缩放：Ctrl+滚轮 8-32px，状态栏显示，存全局配置（P25-T08）

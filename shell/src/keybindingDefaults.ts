@@ -59,7 +59,9 @@ export type KeybindingId =
   | "move_line_down"
   // P4（C-3）：列（矩形）选择开关——Monaco 0.52 是核心 option（columnSelection），
   // 开启后鼠标拖拽 / Shift+点击按矩形选择；无浏览器危险键冲突（Insert 不在护栏清单）
-  | "toggle_column_selection";
+  | "toggle_column_selection"
+  // P4（C-4）：向右分屏——同 model 第二编辑器实例（splitEditor.ts）；Backslash 非浏览器危险键
+  | "split_editor";
 
 export interface KeybindingMeta {
   id: KeybindingId;
@@ -135,4 +137,6 @@ export const KEYBINDING_META: KeybindingMeta[] = [
   { id: "move_line_down", label: "行 / 选区下移", def: "Ctrl+Shift+Down", scope: "editor" },
   // P4（C-3）：列选择开关（VS Code 同款默认键；开启后 Alt+Shift+方向键列向扩展始终可用）
   { id: "toggle_column_selection", label: "切换列选择模式", def: "Alt+Shift+Insert", scope: "editor" },
+  // P4（C-4）：向右分屏（VS Code 同款 Ctrl+\；反斜杠按 SYMBOL_KEYS 字面写法，同 "/" 的先例）
+  { id: "split_editor", label: "向右分屏", def: "Ctrl+\\", scope: "editor" },
 ];

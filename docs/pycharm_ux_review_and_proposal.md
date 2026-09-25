@@ -648,8 +648,9 @@ Search Everywhere（Double Shift）、Go to File/Line、Recent Files/Locations�
 | P2 | B-1 Watches、B-2 异常断点、B-3 justMyCode、B-6 断点启禁、B-7 变量护栏、B-8 hover 求值 | ✅ §15（e2e 3 条） |
 | P3 | E-1 设置搜索、E-2 引擎忙碌态、E-3 文件树定位+本地历史入口、E-4 Git 文件历史+提交框预填、E-5 搜索 scope+分组折叠、C-5 与剪贴板对比 | ✅ §17（e2e 5 条） |
 | P4 | C-3 列选择、D-4 诊断严重度映射+# noqa、D-1 缺失 import 兜底、D-2 就地创建符号、A-4 红线入 CI 补项（C-4 分屏留待单独批次） | ✅ §18（e2e +1 条 / vitest +16 用例） |
+| P4·续 | C-4 编辑器分屏（钉住式同 model 双实例 + 键位/右键/命令入口 + 宽度持久化） | ✅ §19（e2e +3 条 / vitest +2 用例） |
 
-**P0 / P1 / P2 / P3 / P4 五批（共 24 个功能项）全部交付并验收。**
+**P0 / P1 / P2 / P3 / P4（含分屏）全部交付并验收（25 个功能项）。**
 
 **连带修复的先在性缺陷**（均为验收过程发现）：
 1. 输出/终端无界增长（迟早会撞上的坑）；
@@ -710,9 +711,9 @@ mock 罐头的 evaluate/variables 都是静态值，以下两点需真机（CDP�
 
 ### 16.2 当前进度
 
-- **已交付**：P0（A-2/A-3）+ P1（A-1/A-5/C-1/C-2/C-6）+ P2（B-1/B-2/B-3/B-6/B-7/B-8）+ P3（E-1/E-2/E-3/E-4/E-5/C-5）+ P4（C-3/D-4/D-1/D-2/A-4），共 24 项（详见 §17/§18）；
-- **测试基线**：e2e 102 条（Playwright，覆盖 perf / session / editor / debug / lsp / git / plugins / p3 各组）；`cargo test` 190；`vitest` 532（54 文件）；`tsc --noEmit` 0 错；
-- **未交付**：C-4 分屏（P4 唯一余项，留待单独批次）；其余见 §14「剩余候选池」。
+- **已交付**：P0~P4 全部（含 C-4 分屏，详见 §17/§18/§19），共 25 项；
+- **测试基线**：e2e 105 条（Playwright，覆盖 perf / session / editor / debug / lsp / git / plugins / p3 各组）；`cargo test` 190；`vitest` 534（54 文件）；`tsc --noEmit` 0 错；
+- **未交付**：见 §14「剩余候选池」。
 
 ### 16.3 工程纪律（每次改动必查；细则以 `.codebuddy/rules/typescript-code-style/RULE.mdc` 为准）
 
@@ -823,4 +824,42 @@ mock 罐头的 evaluate/variables 都是静态值，以下两点需真机（CDP�
 
 - **C-4 分屏**（2~3，单独批次）：同 model 第二 editor 实例 + 独立 viewState + `layout.ts` 分栏持久化 + sessions 快照兼容；
 - 其余候选（D-3 rename 跨文件预览、D-5 补全模糊、B-4/B-5、F 组）见 §14「剩余候选池」；
+- **每完成一批的固定动作**：更新 §5 表状态 → 追加落地记录节 → 在 §14 表加行 → 四件套回归（tsc / vitest / cargo / playwright）→ git commit（**禁止 push**）。
+
+---
+
+## 19. P4·续 落地记录（2026-09-25）：C-4 编辑器分屏
+
+> §18 遗留的最后一个 P4 项。语义为**钉住式分屏**：打开时把活动 tab 的 model 装进第二个 Monaco 实例（同 model 共享 → 两侧编辑实时同显；cursor/滚动/选区独立），主编辑器随后自由切 tab，分屏保持钉住。
+
+### 实现
+
+| 层 | 内容 |
+|---|---|
+| 新域 `splitEditor.ts` | 实例懒创建常驻复用（G-1：不随开随弃）；`openSplit`（幂等，diff tab/无标签给可见提示）/`closeSplit`/`toggleSplit`/`setDiffActive`（diff 占满编辑区时同步隐藏，open 态保留）/`onModelDisposed`（钉住的 model 在 tab 关闭时 dispose → **先于 dispose 同步收起**，避免渲染已释放内容）/`resetSplitEditor`（工作区切换兜底）；快照不含分屏态（重开工作区分屏收起，预期行为）。`buildOptions` 由 main 注入（防 settingsPanel ⇄ splitEditor 成环）；settingsPanel 保存路径调 `refreshSplitEditorOptions` 同源生效 |
+| 入口 | 键位 `Ctrl+\`「向右分屏」（三处同步 + 漂移锁 45→46；键串用符号字面 `Ctrl+\`——`parseKeyToken` 不认 "Backslash" 名，同 "/" 先例）；编辑器右键「向右分屏」（addAction）；命令面板 `split_editor`（hint 自动跟随改键） |
+| 布局 `index.html` / `style.css` / `layout.ts` | `#split-editor-panel`（`--split-w` 默认 50%）+ `#split-splitter` 并排 flex 分隔条（与 md-preview 同范式，不复用 .splitter 的 absolute 定位）；拖拽写自定义属性 + localStorage `opencharm-split-w`（开屏时恢复）、双击重置、宽度上限随 editor-row 动态收口 |
+| 已知边界 | 分屏面板内暂无 ▶/断点/git gutter 装饰与行内书签（这些装饰系统绑定主编辑器实例）；编辑、诊断波浪线、补全、hover 等随共享 model 天然可用 |
+
+### 验收
+
+| 项 | 结果 |
+|---|---|
+| 新增 `e2e/editor/04-split-editor.spec.ts` | **3/3 绿**：P-SPLIT-1 开分屏（共享 model 同显编辑 + 标签头文件名）；P-SPLIT-2 钉住（切 tab 分屏不动 + 关被钉住 tab 自动收起）；P-SPLIT-3 关闭按钮收起 + 实例复用重开 |
+| `src/__tests__/layout.test.ts` 扩充 | **14/14 绿**（+2）：分屏拖拽写 `--split-w` 并持久化、下限 240、双击重置回落 50% |
+| 全量回归 | **e2e 105/105 全绿**；`tsc` 0 错；`cargo test` **190 passed**（漂移锁 46）；`vitest` **54 文件 534 用例全绿** |
+
+### 连带踩坑（实现期实测）
+
+1. **Monaco 容器不能传 lazyEl Proxy**——automaticLayout 把容器直接喂给 `ResizeObserver.observe()`，Proxy 不是真实 Element 被原生 API 拒绝（`parameter 1 is not of type 'Element'`）。host 改为运行时 `$` 解析真实元素；lazyEl 仅用于 classList/textContent 级访问；
+2. **键位串须走 `parseKeyToken` 词表**："Ctrl+Backslash" 解析为 null（符号键用字面 `Ctrl+\`，同 "/" 的先例）——e2e 首跑即暴露。
+
+### 设计取舍备忘
+
+- **钉住式而非跟随式**：分屏跟随主编辑器换 model 会让「对照两个文件」失效；钉住 + 关 tab 自动收起是最小正确语义，后续按需加「分屏内打开…」入口；
+- 上下分屏暂不做：编辑区高度受底部面板/大纲挤压，纵向空间本就紧张；键位/命令扩展成本低，留待需求出现。
+
+### 下一步建议
+
+- P0~P4 推荐清单至此**全部落地**；剩余候选（D-3/D-5、B-4/B-5、F 组）见 §14「剩余候选池」；
 - **每完成一批的固定动作**：更新 §5 表状态 → 追加落地记录节 → 在 §14 表加行 → 四件套回归（tsc / vitest / cargo / playwright）→ git commit（**禁止 push**）。

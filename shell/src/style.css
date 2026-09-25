@@ -1124,6 +1124,41 @@ button:focus-visible,
 #editor-row { position: relative; flex: 1; min-height: 0; display: flex; }
 #editor { flex: 1; min-width: 0; min-height: 0; }
 
+/* ---------- C-4（PyCharm 调研）：向右分屏（钉住式双编辑器） ---------- */
+/* 分隔条：与 #md-splitter 同范式（独立 flex 子项占位，不复用 .splitter 的 absolute 定位） */
+#split-splitter {
+  width: 6px;
+  flex: none;
+  cursor: col-resize;
+  background: transparent;
+}
+#split-splitter:hover { background: var(--accent-soft); }
+#split-splitter.dragging { background: var(--accent); }
+
+/* 分屏面板：右侧固定宽（--split-w，默认 50%；layout.ts 拖拽写入并落 localStorage） */
+#split-editor-panel {
+  flex: none;
+  width: var(--split-w, 50%);
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border);
+}
+#split-editor-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--fg-dim);
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+}
+#split-editor-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#split-editor-host { flex: 1; min-height: 0; }
+
 /* ---------- Markdown 预览分栏（markdown preview dev plan §5-T2） ---------- */
 /* 分隔条：独立 flex 子项（不复用 .splitter 的 absolute 定位——那套附着在面板右缘外侧，
    这里编辑器/预览是并排 flex，分隔条须占位）。视觉 token 与 .splitter 保持一致。 */

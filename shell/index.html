@@ -201,6 +201,16 @@
           <div id="breadcrumbs" class="breadcrumbs hidden" role="navigation" aria-label="代码层级"></div>
           <div id="editor-row">
             <div id="editor"></div>
+            <!-- C-4（PyCharm 调研）：向右分屏（钉住式：同 model 第二编辑器实例，splitEditor.ts 管理；
+                 与 md-preview 同款的并排 flex + 独立分隔条，宽度记忆走 layout.ts 的 localStorage） -->
+            <div id="split-splitter" class="hidden" data-tip="拖动调整分屏宽度（双击重置）"></div>
+            <div id="split-editor-panel" class="hidden">
+              <div id="split-editor-header">
+                <span id="split-editor-label">—</span>
+                <button id="split-editor-close" class="btn btn--ghost btn--icon" aria-label="关闭分屏"><i class="codicon codicon-close" aria-hidden="true"></i></button>
+              </div>
+              <div id="split-editor-host"></div>
+            </div>
             <!-- Git 差异视图宿主（第 2 步迁移：diff tab 激活时显示，与 #editor 互斥；
                  DOM 从底部面板整体迁入，Monaco diffEditor 单实例不重建。
                  布局改纵向：工具栏行（原 git-diff-header）+ 块级合并面板 + diff 编辑器 -->

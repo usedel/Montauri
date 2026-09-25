@@ -72,6 +72,8 @@ fn default_keybindings() -> HashMap<String, String> {
     m.insert("move_line_down".into(), "Ctrl+Shift+Down".into());
     // P4（C-3）：列选择开关（与前端 KEYBINDING_META / DEFAULT_SETTINGS 三处同步）
     m.insert("toggle_column_selection".into(), "Alt+Shift+Insert".into());
+    // P4（C-4）：向右分屏（与前端三处同步）
+    m.insert("split_editor".into(), "Ctrl+\\".into());
     m
 }
 
@@ -300,8 +302,10 @@ mod tests {
         assert_eq!(d.keybindings.get("move_line_down").map(String::as_str), Some("Ctrl+Shift+Down"));
         // P4（C-3）：列选择开关
         assert_eq!(d.keybindings.get("toggle_column_selection").map(String::as_str), Some("Alt+Shift+Insert"));
+        // P4（C-4）：向右分屏
+        assert_eq!(d.keybindings.get("split_editor").map(String::as_str), Some("Ctrl+\\"));
         // 键位表条目数 = 前端 KEYBINDING_META 条目数（漂移锁，新增键须同步改这里）
-        assert_eq!(d.keybindings.len(), 45);
+        assert_eq!(d.keybindings.len(), 46);
         assert_eq!(d.optimize_imports_on_save, false);
     }
 
@@ -356,7 +360,7 @@ mod tests {
         // P1（PyCharm 调研 C-1/C-2）：旧配置无智能选区/移动行 → 回落默认
         assert_eq!(s.keybindings.get("smart_select_expand").map(String::as_str), Some("Ctrl+W"));
         assert_eq!(s.keybindings.get("move_line_down").map(String::as_str), Some("Ctrl+Shift+Down"));
-        assert_eq!(s.keybindings.len(), 45);
+        assert_eq!(s.keybindings.len(), 46);
         assert_eq!(s.optimize_imports_on_save, false); // 旧配置文件无此字段 → 默认关闭
     }
 }
