@@ -8,7 +8,8 @@
  *  - Code Vision：声明行上方「N 处引用」计数 + 点击弹引用列表 + 条目跳转选中标识符；
  *  - Alt+F7 引用面板：按引用种类分组 + 点击跳转选中；
  *  - 就地改名：F2 原地输入框 + 当前文件 ghost 预览 + Enter 落盘；
- *  - 跨文件改名：Enter 直接多文件一次性写盘 + toast 汇总（用户决策：无 diff 预览模态）；
+ *  - 跨文件改名：Enter → 确认摘要（影响文件数 + 各文件命中数，D-3）→ 一次性写盘 + toast 汇总
+ *    （原「无 diff 预览模态」裁决不变——只加摘要确认，不做逐处 diff）；
  *  - 右键菜单入口（可发现性）；
  *  - Esc 取消 / 光标不在符号上的防误触提示。
  */
@@ -133,7 +134,7 @@ test("就地改名（当前文件）：F2 原地输入框 + ghost 预览，Enter
   await expect(page.locator("#editor .view-lines")).toContainText("result = tag(3)");
 });
 
-test("就地改名（跨文件）：Enter 直接多文件一次性落盘 + toast 汇总", async ({ page }) => {
+test("就地改名（跨文件）：Enter → 确认摘要 → 落盘 + toast 汇总（D-3）", async ({ page }) => {
   await gotoWord(page, "def add_score(a, b):", 5);
   await page.keyboard.press("F2");
 
@@ -145,12 +146,38 @@ test("就地改名（跨文件）：Enter 直接多文件一次性落盘 + toast
   await input.fill("sum_scores");
   await page.keyboard.press("Enter");
 
+  // D-3：跨文件确认摘要——影响文件数 + 各文件命中数（按命中数降序）
+  const dialog = page.locator("#confirm-modal");
+  await expect(dialog).toBeVisible({ timeout: 10_000 });
+  await expect(dialog).toContainText("跨文件重命名「add_score」→「sum_scores」");
+  await expect(dialog).toContainText("将修改 2 个文件共 3 处");
+  await expect(dialog).toContainText("main.py × 2 处");
+  await expect(dialog).toContainText("lib.py × 1 处");
+  await page.locator("#confirm-ok").click();
+
   // 编辑器缓冲立即更新 + toast 汇总（2 个文件 3 处）
   await expect(page.locator("#editor .view-lines")).toContainText("def sum_scores(a, b):", { timeout: 10_000 });
   await expect(page.locator(".toast", { hasText: "2 个文件 3 处" })).toBeVisible({ timeout: 10_000 });
   // 两个文件都真实落盘（当前文件 + 未在编辑器打开缓冲的 main.py）
   await expect.poll(() => repoRef.read("lib.py"), { timeout: 10_000 }).toContain("def sum_scores(a, b):");
   await expect.poll(() => repoRef.read("main.py"), { timeout: 10_000 }).toContain("from lib import sum_score");
+});
+
+test("就地改名（跨文件）：确认摘要取消 → 不落盘（D-3）", async ({ page }) => {
+  await gotoWord(page, "def add_score(a, b):", 5);
+  await page.keyboard.press("F2");
+  const input = page.locator(".oc-rename-widget .oc-rename-input");
+  await expect(input).toBeVisible({ timeout: 10_000 });
+  await input.fill("sum_scores");
+  await page.keyboard.press("Enter");
+
+  const dialog = page.locator("#confirm-modal");
+  await expect(dialog).toBeVisible({ timeout: 10_000 });
+  await page.locator("#confirm-cancel").click();
+
+  // 取消：不落盘，widget 收起
+  await expect(page.locator(".oc-rename-widget")).toHaveCount(0, { timeout: 10_000 });
+  await expect.poll(() => repoRef.read("lib.py"), { timeout: 10_000 }).toContain("def add_score(a, b):");
 });
 
 test("就地改名：Esc 取消不落盘", async ({ page }) => {

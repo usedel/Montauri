@@ -649,6 +649,7 @@ Search Everywhere（Double Shift）、Go to File/Line、Recent Files/Locations�
 | P3 | E-1 设置搜索、E-2 引擎忙碌态、E-3 文件树定位+本地历史入口、E-4 Git 文件历史+提交框预填、E-5 搜索 scope+分组折叠、C-5 与剪贴板对比 | ✅ §17（e2e 5 条） |
 | P4 | C-3 列选择、D-4 诊断严重度映射+# noqa、D-1 缺失 import 兜底、D-2 就地创建符号、A-4 红线入 CI 补项（C-4 分屏留待单独批次） | ✅ §18（e2e +1 条 / vitest +16 用例） |
 | P4·续 | C-4 编辑器分屏（钉住式同 model 双实例 + 键位/右键/命令入口 + 宽度持久化） | ✅ §19（e2e +3 条 / vitest +2 用例） |
+| P4·续 | D-3 rename 跨文件确认摘要（影响文件数 + 各文件命中数；单文件保持零摩擦） | ✅ §20（e2e +1 条 / vitest +4 用例） |
 
 **P0 / P1 / P2 / P3 / P4（含分屏）全部交付并验收（25 个功能项）。**
 
@@ -711,9 +712,9 @@ mock 罐头的 evaluate/variables 都是静态值，以下两点需真机（CDP�
 
 ### 16.2 当前进度
 
-- **已交付**：P0~P4 全部（含 C-4 分屏，详见 §17/§18/§19），共 25 项；
-- **测试基线**：e2e 105 条（Playwright，覆盖 perf / session / editor / debug / lsp / git / plugins / p3 各组）；`cargo test` 190；`vitest` 534（54 文件）；`tsc --noEmit` 0 错；
-- **未交付**：见 §14「剩余候选池」。
+- **已交付**：P0~P4 全部（含 C-4 分屏，§17/§18/§19）+ D-3 rename 引用预览（§20），共 26 项；
+- **测试基线**：e2e 106 条（Playwright，覆盖 perf / session / editor / debug / lsp / git / plugins / p3 各组）；`cargo test` 190；`vitest` 546（55 文件）；`tsc --noEmit` 0 错；
+- **未交付**：见 §14「剩余候选池」（B-4/B-5 等多线程场景、D-5、F 组）。
 
 ### 16.3 工程纪律（每次改动必查；细则以 `.codebuddy/rules/typescript-code-style/RULE.mdc` 为准）
 
@@ -863,3 +864,30 @@ mock 罐头的 evaluate/variables 都是静态值，以下两点需真机（CDP�
 
 - P0~P4 推荐清单至此**全部落地**；剩余候选（D-3/D-5、B-4/B-5、F 组）见 §14「剩余候选池」；
 - **每完成一批的固定动作**：更新 §5 表状态 → 追加落地记录节 → 在 §14 表加行 → 四件套回归（tsc / vitest / cargo / playwright）→ git commit（**禁止 push**）。
+
+---
+
+## 20. D-3 落地记录（2026-09-25）：rename 跨文件确认摘要
+
+> 候选池立项（产品负责人 2026-09-25 裁决）。重命名确认前展示「影响文件数 + 各文件命中数」摘要——影响面可见再落盘；与 pyrefly cwd 工作区索引修复（引用覆盖全工作区）形成闭环。
+
+### 实现
+
+| 项 | 内容 |
+|---|---|
+| 摘要确认（`renameWidget.ts`） | `confirmRename` 在拿到 LSP rename 编辑集后：**仅跨文件改动**弹确认（`openConfirm`，标题含新旧名，正文 = 「将修改 N 个文件共 M 处」+ 按命中数降序的「文件 × 处数」明细 + 索引未稳定警示）；**当前文件内改动保持 Enter 即应用**（零摩擦，不破坏既有旅程）。取消 → 不落盘收起 widget |
+| 纯函数 `summarizeRenameTargets` | 明细 = `relativePathOrName`（工作区内相对路径，越界回落文件名）+ 命中数；文件数超过 10 折叠为「…以及其他 X 个文件」（G-1 有界） |
+| 顺带修正 | `engineChip.ts` 顶层 `$("status-engine")` 改 `lazyEl`（CR-26 规则对齐：顶层禁止解析 DOM；同时让 renameWidget 依赖链可被单测导入） |
+
+### 裁决口径
+
+- 原用户决策「不做 diff 预览模态」**不变**——本项只加摘要确认（文件 × 命中数），不做逐处 diff；
+- 单文件改名不加确认（高频路径零摩擦）；跨文件（有真实风险的操作）才多一步。
+
+### 验收
+
+| 项 | 结果 |
+|---|---|
+| 新增 `src/__tests__/renamePreview.test.ts` | **4/4 绿**：降序明细 + total、无根回落文件名、超限折叠、单文件自洽 |
+| `e2e/lsp/03` 更新 | **9/9 绿**：跨文件用例升级（Enter → 摘要含「2 个文件共 3 处 / main.py × 2 / lib.py × 1」→ 落盘 + toast）+ 新增取消不落盘用例 |
+| 全量回归 | **e2e 106/106 全绿**；`tsc` 0 错；`cargo test` 190 passed；`vitest` **55 文件 546 用例全绿** |

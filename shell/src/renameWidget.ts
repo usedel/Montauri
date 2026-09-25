@@ -2,8 +2,9 @@
 //
 // - prepareRename 锚定符号（光标落在注释 / 字符串上给提示，不盲改）；
 // - 标识符原地渲染输入框（content widget），当前文件引用位置 ghost 高亮预览；
-// - Enter 确认：全部文件一次性写入 + toast 汇总（当前文件是单批 pushEditOperations，
-//   一个 undo 原子；跨文件改动的回滚依赖 Git / 本地历史——用户决策：不做 diff 预览模态）。
+// - Enter 确认：单文件改动直接写入（零摩擦）；跨文件改动弹出确认摘要
+//   「影响 N 个文件 + 各文件命中数」（D-3，2026-09-25 立项）——不展示逐处 diff
+//   （原用户决策「不做 diff 预览模态」仍有效），跨文件回滚依赖 Git / 本地历史。
 //
 // LSP 数据层（锚定 / 请求编辑集 / 应用编辑集）在 lsp/client.ts；本模块只做交互。
 
@@ -19,8 +20,9 @@ import {
   type RenameFileEdits,
   type LspReferenceLocation,
 } from "./lsp/client";
-import { samePath } from "./util";
+import { relativePathOrName, samePath } from "./util";
 import { toast, toastFail } from "./toast";
+import { openConfirm } from "./dialog";
 import { setEngineBusy } from "./engineChip";
 
 // ---------- 就地改名 widget（editor content widget） ----------
@@ -201,6 +203,25 @@ export function setAfterRenameHandler(fn: () => void): void {
   afterRename = fn;
 }
 
+/** 摘要明细的文件数上限（G-1：大工作区跨文件改名不刷出无界列表，超出折叠计数） */
+const SUMMARY_MAX_FILES = 10;
+
+/** 纯函数（vitest 直测）：跨文件确认摘要——按命中数降序的「文件 × 处数」明细。
+ *  路径展示走 relativePathOrName（工作区内相对路径，越界回落文件名）。 */
+export function summarizeRenameTargets(
+  files: RenameFileEdits[],
+  root: string | null,
+  maxFiles = SUMMARY_MAX_FILES,
+): { total: number; lines: string[] } {
+  const total = files.reduce((n, f) => n + f.edits.length, 0);
+  const sorted = [...files].sort((a, b) => b.edits.length - a.edits.length);
+  const lines = sorted
+    .slice(0, maxFiles)
+    .map((f) => `· ${relativePathOrName(root, f.path)} × ${f.edits.length} 处`);
+  if (sorted.length > maxFiles) lines.push(`· …以及其他 ${sorted.length - maxFiles} 个文件`);
+  return { total, lines };
+}
+
 async function confirmRename(): Promise<void> {
   const model = widgetModel;
   const a = anchor;
@@ -249,6 +270,24 @@ async function confirmRename(): Promise<void> {
   if (files.length === 0) {
     toast("引擎未返回任何改动", "info");
     return;
+  }
+  // D-3：跨文件改动显式确认（影响面可见再落盘）；当前文件内改动保持 Enter 即应用（零摩擦）
+  const crossFile = path !== null && files.some((f) => !samePath(f.path, path));
+  if (crossFile) {
+    const { total, lines } = summarizeRenameTargets(files, app.workspaceRoot);
+    const ok = await openConfirm({
+      title: `跨文件重命名「${currentName}」→「${newName}」`,
+      message: `将修改 ${files.length} 个文件共 ${total} 处：\n${lines.join("\n")}${
+        refsUnstable ? "\n\n⚠ 工作区索引未稳定，结果可能不完整。" : ""
+      }`,
+      okLabel: "全部修改",
+      kind: "primary",
+    });
+    if (!ok) {
+      closeWidget();
+      app.editor.focus();
+      return;
+    }
   }
   closeWidget();
   app.editor.focus();

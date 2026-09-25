@@ -4,7 +4,7 @@
 // main.ts 与 settingsPanel.ts 都从本模块 import renderEngineChip，避免把 chip 渲染散在两处；
 // startLsp / saveSettings 经 handler 注入，本模块不反向依赖 main.ts / settingsPanel.ts（无循环导入）。
 
-import { app, $ } from "./state";
+import { app, lazyEl } from "./state";
 import { showMenu } from "./menu";
 
 export interface EngineChipHandlers {
@@ -15,7 +15,8 @@ export interface EngineChipHandlers {
 }
 
 let handlers: EngineChipHandlers | null = null;
-const statusEngineEl = $("status-engine");
+// CR-26：顶层 DOM 快照改惰性（规则：顶层禁止解析 DOM；测试环境可安全 import）
+const statusEngineEl = lazyEl("status-engine");
 
 // E-2（PyCharm 调研）：引擎忙碌态（引用计数：引擎 starting 与 references/rename 查询可叠加）
 let busyDepth = 0;
