@@ -120,6 +120,7 @@ function closePanel(): void {
 
 /** 接线（init 调用一次）：芯片点击/键盘 + 面板按钮 + 30s 芯片轻采样 */
 export function wireResourcePanel(h: ResourcePanelHandlers): void {
+  if (chipTimer !== null) return; // 防重复接线（幂等守卫；定时器为应用单例生命周期）
   handlers = h;
   const chip = chipEl as HTMLElement;
   chip.addEventListener("click", openPanel);
@@ -141,18 +142,11 @@ export function wireResourcePanel(h: ResourcePanelHandlers): void {
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && panelOpen) closePanel();
   });
-  // 首次 + 每 30s 轻采样（面板打开时由面板自身的 2s 采样接管，这里跳过避免双写）
+  // 首次 + 每 30s 轻采样（面板打开时由面板自身的 2s 采样接管，这里跳过避免双写）。
+  // 采样定时器为应用单例生命周期（与面板同生共死，不随工作区切换重建）——
+  // 此前有一个无人调用的 disposeResourcePanel 假清理函数，推送前复核时删除。
   chipTimer = setInterval(() => {
     if (!panelOpen) void sample(true);
   }, 30_000);
   void sample(true);
-}
-
-/** 工作区卸载等场景停止全部采样（防泄漏） */
-export function disposeResourcePanel(): void {
-  if (chipTimer !== null) {
-    clearInterval(chipTimer);
-    chipTimer = null;
-  }
-  closePanel();
 }

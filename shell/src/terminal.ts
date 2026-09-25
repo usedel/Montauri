@@ -59,6 +59,13 @@ export function setTerminalUrlHandler(cb: (url: string) => void): void {
 const MAX_WRITE_BYTES_PER_FRAME = 256 * 1024;
 /** 积压超过该字节数即提示一次「已限流」（洪峰结束才允许再次提示，防刷屏） */
 const THROTTLE_WARN_BYTES = 1024 * 1024;
+/** G-1：积压硬上限（超过即丢最旧输出）——背压只削峰不丢数据的前提是
+ *  「生产速率低于排空速率」，`while true: print` 大块输出可超过 15MB/s 的排空上限，
+ *  队列必须封顶防 OOM（推送前复核发现的缺口）。scrollback 只有 5000 行，
+ *  丢弃最旧输出后真正可见的内容差异远小于数字。 */
+const MAX_PENDING_BYTES = 4 * 1024 * 1024;
+/** stop/exit 路径同步排空的总量上限（进程已死不会再有输入，超出部分截断并提示） */
+const DRAIN_MAX_BYTES = 2 * 1024 * 1024;
 
 export class IntegratedTerminal {
   readonly id: string;
@@ -76,6 +83,8 @@ export class IntegratedTerminal {
   private flushScheduled = false;
   /** 本次洪峰是否已提示过限流（队列清空时复位） */
   private throttleNotified = false;
+  /** 本次洪峰因硬上限丢弃的最旧输出字节数（队列清空时汇总提示后复位） */
+  private droppedBytes = 0;
 
   constructor(id: string, container: HTMLElement) {
     this.id = id;
@@ -207,10 +216,20 @@ export class IntegratedTerminal {
     if (!data) return;
     this.pendingChunks.push(data);
     this.pendingBytes += data.length;
+    // G-1：积压硬上限——丢最旧输出保响应（scrollback 有限，最旧内容本就即将滚出可视区）
+    if (this.pendingBytes > MAX_PENDING_BYTES) {
+      let dropped = 0;
+      while (this.pendingBytes > MAX_PENDING_BYTES && this.pendingChunks.length > 1) {
+        const head = this.pendingChunks.shift()!;
+        this.pendingBytes -= head.length;
+        dropped += head.length;
+      }
+      if (dropped > 0) this.droppedBytes += dropped;
+    }
     // 积压过大时只提示一次：让用户知道「输出被削峰」而非「程序卡了」
     if (this.pendingBytes >= THROTTLE_WARN_BYTES && !this.throttleNotified) {
       this.throttleNotified = true;
-      this.pendingChunks.push("\r\n\x1b[33m[输出过快，已限流显示（数据未丢，仍在接收）]\x1b[0m\r\n");
+      this.pendingChunks.push("\r\n\x1b[33m[输出过快，已限流显示]\x1b[0m\r\n");
     }
     this.scheduleFlush();
   }
@@ -251,8 +270,10 @@ export class IntegratedTerminal {
       // 洪峰结束补一行收尾提示：洪峰中途那次提示会被后续输出冲出 scrollback（看不到），
       // 结束时没有后续输出，这一行才真正留得住。
       if (this.throttleNotified) {
-        this.term.writeln("\r\n\x1b[33m[输出洪峰已结束，期间已限流显示]\x1b[0m\r\n");
+        const droppedNote = this.droppedBytes > 0 ? `，期间丢弃最旧输出 ${Math.round(this.droppedBytes / 1024)} KB` : "";
+        this.term.writeln(`\r\n\x1b[33m[输出洪峰已结束，期间已限流显示${droppedNote}]\x1b[0m\r\n`);
         this.throttleNotified = false; // 允许下次洪峰再提示
+        this.droppedBytes = 0;
       }
     }
     if (this.pendingChunks.length > 0) this.scheduleFlush(); // 还有积压 → 下一帧继续
@@ -263,6 +284,31 @@ export class IntegratedTerminal {
     this.pendingChunks = [];
     this.pendingBytes = 0;
     this.throttleNotified = false;
+    this.droppedBytes = 0;
+  }
+
+  /** 同步排空全部待写队列（stop/exit 路径专用：进程已死不会再有新输入）。
+   *  flushPending 单帧预算只有 256KB，直接调一次会让「退出提示」插进剩余输出中间
+   *  （推送前复核发现）；此处按预算循环排空，总量超 DRAIN_MAX_BYTES 则截断并提示
+   *  （scrollback 只有 5000 行，截断的部分本就留不住）。 */
+  private drainPending(): void {
+    let drained = 0;
+    while (this.pendingChunks.length > 0 && drained < DRAIN_MAX_BYTES) {
+      const beforeChunks = this.pendingChunks.length;
+      const beforeBytes = this.pendingBytes;
+      this.flushPending();
+      const wrote = beforeBytes - this.pendingBytes;
+      drained += wrote;
+      if (this.pendingChunks.length === beforeChunks && wrote === 0) break; // 防御：无进展（理论不可达）
+    }
+    if (this.pendingChunks.length > 0) {
+      const droppedKb = Math.max(1, Math.round(this.pendingBytes / 1024));
+      this.pendingChunks = [];
+      this.pendingBytes = 0;
+      this.term.write(`\r\n\x1b[33m[输出过多，已省略停止后剩余的 ${droppedKb} KB 输出]\x1b[0m\r\n`);
+    }
+    this.throttleNotified = false;
+    this.droppedBytes = 0;
   }
 
   /** 为一整行终端缓冲提供全部链接（traceback + URL），供 registerLinkProvider 按需回调。
@@ -375,14 +421,14 @@ export class IntegratedTerminal {
   markStopped(): void {
     if (!this.started) return;
     this.started = false;
-    this.flushPending(); // 先把排队输出写完，再写提示行，时序才对
+    this.drainPending(); // 先排空排队输出，再写提示行，时序才对
     this.term.writeln("\r\n\x1b[90m[已停止]\x1b[0m");
   }
 
   /** （外部事件分发）term-exit → 提示退出 */
   handleExit(): void {
     this.started = false;
-    this.flushPending(); // 同上：退出提示必须排在进程输出之后
+    this.drainPending(); // 同上：退出提示必须排在进程输出之后
     this.term.writeln("\r\n\x1b[90m[进程已退出]\x1b[0m");
     // 结论 5：写入完成后刷新可视区，让 link provider 立刻为已渲染的行提供 traceback 链接
     this.term.refresh(0, this.term.rows - 1);

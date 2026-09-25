@@ -12,6 +12,7 @@
 // 本模块不反向 import debugView（防环）。
 
 import { dapEvaluate } from "./dap/client";
+import { toast } from "./toast";
 
 const STORE_KEY = "oc-debug-watches";
 const MAX_WATCHES = 20;
@@ -20,6 +21,8 @@ const MAX_VALUE_LEN = 200;
 
 let watches: string[] = load();
 let getFrameId: () => number | null = () => null;
+/** 刷新令牌（快速切帧时旧求值循环作废） */
+let watchToken = 0;
 
 /** 面板宿主与列表容器（initWatchesPanel 注入；DOM 由 debugView 动态构建） */
 let sectionEl: HTMLElement | null = null;
@@ -97,7 +100,10 @@ function render(): void {
     if (e.key !== "Enter") return;
     const v = input.value.trim();
     if (!v) return;
-    if (!watches.includes(v) && watches.length >= MAX_WATCHES) return; // 上限保护
+    if (!watches.includes(v) && watches.length >= MAX_WATCHES) {
+      toast(`监视表达式最多 ${MAX_WATCHES} 条，请先删除后再添加`, "info"); // G-3：拒绝要可见
+      return;
+    }
     if (!watches.includes(v)) watches.push(v);
     input.value = "";
     save();
@@ -124,9 +130,11 @@ function removeWatch(expr: string): void {
 }
 
 /** 批量求值并刷新列表（暂停态有效；串行求值——数量小，避免打爆适配器）。
- *  帧切换后旧值必须立刻让位：重画为占位后逐条填值。 */
+ *  帧切换后旧值必须立刻让位：重画为占位后逐条填值。
+ *  令牌防护：连续两次 refresh（快速切帧）时旧循环的求值结果不得写入新列表。 */
 export async function refreshWatches(frameId: number | null): Promise<void> {
   if (!sectionEl || !listEl || watches.length === 0) return;
+  const token = ++watchToken;
   listEl.textContent = "";
   const rows = new Map<string, HTMLElement>();
   for (const expr of watches) {
@@ -135,17 +143,20 @@ export async function refreshWatches(frameId: number | null): Promise<void> {
     listEl.appendChild(row);
   }
   for (const expr of watches) {
+    if (token !== watchToken) return; // 已被更新的刷新取代
     const row = rows.get(expr);
     if (!row) continue;
     const valEl = row.querySelector(".debug-watch-value") as HTMLElement | null;
     try {
       const r = await dapEvaluate(expr, frameId, "watch");
+      if (token !== watchToken) return; // 求值期间列表已被重画
       if (valEl) {
         const v = r.result.length > MAX_VALUE_LEN ? `${r.result.slice(0, MAX_VALUE_LEN - 1)}…` : r.result;
         valEl.textContent = v;
         valEl.title = r.result;
       }
     } catch {
+      if (token !== watchToken) return;
       if (valEl) {
         valEl.textContent = "无法求值";
         valEl.title = "";

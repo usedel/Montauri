@@ -347,7 +347,14 @@ function renderBreakpoints(): void {
       const next = new Set(dap.getExceptionFilters());
       if (chk.checked) next.add(opt.id);
       else next.delete(opt.id);
-      void dap.setExceptionFilters([...next]);
+      void dap.setExceptionFilters([...next]).then(
+        () => undefined,
+        (e) => {
+          // G-3：下发失败回滚勾选态并提示——否则 UI 已勾选、debugger 实际未生效
+          chk.checked = !chk.checked;
+          toastFail("异常断点设置", e);
+        },
+      );
     });
     const lb = document.createElement("label");
     lb.htmlFor = chk.id;

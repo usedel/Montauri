@@ -90,8 +90,10 @@ export async function saveSessionNow(): Promise<void> {
   if (!state) return;
   try {
     await invoke("save_session", { root, state });
-  } catch {
-    /* 静默 */
+  } catch (e) {
+    // G-3 最小可见降级：不打断操作，但连续失败（磁盘满/权限）时「重开工作区东西没了」
+    // 必须有排查线索——console 留痕是底线（快照属后台行为，不弹 toast 打扰）。
+    console.warn("[session] 会话快照写入失败：", e);
   }
 }
 
@@ -156,8 +158,9 @@ export async function restoreSession(): Promise<void> {
       }
     }
     h.renderTabs(); // 草稿置脏后刷新标签上的脏标记
-  } catch {
-    /* 恢复失败不影响使用 */
+  } catch (e) {
+    // G-3：恢复失败同样留痕（否则用户只会觉得「上次打开的东西没了」无从排查）
+    console.warn("[session] 会话快照恢复失败：", e);
   } finally {
     restoring = false;
   }
