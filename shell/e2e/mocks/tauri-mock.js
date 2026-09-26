@@ -333,6 +333,37 @@
     return "__unhandled__";
   }
 
+  // ============ 框架探针表 / Pydantic 引擎推荐 / 端点扫描 mock（P1/F0/F1/F2/F4 E2E）============
+  // 状态来源：window.__E2E_FRAMEWORK_PRESET__（addInitScript 预置，见 e2e/ux/02-frameworks.spec.ts）；
+  // hints 持久 sessionStorage（reload 后仍在，验证「工作区级关闭」的持久语义——同 save_session 先例）。
+  var FW_DEFAULT = {
+    deps: "",            // 依赖声明文本（模拟 Rust collect_dep_text）
+    hasFastApiApp: false, // 源码有 `app = FastAPI(`
+    hasFlaskApp: false,
+    hasManagePy: false,
+    pydanticStack: false, // detect_pydantic_stack 的依赖命中（fastapi/pydantic）
+    hints: {},            // framework_hints（工作区级「不再提示」）
+    endpoints: [
+      { framework: "fastapi", method: "GET", route: "/health", file: "main.py", line: 5, handler: "health" },
+      { framework: "fastapi", method: "POST", route: "/v1/api/users", file: "main.py", line: 9, handler: "create_user" },
+      { framework: "fastapi", method: "GET", route: "/v1/api/users/{uid}", file: "routes/users.py", line: 12, handler: "get_user" },
+      { framework: "fastapi", method: "WS", route: "/v1/api/ws", file: "routes/ws.py", line: 3, handler: "ws_echo" },
+    ],
+  };
+  function FW_STATE() {
+    if (!window.__E2E_FRAMEWORK_STATE__) {
+      var fw = JSON.parse(JSON.stringify(FW_DEFAULT));
+      try {
+        var saved = sessionStorage.getItem("oc-e2e-framework-hints");
+        if (saved) fw.hints = JSON.parse(saved);
+      } catch (e) { /* sessionStorage 不可用：hints 仅会话内 */ }
+      var preset = window.__E2E_FRAMEWORK_PRESET__;
+      if (preset) for (var k in preset) fw[k] = preset[k];
+      window.__E2E_FRAMEWORK_STATE__ = fw;
+    }
+    return window.__E2E_FRAMEWORK_STATE__;
+  }
+
   var LSP_KIND_METHOD = 2;
   // 内置类型成员表：type → [ [method, doc] ]
   var LSP_MEMBERS = {
@@ -622,6 +653,15 @@
     args = args || {};
     invokeLog.push(cmd + "(" + Object.keys(args).join(",") + ")");
     if (invokeLog.length > 200) invokeLog.shift();
+    // 0.5) E2E 动作记录（端点工具窗 F2 验收：浏览器打开 / 复制 URL 的落点断言）
+    if (cmd === "open_external") {
+      (window.__E2E_OPENED_URLS__ = window.__E2E_OPENED_URLS__ || []).push(String(args.url ?? ""));
+      return null;
+    }
+    if (cmd === "copy_to_clipboard") {
+      (window.__E2E_COPIED__ = window.__E2E_COPIED__ || []).push(String(args.text ?? ""));
+      return null;
+    }
     // 1) 事件注册：args.handler 是 transformCallback 返回的回调 id（number）
     if (cmd === "plugin:event|listen") {
       var handlerId = args.handler;
@@ -725,6 +765,34 @@
       return null;
     }
     if (cmd === "lsp_send_response" || cmd === "lsp_start" || cmd === "lsp_stop") return null;
+    // 4.65) 框架探针表 / Pydantic 引擎推荐 / 端点扫描（形状对齐 env_cmds.rs / fs_cmds.rs）
+    if (cmd === "detect_framework" || cmd === "set_framework_hint_disabled" || cmd === "detect_pydantic_stack" ||
+        cmd === "scan_endpoints" || cmd === "get_project_run" || cmd === "set_project_run") {
+      var fw = FW_STATE();
+      if (cmd === "detect_framework") {
+        // 优先级同 Rust：django（manage.py 强约定）→ fastapi → flask；hints 内为 true 的框架跳过
+        if (!fw.hints.django && fw.hasManagePy && fw.deps.indexOf("django") >= 0) {
+          return { framework: "django", label: "Django", file: "manage.py", entry: { kind: "script", target: "manage.py" }, args: "runserver", cwd: "${workspaceRoot}", summary: "manage.py runserver", missing: [] };
+        }
+        if (!fw.hints.fastapi && fw.deps.indexOf("fastapi") >= 0 && fw.hasFastApiApp) {
+          var server = fw.deps.indexOf("uvicorn") >= 0 ? "uvicorn" : (fw.deps.indexOf("hypercorn") >= 0 ? "hypercorn" : "uvicorn");
+          return { framework: "fastapi", label: "FastAPI", file: "main.py", entry: { kind: "module", target: server }, args: "main:app --reload", cwd: "${workspaceRoot}", summary: "-m " + server + " main:app --reload", missing: [] };
+        }
+        if (!fw.hints.flask && fw.deps.indexOf("flask") >= 0 && fw.hasFlaskApp) {
+          return { framework: "flask", label: "Flask", file: "app.py", entry: { kind: "module", target: "flask" }, args: "--app app:app run --debug", cwd: "${workspaceRoot}", summary: "-m flask --app app:app run --debug", missing: [] };
+        }
+        return null;
+      }
+      if (cmd === "set_framework_hint_disabled") {
+        fw.hints[String(args.framework)] = !!args.disabled;
+        try { sessionStorage.setItem("oc-e2e-framework-hints", JSON.stringify(fw.hints)); } catch (e) { /* 不可持久则仅会话内 */ }
+        return null;
+      }
+      if (cmd === "detect_pydantic_stack") return !!fw.pydanticStack && !fw.hints.pydantic_engine;
+      if (cmd === "scan_endpoints") return JSON.parse(JSON.stringify(fw.endpoints));
+      if (cmd === "get_project_run") return window.__E2E_PROJECT_RUN__ || null;
+      if (cmd === "set_project_run") { window.__E2E_PROJECT_RUN__ = args.config || null; return null; }
+    }
     // 4.6) 调试 DAP mock（E2E 专用，无真实 debugpy）：模拟 stdio adapter 架构时序与步进推演
     var dh = handleDebugCommand(cmd, args);
     if (dh !== "__unhandled__") return dh;
