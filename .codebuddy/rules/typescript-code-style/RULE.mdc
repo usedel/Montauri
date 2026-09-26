@@ -72,7 +72,9 @@ provider:
 - `inlineValues.ts` — 行内变量值（P2 · Inline Values）：调试暂停时行尾显示变量当前值（自绘，非 Monaco InlineValuesProvider）。
 - `debugConsole.ts` — 调试控制台 / 求值（P1 · Debug Console + Alt+F8）：断点处 DAP evaluate（context=repl），副作用真实发生。
 - `runState.ts` — 运行态单一真值（TD-14 ①）：运行实例列表（脚本唯一 + 项目 N 并行），实例与运行控制台 tab 同生共死。
-- `runFlow.ts` — 运行域（TD-14）：`runScript()`/`runProject()` 统一 PTY 控制台 + preparing 生命周期收口。
+- `runFlow.ts` — 运行域（TD-14）：`runScript()`/`runProject()` 统一 PTY 控制台 + preparing 生命周期收口；框架探针表（`maybeSuggestFramework` 提示 + 一键生成项目运行配置）。
+- `frameworks.ts` — 框架探针表 TS 侧（P1）：Rust `detect_framework` 返回结构镜像 + 提示文案 / 已配置判定 / Pydantic 引擎推荐判定等纯函数（无 DOM，可单测）。
+- `pydanticEngineHint.ts` — Pydantic 栈引擎推荐（F0 裁决 B）：依赖含 pydantic/fastapi 的工作区提示推荐切 basedpyright（每工作区每会话一次、仅 pyrefly 时提示；关闭键 = `framework_hints["pydantic_engine"]`）；切换经 handler 注入 `engineChip::switchEngineTo`。
 - `runHistory.ts` — 运行历史（P2）：按实例留存输出，可回看 / 再点 traceback / 保存输出。
 - `runConfigPanel.ts` — 运行配置面板（v3.4 §17-6）：脚本 / 项目两分区配置。
 - `toast.ts` — 全局 toast 轻提示（UX P0-1）：异步操作失败/结果的即时反馈，右下角堆叠、自动消失、可手动关闭。

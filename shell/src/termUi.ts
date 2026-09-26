@@ -599,7 +599,7 @@ export async function stopRunInstanceById(id: string): Promise<void> {
   renderTerminalTabs();
 }
 
-// ---------- FastAPI 服务 URL 自动打开（§9，M3-3.9） ----------
+// ---------- 服务 URL 自动打开（§9 M3-3.9 + 框架探针表 P1：Uvicorn / Django / Flask） ----------
 
 /** 用系统浏览器打开 URL（main 侧注入 open_external 的包装；仅 http/https） */
 let externalUrlOpener: ((url: string) => void) | null = null;
@@ -614,32 +614,49 @@ export function openExternalUrl(url: string): void {
   externalUrlOpener?.(url);
 }
 
-/** Uvicorn 服务就绪行（§9：监听控制台输出中的该行解析实际 URL） */
-const UVICORN_URL_RE = /Uvicorn running on (https?:\/\/\S+)/;
+/** 服务就绪行（§9 + 框架探针表 P1）：三类 dev server 各自的就绪行解析实际 URL
+ *  （args 改 --port/--host 时天然正确，无需另配端口）。 */
+const SERVICE_URL_RES: RegExp[] = [
+  /Uvicorn running on (https?:\/\/\S+)/, // FastAPI / Uvicorn
+  /Starting development server at (https?:\/\/\S+)/, // Django runserver
+  /\*\s*Running on (https?:\/\/\S+)/, // Flask / Werkzeug
+];
+
+/** 就绪行关键词（快速路径）：避免每块输出都拼接缓冲 */
+const SERVICE_URL_HINTS = ["Uvicorn running on", "development server at", "Running on"];
 
 /** 跨块缓冲（§9 复查修复）：PTY 分块可能把就绪行从中间截断（`Uvicorn run` + `ning on …`），
  *  逐块匹配会漏——保留尾部一段（就绪行长度上限 512 字符足够）跨块拼接。 */
-let uvicornTail = "";
+let serviceTail = "";
 
-/** 按实例检测 Uvicorn 就绪行并打开浏览器（每项目每会话一次，§9）。
- *  挂在 term-data 分发点：任何项目运行实例（uvicorn --reload 等）的输出中出现
- *  `Uvicorn running on http://…` 即解析 URL 并用系统浏览器打开。
+/** 按实例检测服务就绪行并打开浏览器（每项目每会话一次，§9）。
+ *  挂在 term-data 分发点：任何项目运行实例（uvicorn / manage.py runserver / flask run 等）
+ *  的输出中出现就绪行即解析 URL 并用系统浏览器打开。
  *  text 须为剥离 ANSI 后的纯文本（调用方保证）。 */
-const uvicornOpenedFor = new Set<string>();
+const serviceOpenedFor = new Set<string>();
 
-function watchUvicornLine(_id: string, text: string): void {
+function watchServiceUrlLine(_id: string, text: string): void {
   // 已打开过的项目直接跳过（每项目每会话一次，§9），不积累缓冲
   const root = app.workspaceRoot ?? "";
-  if (root && uvicornOpenedFor.has(root)) return;
-  // 快速路径：不含 "Uvicorn" 且缓冲为空 → 无需拼接，直接返回
-  if (!uvicornTail && !text.includes("Uvicorn")) return;
-  uvicornTail = (uvicornTail + text).slice(-512);
-  const m = UVICORN_URL_RE.exec(uvicornTail);
-  if (!m) return;
-  uvicornTail = "";
-  const url = m[1];
-  if (root) uvicornOpenedFor.add(root);
-  externalUrlOpener?.(url);
+  if (root && serviceOpenedFor.has(root)) return;
+  // 快速路径：不含任何就绪行关键词且缓冲为空 → 无需拼接，直接返回
+  if (!serviceTail && !SERVICE_URL_HINTS.some((k) => text.includes(k))) return;
+  serviceTail = (serviceTail + text).slice(-512);
+  let url: string | null = null;
+  for (const re of SERVICE_URL_RES) {
+    const m = re.exec(serviceTail);
+    if (m) {
+      url = m[1];
+      break;
+    }
+  }
+  if (!url) return;
+  serviceTail = "";
+  // 就绪行尾部可能带上句末标点（如 `at http://…:8000/.`），剥掉再打开
+  const clean = url.replace(/[.,;:!?)\]]+$/u, "");
+  if (!clean) return;
+  if (root) serviceOpenedFor.add(root);
+  externalUrlOpener?.(clean);
 }
 
 /** 执行高频命令（P2-6：一键插入或立即执行）。
@@ -675,7 +692,8 @@ export async function disposeTerminal(): Promise<void> {
   activeTermId = null;
   termSeq = 0;
   projectRunSeq = 1;
-  uvicornOpenedFor.clear();
+  serviceOpenedFor.clear();
+  serviceTail = "";
   resetOutputChannelUi();
   renderTerminalTabs();
   bottomTab = "output";
@@ -772,12 +790,12 @@ export async function wireTerminalEvents(): Promise<void> {
     const s = termSessions.find((x) => x.id === e.payload.id);
     if (!s) return;
     s.iterm.writeData(e.payload.data);
-    // 剥离 ANSI 后的纯文本：运行历史采集（§11）/ Uvicorn 监听（§9）/ 包管理器完成摘要嗅探（M2 §4.4）共用。
-    // uvicorn 彩色输出中 URL 后可能紧跟重置码（\x1b[0m），对原始数据跑 \S+ 会把转义码吃进 URL（复查修复）
+    // 剥离 ANSI 后的纯文本：运行历史采集（§11）/ 服务就绪行监听（§9）/ 包管理器完成摘要嗅探（M2 §4.4）共用。
+    // 彩色输出中 URL 后可能紧跟重置码（\x1b[0m），对原始数据跑 \S+ 会把转义码吃进 URL（复查修复）
     const plain = stripAnsi(e.payload.data);
     if (s.kind === "run") {
       s.runOnData?.(plain);
-      watchUvicornLine(s.id, plain);
+      watchServiceUrlLine(s.id, plain);
     }
     // M4-3 §6.4：traceback 的 ModuleNotFoundError → toast +「安装」按钮（复核修复 #4：
     // shell 与 run 会话都喂——用户在 shell 手敲 `uv run main.py` 的报错同样要触达；

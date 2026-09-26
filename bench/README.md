@@ -9,6 +9,7 @@
 | `sample/errors/` | 5 类错误 + 语法错误 | **traceback 点击跳转**（Gate B 验收第 3 条） | ✅ traceback 格式已验证 |
 | `sample/fastapi_annotated/` | Pydantic 注解齐全 | 静态引擎上限（有注解补全 ≥95%） | ✅ 可导入 |
 | `sample/unannotated_scraper/` | 无注解、动态结构 | 运行时采样价值（Phase 2/3 主战场） | ✅ 可导入 |
+| `sample/pydantic_models/` | Pydantic 模型 + 标准库 dataclass 对照组 | **静态引擎对 Pydantic 的支持度**（F0：补全 / 类型检查 / 缺失必填 / 改名传播 / alias / validator） | ✅ 已实测，报告见 `reports/pydantic-engine-probe.md` |
 | `sample/large_repo/` | 88 个 .py × 4 层深目录（生成器 `gen_large_repo.py`） | **dep_scan 全量性能红线 ≤ 2s**（M4-6） | ✅ 880ms（含 uv.lock + E5） |
 
 每个样例目录含独立 `pyproject.toml` + `.venv`（uv 管理，Python 3.13.7；`.venv` 已被根 `.gitignore` 忽略）。
@@ -36,8 +37,9 @@ uv run syntax_error.py              # SyntaxError 单行格式（line 16）
 |---|---|
 | Python（uv 管理） | 3.13.7（`D:\py3\3.13.7`） |
 | uv | 0.10.11 |
-| pyrefly | 1.3.1 |
-| basedpyright | 1.39.10（`~/.local/bin`，已入 PATH） |
+| pyrefly | 1.3.0（`~/.local/bin`，实测 `pyrefly --version`） |
+| basedpyright | 1.40.1（based on pyright 1.1.414；`~/.local/bin`，已入 PATH） |
+| pydantic（`sample/pydantic_models/.venv`） | 2.13.5 |
 | ruff | 0.16.1 |
 
 ## dep_scan 性能红线回放（M4-6，2026-09-16）

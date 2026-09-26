@@ -1,0 +1,71 @@
+{
+  "engine": "pyrefly",
+  "generatedAt": "2026-09-25T22:12:35.065Z",
+  "venvPython": "d:\\aipro\\opencharm\\bench\\sample\\pydantic_models\\.venv\\Scripts\\python.exe",
+  "diagReady": true,
+  "diagnostics": {
+    "complete.py": [
+      {
+        "line": 3,
+        "severity": 1,
+        "code": "parse-error",
+        "source": "Pyrefly",
+        "message": "Parse error: Positional argument cannot follow keyword argument"
+      },
+      {
+        "line": 3,
+        "severity": 1,
+        "code": "unknown-name",
+        "source": "Pyrefly",
+        "message": "Could not find name `na`"
+      },
+      {
+        "line": 3,
+        "severity": 1,
+        "code": "unexpected-positional-argument",
+        "source": "Pyrefly",
+        "message": "Expected argument `name` to be passed by name in function `models.User.__init__`"
+      }
+    ],
+    "validators.py": [],
+    "alias.py": [],
+    "usage.py": [],
+    "models.py": [],
+    "plain.py": []
+  },
+  "completion": {
+    "total": 3,
+    "labels": [
+      "id=",
+      "is_active=",
+      "name="
+    ],
+    "fieldsHit": [
+      "id",
+      "name",
+      "is_active"
+    ],
+    "nameItem": {
+      "detail": "bytearray | bytes | str",
+      "kind": 6,
+      "label": "name=",
+      "sortText": "0.9999.name="
+    }
+  },
+  "rename": {
+    "files": [
+      "models.py"
+    ],
+    "edits": {
+      "models.py": [
+        {
+          "line": 5,
+          "newText": "full_name"
+        }
+      ]
+    },
+    "stableReferences": 0
+  },
+  "hover": "```python\n(variable) name: str\n```\n\nGo to [str](file:///C:/Users/tom/AppData/Local/Temp/pyrefly_bundled_typeshed_a1980ad21dc5/builtins.pyi#L1033,7)",
+  "stderrTail": "Queue time: 0.00, task time: 0.00\n INFO Handling non-canceled request textDocument/references (10)\n INFO Language server processed event `LspRequest(textDocument/references)` in 0.00s (0.00s waiting)\n INFO Ran task on find_reference_queue heavy task queue. Queue time: 0.00, task time: 0.00\n INFO Handling non-canceled request textDocument/rename (11)\n INFO Language server processed event `LspRequest(textDocument/rename)` in 0.00s (0.00s waiting)\n INFO Ran task on find_reference_queue heavy task queue. Queue time: 0.00, task time: 0.00\n INFO Handling non-canceled request textDocument/hover (12)\n"
+}

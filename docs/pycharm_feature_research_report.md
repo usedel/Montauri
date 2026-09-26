@@ -86,7 +86,6 @@ PyCharm 的领先之处并非单点技术（我们的三层补全/运行时采�
 | 意图动作全体系（Alt+Enter 全家桶） | pyrefly/basedpyright/ruff 均不提供改写引擎；自建改写引擎 = 自研类型引擎级成本（违反非目标） |
 | Scientific/Dataframe/Numpy Viewer | 与「FastAPI+爬虫+小脚本」画像偏离；科学模式 2024.1 起也只是默认开启既有功能，非刚需 |
 | 远程解释器 / SSH / Dev Container | 非目标明列；架构上 probe 注入也与远程环境冲突 |
-| 数据库/HTTP Client/框架脚手架 | 超出 IDE 范围 |
 | 全功能重构（Change Signature 等） | LSP 桥协议子集只声明了必要能力；rename 已有，extract 级重构依赖引擎端能力，暂无来源 |
 
 ---

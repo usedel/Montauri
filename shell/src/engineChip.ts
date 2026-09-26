@@ -61,6 +61,12 @@ async function switchEngine(engine: string): Promise<void> {
   await handlers?.startLsp();
 }
 
+/** 供其他域触发引擎切换（F0 裁决 B 的 Pydantic 引擎推荐）：
+ *  同值跳过 / 持久化 / 重启语义与 chip 菜单完全一致，不另开第二份真值。 */
+export function switchEngineTo(engine: string): Promise<void> {
+  return switchEngine(engine);
+}
+
 /** 接线 chip 的点击 / 键盘（Enter / Space）入口 */
 export function wireEngineChip(): void {
   statusEngineEl.addEventListener("click", openEngineMenu);

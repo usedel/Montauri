@@ -62,7 +62,8 @@ import { toast, toastFail } from "./toast";
 import { restoreLayout, toggleSidebar, wireSplitters } from "./layout";
 import { motionDisabled, restoreReduceMotion } from "./anim";
 import { wireTooltip } from "./tooltip";
-import { renderEngineChip, setEngineBusy, setEngineChipHandlers, wireEngineChip } from "./engineChip";
+import { renderEngineChip, setEngineBusy, setEngineChipHandlers, switchEngineTo, wireEngineChip } from "./engineChip";
+import { maybeSuggestPydanticEngine, resetPydanticEngineHint, setPydanticEngineHandlers } from "./pydanticEngineHint";
 import { renderRunWidget, setRunWidgetHandlers, setRunWidgetRepaint, wireRunWidget, runWidgetHandlers } from "./runWidget";
 import { clearRunGutter, isRunGutterLine, refreshRunGutter, setRunGutterHandlers, wireRunGutter } from "./runGutter";
 import { clearGitGutter, refreshGitGutter, scheduleGitGutter, wireGitGutter } from "./gitGutter"; // 迭代 2 · P0-5
@@ -120,7 +121,7 @@ import {
 import { wireMenuBar, type MenuEntry } from "./menuBar";
 import {
   initRunEvents, isRunBusy,
-  maybeSuggestFastApi, prepareRun,
+  maybeSuggestFramework, prepareRun,
   resetRunSessionState, runScript, runProject, stopAllRuns,
   runSelection, runWidgetState, setRunFlowHandlers, stopRun, wireRunFlow,
   clearRunProfilesCache, rerunRecord,
@@ -280,8 +281,10 @@ async function openWorkspace(root: string): Promise<void> {
   await maybePromptVenv();
   await startFileWatcher(); // 启动文件监听
   await restoreSession(); // A-5：恢复上次现场（标签 / 光标 / 未保存草稿）
-  // P0-E：FastAPI 项目探测（仅提示，不打扰；v3.4 M3：配置缓存随粘性目标删除已无清空项）
-  void maybeSuggestFastApi();
+  // 框架探针表（P1：Django / Flask / FastAPI）：仅提示，不打扰；工作区级可关闭
+  void maybeSuggestFramework();
+  // F0 裁决 B（Pydantic 栈 → 推荐切 basedpyright）：仅提示，不打扰；工作区级可关闭
+  void maybeSuggestPydanticEngine();
   updateEditorOverlay();
 }
 
@@ -300,8 +303,9 @@ async function closeWorkspace(): Promise<void> {
   $("tree-header-text").textContent = "文件"; // UI-13：与 index.html 的静态文案保持一致（分组标题统一中文）
   statusFileEl.textContent = "";
   clearInterpreterStatus();
-  // P0-E：FastAPI 提示为工作区级，关闭工作区即清空
+  // 框架提示去重为工作区级，关闭工作区即清空
   clearRunProfilesCache();
+  resetPydanticEngineHint();
   renderRunWidget(runWidgetState());
   updateEditorOverlay();
 }
@@ -2207,6 +2211,8 @@ async function init(): Promise<void> {
   // 引擎 chip（C2）：状态栏身份展示 + 切换入口；真值已收敛到 app.settings.lsp_engine
   setEngineChipHandlers({ startLsp, saveSettings });
   wireEngineChip();
+  // F0 裁决 B：Pydantic 栈的引擎推荐走同一套切换语义（同值跳过 / 持久化 / 重启）
+  setPydanticEngineHandlers({ switchEngine: switchEngineTo });
   renderEngineChip();
   // A-1：资源可观测（状态栏 MEM 芯片 + 面板；明细采样仅面板打开时进行）
   wireResourcePanel({ restartLsp: startLsp });

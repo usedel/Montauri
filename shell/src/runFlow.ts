@@ -16,6 +16,7 @@ import { gotoFromLink } from "./tracebackLink";
 import { openChoice, openConfirm } from "./dialog";
 import { toast, toastFail } from "./toast";
 import { openRunConfig } from "./runConfigPanel";
+import { frameworkHintText, frameworkLabel, presetConfigured, type FrameworkPreset } from "./frameworks";
 import * as kb from "./keybindings";
 import * as dap from "./dap/client";
 import {
@@ -81,8 +82,17 @@ function isPreparing(kind: "script" | "project"): boolean {
   return runPreparingByKind[kind];
 }
 
-/** P0-E：FastAPI 提示按工作区每会话最多一次 */
-let fastApiHintShownFor: string | null = null;
+/** 框架探针表（P1）：「生成运行配置」提示按「工作区 + 框架」每会话最多一次 */
+const frameworkHintShown = new Set<string>();
+
+/** 探测期防并发穿透（CR-07 同款纪律：同步检查并置位，await 期间二次进入直接放弃；
+ *  释放后重入由 hintShown 键兜底去重，miss 场景重复探测无副作用） */
+const frameworkProbeBusy = new Set<string>();
+
+/** 提示去重键（工作区 + 框架：同一工作区可先后提示不同框架） */
+function frameworkHintKey(root: string, framework: string): string {
+  return `${root}#${framework}`;
+}
 
 /** §5.4：uv run 隐式同步风险提示按「工作区+状态」会话去重（venvPrompted 同款模式，§4.7 规则 2） */
 const uvRunRiskHinted = new Set<string>();
@@ -246,14 +256,14 @@ export function resetRunSessionState(): void {
   clearRunInstances();
   runPreparingByKind.script = false;
   runPreparingByKind.project = false;
-  fastApiHintShownFor = null;
+  frameworkHintShown.clear(); // 框架提示去重随工作区会话失效（同 §5.4 提示去重口径）
   uvRunRiskHinted.clear(); // §5.4 提示去重随工作区会话失效
   lazyHinted.clear();     // M4-1 lazy 提示去重同口径
 }
 
-/** 关闭工作区：FastAPI 提示去重均为工作区级，一并清空 */
+/** 关闭工作区：框架提示去重均为工作区级，一并清空 */
 export function clearRunProfilesCache(): void {
-  fastApiHintShownFor = null;
+  frameworkHintShown.clear();
 }
 
 /** 运行进行中或准备中（调试互斥判定收窄为脚本运行，§13.2 裁决 10） */
@@ -619,62 +629,93 @@ function nextProjectSeq(): number {
   return n;
 }
 
-// ---------- P0-E：FastAPI 预设（写入项目配置 + 服务 URL 自动打开，§9/§16-4） ----------
+// ---------- 框架探针表（P1：Django / Flask / FastAPI 预设 + 服务 URL 自动打开，§9/§16-4） ----------
 
-/** P0-E：FastAPI 项目探测。每个工作区每会话最多提示一次；**项目配置已是 uvicorn 入口**则不打扰。
+/** 框架预设探测（探针表在 Rust：`docs/pycharm_framework_support_report.md` §8.2 P1）。
+ *  每个「工作区 + 框架」每会话最多提示一次；**项目运行配置已等于该预设**则不打扰；
+ *  工作区级「不再提示」由 Rust 侧 `framework_hints` 过滤（关闭后不再返回该框架）。
  *  探测与配置生成都只做「提示 + 用户点击」，绝不静默改配置/装包。 */
-export async function maybeSuggestFastApi(): Promise<void> {
+export async function maybeSuggestFramework(): Promise<void> {
   const root = app.workspaceRoot;
-  if (!root || fastApiHintShownFor === root) return;
-  fastApiHintShownFor = root;
-  const hit = await invoke<{ file: string; module: string; app_var: string; has_uvicorn: boolean } | null>(
-    "detect_fastapi",
-    { workspaceRoot: root },
-  ).catch(() => null);
+  if (!root || frameworkProbeBusy.has(root)) return;
+  frameworkProbeBusy.add(root);
+  try {
+    await maybeSuggestFrameworkImpl(root);
+  } finally {
+    frameworkProbeBusy.delete(root);
+  }
+}
+
+async function maybeSuggestFrameworkImpl(root: string): Promise<void> {
+  const hit = await invoke<FrameworkPreset | null>("detect_framework", { workspaceRoot: root })
+    .catch(() => null);
   if (!hit) return;
+  const key = frameworkHintKey(root, hit.framework);
+  if (frameworkHintShown.has(key)) return;
+  frameworkHintShown.add(key);
   const projectRun = await invoke<Partial<RunConfig> | null>("get_project_run", { workspaceRoot: root })
     .catch(() => null);
-  const hasUvicornEntry = (): boolean =>
-    projectRun?.entry?.kind === "module" && projectRun.entry.target.trim().toLowerCase() === "uvicorn";
-  if (hasUvicornEntry()) return;
-  // 反馈通道复核（P2 全面核查修正）：FastAPI 探测是**被动发现**而非操作结果——原设计走
-  // 输出面板持久 hint 是对的（用户可能稍后才注意到）；改 toast 后 4s 即逝，而
-  // fastApiHintShownFor 已标记本会话不再提示，错过 = 永久丢失入口。回退为持久 hint
-  // 行 + 可点击链接（原方案），动作结果仍走 toast 即时反馈。
-  const el = appendOutputLine(
-    outputEl,
-    `检测到 FastAPI 项目（${hit.file}）。${hit.has_uvicorn ? "" : "尚未安装 uvicorn（可 uv add uvicorn）。"}可一键生成运行配置：`,
-    "hint",
-    gotoFromLink,
-  );
+  if (presetConfigured(projectRun, hit)) return;
+  // 反馈通道复核（P2 全面核查修正）：框架探测是**被动发现**而非操作结果——持久 hint 行是对的
+  // （用户可能稍后才注意到）；toast 4s 即逝，而去重键已标记本会话不再提示，错过 = 永久丢失入口。
+  const el = appendOutputLine(outputEl, frameworkHintText(hit), "hint", gotoFromLink);
+
   const a = document.createElement("span");
   a.className = "out-link";
-  a.textContent = "生成「FastAPI」配置并运行";
+  a.textContent = `生成「${frameworkLabel(hit)}」配置并运行`;
   a.addEventListener("click", () => {
-    void createFastApiProfile(hit).catch((e) => toastFail("生成 FastAPI 配置", e));
+    void createFrameworkProfile(hit).catch((e) => toastFail(`生成 ${frameworkLabel(hit)} 配置`, e));
   });
   el.appendChild(document.createTextNode("　"));
   el.appendChild(a);
+
+  // 工作区级关闭开关（对齐 PyCharm「Languages & Frameworks | Flask」的抑制设计）：
+  // 落在提示行内而非设置面板——发现的入口与关闭的入口同一处，一次交互完成。
+  const off = document.createElement("span");
+  off.className = "out-link";
+  off.textContent = "不再提示";
+  off.addEventListener("click", () => {
+    void (async () => {
+      try {
+        await invoke("set_framework_hint_disabled", {
+          workspaceRoot: root,
+          framework: hit.framework,
+          disabled: true,
+        });
+        off.className = "";
+        off.textContent = "（已关闭本工作区提示）";
+        toast(`已关闭本工作区的 ${frameworkLabel(hit)} 提示`, "success");
+      } catch (e) {
+        toastFail("关闭提示", e);
+      }
+    })();
+  });
+  el.appendChild(document.createTextNode("　"));
+  el.appendChild(off);
 }
 
-/** P0-E：一键生成 FastAPI 预设（module=uvicorn, cwd=工作区根）并写入**项目配置**（v3.4 §9：
- *  预设命中即写入 project_run，用户可改）；写入后直接运行项目，服务 URL 由终端输出监听
- *  （Uvicorn running on http://…，15s 等待窗口）自动用系统浏览器打开（§9）。 */
-async function createFastApiProfile(hit: { module: string; app_var: string }): Promise<void> {
-  if (!app.workspaceRoot) return;
-  const existing = await invoke<Partial<RunConfig> | null>("get_project_run", { workspaceRoot: app.workspaceRoot })
+/** 一键生成框架预设并写入**项目配置**（v3.4 §9：预设命中即写入 project_run，用户可改）；
+ *  写入后直接运行项目，服务 URL 由终端输出监听（Uvicorn / Django dev server / Werkzeug
+ *  就绪行）自动用系统浏览器打开（§9，见 termUi 的 watchServiceUrlLine）。
+ *  配置已等于预设 → 直接运行（幂等）；与预设不同 → 覆盖写入（用户点链接即已表达意图）。 */
+async function createFrameworkProfile(hit: FrameworkPreset): Promise<void> {
+  const root = app.workspaceRoot;
+  if (!root) return;
+  const existing = await invoke<Partial<RunConfig> | null>("get_project_run", { workspaceRoot: root })
     .catch(() => null);
-  if (!existing) {
-    const profile: RunConfig = {
-      ...EMPTY_RUN_CONFIG,
-      entry: { kind: "module", target: "uvicorn" },
-      args: `${hit.module}:${hit.app_var} --reload`,
-      cwd: "${workspaceRoot}",
-    };
-    await invoke("set_project_run", { workspaceRoot: app.workspaceRoot, config: profile });
-    toast(`已写入项目运行配置：uvicorn ${profile.args}`, "success");
+  if (presetConfigured(existing, hit)) {
     await runProject();
+    return;
   }
+  const profile: RunConfig = {
+    ...EMPTY_RUN_CONFIG,
+    entry: { kind: hit.entry.kind, target: hit.entry.target },
+    args: hit.args,
+    cwd: hit.cwd,
+  };
+  await invoke("set_project_run", { workspaceRoot: root, config: profile });
+  toast(`已写入项目运行配置：${hit.summary}`, "success");
+  await runProject();
 }
 
 // ---------- 选区运行（§16-5：临时文件 → 脚本运行路径，probe=false） ----------
