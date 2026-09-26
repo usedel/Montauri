@@ -23,6 +23,8 @@ base64 = "0.22"
 portable-pty = "0.9"
 notify-debouncer-mini = "0.6"
 ignore = "0.4"
+# PR-H（dx_features_backlog §6.6）：全局搜索正则模式（文件掩码走 ignore 自带 overrides，无需 globset）
+regex = "1"
 shell-words = "1.1"
 # P2 DX：插件包导出/导入（zip）。仅 deflate（默认压缩格式，Windows 资源管理器可直接解压）
 zip = { version = "2", default-features = false, features = ["deflate"] }

@@ -282,6 +282,51 @@ export async function findUsagesAtCursor(): Promise<void> {
   await queryAndRender(model, pos);
 }
 
+/** PR-I（dx_features_backlog §6.6）：Ctrl+Shift+双击 = 查找引用（PyCharm 手势对标）。
+ *  为什么不用 `editor.onMouseDown`：Monaco 的鼠标事件拿不到「第几次点击」，
+ *  而 DOM `dblclick` 天然是双击语义且带修饰键信息——只在**同时按住 Ctrl+Shift** 时接管，
+ *  默认双击选词习惯零改变。光标已由双击落在词上，故直接用 position 查询；
+ *  点在空白/非词上时不出面板（避免打开一个必然为空的结论）。
+ */
+/** 双击判定窗口（ms，与 Double Shift 同款量级） */
+const DBLCLICK_MS = 400;
+
+/**
+ * PR-I（dx_features_backlog §6.6）：Ctrl+Shift+双击 = 查找引用（PyCharm 手势对标）。
+ *
+ * ⚠ 为什么**不用 DOM `dblclick` 事件**（e2e 探针实测）：Monaco 在两次点击之间会重绘行 DOM
+ * （选区变化触发），两次点击的 target 不是同一个节点 → **浏览器不合成 dblclick 事件**
+ * （实测：mousedown/mouseup 各 2 次、dblclick 0 次）。真实用户同样踩这个坑，
+ * 因此改用 Monaco 的 `onMouseDown` 自行判定「同位置短间隔两次点击」——与 Monaco 内部
+ * 判定多击的思路同源，且不依赖 DOM 节点稳定性。
+ *
+ * 另一处坑：注册时 `editor.getDomNode()` 可能为空/后续被替换，故不缓存 DOM 节点。
+ */
+export function installCtrlShiftDblclickUsages(
+  editor: MonacoApi.editor.IStandaloneCodeEditor,
+): MonacoApi.IDisposable {
+  let lastAt = 0;
+  let lastLine = -1;
+  let lastCol = -1;
+  return editor.onMouseDown((e) => {
+    const p = e.target.position;
+    // 只有「按住 Ctrl+Shift + 落在文本位置」才记时；其余情况立即作废计时（防误触累积）
+    if (!e.event.ctrlKey || !e.event.shiftKey || !p) {
+      lastAt = 0;
+      return;
+    }
+    const now = Date.now();
+    const isDouble = now - lastAt < DBLCLICK_MS && p.lineNumber === lastLine && p.column === lastCol;
+    lastAt = now;
+    lastLine = p.lineNumber;
+    lastCol = p.column;
+    if (!isDouble) return;
+    const model = editor.getModel();
+    if (!model || !model.getWordAtPosition(p)?.word) return;
+    void queryAndRender(model, p);
+  });
+}
+
 /** 编辑器右键菜单「查找引用」入口（可发现性；键位仍归键位系统 Alt+F7 管） */
 export function initFindUsagesAction(editor: MonacoApi.editor.IStandaloneCodeEditor): MonacoApi.IDisposable {
   return editor.addAction({

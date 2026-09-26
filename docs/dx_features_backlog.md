@@ -1,6 +1,7 @@
 # DX 顺手功能储备（PyCharm 对标 · 调研与推进清单）
 
 > 状态：调研完成，2026-09-26 二次核实（对照当前代码逐条验证事实底座，并新增缺口挖掘）；同日补齐详细实施计划（第 6 节），可直接按 PR 推进。
+> **进度（2026-09-27）**：第一梯队 PR-A~E 与第二梯队 PR-F/G/H/I/N 已全部落地（各节均有落地记录与验证基线）；PR-J 探针报告已出、**待人工验证**；剩余 PR-K / PR-L / PR-M / PR-G2 未启动。新会话续推请直接读 **6.8 进度快照**，再按 6.6/6.8 各落地记录恢复上下文。
 > 来源：import 别名补全（已落地）延伸出的「顺手/爽」功能调研。
 > 约定：本档与开发计划冲突时以 `python_ide_dev_plan_v2.md` 为准；实现落地区分 shell 侧（纯前端/自研命令）与引擎侧（pyrefly/intel）。
 > 核实方法：对第 2 节每条结论逐条回到代码验证（含行号）；另做了一轮 PyCharm 常见体验 × 现有模块的缺口盘点（结果并入第 3 节候选）。
@@ -94,6 +95,8 @@
 - **量级**：半天含设置。
 
 ### 第二梯队：中等成本
+
+> 状态（2026-09-27）：本梯队大部分已落地（PR-F/G/H/I/N），PR-J 待人工验证，PR-K/L/M/G2 未启动——逐项状态见 **6.8 进度快照**，落地细节见 6.6/6.8 各落地记录。下表保留调研时的原始要点，仅作背景。
 
 | 功能 | 要点 | 现成依赖 |
 |---|---|---|
@@ -265,14 +268,68 @@
 
 ### 6.6 第二梯队实施要点（每项独立 PR，按需启动）
 
-| 项 | 关键实施点（实测锚点） |
+| 项（PR 编号见 6.8） | 关键实施点（实测锚点） |
 |---|---|
-| 文件内符号 Quick Pick | quickOpen 五处改动：`QuickOpenMode` 加 `"symbol"`（`:24`）→ `PLACEHOLDERS` 文案（`:331-336`）→ `buildItems` 加分支，直接把 `:251` 的 `if (mode === "all")` 放宽为 `all \|\| symbol` → `refresh`（`:452-459`）确保 `ensureSymbols()`（`:161-176`）被调 → 键位 `goto_symbol: Ctrl+F12`（editor 级）+ `openQuickOpen("symbol")` 入口。工作区级扩展另立 PR（依赖 G-1 索引时机） |
-| 全局搜索正则 + 文件 glob | Rust 侧：`fs_cmds.rs:677 search_workspace` 加 `use_regex: bool` + `file_glob: Option<String>` 参数；匹配层 `str::find`（`:899`）换 regex 分支（Cargo.toml **无 regex/globset，需新增**，建议 `regex = "1"` + `globset`，globset 与已用的 `ignore = "0.4"` 同族契合 WalkBuilder 的 glob 过滤）；TS：`runSearch`（`search.ts:168-172`）加参透传 + index.html 两个开关；Rust 单测照 `fs_cmds.rs:1830` 的 impl 级 `#[test]` 模式 |
-| 双击词查找引用 | 默认双击保持选词不破坏习惯；新增 **Ctrl+Shift+双击 = 查找引用**：编辑器 mouse 事件里判定 `e.event.shiftKey && ctrlKey` + 词非空 → `findUsages`（手势先例 Double Shift，`main.ts:2031-2047`） |
-| 保存语法错误提示 | `saveTab` 写盘（`:1042`）前 `monaco.editor.getModelMarkers({ resource: model.uri })` 查 error 级 → toast「N 处语法错误（已保存）」，**不阻止保存**；marker owner 名以 ruffLint/lsp 实际注册为准 |
-| 新建 .py 模板 | 设置 `new_file_template: boolean`（默认 false）；挂在新建文件流程，模板体复用 `live-templates/builtin.ts:248` header 模板；只对工作区新建生效，草稿（Ctrl+Alt+Shift+Insert）不插 |
-| Ctrl+Space IME 探针 | 纯探针项：WebView2 + 中文 IME 下 Ctrl+Space 是否被系统输入法切换吞掉（Windows 惯例冲突）；产出结论：若被吞，注册 `Alt+/` 为「触发建议」备选键位（editor 级 + 键位表登记）；不被吞则只登记结论 |
+| PR-G · 文件内符号 Quick Pick | quickOpen 五处改动：`QuickOpenMode` 加 `"symbol"`（`:24`）→ `PLACEHOLDERS` 文案（`:331-336`）→ `buildItems` 加分支，直接把 `:251` 的 `if (mode === "all")` 放宽为 `all \|\| symbol` → `refresh`（`:452-459`）确保 `ensureSymbols()`（`:161-176`）被调 → 键位 `goto_symbol: Ctrl+F12`（editor 级）+ `openQuickOpen("symbol")` 入口。工作区级扩展另立 PR（PR-G2，可复用 autoImport.ts 的 G-1 符号索引：TTL + 会话缓存已具备） |
+| PR-H · 全局搜索正则 + 文件 glob | Rust 侧：`fs_cmds.rs:677 search_workspace` 加 `use_regex: bool` + `file_glob: Option<String>` 参数；匹配层 `str::find`（`:899`）换 regex 分支（Cargo.toml **无 regex/globset，需新增**，建议 `regex = "1"` + `globset`，globset 与已用的 `ignore = "0.4"` 同族契合 WalkBuilder 的 glob 过滤）；TS：`runSearch`（`search.ts:168-172`）加参透传 + index.html 两个开关；Rust 单测照 `fs_cmds.rs:1830` 的 impl 级 `#[test]` 模式 |
+| PR-I · 双击词查找引用 | 默认双击保持选词不破坏习惯；新增 **Ctrl+Shift+双击 = 查找引用**：编辑器 mouse 事件里判定 `e.event.shiftKey && ctrlKey` + 词非空 → `findUsages`（手势先例 Double Shift，`main.ts:2031-2047`；引用面板已有 `waitReferencesStable` 防抖） |
+| PR-F · 保存语法错误提示 | `saveTab` 写盘前 `monaco.editor.getModelMarkers({ resource: model.uri })` 查 error 级 → toast「N 处语法错误（已保存）」，**不阻止保存**。**owner 实测结论（2026-09-26）**：三桶 = `opencharm-lsp` / `opencharm-intel`（`lsp/client.ts:1523`）+ `opencharm-ruff`（`ruffLint.ts:29`）；查全量（不带 owner 过滤）即可，与 `quickFix.ts:233-234` 双桶口径一致且更宽。走 `runActions` 门控：autosave / 运行前落盘不提示（自动化场景不打扰） |
+| PR-K · 新建 .py 模板 | 设置 `new_file_template: boolean`（默认 false）；挂在新建文件流程，模板体复用 `live-templates/builtin.ts:248` header 模板；只对工作区新建生效，草稿（Ctrl+Alt+Shift+Insert）不插 |
+| PR-J · Ctrl+Space IME 探针 | 纯探针项：WebView2 + 中文 IME 下 Ctrl+Space 是否被系统输入法切换吞掉（Windows 惯例冲突）；产出结论：若被吞，注册 `Alt+/` 为「触发建议」备选键位（editor 级 + 键位表登记）；不被吞则只登记结论 |
+
+另有三项未入 6.6 表（排期见 6.8）：**PR-L · ruff 规则中文速释**（ruffLint hover 补人话解释表，首发 30~50 条常见规则，量在内容无技术风险）· **PR-M · 粘贴 JSON → Python dict**（paste 拦截 + `devtools/jsonpath` 解析复用，设置开关，嵌套边界用例：true/False、null/None、引号转义）· **PR-N · 参数名行内提示**（唯一探针前置项：pyrefly 1.3.0 是否支持 `textDocument/inlayHint` 未验证，PR-E 已证明该引擎能力有缺口，不能想当然；不支持则登记放弃，禁止 shell 侧自研类型推断）。
+
+**PR-F 落地记录（2026-09-26，已实现并全绿）**：
+- `main.ts saveTab` 写盘前查 `getModelMarkers({ resource })`（**不带 owner 过滤 = 三桶统一覆盖**，比计划草案的「逐 owner 查」更简且与 quickFix 双桶口径一致更宽）；error 级计数 > 0 时 toast「`文件名`：N 处语法错误（已保存）」（error 级 8s 时长，读得完）；**不阻止保存**。
+- `runActions` 门控：autosave / 运行前落盘 / git 改写磁盘等非显式路径不弹 toast（高频路径刷屏）——与 PR-C 保存清理同一显式保存纪律。
+- e2e `e2e/dx/06-save-error-toast.spec.ts`（2 例）：marker 经 `state.ts` 动态 import 注入（mock 层无真实引擎，被测边界 = saveTab 的 marker 查询 + toast 行为）——SE1 error marker → toast 出现且落盘内容为编辑后值；SE2 仅 warning → 不弹。
+- 验证基线：`tsc` 全绿 · vitest 278 例全过（33 个 DOM 文件仍为本机先在性损坏，与本次无关）· e2e dx 14/14 + editor 12/12 全绿。
+
+**PR-G 落地记录（2026-09-26，已实现并全绿）**：
+- quickOpen 三处：`QuickOpenMode` 加 `"symbol"` → `PLACEHOLDERS` 文案 → `buildItems` 符号分支放宽为 `all || symbol` 并给**当前文件符号 +15 加权置顶**（保留跨 tab 能力，同时贴近 PyCharm Ctrl+F12「本文件结构」语义）→ `refresh` 加 symbol 分支（**只 await `ensureSymbols()`，不拉文件清单**，秒开）；
+- 键位 `goto_symbol: Ctrl+F12`（editor 级）三处同步（`keybindingDefaults.ts` 单一来源 / Rust `settings.rs` 漂移锁 54→55，**两处条目数断言**：default 与 partial-json）+ `welcomeShortcuts.ts` 网格；
+- 接线三入口（键位 / 命令面板 /「前往」菜单）全部走 `kb.triggerEditorKeybindingAction("goto_symbol")`，handler 注册在 main.ts——**刻意不让 keybindings.ts 反向依赖 quickOpen 成环**；
+- e2e `e2e/dx/07-symbol-quick-pick.spec.ts`（2 例）：Ctrl+F12 打开符号模式（占位符断言防模式串台）→ 模糊搜 `calctot` 命中 `calculate_total` → Enter 后光标落在定义行；跨 tab 符号在列（sub 显示 `a.py:5`）→ 选中后切 tab 并跳到第 5 行。
+- 验证基线：`tsc` 全绿 · `cargo test` 214 全绿 · **e2e 全量 145/145 全绿**（键位表属全局影响面，跑全量回归而非只跑 dx 域）。
+- 本机限制登记：`keybindings.test.ts` 漂移锁落在 DOM 损坏的 33 文件内**本机无法执行**；对称性由 Rust 侧 55 条目数断言 + TS `DEFAULT_SETTINGS.keybindings` 由 `KEYBINDING_META` 派生共同兜住，CI（Linux Node 正常环境）会真正跑它。
+
+**PR-H 落地记录（2026-09-26，已实现并全绿）**：
+- **依赖收敛（与计划的一处偏差）**：文件掩码没引 `globset`——走 `ignore` 自带 `OverrideBuilder`（同族、**走查期即剪枝**，语义同 .gitignore：无斜杠 `*.py` = 任意深度，与 PyCharm File mask 直觉一致）；Cargo.toml 只新增 `regex = "1"`。
+- Rust `fs_cmds.rs`：`search_workspace` 加可选参 `use_regex` / `file_glob`（Option，旧调用方零感知）；正则**预编译一次**供多线程共享（编译失败报「正则表达式无效：…」，不静默退回子串）；正则分支列/长按**字符**计（其它分支是字节偏移，ASCII 等价，宽字符场景与前端高亮切片对齐）；掩码经 `collect_files_glob` 在走查期过滤。
+- TS：新增零依赖纯函数模块 `searchFilters.ts`（`buildLineMatcher` 子串/正则同源 + `compileFileMask`，**掩码语义与 Rust 侧镜像，两处注释互指**）；`searchInFiles` 改用 LineMatcher + 掩码过滤；`runSearch` 加 `SearchOptions`；UI 加 `#search-regex`（`.*` 开关，与 Aa 同款接线）+ `#search-mask`（独立 `.search-box` 行，change/Enter 触发，不逐键重搜）。
+- **e2e 实测踩坑（值得登记）**：`.search-box` 里 input 有固有 `min-width`，行内加按钮后窄侧栏下**横向溢出进编辑器区域**，被 `#center` 的 tab 关闭钮拦截点击（截图确认按钮被顶出侧栏）——修复 `.search-box input/select { min-width: 0 }`（产品级修复非测试特判）。
+- 验证分层：Rust impl 级单测 4 例（正则列长/大小写/掩码任意深度与锚定/非法输入报错）覆盖 workspace 模式（浏览器 mock 无 Rust 进程，e2e 够不着）；vitest `searchFilters.test.ts` 14 例；e2e `08-search-regex-glob.spec.ts` 3 例只覆盖 scope 模式（同一查询串开/关正则结果不同的 crisp 断言 + 掩码排除 + 非法提示）。
+- 验证基线：`tsc` 全绿 · vitest 292 例全过（33 个 DOM 文件仍为本机先在性损坏）· `cargo test` 218 全绿（214→218）· **e2e 全量 148/148 全绿**。
+
+**PR-I 落地记录（2026-09-26，已实现并全绿）**：
+- 实现 `findUsages.ts::installCtrlShiftDblclickUsages(editor)`（域内注册，不堆 main.ts），`lspProviders` 收纳；只在**同时按住 Ctrl+Shift** 时接管，默认双击选词零改动。
+- **关键实测（三条，均已就地注释）**：
+  1. **不能用 DOM `dblclick` 事件**——Monaco 在两次点击之间重绘行 DOM，两次点击的 target 不是同一节点，**浏览器不合成 dblclick**（探针计数：mousedown/mouseup 各 2、dblclick 0）。这是产品级事实（真实用户同样拿不到），故改用 `editor.onMouseDown` 自行判定「同位置 400ms 内两次点击」；
+  2. 注册时 `editor.getDomNode()` 可能为空/后被替换（init 期注册曾静默失效）→ 不缓存 DOM 节点；
+  3. Monaco 会在容器上 `stopPropagation` dblclick → 即使要用 DOM 事件也必须是**捕获阶段**。
+- e2e `e2e/dx/09-usages-dblclick.spec.ts`（2 例）：FU1 手势 → 引用面板「全部 (3) / 定义 (1) / 调用 (1)」；FU2 普通双击仍选词且**不**拉起面板。
+- 坐标方法论：`locator("span", {hasText}).dblclick()` 会点到整行/相邻 token（曾落到 `import`），必须用 **Range 圈出子串取矩形中心**；修饰键只能靠 `keyboard.down` 按住（`page.mouse.*` 与 `dblclick({modifiers})` 实测都拿不到/不派发）。
+- 验证基线：`tsc` 全绿 · e2e dx + lsp **38/38 全绿**（含真实 pyrefly 桥与 Alt+F7 既有链路回归）。
+
+#### PR-J 探针报告（2026-09-26 D4 PM）：Ctrl+Space × 中文 IME
+
+- **现状核实**：Ctrl+Space **不在**任何自研代码里（全库 0 命中），它是 Monaco 内建 `editor.action.triggerSuggest` 的默认键位（suggest contribution 已显式引入 `monaco.ts:42`）；`browserKeys.ts` 护栏不拦截（0 命中）；按横切纪律属**固定键**，不进键位表 → 不可配置、不可发现。
+- **冲突性质**：Windows 中文输入法默认把 Ctrl+Space 用作「输入法开关」系统热键，是否先于 WebView2 被系统消费，取决于用户本机的 IME 设置（多数 IME 可关闭该热键，但默认开启）。
+- **能否自动验证：不能**（这是本次探针的结论性判断）：浏览器 e2e 是 mock 无 IME 层；CDP / 合成键事件**绕过 IME**，只能验证应用内链路（已由 lsp/01 的补全用例覆盖），无法证明「系统是否吞键」。真机结论只能**人工复现**：切到中文输入法 → 编辑器内按 Ctrl+Space → 观察是切输入法还是弹补全。
+- **决策建议**（低成本零风险，待裁决）：无论是否被吞，都可新增可配置键位 `trigger_suggest`（`Alt+/`，editor 级，keybindingDefaults + Rust 漂移锁 55→56 + 命令面板入口）——保证任何 IME 配置下都有可用入口，且不动固定键语义；若人工验证确认未被吞，则只保留本报告的登记结论。
+
+**PR-N 落地记录（2026-09-27，已实现并全绿）**：
+- **零 Rust 改动的推送方案（与计划的一处偏差）**：`lsp.rs` 不需要加 didChangeConfiguration 通道——TS 桥本来就有 `notifyEngine`，`client.ts::pushInlayHintSettings()` 直接发 `workspace/didChangeConfiguration`（Pyright 兼容形态 `python.analysis.inlayHints.callArgumentNames`）。调用点两处：`startEngine` 就绪后 + `settingsPanel.saveSettingsPanel`（开关即时生效，无需重启引擎）。
+- **只推 `callArgumentNames`**：变量/返回类型提示是引擎默认开的能力，不在此关掉——「关参数名提示」的开关不顺手灭掉类型提示（职责最小化）。
+- Provider 扩双源：静态引擎（参数名，受 `inlay_param_hints` 开关）+ intel（运行时类型标注，P3-T07 既有，不受开关影响）；同位置同文案去重 + 按位置排序；单源失败静默（inlay 是增强信息）。
+- 设置项 `inlay_param_hints`（默认开）全链：state.ts + index.html 开关 + settingsPanel 三步接线 + Rust struct/Default + `pushInlayHintSettings()` 挂保存路径。
+- **三个实测坑（已就地注释）**：
+  1. 配置推送必须放在 `status = "ready"` **之后**——`pushInlayHintSettings` 自带「未就绪即短路」守卫，放前面会被自己短路（曾导致引擎永远收不到配置、inlayHint 返回 []）；
+  2. `monaco.Emitter` 不能模块级创建（`monaco` 是后赋值引用）→ 延迟到 `registerLspInlayHints` 内创建，存模块变量供 `fire()`；
+  3. Monaco 会缓存 provider 结果——开关即时生效必须实现 `onDidChangeInlayHints` 事件并在推送后 `fire()`。
+- **e2e 环境教训（重要，登记）**：真实 pyrefly 桥的临时仓库**必须有 `pyproject.toml`**——否则引擎不建工作区索引，`inlayHint` 连变量类型提示都返回 []（与引用计数那次 cwd/config 教训同源）；且提示插入后整行渲染文本变化，`hasText` 定位不能用原始调用串。
+- e2e `e2e/dx/10-inlay-param-hints.spec.ts`（2 例，真实 pyrefly 桥）：IP1 调用处出现 `a=` / `b=` 参数名提示；IP2 设置关掉后提示消失（didChangeConfiguration + onDidChangeInlayHints 即时生效链路）。
+- 验证基线：`tsc` 全绿 · `cargo test` 218 全绿 · **e2e 全量 153 例 152 过**——唯一失败 `git/11-gutter-hunks`（toast「未检测到 Python 环境」）单独复跑 3/3 全绿，判定为全量跑 14 分钟高负载下的环境 flake，非真实回归。
 
 ### 6.7 PR 切分与验证基线
 
@@ -287,3 +344,60 @@
 - 第二梯队每项独立 PR；第三梯队（Extract refactor）探针报告先出、后立项。
 - 每 PR 通用验收：`tsc` 全绿 + vitest 新增用例全绿 + `cargo test`（涉及 Rust 时）+ 相关 e2e + `welcomeShortcuts.ts`/菜单/设置文档同步；CI 全绿合并。
 - 顺序执行建议：PR-A → PR-B → PR-C → PR-D（互不依赖，A/B 可并行），PR-E 探针与 PR-A 并行启动。
+
+### 6.8 第二梯队排期（2026-09-26 排定：7 个工作日主线 + 1 天条件项）
+
+> 前提：第一梯队 PR-A~E 已于 2026-09-26 全部落地并全量验收（34 spec / 100 用例全绿）。
+> 排序理由：① 唯一不确定项（PR-N 的 inlay 探针）前置到 D1 出结论，不悬尾巴；② PR-G 趁 autoImport 的 G-1 符号索引（PR-E 刚落地）上下文最热；③ 动 Cargo.toml 的 PR-H 单独占一天，避免 Rust 改动与其他 PR 交叉；④ D5 起全是低风险独立项，收尾回归成本最低。
+
+| 日 | PR | 内容 | 量级 | 备注 |
+|---|---|---|---|---|
+| D1 AM | **PR-F** | 保存时语法错误提示 | 半天 | 无键位/无 Rust/无设置项，打头阵热身；owner 三桶实测结论已登记（6.6） |
+| D1 PM | 探针 | pyrefly `textDocument/inlayHint` 探针报告 | 半天 | 复用 PR-E 探针骨架（Node 裸 LSP 会话）；结论决定 PR-N 立项或登记放弃 |
+| D2 | **PR-G** | 文件内符号 Quick Pick | 1 天 | `goto_symbol` 键位 + 漂移锁三处同步（54→55） |
+| D3 | **PR-H** | 全局搜索正则 + 文件 glob | 1~1.5 天 | Cargo.toml 新增 `regex` + `globset`，Rust 单测 + TS 透传 + e2e |
+| D4 AM | **PR-I** | Ctrl+Shift+双击查找引用 | 半天 | 手势先例 Double Shift；`waitReferencesStable` 防抖现成 |
+| D4 PM | **PR-J** | Ctrl+Space IME 探针 | 半天 | 本机即真实环境（Windows + 中文 IME）；若被吞则 `Alt+/` 备选键当天落地 |
+| D5 | **PR-K** | 新建 .py 模板 + ruff 中文速释启动 | 1 天 | 模板默认关；速释首发 30~50 条常见规则 |
+| D6 | **PR-L / PR-M** | ruff 中文速释收尾 + 粘贴 JSON→dict | 1 天 | JSON 转换需嵌套边界用例（true/False、null/None、引号转义） |
+| D7 | **PR-G2** | 工作区级符号 Quick Pick（v2 扩展） | 1 天 | 复用 autoImport G-1 索引；评估 200 文件上限的延迟预算 |
+| D8 | **PR-N** | （条件项）参数名行内提示 | 1 天 | 仅当 D1 探针判定 pyrefly 支持 inlayHint；否则正式登记放弃 |
+
+- 每 PR 通用验收同 6.7；顺序执行，PR-F 打头阵，探针（inlayHint）与主线穿插不占独立日。
+- 键位横切：PR-G/I/J 若新增键位，一律走 `keybindingDefaults.ts` 单一来源 + Rust 漂移锁同步；设置项一律 `!== false` 兼容旧配置。
+
+#### 进度快照（2026-09-27 收工时点，新会话续推从这里开始）
+
+| 项 | 状态 | 落地记录 / 说明 |
+|---|---|---|
+| PR-F 保存语法错误提示 | ✅ 已落地（e2e dx/06） | 6.6 PR-F 落地记录 |
+| PR-N inlay 探针 → 转正 | ✅ 探针 + 实现均完成（e2e dx/10，真实 pyrefly 桥） | 6.8 PR-N 探针报告 + 落地记录 |
+| PR-G 文件内符号 Quick Pick | ✅ 已落地（e2e dx/07，Ctrl+F12，漂移锁 55） | 6.6 PR-G 落地记录 |
+| PR-H 全局搜索正则 + 文件 glob | ✅ 已落地（e2e dx/08，Cargo 只加 `regex`，掩码走 ignore overrides） | 6.6 PR-H 落地记录 |
+| PR-I Ctrl+Shift+双击查找引用 | ✅ 已落地（e2e dx/09；**不能用 DOM dblclick**，见记录三条实测） | 6.6 PR-I 落地记录 |
+| PR-J Ctrl+Space IME 探针 | ⏸ **待人工验证**（探针报告在 6.6 末尾；结论：无法自动验证 IME 吞键，人工复现后再定是否补 `Alt+/` 备选键） | 6.6 PR-J 探针报告 |
+| PR-K 新建 .py 模板 | ☐ 未启动（实施要点见 6.6 表） | — |
+| PR-L ruff 规则中文速释 | ☐ 未启动（未入 6.6 表的三项之一，要点见 6.6 表后段落） | — |
+| PR-M 粘贴 JSON → Python dict | ☐ 未启动（同上） | — |
+| PR-G2 工作区级符号 Quick Pick | ☐ 未启动（复用 autoImport.ts 的 G-1 索引；v2 扩展 PR） | — |
+
+**续推须知（恢复上下文的最短路径）**：
+1. 各 PR 的实测坑与「计划 → 实现差异」全部写在 6.6/6.8 的落地记录里，动手前先读对应记录（尤其 PR-I 的 DOM dblclick 三条、PR-H 的 min-width 溢出、PR-N 的推送时序/pyproject.toml/e2e 定位三条）；
+2. 当前验证基线：`cargo test` 218 全绿 · vitest 292 例全过（33 个 DOM 测试文件为本机 Node 24 先在性损坏，CI 正常）· e2e 全量 153 例（`git/11-gutter-hunks` 在全量高负载下偶发 flake，单独复跑全绿）；
+3. 键位表现状 **55 项**（Rust 漂移锁两处断言同步 54→55；`keybindings.test.ts` 本机跑不了，CI 兜底）；
+4. 第二梯队剩余项均为独立 PR，按 6.7 通用验收执行即可；PR-J 的人工验证方法：切中文输入法 → 编辑器内按 Ctrl+Space → 观察是切输入法还是弹补全。
+
+#### PR-N 探针报告（2026-09-26 D1 PM 实测，pyrefly 1.3.0 裸 LSP 会话，脚本复用 PR-E 探针骨架）
+
+受控项目（pyproject.toml [project] + lib.py 双参函数 + main.py 多形态调用），initialize 带 inlayHint client capabilities，didOpen 等索引后发 `textDocument/inlayHint`：
+
+- **引擎原生支持**：`initialize.capabilities.inlayHintProvider === true`（非 MethodNotFound，PR-E 的「引擎能力有缺口」结论仅限补全，不适用于 inlay）；
+- **三类提示齐全**，行为与官方文档（pyrefly.org IDE-features）一致，复用 Pyright 的 `python.analysis.inlayHints.*` 设置语义：
+  - `variableTypes` / `functionReturnTypes` 默认开——实测未注解变量出 `: int` 形态提示，**携带 textEdits**（可点击插入注解；label 是分段数组含 typeshed location）；
+  - `callArgumentNames` 默认 **off**——裸会话默认只有 3 条类型提示，调用处无参数名；
+  - **`workspace/didChangeConfiguration` 推 `{"python":{"analysis":{"inlayHints":{"callArgumentNames":"all"}}}}` 后立即生效**：8 条提示，含 `a=` / `b=` / `times=` / `loud=` / `*values=`（位置参数、实例方法跳 self、`*args` 保留星标全部正确）；
+  - 引擎侧自带 150ms 防抖（输入不抖动）。
+- **判定：PR-N 由条件项转正立项**。实施要点：
+  1. Rust `lsp.rs`：目前**无 didChangeConfiguration 通道**（全库 0 命中）——initialize 就绪后补发一次 + 设置变更时补发；设置真值进 `Settings`（建议 `inlay_hints`：off/all/partial 三档或 boolean，默认对齐 PyCharm=开）；
+  2. TS `lsp/client.ts`：`registerLspInlayHints()`（`:1473`）现**只查 intel**——扩展为静态引擎 + intel 双源（注意双源并存时去重/归属：静态=类型+参数名，intel=运行时标注，kind 已有 Type/Parameter 区分）；pyrefly 的 label 分段数组现映射逻辑已兼容（`:1491` join）；
+  3. 风险登记：Monaco InlayHintsProvider 对 `textEdits`（点击插入注解）的支持度待 PR-N 动工时实测，不支持则降级纯显示。

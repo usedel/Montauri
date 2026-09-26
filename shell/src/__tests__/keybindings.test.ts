@@ -130,6 +130,8 @@ describe("三处默认值漂移锁", () => {
     expect(kb.comment_block).toBe("Ctrl+Shift+/");
     expect(kb.goto_definition).toBe("Ctrl+B");
     expect(kb.stop).toBe("Ctrl+F2");
+    // PR-G（dx_features_backlog §6.6）：文件内符号 Quick Pick（PyCharm 同款）
+    expect(kb.goto_symbol).toBe("Ctrl+F12");
     // v3.4 §17-7（M3-3.5）：run 拆为 run_script + run_project
     expect(kb.run_script).toBe("Ctrl+F10");
     expect(kb.run_project).toBe("Ctrl+Shift+F10");

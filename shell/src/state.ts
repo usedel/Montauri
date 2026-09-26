@@ -55,6 +55,8 @@ export interface Settings {
   bracket_colors: boolean;
   /** Sticky Scroll（PR-B · dx_features_backlog §6.2：长文件滚动时当前作用域头部常驻顶部） */
   sticky_scroll: boolean;
+  /** 参数名行内提示（PR-N · dx_features_backlog §6.8：调用处灰字 `name=`，走 pyrefly inlayHint） */
+  inlay_param_hints: boolean;
   /** 调试「只步进我的代码」（B-3：不误入 site-packages；改动需重启调试会话生效） */
   debug_just_my_code: boolean;
   autosave: string;
@@ -118,6 +120,8 @@ export const DEFAULT_SETTINGS: Settings = {
   bracket_colors: true,
   // PR-B（PyCharm/VSCode 对标）：粘性滚动默认开——长文件可读性「默认就对」
   sticky_scroll: true,
+  // PR-N：参数名行内提示默认开（PyCharm 同款感知；走 pyrefly inlayHint，见 lsp/client.ts）
+  inlay_param_hints: true,
   // B-3（PyCharm 调研）：只步进我的代码，默认开（与 DAP attach 硬编码时代行为一致）
   debug_just_my_code: true,
   // autosave 默认 delay 2s（PyCharm 式数据安全优先，对标 VSCode/PyCharm 调研结论）；

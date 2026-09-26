@@ -48,6 +48,8 @@ const SHORTCUTS: WelcomeShortcut[] = [
   { label: "上一个编辑位置", kb: "recent_edit_locations" },
   { label: "新建文件", kb: "new_file" },
   { label: "转到文件", kb: "goto_file" },
+  // PR-G（dx_features_backlog §6.6）：文件内符号 Quick Pick
+  { label: "转到文件内符号", kb: "goto_symbol" },
   { label: "导航后退", kb: "nav_back" },
   { label: "最近打开的文件", kb: "recent_files" },
   { label: "打开设置", kb: "open_settings" },

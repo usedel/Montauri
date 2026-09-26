@@ -87,6 +87,8 @@ fn default_keybindings() -> HashMap<String, String> {
     m.insert("reopen_tab".into(), "Ctrl+Shift+Alt+T".into());
     // PR-D（dx_features_backlog §6.4）：最近编辑位置（与前端 KEYBINDING_META / DEFAULT_SETTINGS 三处同步）
     m.insert("recent_edit_locations".into(), "Ctrl+Shift+Backspace".into());
+    // PR-G（dx_features_backlog §6.6）：文件内符号 Quick Pick（PyCharm Ctrl+F12 同款）
+    m.insert("goto_symbol".into(), "Ctrl+F12".into());
     m
 }
 
@@ -119,6 +121,8 @@ pub struct Settings {
     pub bracket_colors: bool,
     /// 粘性滚动（PR-B：长文件滚动时当前作用域头部常驻编辑器顶部；须与前端 sticky_scroll 同步）
     pub sticky_scroll: bool,
+    /// 参数名行内提示（PR-N：调用处灰字 `name=`；须与前端 inlay_param_hints 同步）
+    pub inlay_param_hints: bool,
     /// 保存时清理行尾空白（PR-C；仅显式保存触发，autosave/运行前跳过；须与前端同步）
     pub trim_trailing_whitespace: bool,
     /// 保存时确保文件以换行结束（PR-C；仅显式保存触发；须与前端同步）
@@ -184,6 +188,7 @@ impl Default for Settings {
             indent_guides: true,
             bracket_colors: true,
             sticky_scroll: true,
+            inlay_param_hints: true,
             trim_trailing_whitespace: true,
             final_newline: true,
             // B-3（PyCharm 调研）：只步进我的代码，默认开
@@ -343,8 +348,10 @@ mod tests {
         assert_eq!(d.keybindings.get("jump_to_bracket").map(String::as_str), Some("Ctrl+Shift+\\"));
         assert_eq!(d.keybindings.get("reopen_tab").map(String::as_str), Some("Ctrl+Shift+Alt+T"));
         assert_eq!(d.keybindings.get("recent_edit_locations").map(String::as_str), Some("Ctrl+Shift+Backspace"));
+        // PR-G（dx_features_backlog §6.6）：文件内符号 Quick Pick
+        assert_eq!(d.keybindings.get("goto_symbol").map(String::as_str), Some("Ctrl+F12"));
         // 键位表条目数 = 前端 KEYBINDING_META 条目数（漂移锁，新增键须同步改这里）
-        assert_eq!(d.keybindings.len(), 54);
+        assert_eq!(d.keybindings.len(), 55);
         assert_eq!(d.optimize_imports_on_save, false);
     }
 
@@ -401,7 +408,7 @@ mod tests {
         assert_eq!(s.keybindings.get("move_line_down").map(String::as_str), Some("Ctrl+Shift+Down"));
         // PR-A：键位补齐组同步（与上方 default_keybindings 断言同批）
         assert_eq!(s.keybindings.get("delete_line").map(String::as_str), Some("Ctrl+Y"));
-        assert_eq!(s.keybindings.len(), 54);
+        assert_eq!(s.keybindings.len(), 55);
         assert_eq!(s.optimize_imports_on_save, false); // 旧配置文件无此字段 → 默认关闭
     }
 }

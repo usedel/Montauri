@@ -2,6 +2,7 @@
 // **文件 / 符号 / 命令**，覆盖 PyCharm 三个独立入口：
 //   · Double Shift      → 全量混搜（本模块的主入口，键位表里无法表达双击手势，故固定保留）
 //   · Ctrl+Shift+N      → 只搜文件（goto_file）
+//   · Ctrl+F12          → 只搜符号（goto_symbol，PR-G；PyCharm「文件结构」同位）
 //   · Ctrl+G            → 跳行（goto_line，输入 `行` 或 `行:列`）
 //
 // 三个数据源都落在既有能力上，无新增协议依赖：
@@ -21,7 +22,7 @@ import * as lsp from "./lsp/client";
 import { app } from "./state";
 import { basename, codicon, emptyState, relativePath, renderFileIcon, symbolIcon } from "./util";
 
-export type QuickOpenMode = "all" | "files" | "line" | "commands";
+export type QuickOpenMode = "all" | "files" | "symbol" | "line" | "commands";
 
 /** 一条可执行的命令（由 main.ts 注入） */
 export interface QuickOpenAction {
@@ -230,7 +231,7 @@ function buildItems(mode: QuickOpenMode, query: string): Item[] {
   }
 
   // `:行号` 后缀在混搜与文件模式都支持（PyCharm 的 Ctrl+Shift+N 同款）。
-  // 上文已对 line 模式提前返回，此处 mode 只可能是 all / files。
+  // 上文已对 line 模式提前返回，此处 mode 只可能是 all / files / symbol。
   const { query: q, line } = parseLineSuffix(query);
 
   if (mode === "all" || mode === "files") {
@@ -248,10 +249,16 @@ function buildItems(mode: QuickOpenMode, query: string): Item[] {
     }
   }
 
-  if (mode === "all") {
+  // PR-G（dx_features_backlog §6.6）：symbol 模式（Ctrl+F12）——符号独立入口。
+  // 数据源同混搜（已打开标签的 documentSymbol）；PyCharm Ctrl+F12 语义是「本文件符号」，
+  // 这里保留跨 tab 能力但给当前文件的符号 +15 加权置顶（15 > 模糊分单字符上限量级，
+  // 足以压过其他 tab 的散落命中，又不至于淹没连续匹配的强候选）。
+  if (mode === "all" || mode === "symbol") {
+    const activePath = app.activeTab?.path;
     for (const s of symbolIndex) {
-      const score = fuzzyScore(s.name, q);
+      let score = fuzzyScore(s.name, q);
       if (score === null) continue;
+      if (s.path === activePath) score += 15;
       out.push({
         kind: "symbol",
         title: s.name,
@@ -331,6 +338,7 @@ function rememberQuery(q: string): void {
 const PLACEHOLDERS: Record<QuickOpenMode, string> = {
   all: "搜索文件 / 符号 / 命令（支持 :行号）",
   files: "搜索文件名（支持 :行号）",
+  symbol: "搜索符号（已打开的文件，Enter 跳转）",
   line: "行号 或 行:列，Enter 跳转，Esc 关闭",
   commands: "输入命令名（Ctrl+Shift+P）",
 };
@@ -451,6 +459,11 @@ async function refresh(): Promise<void> {
   const token = ++loadToken;
   if (mode === "commands") {
     // 命令直达：不加载文件/符号索引（Ctrl+Shift+P 秒开）
+    items = buildItems(mode, inputEl?.value ?? "");
+  } else if (mode === "symbol") {
+    // 符号直达（PR-G）：只需要 documentSymbol，跳过文件清单拉取
+    await ensureSymbols();
+    if (token !== loadToken) return;
     items = buildItems(mode, inputEl?.value ?? "");
   } else if (mode !== "line") {
     await Promise.all([ensureFiles(), ensureSymbols()]);

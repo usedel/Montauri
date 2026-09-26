@@ -3,7 +3,8 @@
 // 点击匹配 → 打开文件并定位行列。
 
 import { invoke } from "@tauri-apps/api/core";
-import { emptyState } from "./util";
+import { emptyState, relativePath } from "./util";
+import { buildLineMatcher, compileFileMask, type LineMatcher } from "./searchFilters";
 
 export interface SearchMatch {
   path: string;
@@ -40,19 +41,29 @@ export interface SearchScope {
 /** scope 内搜索的匹配上限（对齐后端 MAX_MATCHES，G-1 有界） */
 const SCOPE_MAX_MATCHES = 5000;
 
-/** 在指定文件列表内做子串匹配（读文件走 read_file，与引用面板行文本同源）。
- *  返回 null = 令牌过期（在途结果应丢弃）。text 存整行原文（列号即原行列，跳转/高亮都精确）。 */
+/** PR-H（dx_features_backlog §6.6）：搜索附加开关——正则模式 + 文件掩码 */
+export interface SearchOptions {
+  /** 正则模式（默认子串） */
+  useRegex?: boolean;
+  /** 文件掩码：`*.py` 任意深度、`pkg/*.py` 按工作区相对路径锚定（语义与 Rust 侧一致） */
+  fileGlob?: string;
+}
+
+/** 在指定文件列表内匹配（读文件走 read_file，与引用面板行文本同源）。
+ *  返回 null = 令牌过期（在途结果应丢弃）。text 存整行原文（列号即原行列，跳转/高亮都精确）。
+ *  PR-H：匹配统一由 LineMatcher 承担（子串/正则同源），掩码在此过滤候选路径。 */
 async function searchInFiles(
-  query: string,
-  caseSensitive: boolean,
+  matcher: LineMatcher,
+  root: string,
   paths: string[],
   token: number,
+  maskTest?: (relPath: string) => boolean,
 ): Promise<SearchResult | null> {
   const matches: SearchMatch[] = [];
   let scanned = 0;
   let truncated = false;
-  const needle = caseSensitive ? query : query.toLowerCase();
   for (const path of paths) {
+    if (maskTest && !maskTest(relativePath(root, path))) continue;
     let content: string;
     try {
       content = await invoke<string>("read_file", { path });
@@ -64,15 +75,12 @@ async function searchInFiles(
     const lines = content.split(/\r?\n/);
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-      const hay = caseSensitive ? line : line.toLowerCase();
-      let idx = hay.indexOf(needle);
-      while (idx >= 0) {
+      for (const hit of matcher(line)) {
         if (matches.length >= SCOPE_MAX_MATCHES) {
           truncated = true;
           break;
         }
-        matches.push({ path, line: i + 1, text: line, column: idx + 1, length: query.length });
-        idx = hay.indexOf(needle, idx + needle.length);
+        matches.push({ path, line: i + 1, text: line, column: hit.column, length: hit.length });
       }
       if (truncated) break;
     }
@@ -171,6 +179,7 @@ export async function runSearch(
   caseSensitive: boolean,
   resultEl: HTMLElement,
   scope?: SearchScope,
+  opts?: SearchOptions,
 ): Promise<void> {
   const token = ++searchToken;
   resultEl.textContent = "";
@@ -178,15 +187,35 @@ export async function runSearch(
     appendHint(resultEl, "输入关键词后回车搜索");
     return;
   }
+  // PR-H：模式串与掩码先编译——非法输入把原因直接告诉用户，
+  // 不静默降级（静默会让用户以为「开关没生效」；Rust 侧同一口径）
+  let matcher: LineMatcher;
+  try {
+    matcher = buildLineMatcher(query, caseSensitive, opts?.useRegex === true);
+  } catch (e) {
+    appendHint(resultEl, e instanceof Error ? e.message : String(e));
+    return;
+  }
+  const mask = compileFileMask(opts?.fileGlob);
+  if (mask?.error) {
+    appendHint(resultEl, mask.error);
+    return;
+  }
   appendHint(resultEl, "搜索中…");
   let r: SearchResult;
   if (scope && scope.mode !== "workspace") {
-    const local = await searchInFiles(query, caseSensitive, scope.paths, token);
+    const local = await searchInFiles(matcher, root, scope.paths, token, mask?.test);
     if (!local) return; // 过期请求，丢弃
     r = local;
   } else {
     try {
-      r = await invoke<SearchResult>("search_workspace", { root, query, caseSensitive });
+      r = await invoke<SearchResult>("search_workspace", {
+        root,
+        query,
+        caseSensitive,
+        useRegex: opts?.useRegex === true,
+        fileGlob: opts?.fileGlob?.trim() || undefined,
+      });
     } catch (e) {
       if (token !== searchToken) return; // 过期请求，丢弃
       resultEl.textContent = "";

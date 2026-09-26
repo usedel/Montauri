@@ -27,7 +27,7 @@ import { initInlineRunner, listInlineEntries, runInline, inlineCommandLabel } fr
 import { setPluginsTabHandlers, openGuide } from "./extensions/pluginsTab";
 import { formatPythonSource, optimizeImportsSource, registerRuffFormatter, setFormatErrorHandler } from "./format";
 import { runSearch, cancelSearch, resetSearch, setOpenMatchHandler, type SearchMatch, type SearchScope, type SearchScopeMode } from "./search";
-import { findUsagesAtCursor, renameSymbolAtCursor, resetFindUsages, setOpenRefHandler, queryAndRender, initFindUsagesAction } from "./findUsages";
+import { findUsagesAtCursor, renameSymbolAtCursor, resetFindUsages, setOpenRefHandler, queryAndRender, initFindUsagesAction, installCtrlShiftDblclickUsages } from "./findUsages";
 import { initCodeVision, refreshCodeVision } from "./codeVision";
 import { refreshImportAliases, registerImportAliasCompletion } from "./importAlias"; // import 别名补全（import pandas as pd）
 import { registerAutoImportCompletion, resetAutoImportIndex } from "./autoImport"; // PR-E：补全内联 auto-import（自研，探针结局 C）
@@ -144,6 +144,9 @@ import { installBrowserKeyGuard } from "./browserKeys";
 
 let liveTemplatesHandle: LiveTemplatesHandle | null = null;
 let searchCaseSensitive = false;
+// PR-H（dx_features_backlog §6.6）：全局搜索的正则开关与文件掩码（会话内记忆，不落设置）
+let searchUseRegex = false;
+let searchFileGlob = "";
 /** 文件监听防抖定时器 */
 let fsWatchTimer: number | undefined;
 /** P1：Double Shift 的判定窗口（ms）——两次 Shift 抬起间隔超过它就不算双击 */
@@ -629,7 +632,11 @@ async function executeSearch(): Promise<void> {
     // 只搜普通文件 tab（diff 视图的 path 是仓库相对路径，不是可读文件路径）
     scope = { mode, paths: app.tabs.filter((t) => t.kind !== "diff").map((t) => t.path) };
   }
-  await runSearch(app.workspaceRoot, input.value, searchCaseSensitive, $("search-results"), scope);
+  // PR-H：正则 / 掩码两个开关随每次搜索透传（workspace 走 Rust，scope 走 TS 筛选器，语义一致）
+  await runSearch(app.workspaceRoot, input.value, searchCaseSensitive, $("search-results"), scope, {
+    useRegex: searchUseRegex,
+    fileGlob: searchFileGlob,
+  });
 }
 
 /** CR-20：本批大纲符号所属 tab（点击回调校验用，渲染时记录） */
@@ -1063,6 +1070,19 @@ async function saveTab(tab: Tab, opts?: SaveOptions): Promise<void> {
     });
     if (cleaned !== value) tab.model.setValue(cleaned);
   }
+  // PR-F（dx_features_backlog §6.6/§6.8）：保存时语法错误提示——写盘前查当前模型 error 级
+  // marker。getModelMarkers 不带 owner 过滤 = 三桶统一覆盖（opencharm-lsp / opencharm-intel /
+  // opencharm-ruff，owner 名实测见 6.6），与 quickFix.ts 的双桶口径一致且更宽。
+  // **只提示不阻止保存**（避免打断自动化场景）；runActions 门控——autosave / 运行前落盘 /
+  // git 改写磁盘等非显式路径不弹 toast（高频路径会刷屏）。
+  if (runActions) {
+    const errorCount = app.monaco.editor
+      .getModelMarkers({ resource: tab.model.uri })
+      .filter((m) => m.severity === app.monaco.MarkerSeverity.Error).length;
+    if (errorCount > 0) {
+      toast(`${basename(tab.path)}：${errorCount} 处语法错误（已保存）`, "error");
+    }
+  }
   // P1：本地历史——**写盘前**留一版快照（content 传 null = 后端读磁盘，落的是保存前的内容）。
   // 失败只记日志：历史是兜底能力，绝不阻断保存（与 ruff 缺席不阻断格式化的策略一致）。
   await snapshotHistory(tab.path);
@@ -1350,6 +1370,7 @@ function buildQuickOpenActions(): QuickOpenAction[] {
     { id: "recent_edit_locations", label: "上一个编辑位置", run: () => { if (!jumpToLastEdit()) toast("没有更早的编辑位置", "info"); } },
     { id: "run_history", label: "运行历史", run: () => openRunHistory() },
     { id: "goto_file", label: "转到文件", run: () => void openQuickOpen("files") },
+    { id: "goto_symbol", label: "转到文件内符号", run: () => kb.triggerEditorKeybindingAction("goto_symbol") },
     { id: "goto_line", label: "转到行 / 列", run: () => void openQuickOpen("line") },
     { id: "goto_definition", label: "跳转定义", run: () => void lsp.gotoDefinitionAtCursor(app.editor) },
     { id: "global_search", label: "全局搜索", run: () => setSidebarTab("search") },
@@ -1673,6 +1694,8 @@ function getMenuItems(menu: string): MenuEntry[] {
     // 口径：命令面板 / Search Everywhere 属「搜索式导航」，归此处而非 VS Code View 菜单
     case "go": return [
       { label: "转到文件", shortcut: kb.bindingLabel("goto_file") || undefined, action: () => void openQuickOpen("files") },
+      // PR-G：文件内符号（PyCharm Navigate → File Structure 同位；与命令面板同走键位 handler）
+      { label: "转到文件内符号", shortcut: kb.bindingLabel("goto_symbol") || undefined, action: () => kb.triggerEditorKeybindingAction("goto_symbol") },
       { label: "转到行 / 列", shortcut: kb.bindingLabel("goto_line") || undefined, action: () => void openQuickOpen("line") },
       { label: "Search Everywhere", shortcut: "Double Shift", action: () => void openQuickOpen("all") },
       { label: "命令面板", shortcut: kb.bindingLabel("command_palette") || undefined, action: () => void openQuickOpen("commands") },
@@ -1906,6 +1929,9 @@ async function init(): Promise<void> {
   // 模板入口快捷键（可配置，默认 Ctrl+J / Ctrl+Alt+T）
   kb.setKeybindingHandler("template_palette", () => liveTemplatesHandle?.openPalette());
   kb.setKeybindingHandler("surround", () => liveTemplatesHandle?.openSurround());
+  // PR-G：转到文件内符号（Ctrl+F12，editor 级）——handler 放这里避免 keybindings.ts 反向依赖
+  // quickOpen 成环；命令面板 / 前往菜单走同一 handler（消除双写漂移）
+  kb.setKeybindingHandler("goto_symbol", () => void openQuickOpen("symbol"));
   // 运行选区 / 行（默认 Alt+Shift+E）
   kb.setKeybindingHandler("run_selection", () => void runSelection());
   // P0：Optimize Imports（默认 Ctrl+Alt+O，PyCharm 同款）
@@ -1926,6 +1952,8 @@ async function init(): Promise<void> {
   lspProviders.add(lsp.registerLspReferences()); // Shift+F12 查找引用（peek 视图）
   lspProviders.add(initCodeVision(app.editor)); // 引用计数 Code Vision（声明行上方「N 处引用」）
   lspProviders.add(initFindUsagesAction(app.editor)); // 右键菜单「查找引用」
+  // PR-I：Ctrl+Shift+双击 = 查找引用（PyCharm 手势对标，鼠标事件因而按 into DisposableStore）
+  lspProviders.add(installCtrlShiftDblclickUsages(app.editor));
   lspProviders.add(initRenameWidget(app.editor)); // F2 就地重命名 + 右键菜单「重命名…」
   lspProviders.add(initClipboardDiffAction(app.editor)); // C-5：右键菜单「与剪贴板对比」
   lspProviders.add(initNoqaAction(app.editor)); // D-4：右键菜单「忽略此规则（# noqa）」
@@ -2479,6 +2507,26 @@ async function init(): Promise<void> {
     $("search-case").classList.toggle("active", searchCaseSensitive);
     // UI-16：开关按钮的按下态用 aria-pressed 表达，与 .active 类同源切换
     $("search-case").setAttribute("aria-pressed", String(searchCaseSensitive));
+    if (searchInputEl.value.trim()) executeSearch().catch(console.error);
+  });
+  // PR-H：正则开关（与 Aa 同款接线）
+  $("search-regex").addEventListener("click", () => {
+    searchUseRegex = !searchUseRegex;
+    $("search-regex").classList.toggle("active", searchUseRegex);
+    $("search-regex").setAttribute("aria-pressed", String(searchUseRegex));
+    if (searchInputEl.value.trim()) executeSearch().catch(console.error);
+  });
+  // PR-H：文件掩码——change 而非 per-keystroke（掩码是「限定条件」，逐键重搜既吵又贵）；
+  // 回车即时触发一次，方便边写边验证
+  const searchMaskEl = $("search-mask") as HTMLInputElement;
+  searchMaskEl.addEventListener("change", () => {
+    searchFileGlob = searchMaskEl.value.trim();
+    if (searchInputEl.value.trim()) executeSearch().catch(console.error);
+  });
+  searchMaskEl.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    searchFileGlob = searchMaskEl.value.trim();
     if (searchInputEl.value.trim()) executeSearch().catch(console.error);
   });
   // E-5：scope 切换即重搜（当前文件 / 打开的标签 / 整个工作区）

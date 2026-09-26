@@ -673,14 +673,38 @@ const MAX_FILE_SIZE: u64 = 2 * 1024 * 1024;
 /// 遍历交给 ripgrep 生态的 `ignore` crate（.gitignore 感知 + 隐藏过滤），
 /// 匹配阶段按文件多线程并行，单文件 ≤ 2MB。接口与返回结构不变，前端零感知。
 /// async + spawn_blocking：大工作区扫描可能耗时，同步 command 会卡死主线程 UI。
+///
+/// PR-H（dx_features_backlog §6.6）：新增两个可选参数——
+///   · `use_regex`：正则模式（编译失败即返回明确错误，不静默退回子串）；
+///   · `file_glob`：文件掩码（gitignore 语义，无斜杠的 `*.py` = 任意深度）。
+/// 两者都是 Option，旧调用方（含线上已缓存的旧前端）不用改。
 #[tauri::command]
-pub async fn search_workspace(root: String, query: String, case_sensitive: bool) -> Result<SearchResult, String> {
-    tauri::async_runtime::spawn_blocking(move || search_workspace_impl(root, query, case_sensitive))
+pub async fn search_workspace(
+    root: String,
+    query: String,
+    case_sensitive: bool,
+    use_regex: Option<bool>,
+    file_glob: Option<String>,
+) -> Result<SearchResult, String> {
+    let opts = SearchOptions { use_regex: use_regex.unwrap_or(false), file_glob };
+    tauri::async_runtime::spawn_blocking(move || search_workspace_impl(root, query, case_sensitive, opts))
         .await
         .map_err(|e| format!("任务执行异常：{e}"))?
 }
 
-fn search_workspace_impl(root: String, query: String, case_sensitive: bool) -> Result<SearchResult, String> {
+/// PR-H：搜索附加选项（结构体而非一串 bool——后续再加开关不必改函数签名）
+#[derive(Default, Clone)]
+pub struct SearchOptions {
+    pub use_regex: bool,
+    pub file_glob: Option<String>,
+}
+
+fn search_workspace_impl(
+    root: String,
+    query: String,
+    case_sensitive: bool,
+    opts: SearchOptions,
+) -> Result<SearchResult, String> {
     if query.is_empty() {
         return Ok(SearchResult { matches: vec![], files_scanned: 0, files_skipped: 0, files_skipped_binary: 0, truncated: false });
     }
@@ -688,12 +712,21 @@ fn search_workspace_impl(root: String, query: String, case_sensitive: bool) -> R
     if !root_path.is_dir() {
         return Err(format!("工作区目录不存在：{root}"));
     }
+    // PR-H：正则要在搜索前**编译一次**（失败即返回明确错误——静默退回子串会让用户
+    // 以为「正则没生效」，比直接报错更难排查）；编译结果供所有线程共享只读借用。
+    let regex = if opts.use_regex {
+        let mut b = regex::RegexBuilder::new(&query);
+        b.case_insensitive(!case_sensitive);
+        Some(b.build().map_err(|e| format!("正则表达式无效：{e}"))?)
+    } else {
+        None
+    };
     // 小写化关键词只计算一次，供所有线程复用
     let needle = if case_sensitive { query.clone() } else { query.to_lowercase() };
     let query_char_len = query.chars().count() as u32;
 
-    // 1. ignore 遍历：.gitignore + 隐藏过滤，收集候选文件
-    let files = collect_files(root_path);
+    // 1. ignore 遍历：.gitignore + 隐藏过滤（PR-H：+ 文件掩码），收集候选文件
+    let files = collect_files_glob(root_path, opts.file_glob.as_deref())?;
 
     // 2. 多线程并行搜索
     let files_scanned = AtomicUsize::new(0);
@@ -711,6 +744,8 @@ fn search_workspace_impl(root: String, query: String, case_sensitive: bool) -> R
         let chunk_size = (files.len() / num_threads).max(1);
         // 以 Copy 引用预先绑定共享数据，供 move 闭包复制（避免移动原子量与 needle 本体）
         let needle_ref = needle.as_str();
+        // 同上：正则也是共享只读借用，预先绑定避免 move 闭包把 `regex` 挪走（多次迭代会 use-after-move）
+        let regex_ref = regex.as_ref();
         let scanned = &files_scanned;
         let skipped = &files_skipped;
         let skip_bin = &skipped_binary;
@@ -724,7 +759,7 @@ fn search_workspace_impl(root: String, query: String, case_sensitive: bool) -> R
                     if trunc.load(Ordering::Relaxed) {
                         break;
                     }
-                    search_one_file(path, needle_ref, query_char_len, case_sensitive, &mut local, scanned, skipped, skip_bin, counted, trunc);
+                    search_one_file(path, needle_ref, query_char_len, case_sensitive, regex_ref, &mut local, scanned, skipped, skip_bin, counted, trunc);
                 }
                 local
             }));
@@ -750,6 +785,14 @@ fn search_workspace_impl(root: String, query: String, case_sensitive: bool) -> R
 
 /// ignore 遍历收集候选文件：尊重 .gitignore/全局 git 排除，跳过隐藏项与常见噪声目录。
 fn collect_files(root: &Path) -> Vec<PathBuf> {
+    collect_files_glob(root, None).unwrap_or_default()
+}
+
+/// ignore 遍历 + 可选文件掩码（PR-H）。
+/// 掩码走 `ignore` 自带的 overrides（.gitignore 语义：无斜杠的 `*.py` = 任意深度命中，
+/// 与 PyCharm File mask 直觉一致）——不引入 globset：同族且**走查期即剪枝**，
+/// 比「先收全仓再过滤」省一次全仓遍历，也不必维护第二套 glob 方言。
+fn collect_files_glob(root: &Path, file_glob: Option<&str>) -> Result<Vec<PathBuf>, String> {
     let mut files = Vec::new();
     let mut builder = ignore::WalkBuilder::new(root);
     builder
@@ -765,6 +808,15 @@ fn collect_files(root: &Path) -> Vec<PathBuf> {
             let name = e.file_name().to_string_lossy().into_owned();
             !SEARCH_IGNORED_DIRS.contains(&name.as_str())
         });
+    // PR-H：掩码非空时加 overrides（只要存在白名单规则，未命中者即被排除）
+    if let Some(mask) = file_glob {
+        let mask = mask.trim();
+        if !mask.is_empty() {
+            let mut ov = ignore::overrides::OverrideBuilder::new(root);
+            ov.add(mask).map_err(|e| format!("文件掩码无效：{e}"))?;
+            builder.overrides(ov.build().map_err(|e| format!("文件掩码无效：{e}"))?);
+        }
+    }
     for entry in builder.build() {
         if let Ok(entry) = entry {
             if entry.file_type().map_or(false, |ft| ft.is_file()) {
@@ -772,7 +824,7 @@ fn collect_files(root: &Path) -> Vec<PathBuf> {
             }
         }
     }
-    files
+    Ok(files)
 }
 
 /// ASCII 大小写不敏感子串查找：在 haystack[from..] 中定位已小写化的 needle，
@@ -850,6 +902,7 @@ fn search_one_file(
     needle: &str,
     query_char_len: u32,
     case_sensitive: bool,
+    regex: Option<&regex::Regex>,
     local: &mut Vec<SearchMatch>,
     files_scanned: &AtomicUsize,
     files_skipped: &AtomicUsize,
@@ -877,6 +930,24 @@ fn search_one_file(
     files_scanned.fetch_add(1, Ordering::Relaxed);
     // 路径字符串只构造一次，命中时复用
     let path_str = path.to_string_lossy().into_owned();
+    // PR-H：正则模式——逐行 find_iter（非重叠），列/长按**字符**计（其它分支是字节偏移，
+    // ASCII 下等价；正则可能匹配宽字符，字符计数才能和前端高亮切片对齐）
+    if let Some(re) = regex {
+        for (i, line) in content.lines().enumerate() {
+            if truncated.load(Ordering::Relaxed) {
+                return;
+            }
+            let line_no = (i + 1) as u32;
+            for m in re.find_iter(line) {
+                let col = line[..m.start()].chars().count();
+                let len = m.as_str().chars().count() as u32;
+                if !try_push_match(local, &path_str, line_no, line, col, len, match_count, truncated) {
+                    return;
+                }
+            }
+        }
+        return;
+    }
     // 纯 ASCII 关键词 + 不敏感 → 字节级匹配（无逐行分配）；否则退回 to_lowercase 保证 Unicode 正确
     let ascii_fast = !case_sensitive && needle.is_ascii();
     let needle_bytes = needle.as_bytes();
@@ -1824,7 +1895,7 @@ mod tests {
         // 无扩展名文件也应被扫描
         fs::write(base.join("README"), "hello readme\n").unwrap();
 
-        let r = search_workspace_impl(base.to_string_lossy().to_string(), "hello".into(), false).unwrap();
+        let r = search_workspace_impl(base.to_string_lossy().to_string(), "hello".into(), false, SearchOptions::default()).unwrap();
         assert_eq!(r.files_scanned, 3); // a.py + pkg/b.py + README
         assert_eq!(r.matches.len(), 4); // a.py×2 + b.py×1 + README×1
         assert!(r.matches.iter().all(|m| !m.path.contains(".venv")));
@@ -1836,13 +1907,13 @@ mod tests {
         assert_eq!(a_py.length, 5);
 
         // 大小写敏感
-        let r2 = search_workspace_impl(base.to_string_lossy().to_string(), "Hello".into(), true).unwrap();
+        let r2 = search_workspace_impl(base.to_string_lossy().to_string(), "Hello".into(), true, SearchOptions::default()).unwrap();
         assert_eq!(r2.matches.len(), 0);
-        let r3 = search_workspace_impl(base.to_string_lossy().to_string(), "hello".into(), true).unwrap();
+        let r3 = search_workspace_impl(base.to_string_lossy().to_string(), "hello".into(), true, SearchOptions::default()).unwrap();
         assert_eq!(r3.matches.len(), 4);
 
         // 空查询
-        let r4 = search_workspace_impl(base.to_string_lossy().to_string(), "".into(), false).unwrap();
+        let r4 = search_workspace_impl(base.to_string_lossy().to_string(), "".into(), false, SearchOptions::default()).unwrap();
         assert_eq!(r4.matches.len(), 0);
         assert_eq!(r4.files_scanned, 0);
         fs::remove_dir_all(&base).unwrap();
@@ -1852,7 +1923,7 @@ mod tests {
     fn test_search_multiline_and_column() {
         let base = tmpdir("search2");
         fs::write(base.join("x.py"), "aaa bbb aaa\nccc\n").unwrap();
-        let r = search_workspace_impl(base.to_string_lossy().to_string(), "aaa".into(), false).unwrap();
+        let r = search_workspace_impl(base.to_string_lossy().to_string(), "aaa".into(), false, SearchOptions::default()).unwrap();
         assert_eq!(r.matches.len(), 2);
         // 第二个 aaa 在第 1 行第 9 列
         let second = &r.matches[1];
@@ -1867,16 +1938,122 @@ mod tests {
         let base = tmpdir("search3");
         fs::write(base.join("u.py"), "Hello World\nhello again\nHELLO\nnoMatch\n").unwrap();
         // 不敏感：Hello / hello / HELLO 三处均应命中
-        let r = search_workspace_impl(base.to_string_lossy().to_string(), "hello".into(), false).unwrap();
+        let r = search_workspace_impl(base.to_string_lossy().to_string(), "hello".into(), false, SearchOptions::default()).unwrap();
         assert_eq!(r.matches.len(), 3, "不敏感搜索应命中 Hello/hello/HELLO 三处");
         assert_eq!(r.matches[0].line, 1);
         assert_eq!(r.matches[0].column, 1);
         assert_eq!(r.matches[1].line, 2);
         assert_eq!(r.matches[2].line, 3);
         // 敏感：仅第 2 行 hello 命中
-        let r2 = search_workspace_impl(base.to_string_lossy().to_string(), "hello".into(), true).unwrap();
+        let r2 = search_workspace_impl(base.to_string_lossy().to_string(), "hello".into(), true, SearchOptions::default()).unwrap();
         assert_eq!(r2.matches.len(), 1);
         assert_eq!(r2.matches[0].line, 2);
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    // ---------- PR-H（dx_features_backlog §6.6）：全局搜索正则 + 文件掩码 ----------
+
+    fn opts_regex() -> SearchOptions {
+        SearchOptions { use_regex: true, file_glob: None }
+    }
+
+    #[test]
+    fn search_regex_matches_and_reports_column_and_length() {
+        let base = tmpdir("search-regex");
+        fs::write(base.join("a.py"), "foo_aa barrier\nfoo_bbb nothing\nplain\n").unwrap();
+        // `foo_\w+` 应命中两行：长度分别为 6 / 7（按字符计，宽字符场景才与前端切片对齐）
+        let r = search_workspace_impl(
+            base.to_string_lossy().to_string(),
+            r"foo_\w+".into(),
+            true,
+            opts_regex(),
+        )
+        .unwrap();
+        assert_eq!(r.matches.len(), 2);
+        assert_eq!(r.matches[0].line, 1);
+        assert_eq!(r.matches[0].column, 1);
+        assert_eq!(r.matches[0].length, 6);
+        assert_eq!(r.matches[1].line, 2);
+        assert_eq!(r.matches[1].column, 1);
+        assert_eq!(r.matches[1].length, 7);
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn search_regex_respects_case_toggle_and_line_offsets() {
+        let base = tmpdir("search-regex-case");
+        fs::write(base.join("a.py"), "ERROR at x\nerror at y\n").unwrap();
+        let root = base.to_string_lossy().to_string();
+        // 敏感：仅 "error" 命中（第 2 行）
+        let r = search_workspace_impl(root.clone(), "error".into(), true, opts_regex()).unwrap();
+        assert_eq!(r.matches.len(), 1);
+        assert_eq!(r.matches[0].line, 2);
+        // 不敏感：两行都命中
+        let r2 = search_workspace_impl(root, "error".into(), false, opts_regex()).unwrap();
+        assert_eq!(r2.matches.len(), 2);
+        // 非行首匹配也要给出正确列号
+        let r3 = search_workspace_impl(
+            base.to_string_lossy().to_string(),
+            r"at\s\w".into(),
+            true,
+            opts_regex(),
+        )
+        .unwrap();
+        assert_eq!(r3.matches[0].column, 7);
+        assert_eq!(r3.matches[0].length, 4); // "at x"
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn search_file_glob_filters_candidates() {
+        let base = tmpdir("search-glob");
+        fs::create_dir_all(base.join("pkg")).unwrap();
+        fs::write(base.join("a.py"), "hit here\n").unwrap();
+        fs::write(base.join("b.txt"), "hit here\n").unwrap();
+        fs::write(base.join("pkg").join("c.py"), "hit here\n").unwrap();
+        let root = base.to_string_lossy().to_string();
+        // 无斜杠掩码 = 任意深度（gitignore 语义），故 a.py + pkg/c.py
+        let r = search_workspace_impl(root.clone(), "hit".into(), false, SearchOptions {
+            use_regex: false,
+            file_glob: Some("*.py".into()),
+        })
+        .unwrap();
+        assert_eq!(r.files_scanned, 2, "掩码 *.py 应扫描 a.py 与 pkg/c.py");
+        assert!(r.matches.iter().all(|m| m.path.ends_with(".py")));
+        // 路径分隔符 Windows 是 `\`：断言前归一，避免「只在 CI(Linux) 才过」的写法
+        assert!(
+            r.matches.iter().any(|m| m.path.replace('\\', "/").ends_with("pkg/c.py")),
+            "无斜杠掩码需命中子目录"
+        );
+        // 带斜杠的掩码按相对根路径锚定
+        let r2 = search_workspace_impl(root, "hit".into(), false, SearchOptions {
+            use_regex: false,
+            file_glob: Some("pkg/*.py".into()),
+        })
+        .unwrap();
+        assert_eq!(r2.files_scanned, 1);
+        assert!(r2.matches[0].path.replace('\\', "/").ends_with("pkg/c.py"));
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn search_invalid_regex_and_glob_report_errors() {
+        let base = tmpdir("search-invalid");
+        fs::write(base.join("a.py"), "hello\n").unwrap();
+        let root = base.to_string_lossy().to_string();
+        // 非法正则：明确报错，不静默退回子串匹配（静默会让用户以为「正则没生效」）
+        // `.err()` 而非 `unwrap_err()`：后者要求 Ok 侧实现 Debug，会为了一条断言给产物类型加 derive
+        let msg = search_workspace_impl(root.clone(), "foo(".into(), false, opts_regex())
+            .err()
+            .expect("非法正则必须报错而非静默降级");
+        assert!(msg.contains("正则表达式无效"));
+        // 掩码与正则可叠加使用（正则 + 掩码都是有效组合）
+        let r = search_workspace_impl(root, "h.llo".into(), false, SearchOptions {
+            use_regex: true,
+            file_glob: Some("*.py".into()),
+        })
+        .unwrap();
+        assert_eq!(r.matches.len(), 1);
         fs::remove_dir_all(&base).unwrap();
     }
 

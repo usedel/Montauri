@@ -2762,6 +2762,9 @@ button:focus-visible,
 .search-box { display: flex; gap: var(--space-3); padding: var(--space-4); border-bottom: 1px solid var(--border); }
 .search-box input {
   flex: 1;
+  /* PR-H：行内控件必须可收缩（input 有固有 min-width），否则窄侧栏下按钮会横向
+     溢出进编辑器区域、被上层元素拦截点击（e2e 08 spec 实测踩坑） */
+  min-width: 0;
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -2769,6 +2772,7 @@ button:focus-visible,
   padding: var(--space-3) var(--space-4);
   font-size: var(--text-sm);
 }
+.search-box select { min-width: 0; }
 .search-box input:focus { outline: none; border-color: var(--accent); }
 /* UI-08：大小写开关（Aa）迁移到 .btn .btn--sm，「开」态由 .btn.active 承载（实心 accent），
    与其它开关按钮统一。原 .ghost-btn 命名有歧义——它其实是有边框的次要按钮，

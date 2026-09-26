@@ -352,6 +352,11 @@ export async function startEngine(engine: string, rootUri: string, interpreter: 
   session("static").status = "ready";
   flushStartingQueue("static"); // CR-23：冲刷 starting 期间排队的文档同步
   setEngineStatus("ready");
+  // PR-N：inlay hints 配置必须在就绪**之后**推（pyrefly 默认 `callArgumentNames: "off"`，
+  // 不推就永远只有变量类型提示、没有参数名提示）。推的是 Pyright 兼容设置形态
+  // （探针实测：python.analysis.inlayHints.callArgumentNames = "all" 立即生效，引擎侧 150ms 防抖）。
+  // 注意不要挪到 status = "ready" 之前——pushInlayHintSettings 自身有「未就绪即短路」守卫。
+  void pushInlayHintSettings();
   return initResult;
 }
 
@@ -1469,12 +1474,56 @@ interface LspInlayHint {
   tooltip?: unknown;
 }
 
-/** 注册 inlay hints provider：仅查询运行时引擎（opencharm-intel）的类型标注 */
+/**
+ * PR-N：把 inlay hints 配置推给静态引擎（`workspace/didChangeConfiguration`）。
+ * 只推 `callArgumentNames`——变量/返回类型提示是引擎默认开的能力，不在此关掉，
+ * 免得「关参数名提示」的开关顺手把类型提示也灭了（职责最小化）。
+ * 调用点：startEngine 就绪后 + 设置保存后（settingsPanel）。
+ */
+/**
+ * PR-N：设置变更后通知 Monaco 重新拉取提示——否则它会一直沿用缓存结果直到下次编辑。
+ * ⚠ 必须延迟到 registerLspInlayHints 里创建：模块级 `monaco` 是后赋值的引用
+ *   （顶层 new monaco.Emitter() 会炸，且 TS 报 used before assigned）。
+ */
+let inlayHintsChanged: MonacoApi.Emitter<void> | null = null;
+
+export function pushInlayHintSettings(): Promise<void> {
+  if (session("static").status !== "ready") return Promise.resolve();
+  void Promise.resolve().then(() => inlayHintsChanged?.fire()); // 下一微任务刷，避免与推送竞态
+  return notifyEngine("static", "workspace/didChangeConfiguration", {
+    settings: {
+      python: {
+        analysis: {
+          inlayHints: { callArgumentNames: app.settings.inlay_param_hints !== false ? "all" : "off" },
+        },
+      },
+    },
+  });
+}
+
+/** 单源查询 inlay hints（未就绪/失败返回空数组，绝不打断另一个源） */
+async function queryInlays(engine: string, params: unknown): Promise<LspInlayHint[]> {
+  if (session(engine).status !== "ready") return [];
+  try {
+    const items = (await requestEngine(engine, "textDocument/inlayHint", params)) as LspInlayHint[];
+    return Array.isArray(items) ? items : [];
+  } catch {
+    return []; // 单源失败静默：inlay 是增强信息，不值得弹错
+  }
+}
+
+/**
+ * 注册 inlay hints provider：**双源**——
+ *   · 静态引擎（PR-N）：参数名提示（`name=`），受 `inlay_param_hints` 开关控制；
+ *   · 运行时引擎 intel：运行时类型标注（P3-T07 既有能力，不受本开关影响）。
+ * 同位置同文案去重（两源理论上不重叠，但换引擎/切 intel 期间可能短暂并存）。
+ */
 export function registerLspInlayHints(): MonacoApi.IDisposable {
+  inlayHintsChanged = new monaco.Emitter<void>();
   return monaco.languages.registerInlayHintsProvider("python", {
+    // PR-N：设置开关要即时生效（Monaco 默认缓存 provider 结果直到下次编辑）
+    onDidChangeInlayHints: inlayHintsChanged.event,
     async provideInlayHints(model: MonacoApi.editor.ITextModel, range: MonacoApi.IRange) {
-      const s = session("intel");
-      if (s.status !== "ready") return { hints: [], dispose: () => {} };
       const params = {
         textDocument: { uri: pathToFileUri(currentPath(model)) },
         range: {
@@ -1482,22 +1531,31 @@ export function registerLspInlayHints(): MonacoApi.IDisposable {
           end: { line: range.endLineNumber - 1, character: range.endColumn - 1 },
         },
       };
-      try {
-        const items = (await requestEngine("intel", "textDocument/inlayHint", params)) as LspInlayHint[];
-        if (!Array.isArray(items)) return { hints: [], dispose: () => {} };
-        const K = monaco.languages.InlayHintKind;
-        const hints: MonacoApi.languages.InlayHint[] = items.map((h) => ({
-          position: lspPosToMonaco(h.position),
-          label: typeof h.label === "string" ? h.label : h.label.map((p) => p.value).join(""),
+      const K = monaco.languages.InlayHintKind;
+      const wantStatic = engineStatus === "ready" && app.settings.inlay_param_hints !== false;
+      const [staticItems, intelItems] = await Promise.all([
+        wantStatic ? queryInlays("static", params) : Promise.resolve([]),
+        queryInlays("intel", params),
+      ]);
+      const seen = new Set<string>();
+      const hints: MonacoApi.languages.InlayHint[] = [];
+      for (const h of [...intelItems, ...staticItems]) {
+        const label = typeof h.label === "string" ? h.label : h.label.map((p) => p.value).join("");
+        const pos = lspPosToMonaco(h.position);
+        const key = `${pos.lineNumber}:${pos.column}:${label}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        hints.push({
+          position: pos,
+          label,
           kind: h.kind === 2 ? K.Parameter : K.Type,
           paddingLeft: h.paddingLeft,
           paddingRight: h.paddingRight,
           tooltip: typeof h.tooltip === "string" ? h.tooltip : undefined,
-        }));
-        return { hints, dispose: () => {} };
-      } catch {
-        return { hints: [], dispose: () => {} };
+        });
       }
+      hints.sort((a, b) => a.position.lineNumber - b.position.lineNumber || a.position.column - b.position.column);
+      return { hints, dispose: () => {} };
     },
   });
 }

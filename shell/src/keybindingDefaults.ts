@@ -72,7 +72,9 @@ export type KeybindingId =
   | "jump_to_bracket"
   | "reopen_tab"
   // PR-D（dx_features_backlog §6.4）：最近编辑位置（PyCharm Ctrl+Shift+Backspace 同款）
-  | "recent_edit_locations";
+  | "recent_edit_locations"
+  // PR-G（dx_features_backlog §6.6）：文件内符号 Quick Pick（PyCharm Ctrl+F12「文件结构」同位）
+  | "goto_symbol";
 
 export interface KeybindingMeta {
   id: KeybindingId;
@@ -166,4 +168,7 @@ export const KEYBINDING_META: KeybindingMeta[] = [
   // PR-D：最近编辑位置（PyCharm Ctrl+Shift+Backspace 同款；window 级，editPoints.ts；
   // Backspace 在 NAMED_KEYS 内可解析，browserKeys DANGER 清单只含 Ctrl+Shift+Delete 不冲突）
   { id: "recent_edit_locations", label: "上一个编辑位置", def: "Ctrl+Shift+Backspace", scope: "window" },
+  // PR-G：文件内符号 Quick Pick（PyCharm Ctrl+F12 同款；editor 级——符号列表依附编辑器上下文。
+  // handler 在 main.ts（避免 keybindings.ts 反向依赖 quickOpen 成环），命令面板/前往菜单同走该 handler）
+  { id: "goto_symbol", label: "转到文件内符号", def: "Ctrl+F12", scope: "editor" },
 ];

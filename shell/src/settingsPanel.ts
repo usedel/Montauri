@@ -64,6 +64,8 @@ const settingsIndentGuidesEl = $("settings-indent-guides") as HTMLInputElement;
 const settingsBracketColorsEl = $("settings-bracket-colors") as HTMLInputElement;
 // PR-B（dx_features_backlog §6.2）：粘性滚动
 const settingsStickyScrollEl = $("settings-sticky-scroll") as HTMLInputElement;
+// PR-N（dx_features_backlog §6.8）：参数名行内提示
+const settingsInlayParamHintsEl = $("settings-inlay-param-hints") as HTMLInputElement;
 // PR-C（dx_features_backlog §6.3）：保存清理
 const settingsTrimTrailingEl = $("settings-trim-trailing") as HTMLInputElement;
 const settingsFinalNewlineEl = $("settings-final-newline") as HTMLInputElement;
@@ -501,6 +503,7 @@ function fillForm(settings: Settings): void {
   settingsIndentGuidesEl.checked = settings.indent_guides !== false; // C-6
   settingsBracketColorsEl.checked = settings.bracket_colors !== false;
   settingsStickyScrollEl.checked = settings.sticky_scroll !== false; // PR-B
+  settingsInlayParamHintsEl.checked = settings.inlay_param_hints !== false; // PR-N
   settingsTrimTrailingEl.checked = settings.trim_trailing_whitespace !== false; // PR-C
   settingsFinalNewlineEl.checked = settings.final_newline !== false;
   settingsDebugJmcEl.checked = settings.debug_just_my_code !== false; // B-3
@@ -590,6 +593,7 @@ async function saveSettingsPanel(): Promise<void> {
   const indentGuides = settingsIndentGuidesEl.checked; // C-6
   const bracketColors = settingsBracketColorsEl.checked;
   const stickyScroll = settingsStickyScrollEl.checked; // PR-B
+  const inlayParamHints = settingsInlayParamHintsEl.checked; // PR-N
   const trimTrailing = settingsTrimTrailingEl.checked; // PR-C
   const finalNewline = settingsFinalNewlineEl.checked;
   const autosave = settingsAutosaveEl.value;
@@ -625,6 +629,7 @@ async function saveSettingsPanel(): Promise<void> {
     indent_guides: indentGuides,
     bracket_colors: bracketColors,
     sticky_scroll: stickyScroll,
+    inlay_param_hints: inlayParamHints,
     trim_trailing_whitespace: trimTrailing,
     final_newline: finalNewline,
     debug_just_my_code: settingsDebugJmcEl.checked, // B-3
@@ -670,6 +675,8 @@ async function saveSettingsPanel(): Promise<void> {
   repaintRunWidget(); // 改键后运行组 tooltip 副文本跟随新键位（window 级键位变化不走 renderTabs）
   // UI-25：欢迎页快捷键网格同理——保存路径不经 updateEditorOverlay，不显式刷就会留着旧键位
   renderWelcomeShortcuts();
+  // PR-N：参数名提示开关 → 立即把 inlay 配置推给静态引擎（引擎侧 150ms 防抖，无需重启引擎）
+  void lsp.pushInlayHintSettings();
   await saveSettings();
   toast("设置已保存", "success"); // tech-debt #19：即时操作结果统一轻提示
   // D-4：严重度映射保存后立即重查当前文件（波浪线级别即时生效，无需等下次编辑）

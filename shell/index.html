@@ -146,6 +146,13 @@
                   <!-- UI-09：可见文本「Aa」是符号而非语义名，补 aria-label 让可访问名称有意义；
                        UI-16：开关态用 aria-pressed 表达（main.ts 与 .active 类同源切换） -->
                   <button id="search-case" class="btn btn--sm" data-tip="区分大小写" aria-label="区分大小写" aria-pressed="false">Aa</button>
+                  <!-- PR-H（dx_features_backlog §6.6）：正则 + 文件掩码（PyCharm Find in Files 同款开关） -->
+                  <button id="search-regex" class="btn btn--sm" data-tip="正则表达式" aria-label="正则表达式" aria-pressed="false">.*</button>
+                </div>
+                <!-- PR-H：掩码独立一行（复用 .search-box 的行样式，不新增一次性选择器） -->
+                <div class="search-box">
+                  <input id="search-mask" type="text" autocomplete="off" spellcheck="false"
+                         placeholder="文件掩码，如 *.py / pkg/*.py（留空不限）" aria-label="文件掩码" />
                 </div>
                 <div id="search-results"></div>
               </div>
@@ -794,6 +801,11 @@
               <div class="settings-row">
                 <label for="settings-sticky-scroll">粘性滚动（作用域头部常驻）</label>
                 <input id="settings-sticky-scroll" type="checkbox" />
+              </div>
+              <!-- PR-N（dx_features_backlog §6.8）：参数名行内提示（PyCharm 同款默认开） -->
+              <div class="settings-row">
+                <label for="settings-inlay-param-hints">参数名行内提示（调用处灰字）</label>
+                <input id="settings-inlay-param-hints" type="checkbox" />
               </div>
               <!-- PR-C（dx_features_backlog §6.3）：保存清理，默认开（仅显式保存触发） -->
               <div class="settings-row">
