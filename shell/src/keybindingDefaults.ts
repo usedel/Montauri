@@ -37,6 +37,9 @@ export type KeybindingId =
   | "markdown_preview"
   // P1（UX 审查）：高频但此前无键位的操作
   | "close_tab"
+  // 标签页循环切换（VS Code 风格 Ctrl+Tab / Ctrl+Shift+Tab；Alt+←/→ 被 browserKeys 护栏占用）
+  | "next_tab"
+  | "prev_tab"
   | "new_file"
   | "open_settings"
   | "toggle_sidebar"
@@ -47,8 +50,29 @@ export type KeybindingId =
   | "open_devtools"
   // P1（查找引用）：PyCharm 同款 Alt+F7，完整引用列表落底部「引用」面板（Shift+F12 仍是 Monaco peek）
   | "find_usages"
-  // P2（重命名）：PyCharm 同款 Shift+F6，跨文件重命名（定义 + 所有引用同步改名）
-  | "rename_symbol";
+  // P2（重命名）：PyCharm 同款 Shift+F6，就地改名（prepareRename 锚定 + ghost 预览 +
+  // Enter 全部文件一次性写入，见 renameWidget.ts）；F2 为同一入口的固定快捷键
+  | "rename_symbol"
+  // P1（PyCharm 调研 C-1/C-2）：编辑器基本功——语法感知选区扩展/收缩 + 行上下移动。
+  // 注：Ctrl+W / Ctrl+Shift+W 属浏览器危险键（关窗口），已由 browserKeys.ts 在编辑器内
+  // 「只 preventDefault、不 stopPropagation」放行给 Monaco（见该文件 CLAIMED_IN_MONACO）。
+  | "smart_select_expand"
+  | "smart_select_shrink"
+  | "move_line_up"
+  | "move_line_down"
+  // P4（C-3）：列（矩形）选择开关——Monaco 0.52 是核心 option（columnSelection），
+  // 开启后鼠标拖拽 / Shift+点击按矩形选择；无浏览器危险键冲突（Insert 不在护栏清单）
+  | "toggle_column_selection"
+  // P4（C-4）：向右分屏——同 model 第二编辑器实例（splitEditor.ts）；Backslash 非浏览器危险键
+  | "split_editor"
+  // PR-A（dx_features_backlog §6.1）：键位补齐组——删除行 / 折叠全部 / 展开全部 / 括号跳转 / 重开标签
+  | "delete_line"
+  | "fold_all"
+  | "unfold_all"
+  | "jump_to_bracket"
+  | "reopen_tab"
+  // PR-D（dx_features_backlog §6.4）：最近编辑位置（PyCharm Ctrl+Shift+Backspace 同款）
+  | "recent_edit_locations";
 
 export interface KeybindingMeta {
   id: KeybindingId;
@@ -71,7 +95,7 @@ export const KEYBINDING_META: KeybindingMeta[] = [
   { id: "goto_definition", label: "跳转定义（F12 / Ctrl+点击固定保留）", def: "Ctrl+B", scope: "editor" },
   // P1（查找引用）：完整引用列表（PyCharm Alt+F7 同款）；Shift+F12 仍保留 Monaco peek 快速预览
   { id: "find_usages", label: "查找引用", def: "Alt+F7", scope: "editor" },
-  // P2（重命名）：跨文件重命名（PyCharm Shift+F6 同款）；F2 仍是单文件快捷重命名
+  // P2（重命名）：就地改名（PyCharm Shift+F6 同款）；F2 触发同一入口（编辑器级固定键）
   { id: "rename_symbol", label: "重命名符号（跨文件）", def: "Shift+F6", scope: "editor" },
   { id: "duplicate_line", label: "复制行 / 选区", def: "Ctrl+D", scope: "editor" },
   { id: "comment_line", label: "行注释开关", def: "Ctrl+/", scope: "editor" },
@@ -108,6 +132,9 @@ export const KEYBINDING_META: KeybindingMeta[] = [
   // P1（UX 审查）：高频操作补键位。默认值取 PyCharm 同款（Ctrl+F4 关闭标签 / Ctrl+Alt+Insert 新建
   // / Ctrl+Alt+S 设置）；侧栏/底部面板取 PyCharm 工具窗口习惯键（Ctrl+Shift+F12 / Alt+F12）
   { id: "close_tab", label: "关闭标签", def: "Ctrl+F4", scope: "window" },
+  // 标签页循环切换（VS Code 同款默认键；不取 PyCharm 的 Alt+→/←，那组键被浏览器护栏吞掉）
+  { id: "next_tab", label: "下一个标签", def: "Ctrl+Tab", scope: "window" },
+  { id: "prev_tab", label: "上一个标签", def: "Ctrl+Shift+Tab", scope: "window" },
   { id: "new_file", label: "新建文件", def: "Ctrl+Alt+Insert", scope: "window" },
   { id: "open_settings", label: "打开设置", def: "Ctrl+Alt+S", scope: "window" },
   { id: "toggle_sidebar", label: "切换侧栏", def: "Ctrl+Shift+F12", scope: "window" },
@@ -116,4 +143,27 @@ export const KEYBINDING_META: KeybindingMeta[] = [
   { id: "command_palette", label: "命令面板（只搜命令）", def: "Ctrl+Shift+P", scope: "window" },
   // PR-1：开发工具面板（右侧）+ picker；window 级——工具动作不应依赖编辑器聚焦
   { id: "open_devtools", label: "开发工具面板", def: "Ctrl+Shift+T", scope: "window" },
+  // P1（PyCharm 调研 C-1/C-2）：编辑器基本功。默认值取 PyCharm 同款
+  // （Ctrl+W / Ctrl+Shift+W 扩大/缩小选区；Ctrl+Shift+↑/↓ 移动行）。
+  { id: "smart_select_expand", label: "扩大选区（语法感知）", def: "Ctrl+W", scope: "editor" },
+  { id: "smart_select_shrink", label: "缩小选区（语法感知）", def: "Ctrl+Shift+W", scope: "editor" },
+  { id: "move_line_up", label: "行 / 选区上移", def: "Ctrl+Shift+Up", scope: "editor" },
+  { id: "move_line_down", label: "行 / 选区下移", def: "Ctrl+Shift+Down", scope: "editor" },
+  // P4（C-3）：列选择开关（VS Code 同款默认键；开启后 Alt+Shift+方向键列向扩展始终可用）
+  { id: "toggle_column_selection", label: "切换列选择模式", def: "Alt+Shift+Insert", scope: "editor" },
+  // P4（C-4）：向右分屏（VS Code 同款 Ctrl+\；反斜杠按 SYMBOL_KEYS 字面写法，同 "/" 的先例）
+  { id: "split_editor", label: "向右分屏", def: "Ctrl+\\", scope: "editor" },
+  // PR-A（dx_features_backlog §6.1）：键位补齐组。键位解析器不支持和弦，折叠组不取 VS Code 的
+  // Ctrl+K Ctrl+0/J，取单和弦 Ctrl+Shift+- / =（Monaco/浏览器无内建冲突）
+  // Ctrl+Y 覆盖 Monaco/Windows 的「重做」内建——重做仍可走 Ctrl+Shift+Z（同 Ctrl+D 覆盖「选中下一匹配」先例）
+  { id: "delete_line", label: "删除行", def: "Ctrl+Y", scope: "editor" },
+  { id: "fold_all", label: "折叠全部", def: "Ctrl+Shift+-", scope: "editor" },
+  { id: "unfold_all", label: "展开全部", def: "Ctrl+Shift+=", scope: "editor" },
+  // Monaco 内建同键（jumpToBracket）；登记进键位表使其可配置可发现
+  { id: "jump_to_bracket", label: "括号匹配跳转", def: "Ctrl+Shift+\\", scope: "editor" },
+  // 重开关闭的标签：Ctrl+Shift+T 已被 open_devtools 占用，故取 Ctrl+Shift+Alt+T（window 级，tabReopen.ts）
+  { id: "reopen_tab", label: "重新打开关闭的标签", def: "Ctrl+Shift+Alt+T", scope: "window" },
+  // PR-D：最近编辑位置（PyCharm Ctrl+Shift+Backspace 同款；window 级，editPoints.ts；
+  // Backspace 在 NAMED_KEYS 内可解析，browserKeys DANGER 清单只含 Ctrl+Shift+Delete 不冲突）
+  { id: "recent_edit_locations", label: "上一个编辑位置", def: "Ctrl+Shift+Backspace", scope: "window" },
 ];

@@ -599,7 +599,7 @@ export async function stopRunInstanceById(id: string): Promise<void> {
   renderTerminalTabs();
 }
 
-// ---------- FastAPI 服务 URL 自动打开（§9，M3-3.9） ----------
+// ---------- 服务 URL 自动打开（§9 M3-3.9 + 框架探针表 P1：Uvicorn / Django / Flask） ----------
 
 /** 用系统浏览器打开 URL（main 侧注入 open_external 的包装；仅 http/https） */
 let externalUrlOpener: ((url: string) => void) | null = null;
@@ -614,32 +614,72 @@ export function openExternalUrl(url: string): void {
   externalUrlOpener?.(url);
 }
 
-/** Uvicorn 服务就绪行（§9：监听控制台输出中的该行解析实际 URL） */
-const UVICORN_URL_RE = /Uvicorn running on (https?:\/\/\S+)/;
+/** 服务就绪行（§9 + 框架探针表 P1/F3）：各 dev server 的就绪行解析实际 URL
+ *  （args 改 --port/--host 时天然正确，无需另配端口）。 */
+const SERVICE_URL_RES: RegExp[] = [
+  /Uvicorn running on (https?:\/\/\S+)/, // Uvicorn
+  /Starting development server at (https?:\/\/\S+)/, // Django runserver
+  /Running on (https?:\/\/\S+)/, // Flask / Werkzeug（"* Running on …"）与 Hypercorn（无星号前缀）
+];
+
+/** 就绪行关键词（快速路径）：避免每块输出都拼接缓冲 */
+const SERVICE_URL_HINTS = ["Uvicorn running on", "development server at", "Running on"];
 
 /** 跨块缓冲（§9 复查修复）：PTY 分块可能把就绪行从中间截断（`Uvicorn run` + `ning on …`），
  *  逐块匹配会漏——保留尾部一段（就绪行长度上限 512 字符足够）跨块拼接。 */
-let uvicornTail = "";
+let serviceTail = "";
 
-/** 按实例检测 Uvicorn 就绪行并打开浏览器（每项目每会话一次，§9）。
- *  挂在 term-data 分发点：任何项目运行实例（uvicorn --reload 等）的输出中出现
- *  `Uvicorn running on http://…` 即解析 URL 并用系统浏览器打开。
+/** 按实例检测服务就绪行并打开浏览器（每项目每会话一次，§9）。
+ *  挂在 term-data 分发点：任何项目运行实例（uvicorn / manage.py runserver / flask run 等）
+ *  的输出中出现就绪行即解析 URL 并用系统浏览器打开。
  *  text 须为剥离 ANSI 后的纯文本（调用方保证）。 */
-const uvicornOpenedFor = new Set<string>();
+const serviceOpenedFor = new Set<string>();
 
-function watchUvicornLine(_id: string, text: string): void {
+/** 最近一次解析到的服务 origin（F2：端点直达浏览器的 base；端点侧栏消费）。
+ *  origin 只含 scheme+host+port，拼接路由交给消费方（joinRoute）。 */
+let lastServiceOrigin: string | null = null;
+
+/** 读取服务 base（null = 本会话尚无运行中的 dev server 就绪行） */
+export function lastServiceBaseUrl(): string | null {
+  return lastServiceOrigin;
+}
+
+// E2E 钩子（同 debugGutter __OC_DEBUG_TEST__ 先例）：浏览器 mock 没有真实终端输出，
+// 测试侧经此直接注入/读取服务 base，验收端点直达浏览器与 /docs、/openapi.json 入口。
+(window as unknown as { __OC_E2E_SERVICE__?: { setServiceBase: (url: string | null) => void; getServiceBase: () => string | null } }).__OC_E2E_SERVICE__ = {
+  setServiceBase: (url: string | null) => {
+    lastServiceOrigin = url;
+  },
+  getServiceBase: () => lastServiceOrigin,
+};
+
+function watchServiceUrlLine(_id: string, text: string): void {
   // 已打开过的项目直接跳过（每项目每会话一次，§9），不积累缓冲
   const root = app.workspaceRoot ?? "";
-  if (root && uvicornOpenedFor.has(root)) return;
-  // 快速路径：不含 "Uvicorn" 且缓冲为空 → 无需拼接，直接返回
-  if (!uvicornTail && !text.includes("Uvicorn")) return;
-  uvicornTail = (uvicornTail + text).slice(-512);
-  const m = UVICORN_URL_RE.exec(uvicornTail);
-  if (!m) return;
-  uvicornTail = "";
-  const url = m[1];
-  if (root) uvicornOpenedFor.add(root);
-  externalUrlOpener?.(url);
+  if (root && serviceOpenedFor.has(root)) return;
+  // 快速路径：不含任何就绪行关键词且缓冲为空 → 无需拼接，直接返回
+  if (!serviceTail && !SERVICE_URL_HINTS.some((k) => text.includes(k))) return;
+  serviceTail = (serviceTail + text).slice(-512);
+  let url: string | null = null;
+  for (const re of SERVICE_URL_RES) {
+    const m = re.exec(serviceTail);
+    if (m) {
+      url = m[1];
+      break;
+    }
+  }
+  if (!url) return;
+  serviceTail = "";
+  // 就绪行尾部可能带上句末标点（如 `at http://…:8000/.`），剥掉再打开
+  const clean = url.replace(/[.,;:!?)\]]+$/u, "");
+  if (!clean) return;
+  try {
+    lastServiceOrigin = new URL(clean).origin; // F2：端点直达浏览器取 origin（不含就绪行可能带的路径）
+  } catch {
+    /* 非法 URL 不更新 base，也不影响本次打开 */
+  }
+  if (root) serviceOpenedFor.add(root);
+  externalUrlOpener?.(clean);
 }
 
 /** 执行高频命令（P2-6：一键插入或立即执行）。
@@ -675,7 +715,9 @@ export async function disposeTerminal(): Promise<void> {
   activeTermId = null;
   termSeq = 0;
   projectRunSeq = 1;
-  uvicornOpenedFor.clear();
+  serviceOpenedFor.clear();
+  serviceTail = "";
+  lastServiceOrigin = null;
   resetOutputChannelUi();
   renderTerminalTabs();
   bottomTab = "output";
@@ -695,10 +737,18 @@ export async function disposeTerminal(): Promise<void> {
 
 // ---------- 事件接线 ----------
 
-/** P1（UX 审查）：切换底部面板展开/收起（#btn-toggle-output 与键位 Alt+F12 共用唯一实现） */
+/** P1（UX 审查）：切换底部面板展开/收起（#btn-toggle-output 与键位 Alt+F12 共用唯一实现）。
+ *  B 批：折叠态写穿 localStorage，启动时恢复（wireBottomPanel）。 */
+const BOTTOM_COLLAPSED_KEY = "opencharm.bottom_collapsed";
+
 export function toggleBottomPanel(): void {
   const bottom = $("bottom");
   bottom.classList.toggle("collapsed");
+  try {
+    localStorage.setItem(BOTTOM_COLLAPSED_KEY, bottom.classList.contains("collapsed") ? "1" : "0");
+  } catch {
+    // 存储不可用：本次会话内仍生效
+  }
   // 展开时若终端可见，重新 fit + resize（收起期间尺寸归零）
   if (!bottom.classList.contains("collapsed") && bottomTab === "terminal") {
     activeTermSession()?.iterm.relayout();
@@ -707,6 +757,8 @@ export function toggleBottomPanel(): void {
 
 /** 接线底部面板交互：标签切换 / 清空输出 / 展开收起 / 高频命令下拉 */
 export function wireBottomPanel(): void {
+  // B 批：恢复上次会话的折叠态（习惯收起终端的用户重启后不再重新展开）
+  if (localStorage.getItem(BOTTOM_COLLAPSED_KEY) === "1") $("bottom").classList.add("collapsed");
   // 底部面板：输出 / 终端标签 + 清空 + 展开收起
   $("tab-output").addEventListener("click", () => setBottomTab("output"));
   $("tab-terminal").addEventListener("click", () => setBottomTab("terminal"));
@@ -762,12 +814,12 @@ export async function wireTerminalEvents(): Promise<void> {
     const s = termSessions.find((x) => x.id === e.payload.id);
     if (!s) return;
     s.iterm.writeData(e.payload.data);
-    // 剥离 ANSI 后的纯文本：运行历史采集（§11）/ Uvicorn 监听（§9）/ 包管理器完成摘要嗅探（M2 §4.4）共用。
-    // uvicorn 彩色输出中 URL 后可能紧跟重置码（\x1b[0m），对原始数据跑 \S+ 会把转义码吃进 URL（复查修复）
+    // 剥离 ANSI 后的纯文本：运行历史采集（§11）/ 服务就绪行监听（§9）/ 包管理器完成摘要嗅探（M2 §4.4）共用。
+    // 彩色输出中 URL 后可能紧跟重置码（\x1b[0m），对原始数据跑 \S+ 会把转义码吃进 URL（复查修复）
     const plain = stripAnsi(e.payload.data);
     if (s.kind === "run") {
       s.runOnData?.(plain);
-      watchUvicornLine(s.id, plain);
+      watchServiceUrlLine(s.id, plain);
     }
     // M4-3 §6.4：traceback 的 ModuleNotFoundError → toast +「安装」按钮（复核修复 #4：
     // shell 与 run 会话都喂——用户在 shell 手敲 `uv run main.py` 的报错同样要触达；

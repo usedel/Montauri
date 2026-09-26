@@ -3,6 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   KEYBINDING_META,
   bindingChord,
+  chordFromEvent,
+  codeToKeyToken,
+  modsFromEvent,
   normalizeBinding,
   parseBinding,
   parseKeyToken,
@@ -40,6 +43,45 @@ describe("parseBinding 键位串解析", () => {
     expect(parseBinding("Ctrl+X+Y")).toBeNull(); // 修饰键位出现非修饰词
     expect(parseBinding("Win+D")).toBeNull(); // 不支持的修饰键
     expect(parseBinding("F25")).toBeNull();
+  });
+});
+
+describe("按键录入（设置面板：按组合键直接写入，而非手输字面量）", () => {
+  const ev = (code: string, mods: { ctrl?: boolean; shift?: boolean; alt?: boolean; meta?: boolean } = {}): KeyboardEvent =>
+    ({
+      code,
+      ctrlKey: !!mods.ctrl,
+      shiftKey: !!mods.shift,
+      altKey: !!mods.alt,
+      metaKey: !!mods.meta,
+    }) as KeyboardEvent;
+
+  it("code → 键 token（parseKeyToken 的反向）", () => {
+    expect(codeToKeyToken("KeyS")).toBe("S");
+    expect(codeToKeyToken("Digit0")).toBe("0");
+    expect(codeToKeyToken("Slash")).toBe("/");
+    expect(codeToKeyToken("F10")).toBe("F10");
+    expect(codeToKeyToken("ArrowLeft")).toBe("ArrowLeft");
+    expect(codeToKeyToken("Numpad0")).toBeNull(); // 键位串无法表达
+    expect(codeToKeyToken("ControlLeft")).toBeNull(); // 纯修饰键不成键
+  });
+
+  it("事件 → 键位串", () => {
+    expect(chordFromEvent(ev("Digit0", { ctrl: true }))).toBe("Ctrl+0");
+    expect(chordFromEvent(ev("KeyS", { ctrl: true, shift: true }))).toBe("Ctrl+Shift+S");
+    expect(chordFromEvent(ev("F5"))).toBe("F5");
+    expect(chordFromEvent(ev("ControlLeft", { ctrl: true }))).toBeNull();
+  });
+
+  it("录入结果必须能被现有解析/校验链路接受", () => {
+    for (const chord of ["Ctrl+0", "Ctrl+Shift+S", "Alt+F7", "F5", "Ctrl+Shift+/", "Ctrl+Alt+ArrowLeft"]) {
+      expect(parseBinding(chord), chord).not.toBeNull();
+    }
+  });
+
+  it("Cmd 归一为 Ctrl（与 eventMatches 一致）；修饰键按 Ctrl→Shift→Alt 排序", () => {
+    expect(modsFromEvent(ev("KeyS", { meta: true }))).toEqual(["Ctrl"]);
+    expect(modsFromEvent(ev("KeyS", { alt: true, shift: true, ctrl: true }))).toEqual(["Ctrl", "Shift", "Alt"]);
   });
 });
 

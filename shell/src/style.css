@@ -834,6 +834,64 @@ button:focus-visible,
 .gutter-breakpoint-log::after {
   content: "\eaab"; /* codicon-debug-breakpoint-log */
 }
+/* B-6：禁用断点（灰点、半透明——保留位置与属性，但不下发 debugger） */
+.gutter-breakpoint-disabled::after {
+  color: var(--fg-dim);
+  opacity: 0.55;
+}
+
+/* B-2：异常断点开关行（断点面板顶部，常驻） */
+.debug-exc-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
+  font-size: var(--text-sm);
+}
+.debug-exc-row label { cursor: pointer; }
+
+/* B-6：断点列表禁用态（整行淡化，勾选框仍可点） */
+.debug-bp-row.debug-bp-disabled .debug-bp-dot,
+.debug-bp-row.debug-bp-disabled .debug-bp-label,
+.debug-bp-row.debug-bp-disabled .debug-bp-detail { opacity: 0.45; }
+
+/* B-1：Watches 监视表达式 */
+.debug-watch-input {
+  width: 100%;
+  margin-bottom: var(--space-2);
+}
+.debug-watch-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
+  min-height: 1.2em;
+}
+.debug-watch-expr {
+  font-family: var(--mono);
+  color: var(--fg);
+  white-space: nowrap;
+}
+.debug-watch-value {
+  font-family: var(--mono);
+  color: var(--fg-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+.debug-watch-value-failed { color: var(--meta, var(--fg-dim)); font-style: italic; }
+.debug-watch-del {
+  cursor: pointer;
+  color: var(--fg-dim);
+  padding: 0 var(--space-1);
+}
+.debug-watch-del:hover { color: var(--danger); }
+.debug-watch-empty {
+  color: var(--fg-dim);
+  font-size: var(--text-sm);
+  padding: var(--space-1) 0;
+}
 
 /* ---------- gutter 可发现性（方案 1/2） ----------
    断点只认 glyph margin 这一档（Monaco 按 x 把 gutter 分三档，默认宽度 ≈ 一个行高 ≈ 21px），
@@ -1065,6 +1123,41 @@ button:focus-visible,
 
 #editor-row { position: relative; flex: 1; min-height: 0; display: flex; }
 #editor { flex: 1; min-width: 0; min-height: 0; }
+
+/* ---------- C-4（PyCharm 调研）：向右分屏（钉住式双编辑器） ---------- */
+/* 分隔条：与 #md-splitter 同范式（独立 flex 子项占位，不复用 .splitter 的 absolute 定位） */
+#split-splitter {
+  width: 6px;
+  flex: none;
+  cursor: col-resize;
+  background: transparent;
+}
+#split-splitter:hover { background: var(--accent-soft); }
+#split-splitter.dragging { background: var(--accent); }
+
+/* 分屏面板：右侧固定宽（--split-w，默认 50%；layout.ts 拖拽写入并落 localStorage） */
+#split-editor-panel {
+  flex: none;
+  width: var(--split-w, 50%);
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border);
+}
+#split-editor-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--fg-dim);
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+}
+#split-editor-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#split-editor-host { flex: 1; min-height: 0; }
 
 /* ---------- Markdown 预览分栏（markdown preview dev plan §5-T2） ---------- */
 /* 分隔条：独立 flex 子项（不复用 .splitter 的 absolute 定位——那套附着在面板右缘外侧，
@@ -1537,6 +1630,54 @@ button:focus-visible,
 
 /* v3.4 §6.5：S4 输入行样式已随 stdin 体系删除（运行统一走终端控制台，输入同屏） */
 
+/* P0 输出护栏：环形缓冲丢弃最旧行后的顶部提示（不占行数配额、不参与 channel 过滤） */
+.out-omitted {
+  color: var(--fg-dim);
+  font-style: italic;
+  padding-bottom: var(--space-1);
+  border-bottom: 1px dashed var(--border);
+}
+
+/* A-1（PyCharm 调研）：资源面板 */
+.resource-card {
+  width: min(560px, 92vw);
+}
+.resource-summary {
+  color: var(--fg-dim);
+  font-size: var(--text-sm);
+  margin-bottom: var(--space-3);
+}
+.resource-table-wrap {
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  margin-bottom: var(--space-3);
+}
+.resource-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+  font-family: var(--mono);
+}
+.resource-table th,
+.resource-table td {
+  text-align: left;
+  padding: var(--space-1) var(--space-3);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.resource-table th {
+  color: var(--fg-dim);
+  font-weight: normal;
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+}
+.resource-table td:nth-child(n + 3) {
+  text-align: right;
+}
+
 .out-line { min-height: 1.2em; }
 .out-line.stderr { color: var(--danger); }
 .out-line.probe { color: var(--fg-dim); }
@@ -1597,6 +1738,8 @@ button:focus-visible,
 /* 引擎 chip（C2）：可点击身份/切换入口；状态点职责在 #status-lsp，两者分工不重复 */
 #status-engine { overflow: hidden; text-overflow: ellipsis; max-width: 110px; }
 #status-engine:hover { color: var(--fg); }
+/* E-2（PyCharm 调研）：引擎忙碌态（starting / 引用稳定采样期间），提示「结果可能不完整」 */
+#status-engine.busy { color: var(--warn); cursor: progress; }
 /* UI-21：LSP 状态文本（含异常时的「LSP 启动失败: …」长串）补 max-width + 截断 */
 #status-lsp { overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
 /* LSP 状态点（● 灰未启动 / 黄启动中 / 绿就绪 / 红错误） */
@@ -1781,6 +1924,9 @@ button:focus-visible,
 /* 输入模态（P0：条件断点 / Logpoint 表达式录入；dialog.ts::openPrompt） */
 .prompt-card { min-width: 460px; }
 .prompt-card .settings-hint { margin-bottom: var(--space-4); }
+/* C-5（PyCharm 调研）：与剪贴板对比模态（宽幅 + diff 宿主占满剩余高度） */
+.clipboard-diff-card { width: min(1100px, 92vw); height: min(720px, 82vh); display: flex; flex-direction: column; }
+#clipboard-diff-host { flex: 1; min-height: 0; border-top: 1px solid var(--border); }
 /* 最近打开的文件（P0，Ctrl+E；recentFiles.ts） */
 .recent-card { min-width: 520px; padding: var(--space-6); }
 .recent-list {
@@ -1867,6 +2013,52 @@ button:focus-visible,
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ---------- 端点工具窗（F1/F2/F4，endpointView.ts；布局复用 todo-group-header / todo-item） ---------- */
+#ep-toolbar { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); }
+#ep-toolbar .btn { margin-left: 0; flex: none; }
+#ep-summary { font-size: var(--text-sm); color: var(--fg-dim); margin-right: auto; }
+#ep-results { overflow-y: auto; flex: 1; }
+/* 方法徽章：GET 绿 / POST 蓝(accent) / PUT·PATCH 黄(warn) / DELETE·TRACE 红(danger) / 其余中性 */
+.ep-badge {
+  font-size: var(--text-xs);
+  line-height: 1.4;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-xs);
+  border: 1px solid currentColor;
+  color: var(--fg-dim);
+  flex-shrink: 0;
+  min-width: 38px;
+  text-align: center;
+}
+.ep-badge-get { color: var(--ok, #89d185); }
+.ep-badge-post { color: var(--accent); }
+.ep-badge-put,
+.ep-badge-patch { color: var(--warn); }
+.ep-badge-delete,
+.ep-badge-trace { color: var(--danger); }
+.ep-badge-ws { color: var(--meta, var(--fg-dim)); font-style: italic; }
+.ep-route {
+  color: var(--fg);
+  font-family: var(--font-mono, monospace);
+  font-size: var(--text-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+/* 行尾动作（浏览器打开 / 复制）：常驻低对比，hover 提亮；stopPropagation 防误触发行跳转 */
+.ep-action {
+  color: var(--fg-dim);
+  flex: none;
+  display: inline-flex;
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+}
+.ep-action:hover, .ep-action:focus-visible { color: var(--accent); }
+
 /* UI-08：对话框按钮迁移到 .btn 体系（.btn / .btn--primary / .btn--danger）。
    原 `.modal-actions button` 特异性 (0,1,1) 高于 .btn 的 (0,1,0)，故整块删除而非并存。
    注：#confirm-ok 的 primary/danger 形态由 dialog.ts::applyKind 动态切换类名。 */
@@ -2592,6 +2784,12 @@ button:focus-visible,
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* E-5（PyCharm 调研）：文件分组头可点击折叠/展开（▾/▸ 指示 + hover 反馈） */
+.search-file-name { cursor: pointer; user-select: none; }
+.search-file-name:hover { background: var(--hover); }
+.search-file-name::before { content: "▾ "; color: var(--fg-dim); }
+.search-file.collapsed .search-file-name::before { content: "▸ "; }
+.search-file.collapsed .search-match { display: none; }
 .search-match {
   display: flex;
   gap: var(--space-4);
@@ -2679,6 +2877,20 @@ button:focus-visible,
   .settings-content { padding-left: 0; padding-top: var(--space-5); }
 }
 .settings-section { flex: none; display: flex; flex-direction: column; gap: var(--space-6); }
+
+/* ---------- E-1（PyCharm 调研）：设置搜索 ---------- */
+.settings-search-box { flex: none; margin-bottom: var(--space-6); }
+.settings-search-box input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-sm);
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.settings-search-empty { flex: none; display: flex; align-items: center; gap: var(--space-4); color: var(--fg-dim); font-size: var(--text-sm); padding: var(--space-2) 0; }
 /* PR-2：插件 tab（§9.14）——列表可滚（插件多时不撑爆卡片） */
 .settings-section-plugins { flex: 1; min-height: 0; overflow-y: auto; }
 .plugins-panel { display: flex; flex-direction: column; gap: var(--space-4); }
@@ -2758,6 +2970,34 @@ button:focus-visible,
    默认外观」而补的（矮一截、系统灰底、字体不继承）——.btn 基类已含 font-family:inherit 与
    flex:none，该修复由体系天然承载，无需再按域重复一遍。 */
 .settings-row input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; }
+/* 快捷键「按键录入」框（settingsPanel.ts::wireKeybindingCapture）：聚焦后直接按组合键写入，
+   不接收手输文本。品牌色描边 + 等宽字体提示「这是按键捕获区」，去掉文本光标避免误以为可编辑。 */
+.settings-row input[type="text"].kb-capture {
+  border-color: var(--brand);
+  font-family: var(--mono);
+  cursor: default;
+}
+/* 快捷键分区：每行各自 flex 时，标签长短不一（"保存" ↔ "转到文件（Search Everywhere 文件模式）"）
+   会把输入框挤成不同宽度。改「一个共享网格 + 行 display:contents」：所有行的标签列与控件列
+   同属一张网格，列宽由全局统一决定（标签列取最长标签、控件列 1fr），输入框右边界即对齐。
+   ⚠ 依赖 display:contents（行 div 仅作 JS 结构容器，无语义/无样式，故无 a11y 顾虑）。
+   超长标签改换行（white-space:normal）而不是撑宽列——否则又回到挤窄控件的老问题。 */
+#settings-keybinding-rows {
+  display: grid;
+  /* --settings-label-w 定义在 .settings-row 上，容器取不到，故带 160px 兜底 */
+  grid-template-columns: minmax(var(--settings-label-w, 160px), 220px) minmax(0, 1fr);
+  align-items: center;
+  column-gap: var(--space-7);
+  row-gap: var(--space-4); /* 此前各行之间没有任何垂直间距 */
+}
+#settings-keybinding-rows .settings-row { display: contents; }
+#settings-keybinding-rows .settings-row label {
+  min-width: 0;
+  white-space: normal;
+  line-height: 1.35;
+}
+/* 键位串最长约 "Ctrl+Alt+Shift+Insert"，260px 足够；不随卡片变宽无限拉伸 */
+#settings-keybinding-rows .settings-row input[type="text"] { max-width: 260px; }
 .settings-hint { font-size: var(--text-sm); color: var(--fg-dim); line-height: 1.6; }
 /* P1-F：运行配置面板字段级内联校验（红色小字，覆盖 .settings-hint 的中性色） */
 .settings-hint.run-config-field-error { color: var(--danger); }
@@ -3338,6 +3578,17 @@ button:focus-visible,
   flex: none;
 }
 .find-usages-results { flex: 1; overflow: auto; }
+/* E-2（PyCharm 调研）：结果完整性提示条（索引未稳定时显示在 toolbar 与结果之间） */
+.fu-integrity-hint {
+  flex: none;
+  margin: 0 var(--space-4);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--warn);
+  background: var(--warn-soft);
+  border: 1px solid var(--warn-border);
+  border-radius: var(--radius-sm);
+}
 .fu-toolbar-spacer { flex: 1; }
 .fu-chip {
   background: transparent;
@@ -3441,6 +3692,17 @@ button:focus-visible,
   line-height: 1.7;
 }
 .git-blame-line { color: var(--fg-dim); flex: none; }
+/* E-4（PyCharm 调研）：Git 文件历史行（hash 可点击进提交详情，复用 .git-blame-hash） */
+.git-file-history-row {
+  display: flex;
+  gap: var(--space-3);
+  padding: 0 var(--space-4);
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  line-height: 1.7;
+}
+.git-file-history-meta { color: var(--fg-dim); flex: none; white-space: nowrap; }
+.git-file-history-subject { color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .git-blame-hash {
   flex: none;
   border: none;
@@ -4042,6 +4304,140 @@ button:focus-visible,
   border-radius: var(--radius-sm);
   overflow: hidden;
 }
+
+/* ---------- 就地重命名（P0；renameWidget.ts）----------
+   原地输入框（content widget）+ 当前文件引用 ghost 预览 */
+
+/* 编辑器内：将被同步改名的引用位置高亮（ghost 预览） */
+.oc-rename-ghost {
+  background: var(--accent-faint);
+  outline: 1px solid var(--accent-soft);
+  border-radius: 2px;
+}
+
+/* 原地输入框 widget：锚定在标识符位置下方 */
+.oc-rename-widget {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  background: var(--bg-alt);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  z-index: 40;
+}
+
+.oc-rename-input {
+  min-width: 220px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--fg);
+  font-size: var(--text-sm);
+  font-family: inherit;
+}
+
+.oc-rename-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.oc-rename-input.is-invalid { border-color: var(--danger); }
+
+.oc-rename-hint {
+  display: flex;
+  gap: var(--space-4);
+  font-size: var(--text-xs);
+  color: var(--fg-dim);
+}
+
+.oc-rename-hint-count { color: var(--accent); }
+
+/* ---------- 引用计数 Code Vision（P0；codeVision.ts）----------
+   声明行上方「N 处引用」由 Monaco CodeLens 自带样式渲染；此处只做点击弹层 */
+
+.oc-cv-popup {
+  display: flex;
+  flex-direction: column;
+  max-width: 520px;
+  max-height: 320px;
+  padding: var(--space-2);
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow);
+  z-index: 40;
+}
+
+.oc-cv-popup-header {
+  padding: var(--space-1) var(--space-2) var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--fg-dim);
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.oc-cv-popup-list { overflow-y: auto; padding: var(--space-1) 0; }
+
+.oc-cv-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-1) var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg);
+  font-size: var(--text-xs);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.oc-cv-row:hover { background: var(--hover-subtle); }
+
+.oc-cv-row-loc {
+  flex: 0 0 auto;
+  color: var(--link);
+  font-variant-numeric: tabular-nums;
+}
+
+.oc-cv-row-text {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-dim);
+}
+
+.oc-cv-popup-more-count {
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--fg-dim);
+}
+
+.oc-cv-popup-empty {
+  padding: var(--space-3) var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--fg-dim);
+}
+
+.oc-cv-popup-footer {
+  margin-top: var(--space-1);
+  padding: var(--space-2);
+  border: 0;
+  border-top: 1px solid var(--border-soft);
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  background: transparent;
+  color: var(--link);
+  font-size: var(--text-xs);
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.oc-cv-popup-footer:hover { background: var(--hover-subtle); }
 
 /* ---------- Breadcrumbs 面包屑（P2；breadcrumbs.ts） ---------- */
 /* 一条细条：它的价值是「一直看得见」，故只占一行高度、不加边框分隔（与 tabbar 同层）。 */

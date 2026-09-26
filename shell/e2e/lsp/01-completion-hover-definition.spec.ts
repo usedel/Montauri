@@ -63,18 +63,20 @@ test("代码补全：输入变量名 + . 弹出 LSP 成员补全列表（str 方
 });
 
 test("Hover：悬停函数调用处显示其 docstring", async ({ page }) => {
-  // 悬停须落在文本实际位置（dc 里 view-line 中心是行末空白，Monaco 不触发 hover）
-  // 用 boundingBox 把鼠标移到行内文本区，模仿真实用户把鼠标停在 add_score 附近。
+  // 悬停须落在文本实际位置（dc 里 view-line 中心是行末空白，Monaco 不触发 hover）。
+  // 单次 mouse.move 无中间 mousemove 序列、落点可能在字符间隙 → 偶发不触发：
+  // 分步移动（产生真实 mousemove 流）+ 整体重试去抖。
   const line = page
     .locator("#editor .monaco-editor .view-line", { hasText: "add_score(2, 3)" })
     .first();
-  const box = await line.boundingBox();
-  expect(box).not.toBeNull();
-  await page.mouse.move(box!.x + 60, box!.y + box!.height / 2);
-
-  // Monaco content hover widget（非 hidden）展示 lib.add_score 的文档字符串
-  const hover = page.locator(".monaco-hover:not(.hidden)").first();
-  await expect(hover).toContainText("Return the sum of two integers", { timeout: 10_000 });
+  await expect(async () => {
+    const box = await line.boundingBox();
+    expect(box).not.toBeNull();
+    await page.mouse.move(box!.x + 30, box!.y + box!.height / 2);
+    await page.mouse.move(box!.x + 60, box!.y + box!.height / 2, { steps: 4 });
+    const hover = page.locator(".monaco-hover:not(.hidden)").first();
+    await expect(hover).toContainText("Return the sum of two integers", { timeout: 2_000 });
+  }, { timeout: 15_000 }).toPass();
 });
 
 test("跳转定义：从调用处跳到 lib.py 的定义行", async ({ page }) => {

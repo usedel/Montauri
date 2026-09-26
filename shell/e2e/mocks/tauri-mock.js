@@ -63,8 +63,16 @@
     "plugin:window|close": function () { return null; },
     "plugin:window|start_dragging": function () { return null; },
     "plugin:window|start_resize_dragging": function () { return null; },
-    // 设置
-    get_settings: function () { return SETTINGS; },
+    // 设置：支持测试侧经 window.__E2E_SETTINGS_PRESET__（addInitScript 预置）按字段覆写。
+    // 基线 SETTINGS 的 autosave 保持 "off"——存量 spec（dirty tab 保护 / 关闭确认等语义）依赖它；
+    // autosave 验收 spec（e2e/autosave/）用 preset 显式开启 delay/blur。
+    get_settings: function () {
+      var merged = {}, k;
+      for (k in SETTINGS) merged[k] = SETTINGS[k];
+      var preset = window.__E2E_SETTINGS_PRESET__;
+      if (preset) for (k in preset) merged[k] = preset[k];
+      return merged;
+    },
     save_settings: function () { return null; },
     // 工具链探测：全就绪 → 不弹安装引导（maybePromptToolchain 静默通过）
     detect_toolchain: function () {
@@ -102,8 +110,16 @@
     reveal_plugins_dir: function () { return null; },
     // 应用版本（loader 的 engines 兼容检查用，@tauri-apps/api/app::getVersion）
     "plugin:app|version": function () { return "0.1.0"; },
-    // 剪贴板读（devtools paste 按钮 / facade readClipboard）
-    "plugin:clipboard-manager|read_text": function () { return ""; },
+    // 剪贴板读（devtools paste 按钮 / facade readClipboard / C-5 与剪贴板对比）
+    // 测试可经 window.__E2E_CLIPBOARD__ 预置文本（未预置 = 空串）
+    "plugin:clipboard-manager|read_text": function () {
+      return window.__E2E_CLIPBOARD__ !== undefined ? window.__E2E_CLIPBOARD__ : "";
+    },
+    // ruff lint / 保存时动作（FormatResult 形状：formatted=null = 失败不阻断保存；
+    // mock 不接真实 ruff，仅让 format_python/optimize_imports 命令出现在 invoke 流水里
+    // 供 A-S-3 断言「autosave 不跑 ruff、显式保存才跑」的调用时序）
+    format_python: function () { return { formatted: null, message: "E2E mock：ruff 未接入" }; },
+    optimize_imports: function () { return { formatted: null, message: "E2E mock：ruff 未接入" }; },
     // ruff lint / 终端 shell 探测（近期功能：mock 兜底防 null 被迭代 pageerror）
     ruff_lint: function () { return []; },
     list_shells: function () { return ["pwsh", "powershell", "cmd"]; },
@@ -115,10 +131,34 @@
     "plugin:dialog|save": function () {
       return (window.__E2E_DIALOG_PRESET__ && window.__E2E_DIALOG_PRESET__.save) || null;
     },
+    // 调试环境探测：全就绪 → 不弹「缺失 debugpy」引导（runDebug 直接进 DAP 握手）
+    debug_detect: function () {
+      return { debugpyOk: true, debugpyDir: "C:\\mock\\vendor\\debugpy", depFound: false, depFiles: [] };
+    },
+    // 运行/调试配置：返回空配置（调用方用 .catch(()=>({})) 兜底，但非空解析值会绕过 .catch）
+    get_run_config: function () {
+      return { args: "", env: [], scriptPath: "", cwd: null };
+    },
+    // 断点持久化：工作区打开时回填为空（E2E 不依赖盘上断点）
+    get_breakpoints: function () {
+      return [];
+    },
+    // A-1 资源快照（面板 E2E）：固定样本（外壳 + 两个子进程）
+    proc_stats: function () {
+      return {
+        shell: { pid: 4242, name: "OpenCharm（外壳）", rssMb: 182.3, cpu: 0 },
+        children: [
+          { pid: 5151, name: "pyrefly.exe", rssMb: 96.4, cpu: 1.2 },
+          { pid: 5152, name: "python.exe", rssMb: 48.1, cpu: 0 },
+        ],
+        totalMb: 326.8,
+      };
+    },
   };
 
-  /** 同上：已知返回数组的命令（未在静态表时兜底 []，防 for...of 崩） */
-  var ARRAY_CMDS = ["get_breakpoints", "get_bookmarks", "run_config_list", "list_python_versions",
+  /** 同上：已知返回数组的命令（未在静态表时兜底 []，防 for...of 崩 / .find 抛 TypeError）
+   *  list_pythons 曾缺失 → maybePromptVenv 里 pythons.find 抛错炸掉 openWorkspace 后半段 */
+  var ARRAY_CMDS = ["get_breakpoints", "get_bookmarks", "run_config_list", "list_python_versions", "list_pythons",
     "list_workspace_files", "dep_env_snapshot", "get_recent_files"];
 
   /** bridge 缺失时 git 命令的空返回（形状与 Rust 对齐，防前端渲染崩） */
@@ -152,6 +192,176 @@
         }
       }
     });
+  }
+
+  // ============ 调试 DAP mock（E2E 专用，无真实 debugpy）============
+  // 模拟 stdio adapter 架构的 DAP 时序：debug_start → initialize → attach →
+  // debugpyWaitingForServer → debug_attach_debuggee → initialized → setBreakpoints
+  // → configurationDone → stopped(at breakpoint)。步进/继续按断点行与帧深推演；
+  // 不触达真实进程，仅驱动前端状态机与渲染，用于功能与体验验收。
+  var DBG = {
+    active: false, path: null, wsRoot: null, bps: {}, attachId: 0,
+    currentLine: 0, threadId: 1, frameDepth: 1, failNext: false,
+  };
+  function dbgBasename(p) { var m = /([^\\/]+)$/.exec(p || ""); return m ? m[1] : (p || "script.py"); }
+  function dapRespond(reqId, body) {
+    emitEvent("dap-message", { type: "response", request_seq: reqId, success: true, command: "dap", body: body || {} });
+  }
+  function dapEvent(event, body) {
+    emitEvent("dap-message", { type: "event", event: event, body: body || {} });
+  }
+  function dbgNextBpAfter(line) {
+    var lines = (DBG.bps[DBG.path] || []).map(function (b) { return b.line; }).sort(function (a, b) { return a - b; });
+    for (var i = 0; i < lines.length; i++) if (lines[i] > line) return lines[i];
+    return null;
+  }
+  function dbgTerminate() {
+    dapEvent("continued", { threadId: DBG.threadId });
+    dapEvent("terminated", {});
+    setTimeout(function () { emitEvent("debug-exited", { reason: "exited" }); }, 30);
+  }
+  function dbgStopped() {
+    setTimeout(function () { dapEvent("stopped", { threadId: DBG.threadId, reason: "breakpoint", hitBreakpointIds: [] }); }, 30);
+  }
+  // 测试侧控制面：失败注入 / 状态读取（window.__OC_DEBUG__）
+  window.__OC_DEBUG__ = {
+    reset: function () {
+      DBG.active = false; DBG.path = null; DBG.wsRoot = null; DBG.bps = {};
+      DBG.attachId = 0; DBG.currentLine = 0; DBG.threadId = 1; DBG.frameDepth = 1; DBG.failNext = false;
+    },
+    setFailNext: function (v) { DBG.failNext = !!v; },
+    state: function () { return { active: DBG.active, path: DBG.path, currentLine: DBG.currentLine, frameDepth: DBG.frameDepth, bps: JSON.parse(JSON.stringify(DBG.bps)) }; },
+  };
+
+  function handleDebugCommand(cmd, args) {
+    args = args || {};
+    if (cmd === "debug_start") {
+      if (DBG.failNext) { DBG.failNext = false; throw new Error("debugpy 资源缺失或解释器不可用（E2E 模拟）"); }
+      DBG.active = true;
+      DBG.path = args.path || null;
+      DBG.wsRoot = args.workspaceRoot || null;
+      DBG.currentLine = 0; DBG.frameDepth = 1; DBG.attachId = 0;
+      emitEvent("debug-started", { port: 0, pid: 5678 });
+      return null;
+    }
+    if (cmd === "debug_attach_debuggee") {
+      setTimeout(function () { dapEvent("initialized", {}); }, 30);
+      return null;
+    }
+    if (cmd === "debug_stop") {
+      DBG.active = false;
+      setTimeout(function () { emitEvent("debug-exited", { reason: "user" }); }, 0);
+      return null;
+    }
+    if (cmd === "dap_send_request") {
+      var id = args.id, method = args.method, params = args.params || {};
+      if (method === "initialize") {
+        dapRespond(id, { supportsConfigurationDoneRequest: true, supportsEvaluateForHovers: true, supportsTerminateRequest: true });
+        return null;
+      }
+      if (method === "attach") {
+        DBG.attachId = id;
+        setTimeout(function () { dapEvent("debugpyWaitingForServer", { host: "127.0.0.1", port: 0 }); }, 30);
+        return null;
+      }
+      if (method === "setBreakpoints") {
+        var sp = (params.source && params.source.path) || DBG.path;
+        var reqBps = params.breakpoints || [];
+        DBG.bps[sp] = reqBps.map(function (b) { return { line: b.line, condition: b.condition || null, hitCondition: b.hitCondition || null, logMessage: b.logMessage || null }; });
+        var verified = reqBps.map(function (b) { return { verified: true, line: b.line, source: { path: sp } }; });
+        dapRespond(id, { breakpoints: verified });
+        return null;
+      }
+      if (method === "configurationDone") {
+        if (DBG.attachId) dapRespond(DBG.attachId, {});
+        var bl = (DBG.bps[DBG.path] || []).map(function (b) { return b.line; }).sort(function (a, b) { return a - b; });
+        DBG.currentLine = bl.length ? bl[0] : 1;
+        DBG.frameDepth = 1;
+        dbgStopped();
+        dapRespond(id, {});
+        return null;
+      }
+      if (method === "threads") { dapRespond(id, { threads: [{ id: DBG.threadId, name: "MainThread" }] }); return null; }
+      if (method === "stackTrace") {
+        var frames = [];
+        var names = ["<module>", "compute", "main"];
+        for (var i = 0; i < DBG.frameDepth; i++) {
+          frames.push({ id: i + 1, name: names[i] || ("frame" + i), source: { path: DBG.path, name: dbgBasename(DBG.path) }, line: DBG.currentLine - i * 2, column: 1 });
+        }
+        dapRespond(id, { stackFrames: frames, totalFrames: frames.length });
+        return null;
+      }
+      if (method === "scopes") {
+        dapRespond(id, { scopes: [{ name: "Locals", presentationHint: "locals", variablesReference: 1000 }, { name: "Globals", presentationHint: "globals", variablesReference: 2000 }] });
+        return null;
+      }
+      if (method === "variables") {
+        var ref = params.variablesReference;
+        if (ref === 2000) {
+          dapRespond(id, { variables: [{ name: "__name__", value: "'__main__'", type: "str", variablesReference: 0 }, { name: "__file__", value: "'" + dbgBasename(DBG.path) + "'", type: "str", variablesReference: 0 }] });
+        } else if (ref === 1000) {
+          dapRespond(id, { variables: [{ name: "i", value: "3", type: "int", variablesReference: 0 }, { name: "name", value: "'world'", type: "str", variablesReference: 0 }, { name: "data", value: "{...}", type: "dict", variablesReference: 5000 }, { name: "ok", value: "True", type: "bool", variablesReference: 0 }] });
+        } else if (ref === 5000) {
+          dapRespond(id, { variables: [{ name: "a", value: "1", type: "int", variablesReference: 0 }, { name: "b", value: "2", type: "int", variablesReference: 0 }] });
+        } else {
+          dapRespond(id, { variables: [] });
+        }
+        return null;
+      }
+      if (method === "continue") {
+        var nl = dbgNextBpAfter(DBG.currentLine);
+        dapRespond(id, { allThreadsContinued: true });
+        if (nl == null) dbgTerminate();
+        else { DBG.currentLine = nl; dapEvent("continued", { threadId: DBG.threadId }); dbgStopped(); }
+        return null;
+      }
+      if (method === "next") { DBG.currentLine = DBG.currentLine + 1; dapRespond(id, {}); dapEvent("continued", { threadId: DBG.threadId }); dbgStopped(); return null; }
+      if (method === "stepIn") { DBG.currentLine = DBG.currentLine + 1; DBG.frameDepth = Math.min(DBG.frameDepth + 1, 3); dapRespond(id, {}); dapEvent("continued", { threadId: DBG.threadId }); dbgStopped(); return null; }
+      if (method === "stepOut") {
+        DBG.frameDepth = DBG.frameDepth - 1;
+        dapRespond(id, {});
+        if (DBG.frameDepth < 1) dbgTerminate();
+        else { DBG.currentLine = DBG.currentLine + 1; dapEvent("continued", { threadId: DBG.threadId }); dbgStopped(); }
+        return null;
+      }
+      if (method === "pause") { dapRespond(id, {}); return null; }
+      if (method === "evaluate") { dapRespond(id, { result: String(params.expression) + " ⇒ <value>", type: "str", variablesReference: 0 }); return null; }
+      if (method === "setVariable") { dapRespond(id, { name: params.name, value: params.value, variablesReference: 0 }); return null; }
+      dapRespond(id, {}); // 兜底，避免前端 pending 15s 超时
+      return null;
+    }
+    return "__unhandled__";
+  }
+
+  // ============ 框架探针表 / Pydantic 引擎推荐 / 端点扫描 mock（P1/F0/F1/F2/F4 E2E）============
+  // 状态来源：window.__E2E_FRAMEWORK_PRESET__（addInitScript 预置，见 e2e/ux/02-frameworks.spec.ts）；
+  // hints 持久 sessionStorage（reload 后仍在，验证「工作区级关闭」的持久语义——同 save_session 先例）。
+  var FW_DEFAULT = {
+    deps: "",            // 依赖声明文本（模拟 Rust collect_dep_text）
+    hasFastApiApp: false, // 源码有 `app = FastAPI(`
+    hasFlaskApp: false,
+    hasManagePy: false,
+    pydanticStack: false, // detect_pydantic_stack 的依赖命中（fastapi/pydantic）
+    hints: {},            // framework_hints（工作区级「不再提示」）
+    endpoints: [
+      { framework: "fastapi", method: "GET", route: "/health", file: "main.py", line: 5, handler: "health" },
+      { framework: "fastapi", method: "POST", route: "/v1/api/users", file: "main.py", line: 9, handler: "create_user" },
+      { framework: "fastapi", method: "GET", route: "/v1/api/users/{uid}", file: "routes/users.py", line: 12, handler: "get_user" },
+      { framework: "fastapi", method: "WS", route: "/v1/api/ws", file: "routes/ws.py", line: 3, handler: "ws_echo" },
+    ],
+  };
+  function FW_STATE() {
+    if (!window.__E2E_FRAMEWORK_STATE__) {
+      var fw = JSON.parse(JSON.stringify(FW_DEFAULT));
+      try {
+        var saved = sessionStorage.getItem("oc-e2e-framework-hints");
+        if (saved) fw.hints = JSON.parse(saved);
+      } catch (e) { /* sessionStorage 不可用：hints 仅会话内 */ }
+      var preset = window.__E2E_FRAMEWORK_PRESET__;
+      if (preset) for (var k in preset) fw[k] = preset[k];
+      window.__E2E_FRAMEWORK_STATE__ = fw;
+    }
+    return window.__E2E_FRAMEWORK_STATE__;
   }
 
   var LSP_KIND_METHOD = 2;
@@ -328,6 +538,95 @@
     return null;
   }
 
+  /** 光标处单词（references / rename / prepareRename 共用锚定语义；无词返回 null） */
+  function lspWordAt(uri, pos) {
+    var doc = lspDoc(uri);
+    if (!doc) return null;
+    var line = doc.lines[pos.line] || "";
+    var col = Math.min(Math.max(pos.character, 0), line.length);
+    var isW = function (c) { return /[A-Za-z0-9_]/.test(c || ""); };
+    if (!isW(line[col]) && col > 0 && isW(line[col - 1])) col = col - 1; // 光标贴在词尾
+    if (!isW(line[col])) return null;
+    var start = col, end = col;
+    while (start > 0 && isW(line[start - 1])) start--;
+    while (end < line.length && isW(line[end])) end++;
+    return { word: line.slice(start, end), start: start, end: end };
+  }
+
+  /** 查找引用：该词在全部已镜像文档中的所有出现（含定义；\b 词边界，字符串/注释不区分） */
+  function lspReferences(uri, pos) {
+    var w = lspWordAt(uri, pos);
+    if (!w) return [];
+    var out = [];
+    lspDocs.forEach(function (doc, docUri) {
+      for (var i = 0; i < doc.lines.length; i++) {
+        var re = new RegExp("\\b" + w.word + "\\b", "g");
+        var m;
+        while ((m = re.exec(doc.lines[i])) !== null) {
+          out.push({
+            uri: docUri,
+            range: { start: { line: i, character: m.index }, end: { line: i, character: m.index + w.word.length } },
+          });
+        }
+      }
+    });
+    return out;
+  }
+
+  /** prepareRename：返回光标处单词范围与占位名（无词 → null，前端据此提示「不可重命名」） */
+  function lspPrepareRename(uri, pos) {
+    var w = lspWordAt(uri, pos);
+    if (!w) return null;
+    return {
+      range: { start: { line: pos.line, character: w.start }, end: { line: pos.line, character: w.end } },
+      placeholder: w.word,
+    };
+  }
+
+  /** 重命名：全部已镜像文档中该词的所有出现 → WorkspaceEdit.changes */
+  function lspRename(uri, pos, newName) {
+    var w = lspWordAt(uri, pos);
+    if (!w) return { changes: {} };
+    var changes = {};
+    lspDocs.forEach(function (doc, docUri) {
+      var edits = [];
+      for (var i = 0; i < doc.lines.length; i++) {
+        var re = new RegExp("\\b" + w.word + "\\b", "g");
+        var m;
+        while ((m = re.exec(doc.lines[i])) !== null) {
+          edits.push({
+            range: { start: { line: i, character: m.index }, end: { line: i, character: m.index + w.word.length } },
+            newText: newName,
+          });
+        }
+      }
+      if (edits.length) changes[docUri] = edits;
+    });
+    return { changes: changes };
+  }
+
+  /** documentSymbol：def/class 平铺列表（kind: class=5 / 方法=6 / 顶层函数=12），Code Vision 与面包屑共用 */
+  function lspDocumentSymbols(uri) {
+    var doc = lspDoc(uri);
+    if (!doc) return [];
+    var out = [];
+    for (var i = 0; i < doc.lines.length; i++) {
+      var raw = doc.lines[i];
+      var indent = raw.length - raw.replace(/^\s+/, "").length;
+      var code = raw.replace(/^\s+/, "");
+      var m = /^(def|class)\s+([A-Za-z_][A-Za-z0-9_]*)/.exec(code);
+      if (!m) continue;
+      var nameChar = raw.indexOf(m[2], indent + m[1].length);
+      out.push({
+        name: m[2],
+        kind: m[1] === "class" ? 5 : indent > 0 ? 6 : 12,
+        range: { start: { line: i, character: indent }, end: { line: i, character: raw.length } },
+        selectionRange: { start: { line: i, character: nameChar }, end: { line: i, character: nameChar + m[2].length } },
+      });
+    }
+    return out;
+  }
+
   /** 诊断（「提醒」）：对 `import nonexistent_*` / `import missing_*` 生成 missing-import 错误，
    *  对齐真实 pyrefly 的 missing-import 诊断形态（severity=1 / code=missing-import）。 */
   function lspComputeDiagnostics(uri) {
@@ -354,6 +653,15 @@
     args = args || {};
     invokeLog.push(cmd + "(" + Object.keys(args).join(",") + ")");
     if (invokeLog.length > 200) invokeLog.shift();
+    // 0.5) E2E 动作记录（端点工具窗 F2 验收：浏览器打开 / 复制 URL 的落点断言）
+    if (cmd === "open_external") {
+      (window.__E2E_OPENED_URLS__ = window.__E2E_OPENED_URLS__ || []).push(String(args.url ?? ""));
+      return null;
+    }
+    if (cmd === "copy_to_clipboard") {
+      (window.__E2E_COPIED__ = window.__E2E_COPIED__ || []).push(String(args.text ?? ""));
+      return null;
+    }
     // 1) 事件注册：args.handler 是 transformCallback 返回的回调 id（number）
     if (cmd === "plugin:event|listen") {
       var handlerId = args.handler;
@@ -402,7 +710,7 @@
       var eng0 = args.engine, rid = args.id, method0 = args.method, params0 = args.params || {};
       var result0 = null;
       if (method0 === "initialize") {
-        result0 = { capabilities: { textDocumentSync: 2, completionProvider: { triggerCharacters: [".", "_"], resolveProvider: true }, hoverProvider: true, definitionProvider: true } };
+        result0 = { capabilities: { textDocumentSync: 2, completionProvider: { triggerCharacters: [".", "_"], resolveProvider: true }, hoverProvider: true, definitionProvider: true, referencesProvider: true, documentSymbolProvider: true, renameProvider: { prepareProvider: true } } };
       } else if (method0 === "textDocument/completion") {
         var td0 = params0.textDocument || {};
         result0 = { isIncomplete: false, items: lspComplete(td0.uri, params0.position || { line: 0, character: 0 }) };
@@ -414,6 +722,18 @@
       } else if (method0 === "textDocument/definition") {
         var td2 = params0.textDocument || {};
         result0 = lspDefinition(td2.uri, params0.position || { line: 0, character: 0 });
+      } else if (method0 === "textDocument/documentSymbol") {
+        var td4 = params0.textDocument || {};
+        result0 = lspDocumentSymbols(td4.uri);
+      } else if (method0 === "textDocument/references") {
+        var td5 = params0.textDocument || {};
+        result0 = lspReferences(td5.uri, params0.position || { line: 0, character: 0 });
+      } else if (method0 === "textDocument/prepareRename") {
+        var td6 = params0.textDocument || {};
+        result0 = lspPrepareRename(td6.uri, params0.position || { line: 0, character: 0 });
+      } else if (method0 === "textDocument/rename") {
+        var td7 = params0.textDocument || {};
+        result0 = lspRename(td7.uri, params0.position || { line: 0, character: 0 }, String(params0.newName ?? ""));
       }
       emitEvent("lsp-message", { engine: eng0, id: rid, result: result0 });
       // 诊断用：记录 LSP 请求方法 + 结果（供 E2E 调试读取 window.__OPENCHARM_LSP_LOG__）
@@ -445,6 +765,53 @@
       return null;
     }
     if (cmd === "lsp_send_response" || cmd === "lsp_start" || cmd === "lsp_stop") return null;
+    // 4.65) 框架探针表 / Pydantic 引擎推荐 / 端点扫描（形状对齐 env_cmds.rs / fs_cmds.rs）
+    if (cmd === "detect_framework" || cmd === "set_framework_hint_disabled" || cmd === "detect_pydantic_stack" ||
+        cmd === "scan_endpoints" || cmd === "get_project_run" || cmd === "set_project_run") {
+      var fw = FW_STATE();
+      if (cmd === "detect_framework") {
+        // 优先级同 Rust：django（manage.py 强约定）→ fastapi → flask；hints 内为 true 的框架跳过
+        if (!fw.hints.django && fw.hasManagePy && fw.deps.indexOf("django") >= 0) {
+          return { framework: "django", label: "Django", file: "manage.py", entry: { kind: "script", target: "manage.py" }, args: "runserver", cwd: "${workspaceRoot}", summary: "manage.py runserver", missing: [] };
+        }
+        if (!fw.hints.fastapi && fw.deps.indexOf("fastapi") >= 0 && fw.hasFastApiApp) {
+          var server = fw.deps.indexOf("uvicorn") >= 0 ? "uvicorn" : (fw.deps.indexOf("hypercorn") >= 0 ? "hypercorn" : "uvicorn");
+          return { framework: "fastapi", label: "FastAPI", file: "main.py", entry: { kind: "module", target: server }, args: "main:app --reload", cwd: "${workspaceRoot}", summary: "-m " + server + " main:app --reload", missing: [] };
+        }
+        if (!fw.hints.flask && fw.deps.indexOf("flask") >= 0 && fw.hasFlaskApp) {
+          return { framework: "flask", label: "Flask", file: "app.py", entry: { kind: "module", target: "flask" }, args: "--app app:app run --debug", cwd: "${workspaceRoot}", summary: "-m flask --app app:app run --debug", missing: [] };
+        }
+        return null;
+      }
+      if (cmd === "set_framework_hint_disabled") {
+        fw.hints[String(args.framework)] = !!args.disabled;
+        try { sessionStorage.setItem("oc-e2e-framework-hints", JSON.stringify(fw.hints)); } catch (e) { /* 不可持久则仅会话内 */ }
+        return null;
+      }
+      if (cmd === "detect_pydantic_stack") return !!fw.pydanticStack && !fw.hints.pydantic_engine;
+      if (cmd === "scan_endpoints") return JSON.parse(JSON.stringify(fw.endpoints));
+      if (cmd === "get_project_run") return window.__E2E_PROJECT_RUN__ || null;
+      if (cmd === "set_project_run") { window.__E2E_PROJECT_RUN__ = args.config || null; return null; }
+    }
+    // 4.6) 调试 DAP mock（E2E 专用，无真实 debugpy）：模拟 stdio adapter 架构时序与步进推演
+    var dh = handleDebugCommand(cmd, args);
+    if (dh !== "__unhandled__") return dh;
+    // 4.7) A-5 会话快照：存 sessionStorage（addInitScript 每次导航都会重跑，模块级变量会丢；
+    //      sessionStorage 在 reload 后仍在，才能验证「重启后恢复」）。
+    //      注：静态表调用形如 `h()` 不传 args，故这里必须单独分支才能拿到 root/state。
+    if (cmd === "save_session") {
+      try {
+        sessionStorage.setItem("oc-session:" + String(args.root), JSON.stringify(args.state));
+      } catch (e) {}
+      return null;
+    }
+    if (cmd === "get_session") {
+      try {
+        var sraw = sessionStorage.getItem("oc-session:" + String(args.root));
+        if (sraw) return JSON.parse(sraw);
+      } catch (e) {}
+      return { tabs: [], active: null };
+    }
     // 5) 静态表
     var h = staticHandlers[cmd];
     if (h) return h();

@@ -41,6 +41,11 @@ const SHORTCUTS: WelcomeShortcut[] = [
   { label: "格式化文档", fixed: "Shift+Alt+F" },
   { label: "启动调试", kb: "debug" },
   { label: "关闭标签", kb: "close_tab" },
+  // PR-A（dx_features_backlog §6.1）：键位补齐组的高频两项
+  { label: "删除行", kb: "delete_line" },
+  { label: "重新打开关闭的标签", kb: "reopen_tab" },
+  // PR-D（dx_features_backlog §6.4）：最近编辑位置
+  { label: "上一个编辑位置", kb: "recent_edit_locations" },
   { label: "新建文件", kb: "new_file" },
   { label: "转到文件", kb: "goto_file" },
   { label: "导航后退", kb: "nav_back" },

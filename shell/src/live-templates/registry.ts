@@ -26,6 +26,8 @@ export interface EffectiveEntry {
   tabExpand: boolean;
   /** 启用的 scope 列表（墓碑 scope 不在内） */
   scopes: string[];
+  /** 生效定义的适用位置（缺省填充；管理面板展示用） */
+  positions: PositionKind[];
   /** 最窄提供方的来源层 */
   origin: TemplateLayer;
   enabled: boolean;
@@ -180,6 +182,7 @@ export class TemplateRegistry {
         group: ref.tpl.group,
         tabExpand: ref.tpl.tabExpand,
         scopes: enabledScopes.sort(),
+        positions: positionsOf(ref.tpl),
         origin: ref.origin,
         enabled: enabledScopes.length > 0,
         tpl: ref.tpl,

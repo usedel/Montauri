@@ -14,6 +14,17 @@
 
 > 2026-09-15 运行功能迁移收尾 + UI 细节改进（`python_run_migration_plan.md`）引出。均为「一致性 / 体验」债，非缺陷，全局落地时作为独立 PR。
 
+### TD-021 推送前复核遗留的低优先项（P4，5 小项；2026-09-25 全量复核引出）
+
+- **起因**：P0~P4 六个未推送提交推送前全量复核（子代理深审 + 人工求证）。两个中等问题（终端背压队列无上限、stop/exit 提示时序）与三个低级项（session 静默失败、异常断点失败不回滚、Watches 满额静默/无令牌、resourcePanel 死代码）已随当次修复提交偿还；以下 5 小项经裁决**暂缓**。
+- **① terminal.ts 背压「字节预算」实为 UTF-16 字符数**：`pendingBytes += data.length`，CJK 输出下真实 UTF-8 字节约为 3 倍，256KB/4MB 阈值在中文场景放宽 ~3 倍。无功能错误，仅削峰粒度。修法：`Buffer.byteLength(data, "utf8")` 口径（需逐块缓存字节长度或改存 Uint8Array）。
+- **② session.ts `restoring` 是布尔非令牌**：恢复 A 进行中切到工作区 B，A 的 `finally restoring=false` 会提前解锁，B 半恢复状态可能被防抖快照写回。场景罕见。修法：改为计数器/令牌。
+- **③ sessions.rs 快照超 40 tab 保头弃尾**：`truncate(MAX_TABS)` 丢的是最近打开的 tab，与「恢复最近现场」直觉相反。修法：保尾（`tabs.slice(-MAX_TABS)`）并同步活动 tab 判定。
+- **④ proc_stats 只统计直接子进程**：运行链存在中间层（cmd /c、shell 包装）时孙进程内存不计入合计，芯片口径偏小。修法：递归遍历进程树（注意 sysinfo 环处理）。
+- **⑤ debugWatches.ts 顶层 `load()` 读 localStorage**：顶层副作用（有 try/catch 兜底）。修法：改惰性初始化。
+- **处理时机**：各自独立成 PR，任一项先跑对应测试矩阵（terminal → perf/01；session → session/01；debug → debug specs + 真机）。
+- **涉及文件**：`shell/src/terminal.ts`、`shell/src/session.ts`、`shell/src-tauri/src/sessions.rs`、`shell/src-tauri/src/proc_stats.rs`、`shell/src/debugWatches.ts`。
+
 ### TD-020 停止运行时 `[opencharm-probe]` 摘要日志重复打印（P3，观感/数据卫生）
 
 - **起因**：停止运行（脚本/项目）时，终端里的 `[opencharm-probe] ✓ …` 摘要日志偶发重复打印。

@@ -6,6 +6,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { STDLIB_MODULES } from "../stdlib";
 import { app } from "../state";
+import * as dap from "../dap/client"; // B-8：暂停态 hover 求值（dap 不依赖 lsp，无环）
 import { depActionsForLine, latestDiff, toWorkspaceRelative } from "../depHealth";
 
 // Monaco 实例注入（配合 main.ts 动态加载；providers 注册前必须先注入）
@@ -87,6 +88,11 @@ const engineStatusListeners: Array<(s: EngineStatus) => void> = [];
 export function onEngineStatus(fn: (s: EngineStatus) => void): void {
   engineStatusListeners.push(fn);
   fn(engineStatus);
+}
+
+/** E-2：同步读当前引擎状态（findUsages 等 UI 判断「引擎未就绪 → 结果可能不完整」用） */
+export function getEngineStatus(): EngineStatus {
+  return engineStatus;
 }
 function setEngineStatus(s: EngineStatus): void {
   engineStatus = s;
@@ -294,7 +300,7 @@ async function doEnsureListeners(): Promise<void> {
   });
 }
 
-export async function startEngine(engine: string, rootUri: string, interpreter: string | null): Promise<void> {
+export async function startEngine(engine: string, rootUri: string, interpreter: string | null, cwd?: string): Promise<void> {
   await stopEngine();
   setEngineStatus("starting");
   diagnosticsCache.clear(); // 旧引擎的诊断不带入新引擎
@@ -310,7 +316,9 @@ export async function startEngine(engine: string, rootUri: string, interpreter: 
   await ensureListeners();
 
   session("static").status = "starting";
-  await invoke("lsp_start", { engine: "static", command: info.command, args: info.args });
+  // cwd = 工作区根：pyrefly 从进程 cwd 发现 pyproject.toml 并启动工作区索引；
+  // 不传则引擎继承应用目录 → 永远找不到 config → references/rename 只覆盖已 open 文件
+  await invoke("lsp_start", { engine: "static", command: info.command, args: info.args, cwd: cwd ?? null });
 
   // initialize 握手
   const initResult = await request("initialize", {
@@ -376,7 +384,7 @@ export async function startIntel(workspaceRoot: string, rootUri: string): Promis
   await ensureListeners();
   s.status = "starting";
   try {
-    await invoke("lsp_start", { engine: "intel", command: info.command, args: [] });
+    await invoke("lsp_start", { engine: "intel", command: info.command, args: [], cwd: workspaceRoot });
     await requestEngine("intel", "initialize", {
       processId: null,
       rootUri,
@@ -462,6 +470,18 @@ export function didOpen(path: string, model: MonacoApi.editor.ITextModel): void 
   });
 }
 
+/** 未打开文件的内容级 didOpen（重命名跨文件写盘后让引擎索引跟上，引用计数才不会错） */
+function didOpenText(path: string, text: string): Promise<void> {
+  return broadcast("textDocument/didOpen", {
+    textDocument: {
+      uri: pathToFileUri(path),
+      languageId: "python",
+      version: 1,
+      text,
+    },
+  });
+}
+
 /**
  * 全量同步：防抖窗口结束时发送当前全文。
  * 注意：不用 range-based 增量——pyrefly 的 contentChanges 语义是「替换文档状态」，
@@ -498,6 +518,7 @@ export interface LspDocumentSymbol {
 
 export async function documentSymbols(path: string): Promise<LspDocumentSymbol[]> {
   if (engineStatus !== "ready") return [];
+  await flushBeforeSemantic();
   try {
     const result = await request("textDocument/documentSymbol", {
       textDocument: { uri: pathToFileUri(path) },
@@ -532,6 +553,19 @@ let INSERT_AS_SNIPPET = 4;
 let beforeCompletionHook: ((model: MonacoApi.editor.ITextModel) => Promise<void>) | null = null;
 export function setBeforeCompletionHook(fn: (model: MonacoApi.editor.ITextModel) => Promise<void>): void {
   beforeCompletionHook = fn;
+}
+
+/**
+ * 语义请求前钩子：references / rename / prepareRename / documentSymbol 与补全同理，
+ * 发请求前必须冲刷防抖窗口内未同步的 didChange——引擎按旧缓冲计算就会漏改 / 错位
+ *（rename 的 edits 范围套到新文本上）。由 main.ts 注入 syncPendingChanges（空集零开销）。
+ */
+let beforeSemanticHook: (() => Promise<void>) | null = null;
+export function setBeforeSemanticHook(fn: () => Promise<void>): void {
+  beforeSemanticHook = fn;
+}
+async function flushBeforeSemantic(): Promise<void> {
+  if (beforeSemanticHook) await beforeSemanticHook();
 }
 
 /** 查询某引擎的补全项（引擎未就绪返回空数组） */
@@ -675,7 +709,7 @@ async function queryHover(engine: string, params: unknown): Promise<LspHover | n
   }
 }
 
-/** Hover 合并：静态 + 运行时（intel）拼接展示 */
+/** Hover 合并：静态 + 运行时（intel）拼接展示；调试暂停时并入运行时求值（B-8） */
 export function registerLspHover(): MonacoApi.IDisposable {
   return monaco.languages.registerHoverProvider("python", {
     async provideHover(model: MonacoApi.editor.ITextModel, position: MonacoApi.Position) {
@@ -690,7 +724,25 @@ export function registerLspHover(): MonacoApi.IDisposable {
       ]);
       const sv = hoverToText(staticHover);
       const iv = hoverToText(intelHover);
-      const value = [sv, iv].filter(Boolean).join(sv && iv ? "\n\n" : "");
+      let value = [sv, iv].filter(Boolean).join(sv && iv ? "\n\n" : "");
+      // B-8：调试暂停时，光标处标识符的**运行时值**并入 hover（context="hover"，
+      // DAP 语义为无副作用求值；帧取 debugView 同步过来的镜像）。求值失败静默——
+      // hover 是高频路径，失败不该打扰用户。
+      if (dap.currentPhase() === "stopped") {
+        const word = model.getWordAtPosition(position);
+        if (word?.word) {
+          try {
+            const r = await dap.dapEvaluate(word.word, dap.getActiveFrameId(), "hover");
+            if (r.result) {
+              const shown = r.result.length > 300 ? `${r.result.slice(0, 299)}…` : r.result;
+              const line = `**调试值** \`${shown}\``;
+              value = value ? `${value}\n\n${line}` : line;
+            }
+          } catch {
+            /* 无法求值（不在帧上下文/表达式不可见）→ 不显示调试段 */
+          }
+        }
+      }
       if (!value) return null;
       return { range: undefined, contents: [{ value }] };
     },
@@ -800,35 +852,15 @@ interface LspTextEdit {
   newText?: string;
 }
 
-interface LspWorkspaceEdit {
-  changes?: Record<string, LspTextEdit[]>;
-  documentChanges?: unknown;
+interface LspTextDocumentEdit {
+  textDocument: { uri: string; version?: number };
+  edits?: LspTextEdit[];
 }
 
-/** LSP WorkspaceEdit.changes → Monaco 单文件 edits（仅当前 model；F2 快捷重命名用） */
-function workspaceEditToMonaco(
-  changes: Record<string, LspTextEdit[]> | undefined,
-  model: MonacoApi.editor.ITextModel,
-): MonacoApi.languages.IWorkspaceTextEdit[] {
-  if (!changes) return [];
-  const modelUri = model.uri.toString();
-  const edits: MonacoApi.languages.IWorkspaceTextEdit[] = [];
-  for (const [uri, items] of Object.entries(changes)) {
-    if (uri !== modelUri) continue;
-    for (const it of items) {
-      const start = lspPosToMonaco(it.range.start);
-      const end = lspPosToMonaco(it.range.end);
-      edits.push({
-        resource: model.uri,
-        versionId: undefined,
-        textEdit: {
-          range: new monaco.Range(start.lineNumber, start.column, end.lineNumber, end.column),
-          text: it.newText ?? "",
-        },
-      });
-    }
-  }
-  return edits;
+interface LspWorkspaceEdit {
+  changes?: Record<string, LspTextEdit[]>;
+  /** LSP 3.17 形态（pyrefly 等引擎可能返回这种而非 changes）：漏解析会整块漏改 */
+  documentChanges?: LspTextDocumentEdit[];
 }
 
 /** LSP TextEdit[] → 字符串层应用（对未打开文件；UTF-16 offset 计算，CRLF/LF 均正确） */
@@ -885,9 +917,15 @@ async function applyWorkspaceChanges(
       applyEditsToModel(openModel, edits);
       await invoke("write_file", { path, content: openModel.getValue() });
       didSave(path, openModel);
+      // 立即同步引擎（不等 200ms 防抖）：否则窗口内 references 计数按旧内容算
+      await didChangeFull(path, openModel);
     } else {
       const content = await invoke<string>("read_file", { path });
-      await invoke("write_file", { path, content: applyEditsToString(content, edits) });
+      const newContent = applyEditsToString(content, edits);
+      await invoke("write_file", { path, content: newContent });
+      // 引擎从没见过这个文件的这次改动（didOpen 只在打开 tab 时发）——不发引擎索引
+      // 停在旧内容，重命名后的引用计数 / 引用列表会持续错误
+      await didOpenText(path, newContent);
     }
     applied += edits.length;
   }
@@ -901,67 +939,170 @@ export interface RenameResult {
   totalEdits: number;
 }
 
+/** 单条重命名编辑（Monaco 1-based 坐标，供 UI 预览与统一应用） */
+export interface RenameEdit {
+  startLine: number;
+  startColumn: number;
+  endLine: number;
+  endColumn: number;
+  text: string;
+}
+
+/** 单文件的重命名编辑集 */
+export interface RenameFileEdits {
+  path: string;
+  edits: RenameEdit[];
+}
+
 /**
- * 跨文件重命名（Shift+F6 / 引用面板「重命名」）：textDocument/rename → 工作区级 apply。
- * 当前 model 与其他所有文件统一应用并写盘，返回改动规模供 UI 提示。
+ * prepareRename：确认光标处可重命名并锚定符号范围（就地改名的第一步，
+ * 光标落在注释 / 字符串上时返回 null，避免盲改）。
  */
-export async function renameSymbol(
+export async function fetchRenameAnchor(
+  model: MonacoApi.editor.ITextModel,
+  position: MonacoApi.Position,
+): Promise<{ range: MonacoApi.Range; placeholder: string } | null> {
+  if (engineStatus !== "ready") return null;
+  await flushBeforeSemantic();
+  try {
+    const r = await request("textDocument/prepareRename", {
+      textDocument: { uri: pathToFileUri(currentPath(model)) },
+      position: monacoPosToLsp(position),
+    });
+    if (!r) return null;
+    // LSP 返回两种形态：{ range, placeholder }（3.16+）或 [range, placeholder]（3.14-3.15）
+    let range: LspRange | null = null;
+    let placeholder = "";
+    if (Array.isArray(r)) {
+      range = (r[0] as LspRange) ?? null;
+      placeholder = typeof r[1] === "string" ? r[1] : "";
+    } else {
+      const obj = r as { range?: LspRange; placeholder?: string };
+      range = obj.range ?? null;
+      placeholder = obj.placeholder ?? "";
+    }
+    if (!range) return null;
+    const start = lspPosToMonaco(range.start);
+    const end = lspPosToMonaco(range.end);
+    return { range: new monaco.Range(start.lineNumber, start.column, end.lineNumber, end.column), placeholder };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 请求跨文件重命名编辑集（textDocument/rename）：只计算不落盘。
+ * 返回按文件分组的 Monaco 坐标编辑集，交互层（renameWidget.ts）先做 diff 预览再应用。
+ */
+export async function fetchRenameChanges(
   model: MonacoApi.editor.ITextModel,
   position: MonacoApi.Position,
   newName: string,
-): Promise<RenameResult> {
+): Promise<RenameFileEdits[]> {
   if (engineStatus !== "ready") throw new Error("LSP 引擎未就绪");
+  await flushBeforeSemantic();
   const result = await request("textDocument/rename", {
     textDocument: { uri: pathToFileUri(currentPath(model)) },
     position: monacoPosToLsp(position),
     newName,
   });
   const we = result as LspWorkspaceEdit;
-  const changes = we?.changes ?? {};
-  const localNorm = normPath(currentPath(model));
-  const localEdits: LspTextEdit[] = [];
-  for (const [uri, edits] of Object.entries(changes)) {
-    if (normPath(fileUriToPath(uri)) === localNorm) localEdits.push(...edits);
-  }
-  applyEditsToModel(model, localEdits);
-  if (localEdits.length > 0) {
-    await invoke("write_file", { path: currentPath(model), content: model.getValue() });
-    didSave(currentPath(model), model);
-  }
-  const crossApplied = await applyWorkspaceChanges(changes, localNorm);
-  return { changedFiles: Object.keys(changes).length, totalEdits: localEdits.length + crossApplied };
+  const byPath = new Map<string, RenameEdit[]>();
+  const collect = (uri: string, edits: LspTextEdit[] | undefined): void => {
+    const path = fileUriToPath(uri);
+    const arr = byPath.get(path) ?? [];
+    for (const it of edits ?? []) {
+      const start = lspPosToMonaco(it.range.start);
+      const end = lspPosToMonaco(it.range.end);
+      arr.push({
+        startLine: start.lineNumber,
+        startColumn: start.column,
+        endLine: end.lineNumber,
+        endColumn: end.column,
+        text: it.newText ?? "",
+      });
+    }
+    byPath.set(path, arr);
+  };
+  for (const [uri, edits] of Object.entries(we?.changes ?? {})) collect(uri, edits);
+  for (const de of we?.documentChanges ?? []) collect(de.textDocument.uri, de.edits);
+  return [...byPath.entries()].map(([path, edits]) => ({ path, edits }));
 }
 
-/** 注册重命名 provider（F2）：LSP rename → 单文件 edits（跨文件请走 renameSymbol / Shift+F6） */
-export function registerLspRename(): MonacoApi.IDisposable {
-  return monaco.languages.registerRenameProvider("python", {
-    async provideRenameEdits(model, position, newName) {
-      if (engineStatus !== "ready") return null;
-      try {
-        const result = await request("textDocument/rename", {
-          textDocument: { uri: pathToFileUri(currentPath(model)) },
-          position: monacoPosToLsp(position),
-          newName,
-        });
-        const we = result as LspWorkspaceEdit;
-        const edits = workspaceEditToMonaco(we?.changes, model);
-        if (edits.length === 0) {
-          // 当前文件内无改动、但其他文件有：提示改用 Shift+F6（跨文件）而非静默失败
-          const hasOtherFiles = we?.changes && Object.keys(we.changes).some((u) => normPath(fileUriToPath(u)) !== normPath(currentPath(model)));
-          if (hasOtherFiles) {
-            return {
-              edits: [],
-              rejectReason: "此符号的改动涉及其他文件，请用 Shift+F6 跨文件重命名",
-            };
-          }
-          return null;
-        }
-        return { edits };
-      } catch (e) {
-        return { edits: [], rejectReason: `重命名失败：${e instanceof Error ? e.message : e}` };
-      }
+/** RenameEdit[] → 内部 LSP 坐标（复用既有 model / 字符串应用实现） */
+function toLspEdits(edits: RenameEdit[]): LspTextEdit[] {
+  return edits.map((e) => ({
+    range: {
+      start: { line: e.startLine - 1, character: e.startColumn - 1 },
+      end: { line: e.endLine - 1, character: e.endColumn - 1 },
     },
-  });
+    newText: e.text,
+  }));
+}
+
+/** 重命名编辑集应用到字符串（未打开文件的 diff 预览用；Monaco 1-based 坐标） */
+export function applyRenameEditsToText(content: string, edits: RenameEdit[]): string {
+  const lines = content.split("\n");
+  const lineStarts: number[] = [];
+  let pos = 0;
+  for (const ln of lines) {
+    lineStarts.push(pos);
+    pos += ln.length + 1;
+  }
+  const offsetOf = (line: number, col: number): number => lineStarts[line - 1] + (col - 1);
+  const ops = edits.map((e) => ({
+    start: offsetOf(e.startLine, e.startColumn),
+    end: offsetOf(e.endLine, e.endColumn),
+    text: e.text,
+  }));
+  ops.sort((a, b) => b.start - a.start); // 倒序应用，避免后续 offset 偏移
+  let result = content;
+  for (const op of ops) {
+    result = result.slice(0, op.start) + op.text + result.slice(op.end);
+  }
+  return result;
+}
+
+/**
+ * 应用重命名编辑集：当前文件走单批 pushEditOperations（一个 undo 原子）+ 写盘 + didSave；
+ * 其余文件经 applyWorkspaceChanges（已打开 → model 编辑，未打开 → 字符串层应用）。
+ */
+export async function applyRenameChanges(
+  model: MonacoApi.editor.ITextModel,
+  files: RenameFileEdits[],
+): Promise<void> {
+  const localNorm = normPath(currentPath(model));
+  const local = files.find((f) => normPath(f.path) === localNorm);
+  if (local && local.edits.length > 0) {
+    applyEditsToModel(model, toLspEdits(local.edits));
+    await invoke("write_file", { path: currentPath(model), content: model.getValue() });
+    didSave(currentPath(model), model);
+    // 立即同步引擎（不等 200ms 防抖），窗口内的引用计数请求才不会按旧内容算
+    await didChangeFull(currentPath(model), model);
+  }
+  const changes: Record<string, LspTextEdit[]> = {};
+  for (const f of files) {
+    if (normPath(f.path) === localNorm) continue;
+    changes[pathToFileUri(f.path)] = toLspEdits(f.edits);
+  }
+  await applyWorkspaceChanges(changes, localNorm);
+}
+
+/**
+ * 跨文件重命名（引用面板「重命名」等旧入口）：请求 + 应用一步完成，返回改动规模供 UI 提示。
+ * 就地改名交互（ghost 预览 / diff 预览）见 renameWidget.ts。
+ */
+export async function renameSymbol(
+  model: MonacoApi.editor.ITextModel,
+  position: MonacoApi.Position,
+  newName: string,
+): Promise<RenameResult> {
+  const files = await fetchRenameChanges(model, position, newName);
+  await applyRenameChanges(model, files);
+  return {
+    changedFiles: files.length,
+    totalEdits: files.reduce((n, f) => n + f.edits.length, 0),
+  };
 }
 
 // ---------- 查找引用（textDocument/references） ----------
@@ -974,12 +1115,51 @@ export interface LspReferenceLocation {
   endCol: number;
 }
 
+function sameRefs(a: LspReferenceLocation[], b: LspReferenceLocation[]): boolean {
+  if (a.length !== b.length) return false;
+  const key = (r: LspReferenceLocation): string => `${r.path}:${r.line}:${r.col}:${r.endLine}:${r.endCol}`;
+  const sa = a.map(key).sort();
+  const sb = b.map(key).sort();
+  return sa.every((k, i) => k === sb[i]);
+}
+
+/**
+ * 等待引擎对该符号的引用索引稳定（pyrefly lsp 默认 lazy-non-blocking-background 索引：
+ * 打开首个文件后才在后台建索引，未完成时 references / rename 只覆盖已索引文件 →
+ * 重命名漏改 / 引用计数偏小）。连续两次结果全等即认为稳定；已稳定时只多一次请求。
+ * onSample：每次采样回调（renameWidget 借此实时刷新 ghost 计数）。
+ * onSettled：结束回调（E-2），stable=false 表示轮询次数用尽仍未收敛——调用方应提示
+ * 「工作区索引可能尚未完成，结果可能不完整」（G-3：禁止静默不完整）。
+ */
+export async function waitReferencesStable(
+  model: MonacoApi.editor.ITextModel,
+  position: MonacoApi.Position,
+  opts: { maxTries?: number; intervalMs?: number; onSample?: (refs: LspReferenceLocation[]) => void; onSettled?: (stable: boolean) => void } = {},
+): Promise<LspReferenceLocation[]> {
+  const maxTries = opts.maxTries ?? 6;
+  const intervalMs = opts.intervalMs ?? 700;
+  let prev: LspReferenceLocation[] | null = null;
+  for (let i = 0; i < maxTries; i++) {
+    const cur = await fetchReferencesAt(model, position);
+    opts.onSample?.(cur);
+    if (prev && sameRefs(prev, cur)) {
+      opts.onSettled?.(true);
+      return cur;
+    }
+    prev = cur;
+    if (i < maxTries - 1) await new Promise((r) => setTimeout(r, intervalMs));
+  }
+  opts.onSettled?.(false);
+  return prev ?? [];
+}
+
 /** 查询光标处符号的所有引用（供 Shift+F12 与全局搜索面板复用） */
 export async function fetchReferencesAt(
   model: MonacoApi.editor.ITextModel,
   position: MonacoApi.Position,
 ): Promise<LspReferenceLocation[]> {
   if (engineStatus !== "ready") return [];
+  await flushBeforeSemantic();
   try {
     const locs: LspLocation[] | null = await request("textDocument/references", {
       textDocument: { uri: pathToFileUri(currentPath(model)) },

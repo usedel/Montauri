@@ -386,6 +386,13 @@ pub struct PersistedBreakpoint {
     pub hit_condition: String,
     #[serde(default)]
     pub log_message: String,
+    /// 启用状态（B-6；缺省 = 启用——旧快照无此字段时不改变行为）
+    #[serde(default = "default_enabled")]
+    pub enabled: bool,
+}
+
+fn default_enabled() -> bool {
+    true
 }
 
 fn breakpoints_path(root: &str) -> PathBuf {

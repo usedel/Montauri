@@ -11,6 +11,8 @@
 import type * as MonacoApi from "monaco-editor/esm/vs/editor/editor.api";
 import { app, type MonacoModule } from "./state";
 import { KEYBINDING_META, type KeybindingId } from "./keybindingDefaults";
+import { toast } from "./toast"; // P4（C-3）：列选择开关的可见反馈（G-3）
+import { toggleSplit } from "./splitEditor"; // P4（C-4）：向右分屏（splitEditor 不反向依赖本模块，无环）
 
 // re-export 出厂键位元数据，保持既有 `import ... from "./keybindings"` 调用方不变
 export { KEYBINDING_META } from "./keybindingDefaults";
@@ -71,6 +73,34 @@ export function parseKeyToken(token: string): string | null {
   if (alias) return alias;
   const named = NAMED_KEYS.find((n) => n.toLowerCase() === lower);
   return named ?? null;
+}
+
+/**
+ * `KeyboardEvent.code` → 键位串里的键 token（`parseKeyToken` 的反向，用于设置面板「按键录入」）。
+ * 例：KeyS → S、Digit0 → 0、Slash → /、F10 → F10、ArrowLeft → ArrowLeft。
+ * 无法用键位串表达的键（Numpad*、CapsLock、纯修饰键 ControlLeft 等）返回 null。
+ */
+export function codeToKeyToken(code: string): string | null {
+  const letter = /^Key([A-Z])$/.exec(code);
+  if (letter) return letter[1];
+  const digit = /^Digit([0-9])$/.exec(code);
+  if (digit) return digit[1];
+  if (/^F([1-9]|1[0-9]|2[0-4])$/.test(code)) return code;
+  if (NAMED_KEYS.includes(code)) return code;
+  for (const [sym, c] of Object.entries(SYMBOL_KEYS)) if (c === code) return sym;
+  return null;
+}
+
+/** 事件当前按下的修饰键（规范序 Ctrl → Shift → Alt）；Ctrl 与 Cmd 同归一为 Ctrl（与 eventMatches 一致） */
+export function modsFromEvent(e: KeyboardEvent): string[] {
+  return [(e.ctrlKey || e.metaKey ? "Ctrl" : ""), e.shiftKey ? "Shift" : "", e.altKey ? "Alt" : ""].filter(Boolean);
+}
+
+/** 键盘事件 → 键位串（如 "Ctrl+0"）；未成键（纯修饰键 / 不支持的键）返回 null */
+export function chordFromEvent(e: KeyboardEvent): string | null {
+  const token = codeToKeyToken(e.code);
+  if (!token) return null;
+  return [...modsFromEvent(e), token].join("+");
 }
 
 /** 解析 "Ctrl+Shift+F" 形式的键位串；空串 / 非法格式 / 未知键名返回 null */
@@ -188,6 +218,12 @@ export function setKeybindingHandler(id: KeybindingId, fn: () => void): void {
   handlers.set(id, fn);
 }
 
+/** 外部入口（命令面板等）复用同一 handler：与键位触发共享实现，杜绝两处漂移（PR-E review 建议 5）。
+ *  handler 未注册（initKeybindingCommands 未跑/该键无 handler）时静默返回。 */
+export function triggerEditorKeybindingAction(id: KeybindingId): void {
+  handlers.get(id)?.();
+}
+
 /** 复制当前行（空选区）或选区覆盖的行（PyCharm Ctrl+D 语义），光标位置不变 */
 function duplicateCurrentLine(): void {
   const editor = app.editor;
@@ -219,6 +255,46 @@ export function initKeybindingCommands(monaco: MonacoModule): void {
   setKeybindingHandler("comment_block", () => {
     app.editor.trigger("keybindings", "editor.action.blockComment", null);
   });
+  // P1（C-1）：语法感知选区扩展/收缩（Monaco smartSelect contrib，命令 id 见 monaco.ts 注释）
+  setKeybindingHandler("smart_select_expand", () => {
+    app.editor.trigger("keybindings", "editor.action.smartSelect.expand", null);
+  });
+  setKeybindingHandler("smart_select_shrink", () => {
+    app.editor.trigger("keybindings", "editor.action.smartSelect.shrink", null);
+  });
+  // P1（C-2）：行/选区上下移动（Monaco linesOperations contrib，自动修正缩进）
+  setKeybindingHandler("move_line_up", () => {
+    app.editor.trigger("keybindings", "editor.action.moveLinesUpAction", null);
+  });
+  // P4（C-3）：列（矩形）选择开关。Monaco 0.52 中列选择是核心 editor option
+  // （columnSelection，无独立 contrib/命令），开启后鼠标拖拽/Shift+点击按矩形选择；
+  // Alt+Shift+方向键的列向扩展不受此开关影响（内建行为）。
+  setKeybindingHandler("toggle_column_selection", () => {
+    const ed = app.editor;
+    const on = !ed.getOption(app.monaco.editor.EditorOption.columnSelection);
+    ed.updateOptions({ columnSelection: on });
+    // G-3：模式切换必须可见——否则用户忘记开过列选择，会把矩形选中当成 bug
+    toast(on ? "列选择模式已开启：鼠标拖拽将按矩形选择（再按退出）" : "列选择模式已关闭", on ? "success" : "info");
+  });
+  // P4（C-4）：向右分屏（splitEditor.ts 钉住式双编辑器）
+  setKeybindingHandler("split_editor", () => toggleSplit());
+  setKeybindingHandler("move_line_down", () => {
+    app.editor.trigger("keybindings", "editor.action.moveLinesDownAction", null);
+  });
+  // PR-A（dx_features_backlog §6.1）：键位补齐组。命令 id 实测自 Monaco 0.52.2：
+  // 折叠族注册为 "editor.foldAll"/"editor.unfoldAll"（无 .action 前缀），deleteLines/jumpToBracket 带 .action
+  setKeybindingHandler("delete_line", () => {
+    app.editor.trigger("keybindings", "editor.action.deleteLines", null);
+  });
+  setKeybindingHandler("fold_all", () => {
+    app.editor.trigger("keybindings", "editor.foldAll", null);
+  });
+  setKeybindingHandler("unfold_all", () => {
+    app.editor.trigger("keybindings", "editor.unfoldAll", null);
+  });
+  setKeybindingHandler("jump_to_bracket", () => {
+    app.editor.trigger("keybindings", "editor.action.jumpToBracket", null);
+  });
   for (const m of KEYBINDING_META) {
     if (m.scope !== "editor") continue;
     monaco.editor.addCommand({
@@ -228,9 +304,23 @@ export function initKeybindingCommands(monaco: MonacoModule): void {
   }
 }
 
+/**
+ * `KeyboardEvent.code` 形态 → Monaco `KeyCode` 枚举名（P1：移动行 Ctrl+Shift+↑/↓ 暴露的坑）。
+ * Monaco 的方位键枚举叫 `UpArrow`/`DownArrow`/`LeftArrow`/`RightArrow`（没有 `Arrow*` 前缀），
+ * 直接拿解析结果去查表会得到 undefined → 规则被静默跳过、键位看似没生效。
+ * 此前方位键只用于 window 级键位（不经此函数），故一直没暴露。
+ */
+const MONACO_KEY_ALIASES: Record<string, string> = {
+  ArrowUp: "UpArrow",
+  ArrowDown: "DownArrow",
+  ArrowLeft: "LeftArrow",
+  ArrowRight: "RightArrow",
+};
+
 /** ParsedBinding → Monaco keybinding 数值；未知键返回 null */
 export function toMonacoKeybinding(monaco: MonacoModule, p: ParsedBinding): number | null {
-  const code = (monaco.KeyCode as unknown as Record<string, number | undefined>)[p.key];
+  const name = MONACO_KEY_ALIASES[p.key] ?? p.key;
+  const code = (monaco.KeyCode as unknown as Record<string, number | undefined>)[name];
   if (code === undefined) return null;
   let kb = code;
   if (p.ctrl) kb |= monaco.KeyMod.CtrlCmd;

@@ -4,6 +4,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { app } from "../state"; // B-3：justMyCode 开关真值（state 零依赖，无环）
 
 // ---------- 类型（DAP MVP 子集，§5.3） ----------
 
@@ -81,6 +82,8 @@ export interface BreakpointSpec {
   hitCondition?: string;
   /** 日志消息（非空 = Logpoint，不断下只打印） */
   logMessage?: string;
+  /** 启用状态（B-6；缺省 = 启用。禁用的断点**不下发** debugger，gutter/面板显示灰点） */
+  enabled?: boolean;
 }
 
 /** 推送给 debugpy 的断点项（line + 可选高级字段） */
@@ -108,6 +111,40 @@ export function currentPhase(): DebugPhase {
 function setPhase(p: DebugPhase): void {
   phase = p;
   for (const fn of phaseListeners) fn(p);
+}
+
+// ---------- 异常断点（B-2） ----------
+//
+// debugpy 的 exceptionFilters："uncaught"（未捕获才停，默认开）/"raised"（一抛就停，默认关）。
+// 用户选择跨会话保留（resetDebugState 不重置）——排查偶发崩溃的开关不该每次重调。
+
+let exceptionFilters: string[] = ["uncaught"];
+
+export function getExceptionFilters(): string[] {
+  return [...exceptionFilters];
+}
+
+/** 更新异常断点过滤器：配置阶段缓存，运行/暂停中即时下发（DAP 支持会话中途修改） */
+export async function setExceptionFilters(filters: string[]): Promise<void> {
+  exceptionFilters = filters;
+  if (phase === "running" || phase === "stopped") {
+    await request("setExceptionBreakpoints", { filters });
+  }
+}
+
+// ---------- 当前帧访问器（B-8：hover 求值需要帧上下文） ----------
+//
+// 帧真值在 debugView（栈顶/用户点击切换），这里只存镜像供 lsp hover 等只读消费方取用——
+// lsp/client.ts 不能 import debugView（会成环），dap 是两者共同的下游。
+
+let activeFrame: number | null = null;
+
+export function setActiveFrameId(id: number | null): void {
+  activeFrame = id;
+}
+
+export function getActiveFrameId(): number | null {
+  return activeFrame;
 }
 
 // ---------- 请求关联（id 自增 + Promise 表） ----------
@@ -249,8 +286,13 @@ export async function startDebug(
   });
 
   // attach（listen 模式）：响应推迟到 configurationDone，发出后不等；
-  // 随后 adapter 发 debugpyWaitingForServer 事件携带 server socket 地址
-  request("attach", { listen: { host: "127.0.0.1", port: 0 }, justMyCode: true }).catch(() => undefined);
+  // 随后 adapter 发 debugpyWaitingForServer 事件携带 server socket 地址。
+  // B-3：justMyCode 从设置读取（默认开 = 只步进我的代码，不误入 site-packages），
+  // 改动需重启调试会话生效。
+  request("attach", {
+    listen: { host: "127.0.0.1", port: 0 },
+    justMyCode: app.settings.debug_just_my_code !== false,
+  }).catch(() => undefined);
 
   // 等 debugpyWaitingForServer（server socket 地址）→ 在 PTY 里拉起被调试脚本
   const serverEp = await waitEvent("debugpyWaitingForServer", 30_000);
@@ -263,6 +305,9 @@ export async function startDebug(
 
   // 推送断点（全部文件，见 §6.4）
   await pushBreakpoints();
+
+  // B-2：异常断点（configurationDone 前配置；运行/暂停中可经 setExceptionFilters 随时改）
+  await request("setExceptionBreakpoints", { filters: exceptionFilters });
 
   // configurationDone ← 此后脚本开始执行（attach 的响应也在此时回来）
   await request("configurationDone", {});
@@ -336,7 +381,10 @@ export async function dapVariables(variablesReference: number): Promise<DapVaria
 export async function dapSetBreakpoints(path: string, bps: DapSourceBreakpoint[]): Promise<any> {
   return request("setBreakpoints", {
     source: { path },
-    breakpoints: bps.map((b) => {
+    // B-6：禁用的断点不下发（gutter 保留灰点，启用时重新 sync）
+    breakpoints: bps
+      .filter((b) => b.enabled !== false)
+      .map((b) => {
       const out: Record<string, unknown> = { line: b.line };
       if (b.condition) out.condition = b.condition;
       if (b.hitCondition) out.hitCondition = b.hitCondition;

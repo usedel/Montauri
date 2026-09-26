@@ -64,14 +64,19 @@ provider:
 - `navHistory.ts` — 导航历史（P1 · Ctrl+Alt+←/→）：位置栈 + 游标模型，跳转定义后原路返回。
 - `localHistory.ts` — 本地历史（P1 · Local History）：无 Git 也能回退；列表 + diff 预览 + 回滚。
 - `editHistory.ts` — 编辑历史采集（低延迟编辑预测数据源）：行对事件落盘 Rust JSONL。
+- `browserKeys.ts` — 浏览器原生快捷键护栏（capture 阶段）：吞掉应用未认领的 WebView2 加速器（Ctrl+R/Ctrl+F5 重载、Ctrl+P 打印、Ctrl+O/U、Ctrl+N/T/W、Ctrl+Shift+Delete、F7、Alt+←→、编辑器外的 Ctrl+D/H/J/K/L、F3/F12 等）；应用已认领的组合只 `preventDefault` 不 `stopPropagation`（补 main.ts 在输入框内整段跳过的泄漏口）。焦点在 Monaco 内只拦「危险级」子集，避免误伤 Monaco 自带键位。判定纯函数 `isBlockedCombo(combo, inMonaco)` 可单测。
+- `editorFind.ts` — Ctrl+F 活动标签内查找：window 级 capture 拦截（**必须 preventDefault，否则 WebView2 会弹原生查找条**）；有活动标签 → 打开该标签的 Monaco `actions.find`（diff 标签走 modified 侧，编辑器实例由 `setFindDiffEditorProvider` 注入防循环），无活动标签 / 有模态 / Quick Open 打开时只吞键。焦点已在 `.monaco-editor` 内时不 stopPropagation，交回 Monaco 自带键位。
 - `ruffLint.ts` — ruff 实时 lint（P2）：诊断第三桶（owner=`opencharm-ruff`），与静态引擎 / 运行时 intel 三桶并存。
 - `todoView.ts` — TODO 工具窗（P0）：扫描 TODO/FIXME 等标记分组列出并跳转（Rust `fs_cmds::scan_todos`）。
+- `endpointView.ts` — 端点工具窗（F1/F2/F4）：FastAPI / Flask 静态路由分组列出（Rust `fs_cmds::scan_endpoints`）+ 跳转声明 + 浏览器打开/复制 URL（base 来自 `termUi::lastServiceBaseUrl`）+ `/docs`、`/openapi.json` 入口；路由合并纯函数 `joinRoute`/`fullEndpointUrl` 在 `frameworks.ts`。
 - `envPanel.ts` — Python 环境面板域（TD-14 拆分）：解释器状态栏 / 环境面板 / venv / 包管理 / 装包 / .venv 检测 / 工具链首启引导。
 - `newProject.ts` — 新建项目域（TD-14 拆分）：项目创建面板（名称/位置/git/环境类型/Python 版本）+ `create_project` 落盘。
 - `inlineValues.ts` — 行内变量值（P2 · Inline Values）：调试暂停时行尾显示变量当前值（自绘，非 Monaco InlineValuesProvider）。
 - `debugConsole.ts` — 调试控制台 / 求值（P1 · Debug Console + Alt+F8）：断点处 DAP evaluate（context=repl），副作用真实发生。
 - `runState.ts` — 运行态单一真值（TD-14 ①）：运行实例列表（脚本唯一 + 项目 N 并行），实例与运行控制台 tab 同生共死。
-- `runFlow.ts` — 运行域（TD-14）：`runScript()`/`runProject()` 统一 PTY 控制台 + preparing 生命周期收口。
+- `runFlow.ts` — 运行域（TD-14）：`runScript()`/`runProject()` 统一 PTY 控制台 + preparing 生命周期收口；框架探针表（`maybeSuggestFramework` 提示 + 一键生成项目运行配置）。
+- `frameworks.ts` — 框架探针表 TS 侧（P1）：Rust `detect_framework` 返回结构镜像 + 提示文案 / 已配置判定 / Pydantic 引擎推荐判定等纯函数（无 DOM，可单测）。
+- `pydanticEngineHint.ts` — Pydantic 栈引擎推荐（F0 裁决 B）：依赖含 pydantic/fastapi 的工作区提示推荐切 basedpyright（每工作区每会话一次、仅 pyrefly 时提示；关闭键 = `framework_hints["pydantic_engine"]`）；切换经 handler 注入 `engineChip::switchEngineTo`。
 - `runHistory.ts` — 运行历史（P2）：按实例留存输出，可回看 / 再点 traceback / 保存输出。
 - `runConfigPanel.ts` — 运行配置面板（v3.4 §17-6）：脚本 / 项目两分区配置。
 - `toast.ts` — 全局 toast 轻提示（UX P0-1）：异步操作失败/结果的即时反馈，右下角堆叠、自动消失、可手动关闭。
@@ -99,6 +104,7 @@ provider:
 | 键（默认） | 功能 | 可自定义 |
 |---|---|---|
 | `Tab` | 缩写直接展开（无弹窗时）/ snippet 占位符前进 | 否（固定） |
+| `Ctrl+F` | 活动标签内查找（无活动标签 → 吞键；永不弹浏览器原生查找条） | 否（固定，Monaco `actions.find` + `editorFind.ts` 拦截） |
 | `Ctrl+S` | 保存（推送 didSave） | 是（window 级） |
 | `Ctrl+F10` | 运行脚本（当前文件） | 是（window 级） |
 | `Ctrl+Shift+F10` | 运行项目 | 是（window 级） |

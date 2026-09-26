@@ -14,7 +14,7 @@ import { execFile, spawn } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, renameSync, rmSync, cpSync } from "node:fs";
 import { basename } from "node:path";
 import { tmpdir } from "node:os";
-import { join, dirname, resolve } from "node:path";
+import { join, dirname, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import type { Page } from "@playwright/test";
 import { fileURLToPath } from "node:url";
@@ -233,6 +233,26 @@ async function dispatchGit(cmd: string, args: Record<string, unknown>, repo: Git
       const hash = String(args.hash ?? "").trim();
       if (!hash) throw new Error("提交哈希不能为空");
       return inRepo(["show", hash]);
+    }
+    case "git_log_file": {
+      // E-4（PyCharm 调研）：单文件历史（--follow），对齐 git_cmds.rs::git_log_file 输出形状
+      const count = Math.min(Math.max(arg<number>("count", 50), 1), 200);
+      const path = String(args.path ?? "").trim();
+      if (!path) throw new Error("文件路径不能为空");
+      const out = await inRepo([
+        "log", `-n${count}`, "--follow", "--date=short",
+        "--pretty=format:%H%x1f%h%x1f%an%x1f%ad%x1f%s%x1f%d", "--", path,
+      ]);
+      const commits = out.split("\n").flatMap((line) => {
+        const f = line.split("\x1f");
+        if (f.length < 5) return [];
+        return [{
+          hash: f[0], short_hash: f[1], author: f[2], date: f[3], subject: f[4],
+          graph: "",
+          refs: (f[5] ?? "").trim().replace(/^\(+|\)+$/g, "").trim(),
+        }];
+      });
+      return commits;
     }
     case "git_blame": {
       const path = String(args.path ?? "");
@@ -542,6 +562,22 @@ async function dispatchGit(cmd: string, args: Record<string, unknown>, repo: Git
     case "git_create_branch": {
       return inRepo(["checkout", "-b", String(args.name ?? "")]);
     }
+    case "git_discard": {
+      // 对齐 git_cmds.rs::git_discard：tracked 文件 `git checkout -- <paths>`
+      const paths = arg<string[]>("paths");
+      if (Array.isArray(paths) && paths.length > 0) await inRepo(["checkout", "--", ...paths]);
+      return null;
+    }
+    case "git_clean": {
+      // 对齐 git_cmds.rs::git_clean：未跟踪文件/目录直接 fs 删除（不依赖 git clean 语义）
+      const paths = arg<string[]>("paths");
+      for (const rel of paths ?? []) {
+        const target = resolve(join(root, String(rel)));
+        if (target !== root && !target.startsWith(root + sep)) throw new Error(`[e2e-bridge] 越权路径: ${rel}`);
+        rmSync(target, { recursive: true, force: true });
+      }
+      return null;
+    }
     default:
       throw new Error(`[e2e-bridge] 未实现的 git 命令: ${cmd}`);
   }
@@ -689,8 +725,8 @@ function realPyreflyBridgeFor(page: Page, cwd: string) {
   };
 
   return {
-    start(command: string, args: string[]): void {
-      proc = spawn(command, args, { cwd, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+    start(command: string, args: string[], lspCwd?: string): void {
+      proc = spawn(command, args, { cwd: lspCwd ?? cwd, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
       proc.stdout!.on("data", (c: Buffer) => feedStdout(c));
       proc.stderr!.on("data", (c: Buffer) => emit("lsp-stderr", { engine: "static", data: c.toString("utf8") }));
       proc.on("exit", (code) => emit("lsp-exit", { engine: "static", code }));
@@ -710,6 +746,21 @@ function realPyreflyBridgeFor(page: Page, cwd: string) {
       stdoutBuf = Buffer.alloc(0);
     },
   };
+}
+
+// ---------- 编辑器 gutter 交互（debug 验收共享） ----------
+
+/** 点击编辑器第 line 行的 glyph 边距（模拟用户点行号左侧空白下断点）。
+ *  以「渲染后的行」定位（.view-line 序 = 行序，前提是无软换行）：引用计数 CodeLens
+ *  会在 def/class 上方插入 view zone 改变行的视口位置——按 (line-1)*lineHeight 计算
+ *  会点进 zone，Monaco 判为 GUTTER_VIEW_ZONE 而非 GUTTER_GLYPH_MARGIN，断点静默丢失
+ *  （D-FUNC-1 flake 根因）。真实用户点的就是渲染后的行，此取法对 zone 免疫。 */
+export async function clickGlyph(page: Page, line: number): Promise<void> {
+  const glyph = await page.locator(".glyph-margin").first().boundingBox();
+  if (!glyph) throw new Error("glyph-margin 不可见");
+  const row = await page.locator(".view-line").nth(line - 1).boundingBox();
+  if (!row) throw new Error(`第 ${line} 行未渲染（.view-line 不足）`);
+  await page.mouse.click(glyph.x + 6, row.y + row.height / 2);
 }
 
 // ---------- Page 装配 ----------
@@ -879,7 +930,7 @@ export async function equipPage(page: Page, repo: GitRepo, opts: { slowGitMs?: R
       const a = (args ?? {}) as Record<string, unknown>;
       switch (cmd) {
         case "lsp_start":
-          pyrefly.start(String(a.command ?? "pyrefly"), Array.isArray(a.args) ? (a.args as string[]) : []);
+          pyrefly.start(String(a.command ?? "pyrefly"), Array.isArray(a.args) ? (a.args as string[]) : [], a.cwd ? String(a.cwd) : undefined);
           return null;
         case "lsp_send_request":
           pyrefly.sendRequest(String(a.engine ?? "static"), a.id, String(a.method), a.params);

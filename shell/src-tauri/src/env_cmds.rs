@@ -87,7 +87,7 @@ fn workspace_config_path(root: &str) -> PathBuf {
 }
 
 /// 读取整份工作区配置（缺失/损坏时返回空对象，绝不 panic）
-fn load_config(root: &str) -> Value {
+pub(crate) fn load_config(root: &str) -> Value {
     let p = workspace_config_path(root);
     fs::read_to_string(p)
         .ok()
@@ -97,7 +97,7 @@ fn load_config(root: &str) -> Value {
 }
 
 /// 写回整份工作区配置（保留未涉及字段，如 interpreter 与 run_configs 互不覆盖）
-fn save_config(root: &str, v: &Value) -> Result<(), String> {
+pub(crate) fn save_config(root: &str, v: &Value) -> Result<(), String> {
     let p = workspace_config_path(root);
     fs::create_dir_all(p.parent().unwrap()).map_err(|e| e.to_string())?;
     let payload = serde_json::to_string_pretty(v).map_err(|e| e.to_string())?;
@@ -1097,7 +1097,7 @@ fn script_entry_module(val: &str) -> String {
 }
 
 /// 深度受限地找「根下第一层含 `__main__.py` 的包」（§9-4：`python -m <pkg>`）。
-/// 仅扫根目录第一层子目录（包入口惯例在浅层；复用 FastAPI 扫描的跳过目录表）。
+/// 仅扫根目录第一层子目录（包入口惯例在浅层）。
 fn find_main_package(root: &Path) -> Option<String> {
     let rd = fs::read_dir(root).ok()?;
     let mut names: Vec<String> = rd
@@ -1129,7 +1129,7 @@ fn detect_project_entry_impl(root: &Path) -> Option<ProjectEntryDetection> {
         }
         // 2. FastAPI 预设：依赖声明含 fastapi 且源码有 `app = FastAPI()`
         if deps_mention(&text, "fastapi") {
-            if let Some((file, app_var)) = scan_fastapi_app(root) {
+            if let Some((file, app_var)) = scan_app_decl(root, "FastAPI") {
                 let module = py_module_target(&file);
                 let args = format!("{module}:{app_var} --reload");
                 return Some(ProjectEntryDetection {
@@ -1195,32 +1195,51 @@ pub async fn detect_project_entry(workspace_root: String) -> Result<Option<Proje
     .map_err(|e| format!("任务执行异常：{e}"))?
 }
 
-// ---------- P0-E：FastAPI 项目探测（预设「仅提示」形态的数据源） ----------
+// ---------- 框架探针表（P1：Django / Flask / FastAPI 三规则） ----------
 //
-// 探测口径（纯文件读取，无子进程，一次调用 < 数十 ms）：
-// 1. 依赖声明（pyproject.toml / 根目录 requirements*.txt）提及 fastapi——无声明文件则直接跳过；
-// 2. 源码扫描（限深限数）找到首个 `<var> = FastAPI(` 声明 → 预设 module 目标（相对路径点分）。
-// 命中与否只决定前端是否出「一键生成配置」提示，绝不主动改配置/装包。
+// 来源：`docs/pycharm_framework_support_report.md` §8.2 P1——把原 P0-E 的 FastAPI 单点探测
+// 泛化为「框架 → 运行配置预设」的规则表。设计纪律：
+// - **纯文件读取、零子进程**（一次调用 < 数十 ms），命中与否只决定前端是否出「一键生成配置」
+//   提示，**绝不静默改配置 / 装包**（沿用 P0-E 的「提示 + 用户点击」形态）；
+// - 规则只认**稳定的公开约定**（根目录 manage.py / `X = FastAPI(` / `X = Flask(`），不解析框架
+//   源码结构——避免「跟随框架版本演进」的长期维护成本（报告 §8.3）；
+// - 优先级 = 强约定优先：django（manage.py）→ fastapi → flask；
+// - 每个框架可在**工作区级**关闭提示（config 的 `framework_hints`），对齐 PyCharm
+//   `Languages & Frameworks | Flask` 的抑制开关（报告 §8.2 P1-②）。
 
-/// FastAPI 预设探测结果（file/module 均为相对工作区根、正斜杠）
-#[derive(Serialize)]
-pub struct FastApiPreset {
-    /// 声明 FastAPI 应用的文件（如 "main.py" / "app/main.py"）
+/// 框架预设探测结果（三框架共用；file 为相对工作区根、正斜杠）
+#[derive(Serialize, Clone)]
+pub struct FrameworkPreset {
+    /// "django" | "flask" | "fastapi"
+    pub framework: String,
+    /// 展示名："Django" | "Flask" | "FastAPI"
+    pub label: String,
+    /// 命中的声明文件（如 "manage.py" / "app/main.py"）
     pub file: String,
-    /// uvicorn 模块目标（如 "main" / "app.main"）
-    pub module: String,
-    /// 应用变量名（如 "app"）
-    pub app_var: String,
-    /// 依赖声明是否已含 uvicorn（缺则提示先安装）
-    pub has_uvicorn: bool,
+    /// 生成的运行入口（script = manage.py；module = uvicorn / flask）
+    pub entry: RunEntry,
+    /// 入口参数（如 "runserver" / "main:app --reload"）
+    pub args: String,
+    /// 工作目录（统一 ${workspaceRoot}：模块导入以工作区根为基准）
+    pub cwd: String,
+    /// 回显摘要（如 "-m uvicorn main:app --reload"）
+    pub summary: String,
+    /// 依赖声明中未见的服务依赖（如 uvicorn / django）：仅提示缺失，不代装
+    pub missing: Vec<String>,
 }
 
-const FASTAPI_SCAN_SKIP_DIRS: &[&str] = &[
+/// 规则表顺序 = 命中优先级（强约定优先）
+const FRAMEWORK_ORDER: [&str; 3] = ["django", "fastapi", "flask"];
+
+/// 工作区级「不再提示」开关的存储键（workspace config：`framework_hints`）
+const FRAMEWORK_HINTS_KEY: &str = "framework_hints";
+
+const FRAMEWORK_SCAN_SKIP_DIRS: &[&str] = &[
     "venv", "__pycache__", "node_modules", "dist", "build", ".ruff_cache", ".pytest_cache", ".mypy_cache",
 ];
-const FASTAPI_SCAN_MAX_DEPTH: usize = 4;
-const FASTAPI_SCAN_MAX_FILES: usize = 500;
-const FASTAPI_SCAN_MAX_BYTES: u64 = 512 * 1024;
+const FRAMEWORK_SCAN_MAX_DEPTH: usize = 4;
+const FRAMEWORK_SCAN_MAX_FILES: usize = 500;
+const FRAMEWORK_SCAN_MAX_BYTES: u64 = 512 * 1024;
 
 /// 收集依赖声明文本（pyproject.toml + 根目录 requirements*.txt）；两者皆无 → None（跳过探测）
 fn collect_dep_text(root: &Path) -> Option<String> {
@@ -1254,10 +1273,11 @@ fn deps_mention(text: &str, pkg: &str) -> bool {
     })
 }
 
-/// 深度/数量受限的工作区 .py 扫描，找首个 `<var> = FastAPI(` 声明 → (相对路径, 变量名)
-fn scan_fastapi_app(root: &Path) -> Option<(String, String)> {
+/// 深度/数量受限的工作区 .py 扫描，找首个 `<var> = <ctor>(` 声明 → (相对路径, 变量名)
+/// （FastAPI：`app = FastAPI(`；Flask：`app = Flask(`）
+fn scan_app_decl(root: &Path, ctor: &str) -> Option<(String, String)> {
     fn walk(dir: &Path, depth: usize, files: &mut Vec<PathBuf>) {
-        if depth > FASTAPI_SCAN_MAX_DEPTH || files.len() >= FASTAPI_SCAN_MAX_FILES {
+        if depth > FRAMEWORK_SCAN_MAX_DEPTH || files.len() >= FRAMEWORK_SCAN_MAX_FILES {
             return;
         }
         let mut entries: Vec<_> = match fs::read_dir(dir) {
@@ -1269,10 +1289,10 @@ fn scan_fastapi_app(root: &Path) -> Option<(String, String)> {
             let p = e.path();
             let name = e.file_name().to_string_lossy().to_string();
             if p.is_dir() {
-                if !name.starts_with('.') && !FASTAPI_SCAN_SKIP_DIRS.contains(&name.as_str()) {
+                if !name.starts_with('.') && !FRAMEWORK_SCAN_SKIP_DIRS.contains(&name.as_str()) {
                     walk(&p, depth + 1, files);
                 }
-            } else if name.ends_with(".py") && files.len() < FASTAPI_SCAN_MAX_FILES {
+            } else if name.ends_with(".py") && files.len() < FRAMEWORK_SCAN_MAX_FILES {
                 files.push(p);
             }
         }
@@ -1281,7 +1301,7 @@ fn scan_fastapi_app(root: &Path) -> Option<(String, String)> {
     walk(root, 0, &mut files);
     for f in &files {
         let Ok(meta) = f.metadata() else { continue };
-        if meta.len() > FASTAPI_SCAN_MAX_BYTES {
+        if meta.len() > FRAMEWORK_SCAN_MAX_BYTES {
             continue;
         }
         let Ok(text) = fs::read_to_string(f) else { continue };
@@ -1293,7 +1313,7 @@ fn scan_fastapi_app(root: &Path) -> Option<(String, String)> {
             let Some(eq) = t.find('=') else { continue };
             let lhs = t[..eq].trim();
             let rhs = t[eq + 1..].trim_start();
-            let Some(rest) = rhs.strip_prefix("FastAPI") else { continue };
+            let Some(rest) = rhs.strip_prefix(ctor) else { continue };
             if !rest.trim_start().starts_with('(') {
                 continue;
             }
@@ -1315,26 +1335,191 @@ fn py_module_target(rel_file: &str) -> String {
     rel_file.strip_suffix(".py").unwrap_or(rel_file).replace('/', ".")
 }
 
-fn detect_fastapi_impl(workspace_root: String) -> Result<Option<FastApiPreset>, String> {
-    let root = Path::new(&workspace_root);
+/// 依赖声明中未见的服务依赖（deps 缺失 = 无声明文件 → 视为未知，**不报缺失**：
+/// 没有声明文件不该凭空刷「尚未安装」提示）
+fn missing_server_deps(deps: Option<&str>, pkgs: &[&str]) -> Vec<String> {
+    let Some(text) = deps else { return Vec::new() };
+    pkgs.iter()
+        .filter(|p| !deps_mention(text, p))
+        .map(|p| p.to_string())
+        .collect()
+}
+
+/// Django 规则：根目录 `manage.py`（项目根唯一强约定）→ `python manage.py runserver`
+fn detect_django_preset(root: &Path, deps: Option<&str>) -> Option<FrameworkPreset> {
+    if !root.join("manage.py").is_file() {
+        return None;
+    }
+    Some(FrameworkPreset {
+        framework: "django".into(),
+        label: "Django".into(),
+        file: "manage.py".into(),
+        entry: RunEntry { kind: "script".into(), target: "manage.py".into() },
+        args: "runserver".into(),
+        cwd: "${workspaceRoot}".into(),
+        summary: "manage.py runserver".into(),
+        missing: missing_server_deps(deps, &["django"]),
+    })
+}
+
+/// FastAPI 规则：依赖声明含 fastapi + 源码 `X = FastAPI(` → `-m <server> <module>:<var> --reload`。
+/// 服务器选择（F3，对标 PyCharm `Run using`）：依赖含 uvicorn → uvicorn；仅 hypercorn → hypercorn
+/// （`--reload` 两者均支持）；皆无 → uvicorn 缺省 + 提示缺失（不代装）。
+fn detect_fastapi_preset(root: &Path, deps: Option<&str>) -> Option<FrameworkPreset> {
+    let deps = deps?;
+    if !deps_mention(deps, "fastapi") {
+        return None;
+    }
+    let (file, app_var) = scan_app_decl(root, "FastAPI")?;
+    let module = py_module_target(&file);
+    let server = if deps_mention(deps, "uvicorn") {
+        "uvicorn"
+    } else if deps_mention(deps, "hypercorn") {
+        "hypercorn"
+    } else {
+        "uvicorn"
+    };
+    let missing = if deps_mention(deps, "uvicorn") || deps_mention(deps, "hypercorn") {
+        Vec::new()
+    } else {
+        vec!["uvicorn".to_string()]
+    };
+    Some(FrameworkPreset {
+        framework: "fastapi".into(),
+        label: "FastAPI".into(),
+        file,
+        entry: RunEntry { kind: "module".into(), target: server.into() },
+        args: format!("{module}:{app_var} --reload"),
+        cwd: "${workspaceRoot}".into(),
+        summary: format!("-m {server} {module}:{app_var} --reload"),
+        missing,
+    })
+}
+
+/// Flask 规则：依赖声明含 flask + 源码 `X = Flask(` → `-m flask --app <module>:<var> run --debug`。
+/// `--debug`（F3，对标 PyCharm「支持内置 Flask debugger」）= Werkzeug 交互式调试器 + reloader。
+fn detect_flask_preset(root: &Path, deps: Option<&str>) -> Option<FrameworkPreset> {
+    let deps = deps?;
+    if !deps_mention(deps, "flask") {
+        return None;
+    }
+    let (file, app_var) = scan_app_decl(root, "Flask")?;
+    let module = py_module_target(&file);
+    Some(FrameworkPreset {
+        framework: "flask".into(),
+        label: "Flask".into(),
+        file,
+        entry: RunEntry { kind: "module".into(), target: "flask".into() },
+        args: format!("--app {module}:{app_var} run --debug"),
+        cwd: "${workspaceRoot}".into(),
+        summary: format!("-m flask --app {module}:{app_var} run --debug"),
+        // flask 本身是规则命中前提（deps_mention），不会再缺失；无其他服务依赖
+        missing: vec![],
+    })
+}
+
+/// 读取工作区级「不再提示」集合（config 的 `framework_hints`：{ "<framework>": true }）。
+/// 非对象 / 非布尔值一律忽略（配置损坏不得影响探测）。
+fn framework_hints_disabled(cfg: &Value) -> HashSet<String> {
+    cfg.get(FRAMEWORK_HINTS_KEY)
+        .and_then(Value::as_object)
+        .map(|m| {
+            m.iter()
+                .filter(|(_, v)| v.as_bool() == Some(true))
+                .map(|(k, _)| k.clone())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// 探针表主体（纯函数化：目录 + 配置传入，便于单测直接锁定优先级与开关语义）
+fn detect_framework_impl(workspace_root: &str, cfg: &Value) -> Result<Option<FrameworkPreset>, String> {
+    let root = Path::new(workspace_root);
     if !root.is_dir() {
         return Err(format!("工作区不存在：{workspace_root}"));
     }
-    let Some(deps) = collect_dep_text(root) else { return Ok(None) };
-    if !deps_mention(&deps, "fastapi") {
-        return Ok(None);
+    let deps = collect_dep_text(root);
+    let disabled = framework_hints_disabled(cfg);
+    for kind in FRAMEWORK_ORDER {
+        if disabled.contains(kind) {
+            continue;
+        }
+        let hit = match kind {
+            "django" => detect_django_preset(root, deps.as_deref()),
+            "fastapi" => detect_fastapi_preset(root, deps.as_deref()),
+            "flask" => detect_flask_preset(root, deps.as_deref()),
+            _ => None,
+        };
+        if hit.is_some() {
+            return Ok(hit);
+        }
     }
-    let has_uvicorn = deps_mention(&deps, "uvicorn");
-    let Some((file, app_var)) = scan_fastapi_app(root) else { return Ok(None) };
-    Ok(Some(FastApiPreset { module: py_module_target(&file), file, app_var, has_uvicorn }))
+    Ok(None)
 }
 
-/// FastAPI 项目探测（P0-E）：命中返回预设数据，前端据此给「一键生成配置」提示。
+/// 框架预设探测（P1 探针表）：返回首个**未被本工作区关闭**的命中；无命中 / 全部关闭 → null。
+/// 前端据此给「一键生成运行配置」提示（绝不静默改配置/装包）。
 #[tauri::command]
-pub async fn detect_fastapi(workspace_root: String) -> Result<Option<FastApiPreset>, String> {
-    tauri::async_runtime::spawn_blocking(move || detect_fastapi_impl(workspace_root))
+pub async fn detect_framework(workspace_root: String) -> Result<Option<FrameworkPreset>, String> {
+    let cfg = load_config(&workspace_root);
+    tauri::async_runtime::spawn_blocking(move || detect_framework_impl(&workspace_root, &cfg))
         .await
         .map_err(|e| format!("任务执行异常：{e}"))?
+}
+
+/// 工作区级开关：某框架的「生成运行配置」提示不再出现（写 workspace config 的
+/// `framework_hints`；disabled=false 即恢复提示，空map 直接移除键保持文件精简）。
+#[tauri::command]
+pub fn set_framework_hint_disabled(
+    workspace_root: String,
+    framework: String,
+    disabled: bool,
+) -> Result<(), String> {
+    let mut v = load_config(&workspace_root);
+    let obj = v.as_object_mut().ok_or("工作区配置格式非法")?;
+    let mut drop_key = false;
+    {
+        let hints = obj.entry(FRAMEWORK_HINTS_KEY).or_insert_with(|| json!({}));
+        let map = hints.as_object_mut().ok_or("工作区配置 framework_hints 格式非法")?;
+        if disabled {
+            map.insert(framework, json!(true));
+        } else {
+            map.remove(&framework);
+            drop_key = map.is_empty();
+        }
+    }
+    if drop_key {
+        obj.remove(FRAMEWORK_HINTS_KEY);
+    }
+    save_config(&workspace_root, &v)
+}
+
+// ---------- Pydantic 栈检测（F0 裁决 B：推荐切换静态引擎） ----------
+//
+// 来源：`bench/reports/pydantic-engine-probe.md`——pyrefly 对 Pydantic/dataclass 缺
+// 「构造参数校验 + 字段改名传播」（对照组 dataclass 同样缺失，根因是 __init__ 校验整块缺席），
+// basedpyright 覆盖 4/6。依赖声明含 pydantic / fastapi 的工作区由前端**提示推荐**切换
+// （提示 + 用户点击，绝不静默改设置）；`framework_hints["pydantic_engine"]` = true 表示
+// 本工作区已选择不再提示（与框架探针表共用同一存储与语义：框架相关提示的工作区级开关）。
+
+/// 依赖声明是否命中 Pydantic 栈（pydantic / fastapi 任一）且未被本工作区关闭提示
+pub fn detect_pydantic_stack_impl(workspace_root: &str, cfg: &Value) -> bool {
+    if framework_hints_disabled(cfg).contains("pydantic_engine") {
+        return false;
+    }
+    let Some(deps) = collect_dep_text(Path::new(workspace_root)) else { return false };
+    deps_mention(&deps, "pydantic") || deps_mention(&deps, "fastapi")
+}
+
+/// Pydantic 栈检测（F0 裁决 B）：命中且未关闭 → true，前端据此给「推荐切换引擎」提示。
+#[tauri::command]
+pub async fn detect_pydantic_stack(workspace_root: String) -> Result<bool, String> {
+    let cfg = load_config(&workspace_root);
+    Ok(
+        tauri::async_runtime::spawn_blocking(move || detect_pydantic_stack_impl(&workspace_root, &cfg))
+            .await
+            .map_err(|e| format!("任务执行异常：{e}"))?,
+    )
 }
 
 // ---------- 依赖健康（Dep Health M1，docs/dep_health_dev_plan.md） ----------
@@ -3479,6 +3664,163 @@ dev-dependencies = []
         assert_eq!(entries, vec![("demo".to_string(), "demo.cli:main".to_string())]);
         assert_eq!(script_entry_module("demo.cli:main"), "demo.cli");
         assert_eq!(script_entry_module("nocolon"), "nocolon");
+    }
+
+    // ---------- 框架探针表（P1：Django / Flask / FastAPI）单测 ----------
+
+    /// Django 规则：根目录 manage.py → `manage.py runserver`；声明里没 django → 报缺失
+    #[test]
+    fn framework_django_preset_reports_missing_dep() {
+        let d = detect_tmpdir("fw-django-missing");
+        fs::write(d.join("manage.py"), "#!/usr/bin/env python\n").unwrap();
+        fs::write(d.join("pyproject.toml"), "[project]\nname = \"x\"\n").unwrap();
+        let hit = detect_framework_impl(&d.to_string_lossy(), &json!({}))
+            .unwrap()
+            .expect("manage.py 应命中 Django");
+        assert_eq!(hit.framework, "django");
+        assert_eq!(hit.label, "Django");
+        assert_eq!(hit.entry.kind, "script");
+        assert_eq!(hit.entry.target, "manage.py");
+        assert_eq!(hit.args, "runserver");
+        assert_eq!(hit.cwd, "${workspaceRoot}");
+        assert_eq!(hit.missing, vec!["django".to_string()]);
+    }
+
+    /// Django 规则：声明已含 django → 不报缺失
+    #[test]
+    fn framework_django_preset_with_dep() {
+        let d = detect_tmpdir("fw-django");
+        fs::write(d.join("manage.py"), "#!/usr/bin/env python\n").unwrap();
+        fs::write(d.join("pyproject.toml"), "[project]\ndependencies = [\"django>=5\"]\n").unwrap();
+        let hit = detect_framework_impl(&d.to_string_lossy(), &json!({})).unwrap().unwrap();
+        assert_eq!(hit.framework, "django");
+        assert!(hit.missing.is_empty());
+    }
+
+    /// FastAPI 规则（沿用 P0-E 口径）：依赖含 fastapi + 源码 `app = FastAPI(` → uvicorn 预设
+    #[test]
+    fn framework_fastapi_preset() {
+        let d = detect_tmpdir("fw-fastapi");
+        fs::write(d.join("pyproject.toml"), "[project]\ndependencies = [\"fastapi\"]\n").unwrap();
+        fs::write(d.join("main.py"), "from fastapi import FastAPI\napp = FastAPI()\n").unwrap();
+        let hit = detect_framework_impl(&d.to_string_lossy(), &json!({})).unwrap().unwrap();
+        assert_eq!(hit.framework, "fastapi");
+        assert_eq!(hit.entry.kind, "module");
+        assert_eq!(hit.entry.target, "uvicorn");
+        assert_eq!(hit.args, "main:app --reload");
+        assert_eq!(hit.missing, vec!["uvicorn".to_string()]); // 声明无 uvicorn → 提示
+    }
+
+    /// F3 服务器选择：依赖仅含 hypercorn → entry 切到 hypercorn（--reload 两者均支持）
+    #[test]
+    fn framework_fastapi_preset_hypercorn() {
+        let d = detect_tmpdir("fw-hypercorn");
+        fs::write(d.join("pyproject.toml"), "[project]\ndependencies = [\"fastapi\", \"hypercorn\"]\n").unwrap();
+        fs::write(d.join("main.py"), "from fastapi import FastAPI\napp = FastAPI()\n").unwrap();
+        let hit = detect_framework_impl(&d.to_string_lossy(), &json!({})).unwrap().unwrap();
+        assert_eq!(hit.entry.target, "hypercorn");
+        assert_eq!(hit.summary, "-m hypercorn main:app --reload");
+        assert!(hit.missing.is_empty()); // hypercorn 也在服务依赖白名单
+    }
+
+    /// Flask 规则：依赖含 flask + 源码 `app = Flask(` → `-m flask --app main:app run --debug`（F3）
+    #[test]
+    fn framework_flask_preset() {
+        let d = detect_tmpdir("fw-flask");
+        fs::write(d.join("pyproject.toml"), "[project]\ndependencies = [\"flask>=3\"]\n").unwrap();
+        fs::write(d.join("app.py"), "from flask import Flask\napp = Flask(__name__)\n").unwrap();
+        let hit = detect_framework_impl(&d.to_string_lossy(), &json!({})).unwrap().unwrap();
+        assert_eq!(hit.framework, "flask");
+        assert_eq!(hit.label, "Flask");
+        assert_eq!(hit.entry.kind, "module");
+        assert_eq!(hit.entry.target, "flask");
+        assert_eq!(hit.args, "--app app:app run --debug");
+        assert_eq!(hit.summary, "-m flask --app app:app run --debug");
+    }
+
+    /// 优先级：django（manage.py 强约定）先于 fastapi
+    #[test]
+    fn framework_priority_django_before_fastapi() {
+        let d = detect_tmpdir("fw-priority");
+        fs::write(d.join("manage.py"), "#!/usr/bin/env python\n").unwrap();
+        fs::write(d.join("pyproject.toml"), "[project]\ndependencies = [\"django\", \"fastapi\", \"uvicorn\"]\n").unwrap();
+        fs::write(d.join("main.py"), "from fastapi import FastAPI\napp = FastAPI()\n").unwrap();
+        let hit = detect_framework_impl(&d.to_string_lossy(), &json!({})).unwrap().unwrap();
+        assert_eq!(hit.framework, "django");
+    }
+
+    /// 无命中：普通脚本项目（无 manage.py / 无 FastAPI( / 无 Flask(）→ null
+    #[test]
+    fn framework_misses_on_plain_project() {
+        let d = detect_tmpdir("fw-plain");
+        fs::write(d.join("pyproject.toml"), "[project]\ndependencies = [\"requests\"]\n").unwrap();
+        fs::write(d.join("main.py"), "print(1)\n").unwrap();
+        assert!(detect_framework_impl(&d.to_string_lossy(), &json!({})).unwrap().is_none());
+    }
+
+    /// 工作区级开关：`framework_hints` 中 true 的框架被跳过（跳过 django → 落到 fastapi）
+    #[test]
+    fn framework_skips_disabled_framework() {
+        let d = detect_tmpdir("fw-disabled");
+        fs::write(d.join("manage.py"), "#!/usr/bin/env python\n").unwrap();
+        fs::write(d.join("pyproject.toml"), "[project]\ndependencies = [\"django\", \"fastapi\", \"uvicorn\"]\n").unwrap();
+        fs::write(d.join("main.py"), "from fastapi import FastAPI\napp = FastAPI()\n").unwrap();
+        let key = d.to_string_lossy().to_string();
+        // 关掉 django → 落到 fastapi
+        let hit = detect_framework_impl(&key, &json!({ "framework_hints": { "django": true } }))
+            .unwrap()
+            .unwrap();
+        assert_eq!(hit.framework, "fastapi");
+        // 两个都关掉 → 全部跳过，返回 null
+        let none = detect_framework_impl(
+            &key,
+            &json!({ "framework_hints": { "django": true, "fastapi": true, "flask": true } }),
+        )
+        .unwrap();
+        assert!(none.is_none());
+    }
+
+    /// 开关解析容错：非对象 / 非布尔值 / false 一律不当作关闭
+    #[test]
+    fn framework_hints_parse_rules() {
+        assert!(framework_hints_disabled(&json!({})).is_empty());
+        assert!(framework_hints_disabled(&json!({ "framework_hints": "x" })).is_empty());
+        let cfg = json!({ "framework_hints": { "flask": true, "django": false, "fastapi": "yes" } });
+        let off = framework_hints_disabled(&cfg);
+        assert_eq!(off.len(), 1);
+        assert!(off.contains("flask"));
+    }
+
+    // ---------- Pydantic 栈检测（F0 裁决 B）单测 ----------
+
+    /// 依赖含 fastapi / pydantic 任一 → 命中
+    #[test]
+    fn pydantic_stack_hit_on_either_dep() {
+        let d = detect_tmpdir("pyd-stack");
+        fs::write(d.join("pyproject.toml"), "[project]\ndependencies = [\"fastapi\", \"uvicorn\"]\n").unwrap();
+        assert!(detect_pydantic_stack_impl(&d.to_string_lossy(), &json!({})));
+        fs::write(d.join("pyproject.toml"), "[project]\ndependencies = [\"pydantic>=2\"]\n").unwrap();
+        assert!(detect_pydantic_stack_impl(&d.to_string_lossy(), &json!({})));
+    }
+
+    /// 无声明文件 / 无关依赖 → 不命中
+    #[test]
+    fn pydantic_stack_miss_on_unrelated() {
+        let d = detect_tmpdir("pyd-miss");
+        fs::write(d.join("pyproject.toml"), "[project]\ndependencies = [\"requests\"]\n").unwrap();
+        assert!(!detect_pydantic_stack_impl(&d.to_string_lossy(), &json!({})));
+        let d2 = detect_tmpdir("pyd-nodeps");
+        fs::write(d2.join("main.py"), "print(1)\n").unwrap();
+        assert!(!detect_pydantic_stack_impl(&d2.to_string_lossy(), &json!({})));
+    }
+
+    /// 工作区级关闭（framework_hints["pydantic_engine"]）→ 恒不命中
+    #[test]
+    fn pydantic_stack_respects_hint_switch() {
+        let d = detect_tmpdir("pyd-off");
+        fs::write(d.join("pyproject.toml"), "[project]\ndependencies = [\"pydantic\"]\n").unwrap();
+        let cfg = json!({ "framework_hints": { "pydantic_engine": true } });
+        assert!(!detect_pydantic_stack_impl(&d.to_string_lossy(), &cfg));
     }
 
     // ---------- 依赖健康（dep health M1）单测 ----------

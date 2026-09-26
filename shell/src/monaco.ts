@@ -8,6 +8,8 @@ import * as editorApi from "monaco-editor/esm/vs/editor/editor.api";
 import "monaco-editor/esm/vs/editor/contrib/bracketMatching/browser/bracketMatching"; // 括号匹配
 import "monaco-editor/esm/vs/editor/contrib/caretOperations/browser/caretOperations"; // 光标操作
 import "monaco-editor/esm/vs/editor/contrib/codeAction/browser/codeActionContributions"; // 灯泡 + 快速修复菜单入口（Ctrl+. / hover Quick Fix）
+import "monaco-editor/esm/vs/editor/contrib/contextmenu/browser/contextmenu"; // 编辑器右键菜单（此前未引入 → 编辑器内右键无任何菜单，addAction 的入口全部不可达）
+import "monaco-editor/esm/vs/editor/contrib/codelens/browser/codelensController"; // 引用计数 Code Vision（codeVision.ts）
 import "monaco-editor/esm/vs/editor/contrib/comment/browser/comment"; // Ctrl+/ 行注释 / Ctrl+Shift+/ 块注释
 import "monaco-editor/esm/vs/editor/contrib/cursorUndo/browser/cursorUndo";
 import "monaco-editor/esm/vs/editor/contrib/find/browser/findController"; // Ctrl+F 查找
@@ -23,10 +25,20 @@ import "monaco-editor/esm/vs/editor/contrib/inlayHints/browser/inlayHintsContrib
 import "monaco-editor/esm/vs/editor/contrib/indentation/browser/indentation"; // 自动缩进
 import "monaco-editor/esm/vs/editor/contrib/lineSelection/browser/lineSelection";
 import "monaco-editor/esm/vs/editor/contrib/links/browser/links"; // 链接点击
+// 行操作（PyCharm 的移动行/复制行/删除行/缩进调整等命令都在这里）：此前未引入 →
+// editor.action.moveLinesUpAction / moveLinesDownAction 均不可达（C-2 依赖）。
+import "monaco-editor/esm/vs/editor/contrib/linesOperations/browser/linesOperations";
 import "monaco-editor/esm/vs/editor/contrib/multicursor/browser/multicursor"; // 多光标
 import "monaco-editor/esm/vs/editor/contrib/parameterHints/browser/parameterHints"; // 签名帮助 widget
-import "monaco-editor/esm/vs/editor/contrib/rename/browser/rename"; // F2 重命名（含 renameWidget）
+// 注：内建 rename contribution（F2 单文件 rename widget）已移除——重命名统一走自研就地改名
+// renameWidget.ts（prepareRename 锚定 + ghost 预览 + 跨文件 diff 确认），F2 由其 addCommand 接管。
 import "monaco-editor/esm/vs/editor/contrib/snippet/browser/snippetController2"; // snippet 占位符会话（live templates 展开依赖，显式声明避免仅靠 suggest 传递引入）
+// PR-B（dx_features_backlog §6.2）：粘性滚动（Monaco 0.52 内建 stickyScroll；按需裁剪必须显式引入，
+// 否则 getOption 显示 enabled 但 contribution 不存在、widget 永不渲染——同 ReferencesController 教训）
+import "monaco-editor/esm/vs/editor/contrib/stickyScroll/browser/stickyScrollContribution";
+// 智能选区（PyCharm Ctrl+W）：按语法层级逐级扩大/缩小选区，命令 id =
+// editor.action.smartSelect.expand / .shrink（grow 是其别名）。此前未引入 → 命令不可达。
+import "monaco-editor/esm/vs/editor/contrib/smartSelect/browser/smartSelect";
 import "monaco-editor/esm/vs/editor/contrib/suggest/browser/suggestController"; // 补全 UI
 import "monaco-editor/esm/vs/editor/contrib/wordHighlighter/browser/wordHighlighter"; // 词高亮
 
@@ -89,6 +101,16 @@ editorApi.languages.setMonarchTokensProvider("json", {
       [/[/*]/, "comment"],
     ],
   },
+});
+
+// --- Monaco 取消噪声全局静默（PR-D 实测踩坑，dx_features_backlog §6.4）---
+// wordHighlighter / stickyScroll 等贡献在 dispose 路径 Delayer.cancel() 会触发
+// cancelable promise reject(CanceledError)，裸 Monaco 未像 VS Code 那样接全局
+// error handler（「取消不是错误」哲学）→ 拒绝冒泡成 unhandledrejection/pageerror。
+// 只按 CanceledError 的 name/message 精确过滤，其余拒绝照常上报，不掩盖真实错误。
+window.addEventListener("unhandledrejection", (e) => {
+  const reason = e.reason as { name?: string; message?: string } | undefined;
+  if (reason?.name === "Canceled" || reason?.message === "Canceled") e.preventDefault();
 });
 
 export default editorApi;

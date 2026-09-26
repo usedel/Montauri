@@ -37,6 +37,25 @@ let openFileHandler: ((path: string) => Promise<void>) | null = null;
 export function setGitOpenFileHandler(fn: (path: string) => Promise<void>): void {
   openFileHandler = fn;
 }
+
+/** git 改写编辑器缓冲的能力注入（main.ts 实现）。autosave 与 git 的次序问题：
+ *  丢弃/批量改写若不先落盘（或关闭）dirty tab，在途 autosave 计时器会把编辑器
+ *  旧缓冲写回磁盘，让 checkout 结果「复活」（丢弃看起来失败）。 */
+export interface GitEditorBridge {
+  /** git 改写磁盘前保存指定脏文件（autosave 语义：只写内容，不跑 ruff isort/format） */
+  saveTabsBeforeGit(absPaths: string[]): Promise<void>;
+  /** 未跟踪文件被丢弃删除后关闭其编辑器 tab（关闭前先留本地历史快照，防丢内容） */
+  closeTabOf(absPath: string): void;
+  /** autosave 开启时的批量改写（pull/merge/checkout…）：dirty tab 留本地历史后强制重载 */
+  reloadDirtyWithHistory(absPath: string): Promise<void>;
+}
+
+let editorBridge: GitEditorBridge | null = null;
+
+/** main.ts 注入 GitEditorBridge */
+export function setGitEditorBridge(bridge: GitEditorBridge | null): void {
+  editorBridge = bridge;
+}
 // CR-25：状态存储下沉到零依赖的 gitStatusState（fileTree 装饰只读，不再 import 本模块）
 import { gitStatuses, gitDirtyDirs, gitRepoActive, rebuildStatusIndex } from "./gitStatusState";
 
@@ -190,6 +209,26 @@ function gitFileStaged(f: GitStatusFile): boolean {
   return f.x !== " ";
 }
 
+// ---------- E-4（PyCharm 调研）：提交信息预填文件名 ----------
+
+let lastPrefill = "";
+
+/** 仅暂存单文件时，提交框预填该文件名（可编辑——后续输入即覆盖）。
+ *  框非空永不覆盖（不动用户正在写的信息）；暂存数不再是 1 且框内仍是上次的自动预填值时清掉。 */
+function prefillCommitMessage(staged: GitStatusFile[]): void {
+  const msgEl = $("git-commit-msg") as HTMLTextAreaElement;
+  if (staged.length === 1) {
+    if (!msgEl.value.trim()) {
+      const name = basename(staged[0].path);
+      msgEl.value = name;
+      lastPrefill = name;
+    }
+  } else if (lastPrefill && msgEl.value === lastPrefill) {
+    msgEl.value = "";
+    lastPrefill = "";
+  }
+}
+
 /** 渲染 SCM 变更列表（按「已暂存 / 更改」分组） */
 export function renderGitPanel(): void {
   const box = $("git-changes");
@@ -236,12 +275,22 @@ export function renderGitPanel(): void {
   }
   if (unstaged.length > 0) {
     box.appendChild(
-      gitSectionTitle(`更改（${unstaged.length}）`, {
-        symbol: "+",
-        tip: "全部暂存",
-        ariaLabel: "全部暂存更改",
-        action: () => void stageFiles(unstaged.map((f) => f.path)),
-      }),
+      // B 批（对齐 VS Code Changes 分组）：↩ 丢弃全部更改 + + 全部暂存 双动作
+      gitSectionTitle(`更改（${unstaged.length}）`, [
+        {
+          symbol: "",
+          icon: "discard", // 与行内「丢弃更改」同一图标（对标 VS Code 分组头 Discard All）
+          tip: "丢弃全部更改…",
+          ariaLabel: "丢弃全部更改",
+          action: () => void discardAllChanges(),
+        },
+        {
+          symbol: "+",
+          tip: "全部暂存",
+          ariaLabel: "全部暂存更改",
+          action: () => void stageFiles(unstaged.map((f) => f.path)),
+        },
+      ]),
     );
     for (const f of unstaged) box.appendChild(renderScmItem(f, false));
   }
@@ -252,6 +301,7 @@ export function renderGitPanel(): void {
     commitBtn.textContent = staged.length > 0 ? `提交(${staged.length})` : "提交";
   }
   commitBtn.toggleAttribute("disabled", staged.length === 0);
+  prefillCommitMessage(staged); // E-4：仅暂存单文件时预填文件名
   // C6：多选批量操作条（选中集在 stage/unstage 后可能含已消失路径，先清幽灵）
   for (const p of [...scmSelected]) {
     if (!gitFiles.some((f) => f.path === p)) scmSelected.delete(p);
@@ -278,6 +328,18 @@ export async function gitInitRepo(): Promise<void> {
   await refreshBranchPanel();
   renderGitPanel();
   await refreshTreeWithExpandedState();
+}
+
+/** 丢弃全部更改（B 批对齐 VS Code「Discard All Changes」：更改分组头部 ↩ 入口 +
+ *  命令面板 / Git 菜单；确认弹窗、tracked checkout / untracked 删除、编辑器重载
+ *  均复用 discardFiles 单一实现） */
+export async function discardAllChanges(): Promise<void> {
+  const unstaged = gitFiles.filter((f) => !gitFileStaged(f));
+  if (unstaged.length === 0) {
+    toast("没有可丢弃的更改", "info");
+    return;
+  }
+  await discardFiles(unstaged);
 }
 
 /** 暂存全部更改（命令面板 / Git 菜单 / 文件树右键共用入口） */
@@ -316,26 +378,29 @@ export function gitFileOriginalPath(normalizedRel: string): string | null {
 /** 分组标题栏的可选批量操作（hover 显现的 +/−） */
 interface GitSectionAction {
   symbol: string;
+  /** 可选：codicon 图标名，提供时替代 symbol 文本渲染（如分组头「丢弃全部」与行内「丢弃更改」同图标） */
+  icon?: string;
   tip: string;
   ariaLabel: string;
   action: () => void;
 }
 
-function gitSectionTitle(text: string, act?: GitSectionAction): HTMLElement {
+function gitSectionTitle(text: string, act?: GitSectionAction | GitSectionAction[]): HTMLElement {
   const el = document.createElement("div");
   el.className = "git-section-title";
   const label = document.createElement("span");
   label.textContent = text;
   el.appendChild(label);
-  if (act) {
+  for (const a of act ? (Array.isArray(act) ? act : [act]) : []) {
     const btn = document.createElement("button");
     btn.className = "scm-section-action";
-    btn.dataset.tip = act.tip;
-    btn.setAttribute("aria-label", act.ariaLabel);
-    btn.textContent = act.symbol;
+    btn.dataset.tip = a.tip;
+    btn.setAttribute("aria-label", a.ariaLabel);
+    if (a.icon) btn.appendChild(codicon(a.icon)); // 图标态（内部 <i> aria-hidden，语义由 aria-label 承担）
+    else btn.textContent = a.symbol;
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
-      act.action();
+      a.action();
     });
     el.appendChild(btn);
   }
@@ -446,6 +511,17 @@ async function discardFiles(files: GitStatusFile[]): Promise<void> {
     kind: "danger",
   });
   if (!ok) return;
+  const root = app.workspaceRoot;
+  // 次序修复：先把受影响脏文件落盘（autosave 语义，不跑 ruff）。否则 checkout 覆盖磁盘后，
+  // 在途 autosave 计时器会把编辑器旧缓冲写回去——丢弃失败、旧内容「复活」。
+  if (editorBridge && tracked.length > 0) {
+    try {
+      await editorBridge.saveTabsBeforeGit(tracked.map((f) => joinPath(root, f.path)));
+    } catch (e) {
+      toastFail("保存修改（丢弃中止）", e);
+      return;
+    }
+  }
   try {
     if (tracked.length > 0) {
       await invoke("git_discard", { root: app.workspaceRoot, paths: tracked.map((f) => f.path) });
@@ -461,12 +537,16 @@ async function discardFiles(files: GitStatusFile[]): Promise<void> {
   toast(`已丢弃 ${files.length} 个文件的更改`, "success");
   // 丢弃会改写磁盘内容：已打开该文件的编辑器需从磁盘重载，否则留下旧内容（未跟踪文件已删除，不重载）
   // CR-28：git 返回的 f.path 是仓库相对路径，而 tab.path 是绝对路径，须 joinPath 转绝对路径再匹配
-  const root = app.workspaceRoot;
   for (const f of tracked) {
     if (!reloadOpenedFile || !root) continue;
     const abs = joinPath(root, f.path);
     console.debug("[git] discard 后重载已打开文件", { rel: f.path, abs });
     await reloadOpenedFile(abs);
+  }
+  // 未跟踪文件已从磁盘删除：关闭其编辑器 tab（先留本地历史快照）。若只把 tab 留在内存，
+  // autosave 会把缓冲重新写回磁盘，被删除的文件「复活」。
+  if (editorBridge && root) {
+    for (const f of untracked) editorBridge.closeTabOf(joinPath(root, f.path));
   }
   await refreshTreeWithExpandedState();
   renderGitPanel();
@@ -504,29 +584,45 @@ async function afterConflictResolve(relPath: string): Promise<void> {
   await refreshTreeWithExpandedState();
   renderGitPanel();
   const root = app.workspaceRoot;
-  if (root && reloadOpenedFile) await reloadOpenedFile(joinPath(root, relPath));
+  if (!root) return;
+  const abs = joinPath(root, relPath);
+  // autosave 开启时 dirty 旧缓冲必须留历史后强制重载，否则在途 autosave 计时器
+  // 会把解决冲突前的缓冲写回磁盘——刚接受的版本被「复活」（与 reloadTabsFromGitChange 同类）
+  const dirtyTab = app.tabs.find((t) => t.path === abs && t.dirty);
+  if (dirtyTab && app.settings.autosave !== "off" && editorBridge) {
+    await editorBridge.reloadDirtyWithHistory(abs);
+    return;
+  }
+  if (reloadOpenedFile) await reloadOpenedFile(abs);
 }
 
 /** git 操作改写了工作区后，重载全部已打开的文件 tab（体验修复第 5 则：
  *  丢弃块 / cherry-pick / revert / merge / rebase / stash pop / pull /
  *  切分支都会改写磁盘，但编辑器里的旧内容纹丝不动——用户看到的是幽灵内容）。
- *  - dirty tab 跳过并提示（用户正在编辑的未保存内容不能被磁盘覆盖）
+ *  - autosave 关闭：dirty tab 跳过并提示（未保存内容不能被磁盘覆盖）
+ *  - autosave 开启（delay/blur）：dirty tab 的内容本就随 autosave 落盘，磁盘≈缓冲；
+ *    留本地历史快照后强制重载，否则在途 autosave 计时器会把旧缓冲写回、改写被「复活」
  *  - 批量场景（merge/pull/checkout 改多文件）与单文件场景（hunk 丢弃）共用
  *  - diff tab 不参与（kind==="diff" 无文件实体） */
 async function reloadTabsFromGitChange(): Promise<void> {
   const root = app.workspaceRoot;
   if (!root || !reloadOpenedFile) return;
   const fileTabs = app.tabs.filter((t) => t.kind !== "diff");
-  const dirty = fileTabs.filter((t) => t.dirty);
+  const autosaveOn = app.settings.autosave !== "off";
+  const skipped: Tab[] = [];
   for (const t of fileTabs) {
-    if (t.dirty) continue; // 有未保存修改：不覆盖（下面统一提示）
+    if (t.dirty) {
+      if (autosaveOn && editorBridge) await editorBridge.reloadDirtyWithHistory(t.path);
+      else skipped.push(t); // autosave 关闭：不覆盖未保存内容（下面统一提示）
+      continue;
+    }
     await reloadOpenedFile(t.path);
   }
-  if (dirty.length > 0) {
+  if (skipped.length > 0) {
     toast(
-      dirty.length === 1
-        ? `「${basename(dirty[0].path)}」有未保存修改，未从磁盘重载（其余 ${fileTabs.length - dirty.length} 个文件已刷新）`
-        : `${dirty.length} 个文件有未保存修改，未从磁盘重载（其余 ${fileTabs.length - dirty.length} 个文件已刷新）`,
+      skipped.length === 1
+        ? `「${basename(skipped[0].path)}」有未保存修改，未从磁盘重载（其余 ${fileTabs.length - skipped.length} 个文件已刷新）`
+        : `${skipped.length} 个文件有未保存修改，未从磁盘重载（其余 ${fileTabs.length - skipped.length} 个文件已刷新）`,
       "info",
     );
   }
@@ -635,6 +731,11 @@ export async function commitAll(): Promise<void> {
     await stageFiles(unstaged.map((f) => f.path));
   }
   await commitChanges();
+}
+
+/** 当前 diff 编辑器实例（未创建时 null，不触发创建）——供 Ctrl+F 等外部复用（editorFind.ts） */
+export function currentDiffEditor(): MonacoApi.editor.IStandaloneDiffEditor | null {
+  return diffEditor;
 }
 
 /** 懒创建 diff 编辑器（首次查看差异时） */
@@ -1751,6 +1852,40 @@ export async function showBlame(path: string): Promise<void> {
 }
 
 interface GitCommitInfo { hash: string; short_hash: string; author: string; date: string; subject: string; graph: string; refs: string }
+
+/** E-4（PyCharm 调研）：文件历史（git log --follow）——单文件的提交列表，hash 可点进提交详情。
+ *  与 blame 同用 Git 详情视图（openGitDetailView 渲染任意行内容）。 */
+export async function showFileHistory(relPath: string): Promise<void> {
+  if (!app.workspaceRoot) return;
+  openGitDetailView(`文件历史 · ${relPath}`, `git log --follow -- ${relPath}`);
+  try {
+    const commits = await invoke<GitCommitInfo[]>("git_log_file", { root: app.workspaceRoot, path: relPath, count: 100 });
+    if (commits.length === 0) {
+      appendDetailLine("该文件尚无提交历史", "hint");
+      return;
+    }
+    for (const c of commits) {
+      const row = document.createElement("div");
+      row.className = "git-file-history-row";
+      const hash = document.createElement("button");
+      hash.className = "git-blame-hash";
+      hash.textContent = c.short_hash;
+      hash.title = `${c.subject}\n点击查看提交详情`;
+      hash.addEventListener("click", () => void showCommitDetail(c.short_hash));
+      const meta = document.createElement("span");
+      meta.className = "git-file-history-meta";
+      meta.textContent = `${c.date} · ${c.author}`;
+      const subject = document.createElement("span");
+      subject.className = "git-file-history-subject";
+      subject.textContent = c.refs ? `${c.subject}  (${c.refs})` : c.subject;
+      row.append(hash, meta, subject);
+      gitDetailViewEl.appendChild(row);
+    }
+  } catch (e) {
+    appendDetailLine(`读取文件历史失败：${e}`, "stderr");
+    toastFail("读取文件历史", e);
+  }
+}
 
 /** 历史面板开关（迭代 5 · C3：改走 tab 切换） */
 export function toggleHistory(): void {

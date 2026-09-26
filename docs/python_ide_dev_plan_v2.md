@@ -122,7 +122,7 @@ open-charm/
 | 运行交互重构 | 「两种运行 + 统一运行控制台」（`docs/python_run_dev_plan.md` v3.4：脚本/项目运行 + PTY 终端控制台 + 多实例并行 + 运行历史按实例归属；probe 运行路径开启并实测 1.35x < 1.5x） | ✅ 已交付（迁移计划 M1-M4 全部完成；验收记录 `docs/run_acceptance_record.md`） |
 | trace 新鲜度优化 | 基于真实使用数据调整降权/清理策略 | ⚠️ 机制已就位（probe `stale` + `clean` + intel 降权），基于真实使用数据的调参未做 |
 | 边角修复 | 产品负责人日常使用反馈驱动 | 🔄 持续中 |
-| 边角修复 · live template 上下文位置轴 | 模板上下文从「容器单轴」升级为「容器 × 位置 × 词法」三维（`docs/live_templates上下文轴修订稿.md` v1.1）；缺省位置 = statement+expression（排除 name），根治 `main` 撞函数名误触发 | ✅ 相位 A 已实现（80 项单测全绿）；相位 B（导入/UI）待排期 |
+| 边角修复 · live template 上下文位置轴 | 模板上下文从「容器单轴」升级为「容器 × 位置 × 词法」三维（`docs/live_templates上下文轴修订稿.md` v1.1）；缺省位置 = statement+expression（排除 name），根治 `main` 撞函数名误触发 | ✅ 相位 A + 相位 B（PyCharm `<context>` 导入映射 + 管理面板适用环境多选）均已交付（2026-09-25，注记见修订稿 §8/§9） |
 
 ## 8. 工程规范（不变）
 

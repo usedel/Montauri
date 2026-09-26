@@ -10,7 +10,9 @@ mod logging;
 mod lsp;
 mod plugin_cmds;
 mod plugin_pkg;
+mod proc_stats;
 mod run_env;
+mod sessions;
 mod settings;
 mod storage_cmds;
 mod terminal;
@@ -89,6 +91,8 @@ pub fn run() {
             fs_cmds::optimize_imports,
             fs_cmds::search_workspace,
             fs_cmds::scan_todos,
+            fs_cmds::scan_import_aliases,
+            fs_cmds::read_import_aliases,
             fs_cmds::list_workspace_files,
             fs_cmds::list_workspace_dirs,
             fs_cmds::ruff_lint,
@@ -136,6 +140,11 @@ pub fn run() {
             // P2-11（UX 审查）：断点随工作区持久化（与书签同模式）
             file_ops::get_breakpoints,
             file_ops::set_breakpoints,
+            // A-5（PyCharm 调研）：会话快照（tab / 光标 / 未保存草稿）随工作区持久化
+            sessions::get_session,
+            sessions::save_session,
+            // A-1（PyCharm 调研）：资源可观测（外壳 + 子进程内存/CPU）
+            proc_stats::proc_stats,
             // Python 环境管理（P25-T04）
             env_cmds::list_pythons,
             env_cmds::list_python_versions,
@@ -152,7 +161,13 @@ pub fn run() {
             env_cmds::get_project_run,
             env_cmds::set_project_run,
             env_cmds::detect_project_entry,
-            env_cmds::detect_fastapi,
+            // 框架探针表（P1：Django / Flask / FastAPI，docs/pycharm_framework_support_report.md §8.2）
+            env_cmds::detect_framework,
+            env_cmds::set_framework_hint_disabled,
+            // Pydantic 栈检测（F0 裁决 B：推荐切换静态引擎，bench/reports/pydantic-engine-probe.md）
+            env_cmds::detect_pydantic_stack,
+            // 端点扫描（F1：FastAPI / Flask 静态路由，docs/pycharm_framework_support_report.md §8.3）
+            fs_cmds::scan_endpoints,
             env_cmds::list_packages,
             env_cmds::list_outdated,
             env_cmds::pip_install,
@@ -242,6 +257,7 @@ pub fn run() {
             git_cmds::git_log,
             git_cmds::git_blame,
             git_cmds::git_show,
+            git_cmds::git_log_file,
             git_cmds::git_init,
             git_cmds::git_diff_hunks,
             git_cmds::git_apply_hunk,

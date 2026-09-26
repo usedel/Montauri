@@ -13,6 +13,7 @@
 import type * as MonacoApi from "monaco-editor/esm/vs/editor/editor.api";
 import { invoke } from "@tauri-apps/api/core";
 import { app } from "./state";
+import { toast } from "./toast"; // D-4：noqa 动作反馈（G-3）
 
 /** 后端 fs_cmds::RuffDiagnostic 的镜像 */
 export interface RuffDiagnostic {
@@ -42,6 +43,87 @@ let missingNotified = false;
 
 export function setRuffLintHandlers(h: RuffLintHandlers): void {
   handlers = h;
+}
+
+// ---------- D-4（PyCharm 调研）：严重度映射 + # noqa 抑制 ----------
+
+/** 严重度存储值归一（非法/缺省回落 warning——G-3：不静默失效，宁可多显示一条波浪线） */
+export function normalizeSeverity(v: string | undefined | null): "hint" | "info" | "warning" | "error" {
+  const s = (v ?? "").trim().toLowerCase();
+  return s === "hint" || s === "info" || s === "error" ? s : "warning";
+}
+
+/** 规则码 → 显示严重度：按规则码首字母分类查设置映射（E/W/F）；其余类别回落 Warning */
+function severityFor(code: string | null): MonacoApi.MarkerSeverity {
+  const S = app.monaco.MarkerSeverity;
+  if (!code) return S.Warning;
+  const cat = code[0]?.toUpperCase();
+  const raw =
+    cat === "E" ? app.settings.ruff_severity_e
+    : cat === "W" ? app.settings.ruff_severity_w
+    : cat === "F" ? app.settings.ruff_severity_f
+    : null;
+  if (raw === null) return S.Warning;
+  const n = normalizeSeverity(raw);
+  return n === "hint" ? S.Hint : n === "info" ? S.Info : n === "error" ? S.Error : S.Warning;
+}
+
+/** 纯函数（单测）：在行尾追加 / 扩展 `# noqa` 注释。
+ *  返回新行全文；null = 该行已忽略此规则（无需修改）；裸 `# noqa` 已忽略全部，原样返回。 */
+export function buildNoqaLine(line: string, code: string): string | null {
+  const m = /\s+#\s*noqa(?::\s*([A-Za-z0-9_,\s]+))?\s*$/.exec(line);
+  if (!m) return `${line.replace(/\s+$/, "")}  # noqa: ${code}`;
+  if (m[1] === undefined) return line; // 裸 noqa = 忽略全部
+  const codes = m[1].split(",").map((s) => s.trim()).filter(Boolean);
+  if (codes.includes(code)) return null;
+  return `${line.slice(0, m.index)}  # noqa: ${[...codes, code].join(",")}`;
+}
+
+/** 编辑器右键「忽略此规则」：定位光标处的 ruff 诊断 → 行尾追加 `# noqa: <code>` → 立即重查 */
+export async function addNoqaAtCursor(): Promise<void> {
+  const ed = app.editor;
+  const model = ed.getModel();
+  const pos = ed.getPosition();
+  if (!model || !pos) return;
+  const markers = app.monaco.editor.getModelMarkers({ owner: RUFF_OWNER, resource: model.uri });
+  const hit = markers.find(
+    (m) => pos.lineNumber >= m.startLineNumber && pos.lineNumber <= m.endLineNumber,
+  );
+  // G-3：无诊断/非 ruff 诊断都显式说明，不做静默 no-op
+  if (!hit) {
+    toast("光标处没有 ruff 诊断", "info");
+    return;
+  }
+  const code = hit.source && hit.source !== "ruff" ? hit.source : null;
+  if (!code) {
+    toast("该诊断没有规则码，无法用 # noqa 忽略", "info");
+    return;
+  }
+  const lineNo = hit.startLineNumber;
+  const next = buildNoqaLine(model.getLineContent(lineNo), code);
+  if (next === null) {
+    toast(`该行已忽略 ${code}`, "info");
+    return;
+  }
+  ed.executeEdits("opencharm-noqa", [
+    {
+      range: new app.monaco.Range(lineNo, 1, lineNo, model.getLineMaxColumn(lineNo)),
+      text: next,
+    },
+  ]);
+  toast(`已添加 # noqa: ${code}`, "success");
+  await lintActiveFile(); // 立即重查，波浪线即时消失
+}
+
+/** 编辑器右键菜单入口（main.ts 的 disposable store 收口） */
+export function initNoqaAction(editor: MonacoApi.editor.IStandaloneCodeEditor): MonacoApi.IDisposable {
+  return editor.addAction({
+    id: "opencharm.noqaRule",
+    label: "忽略此规则（行尾添加 # noqa）",
+    contextMenuGroupId: "1_modification",
+    contextMenuOrder: 3,
+    run: () => void addNoqaAtCursor(),
+  });
 }
 
 /** 请求 lint（防抖；关闭开关时直接清空） */
@@ -76,15 +158,15 @@ export async function lintActiveFile(): Promise<void> {
     return;
   }
   if (my !== token) return; // 已有更新的请求
-  // 严重度走枚举而非裸数字（CR-29 同款纪律）；lint 只报 Warning——
-  // 它是「卫生建议」不是「编译错误」，与静态引擎的 Error 混在一起会让用户误判优先级。
+  // 严重度走枚举而非裸数字（CR-29 同款纪律）。D-4：按规则码首字母类别（E/W/F）
+  // 映射到设置里的显示级别（默认全 Warning，维持「卫生建议」定位）；其余类别回落 Warning。
   const markers: MonacoApi.editor.IMarkerData[] = diags.map((d) => ({
     startLineNumber: d.line,
     startColumn: d.column,
     endLineNumber: Math.max(d.end_line, d.line),
     endColumn: Math.max(d.end_column, d.column + 1),
     message: d.code ? `${d.code} ${d.message}` : d.message,
-    severity: app.monaco.MarkerSeverity.Warning,
+    severity: severityFor(d.code),
     source: d.code ?? "ruff",
   }));
   handlers?.setMarkers(tab.path, markers, RUFF_OWNER);

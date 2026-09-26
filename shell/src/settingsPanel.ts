@@ -9,14 +9,17 @@ import * as lsp from "./lsp/client";
 import { renderEngineChip } from "./engineChip";
 import { repaintRunWidget } from "./runWidget";
 import * as ltUi from "./live-templates/ui/manager";
-import { KEYBINDING_META, validateKeybindingMap, applyEditorKeybindings } from "./keybindings";
+import { KEYBINDING_META, chordFromEvent, modsFromEvent, validateKeybindingMap, applyEditorKeybindings } from "./keybindings";
 import { refreshTerminalFonts, refreshTerminalMotion, refreshTerminalThemes } from "./termUi";
 import { applyReduceMotion, hideEl, motionDisabled, reduceMotionEnabled, showEl } from "./anim";
 import { trapFocus } from "./focusTrap";
 import { openAlert } from "./dialog";
+import { fuzzyScore } from "./quickOpen";
 import { toast, toastFail } from "./toast";
 import { loadStorageUsage, wireStoragePanel } from "./storagePanel";
 import { renderPluginsTab } from "./extensions/pluginsTab";
+import { lintActiveFile, normalizeSeverity } from "./ruffLint"; // D-4：映射保存后立即重查当前文件
+import { refreshSplitEditorOptions } from "./splitEditor"; // C-4：分屏编辑器参数同步（splitEditor 不 import 本模块，无环）
 // UI-26：主题选择改自绘预览色卡（原生 <option> 放不下色卡），值读写经 themePicker
 import { getSelectedTheme, setSelectedTheme, wireThemePicker } from "./themePicker";
 // UI-25：欢迎页快捷键网格跟随键位系统，改键保存后需刷新
@@ -56,12 +59,26 @@ const settingsInsertSpacesEl = $("settings-insert-spaces") as HTMLInputElement;
 const settingsWordWrapEl = $("settings-word-wrap") as HTMLSelectElement;
 const settingsMinimapEl = $("settings-minimap") as HTMLInputElement;
 const settingsKeywordCompletionEl = $("settings-keyword-completion") as HTMLInputElement;
+// C-6（PyCharm 调研）：可读性配置
+const settingsIndentGuidesEl = $("settings-indent-guides") as HTMLInputElement;
+const settingsBracketColorsEl = $("settings-bracket-colors") as HTMLInputElement;
+// PR-B（dx_features_backlog §6.2）：粘性滚动
+const settingsStickyScrollEl = $("settings-sticky-scroll") as HTMLInputElement;
+// PR-C（dx_features_backlog §6.3）：保存清理
+const settingsTrimTrailingEl = $("settings-trim-trailing") as HTMLInputElement;
+const settingsFinalNewlineEl = $("settings-final-newline") as HTMLInputElement;
+// B-3（PyCharm 调研）：调试只步进我的代码
+const settingsDebugJmcEl = $("settings-debug-jmc") as HTMLInputElement;
 const settingsAutosaveEl = $("settings-autosave") as HTMLSelectElement;
 const settingsProbeEl = $("settings-probe") as HTMLInputElement;
 const settingsIntelEl = $("settings-intel") as HTMLInputElement;
 const settingsEngineEl = $("settings-engine") as HTMLSelectElement;
 const settingsFormatOnSaveEl = $("settings-format-on-save") as HTMLInputElement;
 const settingsOptimizeImportsOnSaveEl = $("settings-optimize-imports-on-save") as HTMLInputElement;
+// D-4（PyCharm 调研）：ruff 规则严重度映射（E/W/F 三类）
+const settingsRuffSeverityEEl = $("settings-ruff-severity-e") as HTMLSelectElement;
+const settingsRuffSeverityWEl = $("settings-ruff-severity-w") as HTMLSelectElement;
+const settingsRuffSeverityFEl = $("settings-ruff-severity-f") as HTMLSelectElement;
 const settingsTerminalCwdEl = $("settings-terminal-cwd") as HTMLSelectElement;
 const settingsTerminalShellEl = $("settings-terminal-shell") as HTMLSelectElement;
 const settingsReduceMotionEl = $("settings-reduce-motion") as HTMLInputElement;
@@ -74,13 +91,130 @@ const settingsLogKeepEl = $("settings-log-keep") as HTMLInputElement;
 const settingsLogStdoutEl = $("settings-log-stdout") as HTMLInputElement;
 const settingsLogOpenEl = $("settings-log-open") as HTMLButtonElement;
 const settingsDataOpenEl = $("settings-data-open") as HTMLButtonElement;
+// E-1（PyCharm 调研）：设置搜索
+const settingsSearchEl = $("settings-search") as HTMLInputElement;
+const settingsSearchEmptyEl = $("settings-search-empty");
+
+// ---------- E-1：设置搜索 ----------
+
+/** 动态内容页（列表 + 编辑器形态，不是 settings-row 表单行），搜索时整体隐藏 */
+const NON_ROW_SECTIONS = new Set(["settings-section-templates", "settings-section-plugins"]);
+
+/**
+ * 控件 id → 搜索关键词（G-7「可发现性税」：每个设置行的英文/别名关键词，集中一处，
+ * 避免给 index.html 每行加 data-kw 的漂移风险）。匹配时拼进行搜索域。
+ */
+const SETTINGS_ROW_KEYWORDS: Record<string, string> = {
+  "settings-theme-picker": "theme 主题 appearance",
+  "settings-font": "font size 字号",
+  "settings-font-family": "font family 字体",
+  "settings-font-family-preset": "font family 字体",
+  "settings-font-ligatures": "ligatures 连字",
+  "settings-reduce-motion": "motion animation 动画",
+  "settings-tab-size": "tab indent 缩进",
+  "settings-insert-spaces": "indent spaces 缩进空格",
+  "settings-word-wrap": "wrap 换行",
+  "settings-minimap": "minimap 小地图",
+  "settings-indent-guides": "indent guides 参考线",
+  "settings-bracket-colors": "bracket colorization 括号颜色",
+  "settings-debug-jmc": "debug just my code 调试步进",
+  "settings-autosave": "autosave 自动保存",
+  "settings-format-on-save": "format ruff 格式化",
+  "settings-optimize-imports-on-save": "imports isort 整理导入",
+  "settings-ruff-severity-e": "ruff severity pycodestyle E 风格 级别 诊断",
+  "settings-ruff-severity-w": "ruff severity pycodestyle W 警告 级别 诊断",
+  "settings-ruff-severity-f": "ruff severity pyflakes F 级别 诊断",
+  "settings-engine": "lsp engine pyrefly basedpyright 引擎",
+  "settings-probe": "probe profiling 探针",
+  "settings-intel": "intel runtime 运行时智能",
+  "settings-pypi-index": "pypi mirror pip 源",
+  "settings-pypi-index-preset": "pypi mirror pip 源",
+  "settings-terminal-cwd": "terminal cwd 终端目录",
+  "settings-terminal-shell": "terminal shell pwsh cmd powershell 终端",
+  "settings-log-enabled": "log logging 日志",
+  "settings-log-level": "log level 日志级别",
+  "settings-log-keep": "log rotate 日志轮转",
+  "settings-log-stdout": "log stdout 日志输出",
+  "settings-data-open": "data directory 数据目录",
+  "settings-log-open": "log directory 日志目录",
+  "storage-open": "storage 磁盘",
+  "storage-refresh": "storage usage 磁盘占用",
+  "storage-clean-webview": "cache webview 清理缓存",
+  "storage-clean-logs": "logs 清理日志",
+  "storage-uv-prune": "uv cache 缓存",
+  "storage-uv-clean": "uv cache 深度清理",
+  "storage-migrate-path": "migrate 迁移",
+  "storage-migrate": "migrate 迁移",
+};
+
+/** 行的搜索域：行文本 + 提示文本不在此（hint 归 section 层）+ 控件关键词 + data-kw */
+function settingsRowHaystack(row: HTMLElement): string {
+  const kws: string[] = [];
+  if (row.dataset.kw) kws.push(row.dataset.kw);
+  row.querySelectorAll("[id]").forEach((el) => {
+    const kw = SETTINGS_ROW_KEYWORDS[el.id];
+    if (kw) kws.push(kw);
+  });
+  return `${row.textContent ?? ""} ${kws.join(" ")}`;
+}
+
+/** 是否处于搜索态（E-1：空态恢复只在此为 true 时做一次，防止重复触发动态页渲染） */
+let searchActive = false;
+
+/** 应用设置搜索过滤：query 非空时跨分类显示所有含匹配行的 section，隐藏不匹配的行 */
+function applySettingsFilter(rawQuery: string): void {
+  const query = rawQuery.trim();
+  const sections = Array.from(document.querySelectorAll<HTMLElement>(".settings-section"));
+  if (!query) {
+    if (!searchActive) return; // 本就是分类视图：无状态可恢复（多余 switchCategory 会双渲染插件/模板页）
+    searchActive = false;
+    settingsSearchEmptyEl.classList.add("hidden");
+    // 恢复：清掉行级 hidden，按当前分类还原 section 显隐。
+    // 刻意不走 switchCategory——它对 plugins/templates 有渲染副作用，恢复显隐不该触发重渲染
+    for (const s of sections) {
+      s.classList.toggle("hidden", s.id !== `settings-section-${currentCategory}`);
+      s.querySelectorAll<HTMLElement>(".settings-row").forEach((r) => r.classList.remove("hidden"));
+    }
+    document.querySelector(".settings-card")?.classList.toggle("settings-card--wide", currentCategory === "templates");
+    return;
+  }
+  searchActive = true;
+  document.querySelector(".settings-card")?.classList.remove("settings-card--wide");
+  let totalMatches = 0;
+  for (const s of sections) {
+    if (NON_ROW_SECTIONS.has(s.id)) {
+      s.classList.add("hidden");
+      continue;
+    }
+    let sectionMatches = 0;
+    s.querySelectorAll<HTMLElement>(".settings-row").forEach((row) => {
+      const hit = fuzzyScore(settingsRowHaystack(row), query) !== null;
+      row.classList.toggle("hidden", !hit);
+      if (hit) sectionMatches++;
+    });
+    s.classList.toggle("hidden", sectionMatches === 0);
+    totalMatches += sectionMatches;
+  }
+  settingsSearchEmptyEl.classList.toggle("hidden", totalMatches > 0);
+}
+
+/** 清空搜索框并恢复分类视图（切分类 / 关闭面板 / 空态跳转时调用） */
+function clearSettingsSearch(): void {
+  if (!searchActive && !settingsSearchEl.value) return;
+  settingsSearchEl.value = "";
+  applySettingsFilter("");
+}
 
 // ---------- 分类导航（P1） ----------
 
 export type SettingsCategory = "appearance" | "editor" | "keybindings" | "save" | "python" | "templates" | "terminal" | "logging" | "storage" | "plugins";
 
+/** 当前分类（E-1 设置搜索：清空搜索后恢复到该分类的显隐状态） */
+let currentCategory: SettingsCategory = "appearance";
+
 /** 切换到指定分类并更新导航高亮；进入 Live Templates 分类时渲染模板列表 */
 function switchCategory(cat: SettingsCategory): void {
+  currentCategory = cat;
   document.querySelectorAll<HTMLElement>(".settings-nav-item").forEach((b) => {
     const sel = b.dataset.cat === cat;
     b.classList.toggle("active", sel);
@@ -166,6 +300,15 @@ export function buildEditorOptions(settings: Settings): MonacoApi.editor.IEditor
     fontLigatures: settings.font_ligatures,
     wordWrap: settings.word_wrap === "on" ? "on" : "off",
     minimap: { enabled: settings.minimap },
+    // C-6（PyCharm 调研）：可读性——缩进参考线（含当前层级高亮）+ 括号彩色化。
+    // 旧配置无这两个字段时 serde(default) 落在 false，故用 `!== false` 兜底为开。
+    guides: {
+      indentation: settings.indent_guides !== false,
+      highlightActiveIndentation: settings.indent_guides !== false,
+    },
+    bracketPairColorization: { enabled: settings.bracket_colors !== false },
+    // PR-B：粘性滚动（Monaco 0.52 内建 stickyScroll；旧配置无字段时兜底为开，同 C-6 惯例）
+    stickyScroll: { enabled: settings.sticky_scroll !== false },
   };
   const family = settings.font_family.trim();
   if (family) opts.fontFamily = family;
@@ -212,17 +355,72 @@ function renderKeybindingRows(): void {
     input.placeholder = m.def;
     input.spellcheck = false;
     label.htmlFor = input.id; // 遗留修复：动态生成的行同样要 label↔控件关联（读屏聚焦输入框报得出动作名）
+    wireKeybindingCapture(input); // UX：改为「按键录入」，不必手写字面量
     row.append(label, input);
     container.appendChild(row);
   }
 }
 
-/** 读取快捷键表单 → id → 键位串（已 trim） */
+/** 修饰键的 keydown/keyup（用于「按住 Ctrl 还没按主键」的预览与回退） */
+const MODIFIER_KEYS = new Set(["Control", "Shift", "Alt", "Meta"]);
+
+/** 写入键位输入框并同步「已成键基线」（回退/预览以基线为准，见 wireKeybindingCapture） */
+function setKeybindingValue(input: HTMLInputElement, v: string): void {
+  input.value = v;
+  input.dataset.kbCommitted = v;
+}
+
+/**
+ * 快捷键输入框改「按键录入」（PyCharm / VS Code 同款）：聚焦后直接按组合键即写入，
+ * 不再是逐字母手输字面量（用户按 Ctrl+0 想改保存键时，此前只会触发浏览器/外壳行为）。
+ * 语义：
+ * - 主键按下即成键（"Ctrl+0"）；按住修饰键未成键时显示 "Ctrl+" 预览，抬起回退到基线；
+ * - Backspace / Delete 清空（= 解绑）；Esc 撤销本次录入（吞掉事件，避免连带关闭面板丢掉其它未保存改动）；
+ * - Tab 不拦截（保留键盘在表单里移动焦点）；输入框 readOnly，杜绝 IME/手输产生非键位串文本。
+ */
+function wireKeybindingCapture(input: HTMLInputElement): void {
+  input.readOnly = true;
+  input.title = "点击后直接按下要使用的组合键；Backspace 清除（留空 = 解绑）";
+  const committed = (): string => input.dataset.kbCommitted ?? input.value;
+  const commit = (v: string): void => setKeybindingValue(input, v);
+  input.addEventListener("focus", () => input.classList.add("kb-capture"));
+  input.addEventListener("blur", () => {
+    input.classList.remove("kb-capture");
+    input.value = committed(); // 离开时丢弃未成键的预览
+  });
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Tab") return;
+    e.preventDefault();
+    e.stopPropagation(); // 不让 event 冒泡到 window 级快捷键分发（虽已按 INPUT 排除，仍显式隔离）
+    if (e.key === "Escape") {
+      input.value = committed();
+      return;
+    }
+    if (e.key === "Backspace" || e.key === "Delete") {
+      commit("");
+      return;
+    }
+    if (MODIFIER_KEYS.has(e.key)) {
+      const mods = modsFromEvent(e);
+      input.value = mods.length > 0 ? `${mods.join("+")}+` : ""; // 预览：等主键
+      return;
+    }
+    const chord = chordFromEvent(e);
+    if (chord) commit(chord);
+  });
+  input.addEventListener("keyup", (e) => {
+    if (!MODIFIER_KEYS.has(e.key)) return;
+    if (input.value !== committed()) input.value = committed(); // 只按了修饰键：回退预览
+  });
+}
+
+/** 读取快捷键表单 → id → 键位串（已 trim；未成键的预览回退到基线） */
 function readKeybindingForm(): Record<string, string> {
   const map: Record<string, string> = {};
   for (const m of KEYBINDING_META) {
     const input = document.getElementById(kbInputId(m.id)) as HTMLInputElement | null;
-    map[m.id] = (input?.value ?? "").trim();
+    const raw = (input?.value ?? "").trim();
+    map[m.id] = raw.endsWith("+") ? (input?.dataset.kbCommitted ?? "").trim() : raw;
   }
   return map;
 }
@@ -300,6 +498,12 @@ function fillForm(settings: Settings): void {
   settingsMinimapEl.checked = settings.minimap;
   // 旧配置缺字段时兜底出厂默认（Rust 侧 struct 级 serde(default) 已保证整表缺省）
   settingsKeywordCompletionEl.checked = settings.keyword_completion ?? DEFAULT_SETTINGS.keyword_completion;
+  settingsIndentGuidesEl.checked = settings.indent_guides !== false; // C-6
+  settingsBracketColorsEl.checked = settings.bracket_colors !== false;
+  settingsStickyScrollEl.checked = settings.sticky_scroll !== false; // PR-B
+  settingsTrimTrailingEl.checked = settings.trim_trailing_whitespace !== false; // PR-C
+  settingsFinalNewlineEl.checked = settings.final_newline !== false;
+  settingsDebugJmcEl.checked = settings.debug_just_my_code !== false; // B-3
   settingsAutosaveEl.value = settings.autosave;
   settingsProbeEl.checked = settings.probe_enabled;
   settingsIntelEl.checked = settings.runtime_intel_enabled;
@@ -307,6 +511,10 @@ function fillForm(settings: Settings): void {
   settingsFormatOnSaveEl.checked = settings.format_on_save;
   settingsOptimizeImportsOnSaveEl.checked =
     settings.optimize_imports_on_save ?? DEFAULT_SETTINGS.optimize_imports_on_save;
+  // D-4：旧配置缺字段回落 warning（select 的 value 若不在候选中会显示空白，故先归一）
+  settingsRuffSeverityEEl.value = normalizeSeverity(settings.ruff_severity_e);
+  settingsRuffSeverityWEl.value = normalizeSeverity(settings.ruff_severity_w);
+  settingsRuffSeverityFEl.value = normalizeSeverity(settings.ruff_severity_f);
   settingsTerminalCwdEl.value = settings.terminal_cwd;
   settingsTerminalShellEl.value = settings.terminal_shell ?? DEFAULT_SETTINGS.terminal_shell;
   // 旧配置缺 pypi_index 时兜底出厂默认（官方源）
@@ -319,7 +527,8 @@ function fillForm(settings: Settings): void {
   settingsLogStdoutEl.checked = settings.log_stdout ?? DEFAULT_SETTINGS.log_stdout;
   for (const m of KEYBINDING_META) {
     const input = document.getElementById(kbInputId(m.id)) as HTMLInputElement | null;
-    if (input) input.value = settings.keybindings[m.id] ?? "";
+    // 经 setKeybindingValue：同步成键基线，否则录入器回退时会用上一次的旧基线
+    if (input) setKeybindingValue(input, settings.keybindings[m.id] ?? "");
   }
 }
 
@@ -337,6 +546,7 @@ function onSettingsKeydown(e: KeyboardEvent): void {
 
 /** 打开设置面板（可指定初始分类；「视图 → Live Templates」快捷入口复用） */
 export function openSettingsPanel(category: SettingsCategory = "appearance"): void {
+  clearSettingsSearch(); // E-1：每次打开重置搜索状态
   fillForm(app.settings);
   void refreshTerminalShellSelect(); // 异步探测可用 shell，完成后重建下拉
   switchCategory(category);
@@ -377,11 +587,20 @@ async function saveSettingsPanel(): Promise<void> {
   const insertSpaces = settingsInsertSpacesEl.checked;
   const wordWrap = settingsWordWrapEl.value;
   const minimap = settingsMinimapEl.checked;
+  const indentGuides = settingsIndentGuidesEl.checked; // C-6
+  const bracketColors = settingsBracketColorsEl.checked;
+  const stickyScroll = settingsStickyScrollEl.checked; // PR-B
+  const trimTrailing = settingsTrimTrailingEl.checked; // PR-C
+  const finalNewline = settingsFinalNewlineEl.checked;
   const autosave = settingsAutosaveEl.value;
   const probeEnabled = settingsProbeEl.checked;
   const lspEngine = settingsEngineEl.value;
   const formatOnSave = settingsFormatOnSaveEl.checked;
   const optimizeImportsOnSave = settingsOptimizeImportsOnSaveEl.checked;
+  // D-4：严重度映射（select 固定候选；normalizeSeverity 兜底归一，双保险）
+  const ruffSeverityE = normalizeSeverity(settingsRuffSeverityEEl.value);
+  const ruffSeverityW = normalizeSeverity(settingsRuffSeverityWEl.value);
+  const ruffSeverityF = normalizeSeverity(settingsRuffSeverityFEl.value);
   const runtimeIntelEnabled = settingsIntelEl.checked;
   const keywordCompletion = settingsKeywordCompletionEl.checked;
   const terminalCwd = settingsTerminalCwdEl.value;
@@ -403,12 +622,21 @@ async function saveSettingsPanel(): Promise<void> {
     insert_spaces: insertSpaces,
     word_wrap: wordWrap,
     minimap,
+    indent_guides: indentGuides,
+    bracket_colors: bracketColors,
+    sticky_scroll: stickyScroll,
+    trim_trailing_whitespace: trimTrailing,
+    final_newline: finalNewline,
+    debug_just_my_code: settingsDebugJmcEl.checked, // B-3
     autosave,
     autosave_delay: app.settings.autosave_delay,
     probe_enabled: probeEnabled,
     lsp_engine: lspEngine,
     format_on_save: formatOnSave,
     optimize_imports_on_save: optimizeImportsOnSave,
+    ruff_severity_e: ruffSeverityE,
+    ruff_severity_w: ruffSeverityW,
+    ruff_severity_f: ruffSeverityF,
     runtime_intel_enabled: runtimeIntelEnabled,
     keyword_completion: keywordCompletion,
     terminal_cwd: terminalCwd,
@@ -438,11 +666,14 @@ async function saveSettingsPanel(): Promise<void> {
   setKeywordCompletionEnabled(app.settings.keyword_completion);
   applyFontStatus();
   applyEditorKeybindings(); // 编辑器级键位即时重建（window 级实时匹配无需处理）
+  refreshSplitEditorOptions(); // C-4：分屏编辑器同源 options（字号/主题/连字等即时生效）
   repaintRunWidget(); // 改键后运行组 tooltip 副文本跟随新键位（window 级键位变化不走 renderTabs）
   // UI-25：欢迎页快捷键网格同理——保存路径不经 updateEditorOverlay，不显式刷就会留着旧键位
   renderWelcomeShortcuts();
   await saveSettings();
   toast("设置已保存", "success"); // tech-debt #19：即时操作结果统一轻提示
+  // D-4：严重度映射保存后立即重查当前文件（波浪线级别即时生效，无需等下次编辑）
+  void lintActiveFile();
   closeSettingsPanel();
 
   if (engineChanged) {
@@ -485,7 +716,20 @@ export function wireSettingsPanel(): void {
   $btn("settings-save").addEventListener("click", () => saveSettingsPanel());
   $btn("settings-reset").addEventListener("click", resetSettingsPanel);
   document.querySelectorAll<HTMLElement>(".settings-nav-item").forEach((b) => {
-    b.addEventListener("click", () => switchCategory((b.dataset.cat ?? "appearance") as SettingsCategory));
+    b.addEventListener("click", () => {
+      clearSettingsSearch(); // E-1：切分类即退出搜索态（搜索覆盖所有分类，与单分类视图互斥）
+      switchCategory((b.dataset.cat ?? "appearance") as SettingsCategory);
+    });
+  });
+  // E-1：设置搜索（防抖 150ms；空态提供「查找快捷键」跳转）
+  let searchTimer: ReturnType<typeof setTimeout> | undefined;
+  settingsSearchEl.addEventListener("input", () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => applySettingsFilter(settingsSearchEl.value), 150);
+  });
+  $("settings-search-goto-kb").addEventListener("click", () => {
+    clearSettingsSearch();
+    switchCategory("keybindings");
   });
   // tech-debt #18：含可编辑内容，点遮罩不关闭（仅 X / 取消 / Esc 关闭）
   // D3 P-14：字体族下拉候选 → 写入自定义框 + 实时预览

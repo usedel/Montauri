@@ -1,5 +1,6 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -49,6 +50,19 @@ pub fn read_dir(path: &str, show_hidden: bool) -> Result<Vec<Entry>, String> {
 
 #[tauri::command]
 pub fn read_file(path: &str) -> Result<String, String> {
+    // 大文件守卫：整读入 Monaco model 无行数上限，超大文本会整窗卡顿。
+    // 超过 10 MB 直接报错（由前端 toast 呈现），而不是读入后假死。
+    const MAX_READ_BYTES: u64 = 10 * 1024 * 1024;
+    let meta = fs::metadata(path).map_err(|e| e.to_string())?;
+    if meta.is_dir() {
+        return Err(format!("路径是目录而非文件：{}", path));
+    }
+    if meta.len() > MAX_READ_BYTES {
+        return Err(format!(
+            "文件过大（{:.1} MB），超过 10 MB 上限，编辑器不支持打开",
+            meta.len() as f64 / 1048576.0
+        ));
+    }
     fs::read_to_string(path).map_err(|e| e.to_string())
 }
 
@@ -1020,6 +1034,449 @@ fn todo_boundary_ok(bytes: &[u8], start: usize, len: usize) -> bool {
     before_ok && after_ok
 }
 
+// ---------- import 别名扫描（importAlias 补全的频率学习数据源） ----------
+//
+// 逐行扫描 .py 文件中的 `import X as Y` / `from X import A as B`，按 target 聚合
+// 出现次数，供前端把工作区高频别名排在内置表之前。纪律同 scan_todos / scan_endpoints：
+// 纯文本逐行解析、零子进程、零正则依赖；复用 collect_files 的 ignore 走查。
+
+/// 结果上限（防超大仓库序列化拖垮）
+const MAX_IMPORT_ALIASES: usize = 500;
+
+/// 单条聚合结果：target = `X`（module 型）或 `X.A`（from-import 成员型）
+#[derive(Serialize, Deserialize, Clone)]
+pub struct ImportAliasHit {
+    pub kind: String, // "module" | "member"
+    pub target: String,
+    pub alias: String,
+    pub count: u32,
+}
+
+#[tauri::command]
+pub async fn scan_import_aliases(root: String) -> Result<Vec<ImportAliasHit>, String> {
+    tauri::async_runtime::spawn_blocking(move || scan_import_aliases_impl(&root))
+        .await
+        .map_err(|e| format!("任务执行异常：{e}"))?
+}
+
+fn scan_import_aliases_impl(root: &str) -> Result<Vec<ImportAliasHit>, String> {
+    let root_path = Path::new(root);
+    if !root_path.is_dir() {
+        return Err(format!("工作区目录不存在：{root}"));
+    }
+    // (kind, target, alias) → count；出口按 count 降序 + target/alias 升序稳定排序
+    let mut counts: HashMap<(u8, String, String), u32> = HashMap::new();
+    for path in collect_files(root_path) {
+        if path.extension().map_or(true, |e| e != "py") {
+            continue;
+        }
+        // 与搜索同一口径：超大 / 二进制 / 非 UTF-8 一律跳过（不计数、不报错）
+        if let Ok(meta) = fs::metadata(&path) {
+            if meta.len() > MAX_FILE_SIZE {
+                continue;
+            }
+        }
+        let Some(content) = read_text_file(&path) else { continue };
+        for raw in content.lines() {
+            for (kind, target, alias) in parse_import_alias_line(raw) {
+                *counts.entry((kind, target, alias)).or_insert(0) += 1;
+            }
+        }
+    }
+    let mut out: Vec<ImportAliasHit> = counts
+        .into_iter()
+        .map(|((kind, target, alias), count)| ImportAliasHit {
+            kind: if kind == 0 { "module" } else { "member" }.to_string(),
+            target,
+            alias,
+            count,
+        })
+        .collect();
+    out.sort_by(|a, b| {
+        b.count
+            .cmp(&a.count)
+            .then_with(|| a.target.cmp(&b.target))
+            .then_with(|| a.alias.cmp(&b.alias))
+    });
+    out.truncate(MAX_IMPORT_ALIASES);
+    // 学习结果落盘（工作区 config `import_aliases`，下次打开先读缓存秒生效）；
+    // 落盘失败不吞扫描结果——补全数据比缓存更重要（best-effort，同 sweep 口径）
+    let _ = save_import_aliases(root, &out);
+    Ok(out)
+}
+
+/// 工作区配置存储键（env_cmds 工作区 config，与 framework_hints / dep_ignored 同文件同口径）
+const IMPORT_ALIASES_KEY: &str = "import_aliases";
+
+/// 学习别名落盘；空清单移除键保持配置精简（同 dep_ignored 先例）
+fn save_import_aliases(root: &str, hits: &[ImportAliasHit]) -> Result<(), String> {
+    let mut v = crate::env_cmds::load_config(root);
+    let obj = v.as_object_mut().ok_or("工作区配置格式非法")?;
+    if hits.is_empty() {
+        obj.remove(IMPORT_ALIASES_KEY);
+    } else {
+        obj.insert(
+            IMPORT_ALIASES_KEY.into(),
+            serde_json::to_value(hits).map_err(|e| e.to_string())?,
+        );
+    }
+    crate::env_cmds::save_config(root, &v)
+}
+
+/// 从工作区配置读缓存（字段缺失 / 类型错误 / 条目损坏 → None，绝不 panic，同 load_config 口径）
+fn import_aliases_from_config(v: &Value) -> Option<Vec<ImportAliasHit>> {
+    v.get(IMPORT_ALIASES_KEY)
+        .and_then(|x| serde_json::from_value::<Vec<ImportAliasHit>>(x.clone()).ok())
+}
+
+/// 读学习别名缓存（前端打开工作区先展示缓存，后台重扫刷新；同步纯 fs，零子进程）
+#[tauri::command]
+pub fn read_import_aliases(root: String) -> Option<Vec<ImportAliasHit>> {
+    import_aliases_from_config(&crate::env_cmds::load_config(&root))
+}
+
+/// 解析单行 import 语句中的别名绑定，kind 0 = module（`import X as Y`）、1 = member
+/// （`from X import A as Y`）。仅认稳定语法：多目标逗号分隔、from 后单层圆括号、
+/// 行尾 `#` 注释截断（模块名不可能含引号/#，朴素截断安全）；分号多语句与续行是已知边界。
+fn parse_import_alias_line(line: &str) -> Vec<(u8, String, String)> {
+    let mut out = Vec::new();
+    let trimmed = line.trim();
+    // 行尾注释截断（'#' 前有空白才算，防 base 编码类误截；模块名后必有空白才跟注释）
+    let trimmed = match trimmed.find(" #") {
+        Some(pos) => trimmed[..pos].trim_end(),
+        None => trimmed,
+    };
+    if trimmed.is_empty() {
+        return out;
+    }
+    if let Some(rest) = trimmed.strip_prefix("import ") {
+        // `import X as Y, Z` → 逗号分段逐段认领
+        for seg in rest.split(',') {
+            let t: Vec<&str> = seg.split_whitespace().collect();
+            if t.len() == 3 && t[1] == "as" && is_dotted_ident(t[0]) && is_ident(t[2]) {
+                out.push((0u8, t[0].to_string(), t[2].to_string()));
+            }
+        }
+    } else if let Some(rest) = trimmed.strip_prefix("from ") {
+        // `from X import A as B, C` → 成员段逐段认领；括号容错（去 '('）
+        let Some(pos) = rest.find(" import ") else { return out };
+        let module = rest[..pos].trim();
+        if !is_dotted_ident(module) {
+            return out;
+        }
+        let members = rest[pos + " import ".len()..].trim_start().trim_start_matches('(');
+        for seg in members.split(',') {
+            let t: Vec<&str> = seg.split_whitespace().collect();
+            if t.len() == 3 && t[1] == "as" && is_dotted_ident(t[0]) && is_ident(t[2]) {
+                out.push((1u8, format!("{module}.{}", t[0]), t[2].to_string()));
+            }
+        }
+    }
+    out
+}
+
+/// 点分标识符：非空且每个 `.` 段均为合法标识符（含 Unicode 字母，走 char 判定）
+fn is_dotted_ident(s: &str) -> bool {
+    !s.is_empty() && s.split('.').all(is_ident)
+}
+
+/// 单段标识符：字母/下划线开头，后续字母/数字/下划线（ASCII 口径足够——
+/// 目标是过滤注释/字符串/运算符误入，不是完整 lexgate）
+fn is_ident(s: &str) -> bool {
+    let mut chars = s.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_alphabetic() || c == '_' => {}
+        _ => return false,
+    }
+    chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+// ---------- 端点扫描（F1：FastAPI / Flask 静态路由，docs/pycharm_framework_support_report.md §8.3） ----------
+//
+// 对标 PyCharm Endpoints 工具窗口的**静态可见**部分（不做 HTTP Client / OpenAPI 引擎）。
+// 设计纪律（同框架探针表）：
+// - **纯文本逐行正则级解析、零子进程**，复用 collect_files 的 ignore 走查（限深限数）；
+// - 只认**稳定的公开约定**：`@obj.<method>("path")` / `@obj.route(..., methods=[...])` /
+//   `<obj> = APIRouter(prefix=...)` / `<obj> = Blueprint(..., url_prefix=...)` /
+//   `x.include_router(obj, prefix=...)` / `x.register_blueprint(obj, url_prefix=...)`，
+//   不解析框架源码结构、不做跨文件类型推断；
+// - 前缀合并按**对象名**全局匹配（router 声明处 + include 处各取一段），支持一层
+//   include_router / register_blueprint；多级嵌套与多行装饰器（path 换行）是已知边界；
+// - 结果上限 MAX_ENDPOINTS（同 scan_todos 思路）。
+
+/// 结果上限（防超大仓库把序列化与前端渲染拖垮）
+const MAX_ENDPOINTS: usize = 2000;
+
+/// FastAPI 风格路由装饰器（方法名小写）；api_route 的方法取行内 methods=[...]，默认 GET
+const FASTAPI_ROUTE_DECORATORS: [&str; 10] = [
+    "get", "post", "put", "patch", "delete", "options", "head", "trace", "websocket", "api_route",
+];
+
+#[derive(Serialize, Clone, PartialEq)]
+pub struct EndpointInfo {
+    /// "fastapi" | "flask" | "unknown"（按路由对象的声明类判定；未识别对象只知方法）
+    pub framework: String,
+    /// HTTP 方法（大写；多方法用 "/" 连接；websocket = "WS"）
+    pub method: String,
+    /// 合并后的完整路由（include 前缀 + router 前缀 + 声明路径，斜杠归一）
+    pub route: String,
+    /// 声明文件（**绝对路径**、正斜杠——openFile → read_file 只认绝对路径，
+    /// 对齐 scan_todos 的路径契约；相对路径会导致「打开文件失败：找不到路径」）
+    pub file: String,
+    /// 声明行号（1 起）
+    pub line: u32,
+    /// 处理函数名（装饰器之后首个 def；装饰器与 def 间被其他语句隔开时为空）
+    pub handler: String,
+}
+
+/// 是否为合法 Python 标识符（防止 `@app.get(path="/x")` 被 `=` 切开后误判为赋值声明）
+fn ep_is_ident(s: &str) -> bool {
+    let mut chars = s.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_alphabetic() || c == '_' => {}
+        _ => return false,
+    }
+    chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+/// 行内第一个字符串字面量（单双引号均可；不支持转义——路由字面量一般不含引号）
+fn ep_first_string_literal(line: &str) -> Option<String> {
+    let bytes = line.as_bytes();
+    for (i, &b) in bytes.iter().enumerate() {
+        if b == b'"' || b == b'\'' {
+            let rest = &line[i + 1..];
+            let end = rest.find(b as char)?;
+            return Some(rest[..end].to_string());
+        }
+    }
+    None
+}
+
+/// 取行内 `key="..."` 形式的关键字参数值；`before` 检查保证 key 不
+/// 是更长标识符的尾部（找 "prefix=" 不得命中 "url_prefix="）。
+fn ep_kwarg_string(line: &str, key: &str) -> Option<String> {
+    let pat = format!("{key}=");
+    let bytes = line.as_bytes();
+    let mut from = 0usize;
+    while let Some(pos) = line[from..].find(&pat) {
+        let at = from + pos;
+        let before_ok = at == 0 || !(bytes[at - 1].is_ascii_alphanumeric() || bytes[at - 1] == b'_');
+        if before_ok {
+            let after = line[at + pat.len()..].trim_start();
+            if after.starts_with('"') || after.starts_with('\'') {
+                return ep_first_string_literal(after);
+            }
+        }
+        from = at + pat.len();
+    }
+    None
+}
+
+/// 装饰器行 `@obj.method("path"...)` → (obj, 展示方法, 路径字面量)。
+/// 方法展示在**装饰器行**上完成（methods=[...] 只在装饰器行上，def 行拿不到）；
+/// 只认 FASTAPI_ROUTE_DECORATORS 与 "route"（Flask）；其余装饰器返回 None（不截断 pending）。
+fn ep_parse_route_decorator(line: &str) -> Option<(String, String, String)> {
+    let rest = line.trim().strip_prefix('@')?;
+    let (obj, method_part) = rest.split_once('.')?;
+    let obj = obj.trim();
+    let method = method_part.split('(').next()?.trim();
+    if obj.is_empty() || method.is_empty() {
+        return None;
+    }
+    let known = method == "route" || FASTAPI_ROUTE_DECORATORS.contains(&method);
+    if !known {
+        return None;
+    }
+    let path = ep_first_string_literal(line).unwrap_or_default();
+    Some((obj.to_string(), ep_display_method(method, line), path))
+}
+
+/// 对象声明行 `<name> = APIRouter(...)` / `<name> = Blueprint(...)` / `<name> = Flask(...)`
+/// / `<name> = FastAPI(...)` → (对象名, 框架 "fastapi"|"flask", 前缀)
+fn ep_parse_router_decl(line: &str) -> Option<(String, &'static str, String)> {
+    let t = line.trim();
+    if t.starts_with('#') {
+        return None;
+    }
+    let (lhs, rhs) = t.split_once('=')?;
+    let name = lhs.trim();
+    if !ep_is_ident(name) {
+        return None;
+    }
+    let rhs_trim = rhs.trim_start();
+    let (framework, prefix_key) = if rhs_trim.starts_with("APIRouter") {
+        ("fastapi", "prefix")
+    } else if rhs_trim.starts_with("Blueprint") {
+        ("flask", "url_prefix")
+    } else if rhs_trim.starts_with("Flask") {
+        ("flask", "")
+    } else if rhs_trim.starts_with("FastAPI") {
+        ("fastapi", "")
+    } else {
+        return None;
+    };
+    let prefix = if prefix_key.is_empty() {
+        String::new()
+    } else {
+        ep_kwarg_string(t, prefix_key).unwrap_or_default()
+    };
+    Some((name.to_string(), framework, prefix))
+}
+
+/// include 行 `x.include_router(<name>, prefix="...")` / `x.register_blueprint(<name>, url_prefix="...")`
+/// → (路由对象名, 合并前缀；缺省为空串)
+fn ep_parse_include(line: &str) -> Option<(String, String)> {
+    let t = line.trim();
+    if t.starts_with('#') {
+        return None;
+    }
+    let (key, kw) = if t.contains(".include_router(") {
+        ("include_router(", "prefix")
+    } else if t.contains(".register_blueprint(") {
+        ("register_blueprint(", "url_prefix")
+    } else {
+        return None;
+    };
+    let at = t.find(key)? + key.len();
+    let name: String = t[at..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
+    if name.is_empty() {
+        return None;
+    }
+    let prefix = ep_kwarg_string(t, kw).unwrap_or_default();
+    Some((name, prefix))
+}
+
+/// def 行（含 async def）→ 函数名
+fn ep_parse_def_name(line: &str) -> Option<String> {
+    let t = line.trim();
+    let rest = t.strip_prefix("async def ").or_else(|| t.strip_prefix("def "))?;
+    let name: String = rest.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
+    if name.is_empty() { None } else { Some(name) }
+}
+
+/// 方法名 → 展示方法（大写；websocket → WS；route/api_route 取行内 methods=[...]，缺省 GET）
+fn ep_display_method(method: &str, line: &str) -> String {
+    match method {
+        "websocket" => "WS".to_string(),
+        "api_route" | "route" => {
+            let inner = line.find("methods").and_then(|a| {
+                let seg = &line[a..];
+                let lb = seg.find('[')?;
+                let rb = seg.find(']')?;
+                if rb > lb { Some(&seg[lb + 1..rb]) } else { None }
+            });
+            let ms: Vec<String> = inner
+                .unwrap_or("")
+                .split(',')
+                .map(|p| p.trim().trim_matches(|c| c == '"' || c == '\'').trim())
+                .filter(|p| !p.is_empty())
+                .map(|p| p.to_ascii_uppercase())
+                .collect();
+            if ms.is_empty() { "GET".to_string() } else { ms.join("/") }
+        }
+        other => other.to_ascii_uppercase(),
+    }
+}
+
+/// 路由段合并：两端斜杠归一 + 空段跳过；全空 → "/"
+fn ep_join_route(parts: &[&str]) -> String {
+    let segs: Vec<&str> = parts
+        .iter()
+        .map(|p| p.trim().trim_matches('/'))
+        .filter(|p| !p.is_empty())
+        .collect();
+    if segs.is_empty() { "/".to_string() } else { format!("/{}", segs.join("/")) }
+}
+
+/// 工作区端点扫描：按「文件 → 行号」排序（前端再按方法分组展示）
+#[tauri::command]
+pub async fn scan_endpoints(root: String) -> Result<Vec<EndpointInfo>, String> {
+    tauri::async_runtime::spawn_blocking(move || scan_endpoints_impl(&root))
+        .await
+        .map_err(|e| format!("任务执行异常：{e}"))?
+}
+
+fn scan_endpoints_impl(root: &str) -> Result<Vec<EndpointInfo>, String> {
+    let root_path = Path::new(root);
+    if !root_path.is_dir() {
+        return Err(format!("工作区目录不存在：{root}"));
+    }
+    let mut router_prefix: HashMap<String, String> = HashMap::new();
+    let mut include_prefix: HashMap<String, String> = HashMap::new();
+    let mut framework_of: HashMap<String, String> = HashMap::new();
+    // 第一遍的中间产物：(对象名, 展示方法, 声明路径, 文件, 行号, 处理函数)
+    // —— include 行常写在装饰器之后，前缀合并必须**等全部文件扫完**再统一做（单遍会漏）
+    let mut raw_endpoints: Vec<(String, String, String, String, u32, String)> = Vec::new();
+
+    for path in collect_files(root_path) {
+        if let Ok(meta) = fs::metadata(&path) {
+            if meta.len() > MAX_FILE_SIZE {
+                continue;
+            }
+        }
+        let Some(content) = read_text_file(&path) else { continue };
+        // 声明文件用绝对路径（对齐 scan_todos）：openFile → read_file 直接 fs 读，
+        // 相对路径相对进程 cwd 几乎必失败（E-BASIC 端点真机复现：os error 3）
+        let file_abs = path.to_string_lossy().replace('\\', "/");
+        // 待配对的装饰器 (obj, 展示方法, 路径)：命中后续 def 行时成对产出
+        let mut pending: Option<(String, String, String)> = None;
+        for (i, raw) in content.lines().enumerate() {
+            let t = raw.trim();
+            if t.is_empty() || t.starts_with('#') {
+                continue; // 注释/空行不打断 pending（装饰器与 def 之间允许有注释）
+            }
+            // 1) 对象声明（APIRouter / Blueprint / Flask / FastAPI）
+            if let Some((name, framework, prefix)) = ep_parse_router_decl(raw) {
+                framework_of.insert(name.clone(), framework.to_string());
+                if !prefix.is_empty() {
+                    router_prefix.insert(name, prefix);
+                }
+                pending = None; // 声明插入会打断「装饰器 → def」配对
+                continue;
+            }
+            // 2) include（合并前缀）
+            if let Some((name, prefix)) = ep_parse_include(raw) {
+                include_prefix.insert(name, prefix);
+                continue;
+            }
+            // 3) def：与 pending 装饰器配对产出端点
+            if let Some(handler) = ep_parse_def_name(t) {
+                if let Some((obj, method, route_path)) = pending.take() {
+                    raw_endpoints.push((obj, method, route_path, file_abs.clone(), (i + 1) as u32, handler));
+                }
+                continue;
+            }
+            // 4) 装饰器：可识别的路由装饰器更新 pending；不可识别的装饰器保留 pending（堆叠装饰器）
+            if t.starts_with('@') {
+                if let Some((obj, method, route_path)) = ep_parse_route_decorator(raw) {
+                    pending = Some((obj, method, route_path));
+                }
+            }
+        }
+    }
+
+    // 第二遍（纯内存）：include 已收齐，统一做前缀合并
+    let mut out: Vec<EndpointInfo> = Vec::new();
+    for (obj, method, route_path, file, line, handler) in raw_endpoints {
+        if out.len() >= MAX_ENDPOINTS {
+            break;
+        }
+        let framework = framework_of.get(&obj).cloned().unwrap_or_else(|| "unknown".into());
+        let inc = include_prefix.get(&obj).cloned().unwrap_or_default();
+        let pre = router_prefix.get(&obj).cloned().unwrap_or_default();
+        out.push(EndpointInfo {
+            framework,
+            method,
+            route: ep_join_route(&[&inc, &pre, &route_path]),
+            file,
+            line,
+            handler,
+        });
+    }
+    out.sort_by(|a, b| a.file.cmp(&b.file).then(a.line.cmp(&b.line)));
+    Ok(out)
+}
+
 // ---------- ruff 实时 lint（P2：诊断第三桶） ----------
 
 /// lint 规则集：E/W = pycodestyle（PEP8 风格与格式），F = pyflakes（未使用导入/变量、未定义名）。
@@ -1219,6 +1676,7 @@ fn list_workspace_dirs_impl(root: &str) -> Result<Vec<String>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -1227,6 +1685,24 @@ mod tests {
         let d = std::env::temp_dir().join(format!("opencharm-test-{tag}-{nanos}"));
         fs::create_dir_all(&d).unwrap();
         d
+    }
+
+    #[test]
+    fn test_read_file_rejects_oversized_and_dir() {
+        let dir = tmpdir("readguard");
+        // 超过 10 MB 上限：报「文件过大」而非整读卡死
+        let big = dir.join("big.txt");
+        fs::write(&big, vec![b'a'; 10 * 1024 * 1024 + 1]).unwrap();
+        let err = read_file(big.to_str().unwrap()).unwrap_err();
+        assert!(err.contains("文件过大"), "实际错误：{err}");
+        // 目录路径：明确报错而非 io 错误裸串
+        let err = read_file(dir.to_str().unwrap()).unwrap_err();
+        assert!(err.contains("目录"), "实际错误：{err}");
+        // 正常小文件照常可读
+        let ok = dir.join("ok.txt");
+        fs::write(&ok, "hello").unwrap();
+        assert_eq!(read_file(ok.to_str().unwrap()).unwrap(), "hello");
+        fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
@@ -1473,6 +1949,244 @@ mod tests {
     fn scan_todos_rejects_missing_root() {
         let missing = std::env::temp_dir().join("opencharm-scan-todos-missing-dir");
         assert!(scan_todos_impl(&missing.to_string_lossy()).is_err());
+    }
+
+    // ---------- import 别名扫描单测 ----------
+
+    #[test]
+    fn import_alias_parse_module_and_member() {
+        let mut hits = parse_import_alias_line("import pandas as pd");
+        assert_eq!(hits, vec![(0, "pandas".to_string(), "pd".to_string())]);
+        // from-import 成员型：target 为 module.member
+        hits = parse_import_alias_line("from pandas import DataFrame as DF");
+        assert_eq!(
+            hits,
+            vec![(1, "pandas.DataFrame".to_string(), "DF".to_string())]
+        );
+    }
+
+    #[test]
+    fn import_alias_parse_multi_and_paren_and_comment() {
+        // 多目标 + 混合有无别名
+        let hits = parse_import_alias_line("import os, numpy as np");
+        assert_eq!(hits, vec![(0, "numpy".to_string(), "np".to_string())]);
+        // from + 圆括号 + 多成员
+        let hits = parse_import_alias_line("from torch import (nn as NN, optim)");
+        assert_eq!(hits, vec![(1, "torch.nn".to_string(), "NN".to_string())]);
+        // 行尾注释截断（'#' 前有空白）
+        let hits = parse_import_alias_line("import pandas as pd  # 数据处理");
+        assert_eq!(hits, vec![(0, "pandas".to_string(), "pd".to_string())]);
+    }
+
+    #[test]
+    fn import_alias_parse_rejects_noise() {
+        assert!(parse_import_alias_line("# import pandas as pd").is_empty()); // 注释行
+        assert!(parse_import_alias_line("import pandas").is_empty()); // 无别名
+        assert!(parse_import_alias_line("from pandas import DataFrame").is_empty());
+        assert!(parse_import_alias_line("x = import pandas as pd").is_empty()); // 非 import 行首
+        assert!(parse_import_alias_line("import pandas as pd.DataFrame").is_empty()); // 别名非法
+        assert!(parse_import_alias_line("from 'x' import y as z").is_empty()); // 模块名非法
+    }
+
+    #[test]
+    fn scan_import_aliases_aggregates_and_ranks() {
+        let base = tmpdir("import-alias");
+        fs::write(
+            base.join("a.py"),
+            "import pandas as pd\nimport pandas as pd\nimport pandas as unusual\n",
+        )
+        .unwrap();
+        fs::write(base.join("b.py"), "from numpy import array as arr\n").unwrap();
+        fs::write(base.join("c.txt"), "import pandas as pd\n").unwrap(); // 非 .py 不扫
+        let r = scan_import_aliases_impl(&base.to_string_lossy()).unwrap();
+        assert_eq!(r[0].target, "pandas");
+        assert_eq!(r[0].alias, "pd");
+        assert_eq!(r[0].count, 2);
+        assert_eq!(r[0].kind, "module");
+        assert!(r.iter().any(|h| h.kind == "member" && h.target == "numpy.array"));
+        // 同 target 不同 alias 是两条独立聚合（unusual 仅 1 次，pd 2 次）
+        assert!(r.iter().any(|h| h.target == "pandas" && h.alias == "unusual" && h.count == 1));
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn scan_import_aliases_rejects_missing_root() {
+        let missing = std::env::temp_dir().join("opencharm-import-alias-missing-dir");
+        assert!(scan_import_aliases_impl(&missing.to_string_lossy()).is_err());
+    }
+
+    #[test]
+    fn import_aliases_from_config_tolerates_garbage() {
+        // 字段缺失 / 类型错误 / 条目损坏 → None（绝不 panic，同 dep_ignored 口径）
+        assert!(import_aliases_from_config(&json!({})).is_none());
+        assert!(import_aliases_from_config(&json!({"import_aliases": "not-an-array"})).is_none());
+        assert!(import_aliases_from_config(&json!({"import_aliases": [{"bogus": 1}]})).is_none());
+        let v = json!({"import_aliases": [
+            {"kind": "module", "target": "pandas", "alias": "pd", "count": 2},
+            {"kind": "member", "target": "numpy.array", "alias": "arr", "count": 1}
+        ]});
+        let hits = import_aliases_from_config(&v).unwrap();
+        assert_eq!(hits.len(), 2);
+        assert_eq!(hits[0].target, "pandas");
+        assert_eq!(hits[1].kind, "member");
+    }
+
+    // ---------- 端点扫描（F1）单测 ----------
+
+    /// FastAPI：@app.get + APIRouter(prefix) + include_router 合并；websocket → WS
+    #[test]
+    fn endpoints_fastapi_prefix_merge() {
+        let d = tmpdir("ep-fastapi");
+        fs::write(
+            d.join("main.py"),
+            "from fastapi import APIRouter, FastAPI\n\
+             app = FastAPI()\n\
+             router = APIRouter(prefix=\"/api\")\n\
+             \n\
+             @app.get(\"/health\")\n\
+             async def health(): ...\n\
+             \n\
+             @router.get(\"/users/{uid}\")\n\
+             def list_users(uid: int): ...\n\
+             \n\
+             @router.websocket(\"/ws\")\n\
+             async def ws(): ...\n\
+             \n\
+             app.include_router(router, prefix=\"/v1\")\n",
+        )
+        .unwrap();
+        let r = scan_endpoints_impl(&d.to_string_lossy()).unwrap();
+        assert_eq!(r.len(), 3);
+        // 按文件 → 行号排序：health(5) / list_users(9) / ws(13)
+        assert_eq!(r[0].route, "/health");
+        assert_eq!(r[0].method, "GET");
+        assert_eq!(r[0].framework, "fastapi");
+        assert_eq!(r[0].handler, "health");
+        // file 是绝对路径（正斜杠）——openFile → read_file 只认绝对路径（真机复现回归钉死）
+        assert!(r[0].file.starts_with('/') || r[0].file.as_bytes()[1] == b':', "file 应为绝对路径: {}", r[0].file);
+        assert!(r[0].file.ends_with("/main.py"), "file 应为绝对路径: {}", r[0].file);
+        // include 前缀 /v1 + router 前缀 /api + /users/{uid}
+        assert_eq!(r[1].route, "/v1/api/users/{uid}");
+        assert_eq!(r[1].handler, "list_users");
+        assert!(r[1].file.ends_with("/main.py"));
+        assert_eq!(r[2].method, "WS");
+        assert_eq!(r[2].route, "/v1/api/ws");
+    }
+
+    /// Flask：@app.route 默认 GET + methods 多方法 + Blueprint url_prefix 两处来源
+    #[test]
+    fn endpoints_flask_methods_and_blueprint() {
+        let d = tmpdir("ep-flask");
+        fs::write(
+            d.join("app.py"),
+            "from flask import Blueprint, Flask\n\
+             app = Flask(__name__)\n\
+             bp = Blueprint(\"admin\", __name__, url_prefix=\"/admin\")\n\
+             \n\
+             @app.route(\"/index\")\n\
+             def index(): ...\n\
+             \n\
+             @app.route(\"/submit\", methods=[\"POST\"])\n\
+             def submit(): ...\n\
+             \n\
+             @bp.route(\"/dash\", methods=[\"GET\", \"POST\"])\n\
+             def dash(): ...\n\
+             \n\
+             app.register_blueprint(bp)\n",
+        )
+        .unwrap();
+        let r = scan_endpoints_impl(&d.to_string_lossy()).unwrap();
+        assert_eq!(r.len(), 3);
+        assert_eq!(r[0].method, "GET"); // route 无 methods → 默认 GET
+        assert_eq!(r[0].route, "/index");
+        assert_eq!(r[0].framework, "flask");
+        assert_eq!(r[1].method, "POST");
+        assert_eq!(r[2].method, "GET/POST"); // 多方法 "/" 连接
+        assert_eq!(r[2].route, "/admin/dash"); // register_blueprint 无 url_prefix → 只用 Blueprint 自带
+        // 契约：file 绝对路径（见 endpoints_files_readable_by_openfile_consumer）
+        assert!(r.iter().all(|e| e.file.starts_with('/') || e.file.as_bytes().get(1) == Some(&b':')));
+    }
+
+    /// 边界：非路由装饰器不截断 pending（堆叠装饰器）；未声明对象 → framework=unknown；
+    /// 关键字形态 `@app.get(path="/x")` 不得被误判为赋值声明；api_route 缺 methods → GET
+    #[test]
+    fn endpoints_edges() {
+        assert!(ep_parse_router_decl("@app.get(path=\"/x\")").is_none());
+        assert_eq!(
+            ep_parse_router_decl("api = APIRouter()").map(|(n, f, p)| (n, f.to_string(), p)),
+            Some(("api".into(), "fastapi".into(), String::new()))
+        );
+        // kwarg 的 before 检查：找 "prefix=" 不得命中 "url_prefix="
+        assert_eq!(ep_kwarg_string("bp = Blueprint(\"a\", __name__, url_prefix=\"/u\")", "prefix"), None);
+        assert_eq!(ep_kwarg_string("bp = Blueprint(\"a\", __name__, url_prefix=\"/u\")", "url_prefix"), Some("/u".into()));
+        let d = tmpdir("ep-edges");
+        fs::write(
+            d.join("svc.py"),
+            "from functools import cache\n\
+             svc = object()\n\
+             \n\
+             @svc.get(\"/x\")\n\
+             @cache\n\
+             def x(): ...\n\
+             \n\
+             @app.api_route(\"/y\")\n\
+             def y(): ...\n",
+        )
+        .unwrap();
+        let r = scan_endpoints_impl(&d.to_string_lossy()).unwrap();
+        assert_eq!(r.len(), 2);
+        assert_eq!(r[0].framework, "unknown"); // svc 未用已知类声明
+        assert_eq!(r[0].handler, "x"); // 堆叠装饰器 @cache 不截断配对
+        assert_eq!(r[1].method, "GET"); // api_route 缺 methods → GET
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    /// 路由段合并纯函数：空段跳过、全空 → "/"
+    #[test]
+    fn endpoints_join_route() {
+        assert_eq!(ep_join_route(&["/v1", "/api", "/users"]), "/v1/api/users");
+        assert_eq!(ep_join_route(&["", "/x"]), "/x");
+        assert_eq!(ep_join_route(&["", ""]), "/");
+        assert_eq!(ep_join_route(&["v1/", "//users/"]), "/v1/users");
+    }
+
+    /// 【消费者契约测试】scan_endpoints 产出的 file 必须能被 openFile → read_file 直接消费。
+    ///
+    /// 背景（真机缺陷复盘）：file 曾返回相对工作区根路径，而前端 `openFile` → Rust
+    /// `read_file` 直接 `fs` 读、只认绝对路径 → 真机上点击每个端点都报「打开文件失败：
+    /// 系统找不到指定的路径 (os error 3)」。当时的单测按**实现的相对形状**写断言，把
+    /// 错误契约钉死了；本测试改按**消费者需要的形状**断言——对扫描结果的每个 file 直接
+    /// 走一次 fs 读取，任何人改回相对路径都会在这里红（E2E mock 桥对相对路径有 join
+    /// 兜底，测不出这个缺口，必须由本层契约测试守卫）。
+    #[test]
+    fn endpoints_files_readable_by_openfile_consumer() {
+        let d = tmpdir("ep-contract");
+        fs::write(
+            d.join("main.py"),
+            "from fastapi import FastAPI\n\napp = FastAPI()\n\nMARKER_MAIN = 1\n\n@app.get(\"/health\")\nasync def health(): ...\n",
+        )
+        .unwrap();
+        fs::create_dir_all(d.join("routes")).unwrap();
+        fs::write(
+            d.join("routes").join("users.py"),
+            "from fastapi import APIRouter\n\nrouter = APIRouter()\n\nMARKER_USERS = 2\n\n@router.get(\"/users\")\nasync def users(): ...\n",
+        )
+        .unwrap();
+
+        let r = scan_endpoints_impl(&d.to_string_lossy()).unwrap();
+        assert!(r.len() >= 2, "至少 main.py 与 routes/users.py 各一个端点，实际 {} 项", r.len());
+        for ep in &r {
+            // 契约 1：绝对路径（正斜杠）
+            assert!(
+                ep.file.starts_with('/') || ep.file.as_bytes().get(1) == Some(&b':'),
+                "file 必须是绝对路径（正斜杠）：{}",
+                ep.file
+            );
+            // 契约 2：可被 read_file 语义直接消费（fs 打开成功且读到工作区内容）
+            let content = fs::read_to_string(&ep.file)
+                .unwrap_or_else(|e| panic!("read_file 消费失败（{}）：{}", ep.file, e));
+            assert!(content.contains("MARKER_"), "读到的不是工作区文件内容：{}", ep.file);
+        }
     }
 
     #[test]

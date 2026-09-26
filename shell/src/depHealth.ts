@@ -561,7 +561,7 @@ export function handleTracebackLine(line: string): boolean {
 }
 
 /** 接线 dep 域失效信号事件（main 的 init 调用）：watcher 的 dep-fs-changed / dep-env-changed。
- *  终端嗅探不经事件——termUi 的 term-data 分发直接调 sniffTerminalOutput（同 watchUvicornLine 先例）。 */
+ *  终端嗅探不经事件——termUi 的 term-data 分发直接调 sniffTerminalOutput（同 watchServiceUrlLine 先例）。 */
 export async function wireDepHealthEvents(): Promise<void> {
   await listen<DepFileEvent[]>("dep-fs-changed", (e) => handleDepFsChanged(e.payload));
   await listen("dep-env-changed", () => scheduleEnvCheck());

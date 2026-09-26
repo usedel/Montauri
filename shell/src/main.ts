@@ -26,22 +26,31 @@ import { initPluginLoader, scanPlugins, schedulePluginRescan, listPluginRecords,
 import { initInlineRunner, listInlineEntries, runInline, inlineCommandLabel } from "./extensions/inline";
 import { setPluginsTabHandlers, openGuide } from "./extensions/pluginsTab";
 import { formatPythonSource, optimizeImportsSource, registerRuffFormatter, setFormatErrorHandler } from "./format";
-import { runSearch, cancelSearch, resetSearch, setOpenMatchHandler, type SearchMatch } from "./search";
-import { findUsagesAtCursor, renameSymbolAtCursor, resetFindUsages, setOpenRefHandler } from "./findUsages";
-import { registerSidebarView, setSidebarTab, activeView } from "./views";
+import { runSearch, cancelSearch, resetSearch, setOpenMatchHandler, type SearchMatch, type SearchScope, type SearchScopeMode } from "./search";
+import { findUsagesAtCursor, renameSymbolAtCursor, resetFindUsages, setOpenRefHandler, queryAndRender, initFindUsagesAction } from "./findUsages";
+import { initCodeVision, refreshCodeVision } from "./codeVision";
+import { refreshImportAliases, registerImportAliasCompletion } from "./importAlias"; // import 别名补全（import pandas as pd）
+import { registerAutoImportCompletion, resetAutoImportIndex } from "./autoImport"; // PR-E：补全内联 auto-import（自研，探针结局 C）
+import { initRenameWidget, setAfterRenameHandler } from "./renameWidget";
+import { initClipboardDiffAction } from "./clipboardDiff"; // C-5：与剪贴板对比（右键菜单）
+import { initNoqaAction } from "./ruffLint"; // D-4：忽略此规则（# noqa，右键菜单）
+import { initQuickFixActions, resetQuickFixCache } from "./quickFix"; // P4：D-1 缺失 import 兜底 + D-2 就地创建符号
+import * as splitEditor from "./splitEditor"; // P4（C-4）：向右分屏（handlers 注入，防 settingsPanel 成环）
+import { recordClosedTab, reopenClosedTab, resetTabReopen, setTabReopenHandlers } from "./tabReopen"; // PR-A（dx_features_backlog §6.1）：重开关闭的标签
+import { registerSidebarView, setSidebarTab, activeView, restoreSidebarView } from "./views";
 import * as lsp from "./lsp/client";
 import * as kb from "./keybindings";
 import { appendOutputLine, clearOutput, setOutputTracebackHandler, setOutputUrlHandler } from "./output";
 import { openAlert, openConfirm, openPrompt } from "./dialog";
-import { app, $, outputEl, statusFileEl, type Entry, type Tab } from "./state";
+import { app, $, outputEl, statusFileEl, type Entry, type SaveOptions, type Tab } from "./state";
 import {
   createDirAt, createFileInteractive, isDirExpanded, isTreeEmpty, refreshTree, reloadDir,
-  renderCtxMenu, resetTreeState, setFileTreeHandlers, wireFileTree, type CtxItem,
+  renderCtxMenu, resetTreeState, scheduleFollowReveal, setFileTreeHandlers, wireFileTree, type CtxItem,
 } from "./fileTree";
 import {
-  cleanupDiffTabState, commitAll, dismissDiffHost, gitInitRepo, gitRemoteOp, gitStash, gitStashPop,
+  cleanupDiffTabState, commitAll, currentDiffEditor, discardAllChanges, dismissDiffHost, gitInitRepo, gitRemoteOp, gitStash, gitStashPop,
   presentDiffHost, refreshBranchPanel, refreshDiffIfViewing, refreshDiffOnActivate, refreshGitStatus,
-  renderGitPanel, resetGitState, setDiffTabHandlers, setGitOpenFileHandler, setGitReloadHandler, stageAllChanges,
+  renderGitPanel, resetGitState, setDiffTabHandlers, setGitEditorBridge, setGitOpenFileHandler, setGitReloadHandler, stageAllChanges,
   toggleBranchList, toggleHistory, wireGitUI,
 } from "./git";
 import {
@@ -51,24 +60,28 @@ import { setTerminalLinkHandler, setTerminalUrlHandler } from "./terminal";
 import { setExternalUrlOpener } from "./termUi";
 import { loadSettings, saveSettings, applyFontStatus, openSettingsPanel, setSettingsPanelHandlers, wireSettingsPanel, buildEditorOptions } from "./settingsPanel";
 import { checkFirstRunStorage } from "./storagePanel";
-import { basename, codicon, DisposableStore, emptyState, languageOf, parentDirOf, relativePathOrName, renderFileIcon, symbolIcon } from "./util";
+import { cancelPendingSessionSave, restoreSession, scheduleSessionSave, saveSessionNow, setSessionHandlers } from "./session"; // A-5 会话恢复
+import { wireResourcePanel } from "./resourcePanel"; // A-1 资源可观测
+import { basename, codicon, DisposableStore, emptyState, languageOf, normalizePath, parentDirOf, relativePathOrName, renderFileIcon, samePath, symbolIcon } from "./util";
 import { toast, toastFail } from "./toast";
 import { restoreLayout, toggleSidebar, wireSplitters } from "./layout";
 import { motionDisabled, restoreReduceMotion } from "./anim";
 import { wireTooltip } from "./tooltip";
-import { renderEngineChip, setEngineChipHandlers, wireEngineChip } from "./engineChip";
+import { renderEngineChip, setEngineBusy, setEngineChipHandlers, switchEngineTo, wireEngineChip } from "./engineChip";
+import { maybeSuggestPydanticEngine, resetPydanticEngineHint, setPydanticEngineHandlers } from "./pydanticEngineHint";
 import { renderRunWidget, setRunWidgetHandlers, setRunWidgetRepaint, wireRunWidget, runWidgetHandlers } from "./runWidget";
 import { clearRunGutter, isRunGutterLine, refreshRunGutter, setRunGutterHandlers, wireRunGutter } from "./runGutter";
 import { clearGitGutter, refreshGitGutter, scheduleGitGutter, wireGitGutter } from "./gitGutter"; // 迭代 2 · P0-5
 import { wireGutterHover } from "./gutterHover";
 import * as dap from "./dap/client";
 import {
-  breakpointKind, clearCurrentLine, getBreakpointSpec, loadBreakpoints, pushAllBreakpoints,
-  refreshDebugGutter, removeBreakpoint, resetBreakpoints, setBreakpointMenuHandler, toggleBreakpoint,
+  breakpointKind, clearCurrentLine, getBreakpointSpec, isBreakpointEnabled, loadBreakpoints, pushAllBreakpoints,
+  refreshDebugGutter, removeBreakpoint, resetBreakpoints, setBreakpointEnabled, setBreakpointMenuHandler, toggleBreakpoint,
   updateBreakpoint, wireDebugGutter,
 } from "./debugGutter";
 import { showMenu, type MenuItem } from "./menu";
 import { initTodoView, refreshTodos, resetTodoView, setTodoViewHandlers } from "./todoView"; // P0：TODO 工具窗
+import { initEndpointView, refreshEndpoints, resetEndpointView, setEndpointViewHandlers } from "./endpointView"; // F1：端点工具窗
 import { initDebugView, notifyDepFound, renderDebugView, runToCursor as runToCursorIn, setDebugViewHandlers, wireDebugViewEvents } from "./debugView";
 import { closeRecentFiles, initRecentFiles, openRecentFiles, setRecentFilesHandlers } from "./recentFiles"; // P0：最近打开的文件（Ctrl+E）
 // P1（PyCharm 调研）：Search Everywhere / 导航历史 / 本地历史 / 调试控制台
@@ -86,6 +99,8 @@ import {
 import { initDebugConsole, notifyNotPaused, openEvaluatePrompt } from "./debugConsole";
 import { initInlineValues } from "./inlineValues";
 import { lintActiveFile, resetRuffLint, scheduleRuffLint, setRuffLintHandlers } from "./ruffLint";
+import { cleanupSaveContent } from "./saveCleanup"; // PR-C（dx_features_backlog §6.3）：保存清理
+import { initEditPoints, jumpToLastEdit, resetEditPoints } from "./editPoints"; // PR-D（dx_features_backlog §6.4）：最近编辑位置
 import {
   initBookmarks, loadBookmarks, openBookmarks, refreshBookmarkGutter,
   resetBookmarks, setBookmarkHandlers, toggleBookmarkAtCursor,
@@ -114,7 +129,7 @@ import {
 import { wireMenuBar, type MenuEntry } from "./menuBar";
 import {
   initRunEvents, isRunBusy,
-  maybeSuggestFastApi, prepareRun,
+  maybeSuggestFramework, prepareRun,
   resetRunSessionState, runScript, runProject, stopAllRuns,
   runSelection, runWidgetState, setRunFlowHandlers, stopRun, wireRunFlow,
   clearRunProfilesCache, rerunRecord,
@@ -122,6 +137,8 @@ import {
 import { openRunConfig, wireRunConfigPanel } from "./runConfigPanel";
 import { gotoFromLink, setTracebackOpenFile } from "./tracebackLink";
 import { isRunning, scriptRunActive, runningPathsOf, type RunConfig } from "./runState";
+import { installFindShortcut, setFindDiffEditorProvider } from "./editorFind";
+import { installBrowserKeyGuard } from "./browserKeys";
 
 // ---------- 模块级状态（本层私有；TD-14 后运行态归 runState.ts / runFlow.ts） ----------
 
@@ -145,15 +162,26 @@ const statusLspEl = $("status-lsp");
 const editorTimers = {
   change: undefined as number | undefined,
   outline: undefined as number | undefined,
-  autosave: undefined as number | undefined,
+  /** autosave delay 模式：每个脏 tab 独立计时（path → timer；对标 VSCode 语义，
+   *  后台 tab 的编辑静默到期也落盘，不再是只存 activeTab） */
+  autosave: new Map<string, number>(),
   gutter: undefined as number | undefined,
   /** 全部 clearTimeout（切换/关闭工作区时调用，防旧工作区回调跨生命周期触发） */
   clearAll(): void {
     window.clearTimeout(this.change);
     window.clearTimeout(this.outline);
-    window.clearTimeout(this.autosave);
+    for (const t of this.autosave.values()) window.clearTimeout(t);
+    this.autosave.clear();
     window.clearTimeout(this.gutter);
-    this.change = this.outline = this.autosave = this.gutter = undefined;
+    this.change = this.outline = this.gutter = undefined;
+  },
+  /** 清除指定文件的 autosave 计时器（关闭 tab 时调用，防 dispose 后回调触发） */
+  clearAutosave(path: string): void {
+    const t = this.autosave.get(path);
+    if (t !== undefined) {
+      window.clearTimeout(t);
+      this.autosave.delete(path);
+    }
   },
 };
 
@@ -168,10 +196,13 @@ function resetWorkspaceUiState(): void {
   resetSearch();                // 搜索结果 + 作废在途请求
   resetFindUsages();            // 查找引用结果面板 + 行缓存
   resetTodoView();              // P0：TODO 列表 + 作废在途扫描
+  resetEndpointView();          // F1：端点列表 + 作废在途扫描
   resetNavHistory();            // P1：导航历史（跨工作区的历史没有意义）
   invalidateQuickOpenFiles();   // P1：工作区文件清单缓存随工作区失效
   resetBreadcrumbs();           // P2：面包屑（含符号缓存与防抖 timer）
   resetRuffLint();              // P2：ruff lint（防抖 timer + 在途请求）
+  splitEditor.resetSplitEditor(); // C-4：分屏随工作区切换收起（快照不含分屏态）
+  resetQuickFixCache();          // P4：自研快速修复的符号来源缓存随工作区失效
   resetBookmarks();             // P2：书签（列表缓存 + gutter 装饰）
   resetBreakpoints();           // P2-11：断点内存表随工作区切换清空（盘上数据按工作区隔离）
   resetRunHistory();            // P2：运行历史（§15：切换/关闭工作区重置）
@@ -190,7 +221,9 @@ function resetWorkspaceUiState(): void {
 /** 清理当前工作区（关闭标签 + 停 LSP + 销毁终端）；有未保存修改时先确认，取消则返回 false */
 async function teardownCurrent(): Promise<boolean> {
   if (app.workspaceRoot) {
-    if (app.tabs.some((t) => t.dirty) && !(await openConfirm({ message: "存在未保存的修改，继续将丢失，确认关闭工作区？", kind: "danger" }))) {
+    // A-5：草稿会随会话快照保留（重开工作区自动恢复），故文案不再是「将丢失」——
+    // 保留确认（用户仍应知道有未落盘的改动），但不再暗示数据会没。
+    if (app.tabs.some((t) => t.dirty) && !(await openConfirm({ message: "存在未保存的修改（将以草稿形式保留，重开工作区自动恢复），确认关闭工作区？", kind: "danger" }))) {
       return false;
     }
     // v3.4 §15（M3-3.10）：切换/关闭工作区前停掉**全部**运行实例（脚本 + 所有项目实例）。
@@ -208,6 +241,8 @@ async function teardownCurrent(): Promise<boolean> {
     // CR-30：teardown 计时改 console.debug（绕过日志系统的 console.log 清理；release 默认不显示）
     let t0 = performance.now();
     console.debug("[teardown] closeTabs begin, tabs=", app.tabs.length);
+    // A-5：关标签之前先落一次会话快照（tab / 光标 / 未保存草稿），下次打开原地恢复
+    await saveSessionNow();
     for (const t of [...app.tabs]) closeTabSilent(t);
     console.debug("[teardown] closeTabs done, took=", (performance.now() - t0).toFixed(0), "ms");
 
@@ -228,6 +263,7 @@ async function openWorkspace(root: string): Promise<void> {
   // 切换工作区：先清理旧工作区状态
   if (app.workspaceRoot && app.workspaceRoot !== root) {
     if (!(await teardownCurrent())) return;
+    cancelPendingSessionSave(); // A-5：teardown 已同步存过旧工作区快照，挂起的防抖不得用新 root 覆盖
     await stopFileWatcher();
     resetWorkspaceUiState();
   }
@@ -253,8 +289,17 @@ async function openWorkspace(root: string): Promise<void> {
   void runOpenWorkspaceCheck(root);
   await maybePromptVenv();
   await startFileWatcher(); // 启动文件监听
-  // P0-E：FastAPI 项目探测（仅提示，不打扰；v3.4 M3：配置缓存随粘性目标删除已无清空项）
-  void maybeSuggestFastApi();
+  await restoreSession(); // A-5：恢复上次现场（标签 / 光标 / 未保存草稿）
+  // 框架探针表（P1：Django / Flask / FastAPI）：仅提示，不打扰；工作区级可关闭
+  void maybeSuggestFramework();
+  // F0 裁决 B（Pydantic 栈 → 推荐切 basedpyright）：仅提示，不打扰；工作区级可关闭
+  void maybeSuggestPydanticEngine();
+  // import 别名频率学习：缓存秒生效 + 后台重扫回写，失败静默（importAlias 域）
+  void refreshImportAliases(root);
+  resetAutoImportIndex(); // PR-E：工作区切换后 auto-import 索引按新根重建（TTL 兜底文件变更）
+  // PR review（dx_features_backlog §6.5）：跨工作区残留一并清空——重开栈与编辑点栈
+  resetTabReopen();
+  resetEditPoints();
   updateEditorOverlay();
 }
 
@@ -273,8 +318,9 @@ async function closeWorkspace(): Promise<void> {
   $("tree-header-text").textContent = "文件"; // UI-13：与 index.html 的静态文案保持一致（分组标题统一中文）
   statusFileEl.textContent = "";
   clearInterpreterStatus();
-  // P0-E：FastAPI 提示为工作区级，关闭工作区即清空
+  // 框架提示去重为工作区级，关闭工作区即清空
   clearRunProfilesCache();
+  resetPydanticEngineHint();
   renderRunWidget(runWidgetState());
   updateEditorOverlay();
 }
@@ -438,6 +484,8 @@ function showTabContextMenu(tab: Tab, x: number, y: number): void {
     // 复制路径三件套（对齐 VSCode：Copy Name / Copy Relative Path / Copy Path）
     { label: "复制文件名", action: () => void copyTabPath(basename(tab.path)) },
     { label: "复制相对路径", action: () => void copyTabPath(relativePathOfTab(tab.path)) },
+    // PR-A（dx_features_backlog §6.1）：file:line 引用（相对工作区根，贴 issue/聊天可直点）
+    { label: "复制 file:line 引用", action: () => void copyTabPath(`${relativePathOfTab(tab.path)}:${app.editor.getPosition()?.lineNumber ?? 1}`) },
     { label: "复制绝对路径", action: () => void copyTabPath(tab.path) },
     { label: "在终端中打开", action: () => void openTerminalAt(parentDirOf(tab.path)) },
     { label: "在资源管理器中显示", action: () => invoke("reveal_in_explorer", { path: tab.path }).catch(console.error) },
@@ -471,7 +519,10 @@ function showTabContextMenu(tab: Tab, x: number, y: number): void {
 async function closeTabsQuiet(list: Tab[]): Promise<void> {
   if (list.length === 0) return;
   if (list.some((t) => t.dirty) && !(await openConfirm({ message: "存在未保存的修改，确认关闭？", kind: "danger" }))) return;
-  for (const t of [...list]) closeTabSilent(t);
+  for (const t of [...list]) {
+    closeTabSilent(t);
+    if (t.kind !== "diff") recordClosedTab(t.path); // PR-A：批量关闭同样入重开栈（按关闭顺序栈顶=最后关闭）
+  }
 }
 
 async function closeOthersExcept(tab: Tab): Promise<void> {
@@ -563,11 +614,22 @@ async function openSearchMatch(m: SearchMatch): Promise<void> {
   app.editor.focus();
 }
 
-/** 执行搜索（工作区未打开时忽略） */
+/** 执行搜索（工作区未打开时忽略；E-5：scope 支持 当前文件 / 打开的标签 / 整个工作区） */
 async function executeSearch(): Promise<void> {
   if (!app.workspaceRoot) return;
   const input = $("search-input") as HTMLInputElement;
-  await runSearch(app.workspaceRoot, input.value, searchCaseSensitive, $("search-results"));
+  const mode = ($("search-scope") as HTMLSelectElement).value as SearchScopeMode;
+  let scope: SearchScope | undefined;
+  if (mode === "file") {
+    const t = app.activeTab;
+    // 无普通文件 tab（未打开/diff 视图）时给空列表 →「已扫描 0 个文件」空态；
+    // 静默回退全工作区搜索反而误导（scope 选择与实际行为不符）
+    scope = { mode, paths: t && t.kind !== "diff" ? [t.path] : [] };
+  } else if (mode === "tabs") {
+    // 只搜普通文件 tab（diff 视图的 path 是仓库相对路径，不是可读文件路径）
+    scope = { mode, paths: app.tabs.filter((t) => t.kind !== "diff").map((t) => t.path) };
+  }
+  await runSearch(app.workspaceRoot, input.value, searchCaseSensitive, $("search-results"), scope);
 }
 
 /** CR-20：本批大纲符号所属 tab（点击回调校验用，渲染时记录） */
@@ -652,33 +714,52 @@ const lspProviders = new DisposableStore();
 /** CR-08：openFile 进行中去重表（path → 未完成的打开 Promise），防并发双开同文件 */
 const openFileInflight = new Map<string, Promise<void>>();
 
-export async function openFile(path: string, revealLine?: number): Promise<void> {
+/** openFile 选项 */
+export interface OpenFileOptions {
+  /** 打开后是否把焦点交给编辑器（默认 true）。文件树单击/键盘打开传 false：
+   *  焦点留在树内可继续浏览与键盘漫游（VSCode/PyCharm 同款）——修复 tree 点击
+   *  已打开文件时焦点被编辑器抢走的回归（activateTab 焦点改造引入）。 */
+  focusEditor?: boolean;
+}
+
+export async function openFile(path: string, revealLine?: number, opts?: OpenFileOptions): Promise<void> {
   // CR-08：in-flight 去重——双击/多入口并发打开同一文件时，两次调用都查不到 tab、
   // 都进 read_file → createModel 对重复 URI 返回既有 model → 两 Tab 持同一 model，
-  // closeTabSilent dispose 掉另一个仍在用的 model。以 path 为键串行化，
+  // closeTabSilent dispose 掉另一个仍在用的 model。以归一化路径（斜杠/大小写无关）为键串行化，
   // 后续调用 await 同一个 Promise（含 gotoFromLink / openSearchMatch / 历史重跑双击路径）。
-  const inflight = openFileInflight.get(path);
+  const key = normalizePath(path);
+  const inflight = openFileInflight.get(key);
   if (inflight) {
     await inflight;
     await revealAfterOpen(path, revealLine);
     return;
   }
-  const p = doOpenFile(path, revealLine);
-  openFileInflight.set(path, p);
+  const p = doOpenFile(path, revealLine, opts);
+  openFileInflight.set(key, p);
   try {
     await p;
   } finally {
-    openFileInflight.delete(path);
+    openFileInflight.delete(key);
   }
 }
 
 /** CR-08：openFile 的实际执行体（由 in-flight 去重表保证同一 path 串行） */
-async function doOpenFile(path: string, revealLine?: number): Promise<void> {
+async function doOpenFile(path: string, revealLine?: number, opts?: OpenFileOptions): Promise<void> {
   // P1：导航历史——先记「离开前的位置」，末尾记「到达的位置」，后退才能回到出发点
   pushCurrent();
-  let tab = app.tabs.find((t) => t.path === path);
+  // 路径等价比较用 samePath（斜杠/大小写无关）：会话恢复的 tab 路径与文件树/Rust
+  // 返回的路径分隔符方向可能不同（如 D:\proj/src/a.py vs D:\proj\src\a.py），
+  // 严格 === 会导致同一文件开出第二个标签。
+  let tab = app.tabs.find((t) => samePath(t.path, path));
   if (!tab) {
-    const content = await invoke<string>("read_file", { path });
+    let content: string;
+    try {
+      content = await invoke<string>("read_file", { path });
+    } catch (e) {
+      // 大文件守卫 / 目录 / 编码错误等：toast 呈现而非静默 unhandled rejection
+      toast(`打开文件失败：${String(e)}`, "error");
+      return;
+    }
     // CR-08：并发防线二——创建前再查既有 model 命中则复用（防其它入口已建）
     const uri = app.monaco.Uri.file(path);
     const model = app.monaco.editor.getModel(uri) ?? app.monaco.editor.createModel(content, languageOf(path), uri);
@@ -692,6 +773,9 @@ async function doOpenFile(path: string, revealLine?: number): Promise<void> {
       }
       // 标记待同步（200ms 防抖后发全量，见 init 中的 changeTimer）
       if (t) app.pendingChanges.add(t.path);
+      scheduleSessionSave(); // A-5：编辑后刷新会话快照（草稿随内容一起留存）
+      // autosave delay 模式：每个文件独立计时（model 级监听，后台 tab 的编辑也触发）
+      if (t) scheduleAutosave(t.path);
     });
     tab = { path, model, dirty: false };
     app.tabs.push(tab);
@@ -699,7 +783,7 @@ async function doOpenFile(path: string, revealLine?: number): Promise<void> {
     // 应用引擎已发布的诊断（打开前就收到的 publishDiagnostics）
     lsp.applyCachedDiagnostics(path, setMarkers);
   }
-  activateTab(tab);
+  activateTab(tab, opts?.focusEditor === false ? { focusEditor: false } : undefined);
   void recordRecent(path);
   revealAfterOpen(path, revealLine);
   // P1：记录到达位置（未指定行时取编辑器当前行，与用户所见一致）
@@ -709,20 +793,27 @@ async function doOpenFile(path: string, revealLine?: number): Promise<void> {
 /** CR-08：打开完成后按需跳行（去重等待路径也要走，故独立成函数） */
 function revealAfterOpen(path: string, revealLine?: number): void {
   if (revealLine === undefined) return;
-  const tab = app.tabs.find((t) => t.path === path);
+  const tab = app.tabs.find((t) => samePath(t.path, path));
   if (tab && app.activeTab === tab) {
     app.editor.revealLineInCenter(revealLine);
     app.editor.setPosition({ lineNumber: revealLine, column: 1 });
   }
 }
 
-function activateTab(tab: Tab): void {
+function activateTab(tab: Tab, opts?: { focusEditor?: boolean }): void {
+  // 切标签记忆视图状态：离开前保存前一文件 tab 的光标/滚动，切回时恢复
+  const prev = app.activeTab;
+  if (prev && prev !== tab && prev.kind !== "diff" && app.editor.getModel() === prev.model) {
+    prev.viewState = app.editor.saveViewState() ?? undefined;
+  }
   app.activeTab = tab;
+  scheduleSessionSave(); // A-5：切标签后刷新会话快照（恢复期间由 session.ts 的 restoring 标志屏蔽）
   if (tab.kind === "diff") {
     // 第 2 步迁移：diff tab——主编辑器隐藏（宿主由 git.presentDiffHost 显示），
     // 模型不动（占位）、状态栏显示 diff: 前缀路径、编辑器专属装饰全部跳过
     app.editor.setModel(null);
     presentDiffHost(tab);
+    splitEditor.setDiffActive(true); // C-4：diff 占满编辑区，分屏（若开着）一并隐藏
     renderTabs();
     statusFileEl.textContent = tab.path;
     updateEditorOverlay(); // 诊断实证：diff tab 也是「有活动内容」，欢迎页覆盖层必须隐藏
@@ -731,10 +822,15 @@ function activateTab(tab: Tab): void {
   }
   // 文件 tab：从 diff tab 切回时恢复主编辑器
   dismissDiffHost();
+  splitEditor.setDiffActive(false); // C-4：分屏若开着则恢复显示
   app.editor.setModel(tab.model);
+  if (tab.viewState) app.editor.restoreViewState(tab.viewState);
   renderTabs();
   statusFileEl.textContent = tab.path;
-  if (activeView() === "files") refreshOutline();
+  if (activeView() === "files") {
+    refreshOutline();
+    scheduleFollowReveal(); // B 批：文件树自动跟随当前文件（可关开关，防抖 120ms 去抖动）
+  }
   updateEditorOverlay();
   refreshRunGutter(); // C5：切换 tab 重算 __main__ 守卫行的 ▶
   refreshDebugGutter(); // D3：切换 tab 重算断点红点
@@ -743,6 +839,17 @@ function activateTab(tab: Tab): void {
   refreshBookmarkGutter(); // P2：书签标记跟随激活文件
   void lintActiveFile(); // P2：ruff 实时 lint（切 tab 立即跑，不等防抖）
   mdPreview.updatePreviewVisibility(); // Markdown 预览：切换 tab 后按「是否 md + 开关」刷新显隐
+  // 鼠标切 tab / 关 tab 后焦点落回编辑器（打字立即生效）；tab 键盘激活路径传 false，
+  // 保住 UI-16 的 tabbar 方向键漫游（Enter 激活后继续 ←→ 移动）
+  if (opts?.focusEditor !== false) app.editor.focus();
+}
+
+/** 下一个/上一个标签（Ctrl+Tab / Ctrl+Shift+Tab）：按 tabs 数组顺序循环切换 */
+function cycleTab(dir: 1 | -1): void {
+  if (app.tabs.length < 2) return;
+  const idx = app.activeTab ? app.tabs.indexOf(app.activeTab) : -1;
+  const next = app.tabs[(idx + dir + app.tabs.length) % app.tabs.length] ?? null;
+  if (next) activateTab(next);
 }
 
 async function closeTab(tab: Tab): Promise<void> {
@@ -751,6 +858,7 @@ async function closeTab(tab: Tab): Promise<void> {
   // diff tab 恒不 dirty（占位模型只读），无需确认直接关
   if (tab.kind !== "diff" && tab.dirty && !(await openConfirm({ message: `${basename(tab.path)} 有未保存修改，确认关闭？`, kind: "danger" }))) return;
   closeTabSilent(tab);
+  if (tab.kind !== "diff") recordClosedTab(tab.path); // PR-A：用户主动关闭入重开栈（工作区切换的批量清理不入栈）
 }
 
 /** 关闭标签（不弹确认，用于工作区切换时的批量清理） */
@@ -762,9 +870,11 @@ export function closeTabSilent(tab: Tab): void {
     // diff tab：不走 LSP/诊断/标记链（path 是 diff: 虚拟路径）；域内清理统一入口
     cleanupDiffTabState(tab);
   } else {
+    editorTimers.clearAutosave(tab.path); // 在途 autosave 计时器随 tab 关闭作废（防 dispose 后写盘复活内容）
     lsp.didClose(tab.path);
     lsp.discardCachedDiagnostics(tab.path); // CR-22：关文件即释放诊断缓存
     app.monaco.editor.setModelMarkers(tab.model, "opencharm-lsp", []);
+    splitEditor.onModelDisposed(tab.model); // C-4：分屏钉住该 model 时同步收起（先于 dispose）
     tab.model.dispose();
   }
   if (app.activeTab === tab) {
@@ -859,10 +969,20 @@ export function renderTabs(): void {
       el.append(name, dirty, close);
     }
     el.addEventListener("click", () => activateTab(t));
+    // 中键关闭（编辑器惯例）：mousedown 先拦掉 Chromium 的 autoscroll，auxclick 执行关闭
+    el.addEventListener("mousedown", (ev) => {
+      if (ev.button === 1) ev.preventDefault();
+    });
+    el.addEventListener("auxclick", (ev) => {
+      if (ev.button !== 1) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      void closeTab(t); // dirty 时仍走 closeTab 的确认弹窗，与关闭按钮一致
+    });
     el.addEventListener("keydown", (ev) => {
       if (ev.key === "Enter" || ev.key === " ") {
         ev.preventDefault();
-        activateTab(t);
+        activateTab(t, { focusEditor: false }); // 键盘激活：焦点留在 tabbar，方向键漫游继续
       } else if (ev.key === "ArrowRight" || ev.key === "ArrowLeft") {
         ev.preventDefault();
         const tabs = Array.from(tabbarEl.querySelectorAll<HTMLElement>(".tab"));
@@ -885,6 +1005,9 @@ export function renderTabs(): void {
       tabbarEl.querySelector<HTMLElement>(".tab.active");
     target?.focus();
   }
+  // 激活标签滚入可视区（Ctrl+E / 跳转定义打开远处文件时激活 tab 可能完全在屏外；
+  // nearest 只在屏外时才滚，不影响日常重绘）
+  tabbarEl.querySelector<HTMLElement>(".tab.active")?.scrollIntoView({ block: "nearest", inline: "nearest" });
   // 运行组按钮随 tab / 运行态一起重绘（renderTabs 覆盖了大多数状态变化点）
   renderRunWidget(runWidgetState());
 }
@@ -908,23 +1031,37 @@ async function optimizeImportsActive(): Promise<void> {
  * 保存**指定** tab（保存时整理导入 → 格式化 → 写盘 → 本地历史 → 通知引擎）。
  * 从 saveActive 抽出来是为了运行域：▶ 的粘性目标可能不是活动 tab，只靠 saveActive
  * 会漏存目标文件，导致「跑了磁盘上的旧内容」（表现为改了没生效）。
+ * @param opts.runOnSaveActions 保存时动作（isort/format）开关：显式保存（Ctrl+S/菜单）为 true；
+ *  自动保存与运行前落盘传 false——落盘与保存动作解耦，避免 autosave 高频跑 ruff（PyCharm 教训）。
  */
-async function saveTab(tab: Tab): Promise<void> {
+async function saveTab(tab: Tab, opts?: SaveOptions): Promise<void> {
   const isPy = tab.path.endsWith(".py") || tab.path.endsWith(".pyw");
+  const runActions = opts?.runOnSaveActions !== false;
   // 保存时整理导入（ruff I,F401，设置开关）：**先整理后格式化**——ruff format 不重排导入，
   // 二者正交，此顺序与 PyCharm 的「Optimize Imports → Reformat」一致。失败不阻断保存。
-  if (app.settings.optimize_imports_on_save && isPy) {
+  if (runActions && app.settings.optimize_imports_on_save && isPy) {
     const optimized = await optimizeImportsSource(tab.path, tab.model.getValue());
     if (optimized !== null && optimized !== tab.model.getValue()) {
       tab.model.setValue(optimized); // 单次 setValue → Ctrl+Z 可整体撤销
     }
   }
   // 保存时格式化（ruff，设置开关）：失败不阻断保存
-  if (app.settings.format_on_save && isPy) {
+  if (runActions && app.settings.format_on_save && isPy) {
     const formatted = await formatPythonSource(tab.path, tab.model.getValue());
     if (formatted !== null && formatted !== tab.model.getValue()) {
       tab.model.setValue(formatted); // 单次 setValue → Ctrl+Z 可整体撤销
     }
+  }
+  // PR-C（dx_features_backlog §6.3）：保存清理（行尾空白 / 最终换行，设置开关）。
+  // 与 ruff 钩子同一显式保存纪律（runActions 门控）；在 format **之后**执行——ruff format
+  // 自身会重写内容，清理须以最终内容为准。单次 setValue 先例同上。
+  if (runActions && (app.settings.trim_trailing_whitespace !== false || app.settings.final_newline !== false)) {
+    const value = tab.model.getValue();
+    const cleaned = cleanupSaveContent(value, {
+      trimTrailing: app.settings.trim_trailing_whitespace !== false,
+      finalNewline: app.settings.final_newline !== false,
+    });
+    if (cleaned !== value) tab.model.setValue(cleaned);
   }
   // P1：本地历史——**写盘前**留一版快照（content 传 null = 后端读磁盘，落的是保存前的内容）。
   // 失败只记日志：历史是兜底能力，绝不阻断保存（与 ruff 缺席不阻断格式化的策略一致）。
@@ -936,9 +1073,25 @@ async function saveTab(tab: Tab): Promise<void> {
   lsp.didSave(tab.path, tab.model);
 }
 
-async function saveActive(): Promise<void> {
+async function saveActive(opts?: SaveOptions): Promise<void> {
   if (!app.activeTab) return;
-  await saveTab(app.activeTab);
+  await saveTab(app.activeTab, opts);
+}
+
+/** autosave delay 模式的核心：为指定文件安排独立计时器（每个脏 tab 各自静默到期落盘）。
+ *  timer 回调再次校验模式（设置中途改 off 时在途计时器自然失效）与 dirty 状态；
+ *  写盘走 runOnSaveActions=false（autosave 不跑 ruff，保存动作只跟显式保存走）。 */
+function scheduleAutosave(path: string): void {
+  if (app.settings.autosave !== "delay") return;
+  editorTimers.clearAutosave(path);
+  const timer = window.setTimeout(() => {
+    editorTimers.autosave.delete(path);
+    if (app.settings.autosave !== "delay") return;
+    const tab = app.tabs.find((x) => x.path === path);
+    // 失败 toast 兜底：autosave 静默失败比显式保存更危险（用户以为已落盘）
+    if (tab?.dirty) saveTab(tab, { runOnSaveActions: false }).catch((e) => toastFail("自动保存", e));
+  }, app.settings.autosave_delay);
+  editorTimers.autosave.set(path, timer);
 }
 
 /** 本地历史快照（保存前自动留痕）；无工作区时静默跳过 */
@@ -965,7 +1118,9 @@ async function reloadFileFromDisk(path: string, force = false): Promise<void> {
   if (!tab) return;
   if (!force && tab.dirty) return; // 有未保存修改且非强制：跳过（调用方负责提示）
   const content = await invoke<string>("read_file", { path });
-  tab.model.setValue(content);
+  // 全文替换用 pushEditOperations 而非 setValue——setValue 会清空该 model 的 undo 栈，
+  // git 改写工作区/本地历史回滚后 Ctrl+Z 将无法回到替换前内容；pushEditOperations 保栈
+  tab.model.pushEditOperations([], [{ range: tab.model.getFullModelRange(), text: content }], () => null);
   tab.dirty = false;
   renderTabs();
   await lsp.didChangeFull(path, tab.model);
@@ -1184,6 +1339,15 @@ function buildQuickOpenActions(): QuickOpenAction[] {
     { id: "bookmark_toggle", label: "切换书签", run: () => void toggleBookmarkAtCursor() },
     { id: "bookmark_list", label: "书签列表", run: () => void openBookmarks() },
     { id: "scratch_new", label: "新建草稿文件", run: () => void newScratch() },
+    { id: "split_editor", label: "向右分屏", run: () => splitEditor.toggleSplit() }, // P4（C-4）
+    // PR-A（dx_features_backlog §6.1）：键位补齐组的命令面板入口（id 对齐键位表，hint 自动跟随改键；
+    // run 复用键位 handler——review 建议 5：与 keybindings.ts 的命令 id 手写两份会漂移）
+    { id: "delete_line", label: "删除行", run: () => kb.triggerEditorKeybindingAction("delete_line") },
+    { id: "fold_all", label: "折叠全部", run: () => kb.triggerEditorKeybindingAction("fold_all") },
+    { id: "unfold_all", label: "展开全部", run: () => kb.triggerEditorKeybindingAction("unfold_all") },
+    { id: "jump_to_bracket", label: "括号匹配跳转", run: () => kb.triggerEditorKeybindingAction("jump_to_bracket") },
+    { id: "reopen_tab", label: "重新打开关闭的标签", run: () => { if (!reopenClosedTab()) toast("没有可重新打开的标签", "info"); } },
+    { id: "recent_edit_locations", label: "上一个编辑位置", run: () => { if (!jumpToLastEdit()) toast("没有更早的编辑位置", "info"); } },
     { id: "run_history", label: "运行历史", run: () => openRunHistory() },
     { id: "goto_file", label: "转到文件", run: () => void openQuickOpen("files") },
     { id: "goto_line", label: "转到行 / 列", run: () => void openQuickOpen("line") },
@@ -1203,6 +1367,7 @@ function buildQuickOpenActions(): QuickOpenAction[] {
     // 此前仅 git_panel 一条，键盘流用户完全不可达（报告 D9）
     { id: "git_init", label: "Git: 初始化仓库", run: () => void gitInitRepo() },
     { id: "git_stage_all", label: "Git: 暂存全部更改", run: () => void stageAllChanges() },
+    { id: "git_discard_all", label: "Git: 丢弃全部更改…", run: () => void discardAllChanges() },
     { id: "git_commit", label: "Git: 提交", run: () => { setSidebarTab("git"); ($("git-commit-msg") as HTMLTextAreaElement).focus(); } },
     { id: "git_commit_all", label: "Git: 提交全部更改", run: () => void commitAll() },
     { id: "git_fetch", label: "Git: 抓取（Fetch）", run: () => void gitRemoteOp("fetch") },
@@ -1311,6 +1476,17 @@ async function showBreakpointMenu(path: string, line: number, x: number, y: numb
         disabledReason: "当前已是普通断点",
         action: () => apply(null),
       },
+      {
+        // B-6：启用/禁用（禁用 = 保留断点与全部属性，但不下发 debugger；gutter 灰点）
+        label: has && isBreakpointEnabled(spec) ? "禁用断点" : "启用断点",
+        icon: "eye-closed",
+        disabled: !has,
+        disabledReason: "该行没有断点",
+        action: () => {
+          setBreakpointEnabled(path, line, !isBreakpointEnabled(spec));
+          refreshDebugGutter();
+        },
+      },
       { sep: true },
       has
         ? {
@@ -1344,7 +1520,7 @@ export async function startLsp(): Promise<void> {
   const engine = app.settings.lsp_engine || "pyrefly";
   const rootUri = lsp.workspaceRootUri(app.workspaceRoot); // CR-29：正确百分号编码（空格/中文路径）
   try {
-    await lsp.startEngine(engine, rootUri, currentInterpreter);
+    await lsp.startEngine(engine, rootUri, currentInterpreter, app.workspaceRoot ?? undefined);
   } catch (e) {
     statusLspEl.textContent = `LSP 启动失败: ${e}`;
     return;
@@ -1554,6 +1730,7 @@ function getMenuItems(menu: string): MenuEntry[] {
       { label: "初始化仓库…", action: () => void gitInitRepo() },
       { sep: true, label: "" },
       { label: "暂存全部更改", action: () => void stageAllChanges() },
+      { label: "丢弃全部更改…", action: () => void discardAllChanges() },
       {
         label: "提交…",
         action: () => { setSidebarTab("git"); ($("git-commit-msg") as HTMLTextAreaElement).focus(); },
@@ -1601,10 +1778,41 @@ async function init(): Promise<void> {
   // TD-14 / TD-13：功能域解环注入（须先于任何事件与运行调用）
   setTracebackOpenFile(openFile);
   setGitReloadHandler(reloadFileFromDisk);
+  setGitEditorBridge({
+    // git 改写磁盘前落盘受影响脏文件（autosave 语义：不跑 ruff，保存动作只跟显式保存走）
+    saveTabsBeforeGit: async (paths) => {
+      for (const p of paths) {
+        const tab = app.tabs.find((t) => t.path === p && t.dirty && t.kind !== "diff");
+        if (tab) await saveTab(tab, { runOnSaveActions: false });
+      }
+    },
+    // 未跟踪文件被丢弃删除：先留本地历史快照再关 tab（防 autosave 把缓冲写回复活文件）
+    closeTabOf: (p) => {
+      const tab = app.tabs.find((t) => t.path === p);
+      if (!tab || tab.kind === "diff") return;
+      void snapshotHistory(tab.path, tab.model.getValue()).then(() => closeTabSilent(tab));
+    },
+    // autosave 开启时批量改写后的 dirty tab：缓冲留历史 → 强制从磁盘重载（覆盖旧缓冲）
+    reloadDirtyWithHistory: async (p) => {
+      const tab = app.tabs.find((t) => t.path === p);
+      if (!tab || tab.kind === "diff") return;
+      await snapshotHistory(tab.path, tab.model.getValue());
+      await reloadFileFromDisk(p, true);
+    },
+  });
   setGitOpenFileHandler(openFile);
   setRunFlowHandlers({ openFile, activateTab, renderTabs, saveActive, saveTab });
   setFileTreeHandlers({ openFile, renderTabs, closeTabSilent, insertHeaderTemplate, runScript: (p) => void runScript(p) });
   setSettingsPanelHandlers({ startLsp });
+  // A-5：会话恢复（session.ts 不反向 import main，能力经注入）
+  setSessionHandlers({
+    openFile,
+    activateTabByPath: (p) => {
+      const t = app.tabs.find((x) => samePath(x.path, p));
+      if (t) activateTab(t);
+    },
+    renderTabs,
+  });
   // UI-25：欢迎页快捷键网格改由键位系统渲染，必须在首个 await（Monaco 动态包，首屏最慢的一步）
   // 之前同步画一次，否则覆盖层会露出空的「快捷键」区。此刻 app.settings 仍是 DEFAULT_SETTINGS，
   // 画的是出厂键位；loadSettings 完成后由 updateEditorOverlay 刷成真实值（多数用户二者相同）。
@@ -1628,7 +1836,15 @@ async function init(): Promise<void> {
     wordBasedSuggestions: "off", // 踩坑 #3
     quickSuggestions: { other: true, comments: false, strings: false },
   });
+  // A-5：光标移动同样刷新会话快照（防抖），恢复时才落回原处
+  app.editor.onDidChangeCursorPosition(() => scheduleSessionSave());
   applyFontStatus();
+
+  // C-4：分屏域接线（buildOptions 注入防 settingsPanel ⇄ splitEditor 成环；
+  // 右键动作入 lspProviders 随编辑器生命周期统一释放）
+  splitEditor.setSplitEditorHandlers({ buildOptions: () => buildEditorOptions(app.settings) });
+  splitEditor.wireSplitEditor();
+  lspProviders.add(splitEditor.initSplitEditorAction(app.editor));
   
 
   // 字体缩放：Ctrl+滚轮 8-32px，状态栏显示，存全局配置（P25-T08）
@@ -1644,9 +1860,19 @@ async function init(): Promise<void> {
     void saveSettings();
   }, { passive: false });
 
-  // 失焦自动保存（P25-T08）
+  // 标签栏滚轮横滚（标签多时鼠标滚轮纵向增量转横向滚动，与触控板行为一致）
+  tabbarEl.addEventListener("wheel", (e: WheelEvent) => {
+    if (e.ctrlKey) return; // Ctrl+滚轮留给编辑器字体缩放语义
+    if (tabbarEl.scrollWidth <= tabbarEl.clientWidth) return;
+    e.preventDefault();
+    tabbarEl.scrollLeft += e.deltaY + e.deltaX;
+  }, { passive: false });
+
+  // 失焦自动保存（P25-T08）：runOnSaveActions=false，与 delay 模式同口径（不跑 ruff）
   app.editor.onDidBlurEditorText(() => {
-    if (app.settings.autosave === "blur" && app.activeTab?.dirty) void saveActive();
+    if (app.settings.autosave === "blur" && app.activeTab?.dirty) {
+      saveActive({ runOnSaveActions: false }).catch((e) => toastFail("自动保存", e));
+    }
   });
 
   liveTemplatesHandle = await initLiveTemplates(app.monaco, app.editor, {
@@ -1693,10 +1919,17 @@ async function init(): Promise<void> {
   // store 便于应用级 teardown / 测试中整体清理，防句柄泄漏累积。
   lspProviders.dispose();
   lspProviders.add(lsp.registerLspCompletion());
+  lspProviders.add(registerImportAliasCompletion(app.monaco)); // import 别名（纯前端静态，与引擎无关）
+  lspProviders.add(registerAutoImportCompletion(app.monaco)); // PR-E：auto-import（自研 G-1 索引数据源，与引擎无关）
   lspProviders.add(lsp.registerLspHover());
   lspProviders.add(lsp.registerLspDefinition());
-  lspProviders.add(lsp.registerLspRename()); // F2 编辑器内重命名
   lspProviders.add(lsp.registerLspReferences()); // Shift+F12 查找引用（peek 视图）
+  lspProviders.add(initCodeVision(app.editor)); // 引用计数 Code Vision（声明行上方「N 处引用」）
+  lspProviders.add(initFindUsagesAction(app.editor)); // 右键菜单「查找引用」
+  lspProviders.add(initRenameWidget(app.editor)); // F2 就地重命名 + 右键菜单「重命名…」
+  lspProviders.add(initClipboardDiffAction(app.editor)); // C-5：右键菜单「与剪贴板对比」
+  lspProviders.add(initNoqaAction(app.editor)); // D-4：右键菜单「忽略此规则（# noqa）」
+  initQuickFixActions(); // P4：D-1/D-2 自研快速修复（Ctrl+. 灯泡；registerCodeActionProvider 自持 dispose 无需入 store）
   lspProviders.add(lsp.registerLspSignatureHelp()); // 签名帮助（参数提示）
   lspProviders.add(lsp.registerLspCodeAction()); // Ctrl+. 快速修复
   lspProviders.add(lsp.registerLspInlayHints()); // 运行时类型标注（opencharm-intel）
@@ -1723,13 +1956,29 @@ async function init(): Promise<void> {
   registerRuffFormatter(app.monaco); // Shift+Alt+F / 右键「Format Document」
   setFormatErrorHandler((msg) => appendOutputLine(outputEl, msg, "stderr", gotoFromLink));
   setOpenMatchHandler((m) => openSearchMatch(m).catch(console.error));
-  // 查找引用结果跳转：打开文件 + 定位到引用行列 + 居中（复用 openFile 的 tab/model 管理）
-  setOpenRefHandler((path, line, col) => {
+  // 查找引用结果跳转：打开文件 + **选中标识符**（范围来自引用 Location）+ 居中聚焦，
+  // 对齐 PyCharm「点击引用后落点一目了然」的体验（复用 openFile 的 tab/model 管理）
+  setOpenRefHandler((path, line, col, endLine, endCol) => {
     void openFile(path, line).then(() => {
-      app.editor.setPosition({ lineNumber: line, column: col });
+      const sel = {
+        startLineNumber: line,
+        startColumn: col,
+        endLineNumber: endLine ?? line,
+        endColumn: endCol ?? col,
+      };
+      app.editor.setSelection(sel);
       app.editor.revealLineInCenter(line);
       app.editor.focus();
     });
+  });
+  // 就地重命名落盘后刷新引用面板（符号名已变，位置仍在原符号处）；Code Vision 计数
+  // 需等引擎重索引完成，延迟刷两次拿最终值（引擎侧慢时第二次兜底）
+  setAfterRenameHandler(() => {
+    const model = app.editor.getModel();
+    const pos = app.editor.getPosition();
+    if (model && pos) void queryAndRender(model, pos);
+    window.setTimeout(() => refreshCodeVision(), 1500);
+    window.setTimeout(() => refreshCodeVision(), 4000);
   });
   // P1-BUG-002：补全请求前冲刷防抖窗口内未同步的 didChange——`.` 触发的补全请求会赶在
   // 200ms 防抖同步之前到达引擎，引擎按旧文档计算（补全位置越界 → 空结果）
@@ -1739,6 +1988,9 @@ async function init(): Promise<void> {
       await syncPendingChanges(); // CR-13：串行冲刷（含本文件在内的全部待同步变更，保 FIFO）
     }
   });
+  // 语义请求（references / rename / prepareRename / documentSymbol）同理前置冲刷：
+  // 引擎按旧缓冲算 rename 会漏改/错位，引用计数也会错
+  lsp.setBeforeSemanticHook(() => syncPendingChanges());
   lsp.wireGotoTriggers(app.editor); // F12 / Ctrl+点击 显式跳转（Ctrl+悬停不跳）
   lsp.setGotoDefinitionHandler((path, line, col) => {
     openFile(path, line).then(() => app.editor.setPosition({ lineNumber: line, column: col }));
@@ -1749,6 +2001,7 @@ async function init(): Promise<void> {
     lsp.handleDiagnostics(params, engine, setMarkers);
   });
   lsp.onEngineStatus((s) => {
+    setEngineBusy(s === "starting"); // E-2：引擎启动期 chip 显示忙碌态
     const map: Record<lsp.EngineStatus, string> = {
       off: "LSP: 未启动", starting: "LSP: 启动中…", ready: "LSP: 就绪",
       error: "LSP: 错误", exited: "LSP: 已退出",
@@ -1805,6 +2058,9 @@ async function init(): Promise<void> {
     else if (id === "run_history") openRunHistory();
     // P1（UX 审查）：高频操作键位（关闭标签 / 新建文件 / 设置 / 侧栏 / 底部面板）
     else if (id === "close_tab") { if (app.activeTab) void closeTab(app.activeTab); }
+    // 标签页循环切换（Ctrl+Tab / Ctrl+Shift+Tab）
+    else if (id === "next_tab") cycleTab(1);
+    else if (id === "prev_tab") cycleTab(-1);
     else if (id === "new_file") void createFileInteractive();
     else if (id === "open_settings") openSettingsPanel();
     else if (id === "toggle_sidebar") toggleSidebar();
@@ -1813,6 +2069,14 @@ async function init(): Promise<void> {
     else if (id === "command_palette") void openQuickOpen("commands");
     // PR-1：开发工具面板 + picker（Ctrl+Shift+T，toggle 语义）
     else if (id === "open_devtools") openDevToolsPanel();
+    // PR-A（dx_features_backlog §6.1）：重开关闭的标签（Ctrl+Shift+Alt+T；Ctrl+Shift+T 已被 DevTools 占用）
+    else if (id === "reopen_tab") {
+      if (!reopenClosedTab()) toast("没有可重新打开的标签", "info");
+    }
+    // PR-D：最近编辑位置（Ctrl+Shift+Backspace，PyCharm Last Edit Location 同款）
+    else if (id === "recent_edit_locations") {
+      if (!jumpToLastEdit()) toast("没有更早的编辑位置", "info");
+    }
   });
 
   // P1：Double Shift → Search Everywhere（键位表无法表达双击手势，故固定在此）。
@@ -1863,13 +2127,8 @@ async function init(): Promise<void> {
     window.setTimeout(() => refreshBookmarkGutter(), 300);
     // 迭代 2 · P0-5：git 行级装饰随编辑防抖重算（dirty 文件实时反映新增/修改行）
     scheduleGitGutter();
-    // 自动保存（delay 模式，P25-T08）
-    if (app.settings.autosave === "delay") {
-      window.clearTimeout(editorTimers.autosave);
-      editorTimers.autosave = window.setTimeout(() => {
-        if (app.activeTab?.dirty) void saveActive();
-      }, app.settings.autosave_delay);
-    }
+    // （autosave delay 模式已迁移到 model 级监听 doOpenFile → scheduleAutosave：
+    //  每个脏 tab 独立计时，不再只针对活动 tab）
   });
 
   // 各功能域事件接线（TD-007 域拆分后由各域自行提供）
@@ -1880,6 +2139,11 @@ async function init(): Promise<void> {
   $("tab-search").dataset.tipKey = kb.bindingLabel("global_search"); // tooltip 快捷键副文本（跟随自定义键位）
   wireBottomPanel();
   wireFileTree();
+  // Ctrl+F：活动标签内查找（无活动标签则吞键，且永不弹 WebView2 原生查找条）
+  setFindDiffEditorProvider(() => currentDiffEditor()?.getModifiedEditor() ?? null);
+  installFindShortcut();
+  // 其余浏览器加速器护栏（Ctrl+R 重载 / Ctrl+P 打印 / Ctrl+W 关窗口 …）
+  installBrowserKeyGuard();
   // P0：最近打开的文件（Ctrl+E 弹窗）
   initRecentFiles();
   setRecentFilesHandlers({ openFile: (p) => void openFile(p) });
@@ -1896,6 +2160,10 @@ async function init(): Promise<void> {
   registerQuickOpenActions(buildQuickOpenActions());
   // P1：导航历史（Ctrl+Alt+←/→）——跳转闭环的另一半
   setNavHistoryHandlers({ openFile: (p, line) => openFile(p, line) });
+  // PR-A：重开关闭的标签（Ctrl+Shift+Alt+T）——openFile 注入同 navHistory 模式
+  setTabReopenHandlers({ openFile: (p) => void openFile(p) });
+  // PR-D：最近编辑位置（Ctrl+Shift+Backspace）——独立监听 + openFile 注入
+  initEditPoints(app.editor, { openFile: (p, line) => void openFile(p, line) });
   // P1：本地历史（Ctrl+Shift+H）——无 Git 工作区的回滚兜底
   initLocalHistory();
   setLocalHistoryHandlers({ reloadFile: (p) => reloadFileFromDisk(p, true) }); // 用户主动回滚：强制替换
@@ -1934,6 +2202,9 @@ async function init(): Promise<void> {
   // P0：TODO 工具窗
   initTodoView();
   setTodoViewHandlers({ openFile: (path, line) => void openFile(path, line) });
+  // F1：端点工具窗（渲染与动作见 endpointView.ts；扫描在 Rust fs_cmds::scan_endpoints）
+  initEndpointView();
+  setEndpointViewHandlers({ openFile: (path, line) => void openFile(path, line) });
   $("ew-open-folder").addEventListener("click", () => void openFolderFromToolbar());
   $("ew-new-project").addEventListener("click", () => openNewProjectPanel());
   $("ew-recent-clear").addEventListener("click", () => void clearRecentWorkspaces());
@@ -2004,7 +2275,11 @@ async function init(): Promise<void> {
   // 引擎 chip（C2）：状态栏身份展示 + 切换入口；真值已收敛到 app.settings.lsp_engine
   setEngineChipHandlers({ startLsp, saveSettings });
   wireEngineChip();
+  // F0 裁决 B：Pydantic 栈的引擎推荐走同一套切换语义（同值跳过 / 持久化 / 重启）
+  setPydanticEngineHandlers({ switchEngine: switchEngineTo });
   renderEngineChip();
+  // A-1：资源可观测（状态栏 MEM 芯片 + 面板；明细采样仅面板打开时进行）
+  wireResourcePanel({ restartLsp: startLsp });
 
   // 运行组（v3.4 §8 / M3-3.4）：四控件 [▶ 运行脚本] [▶ 运行项目] [⏹ 停止] [⚙ 运行配置…]。
   // main 拥有运行动作，runWidget 只负责渲染与派发
@@ -2123,6 +2398,13 @@ async function init(): Promise<void> {
     tabId: "tab-todo",
     onShow: () => void refreshTodos(),
   });
+  // F1：端点工具窗——同 TODO：切到该视图才扫描
+  registerSidebarView({
+    id: "endpoints",
+    rootId: "view-endpoints",
+    tabId: "tab-endpoints",
+    onShow: () => void refreshEndpoints(),
+  });
   registerSidebarView({
     id: "git",
     rootId: "view-git",
@@ -2145,6 +2427,7 @@ async function init(): Promise<void> {
   $("tab-files").addEventListener("click", () => setSidebarTab("files"));
   $("tab-search").addEventListener("click", () => setSidebarTab("search"));
   $("tab-todo").addEventListener("click", () => setSidebarTab("todo"));
+  $("tab-endpoints").addEventListener("click", () => setSidebarTab("endpoints"));
   $("tab-git").addEventListener("click", () => setSidebarTab("git"));
   $("tab-debug").addEventListener("click", () => setSidebarTab("debug"));
   // 大纲折叠 / 展开（OUTLINE 并入文件视图，TD-001 附带考虑）
@@ -2154,6 +2437,11 @@ async function init(): Promise<void> {
   const toggleOutline = () => {
     const collapsed = $("outline-section").classList.toggle("collapsed");
     outlineHeader.setAttribute("aria-expanded", String(!collapsed));
+    try {
+      localStorage.setItem("opencharm.outline_collapsed", collapsed ? "1" : "0"); // B 批：写穿持久化
+    } catch {
+      // 存储不可用：本次会话内仍生效
+    }
   };
   outlineHeader.addEventListener("click", toggleOutline);
   outlineHeader.addEventListener("keydown", (e) => {
@@ -2162,8 +2450,10 @@ async function init(): Promise<void> {
       toggleOutline();
     }
   });
-  // 初始化默认激活视图（files 默认显示，使 activeView() 非 null，outline 随文件打开刷新）
-  setSidebarTab("files");
+  // B 批：恢复上次的大纲折叠态（存 "1" 且默认展开 → 切一次即折叠）
+  if (localStorage.getItem("opencharm.outline_collapsed") === "1") toggleOutline();
+  // 初始化激活视图：优先恢复上次会话的选择（B 批持久化），无记录/非法值回退 files
+  restoreSidebarView("files");
   // Git 域 UI 接线（SCM 工具栏 / 历史 / diff / 提交 / 分支，TD-007）
   wireGitUI();
   // 第 2 步迁移：diff tab 生命周期回调（git.ts 的 showDiff/关闭链 → main 的 tab 统一路径）
@@ -2189,6 +2479,10 @@ async function init(): Promise<void> {
     $("search-case").classList.toggle("active", searchCaseSensitive);
     // UI-16：开关按钮的按下态用 aria-pressed 表达，与 .active 类同源切换
     $("search-case").setAttribute("aria-pressed", String(searchCaseSensitive));
+    if (searchInputEl.value.trim()) executeSearch().catch(console.error);
+  });
+  // E-5：scope 切换即重搜（当前文件 / 打开的标签 / 整个工作区）
+  $("search-scope").addEventListener("change", () => {
     if (searchInputEl.value.trim()) executeSearch().catch(console.error);
   });
 

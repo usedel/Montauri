@@ -18,6 +18,8 @@ export interface Tab {
   path: string;
   model: MonacoApi.editor.ITextModel;
   dirty: boolean;
+  /** 切标签时的编辑器视图状态（光标/滚动/选区），activateTab 保存与恢复 */
+  viewState?: MonacoApi.editor.ICodeEditorViewState;
   /** tab 类型：普通文件（默认）| git diff 视图 */
   kind?: "file" | "diff";
   /** kind="diff" 时的元数据 */
@@ -27,6 +29,14 @@ export interface Tab {
     /** 冲突视图（当前 vs 传入 + 接受按钮组） */
     conflict: boolean;
   };
+}
+
+/** 保存选项：自动保存路径（autosave 定时器 / 失焦 / 运行前落盘）传 runOnSaveActions=false——
+ *  ruff isort/format 只跟显式 Ctrl+S 走（保存动作与落盘解耦，避免 autosave 每 2s 跑 ruff、
+ *  产生意外 diff；PyCharm 移除 reformat-on-save 的同一结论） */
+export interface SaveOptions {
+  /** 是否执行保存时动作（isort / format），默认 true */
+  runOnSaveActions?: boolean;
 }
 
 /** 全局设置（P25-T08/T09；P1 扩展编辑器高频项） */
@@ -39,6 +49,14 @@ export interface Settings {
   insert_spaces: boolean;
   word_wrap: string;
   minimap: boolean;
+  /** 缩进参考线（C-6：长脚本可读性；含当前缩进层级高亮） */
+  indent_guides: boolean;
+  /** 括号彩色化（C-6：多层嵌套括号配对辨识） */
+  bracket_colors: boolean;
+  /** Sticky Scroll（PR-B · dx_features_backlog §6.2：长文件滚动时当前作用域头部常驻顶部） */
+  sticky_scroll: boolean;
+  /** 调试「只步进我的代码」（B-3：不误入 site-packages；改动需重启调试会话生效） */
+  debug_just_my_code: boolean;
   autosave: string;
   autosave_delay: number;
   probe_enabled: boolean;
@@ -46,6 +64,16 @@ export interface Settings {
   format_on_save: boolean;
   /** 保存时用 ruff 整理导入（Ctrl+Alt+O 的保存联动；与 format_on_save 同模式） */
   optimize_imports_on_save: boolean;
+  /** 保存时清理行尾空白（PR-C · dx_features_backlog §6.3；仅显式保存，autosave/运行前跳过） */
+  trim_trailing_whitespace: boolean;
+  /** 保存时确保文件以换行结束（PR-C；仅显式保存） */
+  final_newline: boolean;
+  /** D-4：ruff 规则严重度映射——E（pycodestyle 风格）/ W（pycodestyle 警告）/
+   *  F（pyflakes）三类规则各自的显示级别："hint" | "info" | "warning" | "error"
+   *  （其余规则类别回落 warning；非法值由 ruffLint.ts 归一化为 warning） */
+  ruff_severity_e: string;
+  ruff_severity_w: string;
+  ruff_severity_f: string;
   runtime_intel_enabled: boolean;
   /** 零引擎静态关键字补全（无 LSP 引擎的语言；python 不受影响——由三段语义补全负责） */
   keyword_completion: boolean;
@@ -85,12 +113,28 @@ export const DEFAULT_SETTINGS: Settings = {
   insert_spaces: true,
   word_wrap: "off",
   minimap: false,
-  autosave: "off",
-  autosave_delay: 1000,
+  // C-6（PyCharm 调研）：可读性默认开——PyCharm 出厂即有缩进参考线，「默认就对」
+  indent_guides: true,
+  bracket_colors: true,
+  // PR-B（PyCharm/VSCode 对标）：粘性滚动默认开——长文件可读性「默认就对」
+  sticky_scroll: true,
+  // B-3（PyCharm 调研）：只步进我的代码，默认开（与 DAP attach 硬编码时代行为一致）
+  debug_just_my_code: true,
+  // autosave 默认 delay 2s（PyCharm 式数据安全优先，对标 VSCode/PyCharm 调研结论）；
+  // 与 Rust Settings::default 保持同步
+  autosave: "delay",
+  autosave_delay: 2000,
   probe_enabled: true,
   lsp_engine: "pyrefly",
   format_on_save: false,
   optimize_imports_on_save: false,
+  // PR-C（PyCharm 对标）：保存清理默认开——「保存即干净」，不影响 autosave 静默落盘
+  trim_trailing_whitespace: true,
+  final_newline: true,
+  // D-4：默认全 Warning（维持映射引入前的行为，默认值保守）
+  ruff_severity_e: "warning",
+  ruff_severity_w: "warning",
+  ruff_severity_f: "warning",
   runtime_intel_enabled: true,
   // 关键字补全默认开（须与 Rust Settings::default 保持同步）
   keyword_completion: true,

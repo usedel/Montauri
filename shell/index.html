@@ -89,6 +89,8 @@
             <button id="tab-search" class="activity-item" role="tab" aria-selected="false" aria-controls="view-search" aria-label="搜索" data-tip="搜索"><i class="codicon codicon-search" aria-hidden="true"></i></button>
             <!-- P0：TODO 工具窗（PyCharm TODO tool window 对标） -->
             <button id="tab-todo" class="activity-item" role="tab" aria-selected="false" aria-controls="view-todo" aria-label="待办标记" data-tip="待办标记（TODO / FIXME）"><i class="codicon codicon-checklist" aria-hidden="true"></i></button>
+            <!-- F1：端点工具窗（FastAPI / Flask 静态路由，docs/pycharm_framework_support_report.md §8.3） -->
+            <button id="tab-endpoints" class="activity-item" role="tab" aria-selected="false" aria-controls="view-endpoints" aria-label="端点" data-tip="端点（FastAPI / Flask 路由）"><i class="codicon codicon-globe" aria-hidden="true"></i></button>
             <button id="tab-git" class="activity-item" role="tab" aria-selected="false" aria-controls="view-git" aria-label="源代码管理" data-tip="源代码管理"><i class="codicon codicon-source-control" aria-hidden="true"></i></button>
             <button id="tab-debug" class="activity-item" role="tab" aria-selected="false" aria-controls="view-debug" aria-label="调试" data-tip="调试"><i class="codicon codicon-debug-alt" aria-hidden="true"></i></button>
           </div>
@@ -105,6 +107,10 @@
                 <button id="btn-tree-new-file" class="btn btn--ghost btn--icon" data-tip="新建文件" aria-label="新建文件"><i class="codicon codicon-new-file" aria-hidden="true"></i></button>
                 <button id="btn-tree-new-folder" class="btn btn--ghost btn--icon" data-tip="新建文件夹" aria-label="新建文件夹"><i class="codicon codicon-new-folder" aria-hidden="true"></i></button>
                 <button id="btn-tree-collapse" class="btn btn--ghost btn--icon" data-tip="全部折叠" aria-label="全部折叠"><i class="codicon codicon-collapse-all" aria-hidden="true"></i></button>
+                <!-- E-3（PyCharm 调研）：定位到当前编辑文件（展开 + 滚动 + 选中） -->
+                <button id="btn-tree-reveal" class="btn btn--ghost btn--icon" data-tip="定位到当前文件" aria-label="定位到当前文件"><i class="codicon codicon-go-to-file" aria-hidden="true"></i></button>
+                <!-- B 批：切文件时自动在树中定位（工具栏开关，fileTree.ts localStorage 持久化） -->
+                <button id="btn-tree-follow" class="btn btn--ghost btn--icon" data-tip="切换文件时自动定位" aria-label="切换文件时自动定位" aria-pressed="false"><i class="codicon codicon-sync" aria-hidden="true"></i></button>
                 <button id="btn-tree-hidden" class="btn btn--ghost btn--icon" data-tip="显示 dot 文件" aria-label="显示 dot 文件" aria-pressed="false"><i class="codicon codicon-eye" aria-hidden="true"></i></button>
                 <button id="btn-tree-refresh" class="btn btn--ghost btn--icon" data-tip="刷新文件树" aria-label="刷新文件树"><i class="codicon codicon-refresh" aria-hidden="true"></i></button>
               </div>
@@ -131,6 +137,12 @@
               <div id="search-panel">
                 <div class="search-box">
                   <input id="search-input" type="text" autocomplete="off" placeholder="搜索工作区…" spellcheck="false" />
+                  <!-- E-5（PyCharm 调研）：搜索范围（PyCharm 的 Find in Files scope 意识） -->
+                  <select id="search-scope" aria-label="搜索范围" title="搜索范围">
+                    <option value="workspace">整个工作区</option>
+                    <option value="tabs">打开的标签</option>
+                    <option value="file">当前文件</option>
+                  </select>
                   <!-- UI-09：可见文本「Aa」是符号而非语义名，补 aria-label 让可访问名称有意义；
                        UI-16：开关态用 aria-pressed 表达（main.ts 与 .active 类同源切换） -->
                   <button id="search-case" class="btn btn--sm" data-tip="区分大小写" aria-label="区分大小写" aria-pressed="false">Aa</button>
@@ -140,6 +152,8 @@
             </div>
             <!-- TODO 工具窗（P0）：内容由 todoView.ts::initTodoView 构建 -->
             <div id="view-todo" class="sidebar-view hidden" role="tabpanel" aria-labelledby="tab-todo"></div>
+            <!-- 端点工具窗（F1）：内容由 endpointView.ts::initEndpointView 构建 -->
+            <div id="view-endpoints" class="sidebar-view hidden" role="tabpanel" aria-labelledby="tab-endpoints"></div>
             <div id="view-git" class="sidebar-view hidden" role="tabpanel" aria-labelledby="tab-git">
               <div id="git-panel">
                 <div id="git-branch-bar">
@@ -193,6 +207,16 @@
           <div id="breadcrumbs" class="breadcrumbs hidden" role="navigation" aria-label="代码层级"></div>
           <div id="editor-row">
             <div id="editor"></div>
+            <!-- C-4（PyCharm 调研）：向右分屏（钉住式：同 model 第二编辑器实例，splitEditor.ts 管理；
+                 与 md-preview 同款的并排 flex + 独立分隔条，宽度记忆走 layout.ts 的 localStorage） -->
+            <div id="split-splitter" class="hidden" data-tip="拖动调整分屏宽度（双击重置）"></div>
+            <div id="split-editor-panel" class="hidden">
+              <div id="split-editor-header">
+                <span id="split-editor-label">—</span>
+                <button id="split-editor-close" class="btn btn--ghost btn--icon" aria-label="关闭分屏"><i class="codicon codicon-close" aria-hidden="true"></i></button>
+              </div>
+              <div id="split-editor-host"></div>
+            </div>
             <!-- Git 差异视图宿主（第 2 步迁移：diff tab 激活时显示，与 #editor 互斥；
                  DOM 从底部面板整体迁入，Monaco diffEditor 单实例不重建。
                  布局改纵向：工具栏行（原 git-diff-header）+ 块级合并面板 + diff 编辑器 -->
@@ -359,6 +383,8 @@
         <span id="dep-health-status" class="hidden" style="cursor:pointer" role="button" tabindex="0" data-tip="依赖体检"></span>
         <!-- §6.2 uv 建议的持续存在感：解释器芯片 tooltip 常驻「uv 管理依赖」事实 -->
         <span id="status-interpreter" data-tip="点击管理 Python 环境 · OpenCharm 以 uv 管理依赖" style="cursor:pointer" role="button" aria-haspopup="dialog" aria-expanded="false" tabindex="0"></span>
+        <!-- A-1（PyCharm 调研）：资源可观测芯片——「轻」要可感知；点击打开资源面板（默认隐藏，首次采样成功后显示） -->
+        <span id="status-mem" class="hidden" data-tip="资源占用（外壳 + 子进程）· 点击查看明细" style="cursor:pointer" role="button" aria-haspopup="dialog" aria-expanded="false" tabindex="0"></span>
         <span id="status-engine" data-tip="点击切换静态语义引擎" style="cursor:pointer" role="button" aria-haspopup="menu" aria-expanded="false" tabindex="0"></span>
         <span id="status-lsp"></span>
       </footer>
@@ -630,6 +656,31 @@
       </div>
     </div>
     <!-- 设置面板（模态，P25-T09；P1 左右分栏 + Live Templates 内嵌） -->
+    <!-- A-1（PyCharm 调研）：资源面板（M1 只观测：明细 + 重启 LSP，不做 kill） -->
+    <div id="resource-modal" class="modal hidden">
+      <div class="modal-card resource-card" role="dialog" aria-modal="true" aria-labelledby="resource-title">
+        <div class="env-header">
+          <span id="resource-title" class="env-title">资源占用</span>
+          <span class="spacer"></span>
+          <button id="resource-close" class="btn btn--ghost btn--icon" aria-label="关闭资源面板"><i class="codicon codicon-close" aria-hidden="true"></i></button>
+        </div>
+        <div id="resource-summary" class="resource-summary"></div>
+        <div class="resource-table-wrap">
+          <table class="resource-table">
+            <thead>
+              <tr><th scope="col">进程</th><th scope="col">PID</th><th scope="col">内存</th><th scope="col">CPU</th></tr>
+            </thead>
+            <tbody id="resource-rows"></tbody>
+          </table>
+        </div>
+        <div class="settings-hint">CPU 为两次采样间隔内的滑动均值，首次显示为「—」；采样仅在本面板打开时进行。</div>
+        <div class="modal-actions">
+          <button id="resource-restart-lsp" class="btn">重启 LSP 引擎</button>
+          <span class="spacer"></span>
+          <button id="resource-refresh" class="btn btn--primary">刷新</button>
+        </div>
+      </div>
+    </div>
     <!-- v3.4 §17-10/§20：并行运行（Compound）模态已删——同一项目入口的并行实例走 §6.4「新建实例（并行）」（M3-3.7） -->
     <div id="settings-modal" class="modal hidden">
       <div class="modal-card settings-card" role="dialog" aria-modal="true" aria-labelledby="settings-title">
@@ -655,6 +706,15 @@
             <button class="settings-nav-item" role="tab" aria-selected="false" aria-controls="settings-section-plugins" data-cat="plugins">插件</button>
           </nav>
           <div class="settings-content">
+            <!-- E-1（PyCharm 调研）：设置搜索——按标题/提示文本/关键词过滤所有分类的行 -->
+            <div class="settings-search-box">
+              <input id="settings-search" type="text" autocomplete="off" placeholder="搜索设置（如：字号、theme、缩进）" spellcheck="false" aria-label="搜索设置" />
+            </div>
+            <!-- E-1：搜索无结果时的空态；「找键位」跳转快捷键分类 -->
+            <div id="settings-search-empty" class="settings-search-empty hidden" role="status">
+              <span>没有匹配的设置。</span>
+              <button id="settings-search-goto-kb" class="btn btn--sm">查找快捷键…</button>
+            </div>
             <div id="settings-section-appearance" class="settings-section" role="tabpanel">
               <div class="settings-row">
                 <label id="settings-theme-label">主题</label>
@@ -721,12 +781,36 @@
                 <input id="settings-keyword-completion" type="checkbox" />
               </div>
               <div class="settings-hint">为 JSON / YAML / SQL / Rust 等无引擎语言补全关键字（Python 不受影响）。</div>
+              <!-- C-6（PyCharm 调研）：可读性配置，默认开（「默认就对」——PyCharm 出厂即有缩进线） -->
+              <div class="settings-row">
+                <label for="settings-indent-guides">缩进参考线</label>
+                <input id="settings-indent-guides" type="checkbox" />
+              </div>
+              <div class="settings-row">
+                <label for="settings-bracket-colors">括号彩色化</label>
+                <input id="settings-bracket-colors" type="checkbox" />
+              </div>
+              <!-- PR-B（dx_features_backlog §6.2）：粘性滚动，默认开（PyCharm/VSCode 同款） -->
+              <div class="settings-row">
+                <label for="settings-sticky-scroll">粘性滚动（作用域头部常驻）</label>
+                <input id="settings-sticky-scroll" type="checkbox" />
+              </div>
+              <!-- PR-C（dx_features_backlog §6.3）：保存清理，默认开（仅显式保存触发） -->
+              <div class="settings-row">
+                <label for="settings-trim-trailing">保存时清理行尾空白</label>
+                <input id="settings-trim-trailing" type="checkbox" />
+              </div>
+              <div class="settings-row">
+                <label for="settings-final-newline">保存时确保文件以换行结束</label>
+                <input id="settings-final-newline" type="checkbox" />
+              </div>
             </div>
             <div id="settings-section-keybindings" class="settings-section hidden" role="tabpanel">
               <div id="settings-keybinding-rows"></div>
               <div class="settings-hint">
-                格式：修饰键（Ctrl / Shift / Alt）+ 键名，如 <code>Ctrl+Shift+F</code>；支持字母、数字、F1–F24 与
-                <code>/ - , . ; [ ]</code> 等符号键；留空表示解绑。跳转定义的 F12 与 Ctrl+点击固定保留。
+                点击输入框后<strong>直接按下要用的组合键</strong>即可录入（如按住 Ctrl 再按 0 得到
+                <code>Ctrl+0</code>）；<code>Backspace</code> 清除（留空表示解绑），<code>Esc</code> 撤销本次录入。
+                支持字母、数字、F1–F24 与 <code>/ - , . ; [ ]</code> 等符号键。跳转定义的 F12 与 Ctrl+点击固定保留。
               </div>
             </div>
             <div id="settings-section-save" class="settings-section hidden" role="tabpanel">
@@ -734,7 +818,7 @@
                 <label for="settings-autosave">自动保存</label>
                 <select id="settings-autosave">
                   <option value="off">关闭</option>
-                  <option value="delay">延迟 1s</option>
+                  <option value="delay">延迟 2s</option>
                   <option value="blur">失焦时</option>
                 </select>
               </div>
@@ -779,6 +863,42 @@
                 </select>
                 <input id="settings-pypi-index" type="text" autocomplete="off" placeholder="https://pypi.org/simple" aria-label="自定义包源地址" spellcheck="false" />
               </div>
+              <!-- B-3（PyCharm 调研）：只步进我的代码；改动需重启调试会话生效 -->
+              <div class="settings-row">
+                <label for="settings-debug-jmc">调试只步进我的代码（跳过库代码）</label>
+                <input id="settings-debug-jmc" type="checkbox" />
+              </div>
+              <div class="settings-hint">开启后单步进入不会误入 site-packages / 标准库；改动需停止并重新启动调试会话生效。</div>
+              <!-- D-4（PyCharm 调研）：ruff 规则严重度映射（E/W/F 三类；其余类别恒为 Warning）。
+                   禁止原生 select 之外的取值：非法存储值由 ruffLint.ts 归一化为 Warning（G-3 可见降级）。 -->
+              <div class="settings-row">
+                <label for="settings-ruff-severity-e">ruff 风格规则（E）级别</label>
+                <select id="settings-ruff-severity-e">
+                  <option value="hint">提示</option>
+                  <option value="info">信息</option>
+                  <option value="warning">警告</option>
+                  <option value="error">错误</option>
+                </select>
+              </div>
+              <div class="settings-row">
+                <label for="settings-ruff-severity-w">ruff 警告规则（W）级别</label>
+                <select id="settings-ruff-severity-w">
+                  <option value="hint">提示</option>
+                  <option value="info">信息</option>
+                  <option value="warning">警告</option>
+                  <option value="error">错误</option>
+                </select>
+              </div>
+              <div class="settings-row">
+                <label for="settings-ruff-severity-f">ruff pyflakes（F）级别</label>
+                <select id="settings-ruff-severity-f">
+                  <option value="hint">提示</option>
+                  <option value="info">信息</option>
+                  <option value="warning">警告</option>
+                  <option value="error">错误</option>
+                </select>
+              </div>
+              <div class="settings-hint">ruff 规则按首字母分类映射到编辑器波浪线级别；保存后立即生效（自动重查当前文件）。行内忽略见编辑器右键「忽略此规则」。</div>
             </div>
             <div id="settings-section-templates" class="settings-section settings-section-templates hidden" role="tabpanel">
               <div class="lt-toolbar">
@@ -920,6 +1040,17 @@
     <div id="recent-modal" class="modal hidden"></div>
     <!-- Search Everywhere（P1，Double Shift / Ctrl+Shift+N / Ctrl+G；内容由 quickOpen.ts 构建） -->
     <div id="quick-open-modal" class="modal hidden"></div>
+    <!-- C-5（PyCharm 调研）：与剪贴板对比（当前文件/选区 vs 剪贴板；内容由 clipboardDiff.ts 构建） -->
+    <div id="clipboard-diff-modal" class="modal hidden">
+      <div class="modal-card clipboard-diff-card" role="dialog" aria-modal="true" aria-label="与剪贴板对比">
+        <div class="env-header">
+          <span class="env-title" id="clipboard-diff-title">与剪贴板对比</span>
+          <span class="spacer"></span>
+          <button id="clipboard-diff-close" class="btn btn--ghost btn--icon" aria-label="关闭"><i class="codicon codicon-close" aria-hidden="true"></i></button>
+        </div>
+        <div id="clipboard-diff-host"></div>
+      </div>
+    </div>
     <!-- 书签列表（P2，Ctrl+Shift+F11；内容由 bookmarks.ts 构建） -->
     <div id="bookmark-modal" class="modal hidden"></div>
     <!-- 运行历史（P2；内容由 runHistory.ts 构建） -->

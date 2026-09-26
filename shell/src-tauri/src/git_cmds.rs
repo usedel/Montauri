@@ -1187,6 +1187,47 @@ pub async fn git_show(root: String, hash: String) -> Result<String, String> {
     .await
 }
 
+/// 单文件提交历史（`git log --follow`，E-4「文件历史」）。path 为仓库相对路径。
+/// --follow 跟随重命名；从未提交的文件返回空列表（git exit 0）。
+/// 单文件历史不画 graph（--graph 对路径过滤的单车道无信息量），graph 恒为空。
+#[tauri::command]
+pub async fn git_log_file(root: String, path: String, count: u32) -> Result<Vec<GitCommit>, String> {
+    spawn_blocking(move || {
+        let n = count.clamp(1, 200);
+        let p = path.trim();
+        if p.is_empty() {
+            return Err("文件路径不能为空".to_string());
+        }
+        let mut cmd = tool_command("git", ENV_GIT);
+        cmd.arg("log")
+            .arg(format!("-n{n}"))
+            .arg("--follow")
+            .arg("--date=short")
+            .arg("--pretty=format:%H%x1f%h%x1f%an%x1f%ad%x1f%s%x1f%d")
+            .arg("--")
+            .arg(p);
+        let out = exec_git(&root, cmd)?;
+        let mut commits = Vec::new();
+        for line in out.lines() {
+            let fields: Vec<&str> = line.split('\u{1f}').collect();
+            if fields.len() < 5 {
+                continue;
+            }
+            commits.push(GitCommit {
+                hash: fields[0].to_string(),
+                short_hash: fields[1].to_string(),
+                author: fields[2].to_string(),
+                date: fields[3].to_string(),
+                subject: fields[4].to_string(),
+                graph: String::new(),
+                refs: fields.get(5).unwrap_or(&"").trim_matches(|c: char| matches!(c, '(' | ')' | ' ')).to_string(),
+            });
+        }
+        Ok(commits)
+    })
+    .await
+}
+
 // ---------- Blame（TD-002） ----------
 
 /// 单行 blame 信息。

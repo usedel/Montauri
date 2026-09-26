@@ -9,6 +9,8 @@ const BOTTOM_KEY = "opencharm.bottom_height";
 const RIGHT_KEY = "opencharm.rightpanel_width";
 const OUTLINE_KEY = "opencharm.outline_height";
 const MD_PREVIEW_KEY = "opencharm.mdpreview_width";
+/** C-4：分屏面板宽度记忆（键名风格与其余面板键一致；splitEditor.ts 恢复时读同一键） */
+const SPLIT_W_KEY = "opencharm-split-w";
 
 const SIDEBAR_MIN = 180;
 const SIDEBAR_MAX = 480;
@@ -238,5 +240,29 @@ export function wireSplitters(): void {
   mdSplitter.addEventListener("dblclick", () => {
     mdPreview.style.removeProperty("--mdpreview-w");
     localStorage.removeItem(MD_PREVIEW_KEY);
+  });
+
+  // C-4：分屏面板拖拽（与 md 分栏同范式：右侧面板，宽度 = row 右缘 − 鼠标 X，
+  // 编辑器 flex:1 自动吸收剩余空间；min 240 保证两侧都可用，上限随 editor-row 收口）。
+  const splitPanel = $("split-editor-panel");
+  const splitSplitter = $("split-splitter");
+  splitSplitter.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    const rowRight = mdEditorRow.getBoundingClientRect().right;
+    const max = Math.max(240, Math.floor(mdEditorRow.clientWidth - centerMin()));
+    splitPanel.classList.add("resizing");
+    startDrag(
+      splitSplitter,
+      (ev) => {
+        const w = clamp(Math.round(rowRight - ev.clientX), 240, max);
+        splitPanel.style.setProperty("--split-w", `${w}px`);
+        localStorage.setItem(SPLIT_W_KEY, String(w));
+      },
+      () => splitPanel.classList.remove("resizing"),
+    );
+  });
+  splitSplitter.addEventListener("dblclick", () => {
+    splitPanel.style.removeProperty("--split-w");
+    localStorage.removeItem(SPLIT_W_KEY);
   });
 }

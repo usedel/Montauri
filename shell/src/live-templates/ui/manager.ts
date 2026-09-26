@@ -8,10 +8,12 @@ import { parseExpression } from "../engine";
 import { parsePycharmXml } from "../pycharmImport";
 import {
   parseTemplatesFile,
+  DEFAULT_POSITIONS,
   type TemplateDef,
   type TemplateKind,
   type TemplateVariableDef,
   type TemplatesFile,
+  type PositionKind,
 } from "../schema";
 import type { ConfigLayer, EffectiveEntry, LiveTemplatesHandle } from "../index";
 import { codicon } from "../../util";
@@ -41,6 +43,13 @@ const SCOPE_LABELS: Record<string, string> = {
   "python:module": "模块",
   "python:class": "类",
   "python:function": "函数",
+};
+// C-4 相位 B（修订稿 §6.2）：适用位置轴多选（容器 × 位置交叉，对齐 PyCharm Applicable Contexts）
+const ALL_POSITIONS: PositionKind[] = ["statement", "expression", "name"];
+const POSITION_LABELS: Record<PositionKind, string> = {
+  statement: "语句",
+  expression: "表达式",
+  name: "名字位",
 };
 const ABBR_RE = /^[A-Za-z0-9._-]+$/;
 const VAR_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -165,7 +174,13 @@ function renderList(): void {
     const desc = document.createElement("span");
     desc.className = "lt-desc";
     desc.textContent = entry.description;
-    desc.title = `${entry.description}\nscopes: ${entry.scopes.map((s) => SCOPE_LABELS[s] ?? s).join(", ") || "（已全部禁用）"}`;
+    // 位置轴非缺省时在悬停 title 中披露（缺省 statement+expression 不额外占文案）
+    const posDiffers =
+      entry.positions.length !== DEFAULT_POSITIONS.length ||
+      entry.positions.some((p) => !DEFAULT_POSITIONS.includes(p));
+    desc.title = `${entry.description}\nscopes: ${entry.scopes.map((s) => SCOPE_LABELS[s] ?? s).join(", ") || "（已全部禁用）"}${
+      posDiffers ? `\npositions: ${entry.positions.join(", ")}` : ""
+    }`;
     row.appendChild(desc);
 
     row.addEventListener("click", () => openEditor(entry));
@@ -310,6 +325,7 @@ function makeTombstone(entry: EffectiveEntry, layer: ConfigLayer): TemplateDef {
     description: entry.description,
     body: TOMBSTONE_BODY,
     scopes: entry.tpl.scopes,
+    positions: entry.tpl.positions, // 墓碑随原定义保留位置轴（覆盖语义一致）
     group: entry.group,
     kind: entry.kind,
     postfixKey: entry.postfixKey,
@@ -602,6 +618,26 @@ function openEditor(entry: EffectiveEntry | null): void {
     scopeBox.appendChild(wrap);
   }
   inlineRow.appendChild(scopeBox);
+  // 相位 B：适用位置行（修订稿 §6.2）——与作用域行同一交互范式；
+  // 勾选基准 = 本层定义 > 生效定义 > 缺省（statement+expression，名字位默认不勾）
+  const posLabel = document.createElement("span");
+  posLabel.className = "lt-inline-label";
+  posLabel.textContent = "适用位置";
+  inlineRow.appendChild(posLabel);
+  const posBox = document.createElement("div");
+  posBox.className = "lt-scope-box";
+  const effectivePositions = base?.positions ?? DEFAULT_POSITIONS;
+  for (const p of ALL_POSITIONS) {
+    const wrap = document.createElement("label");
+    wrap.className = "lt-scope-opt";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.dataset.position = p;
+    cb.checked = effectivePositions.includes(p);
+    wrap.append(cb, document.createTextNode(POSITION_LABELS[p]));
+    posBox.appendChild(wrap);
+  }
+  inlineRow.appendChild(posBox);
   const tabWrap = document.createElement("label");
   tabWrap.className = "lt-tab-opt";
   tabWrap.title = "关闭后仅通过补全弹窗使用（关键字类缩写建议关闭）";
@@ -809,13 +845,29 @@ function collectDraft(): TemplateDef | null {
     setStatus("环绕模板的模板体必须包含 $SELECTION$", true);
     return null;
   }
-  const scopes = Array.from(document.querySelectorAll<HTMLInputElement>(".lt-scope-opt input:checked")).map(
+  // 作用域与适用位置共用 .lt-scope-opt 类，用 data-* 区分（相位 B：位置轴多选）
+  const scopes = Array.from(document.querySelectorAll<HTMLInputElement>(".lt-scope-opt input[data-scope]:checked")).map(
     (cb) => cb.dataset.scope ?? "",
   );
   if (scopes.length === 0) {
     setStatus("至少选择一个作用域", true);
     return null;
   }
+  const posSel = new Set(
+    Array.from(document.querySelectorAll<HTMLInputElement>(".lt-scope-opt input[data-position]:checked")).map(
+      (cb) => cb.dataset.position ?? "",
+    ),
+  );
+  const positions = ALL_POSITIONS.filter((p) => posSel.has(p));
+  if (positions.length === 0) {
+    setStatus("至少选择一个适用位置", true);
+    return null;
+  }
+  // 与缺省一致时不写字段（配置精简；schema 语义 = 缺省 statement+expression）
+  const positionsField: PositionKind[] | undefined =
+    positions.length === DEFAULT_POSITIONS.length && DEFAULT_POSITIONS.every((p) => positions.includes(p))
+      ? undefined
+      : positions;
 
   const variables: TemplateVariableDef[] = [];
   const seen = new Set<string>();
@@ -857,6 +909,7 @@ function collectDraft(): TemplateDef | null {
     description: ($("lt-f-desc") as HTMLInputElement).value.trim() || abbr,
     body,
     scopes,
+    positions: positionsField,
     group: group || undefined,
     kind,
     postfixKey: kind === "postfix" ? postfixKey : undefined,

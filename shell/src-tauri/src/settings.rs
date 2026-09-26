@@ -52,6 +52,9 @@ fn default_keybindings() -> HashMap<String, String> {
     m.insert("markdown_preview".into(), "Ctrl+Shift+V".into());
     // P1（UX 审查）：高频操作补键位（与前端 KEYBINDING_META / DEFAULT_SETTINGS 三处同步）
     m.insert("close_tab".into(), "Ctrl+F4".into());
+    // 标签页循环切换（VS Code 同款；与前端 KEYBINDING_META / DEFAULT_SETTINGS 三处同步）
+    m.insert("next_tab".into(), "Ctrl+Tab".into());
+    m.insert("prev_tab".into(), "Ctrl+Shift+Tab".into());
     m.insert("new_file".into(), "Ctrl+Alt+Insert".into());
     m.insert("open_settings".into(), "Ctrl+Alt+S".into());
     m.insert("toggle_sidebar".into(), "Ctrl+Shift+F12".into());
@@ -64,6 +67,26 @@ fn default_keybindings() -> HashMap<String, String> {
     m.insert("find_usages".into(), "Alt+F7".into());
     // P2（重命名）：跨文件重命名（PyCharm Shift+F6 同款；F2 仍是单文件快捷）（与前端三处同步）
     m.insert("rename_symbol".into(), "Shift+F6".into());
+    // P1（PyCharm 调研 C-1/C-2）：编辑器基本功（与前端 KEYBINDING_META / DEFAULT_SETTINGS 三处同步）。
+    // 注：Ctrl+W / Ctrl+Shift+W 是浏览器危险键，由 browserKeys.ts 在编辑器内放行给 Monaco。
+    m.insert("smart_select_expand".into(), "Ctrl+W".into());
+    m.insert("smart_select_shrink".into(), "Ctrl+Shift+W".into());
+    m.insert("move_line_up".into(), "Ctrl+Shift+Up".into());
+    m.insert("move_line_down".into(), "Ctrl+Shift+Down".into());
+    // P4（C-3）：列选择开关（与前端 KEYBINDING_META / DEFAULT_SETTINGS 三处同步）
+    m.insert("toggle_column_selection".into(), "Alt+Shift+Insert".into());
+    // P4（C-4）：向右分屏（与前端三处同步）
+    m.insert("split_editor".into(), "Ctrl+\\".into());
+    // PR-A（dx_features_backlog §6.1）：键位补齐组（与前端 KEYBINDING_META / DEFAULT_SETTINGS 三处同步）。
+    // Ctrl+Y 覆盖 Monaco/Windows 的「重做」内建（重做仍可走 Ctrl+Shift+Z）；
+    // reopen_tab 不取 Ctrl+Shift+T（已被 open_devtools 占用）
+    m.insert("delete_line".into(), "Ctrl+Y".into());
+    m.insert("fold_all".into(), "Ctrl+Shift+-".into());
+    m.insert("unfold_all".into(), "Ctrl+Shift+=".into());
+    m.insert("jump_to_bracket".into(), "Ctrl+Shift+\\".into());
+    m.insert("reopen_tab".into(), "Ctrl+Shift+Alt+T".into());
+    // PR-D（dx_features_backlog §6.4）：最近编辑位置（与前端 KEYBINDING_META / DEFAULT_SETTINGS 三处同步）
+    m.insert("recent_edit_locations".into(), "Ctrl+Shift+Backspace".into());
     m
 }
 
@@ -90,6 +113,18 @@ pub struct Settings {
     pub word_wrap: String,
     /// 迷你地图开关
     pub minimap: bool,
+    /// 缩进参考线（C-6：长脚本可读性；含当前缩进层级高亮）
+    pub indent_guides: bool,
+    /// 括号彩色化（C-6：多层嵌套括号配对辨识）
+    pub bracket_colors: bool,
+    /// 粘性滚动（PR-B：长文件滚动时当前作用域头部常驻编辑器顶部；须与前端 sticky_scroll 同步）
+    pub sticky_scroll: bool,
+    /// 保存时清理行尾空白（PR-C；仅显式保存触发，autosave/运行前跳过；须与前端同步）
+    pub trim_trailing_whitespace: bool,
+    /// 保存时确保文件以换行结束（PR-C；仅显式保存触发；须与前端同步）
+    pub final_newline: bool,
+    /// 调试「只步进我的代码」（B-3：不误入 site-packages；改动需重启调试会话生效）
+    pub debug_just_my_code: bool,
     /// 自动保存："off" | "delay" | "blur"
     pub autosave: String,
     /// delay 模式的延迟毫秒
@@ -102,6 +137,12 @@ pub struct Settings {
     pub format_on_save: bool,
     /// 保存时用 ruff 整理导入（Ctrl+Alt+O 的保存联动，与 format_on_save 同模式）
     pub optimize_imports_on_save: bool,
+    /// D-4：ruff 规则严重度映射——E（pycodestyle 风格）/ W（pycodestyle 警告）/
+    /// F（pyflakes）三类规则的显示级别："hint" | "info" | "warning" | "error"
+    /// （与前端字段逐一对应；非法值由前端归一化为 warning）
+    pub ruff_severity_e: String,
+    pub ruff_severity_w: String,
+    pub ruff_severity_f: String,
     /// 运行时智能层（opencharm-intel）开关——关闭时 LSP 桥不启动 intel（P3-T09）
     pub runtime_intel_enabled: bool,
     /// 零引擎静态关键字补全开关（无 LSP 引擎的语言；python 不受影响）
@@ -139,12 +180,25 @@ impl Default for Settings {
             insert_spaces: true,
             word_wrap: "off".into(),
             minimap: false,
-            autosave: "off".into(),
-            autosave_delay: 1000,
+            // C-6（PyCharm 调研）：可读性默认开（与前端 DEFAULT_SETTINGS 保持一致）
+            indent_guides: true,
+            bracket_colors: true,
+            sticky_scroll: true,
+            trim_trailing_whitespace: true,
+            final_newline: true,
+            // B-3（PyCharm 调研）：只步进我的代码，默认开
+            debug_just_my_code: true,
+            // autosave 默认 delay 2s（须与前端 DEFAULT_SETTINGS 保持同步）
+            autosave: "delay".into(),
+            autosave_delay: 2000,
             probe_enabled: true,
             lsp_engine: "pyrefly".into(),
             format_on_save: false,
             optimize_imports_on_save: false,
+            // D-4：默认全 Warning（维持映射引入前的行为，与前端 DEFAULT_SETTINGS 一致）
+            ruff_severity_e: "warning".into(),
+            ruff_severity_w: "warning".into(),
+            ruff_severity_f: "warning".into(),
             runtime_intel_enabled: true,
             // 与前端 DEFAULT_SETTINGS.keyword_completion 保持同步
             keyword_completion: true,
@@ -218,7 +272,13 @@ mod tests {
         assert_eq!(d.insert_spaces, true);
         assert_eq!(d.word_wrap, "off");
         assert_eq!(d.minimap, false);
-        assert_eq!(d.autosave, "off");
+        // C-6（PyCharm 调研）：可读性默认开
+        assert_eq!(d.indent_guides, true);
+        assert_eq!(d.bracket_colors, true);
+        // B-3（PyCharm 调研）：只步进我的代码，默认开
+        assert_eq!(d.debug_just_my_code, true);
+        assert_eq!(d.autosave, "delay");
+        assert_eq!(d.autosave_delay, 2000);
         assert_eq!(d.probe_enabled, true);
         assert_eq!(d.lsp_engine, "pyrefly");
         assert_eq!(d.format_on_save, false);
@@ -258,14 +318,33 @@ mod tests {
         assert_eq!(d.keybindings.get("scratch_new").map(String::as_str), Some("Ctrl+Alt+Shift+Insert"));
         // P1（UX 审查）：关闭标签 / 新建文件 / 打开设置 / 切换侧栏 / 切换底部面板
         assert_eq!(d.keybindings.get("close_tab").map(String::as_str), Some("Ctrl+F4"));
+        // 标签页循环切换
+        assert_eq!(d.keybindings.get("next_tab").map(String::as_str), Some("Ctrl+Tab"));
+        assert_eq!(d.keybindings.get("prev_tab").map(String::as_str), Some("Ctrl+Shift+Tab"));
         assert_eq!(d.keybindings.get("new_file").map(String::as_str), Some("Ctrl+Alt+Insert"));
         assert_eq!(d.keybindings.get("open_settings").map(String::as_str), Some("Ctrl+Alt+S"));
         assert_eq!(d.keybindings.get("toggle_sidebar").map(String::as_str), Some("Ctrl+Shift+F12"));
         assert_eq!(d.keybindings.get("toggle_bottom").map(String::as_str), Some("Alt+F12"));
         // PR-1：开发工具面板
         assert_eq!(d.keybindings.get("open_devtools").map(String::as_str), Some("Ctrl+Shift+T"));
+        // P1（PyCharm 调研 C-1/C-2）：智能选区 + 移动行
+        assert_eq!(d.keybindings.get("smart_select_expand").map(String::as_str), Some("Ctrl+W"));
+        assert_eq!(d.keybindings.get("smart_select_shrink").map(String::as_str), Some("Ctrl+Shift+W"));
+        assert_eq!(d.keybindings.get("move_line_up").map(String::as_str), Some("Ctrl+Shift+Up"));
+        assert_eq!(d.keybindings.get("move_line_down").map(String::as_str), Some("Ctrl+Shift+Down"));
+        // P4（C-3）：列选择开关
+        assert_eq!(d.keybindings.get("toggle_column_selection").map(String::as_str), Some("Alt+Shift+Insert"));
+        // P4（C-4）：向右分屏
+        assert_eq!(d.keybindings.get("split_editor").map(String::as_str), Some("Ctrl+\\"));
+        // PR-A（dx_features_backlog §6.1）：键位补齐组
+        assert_eq!(d.keybindings.get("delete_line").map(String::as_str), Some("Ctrl+Y"));
+        assert_eq!(d.keybindings.get("fold_all").map(String::as_str), Some("Ctrl+Shift+-"));
+        assert_eq!(d.keybindings.get("unfold_all").map(String::as_str), Some("Ctrl+Shift+="));
+        assert_eq!(d.keybindings.get("jump_to_bracket").map(String::as_str), Some("Ctrl+Shift+\\"));
+        assert_eq!(d.keybindings.get("reopen_tab").map(String::as_str), Some("Ctrl+Shift+Alt+T"));
+        assert_eq!(d.keybindings.get("recent_edit_locations").map(String::as_str), Some("Ctrl+Shift+Backspace"));
         // 键位表条目数 = 前端 KEYBINDING_META 条目数（漂移锁，新增键须同步改这里）
-        assert_eq!(d.keybindings.len(), 40);
+        assert_eq!(d.keybindings.len(), 54);
         assert_eq!(d.optimize_imports_on_save, false);
     }
 
@@ -297,6 +376,10 @@ mod tests {
         assert_eq!(s.word_wrap, "off");
         assert_eq!(s.minimap, false);
         assert_eq!(s.font_ligatures, false);
+        // C-6：旧配置文件无这两个字段 → 回落默认开
+        assert_eq!(s.indent_guides, true);
+        assert_eq!(s.bracket_colors, true);
+        assert_eq!(s.debug_just_my_code, true);
         // 快捷键：旧配置文件无此字段 → 整体回落默认键位表
         assert_eq!(s.keybindings.get("duplicate_line").map(String::as_str), Some("Ctrl+D"));
         assert_eq!(s.keybindings.get("debug").map(String::as_str), Some("F5"));
@@ -313,7 +396,12 @@ mod tests {
         assert_eq!(s.keybindings.get("run_project").map(String::as_str), Some("Ctrl+Shift+F10"));
         // PR-1：旧配置无 open_devtools → 回落默认
         assert_eq!(s.keybindings.get("open_devtools").map(String::as_str), Some("Ctrl+Shift+T"));
-        assert_eq!(s.keybindings.len(), 40);
+        // P1（PyCharm 调研 C-1/C-2）：旧配置无智能选区/移动行 → 回落默认
+        assert_eq!(s.keybindings.get("smart_select_expand").map(String::as_str), Some("Ctrl+W"));
+        assert_eq!(s.keybindings.get("move_line_down").map(String::as_str), Some("Ctrl+Shift+Down"));
+        // PR-A：键位补齐组同步（与上方 default_keybindings 断言同批）
+        assert_eq!(s.keybindings.get("delete_line").map(String::as_str), Some("Ctrl+Y"));
+        assert_eq!(s.keybindings.len(), 54);
         assert_eq!(s.optimize_imports_on_save, false); // 旧配置文件无此字段 → 默认关闭
     }
 }
