@@ -74,10 +74,13 @@ test("跳转定义：真实 pyrefly 从调用处跳到 lib.py 定义行", async 
     .locator("#editor .monaco-editor .view-line", { hasText: "add_score(2, 3)" })
     .first();
   // 必须等该行渲染就绪再取 boundingBox：Monaco 是异步渲染，全量跑（资源紧张）时
-  // 过早取会拿到 null → 用例偶发失败（与 Hover 用例同一处理，见下方）
+  // 过早取会拿到 null → 用例偶发失败。PR-B sticky 计算加入渲染管线后该竞态趋于稳定，
+  // 故升级为 poll 轮询（toPass），to be visible 不足以保证 boundingBox 非空（实测踩坑）。
   await expect(line).toBeVisible({ timeout: 10_000 });
-  const box = await line.boundingBox();
-  expect(box).not.toBeNull();
+  let box: { x: number; y: number; width: number; height: number } | null = null;
+  await expect
+    .poll(async () => (box = await line.boundingBox()), { timeout: 10_000 })
+    .not.toBeNull();
   await page.mouse.click(box!.x + 30, box!.y + box!.height / 2);
   await page.keyboard.press("Control+B");
 
@@ -93,8 +96,10 @@ test("Hover：真实 pyrefly 显示函数 docstring", async ({ page }) => {
     .locator("#editor .monaco-editor .view-line", { hasText: "add_score(2, 3)" })
     .first();
   await expect(line).toBeVisible({ timeout: 10_000 });
-  const box = await line.boundingBox();
-  expect(box).not.toBeNull();
+  let box: { x: number; y: number; width: number; height: number } | null = null;
+  await expect
+    .poll(async () => (box = await line.boundingBox()), { timeout: 10_000 })
+    .not.toBeNull();
   await page.mouse.move(box!.x + 30, box!.y + box!.height / 2);
 
   const hover = page.locator(".monaco-hover:not(.hidden)").first();

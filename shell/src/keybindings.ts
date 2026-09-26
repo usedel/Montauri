@@ -218,6 +218,12 @@ export function setKeybindingHandler(id: KeybindingId, fn: () => void): void {
   handlers.set(id, fn);
 }
 
+/** 外部入口（命令面板等）复用同一 handler：与键位触发共享实现，杜绝两处漂移（PR-E review 建议 5）。
+ *  handler 未注册（initKeybindingCommands 未跑/该键无 handler）时静默返回。 */
+export function triggerEditorKeybindingAction(id: KeybindingId): void {
+  handlers.get(id)?.();
+}
+
 /** 复制当前行（空选区）或选区覆盖的行（PyCharm Ctrl+D 语义），光标位置不变 */
 function duplicateCurrentLine(): void {
   const editor = app.editor;
@@ -274,6 +280,20 @@ export function initKeybindingCommands(monaco: MonacoModule): void {
   setKeybindingHandler("split_editor", () => toggleSplit());
   setKeybindingHandler("move_line_down", () => {
     app.editor.trigger("keybindings", "editor.action.moveLinesDownAction", null);
+  });
+  // PR-A（dx_features_backlog §6.1）：键位补齐组。命令 id 实测自 Monaco 0.52.2：
+  // 折叠族注册为 "editor.foldAll"/"editor.unfoldAll"（无 .action 前缀），deleteLines/jumpToBracket 带 .action
+  setKeybindingHandler("delete_line", () => {
+    app.editor.trigger("keybindings", "editor.action.deleteLines", null);
+  });
+  setKeybindingHandler("fold_all", () => {
+    app.editor.trigger("keybindings", "editor.foldAll", null);
+  });
+  setKeybindingHandler("unfold_all", () => {
+    app.editor.trigger("keybindings", "editor.unfoldAll", null);
+  });
+  setKeybindingHandler("jump_to_bracket", () => {
+    app.editor.trigger("keybindings", "editor.action.jumpToBracket", null);
   });
   for (const m of KEYBINDING_META) {
     if (m.scope !== "editor") continue;

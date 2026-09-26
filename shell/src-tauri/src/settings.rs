@@ -77,6 +77,16 @@ fn default_keybindings() -> HashMap<String, String> {
     m.insert("toggle_column_selection".into(), "Alt+Shift+Insert".into());
     // P4（C-4）：向右分屏（与前端三处同步）
     m.insert("split_editor".into(), "Ctrl+\\".into());
+    // PR-A（dx_features_backlog §6.1）：键位补齐组（与前端 KEYBINDING_META / DEFAULT_SETTINGS 三处同步）。
+    // Ctrl+Y 覆盖 Monaco/Windows 的「重做」内建（重做仍可走 Ctrl+Shift+Z）；
+    // reopen_tab 不取 Ctrl+Shift+T（已被 open_devtools 占用）
+    m.insert("delete_line".into(), "Ctrl+Y".into());
+    m.insert("fold_all".into(), "Ctrl+Shift+-".into());
+    m.insert("unfold_all".into(), "Ctrl+Shift+=".into());
+    m.insert("jump_to_bracket".into(), "Ctrl+Shift+\\".into());
+    m.insert("reopen_tab".into(), "Ctrl+Shift+Alt+T".into());
+    // PR-D（dx_features_backlog §6.4）：最近编辑位置（与前端 KEYBINDING_META / DEFAULT_SETTINGS 三处同步）
+    m.insert("recent_edit_locations".into(), "Ctrl+Shift+Backspace".into());
     m
 }
 
@@ -107,6 +117,12 @@ pub struct Settings {
     pub indent_guides: bool,
     /// 括号彩色化（C-6：多层嵌套括号配对辨识）
     pub bracket_colors: bool,
+    /// 粘性滚动（PR-B：长文件滚动时当前作用域头部常驻编辑器顶部；须与前端 sticky_scroll 同步）
+    pub sticky_scroll: bool,
+    /// 保存时清理行尾空白（PR-C；仅显式保存触发，autosave/运行前跳过；须与前端同步）
+    pub trim_trailing_whitespace: bool,
+    /// 保存时确保文件以换行结束（PR-C；仅显式保存触发；须与前端同步）
+    pub final_newline: bool,
     /// 调试「只步进我的代码」（B-3：不误入 site-packages；改动需重启调试会话生效）
     pub debug_just_my_code: bool,
     /// 自动保存："off" | "delay" | "blur"
@@ -165,6 +181,9 @@ impl Default for Settings {
             // C-6（PyCharm 调研）：可读性默认开（与前端 DEFAULT_SETTINGS 保持一致）
             indent_guides: true,
             bracket_colors: true,
+            sticky_scroll: true,
+            trim_trailing_whitespace: true,
+            final_newline: true,
             // B-3（PyCharm 调研）：只步进我的代码，默认开
             debug_just_my_code: true,
             // autosave 默认 delay 2s（须与前端 DEFAULT_SETTINGS 保持同步）
@@ -312,8 +331,15 @@ mod tests {
         assert_eq!(d.keybindings.get("toggle_column_selection").map(String::as_str), Some("Alt+Shift+Insert"));
         // P4（C-4）：向右分屏
         assert_eq!(d.keybindings.get("split_editor").map(String::as_str), Some("Ctrl+\\"));
+        // PR-A（dx_features_backlog §6.1）：键位补齐组
+        assert_eq!(d.keybindings.get("delete_line").map(String::as_str), Some("Ctrl+Y"));
+        assert_eq!(d.keybindings.get("fold_all").map(String::as_str), Some("Ctrl+Shift+-"));
+        assert_eq!(d.keybindings.get("unfold_all").map(String::as_str), Some("Ctrl+Shift+="));
+        assert_eq!(d.keybindings.get("jump_to_bracket").map(String::as_str), Some("Ctrl+Shift+\\"));
+        assert_eq!(d.keybindings.get("reopen_tab").map(String::as_str), Some("Ctrl+Shift+Alt+T"));
+        assert_eq!(d.keybindings.get("recent_edit_locations").map(String::as_str), Some("Ctrl+Shift+Backspace"));
         // 键位表条目数 = 前端 KEYBINDING_META 条目数（漂移锁，新增键须同步改这里）
-        assert_eq!(d.keybindings.len(), 48);
+        assert_eq!(d.keybindings.len(), 54);
         assert_eq!(d.optimize_imports_on_save, false);
     }
 
@@ -368,7 +394,9 @@ mod tests {
         // P1（PyCharm 调研 C-1/C-2）：旧配置无智能选区/移动行 → 回落默认
         assert_eq!(s.keybindings.get("smart_select_expand").map(String::as_str), Some("Ctrl+W"));
         assert_eq!(s.keybindings.get("move_line_down").map(String::as_str), Some("Ctrl+Shift+Down"));
-        assert_eq!(s.keybindings.len(), 48);
+        // PR-A：键位补齐组同步（与上方 default_keybindings 断言同批）
+        assert_eq!(s.keybindings.get("delete_line").map(String::as_str), Some("Ctrl+Y"));
+        assert_eq!(s.keybindings.len(), 54);
         assert_eq!(s.optimize_imports_on_save, false); // 旧配置文件无此字段 → 默认关闭
     }
 }

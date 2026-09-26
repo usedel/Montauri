@@ -64,7 +64,15 @@ export type KeybindingId =
   // 开启后鼠标拖拽 / Shift+点击按矩形选择；无浏览器危险键冲突（Insert 不在护栏清单）
   | "toggle_column_selection"
   // P4（C-4）：向右分屏——同 model 第二编辑器实例（splitEditor.ts）；Backslash 非浏览器危险键
-  | "split_editor";
+  | "split_editor"
+  // PR-A（dx_features_backlog §6.1）：键位补齐组——删除行 / 折叠全部 / 展开全部 / 括号跳转 / 重开标签
+  | "delete_line"
+  | "fold_all"
+  | "unfold_all"
+  | "jump_to_bracket"
+  | "reopen_tab"
+  // PR-D（dx_features_backlog §6.4）：最近编辑位置（PyCharm Ctrl+Shift+Backspace 同款）
+  | "recent_edit_locations";
 
 export interface KeybindingMeta {
   id: KeybindingId;
@@ -145,4 +153,17 @@ export const KEYBINDING_META: KeybindingMeta[] = [
   { id: "toggle_column_selection", label: "切换列选择模式", def: "Alt+Shift+Insert", scope: "editor" },
   // P4（C-4）：向右分屏（VS Code 同款 Ctrl+\；反斜杠按 SYMBOL_KEYS 字面写法，同 "/" 的先例）
   { id: "split_editor", label: "向右分屏", def: "Ctrl+\\", scope: "editor" },
+  // PR-A（dx_features_backlog §6.1）：键位补齐组。键位解析器不支持和弦，折叠组不取 VS Code 的
+  // Ctrl+K Ctrl+0/J，取单和弦 Ctrl+Shift+- / =（Monaco/浏览器无内建冲突）
+  // Ctrl+Y 覆盖 Monaco/Windows 的「重做」内建——重做仍可走 Ctrl+Shift+Z（同 Ctrl+D 覆盖「选中下一匹配」先例）
+  { id: "delete_line", label: "删除行", def: "Ctrl+Y", scope: "editor" },
+  { id: "fold_all", label: "折叠全部", def: "Ctrl+Shift+-", scope: "editor" },
+  { id: "unfold_all", label: "展开全部", def: "Ctrl+Shift+=", scope: "editor" },
+  // Monaco 内建同键（jumpToBracket）；登记进键位表使其可配置可发现
+  { id: "jump_to_bracket", label: "括号匹配跳转", def: "Ctrl+Shift+\\", scope: "editor" },
+  // 重开关闭的标签：Ctrl+Shift+T 已被 open_devtools 占用，故取 Ctrl+Shift+Alt+T（window 级，tabReopen.ts）
+  { id: "reopen_tab", label: "重新打开关闭的标签", def: "Ctrl+Shift+Alt+T", scope: "window" },
+  // PR-D：最近编辑位置（PyCharm Ctrl+Shift+Backspace 同款；window 级，editPoints.ts；
+  // Backspace 在 NAMED_KEYS 内可解析，browserKeys DANGER 清单只含 Ctrl+Shift+Delete 不冲突）
+  { id: "recent_edit_locations", label: "上一个编辑位置", def: "Ctrl+Shift+Backspace", scope: "window" },
 ];

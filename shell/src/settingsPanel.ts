@@ -59,6 +59,11 @@ const settingsMinimapEl = $("settings-minimap") as HTMLInputElement;
 // C-6（PyCharm 调研）：可读性配置
 const settingsIndentGuidesEl = $("settings-indent-guides") as HTMLInputElement;
 const settingsBracketColorsEl = $("settings-bracket-colors") as HTMLInputElement;
+// PR-B（dx_features_backlog §6.2）：粘性滚动
+const settingsStickyScrollEl = $("settings-sticky-scroll") as HTMLInputElement;
+// PR-C（dx_features_backlog §6.3）：保存清理
+const settingsTrimTrailingEl = $("settings-trim-trailing") as HTMLInputElement;
+const settingsFinalNewlineEl = $("settings-final-newline") as HTMLInputElement;
 // B-3（PyCharm 调研）：调试只步进我的代码
 const settingsDebugJmcEl = $("settings-debug-jmc") as HTMLInputElement;
 const settingsAutosaveEl = $("settings-autosave") as HTMLSelectElement;
@@ -299,6 +304,8 @@ export function buildEditorOptions(settings: Settings): MonacoApi.editor.IEditor
       highlightActiveIndentation: settings.indent_guides !== false,
     },
     bracketPairColorization: { enabled: settings.bracket_colors !== false },
+    // PR-B：粘性滚动（Monaco 0.52 内建 stickyScroll；旧配置无字段时兜底为开，同 C-6 惯例）
+    stickyScroll: { enabled: settings.sticky_scroll !== false },
   };
   const family = settings.font_family.trim();
   if (family) opts.fontFamily = family;
@@ -488,6 +495,9 @@ function fillForm(settings: Settings): void {
   settingsMinimapEl.checked = settings.minimap;
   settingsIndentGuidesEl.checked = settings.indent_guides !== false; // C-6
   settingsBracketColorsEl.checked = settings.bracket_colors !== false;
+  settingsStickyScrollEl.checked = settings.sticky_scroll !== false; // PR-B
+  settingsTrimTrailingEl.checked = settings.trim_trailing_whitespace !== false; // PR-C
+  settingsFinalNewlineEl.checked = settings.final_newline !== false;
   settingsDebugJmcEl.checked = settings.debug_just_my_code !== false; // B-3
   settingsAutosaveEl.value = settings.autosave;
   settingsProbeEl.checked = settings.probe_enabled;
@@ -574,6 +584,9 @@ async function saveSettingsPanel(): Promise<void> {
   const minimap = settingsMinimapEl.checked;
   const indentGuides = settingsIndentGuidesEl.checked; // C-6
   const bracketColors = settingsBracketColorsEl.checked;
+  const stickyScroll = settingsStickyScrollEl.checked; // PR-B
+  const trimTrailing = settingsTrimTrailingEl.checked; // PR-C
+  const finalNewline = settingsFinalNewlineEl.checked;
   const autosave = settingsAutosaveEl.value;
   const probeEnabled = settingsProbeEl.checked;
   const lspEngine = settingsEngineEl.value;
@@ -605,6 +618,9 @@ async function saveSettingsPanel(): Promise<void> {
     minimap,
     indent_guides: indentGuides,
     bracket_colors: bracketColors,
+    sticky_scroll: stickyScroll,
+    trim_trailing_whitespace: trimTrailing,
+    final_newline: finalNewline,
     debug_just_my_code: settingsDebugJmcEl.checked, // B-3
     autosave,
     autosave_delay: app.settings.autosave_delay,

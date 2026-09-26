@@ -784,6 +784,20 @@
                 <label for="settings-bracket-colors">括号彩色化</label>
                 <input id="settings-bracket-colors" type="checkbox" />
               </div>
+              <!-- PR-B（dx_features_backlog §6.2）：粘性滚动，默认开（PyCharm/VSCode 同款） -->
+              <div class="settings-row">
+                <label for="settings-sticky-scroll">粘性滚动（作用域头部常驻）</label>
+                <input id="settings-sticky-scroll" type="checkbox" />
+              </div>
+              <!-- PR-C（dx_features_backlog §6.3）：保存清理，默认开（仅显式保存触发） -->
+              <div class="settings-row">
+                <label for="settings-trim-trailing">保存时清理行尾空白</label>
+                <input id="settings-trim-trailing" type="checkbox" />
+              </div>
+              <div class="settings-row">
+                <label for="settings-final-newline">保存时确保文件以换行结束</label>
+                <input id="settings-final-newline" type="checkbox" />
+              </div>
             </div>
             <div id="settings-section-keybindings" class="settings-section hidden" role="tabpanel">
               <div id="settings-keybinding-rows"></div>

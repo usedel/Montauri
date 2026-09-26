@@ -135,8 +135,9 @@ export function resetQuickFixCache(): void {
 }
 
 /** 相对工作区根的模块路径（pkg/mod.py → pkg.mod；pkg/__init__.py → pkg）。
- *  工作区内判定走 relativePathRaw（CR-28：路径归一唯一权威实现，禁止手写大小写匹配）。 */
-function modulePathOf(absPath: string): string | null {
+ *  工作区内判定走 relativePathRaw（CR-28：路径归一唯一权威实现，禁止手写大小写匹配）。
+ *  PR-E：导出供 autoImport.ts 复用（同一归一逻辑，禁止两处漂移）。 */
+export function modulePathOf(absPath: string): string | null {
   const root = app.workspaceRoot;
   if (!root) return null;
   const rel = relativePathRaw(root, absPath);

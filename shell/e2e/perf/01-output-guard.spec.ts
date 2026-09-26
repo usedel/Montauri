@@ -45,8 +45,11 @@ async function ensureOutputScrollable(page: Page): Promise<void> {
 
 test(
   "P-GUARD-1 输出面板环形缓冲：DOM 行数封顶并显示已省略计数",
-  { timeout: 90_000 }, // 5000+ 行真实 DOM 追加在本机约 20s，放宽超时
+  // 5000+ 行真实 DOM 追加在本机约 20s。注意：Playwright 三参 details 只支持
+  // tag/annotate/box，{ timeout } 写在这里会被静默忽略（实测一直跑在全局 30s 上限），
+  // 必须用 test.setTimeout（验收实测踩坑）
   async ({ page }) => {
+    test.setTimeout(90_000);
     await ensureOutputScrollable(page);
     // 两段追加必须在**同一个 evaluate 内**完成：两次 evaluate 之间是 Playwright 往返，
     // 主线程一空出来，被我们长时间阻塞的应用后台任务（LSP/env/git）会批量往面板写行，

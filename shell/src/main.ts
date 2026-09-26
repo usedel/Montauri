@@ -28,11 +28,13 @@ import { runSearch, cancelSearch, resetSearch, setOpenMatchHandler, type SearchM
 import { findUsagesAtCursor, renameSymbolAtCursor, resetFindUsages, setOpenRefHandler, queryAndRender, initFindUsagesAction } from "./findUsages";
 import { initCodeVision, refreshCodeVision } from "./codeVision";
 import { refreshImportAliases, registerImportAliasCompletion } from "./importAlias"; // import 别名补全（import pandas as pd）
+import { registerAutoImportCompletion, resetAutoImportIndex } from "./autoImport"; // PR-E：补全内联 auto-import（自研，探针结局 C）
 import { initRenameWidget, setAfterRenameHandler } from "./renameWidget";
 import { initClipboardDiffAction } from "./clipboardDiff"; // C-5：与剪贴板对比（右键菜单）
 import { initNoqaAction } from "./ruffLint"; // D-4：忽略此规则（# noqa，右键菜单）
 import { initQuickFixActions, resetQuickFixCache } from "./quickFix"; // P4：D-1 缺失 import 兜底 + D-2 就地创建符号
 import * as splitEditor from "./splitEditor"; // P4（C-4）：向右分屏（handlers 注入，防 settingsPanel 成环）
+import { recordClosedTab, reopenClosedTab, resetTabReopen, setTabReopenHandlers } from "./tabReopen"; // PR-A（dx_features_backlog §6.1）：重开关闭的标签
 import { registerSidebarView, setSidebarTab, activeView, restoreSidebarView } from "./views";
 import * as lsp from "./lsp/client";
 import * as kb from "./keybindings";
@@ -95,6 +97,8 @@ import {
 import { initDebugConsole, notifyNotPaused, openEvaluatePrompt } from "./debugConsole";
 import { initInlineValues } from "./inlineValues";
 import { lintActiveFile, resetRuffLint, scheduleRuffLint, setRuffLintHandlers } from "./ruffLint";
+import { cleanupSaveContent } from "./saveCleanup"; // PR-C（dx_features_backlog §6.3）：保存清理
+import { initEditPoints, jumpToLastEdit, resetEditPoints } from "./editPoints"; // PR-D（dx_features_backlog §6.4）：最近编辑位置
 import {
   initBookmarks, loadBookmarks, openBookmarks, refreshBookmarkGutter,
   resetBookmarks, setBookmarkHandlers, toggleBookmarkAtCursor,
@@ -290,6 +294,10 @@ async function openWorkspace(root: string): Promise<void> {
   void maybeSuggestPydanticEngine();
   // import 别名频率学习：缓存秒生效 + 后台重扫回写，失败静默（importAlias 域）
   void refreshImportAliases(root);
+  resetAutoImportIndex(); // PR-E：工作区切换后 auto-import 索引按新根重建（TTL 兜底文件变更）
+  // PR review（dx_features_backlog §6.5）：跨工作区残留一并清空——重开栈与编辑点栈
+  resetTabReopen();
+  resetEditPoints();
   updateEditorOverlay();
 }
 
@@ -474,6 +482,8 @@ function showTabContextMenu(tab: Tab, x: number, y: number): void {
     // 复制路径三件套（对齐 VSCode：Copy Name / Copy Relative Path / Copy Path）
     { label: "复制文件名", action: () => void copyTabPath(basename(tab.path)) },
     { label: "复制相对路径", action: () => void copyTabPath(relativePathOfTab(tab.path)) },
+    // PR-A（dx_features_backlog §6.1）：file:line 引用（相对工作区根，贴 issue/聊天可直点）
+    { label: "复制 file:line 引用", action: () => void copyTabPath(`${relativePathOfTab(tab.path)}:${app.editor.getPosition()?.lineNumber ?? 1}`) },
     { label: "复制绝对路径", action: () => void copyTabPath(tab.path) },
     { label: "在终端中打开", action: () => void openTerminalAt(parentDirOf(tab.path)) },
     { label: "在资源管理器中显示", action: () => invoke("reveal_in_explorer", { path: tab.path }).catch(console.error) },
@@ -507,7 +517,10 @@ function showTabContextMenu(tab: Tab, x: number, y: number): void {
 async function closeTabsQuiet(list: Tab[]): Promise<void> {
   if (list.length === 0) return;
   if (list.some((t) => t.dirty) && !(await openConfirm({ message: "存在未保存的修改，确认关闭？", kind: "danger" }))) return;
-  for (const t of [...list]) closeTabSilent(t);
+  for (const t of [...list]) {
+    closeTabSilent(t);
+    if (t.kind !== "diff") recordClosedTab(t.path); // PR-A：批量关闭同样入重开栈（按关闭顺序栈顶=最后关闭）
+  }
 }
 
 async function closeOthersExcept(tab: Tab): Promise<void> {
@@ -843,6 +856,7 @@ async function closeTab(tab: Tab): Promise<void> {
   // diff tab 恒不 dirty（占位模型只读），无需确认直接关
   if (tab.kind !== "diff" && tab.dirty && !(await openConfirm({ message: `${basename(tab.path)} 有未保存修改，确认关闭？`, kind: "danger" }))) return;
   closeTabSilent(tab);
+  if (tab.kind !== "diff") recordClosedTab(tab.path); // PR-A：用户主动关闭入重开栈（工作区切换的批量清理不入栈）
 }
 
 /** 关闭标签（不弹确认，用于工作区切换时的批量清理） */
@@ -1035,6 +1049,17 @@ async function saveTab(tab: Tab, opts?: SaveOptions): Promise<void> {
     if (formatted !== null && formatted !== tab.model.getValue()) {
       tab.model.setValue(formatted); // 单次 setValue → Ctrl+Z 可整体撤销
     }
+  }
+  // PR-C（dx_features_backlog §6.3）：保存清理（行尾空白 / 最终换行，设置开关）。
+  // 与 ruff 钩子同一显式保存纪律（runActions 门控）；在 format **之后**执行——ruff format
+  // 自身会重写内容，清理须以最终内容为准。单次 setValue 先例同上。
+  if (runActions && (app.settings.trim_trailing_whitespace !== false || app.settings.final_newline !== false)) {
+    const value = tab.model.getValue();
+    const cleaned = cleanupSaveContent(value, {
+      trimTrailing: app.settings.trim_trailing_whitespace !== false,
+      finalNewline: app.settings.final_newline !== false,
+    });
+    if (cleaned !== value) tab.model.setValue(cleaned);
   }
   // P1：本地历史——**写盘前**留一版快照（content 传 null = 后端读磁盘，落的是保存前的内容）。
   // 失败只记日志：历史是兜底能力，绝不阻断保存（与 ruff 缺席不阻断格式化的策略一致）。
@@ -1313,6 +1338,14 @@ function buildQuickOpenActions(): QuickOpenAction[] {
     { id: "bookmark_list", label: "书签列表", run: () => void openBookmarks() },
     { id: "scratch_new", label: "新建草稿文件", run: () => void newScratch() },
     { id: "split_editor", label: "向右分屏", run: () => splitEditor.toggleSplit() }, // P4（C-4）
+    // PR-A（dx_features_backlog §6.1）：键位补齐组的命令面板入口（id 对齐键位表，hint 自动跟随改键；
+    // run 复用键位 handler——review 建议 5：与 keybindings.ts 的命令 id 手写两份会漂移）
+    { id: "delete_line", label: "删除行", run: () => kb.triggerEditorKeybindingAction("delete_line") },
+    { id: "fold_all", label: "折叠全部", run: () => kb.triggerEditorKeybindingAction("fold_all") },
+    { id: "unfold_all", label: "展开全部", run: () => kb.triggerEditorKeybindingAction("unfold_all") },
+    { id: "jump_to_bracket", label: "括号匹配跳转", run: () => kb.triggerEditorKeybindingAction("jump_to_bracket") },
+    { id: "reopen_tab", label: "重新打开关闭的标签", run: () => { if (!reopenClosedTab()) toast("没有可重新打开的标签", "info"); } },
+    { id: "recent_edit_locations", label: "上一个编辑位置", run: () => { if (!jumpToLastEdit()) toast("没有更早的编辑位置", "info"); } },
     { id: "run_history", label: "运行历史", run: () => openRunHistory() },
     { id: "goto_file", label: "转到文件", run: () => void openQuickOpen("files") },
     { id: "goto_line", label: "转到行 / 列", run: () => void openQuickOpen("line") },
@@ -1885,6 +1918,7 @@ async function init(): Promise<void> {
   lspProviders.dispose();
   lspProviders.add(lsp.registerLspCompletion());
   lspProviders.add(registerImportAliasCompletion(app.monaco)); // import 别名（纯前端静态，与引擎无关）
+  lspProviders.add(registerAutoImportCompletion(app.monaco)); // PR-E：auto-import（自研 G-1 索引数据源，与引擎无关）
   lspProviders.add(lsp.registerLspHover());
   lspProviders.add(lsp.registerLspDefinition());
   lspProviders.add(lsp.registerLspReferences()); // Shift+F12 查找引用（peek 视图）
@@ -2026,6 +2060,14 @@ async function init(): Promise<void> {
     else if (id === "command_palette") void openQuickOpen("commands");
     // PR-1：开发工具面板 + picker（Ctrl+Shift+T，toggle 语义）
     else if (id === "open_devtools") openDevToolsPanel();
+    // PR-A（dx_features_backlog §6.1）：重开关闭的标签（Ctrl+Shift+Alt+T；Ctrl+Shift+T 已被 DevTools 占用）
+    else if (id === "reopen_tab") {
+      if (!reopenClosedTab()) toast("没有可重新打开的标签", "info");
+    }
+    // PR-D：最近编辑位置（Ctrl+Shift+Backspace，PyCharm Last Edit Location 同款）
+    else if (id === "recent_edit_locations") {
+      if (!jumpToLastEdit()) toast("没有更早的编辑位置", "info");
+    }
   });
 
   // P1：Double Shift → Search Everywhere（键位表无法表达双击手势，故固定在此）。
@@ -2109,6 +2151,10 @@ async function init(): Promise<void> {
   registerQuickOpenActions(buildQuickOpenActions());
   // P1：导航历史（Ctrl+Alt+←/→）——跳转闭环的另一半
   setNavHistoryHandlers({ openFile: (p, line) => openFile(p, line) });
+  // PR-A：重开关闭的标签（Ctrl+Shift+Alt+T）——openFile 注入同 navHistory 模式
+  setTabReopenHandlers({ openFile: (p) => void openFile(p) });
+  // PR-D：最近编辑位置（Ctrl+Shift+Backspace）——独立监听 + openFile 注入
+  initEditPoints(app.editor, { openFile: (p, line) => void openFile(p, line) });
   // P1：本地历史（Ctrl+Shift+H）——无 Git 工作区的回滚兜底
   initLocalHistory();
   setLocalHistoryHandlers({ reloadFile: (p) => reloadFileFromDisk(p, true) }); // 用户主动回滚：强制替换
