@@ -126,11 +126,12 @@ test("FW-4 端点侧栏按方法分组 + 点击跳转声明", async ({ page }) =
     commitMsg: "baseline",
   });
   await boot(page, repo, {
+    // file 与 Rust 真实形状对齐（scan_endpoints 返回绝对路径——openFile → read_file 只认绝对）
     endpoints: [
-      { framework: "fastapi", method: "GET", route: "/health", file: "main.py", line: 5, handler: "health" },
-      { framework: "fastapi", method: "POST", route: "/v1/api/users", file: "main.py", line: 9, handler: "create_user" },
-      { framework: "fastapi", method: "GET", route: "/v1/api/users/{uid}", file: "routes/users.py", line: 12, handler: "get_user" },
-      { framework: "fastapi", method: "WS", route: "/v1/api/ws", file: "routes/ws.py", line: 3, handler: "ws_echo" },
+      { framework: "fastapi", method: "GET", route: "/health", file: repo.abs("main.py"), line: 5, handler: "health" },
+      { framework: "fastapi", method: "POST", route: "/v1/api/users", file: repo.abs("main.py"), line: 9, handler: "create_user" },
+      { framework: "fastapi", method: "GET", route: "/v1/api/users/{uid}", file: repo.abs("routes/users.py"), line: 12, handler: "get_user" },
+      { framework: "fastapi", method: "WS", route: "/v1/api/ws", file: repo.abs("routes/ws.py"), line: 3, handler: "ws_echo" },
     ],
   });
 

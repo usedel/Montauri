@@ -1063,7 +1063,8 @@ pub struct EndpointInfo {
     pub method: String,
     /// 合并后的完整路由（include 前缀 + router 前缀 + 声明路径，斜杠归一）
     pub route: String,
-    /// 声明文件（相对工作区根，正斜杠）
+    /// 声明文件（**绝对路径**、正斜杠——openFile → read_file 只认绝对路径，
+    /// 对齐 scan_todos 的路径契约；相对路径会导致「打开文件失败：找不到路径」）
     pub file: String,
     /// 声明行号（1 起）
     pub line: u32,
@@ -1257,7 +1258,9 @@ fn scan_endpoints_impl(root: &str) -> Result<Vec<EndpointInfo>, String> {
             }
         }
         let Some(content) = read_text_file(&path) else { continue };
-        let rel = path.strip_prefix(root_path).unwrap_or(&path).to_string_lossy().replace('\\', "/");
+        // 声明文件用绝对路径（对齐 scan_todos）：openFile → read_file 直接 fs 读，
+        // 相对路径相对进程 cwd 几乎必失败（E-BASIC 端点真机复现：os error 3）
+        let file_abs = path.to_string_lossy().replace('\\', "/");
         // 待配对的装饰器 (obj, 展示方法, 路径)：命中后续 def 行时成对产出
         let mut pending: Option<(String, String, String)> = None;
         for (i, raw) in content.lines().enumerate() {
@@ -1282,7 +1285,7 @@ fn scan_endpoints_impl(root: &str) -> Result<Vec<EndpointInfo>, String> {
             // 3) def：与 pending 装饰器配对产出端点
             if let Some(handler) = ep_parse_def_name(t) {
                 if let Some((obj, method, route_path)) = pending.take() {
-                    raw_endpoints.push((obj, method, route_path, rel.clone(), (i + 1) as u32, handler));
+                    raw_endpoints.push((obj, method, route_path, file_abs.clone(), (i + 1) as u32, handler));
                 }
                 continue;
             }
@@ -1821,9 +1824,13 @@ mod tests {
         assert_eq!(r[0].method, "GET");
         assert_eq!(r[0].framework, "fastapi");
         assert_eq!(r[0].handler, "health");
+        // file 是绝对路径（正斜杠）——openFile → read_file 只认绝对路径（真机复现回归钉死）
+        assert!(r[0].file.starts_with('/') || r[0].file.as_bytes()[1] == b':', "file 应为绝对路径: {}", r[0].file);
+        assert!(r[0].file.ends_with("/main.py"), "file 应为绝对路径: {}", r[0].file);
         // include 前缀 /v1 + router 前缀 /api + /users/{uid}
         assert_eq!(r[1].route, "/v1/api/users/{uid}");
         assert_eq!(r[1].handler, "list_users");
+        assert!(r[1].file.ends_with("/main.py"));
         assert_eq!(r[2].method, "WS");
         assert_eq!(r[2].route, "/v1/api/ws");
     }
@@ -1858,6 +1865,8 @@ mod tests {
         assert_eq!(r[1].method, "POST");
         assert_eq!(r[2].method, "GET/POST"); // 多方法 "/" 连接
         assert_eq!(r[2].route, "/admin/dash"); // register_blueprint 无 url_prefix → 只用 Blueprint 自带
+        // 契约：file 绝对路径（见 endpoints_files_readable_by_openfile_consumer）
+        assert!(r.iter().all(|e| e.file.starts_with('/') || e.file.as_bytes().get(1) == Some(&b':')));
     }
 
     /// 边界：非路由装饰器不截断 pending（堆叠装饰器）；未声明对象 → framework=unknown；
@@ -1901,6 +1910,45 @@ mod tests {
         assert_eq!(ep_join_route(&["", "/x"]), "/x");
         assert_eq!(ep_join_route(&["", ""]), "/");
         assert_eq!(ep_join_route(&["v1/", "//users/"]), "/v1/users");
+    }
+
+    /// 【消费者契约测试】scan_endpoints 产出的 file 必须能被 openFile → read_file 直接消费。
+    ///
+    /// 背景（真机缺陷复盘）：file 曾返回相对工作区根路径，而前端 `openFile` → Rust
+    /// `read_file` 直接 `fs` 读、只认绝对路径 → 真机上点击每个端点都报「打开文件失败：
+    /// 系统找不到指定的路径 (os error 3)」。当时的单测按**实现的相对形状**写断言，把
+    /// 错误契约钉死了；本测试改按**消费者需要的形状**断言——对扫描结果的每个 file 直接
+    /// 走一次 fs 读取，任何人改回相对路径都会在这里红（E2E mock 桥对相对路径有 join
+    /// 兜底，测不出这个缺口，必须由本层契约测试守卫）。
+    #[test]
+    fn endpoints_files_readable_by_openfile_consumer() {
+        let d = tmpdir("ep-contract");
+        fs::write(
+            d.join("main.py"),
+            "from fastapi import FastAPI\n\napp = FastAPI()\n\nMARKER_MAIN = 1\n\n@app.get(\"/health\")\nasync def health(): ...\n",
+        )
+        .unwrap();
+        fs::create_dir_all(d.join("routes")).unwrap();
+        fs::write(
+            d.join("routes").join("users.py"),
+            "from fastapi import APIRouter\n\nrouter = APIRouter()\n\nMARKER_USERS = 2\n\n@router.get(\"/users\")\nasync def users(): ...\n",
+        )
+        .unwrap();
+
+        let r = scan_endpoints_impl(&d.to_string_lossy()).unwrap();
+        assert!(r.len() >= 2, "至少 main.py 与 routes/users.py 各一个端点，实际 {} 项", r.len());
+        for ep in &r {
+            // 契约 1：绝对路径（正斜杠）
+            assert!(
+                ep.file.starts_with('/') || ep.file.as_bytes().get(1) == Some(&b':'),
+                "file 必须是绝对路径（正斜杠）：{}",
+                ep.file
+            );
+            // 契约 2：可被 read_file 语义直接消费（fs 打开成功且读到工作区内容）
+            let content = fs::read_to_string(&ep.file)
+                .unwrap_or_else(|e| panic!("read_file 消费失败（{}）：{}", ep.file, e));
+            assert!(content.contains("MARKER_"), "读到的不是工作区文件内容：{}", ep.file);
+        }
     }
 
     #[test]
