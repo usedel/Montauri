@@ -614,12 +614,12 @@ export function openExternalUrl(url: string): void {
   externalUrlOpener?.(url);
 }
 
-/** 服务就绪行（§9 + 框架探针表 P1）：三类 dev server 各自的就绪行解析实际 URL
+/** 服务就绪行（§9 + 框架探针表 P1/F3）：各 dev server 的就绪行解析实际 URL
  *  （args 改 --port/--host 时天然正确，无需另配端口）。 */
 const SERVICE_URL_RES: RegExp[] = [
-  /Uvicorn running on (https?:\/\/\S+)/, // FastAPI / Uvicorn
+  /Uvicorn running on (https?:\/\/\S+)/, // Uvicorn
   /Starting development server at (https?:\/\/\S+)/, // Django runserver
-  /\*\s*Running on (https?:\/\/\S+)/, // Flask / Werkzeug
+  /Running on (https?:\/\/\S+)/, // Flask / Werkzeug（"* Running on …"）与 Hypercorn（无星号前缀）
 ];
 
 /** 就绪行关键词（快速路径）：避免每块输出都拼接缓冲 */
@@ -634,6 +634,24 @@ let serviceTail = "";
  *  的输出中出现就绪行即解析 URL 并用系统浏览器打开。
  *  text 须为剥离 ANSI 后的纯文本（调用方保证）。 */
 const serviceOpenedFor = new Set<string>();
+
+/** 最近一次解析到的服务 origin（F2：端点直达浏览器的 base；端点侧栏消费）。
+ *  origin 只含 scheme+host+port，拼接路由交给消费方（joinRoute）。 */
+let lastServiceOrigin: string | null = null;
+
+/** 读取服务 base（null = 本会话尚无运行中的 dev server 就绪行） */
+export function lastServiceBaseUrl(): string | null {
+  return lastServiceOrigin;
+}
+
+// E2E 钩子（同 debugGutter __OC_DEBUG_TEST__ 先例）：浏览器 mock 没有真实终端输出，
+// 测试侧经此直接注入/读取服务 base，验收端点直达浏览器与 /docs、/openapi.json 入口。
+(window as unknown as { __OC_E2E_SERVICE__?: { setServiceBase: (url: string | null) => void; getServiceBase: () => string | null } }).__OC_E2E_SERVICE__ = {
+  setServiceBase: (url: string | null) => {
+    lastServiceOrigin = url;
+  },
+  getServiceBase: () => lastServiceOrigin,
+};
 
 function watchServiceUrlLine(_id: string, text: string): void {
   // 已打开过的项目直接跳过（每项目每会话一次，§9），不积累缓冲
@@ -655,6 +673,11 @@ function watchServiceUrlLine(_id: string, text: string): void {
   // 就绪行尾部可能带上句末标点（如 `at http://…:8000/.`），剥掉再打开
   const clean = url.replace(/[.,;:!?)\]]+$/u, "");
   if (!clean) return;
+  try {
+    lastServiceOrigin = new URL(clean).origin; // F2：端点直达浏览器取 origin（不含就绪行可能带的路径）
+  } catch {
+    /* 非法 URL 不更新 base，也不影响本次打开 */
+  }
   if (root) serviceOpenedFor.add(root);
   externalUrlOpener?.(clean);
 }
@@ -694,6 +717,7 @@ export async function disposeTerminal(): Promise<void> {
   projectRunSeq = 1;
   serviceOpenedFor.clear();
   serviceTail = "";
+  lastServiceOrigin = null;
   resetOutputChannelUi();
   renderTerminalTabs();
   bottomTab = "output";

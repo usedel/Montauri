@@ -89,6 +89,8 @@
             <button id="tab-search" class="activity-item" role="tab" aria-selected="false" aria-controls="view-search" aria-label="搜索" data-tip="搜索"><i class="codicon codicon-search" aria-hidden="true"></i></button>
             <!-- P0：TODO 工具窗（PyCharm TODO tool window 对标） -->
             <button id="tab-todo" class="activity-item" role="tab" aria-selected="false" aria-controls="view-todo" aria-label="待办标记" data-tip="待办标记（TODO / FIXME）"><i class="codicon codicon-checklist" aria-hidden="true"></i></button>
+            <!-- F1：端点工具窗（FastAPI / Flask 静态路由，docs/pycharm_framework_support_report.md §8.3） -->
+            <button id="tab-endpoints" class="activity-item" role="tab" aria-selected="false" aria-controls="view-endpoints" aria-label="端点" data-tip="端点（FastAPI / Flask 路由）"><i class="codicon codicon-globe" aria-hidden="true"></i></button>
             <button id="tab-git" class="activity-item" role="tab" aria-selected="false" aria-controls="view-git" aria-label="源代码管理" data-tip="源代码管理"><i class="codicon codicon-source-control" aria-hidden="true"></i></button>
             <button id="tab-debug" class="activity-item" role="tab" aria-selected="false" aria-controls="view-debug" aria-label="调试" data-tip="调试"><i class="codicon codicon-debug-alt" aria-hidden="true"></i></button>
           </div>
@@ -150,6 +152,8 @@
             </div>
             <!-- TODO 工具窗（P0）：内容由 todoView.ts::initTodoView 构建 -->
             <div id="view-todo" class="sidebar-view hidden" role="tabpanel" aria-labelledby="tab-todo"></div>
+            <!-- 端点工具窗（F1）：内容由 endpointView.ts::initEndpointView 构建 -->
+            <div id="view-endpoints" class="sidebar-view hidden" role="tabpanel" aria-labelledby="tab-endpoints"></div>
             <div id="view-git" class="sidebar-view hidden" role="tabpanel" aria-labelledby="tab-git">
               <div id="git-panel">
                 <div id="git-branch-bar">

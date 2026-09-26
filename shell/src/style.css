@@ -2013,6 +2013,52 @@ button:focus-visible,
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ---------- 端点工具窗（F1/F2/F4，endpointView.ts；布局复用 todo-group-header / todo-item） ---------- */
+#ep-toolbar { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); }
+#ep-toolbar .btn { margin-left: 0; flex: none; }
+#ep-summary { font-size: var(--text-sm); color: var(--fg-dim); margin-right: auto; }
+#ep-results { overflow-y: auto; flex: 1; }
+/* 方法徽章：GET 绿 / POST 蓝(accent) / PUT·PATCH 黄(warn) / DELETE·TRACE 红(danger) / 其余中性 */
+.ep-badge {
+  font-size: var(--text-xs);
+  line-height: 1.4;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-xs);
+  border: 1px solid currentColor;
+  color: var(--fg-dim);
+  flex-shrink: 0;
+  min-width: 38px;
+  text-align: center;
+}
+.ep-badge-get { color: var(--ok, #89d185); }
+.ep-badge-post { color: var(--accent); }
+.ep-badge-put,
+.ep-badge-patch { color: var(--warn); }
+.ep-badge-delete,
+.ep-badge-trace { color: var(--danger); }
+.ep-badge-ws { color: var(--meta, var(--fg-dim)); font-style: italic; }
+.ep-route {
+  color: var(--fg);
+  font-family: var(--font-mono, monospace);
+  font-size: var(--text-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+/* 行尾动作（浏览器打开 / 复制）：常驻低对比，hover 提亮；stopPropagation 防误触发行跳转 */
+.ep-action {
+  color: var(--fg-dim);
+  flex: none;
+  display: inline-flex;
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+}
+.ep-action:hover, .ep-action:focus-visible { color: var(--accent); }
+
 /* UI-08：对话框按钮迁移到 .btn 体系（.btn / .btn--primary / .btn--danger）。
    原 `.modal-actions button` 特异性 (0,1,1) 高于 .btn 的 (0,1,0)，故整块删除而非并存。
    注：#confirm-ok 的 primary/danger 形态由 dialog.ts::applyKind 动态切换类名。 */

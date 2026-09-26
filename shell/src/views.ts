@@ -2,7 +2,7 @@
 // 切换时遍历注册表「隐藏所有根、只显示激活根」，结构性杜绝平铺兄弟元素
 // 逐个 toggle hidden 的遗漏问题。新增视图只需 registerSidebarView 登记。
 
-export type SidebarViewId = "files" | "search" | "todo" | "git" | "debug";
+export type SidebarViewId = "files" | "search" | "todo" | "endpoints" | "git" | "debug";
 
 export interface SidebarView {
   id: SidebarViewId;

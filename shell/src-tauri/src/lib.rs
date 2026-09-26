@@ -164,6 +164,8 @@ pub fn run() {
             env_cmds::set_framework_hint_disabled,
             // Pydantic 栈检测（F0 裁决 B：推荐切换静态引擎，bench/reports/pydantic-engine-probe.md）
             env_cmds::detect_pydantic_stack,
+            // 端点扫描（F1：FastAPI / Flask 静态路由，docs/pycharm_framework_support_report.md §8.3）
+            fs_cmds::scan_endpoints,
             env_cmds::list_packages,
             env_cmds::list_outdated,
             env_cmds::pip_install,

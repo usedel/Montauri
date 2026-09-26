@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   frameworkHintText,
   frameworkLabel,
+  fullEndpointUrl,
+  joinRoute,
   presetConfigured,
   pydanticEngineHintText,
   shouldSuggestPydanticEngine,
@@ -72,5 +74,20 @@ describe("frameworks（框架探针表 TS 侧）", () => {
     const t = pydanticEngineHintText();
     expect(t).toContain("basedpyright");
     expect(t).toContain("改名传播");
+  });
+
+  it("joinRoute：斜杠归一 + 空段跳过 + 全空根路径（F1）", () => {
+    expect(joinRoute("/v1", "/api", "/users/{uid}")).toBe("/v1/api/users/{uid}");
+    expect(joinRoute("", "/x")).toBe("/x");
+    expect(joinRoute("", "")).toBe("/");
+    expect(joinRoute("v1/", "//users/")).toBe("/v1/users");
+    // 路径参数原样保留（FastAPI {id} / Flask <int:id>）
+    expect(joinRoute("/api", "/items/<int:id>")).toBe("/api/items/<int:id>");
+  });
+
+  it("fullEndpointUrl：无 base 返回 null，base 尾斜杠归一（F2）", () => {
+    expect(fullEndpointUrl(null, "/x")).toBeNull();
+    expect(fullEndpointUrl("http://127.0.0.1:8000", "/api/x")).toBe("http://127.0.0.1:8000/api/x");
+    expect(fullEndpointUrl("http://127.0.0.1:8000/", "/api/x")).toBe("http://127.0.0.1:8000/api/x");
   });
 });

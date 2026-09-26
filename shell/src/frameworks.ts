@@ -62,3 +62,20 @@ export function pydanticEngineHintText(): string {
     "与字段改名传播（实测见 bench/reports/pydantic-engine-probe.md），推荐切换到 basedpyright："
   );
 }
+
+// ---------- F1：端点路由合并（纯函数；Rust 侧同款语义见 fs_cmds::ep_join_route） ----------
+
+/** 路由段合并：两端斜杠归一 + 空段跳过；全空 → "/"。
+ *  支持把 FastAPI `{id}` / Flask `<int:id>` 路径参数原样保留。 */
+export function joinRoute(...parts: Array<string | undefined | null>): string {
+  const segs = parts
+    .map((p) => (p ?? "").trim().replace(/^\/+|\/+$/g, ""))
+    .filter((p) => p.length > 0);
+  return segs.length > 0 ? `/${segs.join("/")}` : "/";
+}
+
+/** base（origin）+ 路由 → 完整 URL；base 为空返回 null（无运行中的服务） */
+export function fullEndpointUrl(base: string | null, route: string): string | null {
+  if (!base) return null;
+  return `${base.replace(/\/+$/, "")}${joinRoute(route)}`;
+}

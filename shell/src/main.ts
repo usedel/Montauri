@@ -76,6 +76,7 @@ import {
 } from "./debugGutter";
 import { showMenu, type MenuItem } from "./menu";
 import { initTodoView, refreshTodos, resetTodoView, setTodoViewHandlers } from "./todoView"; // P0：TODO 工具窗
+import { initEndpointView, refreshEndpoints, resetEndpointView, setEndpointViewHandlers } from "./endpointView"; // F1：端点工具窗
 import { initDebugView, notifyDepFound, renderDebugView, runToCursor as runToCursorIn, setDebugViewHandlers, wireDebugViewEvents } from "./debugView";
 import { closeRecentFiles, initRecentFiles, openRecentFiles, setRecentFilesHandlers } from "./recentFiles"; // P0：最近打开的文件（Ctrl+E）
 // P1（PyCharm 调研）：Search Everywhere / 导航历史 / 本地历史 / 调试控制台
@@ -188,6 +189,7 @@ function resetWorkspaceUiState(): void {
   resetSearch();                // 搜索结果 + 作废在途请求
   resetFindUsages();            // 查找引用结果面板 + 行缓存
   resetTodoView();              // P0：TODO 列表 + 作废在途扫描
+  resetEndpointView();          // F1：端点列表 + 作废在途扫描
   resetNavHistory();            // P1：导航历史（跨工作区的历史没有意义）
   invalidateQuickOpenFiles();   // P1：工作区文件清单缓存随工作区失效
   resetBreadcrumbs();           // P2：面包屑（含符号缓存与防抖 timer）
@@ -2141,6 +2143,9 @@ async function init(): Promise<void> {
   // P0：TODO 工具窗
   initTodoView();
   setTodoViewHandlers({ openFile: (path, line) => void openFile(path, line) });
+  // F1：端点工具窗（渲染与动作见 endpointView.ts；扫描在 Rust fs_cmds::scan_endpoints）
+  initEndpointView();
+  setEndpointViewHandlers({ openFile: (path, line) => void openFile(path, line) });
   $("ew-open-folder").addEventListener("click", () => void openFolderFromToolbar());
   $("ew-new-project").addEventListener("click", () => openNewProjectPanel());
   $("ew-recent-clear").addEventListener("click", () => void clearRecentWorkspaces());
@@ -2334,6 +2339,13 @@ async function init(): Promise<void> {
     tabId: "tab-todo",
     onShow: () => void refreshTodos(),
   });
+  // F1：端点工具窗——同 TODO：切到该视图才扫描
+  registerSidebarView({
+    id: "endpoints",
+    rootId: "view-endpoints",
+    tabId: "tab-endpoints",
+    onShow: () => void refreshEndpoints(),
+  });
   registerSidebarView({
     id: "git",
     rootId: "view-git",
@@ -2356,6 +2368,7 @@ async function init(): Promise<void> {
   $("tab-files").addEventListener("click", () => setSidebarTab("files"));
   $("tab-search").addEventListener("click", () => setSidebarTab("search"));
   $("tab-todo").addEventListener("click", () => setSidebarTab("todo"));
+  $("tab-endpoints").addEventListener("click", () => setSidebarTab("endpoints"));
   $("tab-git").addEventListener("click", () => setSidebarTab("git"));
   $("tab-debug").addEventListener("click", () => setSidebarTab("debug"));
   // 大纲折叠 / 展开（OUTLINE 并入文件视图，TD-001 附带考虑）

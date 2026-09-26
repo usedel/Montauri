@@ -1,5 +1,6 @@
 use serde::Serialize;
 use serde_json::Value;
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -1033,6 +1034,289 @@ fn todo_boundary_ok(bytes: &[u8], start: usize, len: usize) -> bool {
     before_ok && after_ok
 }
 
+// ---------- 端点扫描（F1：FastAPI / Flask 静态路由，docs/pycharm_framework_support_report.md §8.3） ----------
+//
+// 对标 PyCharm Endpoints 工具窗口的**静态可见**部分（不做 HTTP Client / OpenAPI 引擎）。
+// 设计纪律（同框架探针表）：
+// - **纯文本逐行正则级解析、零子进程**，复用 collect_files 的 ignore 走查（限深限数）；
+// - 只认**稳定的公开约定**：`@obj.<method>("path")` / `@obj.route(..., methods=[...])` /
+//   `<obj> = APIRouter(prefix=...)` / `<obj> = Blueprint(..., url_prefix=...)` /
+//   `x.include_router(obj, prefix=...)` / `x.register_blueprint(obj, url_prefix=...)`，
+//   不解析框架源码结构、不做跨文件类型推断；
+// - 前缀合并按**对象名**全局匹配（router 声明处 + include 处各取一段），支持一层
+//   include_router / register_blueprint；多级嵌套与多行装饰器（path 换行）是已知边界；
+// - 结果上限 MAX_ENDPOINTS（同 scan_todos 思路）。
+
+/// 结果上限（防超大仓库把序列化与前端渲染拖垮）
+const MAX_ENDPOINTS: usize = 2000;
+
+/// FastAPI 风格路由装饰器（方法名小写）；api_route 的方法取行内 methods=[...]，默认 GET
+const FASTAPI_ROUTE_DECORATORS: [&str; 10] = [
+    "get", "post", "put", "patch", "delete", "options", "head", "trace", "websocket", "api_route",
+];
+
+#[derive(Serialize, Clone, PartialEq)]
+pub struct EndpointInfo {
+    /// "fastapi" | "flask" | "unknown"（按路由对象的声明类判定；未识别对象只知方法）
+    pub framework: String,
+    /// HTTP 方法（大写；多方法用 "/" 连接；websocket = "WS"）
+    pub method: String,
+    /// 合并后的完整路由（include 前缀 + router 前缀 + 声明路径，斜杠归一）
+    pub route: String,
+    /// 声明文件（相对工作区根，正斜杠）
+    pub file: String,
+    /// 声明行号（1 起）
+    pub line: u32,
+    /// 处理函数名（装饰器之后首个 def；装饰器与 def 间被其他语句隔开时为空）
+    pub handler: String,
+}
+
+/// 是否为合法 Python 标识符（防止 `@app.get(path="/x")` 被 `=` 切开后误判为赋值声明）
+fn ep_is_ident(s: &str) -> bool {
+    let mut chars = s.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_alphabetic() || c == '_' => {}
+        _ => return false,
+    }
+    chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+/// 行内第一个字符串字面量（单双引号均可；不支持转义——路由字面量一般不含引号）
+fn ep_first_string_literal(line: &str) -> Option<String> {
+    let bytes = line.as_bytes();
+    for (i, &b) in bytes.iter().enumerate() {
+        if b == b'"' || b == b'\'' {
+            let rest = &line[i + 1..];
+            let end = rest.find(b as char)?;
+            return Some(rest[..end].to_string());
+        }
+    }
+    None
+}
+
+/// 取行内 `key="..."` 形式的关键字参数值；`before` 检查保证 key 不
+/// 是更长标识符的尾部（找 "prefix=" 不得命中 "url_prefix="）。
+fn ep_kwarg_string(line: &str, key: &str) -> Option<String> {
+    let pat = format!("{key}=");
+    let bytes = line.as_bytes();
+    let mut from = 0usize;
+    while let Some(pos) = line[from..].find(&pat) {
+        let at = from + pos;
+        let before_ok = at == 0 || !(bytes[at - 1].is_ascii_alphanumeric() || bytes[at - 1] == b'_');
+        if before_ok {
+            let after = line[at + pat.len()..].trim_start();
+            if after.starts_with('"') || after.starts_with('\'') {
+                return ep_first_string_literal(after);
+            }
+        }
+        from = at + pat.len();
+    }
+    None
+}
+
+/// 装饰器行 `@obj.method("path"...)` → (obj, 展示方法, 路径字面量)。
+/// 方法展示在**装饰器行**上完成（methods=[...] 只在装饰器行上，def 行拿不到）；
+/// 只认 FASTAPI_ROUTE_DECORATORS 与 "route"（Flask）；其余装饰器返回 None（不截断 pending）。
+fn ep_parse_route_decorator(line: &str) -> Option<(String, String, String)> {
+    let rest = line.trim().strip_prefix('@')?;
+    let (obj, method_part) = rest.split_once('.')?;
+    let obj = obj.trim();
+    let method = method_part.split('(').next()?.trim();
+    if obj.is_empty() || method.is_empty() {
+        return None;
+    }
+    let known = method == "route" || FASTAPI_ROUTE_DECORATORS.contains(&method);
+    if !known {
+        return None;
+    }
+    let path = ep_first_string_literal(line).unwrap_or_default();
+    Some((obj.to_string(), ep_display_method(method, line), path))
+}
+
+/// 对象声明行 `<name> = APIRouter(...)` / `<name> = Blueprint(...)` / `<name> = Flask(...)`
+/// / `<name> = FastAPI(...)` → (对象名, 框架 "fastapi"|"flask", 前缀)
+fn ep_parse_router_decl(line: &str) -> Option<(String, &'static str, String)> {
+    let t = line.trim();
+    if t.starts_with('#') {
+        return None;
+    }
+    let (lhs, rhs) = t.split_once('=')?;
+    let name = lhs.trim();
+    if !ep_is_ident(name) {
+        return None;
+    }
+    let rhs_trim = rhs.trim_start();
+    let (framework, prefix_key) = if rhs_trim.starts_with("APIRouter") {
+        ("fastapi", "prefix")
+    } else if rhs_trim.starts_with("Blueprint") {
+        ("flask", "url_prefix")
+    } else if rhs_trim.starts_with("Flask") {
+        ("flask", "")
+    } else if rhs_trim.starts_with("FastAPI") {
+        ("fastapi", "")
+    } else {
+        return None;
+    };
+    let prefix = if prefix_key.is_empty() {
+        String::new()
+    } else {
+        ep_kwarg_string(t, prefix_key).unwrap_or_default()
+    };
+    Some((name.to_string(), framework, prefix))
+}
+
+/// include 行 `x.include_router(<name>, prefix="...")` / `x.register_blueprint(<name>, url_prefix="...")`
+/// → (路由对象名, 合并前缀；缺省为空串)
+fn ep_parse_include(line: &str) -> Option<(String, String)> {
+    let t = line.trim();
+    if t.starts_with('#') {
+        return None;
+    }
+    let (key, kw) = if t.contains(".include_router(") {
+        ("include_router(", "prefix")
+    } else if t.contains(".register_blueprint(") {
+        ("register_blueprint(", "url_prefix")
+    } else {
+        return None;
+    };
+    let at = t.find(key)? + key.len();
+    let name: String = t[at..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
+    if name.is_empty() {
+        return None;
+    }
+    let prefix = ep_kwarg_string(t, kw).unwrap_or_default();
+    Some((name, prefix))
+}
+
+/// def 行（含 async def）→ 函数名
+fn ep_parse_def_name(line: &str) -> Option<String> {
+    let t = line.trim();
+    let rest = t.strip_prefix("async def ").or_else(|| t.strip_prefix("def "))?;
+    let name: String = rest.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
+    if name.is_empty() { None } else { Some(name) }
+}
+
+/// 方法名 → 展示方法（大写；websocket → WS；route/api_route 取行内 methods=[...]，缺省 GET）
+fn ep_display_method(method: &str, line: &str) -> String {
+    match method {
+        "websocket" => "WS".to_string(),
+        "api_route" | "route" => {
+            let inner = line.find("methods").and_then(|a| {
+                let seg = &line[a..];
+                let lb = seg.find('[')?;
+                let rb = seg.find(']')?;
+                if rb > lb { Some(&seg[lb + 1..rb]) } else { None }
+            });
+            let ms: Vec<String> = inner
+                .unwrap_or("")
+                .split(',')
+                .map(|p| p.trim().trim_matches(|c| c == '"' || c == '\'').trim())
+                .filter(|p| !p.is_empty())
+                .map(|p| p.to_ascii_uppercase())
+                .collect();
+            if ms.is_empty() { "GET".to_string() } else { ms.join("/") }
+        }
+        other => other.to_ascii_uppercase(),
+    }
+}
+
+/// 路由段合并：两端斜杠归一 + 空段跳过；全空 → "/"
+fn ep_join_route(parts: &[&str]) -> String {
+    let segs: Vec<&str> = parts
+        .iter()
+        .map(|p| p.trim().trim_matches('/'))
+        .filter(|p| !p.is_empty())
+        .collect();
+    if segs.is_empty() { "/".to_string() } else { format!("/{}", segs.join("/")) }
+}
+
+/// 工作区端点扫描：按「文件 → 行号」排序（前端再按方法分组展示）
+#[tauri::command]
+pub async fn scan_endpoints(root: String) -> Result<Vec<EndpointInfo>, String> {
+    tauri::async_runtime::spawn_blocking(move || scan_endpoints_impl(&root))
+        .await
+        .map_err(|e| format!("任务执行异常：{e}"))?
+}
+
+fn scan_endpoints_impl(root: &str) -> Result<Vec<EndpointInfo>, String> {
+    let root_path = Path::new(root);
+    if !root_path.is_dir() {
+        return Err(format!("工作区目录不存在：{root}"));
+    }
+    let mut router_prefix: HashMap<String, String> = HashMap::new();
+    let mut include_prefix: HashMap<String, String> = HashMap::new();
+    let mut framework_of: HashMap<String, String> = HashMap::new();
+    // 第一遍的中间产物：(对象名, 展示方法, 声明路径, 文件, 行号, 处理函数)
+    // —— include 行常写在装饰器之后，前缀合并必须**等全部文件扫完**再统一做（单遍会漏）
+    let mut raw_endpoints: Vec<(String, String, String, String, u32, String)> = Vec::new();
+
+    for path in collect_files(root_path) {
+        if let Ok(meta) = fs::metadata(&path) {
+            if meta.len() > MAX_FILE_SIZE {
+                continue;
+            }
+        }
+        let Some(content) = read_text_file(&path) else { continue };
+        let rel = path.strip_prefix(root_path).unwrap_or(&path).to_string_lossy().replace('\\', "/");
+        // 待配对的装饰器 (obj, 展示方法, 路径)：命中后续 def 行时成对产出
+        let mut pending: Option<(String, String, String)> = None;
+        for (i, raw) in content.lines().enumerate() {
+            let t = raw.trim();
+            if t.is_empty() || t.starts_with('#') {
+                continue; // 注释/空行不打断 pending（装饰器与 def 之间允许有注释）
+            }
+            // 1) 对象声明（APIRouter / Blueprint / Flask / FastAPI）
+            if let Some((name, framework, prefix)) = ep_parse_router_decl(raw) {
+                framework_of.insert(name.clone(), framework.to_string());
+                if !prefix.is_empty() {
+                    router_prefix.insert(name, prefix);
+                }
+                pending = None; // 声明插入会打断「装饰器 → def」配对
+                continue;
+            }
+            // 2) include（合并前缀）
+            if let Some((name, prefix)) = ep_parse_include(raw) {
+                include_prefix.insert(name, prefix);
+                continue;
+            }
+            // 3) def：与 pending 装饰器配对产出端点
+            if let Some(handler) = ep_parse_def_name(t) {
+                if let Some((obj, method, route_path)) = pending.take() {
+                    raw_endpoints.push((obj, method, route_path, rel.clone(), (i + 1) as u32, handler));
+                }
+                continue;
+            }
+            // 4) 装饰器：可识别的路由装饰器更新 pending；不可识别的装饰器保留 pending（堆叠装饰器）
+            if t.starts_with('@') {
+                if let Some((obj, method, route_path)) = ep_parse_route_decorator(raw) {
+                    pending = Some((obj, method, route_path));
+                }
+            }
+        }
+    }
+
+    // 第二遍（纯内存）：include 已收齐，统一做前缀合并
+    let mut out: Vec<EndpointInfo> = Vec::new();
+    for (obj, method, route_path, file, line, handler) in raw_endpoints {
+        if out.len() >= MAX_ENDPOINTS {
+            break;
+        }
+        let framework = framework_of.get(&obj).cloned().unwrap_or_else(|| "unknown".into());
+        let inc = include_prefix.get(&obj).cloned().unwrap_or_default();
+        let pre = router_prefix.get(&obj).cloned().unwrap_or_default();
+        out.push(EndpointInfo {
+            framework,
+            method,
+            route: ep_join_route(&[&inc, &pre, &route_path]),
+            file,
+            line,
+            handler,
+        });
+    }
+    out.sort_by(|a, b| a.file.cmp(&b.file).then(a.line.cmp(&b.line)));
+    Ok(out)
+}
+
 // ---------- ruff 实时 lint（P2：诊断第三桶） ----------
 
 /// lint 规则集：E/W = pycodestyle（PEP8 风格与格式），F = pyflakes（未使用导入/变量、未定义名）。
@@ -1504,6 +1788,119 @@ mod tests {
     fn scan_todos_rejects_missing_root() {
         let missing = std::env::temp_dir().join("opencharm-scan-todos-missing-dir");
         assert!(scan_todos_impl(&missing.to_string_lossy()).is_err());
+    }
+
+    // ---------- 端点扫描（F1）单测 ----------
+
+    /// FastAPI：@app.get + APIRouter(prefix) + include_router 合并；websocket → WS
+    #[test]
+    fn endpoints_fastapi_prefix_merge() {
+        let d = tmpdir("ep-fastapi");
+        fs::write(
+            d.join("main.py"),
+            "from fastapi import APIRouter, FastAPI\n\
+             app = FastAPI()\n\
+             router = APIRouter(prefix=\"/api\")\n\
+             \n\
+             @app.get(\"/health\")\n\
+             async def health(): ...\n\
+             \n\
+             @router.get(\"/users/{uid}\")\n\
+             def list_users(uid: int): ...\n\
+             \n\
+             @router.websocket(\"/ws\")\n\
+             async def ws(): ...\n\
+             \n\
+             app.include_router(router, prefix=\"/v1\")\n",
+        )
+        .unwrap();
+        let r = scan_endpoints_impl(&d.to_string_lossy()).unwrap();
+        assert_eq!(r.len(), 3);
+        // 按文件 → 行号排序：health(5) / list_users(9) / ws(13)
+        assert_eq!(r[0].route, "/health");
+        assert_eq!(r[0].method, "GET");
+        assert_eq!(r[0].framework, "fastapi");
+        assert_eq!(r[0].handler, "health");
+        // include 前缀 /v1 + router 前缀 /api + /users/{uid}
+        assert_eq!(r[1].route, "/v1/api/users/{uid}");
+        assert_eq!(r[1].handler, "list_users");
+        assert_eq!(r[2].method, "WS");
+        assert_eq!(r[2].route, "/v1/api/ws");
+    }
+
+    /// Flask：@app.route 默认 GET + methods 多方法 + Blueprint url_prefix 两处来源
+    #[test]
+    fn endpoints_flask_methods_and_blueprint() {
+        let d = tmpdir("ep-flask");
+        fs::write(
+            d.join("app.py"),
+            "from flask import Blueprint, Flask\n\
+             app = Flask(__name__)\n\
+             bp = Blueprint(\"admin\", __name__, url_prefix=\"/admin\")\n\
+             \n\
+             @app.route(\"/index\")\n\
+             def index(): ...\n\
+             \n\
+             @app.route(\"/submit\", methods=[\"POST\"])\n\
+             def submit(): ...\n\
+             \n\
+             @bp.route(\"/dash\", methods=[\"GET\", \"POST\"])\n\
+             def dash(): ...\n\
+             \n\
+             app.register_blueprint(bp)\n",
+        )
+        .unwrap();
+        let r = scan_endpoints_impl(&d.to_string_lossy()).unwrap();
+        assert_eq!(r.len(), 3);
+        assert_eq!(r[0].method, "GET"); // route 无 methods → 默认 GET
+        assert_eq!(r[0].route, "/index");
+        assert_eq!(r[0].framework, "flask");
+        assert_eq!(r[1].method, "POST");
+        assert_eq!(r[2].method, "GET/POST"); // 多方法 "/" 连接
+        assert_eq!(r[2].route, "/admin/dash"); // register_blueprint 无 url_prefix → 只用 Blueprint 自带
+    }
+
+    /// 边界：非路由装饰器不截断 pending（堆叠装饰器）；未声明对象 → framework=unknown；
+    /// 关键字形态 `@app.get(path="/x")` 不得被误判为赋值声明；api_route 缺 methods → GET
+    #[test]
+    fn endpoints_edges() {
+        assert!(ep_parse_router_decl("@app.get(path=\"/x\")").is_none());
+        assert_eq!(
+            ep_parse_router_decl("api = APIRouter()").map(|(n, f, p)| (n, f.to_string(), p)),
+            Some(("api".into(), "fastapi".into(), String::new()))
+        );
+        // kwarg 的 before 检查：找 "prefix=" 不得命中 "url_prefix="
+        assert_eq!(ep_kwarg_string("bp = Blueprint(\"a\", __name__, url_prefix=\"/u\")", "prefix"), None);
+        assert_eq!(ep_kwarg_string("bp = Blueprint(\"a\", __name__, url_prefix=\"/u\")", "url_prefix"), Some("/u".into()));
+        let d = tmpdir("ep-edges");
+        fs::write(
+            d.join("svc.py"),
+            "from functools import cache\n\
+             svc = object()\n\
+             \n\
+             @svc.get(\"/x\")\n\
+             @cache\n\
+             def x(): ...\n\
+             \n\
+             @app.api_route(\"/y\")\n\
+             def y(): ...\n",
+        )
+        .unwrap();
+        let r = scan_endpoints_impl(&d.to_string_lossy()).unwrap();
+        assert_eq!(r.len(), 2);
+        assert_eq!(r[0].framework, "unknown"); // svc 未用已知类声明
+        assert_eq!(r[0].handler, "x"); // 堆叠装饰器 @cache 不截断配对
+        assert_eq!(r[1].method, "GET"); // api_route 缺 methods → GET
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    /// 路由段合并纯函数：空段跳过、全空 → "/"
+    #[test]
+    fn endpoints_join_route() {
+        assert_eq!(ep_join_route(&["/v1", "/api", "/users"]), "/v1/api/users");
+        assert_eq!(ep_join_route(&["", "/x"]), "/x");
+        assert_eq!(ep_join_route(&["", ""]), "/");
+        assert_eq!(ep_join_route(&["v1/", "//users/"]), "/v1/users");
     }
 
     #[test]

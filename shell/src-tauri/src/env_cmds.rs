@@ -1362,7 +1362,9 @@ fn detect_django_preset(root: &Path, deps: Option<&str>) -> Option<FrameworkPres
     })
 }
 
-/// FastAPI 规则：依赖声明含 fastapi + 源码 `X = FastAPI(` → `-m uvicorn <module>:<var> --reload`
+/// FastAPI 规则：依赖声明含 fastapi + 源码 `X = FastAPI(` → `-m <server> <module>:<var> --reload`。
+/// 服务器选择（F3，对标 PyCharm `Run using`）：依赖含 uvicorn → uvicorn；仅 hypercorn → hypercorn
+/// （`--reload` 两者均支持）；皆无 → uvicorn 缺省 + 提示缺失（不代装）。
 fn detect_fastapi_preset(root: &Path, deps: Option<&str>) -> Option<FrameworkPreset> {
     let deps = deps?;
     if !deps_mention(deps, "fastapi") {
@@ -1370,19 +1372,32 @@ fn detect_fastapi_preset(root: &Path, deps: Option<&str>) -> Option<FrameworkPre
     }
     let (file, app_var) = scan_app_decl(root, "FastAPI")?;
     let module = py_module_target(&file);
+    let server = if deps_mention(deps, "uvicorn") {
+        "uvicorn"
+    } else if deps_mention(deps, "hypercorn") {
+        "hypercorn"
+    } else {
+        "uvicorn"
+    };
+    let missing = if deps_mention(deps, "uvicorn") || deps_mention(deps, "hypercorn") {
+        Vec::new()
+    } else {
+        vec!["uvicorn".to_string()]
+    };
     Some(FrameworkPreset {
         framework: "fastapi".into(),
         label: "FastAPI".into(),
         file,
-        entry: RunEntry { kind: "module".into(), target: "uvicorn".into() },
+        entry: RunEntry { kind: "module".into(), target: server.into() },
         args: format!("{module}:{app_var} --reload"),
         cwd: "${workspaceRoot}".into(),
-        summary: format!("-m uvicorn {module}:{app_var} --reload"),
-        missing: missing_server_deps(Some(deps), &["uvicorn"]),
+        summary: format!("-m {server} {module}:{app_var} --reload"),
+        missing,
     })
 }
 
-/// Flask 规则：依赖声明含 flask + 源码 `X = Flask(` → `-m flask --app <module>:<var> run`
+/// Flask 规则：依赖声明含 flask + 源码 `X = Flask(` → `-m flask --app <module>:<var> run --debug`。
+/// `--debug`（F3，对标 PyCharm「支持内置 Flask debugger」）= Werkzeug 交互式调试器 + reloader。
 fn detect_flask_preset(root: &Path, deps: Option<&str>) -> Option<FrameworkPreset> {
     let deps = deps?;
     if !deps_mention(deps, "flask") {
@@ -1395,9 +1410,9 @@ fn detect_flask_preset(root: &Path, deps: Option<&str>) -> Option<FrameworkPrese
         label: "Flask".into(),
         file,
         entry: RunEntry { kind: "module".into(), target: "flask".into() },
-        args: format!("--app {module}:{app_var} run"),
+        args: format!("--app {module}:{app_var} run --debug"),
         cwd: "${workspaceRoot}".into(),
-        summary: format!("-m flask --app {module}:{app_var} run"),
+        summary: format!("-m flask --app {module}:{app_var} run --debug"),
         // flask 本身是规则命中前提（deps_mention），不会再缺失；无其他服务依赖
         missing: vec![],
     })
@@ -3696,7 +3711,19 @@ dev-dependencies = []
         assert_eq!(hit.missing, vec!["uvicorn".to_string()]); // 声明无 uvicorn → 提示
     }
 
-    /// Flask 规则：依赖含 flask + 源码 `app = Flask(` → `-m flask --app main:app run`
+    /// F3 服务器选择：依赖仅含 hypercorn → entry 切到 hypercorn（--reload 两者均支持）
+    #[test]
+    fn framework_fastapi_preset_hypercorn() {
+        let d = detect_tmpdir("fw-hypercorn");
+        fs::write(d.join("pyproject.toml"), "[project]\ndependencies = [\"fastapi\", \"hypercorn\"]\n").unwrap();
+        fs::write(d.join("main.py"), "from fastapi import FastAPI\napp = FastAPI()\n").unwrap();
+        let hit = detect_framework_impl(&d.to_string_lossy(), &json!({})).unwrap().unwrap();
+        assert_eq!(hit.entry.target, "hypercorn");
+        assert_eq!(hit.summary, "-m hypercorn main:app --reload");
+        assert!(hit.missing.is_empty()); // hypercorn 也在服务依赖白名单
+    }
+
+    /// Flask 规则：依赖含 flask + 源码 `app = Flask(` → `-m flask --app main:app run --debug`（F3）
     #[test]
     fn framework_flask_preset() {
         let d = detect_tmpdir("fw-flask");
@@ -3707,8 +3734,8 @@ dev-dependencies = []
         assert_eq!(hit.label, "Flask");
         assert_eq!(hit.entry.kind, "module");
         assert_eq!(hit.entry.target, "flask");
-        assert_eq!(hit.args, "--app app:app run");
-        assert_eq!(hit.summary, "-m flask --app app:app run");
+        assert_eq!(hit.args, "--app app:app run --debug");
+        assert_eq!(hit.summary, "-m flask --app app:app run --debug");
     }
 
     /// 优先级：django（manage.py 强约定）先于 fastapi
