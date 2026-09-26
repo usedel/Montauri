@@ -137,9 +137,12 @@ export function installBrowserKeyGuard(): void {
         e.stopPropagation();
         return;
       }
-      // 应用认领的组合（含上方的 windowClaimed）：只阻断浏览器动作，事件继续传播给应用分发；
-      // 非认领组合一律不动（否则普通输入框打字会被 preventDefault 吞掉）
-      if (windowClaimed) {
+      // 应用认领的组合（window 级 + Monaco 内已认领的智能选区键 Ctrl+W/Ctrl+Shift+W）：
+      // 只阻断浏览器动作，事件继续传播给应用分发（Monaco 内由其键位规则决定动作）；
+      // 非认领组合一律不动（否则普通输入框打字会被 preventDefault 吞掉）。
+      // 注：isClaimedInMonaco 的组合必须 preventDefault——否则「放行给 Monaco」变成
+      // 「放行给 WebView2」，无人认领时浏览器直接执行关闭窗口（E-BASIC-3 实测回归）。
+      if (windowClaimed || isClaimedInMonaco(combo, inMonaco)) {
         e.preventDefault();
       }
     },

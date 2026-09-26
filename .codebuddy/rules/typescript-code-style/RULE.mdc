@@ -67,6 +67,7 @@ provider:
 - `editorFind.ts` — Ctrl+F 活动标签内查找：window 级 capture 拦截（**必须 preventDefault，否则 WebView2 会弹原生查找条**）；有活动标签 → 打开该标签的 Monaco `actions.find`（diff 标签走 modified 侧，编辑器实例由 `setFindDiffEditorProvider` 注入防循环），无活动标签 / 有模态 / Quick Open 打开时只吞键。焦点已在 `.monaco-editor` 内时不 stopPropagation，交回 Monaco 自带键位。
 - `ruffLint.ts` — ruff 实时 lint（P2）：诊断第三桶（owner=`opencharm-ruff`），与静态引擎 / 运行时 intel 三桶并存。
 - `todoView.ts` — TODO 工具窗（P0）：扫描 TODO/FIXME 等标记分组列出并跳转（Rust `fs_cmds::scan_todos`）。
+- `endpointView.ts` — 端点工具窗（F1/F2/F4）：FastAPI / Flask 静态路由分组列出（Rust `fs_cmds::scan_endpoints`）+ 跳转声明 + 浏览器打开/复制 URL（base 来自 `termUi::lastServiceBaseUrl`）+ `/docs`、`/openapi.json` 入口；路由合并纯函数 `joinRoute`/`fullEndpointUrl` 在 `frameworks.ts`。
 - `envPanel.ts` — Python 环境面板域（TD-14 拆分）：解释器状态栏 / 环境面板 / venv / 包管理 / 装包 / .venv 检测 / 工具链首启引导。
 - `newProject.ts` — 新建项目域（TD-14 拆分）：项目创建面板（名称/位置/git/环境类型/Python 版本）+ `create_project` 落盘。
 - `inlineValues.ts` — 行内变量值（P2 · Inline Values）：调试暂停时行尾显示变量当前值（自绘，非 Monaco InlineValuesProvider）。

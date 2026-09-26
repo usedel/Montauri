@@ -264,6 +264,8 @@ Django/DRF 场景下 `db.sqlite3` 首次打开即被注册为数据源，Databas
 
 ### 8.3 FastAPI 深化清单（第一档，重点）
 
+> **落地状态（2026-09-26，第一档 F0–F4 全部交付）**：F0 ✅（裁决 B 已实施，见下）· **F1 + F2 + F4 ✅**——Rust `fs_cmds::scan_endpoints`（静态路由扫描 + 前缀合并，`@app.get` / `@router.get` / `@app.route` / `APIRouter(prefix=)` / `include_router` / `register_blueprint` / Blueprint `url_prefix`，纯文本逐行解析零子进程，`MAX_ENDPOINTS=2000`）+ 侧栏「端点」工具窗（`endpointView.ts`，按方法分组、点击跳转声明、行内浏览器打开 / 复制 URL，`termUi::lastServiceBaseUrl` 提供服务 base）+ 工具条 `/docs` 与 `/openapi.json` 固定入口；Flask L1 规则同批顺带交付。**F3 ✅**——FastAPI 预设按依赖声明选服务器（uvicorn → hypercorn，皆无 → uvicorn 缺省 + 提示缺失），Flask 预设带 `run --debug`（Werkzeug 调试器 + reloader，对标 PyCharm「内置 Flask debugger」）；termUi 就绪行正则放宽覆盖 Hypercorn（无星号前缀的 `Running on …`）。**F3 裁剪说明**：`--host/--port` 不做便捷字段（配置面板 args 已可编辑，加字段属重复表达）；PyCharm 的 "Dev mode" 选项不设（uvicorn 的 `--reload` 即开发模式）。已知边界：多行装饰器（path 换行）、多级 include_router 嵌套合并不支持（静态逐行正则级，只合并一层 include）。
+
 对标对象 = PyCharm 给 FastAPI 的 4 项能力 + 公共三件套（见 §3.3 / §4）。裁剪原则：**只取"静态可判定"与"复用已有通道"的部分**，不引入 HTTP Client 引擎、不解析框架源码。
 
 | # | 能力 | PyCharm 对应 | 我们的做法 | 成本 | 级别 |
