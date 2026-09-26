@@ -27,6 +27,7 @@ import { formatPythonSource, optimizeImportsSource, registerRuffFormatter, setFo
 import { runSearch, cancelSearch, resetSearch, setOpenMatchHandler, type SearchMatch, type SearchScope, type SearchScopeMode } from "./search";
 import { findUsagesAtCursor, renameSymbolAtCursor, resetFindUsages, setOpenRefHandler, queryAndRender, initFindUsagesAction } from "./findUsages";
 import { initCodeVision, refreshCodeVision } from "./codeVision";
+import { refreshImportAliases, registerImportAliasCompletion } from "./importAlias"; // import 别名补全（import pandas as pd）
 import { initRenameWidget, setAfterRenameHandler } from "./renameWidget";
 import { initClipboardDiffAction } from "./clipboardDiff"; // C-5：与剪贴板对比（右键菜单）
 import { initNoqaAction } from "./ruffLint"; // D-4：忽略此规则（# noqa，右键菜单）
@@ -287,6 +288,8 @@ async function openWorkspace(root: string): Promise<void> {
   void maybeSuggestFramework();
   // F0 裁决 B（Pydantic 栈 → 推荐切 basedpyright）：仅提示，不打扰；工作区级可关闭
   void maybeSuggestPydanticEngine();
+  // import 别名频率学习：缓存秒生效 + 后台重扫回写，失败静默（importAlias 域）
+  void refreshImportAliases(root);
   updateEditorOverlay();
 }
 
@@ -1881,6 +1884,7 @@ async function init(): Promise<void> {
   // store 便于应用级 teardown / 测试中整体清理，防句柄泄漏累积。
   lspProviders.dispose();
   lspProviders.add(lsp.registerLspCompletion());
+  lspProviders.add(registerImportAliasCompletion(app.monaco)); // import 别名（纯前端静态，与引擎无关）
   lspProviders.add(lsp.registerLspHover());
   lspProviders.add(lsp.registerLspDefinition());
   lspProviders.add(lsp.registerLspReferences()); // Shift+F12 查找引用（peek 视图）

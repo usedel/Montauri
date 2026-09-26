@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fs;
@@ -1034,6 +1034,163 @@ fn todo_boundary_ok(bytes: &[u8], start: usize, len: usize) -> bool {
     before_ok && after_ok
 }
 
+// ---------- import 别名扫描（importAlias 补全的频率学习数据源） ----------
+//
+// 逐行扫描 .py 文件中的 `import X as Y` / `from X import A as B`，按 target 聚合
+// 出现次数，供前端把工作区高频别名排在内置表之前。纪律同 scan_todos / scan_endpoints：
+// 纯文本逐行解析、零子进程、零正则依赖；复用 collect_files 的 ignore 走查。
+
+/// 结果上限（防超大仓库序列化拖垮）
+const MAX_IMPORT_ALIASES: usize = 500;
+
+/// 单条聚合结果：target = `X`（module 型）或 `X.A`（from-import 成员型）
+#[derive(Serialize, Deserialize, Clone)]
+pub struct ImportAliasHit {
+    pub kind: String, // "module" | "member"
+    pub target: String,
+    pub alias: String,
+    pub count: u32,
+}
+
+#[tauri::command]
+pub async fn scan_import_aliases(root: String) -> Result<Vec<ImportAliasHit>, String> {
+    tauri::async_runtime::spawn_blocking(move || scan_import_aliases_impl(&root))
+        .await
+        .map_err(|e| format!("任务执行异常：{e}"))?
+}
+
+fn scan_import_aliases_impl(root: &str) -> Result<Vec<ImportAliasHit>, String> {
+    let root_path = Path::new(root);
+    if !root_path.is_dir() {
+        return Err(format!("工作区目录不存在：{root}"));
+    }
+    // (kind, target, alias) → count；出口按 count 降序 + target/alias 升序稳定排序
+    let mut counts: HashMap<(u8, String, String), u32> = HashMap::new();
+    for path in collect_files(root_path) {
+        if path.extension().map_or(true, |e| e != "py") {
+            continue;
+        }
+        // 与搜索同一口径：超大 / 二进制 / 非 UTF-8 一律跳过（不计数、不报错）
+        if let Ok(meta) = fs::metadata(&path) {
+            if meta.len() > MAX_FILE_SIZE {
+                continue;
+            }
+        }
+        let Some(content) = read_text_file(&path) else { continue };
+        for raw in content.lines() {
+            for (kind, target, alias) in parse_import_alias_line(raw) {
+                *counts.entry((kind, target, alias)).or_insert(0) += 1;
+            }
+        }
+    }
+    let mut out: Vec<ImportAliasHit> = counts
+        .into_iter()
+        .map(|((kind, target, alias), count)| ImportAliasHit {
+            kind: if kind == 0 { "module" } else { "member" }.to_string(),
+            target,
+            alias,
+            count,
+        })
+        .collect();
+    out.sort_by(|a, b| {
+        b.count
+            .cmp(&a.count)
+            .then_with(|| a.target.cmp(&b.target))
+            .then_with(|| a.alias.cmp(&b.alias))
+    });
+    out.truncate(MAX_IMPORT_ALIASES);
+    // 学习结果落盘（工作区 config `import_aliases`，下次打开先读缓存秒生效）；
+    // 落盘失败不吞扫描结果——补全数据比缓存更重要（best-effort，同 sweep 口径）
+    let _ = save_import_aliases(root, &out);
+    Ok(out)
+}
+
+/// 工作区配置存储键（env_cmds 工作区 config，与 framework_hints / dep_ignored 同文件同口径）
+const IMPORT_ALIASES_KEY: &str = "import_aliases";
+
+/// 学习别名落盘；空清单移除键保持配置精简（同 dep_ignored 先例）
+fn save_import_aliases(root: &str, hits: &[ImportAliasHit]) -> Result<(), String> {
+    let mut v = crate::env_cmds::load_config(root);
+    let obj = v.as_object_mut().ok_or("工作区配置格式非法")?;
+    if hits.is_empty() {
+        obj.remove(IMPORT_ALIASES_KEY);
+    } else {
+        obj.insert(
+            IMPORT_ALIASES_KEY.into(),
+            serde_json::to_value(hits).map_err(|e| e.to_string())?,
+        );
+    }
+    crate::env_cmds::save_config(root, &v)
+}
+
+/// 从工作区配置读缓存（字段缺失 / 类型错误 / 条目损坏 → None，绝不 panic，同 load_config 口径）
+fn import_aliases_from_config(v: &Value) -> Option<Vec<ImportAliasHit>> {
+    v.get(IMPORT_ALIASES_KEY)
+        .and_then(|x| serde_json::from_value::<Vec<ImportAliasHit>>(x.clone()).ok())
+}
+
+/// 读学习别名缓存（前端打开工作区先展示缓存，后台重扫刷新；同步纯 fs，零子进程）
+#[tauri::command]
+pub fn read_import_aliases(root: String) -> Option<Vec<ImportAliasHit>> {
+    import_aliases_from_config(&crate::env_cmds::load_config(&root))
+}
+
+/// 解析单行 import 语句中的别名绑定，kind 0 = module（`import X as Y`）、1 = member
+/// （`from X import A as Y`）。仅认稳定语法：多目标逗号分隔、from 后单层圆括号、
+/// 行尾 `#` 注释截断（模块名不可能含引号/#，朴素截断安全）；分号多语句与续行是已知边界。
+fn parse_import_alias_line(line: &str) -> Vec<(u8, String, String)> {
+    let mut out = Vec::new();
+    let trimmed = line.trim();
+    // 行尾注释截断（'#' 前有空白才算，防 base 编码类误截；模块名后必有空白才跟注释）
+    let trimmed = match trimmed.find(" #") {
+        Some(pos) => trimmed[..pos].trim_end(),
+        None => trimmed,
+    };
+    if trimmed.is_empty() {
+        return out;
+    }
+    if let Some(rest) = trimmed.strip_prefix("import ") {
+        // `import X as Y, Z` → 逗号分段逐段认领
+        for seg in rest.split(',') {
+            let t: Vec<&str> = seg.split_whitespace().collect();
+            if t.len() == 3 && t[1] == "as" && is_dotted_ident(t[0]) && is_ident(t[2]) {
+                out.push((0u8, t[0].to_string(), t[2].to_string()));
+            }
+        }
+    } else if let Some(rest) = trimmed.strip_prefix("from ") {
+        // `from X import A as B, C` → 成员段逐段认领；括号容错（去 '('）
+        let Some(pos) = rest.find(" import ") else { return out };
+        let module = rest[..pos].trim();
+        if !is_dotted_ident(module) {
+            return out;
+        }
+        let members = rest[pos + " import ".len()..].trim_start().trim_start_matches('(');
+        for seg in members.split(',') {
+            let t: Vec<&str> = seg.split_whitespace().collect();
+            if t.len() == 3 && t[1] == "as" && is_dotted_ident(t[0]) && is_ident(t[2]) {
+                out.push((1u8, format!("{module}.{}", t[0]), t[2].to_string()));
+            }
+        }
+    }
+    out
+}
+
+/// 点分标识符：非空且每个 `.` 段均为合法标识符（含 Unicode 字母，走 char 判定）
+fn is_dotted_ident(s: &str) -> bool {
+    !s.is_empty() && s.split('.').all(is_ident)
+}
+
+/// 单段标识符：字母/下划线开头，后续字母/数字/下划线（ASCII 口径足够——
+/// 目标是过滤注释/字符串/运算符误入，不是完整 lexgate）
+fn is_ident(s: &str) -> bool {
+    let mut chars = s.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_alphabetic() || c == '_' => {}
+        _ => return false,
+    }
+    chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
 // ---------- 端点扫描（F1：FastAPI / Flask 静态路由，docs/pycharm_framework_support_report.md §8.3） ----------
 //
 // 对标 PyCharm Endpoints 工具窗口的**静态可见**部分（不做 HTTP Client / OpenAPI 引擎）。
@@ -1519,6 +1676,7 @@ fn list_workspace_dirs_impl(root: &str) -> Result<Vec<String>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -1791,6 +1949,86 @@ mod tests {
     fn scan_todos_rejects_missing_root() {
         let missing = std::env::temp_dir().join("opencharm-scan-todos-missing-dir");
         assert!(scan_todos_impl(&missing.to_string_lossy()).is_err());
+    }
+
+    // ---------- import 别名扫描单测 ----------
+
+    #[test]
+    fn import_alias_parse_module_and_member() {
+        let mut hits = parse_import_alias_line("import pandas as pd");
+        assert_eq!(hits, vec![(0, "pandas".to_string(), "pd".to_string())]);
+        // from-import 成员型：target 为 module.member
+        hits = parse_import_alias_line("from pandas import DataFrame as DF");
+        assert_eq!(
+            hits,
+            vec![(1, "pandas.DataFrame".to_string(), "DF".to_string())]
+        );
+    }
+
+    #[test]
+    fn import_alias_parse_multi_and_paren_and_comment() {
+        // 多目标 + 混合有无别名
+        let hits = parse_import_alias_line("import os, numpy as np");
+        assert_eq!(hits, vec![(0, "numpy".to_string(), "np".to_string())]);
+        // from + 圆括号 + 多成员
+        let hits = parse_import_alias_line("from torch import (nn as NN, optim)");
+        assert_eq!(hits, vec![(1, "torch.nn".to_string(), "NN".to_string())]);
+        // 行尾注释截断（'#' 前有空白）
+        let hits = parse_import_alias_line("import pandas as pd  # 数据处理");
+        assert_eq!(hits, vec![(0, "pandas".to_string(), "pd".to_string())]);
+    }
+
+    #[test]
+    fn import_alias_parse_rejects_noise() {
+        assert!(parse_import_alias_line("# import pandas as pd").is_empty()); // 注释行
+        assert!(parse_import_alias_line("import pandas").is_empty()); // 无别名
+        assert!(parse_import_alias_line("from pandas import DataFrame").is_empty());
+        assert!(parse_import_alias_line("x = import pandas as pd").is_empty()); // 非 import 行首
+        assert!(parse_import_alias_line("import pandas as pd.DataFrame").is_empty()); // 别名非法
+        assert!(parse_import_alias_line("from 'x' import y as z").is_empty()); // 模块名非法
+    }
+
+    #[test]
+    fn scan_import_aliases_aggregates_and_ranks() {
+        let base = tmpdir("import-alias");
+        fs::write(
+            base.join("a.py"),
+            "import pandas as pd\nimport pandas as pd\nimport pandas as unusual\n",
+        )
+        .unwrap();
+        fs::write(base.join("b.py"), "from numpy import array as arr\n").unwrap();
+        fs::write(base.join("c.txt"), "import pandas as pd\n").unwrap(); // 非 .py 不扫
+        let r = scan_import_aliases_impl(&base.to_string_lossy()).unwrap();
+        assert_eq!(r[0].target, "pandas");
+        assert_eq!(r[0].alias, "pd");
+        assert_eq!(r[0].count, 2);
+        assert_eq!(r[0].kind, "module");
+        assert!(r.iter().any(|h| h.kind == "member" && h.target == "numpy.array"));
+        // 同 target 不同 alias 是两条独立聚合（unusual 仅 1 次，pd 2 次）
+        assert!(r.iter().any(|h| h.target == "pandas" && h.alias == "unusual" && h.count == 1));
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn scan_import_aliases_rejects_missing_root() {
+        let missing = std::env::temp_dir().join("opencharm-import-alias-missing-dir");
+        assert!(scan_import_aliases_impl(&missing.to_string_lossy()).is_err());
+    }
+
+    #[test]
+    fn import_aliases_from_config_tolerates_garbage() {
+        // 字段缺失 / 类型错误 / 条目损坏 → None（绝不 panic，同 dep_ignored 口径）
+        assert!(import_aliases_from_config(&json!({})).is_none());
+        assert!(import_aliases_from_config(&json!({"import_aliases": "not-an-array"})).is_none());
+        assert!(import_aliases_from_config(&json!({"import_aliases": [{"bogus": 1}]})).is_none());
+        let v = json!({"import_aliases": [
+            {"kind": "module", "target": "pandas", "alias": "pd", "count": 2},
+            {"kind": "member", "target": "numpy.array", "alias": "arr", "count": 1}
+        ]});
+        let hits = import_aliases_from_config(&v).unwrap();
+        assert_eq!(hits.len(), 2);
+        assert_eq!(hits[0].target, "pandas");
+        assert_eq!(hits[1].kind, "member");
     }
 
     // ---------- 端点扫描（F1）单测 ----------

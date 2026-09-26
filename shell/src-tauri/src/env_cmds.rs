@@ -87,7 +87,7 @@ fn workspace_config_path(root: &str) -> PathBuf {
 }
 
 /// 读取整份工作区配置（缺失/损坏时返回空对象，绝不 panic）
-fn load_config(root: &str) -> Value {
+pub(crate) fn load_config(root: &str) -> Value {
     let p = workspace_config_path(root);
     fs::read_to_string(p)
         .ok()
@@ -97,7 +97,7 @@ fn load_config(root: &str) -> Value {
 }
 
 /// 写回整份工作区配置（保留未涉及字段，如 interpreter 与 run_configs 互不覆盖）
-fn save_config(root: &str, v: &Value) -> Result<(), String> {
+pub(crate) fn save_config(root: &str, v: &Value) -> Result<(), String> {
     let p = workspace_config_path(root);
     fs::create_dir_all(p.parent().unwrap()).map_err(|e| e.to_string())?;
     let payload = serde_json::to_string_pretty(v).map_err(|e| e.to_string())?;

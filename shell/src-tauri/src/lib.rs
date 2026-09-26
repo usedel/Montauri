@@ -91,6 +91,8 @@ pub fn run() {
             fs_cmds::optimize_imports,
             fs_cmds::search_workspace,
             fs_cmds::scan_todos,
+            fs_cmds::scan_import_aliases,
+            fs_cmds::read_import_aliases,
             fs_cmds::list_workspace_files,
             fs_cmds::list_workspace_dirs,
             fs_cmds::ruff_lint,
