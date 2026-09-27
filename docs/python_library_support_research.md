@@ -1,8 +1,9 @@
 # Python 常用库「特别支持」调研报告
 
-> 版本：**v1.2** · 日期：2026-09-26（v1.0 调研）· 2026-09-27（v1.1 裁决 / v1.2 探针实测）· 性质：**调研报告 + 已裁决立项依据**
+> 版本：**v1.3** · 日期：2026-09-26（v1.0 调研）· 2026-09-27（v1.1 裁决 / v1.2 探针实测 / v1.3 动工前置修订）· 性质：**调研报告 + 已裁决立项依据**
 > **v1.1 变更**：§12 的四项裁决已由产品负责人拍板（全部采纳推荐项），§11 交互设计随之冻结；§11.10 的 Q1/Q3 关闭，Q4/Q5 按推荐默认执行。
 > **v1.2 变更**：三份探针实测回填——**P1** 求值桥耗时（定 `-I` + 解释器缓存 + 超时档位）· **P2** pyrefly 对字符串内 DSL **零支持**（L1 必须自研）· **P6** 只读 Monaco 边际成本 ~8ms（Q2 关闭）。新增待跑探针 P7（内存）。
+> **v1.3 变更**（评审后的动工前置修订，只动协议与探针口径，不动 §11 交互冻结项）：① 求值桥命令定档 **`python -I -X utf8 -c`**——`-I` 会忽略 `PYTHONIOENCODING`/`PYTHONUTF8`，Windows 默认 locale 编码（cp936）会破坏 stdout JSON，须用不受 `-I` 影响的 `-X utf8` 强制 UTF-8（§5.2）；② `args_json` 改走 **stdin**（正则模式含引号/反斜杠/换行，`re.X` 多行是明确支持场景；Windows argv 有 ~32K 限制与引号转义问题）（§5.2）；③ **P1b 补测**回填「无 `.venv` 冷启动」：实测 **965ms**（原 1017ms 无报告留痕，已替换为可溯源数字）（§10.1）；④ P1b 发现 **`.venv` 创建前 `uv python find` 返回系统解释器而非项目解释器** → 解释器路径缓存增加「仅缓存指向工作区 `.venv` 的结果」失效条件（§5.2、§10.1）；⑤ 内省受控脚本须显式 `sys.path.insert(0, os.getcwd())`（`-I` 隐含 `-P`，cwd 不在 `sys.path`）（§4.3）。新增脚本/报告：`bench/lib-support-probe/p1b_coldstart.py` / `bench/reports/lib-support-probe-p1b-coldstart.json`；⑥ 维护修订：requests/httpx → cURL 反向生成补入 P1（#9，§0-10、§7.2）· 诊断 owner 锚点修正（§6）· P1 表 179ms/126ms 口径说明（§10.1）。
 > 调研对象：Python 标准库 + 第三方常用库的「IDE 特别支持」形态；PyCharm / VS Code 既有做法；本仓库现状逐条核对
 > 结论用途：为「OpenCharm 要不要给某个库做专属支持、做多深」提供输入；**是否立项、何时排期以 `python_ide_dev_plan_v2.md` 及产品负责人裁决为准**（tech plan v3 §1.2 已明确「❌ 复刻 PyCharm 全部功能」为非目标）
 > **交互设计**：§11（线框 / 状态机 / 冲突规则 / 文案模板）——动手前定死，实现阶段只做填空题。看排期看 §7，看交互看 §11。
@@ -24,7 +25,7 @@
 7. **数据科学（pandas / NumPy）在本项目应「浅做 + 探针先行」**：调研数据（PSF + JetBrains 第八次年度调查，3 万+ 受访）显示 **51% 的 Python 开发者参与数据探索与处理，pandas / NumPy 是最常用工具**，但这是**全体 Python 开发者**的画像，不是本项目「自用脚本 / 小项目」画像；且 dev plan v2 §1.1 已裁决 **Jupyter / Scientific 模式不做**。唯一值得探的是**借 intel 运行时数据做「跑过的 DataFrame 变量」洞察**（我们的差异化资产），且必须先出探针结论（§10-P3），探针不成立即登记放弃。
 8. **`pytest` 面板维持不做**（dev plan v2 §1.1 明列、`pycharm_ux_review_and_proposal.md:393` 已裁决 F-1 非目标）。本文档不复议；但把「测试运行器」与「库支持」的边界写清：不做测试发现/结果树，不等于不做 argparse 参数表单。
 9. **明确不做（避免立项阶段反复）**：matplotlib 图预览、Streamlit/Jupyter、asyncio 协程调试、sqlite/DB 工具窗、SQLAlchemy 深语义、Jinja2 语言包、`struct`/`fnmatch` 这类窄众格式串、`subprocess` 安全（ruff 已覆盖）、LLM SDK。理由见 §8。
-10. **建议的第一批（P0，约 5–7 个工作日）**：① Python 求值桥（基建，1 天）② re 三件套（2 天）③ 格式串工具 + hover 预览（1.5 天）④ argparse/click 参数表单（2 天）。第二批（P1）「输出面板日志级别着色」「JSON→Pydantic 模型生成」「JSON 字面量注入」「注入框架化」共约 3 天。详见 §7。
+10. **建议的第一批（P0，约 5–7 个工作日）**：① Python 求值桥（基建，1 天）② re 三件套（2 天）③ 格式串工具 + hover 预览（1.5 天）④ argparse/click 参数表单（2 天）。第二批（P1）「输出面板日志级别着色」「JSON→Pydantic 模型生成」「JSON 字面量注入」「注入框架化」「requests/httpx → cURL 反向生成」共约 3.5 天。详见 §7。
 11. **交互必须先定死再动手（§11）**：本批功能几乎全部是「编辑器 ↔ 面板」的双向联动，真正决定成败的不是能不能算出来，而是**用户写正则的当下能不能发现工具、面板会不会抢走编辑器已有位置、求值失败时会不会误导**。§11 已把线框、状态机、CodeLens 与既有引用 lens 的共存规则、六态文案模板、设置开关与键位清单全部定死，实现阶段只做填空题。
 
 ---
@@ -180,7 +181,7 @@
 |---|---|---|
 | 1 | **静态扫描（主路径）** | 解析源码里的 `parser.add_argument("--input", type=..., default=..., help=..., required=...)`、`@click.option(...)`、`typer.Option(...)` → 产出参数表（`{name, flag, type, default, help, required, choices}`）。**AST 级解析优于正则**：建议用 Python 侧 `ast` 模块（走求值桥的受控脚本）而非 TS/Rust 侧手写正则——`ast` 解析 `add_argument` 的字面量参数是稳的，且不需要 import 用户模块（**无副作用**） |
 | 2 | **参数 UI** | 侧栏新视图或运行面板内的表单：文本框/勾选/下拉（choices）→ 拼出命令行 →「运行」「调试」按钮复用现有 run/dap 通道；同时可「回填到运行配置 args」 |
-| 3 | **内省兜底（可选，默认关）** | 对 `click`/`typer` 这类装饰器栈，`ast` 读不到运行时的默认值，可用 `import` + `parser._actions` 内省——**但会执行用户模块顶层代码（副作用）**，必须：① 默认关闭，用户显式点击「用内省刷新」才跑；② 独立子进程 + 超时（复用 `run_with_timeout`）；③ 明确提示「将执行脚本顶层代码」 |
+| 3 | **内省兜底（可选，默认关）** | 对 `click`/`typer` 这类装饰器栈，`ast` 读不到运行时的默认值，可用 `import` + `parser._actions` 内省——**但会执行用户模块顶层代码（副作用）**，必须：① 默认关闭，用户显式点击「用内省刷新」才跑；② 独立子进程 + 超时（复用 `run_with_timeout`）；③ 明确提示「将执行脚本顶层代码」；④ **内省受控脚本须显式 `sys.path.insert(0, os.getcwd())`**——求值桥统一带 `-I`（隐含 `-P`），cwd 不在 `sys.path`，不补这一条用户模块不可导入、内省必然失败（v1.3 补） |
 
 **判定**：S1 中等（脚本作者高频，非全体）、S3 好（复用了运行配置与运行/调试通道）、S4 强（PyCharm 只对少数框架有这能力，通用 argparse 表单基本没有）。风险集中在 click/typer 的静态解析覆盖率，v1 只承诺 argparse 完整 + click 基础。
 
@@ -239,11 +240,12 @@ pub async fn py_eval(
 | 要素 | 方案 |
 |---|---|
 | **脚本来源** | **内置受控脚本表**（Rust 侧常量或随包分发的 `.py`），`kind` 为白名单枚举。**不开放任意代码执行**——这是与「插件 Python 桥」（v2 议题，见 `devtools_plugin_acceptance_record.md` §六）的分界：v1 只给内置工具用 |
-| **解释器** | ✅ **探针 P1 定案**：`env_cmds::get_interpreter(workspace_root)`（`env_cmds.rs:733`）；返回 `None`（= 显式 `uv run` 兜底）时**不是每次跑 `uv run`**，而是先 `uv python find`（**125ms**）拿到项目解释器路径并**按工作区缓存**，之后直连它（**~179ms**）——比每次 `uv run`（**~475ms**）省约 60%。与调试启动的 `uv_fallback`（`dap.rs:356`）同策略但更快 |
-| **启动参数** | ✅ **P1**：一律带 **`-I`**（isolated）——实测 **126ms vs 257ms**（快约 2 倍，且忽略 `PYTHON*` 环境变量与用户 site，语义更可预测、更安全） |
+| **解释器** | ✅ **探针 P1 定案**：`env_cmds::get_interpreter(workspace_root)`（`env_cmds.rs:733`）；返回 `None`（= 显式 `uv run` 兜底）时**不是每次跑 `uv run`**，而是先 `uv python find`（**125ms**）拿到项目解释器路径并**按工作区缓存**，之后直连它（**~179ms**）——比每次 `uv run`（**~475ms**）省约 60%。与调试启动的 `uv_fallback`（`dap.rs:356`）同策略但更快。⚠️ **P1b 补测修正（v1.3）**：`.venv` **不存在**时 `uv python find` 返回的是 **uv 管理的系统解释器**（实测指向 `…\uv\python\cpython-3.12…\python.exe`），不是项目解释器 → **仅当 find 结果确认位于工作区 `.venv` 内才允许缓存**；`.venv` 创建/重建后缓存失效重解析 |
+| **启动参数** | ✅ **P1**：一律带 **`-I`**（isolated）——实测 **126ms vs 257ms**（快约 2 倍，且忽略 `PYTHON*` 环境变量与用户 site，语义更可预测、更安全）。✅ **v1.3 补：命令定档 `python -I -X utf8 -c`**——`-I` 同时忽略 `PYTHONIOENCODING`/`PYTHONUTF8`，Windows 子进程 stdout 默认 locale 编码（cp936），`re.error` 原文等含非 ASCII 的错误信息会破坏 stdout JSON；`-X utf8` 不受 `-I` 影响，强制 UTF-8 stdio。Rust 侧同时按 UTF-8 字节显式解码，不依赖系统 locale |
+| **入参传递** | ✅ **v1.3 定案**：`kind` 走 argv（白名单枚举，短字符串）；**`args_json` 一律走 stdin**（受控脚本统一 `json.loads(sys.stdin.read())`）。理由：正则模式大量出现引号、反斜杠、**换行**（`re.X` 多行是 §11.3.2 明确支持场景），Windows 命令行有 ~32K 长度限制与引号转义陷阱；`check_missing_imports_impl` 的 argv 传参先例只传短路径参数，不适用于本场景 |
 | **cwd** | 工作区根（`lsp_start` 的 cwd 教训：cwd 错会静默改变语义——此处同样关键，用户脚本的相对路径依赖它） |
-| **超时** | ✅ **P1 实测定档**：直连 **3s**（实测 126–180ms，15 倍余量）；`uv python find` 首次解析 **8s + 进度提示**（无 `.venv` 时实测冷启动 **1017ms**，有 `.venv` 后回落稳态）；`ast_argparse` 类 5s |
-| **输出协议** | stdout 单行 JSON（`{"ok":true,"data":...}` 或 `{"ok":false,"error":"..."}`）；stderr 全部吞掉并入 error 字段；**非 0 退出一律视为失败** |
+| **超时** | ✅ **P1 实测定档**：直连 **3s**（实测 126–180ms，15 倍余量）；`uv python find` 首次解析 **8s + 进度提示**（无 `.venv` 冷启动补测 **965ms**——P1b，零依赖项目首跑创建 `.venv`，有 `.venv` 后回落稳态 ~477ms，与 `uv run` 一致）；`ast_argparse` 类 5s |
+| **输出协议** | stdout 单行 JSON（`{"ok":true,"data":...}` 或 `{"ok":false,"error":"..."}`）；stderr 全部吞掉并入 error 字段；**非 0 退出一律视为失败**。✅ v1.3 补：Rust 侧按 **UTF-8 字节显式解码**（配合 `-X utf8`，见「启动参数」行），不得依赖系统 locale |
 | **缓存/防抖** | ✅ **P1 支持**：输入防抖 **200ms**（单次求值 126–180ms，防抖后一串输入一次求值，交互无顿挫）；前端按 `(kind, args)` LRU（上限 100）；**新增**工作区级解释器路径缓存（`uv python find` 结果，换工作区/换解释器时失效） |
 | **安全边界** | ✅ **D-4 裁决：仅内置受控脚本表**——`kind` 白名单枚举、**不开放任意代码执行**；只读：不写文件、不访问网络；入参不参与 `import`；`ast_argparse` 之外没有任何 kind 会加载用户代码。第三方插件开放留到 v2 议题（需沙箱/权限模型） |
 | **降级** | 无解释器且 `uv` 不在 → 返回结构化错误码 `NoInterpreter`，前端**明确提示并禁用求值**，不静默近似 |
@@ -264,7 +266,7 @@ pub async fn py_eval(
 | 编辑器右键 | `editor.addAction` + `contextMenuGroupId` | `findUsages.ts:287` / `renameWidget.ts:313` 为样板 |
 | CodeLens 入口 | `registerCodeLensProvider("python")` | `codeVision.ts:255` |
 | Hover | 现有合并管线（静态 + intel） | `lsp/client.ts:714` |
-| 诊断 | 新增第四桶 owner（建议 `opencharm-libs`），与 `opencharm-lsp`/`opencharm-intel`/`opencharm-ruff` 并列 | `lsp/client.ts:1523`、`ruffLint.ts:29` |
+| 诊断 | 新增第四桶 owner（建议 `opencharm-libs`），与 `opencharm-lsp`/`opencharm-intel`/`opencharm-ruff` 并列（lsp/intel 桶在 `client.ts:1572-1581` 的 diagnosticsCache 按 owner 分桶；ruff 桶常量在 `ruffLint.ts:30`） | `lsp/client.ts:1572-1581`、`ruffLint.ts:30`（v1.3 修正：原引 1523 行为 inlay hints 注册处） |
 | 字面量高亮 | Monaco decorations（自研扫描器产出 range） | —（新增） |
 | 侧栏视图（参数表单可能用到） | `views.ts` 注册表，现 6 个视图 | `views.ts`、`main.ts:2391-2434` |
 | 求值 | **新增** `py_eval`（§5） | `lib.rs` generate_handler |
@@ -284,7 +286,7 @@ pub async fn py_eval(
 | 3 | **格式串工具**（strftime / 格式规范 / logging %）+ hover 预览 | 1.5 天 | #1 | §4.2；单位成本价值最高 |
 | 4 | **argparse/click 参数表单 → 运行预填** | 2 天 | #1（`ast` 脚本） | §4.3；最贴合自用脚本画像 |
 
-### 7.2 P1（第二批，约 3 天，独立 PR）
+### 7.2 P1（第二批，约 3.5 天，独立 PR）
 
 | # | 项 | 量级 |
 |---|---|---|
@@ -292,6 +294,7 @@ pub async fn py_eval(
 | 6 | JSON → Pydantic / dataclass / TypedDict 生成器（DevTool） | 1 天（纯前端） |
 | 7 | JSON 字面量注入（高亮 + 折叠 + 诊断） | 1 天 |
 | 8 | **内嵌 DSL 注入框架化**（把 正则 / 格式串 / 日期码 / JSON 的识别规则收敛成一张规则表 + 统一 dispatcher） | 0.5 天（重构，建议放在 #2/#3 之后回头做） |
+| 9 | **requests / httpx → cURL 反向生成**（Python 代码 → cURL 命令，补齐既有 cURL→Python 工具的反向；静态解析调用实参，无需求值） | 0.5 天（v1.3 补：§3.3 已标 P1 低，原漏排期） |
 
 ### 7.3 P2（探针先行，不成立即放弃）
 
@@ -335,7 +338,7 @@ pub async fn py_eval(
 | 层 | 内容 |
 |---|---|
 | **vitest 纯函数** | 正则字面量识别器（含 raw/非 raw、关键字/位置 flags、多行边界）；格式串解释与速查表映射；argparse AST 结果 → 表单模型的转换 |
-| **Rust 单测** | `py_eval` 的 kind 白名单与超时分支、JSON 协议解析、无解释器降级；`ast` 脚本对典型 `add_argument` 形态的解析（参照 `fs_cmds.rs` impl 级 `#[test]` 模式） |
+| **Rust 单测** | `py_eval` 的 kind 白名单与超时分支、JSON 协议解析、无解释器降级；**stdin 传参（含含换行/引号/中文的 args_json）与 UTF-8 字节解码**（v1.3 补）；`ast` 脚本对典型 `add_argument` 形态的解析（参照 `fs_cmds.rs` impl 级 `#[test]` 模式） |
 | **e2e** | 面板域：打开正则测试器 → 输入模式与测试串 → 断言匹配高亮与 group 表；CodeLens/右键入口带入当前正则；格式串 hover 预览；参数表单拼出命令行并落进运行配置 |
 | **e2e（交互契约，§11）** | 六态逐一断言：空态 chips / 无匹配中性文案 / 非法模式显示 `re.error` 原文 / 超时提示 / 无解释器降级置灰 + 引导按钮 / 结果截断徽标；`sourceDirty` 后「替换字面量」置灰；面板切走再切回用户输入不被覆盖；lens 与引用 lens 同屏顺序与数量上限；窄屏 360px 下 flags 行换行不被裁切 |
 | **e2e 基建** | tauri-mock 需新增 `py_eval` 命令的假实现（对齐既有 `plugin:*` 命令族的 mock 先例），并覆盖「无解释器」分支 |
@@ -347,8 +350,9 @@ pub async fn py_eval(
 
 ### 10.1 已完成（2026-09-27 实测）
 
-> 脚本：`bench/lib-support-probe/p1_eval_timing.py`（P1）· `p2_regex_probe.cjs` + `regex-ws/`（P2）· `shell/e2e/_probe/monaco-perf.*`（P6）
-> 报告：`bench/reports/lib-support-probe-p1.json` / `-p2.json` / `-p6.json`
+> 脚本：`bench/lib-support-probe/p1_eval_timing.py`（P1）· `p1b_coldstart.py`（P1b，v1.3 补测）· `p2_regex_probe.cjs` + `regex-ws/`（P2）· `shell/e2e/_probe/monaco-perf.*`（P6）
+> 报告：`bench/reports/lib-support-probe-p1.json` / `-p1b-coldstart.json` / `-p2.json` / `-p6.json`
+> P1b 环境注：uv 0.11.16 / Python 3.13.3（原 P1 在他机为 uv 0.11.21 / Python 3.13.14），数字供定档参考、非同机对比
 
 #### P1 · 求值桥耗时基线（**结论：可行，且找到 60% 提速手段**）
 
@@ -359,12 +363,12 @@ pub async fn py_eval(
 | `uv run python -c`（有 `.venv`） | 607ms | **475ms** | 每次调用都有解析开销 |
 | `uv run --no-project` | 430ms | **466ms** | 与项目模式无显著差异，**不采用** |
 | `uv python find` | 121ms | **125ms** | 一次性，可缓存 |
-| **缓存 `uv python find` 结果后直连 `-I`** | 187ms | **179ms** | ✅ **采用**：省 ~300ms/次（约 60%） |
-| 首次（无 `.venv`，需创建环境） | **1017ms** | — | 一次性，需进度提示 + 8s 超时 |
+| **缓存 `uv python find` 结果后直连 `-I`** | 187ms | **179ms** | ✅ **采用**：省 ~300ms/次（约 60%）。口径注（v1.3）：本行解释器是 `.venv` 内解释器，而「直连 `-I` 126ms」行是系统直装解释器——差值约 50ms 是 venv 启动器（`pyvenv.cfg` 重定向）开销，**不是缓存策略的额外成本** |
+| 首次（无 `.venv`，需创建环境） | **965ms**（P1b 补测） | 477.5ms | 一次性，需进度提示 + 8s 超时（v1.3 修订：原引 1017ms 无报告留痕，已替换为 P1b 实测） |
 
 - **定档**：防抖 200ms、`-I` 默认、直连超时 3s、`uv python find` 首次 8s + 进度提示。
 - **新增设计**：工作区级**解释器路径缓存**（`uv python find` → 缓存 → 直连），换工作区/换解释器失效。这一条把"uv 兜底 = 慢"的风险消掉了。
-- 附：`uv python find` 返回**项目 `.venv` 解释器**（与 `uv run python` 的 `sys.executable` 完全一致）→ 缓存后语义等价，可放心用。
+- ✅ **P1b 补测修正（v1.3）**：上条「附」的前提**只在 `.venv` 已存在时成立**——`.venv` 不存在时 `uv python find` 返回 **uv 管理的系统解释器**（实测 `…\uv\python\cpython-3.12…`，不是项目解释器），`.venv` 创建后才切到 `ws\.venv\Scripts\python.exe`（与 `uv run python` 的 `sys.executable` 一致）。→ **缓存条件收紧**：仅当 find 结果确认位于工作区 `.venv` 内才缓存；否则每次解析（125ms 仍远优于 `uv run` 的 475ms）。
 
 #### P2 · pyrefly 对字符串内 DSL 的支持度（**结论：零支持，L1 必须自研**）
 

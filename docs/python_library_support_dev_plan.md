@@ -1,7 +1,8 @@
 # Python 库特别支持 · 开发计划
 
-> 版本：v1.0 · 日期：2026-09-27 · 状态：待开工
-> 上游：`docs/python_library_support_research.md` v1.2（调研 + 已裁决）
+> 版本：v1.1 · 日期：2026-09-27 · 状态：待开工
+> 上游：`docs/python_library_support_research.md` v1.3（调研 + 已裁决）
+> **v1.1 变更**（同步上游 v1.3）：py_eval 定档 `python -I -X utf8 -c`、`args_json` 改走 **stdin**、输出按 UTF-8 字节解码（§3.1）；解释器缓存补「仅缓存指向工作区 `.venv` 的结果」失效条件（§0-P1）；内省脚本补 `sys.path.insert(0, os.getcwd())`（§6、R-7 修订）；诊断桶锚点修正（§2）；P1 批次补 requests/httpx → cURL 反向生成 0.5 天（§1、§7）；键位表 55→56 项（§2）。
 > 本文档面向实施，是 PR 切分与验收的依据；与上游调研冲突时**以上游已裁决项为准**并反馈修订。
 > 排期依据：`python_ide_dev_plan_v2.md`；通用 DX 纪律复用 `dx_features_backlog.md` §6。
 
@@ -15,7 +16,7 @@
 | **D-2** | CodeLens 两条并存 + 上限 20 + 开关，引用 lens 不让位 | 裁决 |
 | **D-3** | 参数表单**内嵌运行配置面板**，不新增侧栏视图 | 裁决 |
 | **D-4** | 求值桥**仅内置受控脚本表**（`kind` 白名单，不开放任意代码执行） | 裁决 |
-| **P1** | 求值桥：默认 `python -I -c`（126ms）；无解释器时 `uv python find`（125ms）**按工作区缓存**后直连（179ms），比每次 `uv run`（475ms）省 60%；防抖 200ms；直连超时 3s，`uv python find` 首次 8s + 进度提示 | 探针实测 |
+| **P1** | 求值桥：默认 `python -I -X utf8 -c`（126ms；`-X utf8` 因 `-I` 屏蔽 `PYTHONIOENCODING`/`PYTHONUTF8`，Windows locale 编码会破坏 stdout JSON）；无解释器时 `uv python find`（125ms）**按工作区缓存**后直连（179ms，差值含 venv 启动器开销），比每次 `uv run`（475ms）省 60%；**仅当 find 结果位于工作区 `.venv` 内才缓存**（P1b：`.venv` 不存在时 find 返回系统解释器）；防抖 200ms；直连超时 3s，`uv python find` 首次 8s + 进度提示（P1b 冷启动实测 965ms） | 探针实测（P1 / P1b） |
 | **P2** | pyrefly 1.3.1 对字符串内 DSL **零支持**（诊断 0 / 串内补全 0 / hover 仅 `Literal['…']`）→ L1 全部自研，且不会与引擎打架 | 探针实测 |
 | **P6** | 测试文本用**只读 Monaco**：面板内第二个实例边际创建 ~8ms，500 处高亮首次 8ms / 增量 3.9ms（span 覆盖层 10.7ms 且能力更弱） | 探针实测 |
 | — | 交互形态冻结：`python_library_support_research.md` §11，实现阶段只做填空题 | 裁决 |
@@ -33,15 +34,15 @@
 | **PR-3** | 格式串工具（strftime / 格式规范 / logging）+ hover 预览 | 1.5 天 | PR-1、PR-2 的 hover 挂法 | 不查文档写格式串 |
 | **PR-4** | 脚本参数表单（argparse / click）+ 回填运行配置 | 2 天 | PR-1 | 自用脚本不再手敲参数 |
 
-第二批（P1，本文档只给要点，每项独立 PR）：输出面板日志级别着色（0.5 天）· JSON→Pydantic 生成（1 天）· JSON 字面量注入（1 天）· 注入规则表框架化（0.5 天）。
+第二批（P1，本文档只给要点，每项独立 PR，约 3.5 天）：输出面板日志级别着色（0.5 天）· JSON→Pydantic 生成（1 天）· JSON 字面量注入（1 天）· 注入规则表框架化（0.5 天）· requests/httpx → cURL 反向生成（0.5 天，v1.1 补，上游 §3.3 原标 P1 低、此前漏排期）。
 
 ---
 
 ## 2. 通用纪律（四个 PR 都适用）
 
 1. **设置项四步接线**：`state.ts` 的 `Settings` 接口 + `DEFAULT_SETTINGS`（`:104` 区）→ `index.html` 控件 → `settingsPanel.ts` 回填（`:485`）与保存（`:569`）→ Rust `settings.rs`（`:101-213`）struct + `Default` 同步。旧配置一律 `!== false` 兜底。
-2. **键位三处同步**：`keybindingDefaults.ts`（单一来源）→ Rust `settings.rs::default_keybindings` → `keybindings.test.ts` 漂移锁（现 55 项，加一条要同步两处条目数断言）。
-3. **诊断新桶**：`opencharm-libs`，与 `opencharm-lsp` / `opencharm-intel`（`lsp/client.ts:1523`）/ `opencharm-ruff`（`ruffLint.ts:29`）并列；**只用 warning / error 两级**。
+2. **键位三处同步**：`keybindingDefaults.ts`（单一来源）→ Rust `settings.rs::default_keybindings` → `keybindings.test.ts` 漂移锁（现 56 项，加一条要同步两处条目数断言）。
+3. **诊断新桶**：`opencharm-libs`，与 `opencharm-lsp` / `opencharm-intel`（`lsp/client.ts:1572-1581`）/ `opencharm-ruff`（`ruffLint.ts:30`）并列；**只用 warning / error 两级**。
 4. **写回编辑器**：一律 `executeEdits` / `pushEditOperations`，**禁止 `model.setValue()` 整文替换**（`dx_features_backlog.md` PR-C 教训：只有保存动作才用整文写入）。
 5. **求值统一走 helper**：`shell/src/libEval.ts::evalKind`，自带 200ms 防抖 + LRU(100) + stale 标志 + `Ctrl+Enter` 强制求值 + 四态错误码。禁止各面板自己写 `invoke`。
 6. **无障碍**：多选语义用 `aria-pressed`（flags、日志级别过滤），互斥语义用 `kit.radioGroup`（格式串三模式）；图标按钮 `data-tip` + `aria-label`（UI-09）。
@@ -70,16 +71,16 @@ pub async fn py_eval(
 | **脚本来源** | `include_str!("../scripts/<kind>.py")` 编译进二进制——**不走 bundle resources**，避免打包遗漏（R-3）。脚本表 `const SCRIPTS: &[(&str, &str)]` 常量数组 |
 | **kind 白名单** | 未命中 → `Err("BadKind: ...")`，**绝不拼字符串到命令行** |
 | **解释器** | `env_cmds::get_interpreter(workspace_root)`（`env_cmds.rs:733`）；`None` → 查缓存 → 无则 `uv python find`（cwd = workspace_root，超时 8s）→ 写入 `static INTERPRETER_CACHE: Mutex<HashMap<String, String>>`（key = 工作区根，换工作区/换解释器失效） |
-| **启动参数** | `Command::new(interp).arg("-I").arg("-c").arg(SCRIPT).arg(args_json).current_dir(workspace_root)`；`OPENCHARM_*` 环境变量沿用 `check_missing_imports_impl`（`env_cmds.rs:898-901`）先例 |
+| **启动参数** | `Command::new(interp).arg("-I").arg("-X").arg("utf8").arg("-c").arg(SCRIPT).current_dir(workspace_root)`（v1.1：`-X utf8` 强制 UTF-8 stdio，`-I` 屏蔽 `PYTHONIOENCODING`，Windows locale 编码会破坏 stdout JSON）；**`args_json` 走 stdin**（`Stdio::piped()` 写入后关闭——正则模式含引号/反斜杠/换行，`re.X` 多行是支持场景，Windows argv 有 ~32K 限制与引号转义陷阱；`kind` 仍走 argv）；`OPENCHARM_*` 环境变量沿用 `check_missing_imports_impl`（`env_cmds.rs:898-901`）先例 |
 | **执行与超时** | `run_with_timeout`（`env_cmds.rs:391`）——**当前是私有 `fn`，需改 `pub(crate)`**（R-4）。直连 3s；`uv python find` 8s；`ast_argparse` 5s |
-| **输出协议** | stdout 单行 JSON `{"ok":true,"data":…}` / `{"ok":false,"error":"…"}`；stderr 并入 error；非 0 退出一律失败 |
+| **输出协议** | stdout 单行 JSON `{"ok":true,"data":…}` / `{"ok":false,"error":"…"}`；stderr 并入 error；非 0 退出一律失败；Rust 侧按 **UTF-8 字节显式解码**（配合 `-X utf8`，不依赖系统 locale） |
 | **错误码** | `NoInterpreter` / `Timeout` / `BadKind` / `ScriptError`（前端按码分流到 §11.2 的四态文案） |
 
 **`lib.rs`**：`generate_handler!`（`:72-285`）加一行 `lib_cmds::py_eval`。
 
-**脚本**（`shell/src-tauri/scripts/`）：`regex_test.py`（match/findall/finditer+span+group/sub）、`format_preview.py`（strftime / format spec / logging）、`ast_argparse.py`（`ast` 解析 `add_argument` / `click.option` / `typer.Option`，**不 import 用户模块**）。共性：只读、无网络、无写文件；单行 JSON 输出。
+**脚本**（`shell/src-tauri/scripts/`）：`regex_test.py`（match/findall/finditer+span+group/sub）、`format_preview.py`（strftime / format spec / logging）、`ast_argparse.py`（`ast` 解析 `add_argument` / `click.option` / `typer.Option`，**不 import 用户模块**）。共性：入参从 stdin 读（`json.loads(sys.stdin.read())`）、只读、无网络、无写文件；单行 JSON 输出。
 
-**单测**（impl 级 `#[test]`，照 `fs_cmds.rs:1830` 模式）：kind 白名单拒绝未知 kind · 脚本表非空且可解析 · JSON 协议解析 · 超时分支 · 无解释器返回 `NoInterpreter`。
+**单测**（impl 级 `#[test]`，照 `fs_cmds.rs:1830` 模式）：kind 白名单拒绝未知 kind · 脚本表非空且可解析 · JSON 协议解析 · **stdin 传参（含换行/引号/中文的 args_json）与 UTF-8 解码** · 超时分支 · 无解释器返回 `NoInterpreter`。
 
 ### 3.2 前端侧
 
@@ -147,7 +148,7 @@ pub async fn py_eval(
 - **Rust/脚本**：新增 kind `ast_argparse`——`shell/src-tauri/scripts/ast_argparse.py` 用 `ast` 解析 `add_argument` / `click.option` / `typer.Option` 的**字面量参数**，产出 `{name, flag, type, default, help, required, choices}`。无 import、无副作用。
 - **纯函数** `shell/src/scriptArgs.ts`：解析结果 → 表单模型 → 命令行拼装；反向：命令行 → 尽力回填，冲突时返回 `inconsistent` 标志（**绝不静默覆盖用户输入**）。
 - **UI**：内嵌 `runConfigPanel.ts` 的脚本配置区（`fillEditor` `:121` / `run-config-args` 元素 `:32` 上方，index.html 加容器）。类型→控件映射照 §11.5；`required` 校验；三态（无参数 / 成功 / 解析失败退化为纯输入框，**都不阻止运行**）。
-- **内省（默认关）**：独立 kind + `openConfirm`（`dialog.ts:162`）+ `data-tip`「将执行脚本顶层代码」+ 独立子进程 5s 超时。
+- **内省（默认关）**：独立 kind + `openConfirm`（`dialog.ts:162`）+ `data-tip`「将执行脚本顶层代码」+ 独立子进程 5s 超时；脚本须显式 `sys.path.insert(0, os.getcwd())`（`-I` 隐含 `-P`，cwd 不在 `sys.path`，不补则用户模块不可导入）。
 - **入口**：编辑器 lens「⚙ N 个参数」→ 打开运行配置面板并聚焦参数区（D-3，**不新增侧栏视图**）。
 - **设置** `libs_argparse`（默认开）。
 - **e2e**：解析出 3 个参数 → 表单渲染（下拉/勾选/文本框）→ 拼出命令行 → 保存到运行配置 → 手工改命令行后标注不一致 → 无参数脚本的空态。
@@ -162,6 +163,7 @@ pub async fn py_eval(
 | JSON → Pydantic / dataclass / TypedDict | 纯前端 DevTool，零求值；类型推断规则（bool/int/float/str/list/dict/嵌套）+ 可选 dataclass / TypedDict 输出 | 1 天 |
 | JSON 字面量注入 | 高亮 + 折叠 + 诊断；右键三项「格式化/压缩/JSONPath 提取」——后两项只是给既有 `jsonfmt`/`jsonpath` 补编辑器入口 | 1 天 |
 | 注入规则表框架化 | 把 PR-2/3 + JSON 的识别规则收敛成一张规则表 + 统一 dispatcher（回头重构，放在 4 个 PR 之后） | 0.5 天 |
+| requests / httpx → cURL 反向生成 | 静态解析 `requests.get/post(...)` 等调用的实参 → 拼 cURL 命令，与既有 cURL→Python 工具互为反向；零求值、纯前端（v1.1 补） | 0.5 天 |
 
 ---
 
@@ -190,5 +192,5 @@ cd shell && npx playwright test e2e/<域>/…   # 相关 e2e
 | **R-4** | `run_with_timeout`（`env_cmds.rs:391`）为私有 `fn` | 改 `pub(crate) fn`，或在 `lib_cmds` 内复用同名逻辑（**优先改可见性，禁止复制一份**） |
 | **R-5** | 面板内第二个 Monaco 实例的**内存**开销未测出（P6 中 `performance.memory` 被量化） | 探针 P7：PR-2 实现期在真实面板复测，决定面板 LRU 缓存上限（现为 5）是否下调 |
 | **R-6** | 大文件（>2000 行）decorations 性能未知 | 探针 P5：PR-2 实现期用 bench 项目实测，超预算则加"可见区域才扫描"的闸门 |
-| **R-7** | `-I` 隔离模式下 `sys.path` 变化 | 受控脚本只用标准库（re / datetime / ast / json），不 import 用户模块 → 无影响；`ast_argparse` 走 `ast.parse` 读源码文本，同样安全 |
+| **R-7** | `-I` 隔离模式下 `sys.path` 变化（v1.1 修订） | `-I` 隐含 `-P`，cwd 不在 `sys.path`：`regex_test` / `format_preview` / `ast_argparse` 只用标准库、不 import 用户模块 → 无影响；**内省 kind（import 用户模块）受影响** → 受控脚本须显式 `sys.path.insert(0, os.getcwd())`（§6 已同步）。另注意 `-I` 屏蔽 `PYTHONIOENCODING` → 编码用 `-X utf8` 解决（§3.1） |
 | **R-8** | click/typer 的静态解析覆盖率低 | v1 只承诺 argparse 完整 + click 基础；解析失败一律降级为纯命令行输入框（不阻断运行） |
