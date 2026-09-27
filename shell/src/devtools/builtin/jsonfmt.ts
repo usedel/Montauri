@@ -48,4 +48,11 @@ export function mount(host: PanelHost): { dispose(): void } | void {
     out.el,
   );
   host.root.appendChild(wrap);
+  // input 与 out 均为 kit.output（Monaco 实例），须随工具实例释放（R-5 复测发现的泄漏）
+  return {
+    dispose() {
+      input.dispose();
+      out.dispose();
+    },
+  };
 }

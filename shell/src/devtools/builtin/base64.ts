@@ -50,6 +50,12 @@ export function mount(host: PanelHost): { dispose(): void } | void {
     out.el,
   );
   host.root.appendChild(wrap);
+  // kit.output 持有 Monaco 实例，须随工具实例释放（R-5 复测发现的泄漏）
+  return {
+    dispose() {
+      out.dispose();
+    },
+  };
 }
 
 /** inline：选区文本 → Base64（编码方向；解码请用面板） */
