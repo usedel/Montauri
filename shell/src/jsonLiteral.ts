@@ -6,6 +6,10 @@
 
 import { app } from "./state";
 import type * as MonacoApi from "monaco-editor/esm/vs/editor/editor.api";
+// Monaco 内部模块（版本锁 ci/versions.toml，升级走回归 CI）：缩进折叠复用与合并
+import { IndentRangeProvider } from "monaco-editor/esm/vs/editor/contrib/folding/browser/indentRangeProvider";
+import { ILanguageConfigurationService } from "monaco-editor/esm/vs/editor/common/languages/languageConfigurationRegistry";
+import { StandaloneServices } from "monaco-editor/esm/vs/editor/standalone/browser/standaloneServices";
 import { DisposableStore } from "./util";
 import { toast } from "./toast";
 import { offsetToPosition } from "./libRegex";
@@ -74,16 +78,40 @@ function openInJsonPathPanel(hit: JsonHit): void {
 export function initJsonLiteral(editor: MonacoApi.editor.IStandaloneCodeEditor): MonacoApi.IDisposable {
   const store = new DisposableStore();
 
-  // 折叠：多行三引号 JSON 字面量注册折叠区间（单行字面量无行可折）
+  // 折叠：多行三引号 JSON 字面量注册折叠区间（单行字面量无行可折）。
+  //
+  // ⚠️ Monaco foldingStrategy=auto 语义（回归 #3 个 e2e 的根因，2026-09-27 排查）：
+  // 只要任一 foldingRangeProvider 返回**数组（含空数组）**，语法折叠即接管，
+  // IndentRangeProvider（缩进折叠）不再回退（syntaxRangeProvider.js: ranges 非 null 才 fallback）。
+  // 此前无 JSON 字面量时返回 []，导致全部 Python 文件的缩进折叠失效——
+  // 折叠图标不出现（E-DX-S2）+ sticky scroll 空壳隐藏（E-DX-ST1/ST2）。
+  // 修复：无结果时返回 null（Monaco 约定 null = 弃权 → 回退缩进折叠）；
+  // 有结果时**合并** Monaco 内建缩进区间（复用 IndentRangeProvider，StandaloneServices
+  // 取 ILanguageConfigurationService），保证混合文件（def + 多行 JSON）的 def 折叠不丢。
   store.add(
     app.monaco.languages.registerFoldingRangeProvider("python", {
       provideFoldingRanges(model) {
-        if (model.getValue().length > MAX_SCAN_CHARS) return [];
-        return scanInjectLiterals(model.getValue())
+        const text = model.getValue();
+        if (text.length > MAX_SCAN_CHARS) return null;
+        const jsonRanges = scanInjectLiterals(text)
           .filter((l) => l.rule === "json")
           .map((l) => l.data as JsonHit)
           .filter((h) => h.endLine > h.startLine)
           .map((h) => ({ start: h.startLine + 1, end: h.endLine + 1 }));
+        if (jsonRanges.length === 0) return null;
+        const indent = new IndentRangeProvider(
+          model,
+          StandaloneServices.get(ILanguageConfigurationService),
+          { limit: 5000, update() {} },
+        );
+        // IndentRangeProvider.compute 不读 cancelationToken，直接传 undefined
+        return indent.compute(undefined as never).then((regions) => {
+          const out: { start: number; end: number }[] = [];
+          for (let i = 0; i < regions.length; i++) {
+            out.push({ start: regions.getStartLineNumber(i), end: regions.getEndLineNumber(i) });
+          }
+          return [...out, ...jsonRanges];
+        });
       },
     }),
   );
