@@ -86,40 +86,57 @@ export function topLevelSymbolNames(content: string): { name: string; kind: Symb
   return out;
 }
 
-/** 当前文件已通过 import 引入的名字集合（含 as 别名、import a.b 的 a 首段、圆括号跨行成员） */
+/** 当前文件已通过 import 引入的名字集合（含 as 别名、import a.b 的 a 首段、圆括号跨行成员、分号多语句） */
 export function importedNames(content: string): Set<string> {
   const out = new Set<string>();
   let pendingFrom = false; // from-import 圆括号跨行解析中（行以 "(" 或 "," 结尾）
+  const addMember = (t: string): void => {
+    const s = t.replace(/^\(+/, "").replace(/\)+$/, "").trim();
+    const as = /^([\w.]+)\s+as\s+(\w+)$/.exec(s);
+    if (as) out.add(as[2]);
+    else if (/^\w+$/.test(s)) out.add(s);
+  };
+  // 单条（无分号）语句解析：import… 或 from…import…（后者可开启圆括号/逗号续行）
+  const handleStmt = (stmt: string): void => {
+    let m = /^import\s+(.+)$/.exec(stmt);
+    if (m) {
+      for (const seg of m[1].split(",")) {
+        const t = seg.trim();
+        if (!t) continue;
+        const as = /^([\w.]+)\s+as\s+(\w+)$/.exec(t);
+        // `import a.b as c` → c；`import a.b` → a（首段）；`import a` → a
+        out.add(as ? as[2] : t.split(".")[0]);
+      }
+      return;
+    }
+    m = /^from\s+[\w.]+\s+import\s+(.+?)\s*$/.exec(stmt);
+    if (m) {
+      for (const seg of m[1].split(",")) addMember(seg);
+      pendingFrom = /[,(]$/.test(stmt); // "(One," / "import (" 续行
+    }
+  };
   for (const raw of content.split(/\r?\n/)) {
     const line = raw.trim();
-    const addMember = (t: string): void => {
-      const s = t.replace(/^\(+/, "").replace(/\)+$/, "").trim();
-      const as = /^([\w.]+)\s+as\s+(\w+)$/.exec(s);
-      if (as) out.add(as[2]);
-      else if (/^\w+$/.test(s)) out.add(s);
-    };
-    if (!pendingFrom) {
-      let m = /^import\s+(.+)$/.exec(line);
-      if (m) {
-        for (const seg of m[1].split(",")) {
-          const t = seg.trim();
-          if (!t) continue;
-          const as = /^([\w.]+)\s+as\s+(\w+)$/.exec(t);
-          // `import a.b as c` → c；`import a.b` → a（首段）；`import a` → a
-          out.add(as ? as[2] : t.split(".")[0]);
-        }
-        continue;
-      }
-      m = /^from\s+[\w.]+\s+import\s+(.+?)\s*$/.exec(line);
-      if (m) {
-        for (const seg of m[1].split(",")) addMember(seg);
-        pendingFrom = /[,(]$/.test(line); // "(One," / "import (" 续行
-      }
-    } else {
-      for (const seg of line.replace(/\)+$/, ",").split(",")) {
+    if (!line) continue; // 空行不打断括号续行（Python 允许括号内空行）
+    if (pendingFrom) {
+      // 续行：首个分号结束续行，其后是新语句
+      const semi = line.indexOf(";");
+      const memberPart = semi >= 0 ? line.slice(0, semi) : line;
+      for (const seg of memberPart.replace(/\)+$/, ",").split(",")) {
         if (seg.trim()) addMember(seg);
       }
-      pendingFrom = /[,(]$/.test(line);
+      pendingFrom = semi < 0 && /[,(]$/.test(line);
+      if (semi >= 0) {
+        for (const stmt of line.slice(semi + 1).split(";")) {
+          const s = stmt.trim();
+          if (s) handleStmt(s);
+        }
+      }
+      continue;
+    }
+    for (const stmt of line.split(";")) {
+      const s = stmt.trim();
+      if (s) handleStmt(s);
     }
   }
   return out;

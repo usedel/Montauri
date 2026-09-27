@@ -3,6 +3,7 @@
 > 状态：调研完成，2026-09-26 二次核实（对照当前代码逐条验证事实底座，并新增缺口挖掘）；同日补齐详细实施计划（第 6 节），可直接按 PR 推进。
 > **进度（2026-09-27）**：第一梯队 PR-A~E 与第二梯队 PR-F~N + PR-G2 **已全部落地**（各节均有落地记录与验证基线）；PR-J 人工验证已收口（Ctrl+Space 确认被中文 IME 吞键 → Alt+/ 备选键落地）。**DX 储备清单全部完成**。新会话续推请直接读 **6.8 进度快照**，再按 6.6/6.8 各落地记录恢复上下文。
 > **第三梯队推进（2026-09-27）**：Extract 重构探针完成并转正——pyrefly 1.3.1 原生支持 refactor.extract（修正了「basedpyright 已支持」的旧判断），**PR-O 已落地全绿**（helper 抑制 + URI 归一化修复 + 真机桥 e2e），详见文末探针报告与落地记录。
+> **收尾修复（2026-09-27）**：**PR-P 已落地全绿**——import 别名链路已知边界 ①（from-import 圆括号跨行）②（分号多语句）修复（Rust 学习侧 + TS 补全侧），详见 §1.1；**PR-Q 已落地全绿**——边界 ③ 增量扫描修复（mtime+size 签名缓存，工作区 config 持久化），详见 §1.2。**§1 三条边界全部收口。**
 > 来源：import 别名补全（已落地）延伸出的「顺手/爽」功能调研。
 > 约定：本档与开发计划冲突时以 `python_ide_dev_plan_v2.md` 为准；实现落地区分 shell 侧（纯前端/自研命令）与引擎侧（pyrefly/intel）。
 > 核实方法：对第 2 节每条结论逐条回到代码验证（含行号）；另做了一轮 PyCharm 常见体验 × 现有模块的缺口盘点（结果并入第 3 节候选）。
@@ -21,9 +22,46 @@
 
 关键路径：`shell/src/importAlias.ts`（provider + 纯函数）· `shell/src/__tests__/importAlias.test.ts`（11 例）· `shell/src-tauri/src/fs_cmds.rs`（`scan_import_aliases` / `read_import_aliases` + `parse_import_alias_line` 纯函数，`lib.rs` 已注册）· `main.ts`（openWorkspace 接线 `refreshImportAliases` + provider 注册入 `lspProviders`）。
 
-已知边界（登记未修）：from-import 圆括号跨行不识别；分号多语句不解析；学习数据每次全量重扫（无增量）。
+已知边界（登记未修）：~~from-import 圆括号跨行不识别；分号多语句不解析~~（已于 2026-09-27 修复，见 §1.1）；~~学习数据每次全量重扫（无增量）~~（已于 2026-09-27 修复，见 §1.2）。**§1 三条边界全部收口。**
 
 验证基线：Rust `cargo test` 214 全绿 · TS `vitest` 11/11 · `tsc` 全绿。
+
+### 1.1 PR-P 落地记录：import 解析边界修复（①跨行续行 + ②分号多语句，2026-09-27，已实现并全绿）
+
+**现状核实（两条解析链漂移摸底）**：
+- Rust 学习侧（`fs_cmds.rs::parse_import_alias_line`）：① 逐行解析无续行状态，`from x import (\n A as B,\n)` 完全学不到；**额外发现**同行多成员带括号时尾段 `)` 粘连别名被 `is_ident` 拒绝（`from lib import (A as B, C as D)` 只学到 A）；② 分号整段进 tokenizer，两边都丢。
+- TS 补全侧：`autoImport.importedNames` 圆括号跨行**已支持**（PR-E 落地，不漂移）；② 分号同样不支持 → 已导入符号被 auto-import 误发候选（正确性缺陷）；`importAlias.resolveImportAliasContext` ① 跨行不识别（§1 登记的原始边界即此）。
+
+**改动**：
+- Rust（学习侧，单一实现收口）：`parse_import_alias_line` 升级为 `parse_import_alias_content`（多行内容解析，原单行 API 保留为薄委托）——from-import 圆括号/逗号**跨行续行**（行以 `,`/`(` 结尾则续，闭括号收束，与 TS `importedNames` 同口径）、**分号多语句**（每段独立成语句；续行中首个 `;` 结束续行）、成员段首 `(` / 段尾 `)` 剥除（连带修复同行尾段粘连缺陷）；`scan_import_aliases_impl` 改按整份内容解析。朴素口径：字符串字面量内的 `;`/`(` 不排除（同既有注释截断哲学）。
+- TS `importAlias.ts`：`resolveImportAliasContext` 支持多行前缀——光标行不直接匹配时回溯前文找未闭合 from-import（空行/纯注释不打断，Python 允许括号内空行），以 `from M import <光标行>` 虚拟前缀重判；provider 改传文档起点到光标的多行前缀（`getValueInRange`，单行场景行为不变）。
+- TS `autoImport.ts`：`importedNames` 重构为语句级处理（`handleStmt`）+ 分号拆段；顺带修正空行会误断括号续行的行为。
+
+**测试与验证边界**：Rust 新增 2 例（跨行续行含无括号逗号续行/尾段粘连/闭括号收束；分号多语句含 from+import 混排/续行中分号/无别名段不产生绑定）；vitest 新增 importAlias 跨行正反 2 例 + importedNames 分号 2 例。**e2e 不适用的原因（登记）**：学习链路是 Rust 侧（浏览器 mock 够不着，同 PR-H workspace 正则先例）；跨行 fromAlias 补全的候选项来自学习表 member 别名，e2e mock 无学习数据无从断言——被测边界 = 纯函数解析，单测即正确层。
+- 验证基线：`tsc` 全绿 · vitest 69 文件全绿 · `cargo test` 220 全绿（218→220）· e2e dx 域 34/34 全绿（provider 输入形态变更回归）。
+- 剩余边界：③ 学习数据全量重扫（无增量）→ 已由 PR-Q 修复（§1.2）。
+
+### 1.2 PR-Q 落地记录：别名学习增量扫描（③，2026-09-27，已实现并全绿）
+
+**方案**：每文件 `(mtime_secs, mtime_nanos, size)` 签名 + 该文件解析出的绑定列表，缓存进工作区 config 新键 `import_aliases_scan_cache`（与 `import_aliases` 同文件，同一次 load/save 双键落盘）。重扫时签名一致 → 跳过该文件的读取与解析，只重建聚合（计数仍按文件次数累加，语义与全量一致）；签名不符 / 新文件 → 读取解析并回写；删除的文件自然从基线消失；首次扫描无缓存 = 全量（与旧实现语义一致）。
+
+**关键决策（已就地注释）**：
+- 缓存键用**相对路径**（统一 `/` 分隔）——工作区移动 / 换盘符后仍命中；
+- 缓存结构带 `v` 版本号——解析器或结构变更时递增使旧缓存整体作废走全量；
+- 损坏 / 版本不符 → 整体作废走全量（同 `import_aliases_from_config` 绝不 panic 口径）；
+- 登记粒度：同 mtime 刻度内等长改写不感知（标准 mtime 缓存取舍；编辑器落盘必更新 mtime，实际不可达）；
+- 剩余开销 = 目录走查（`collect_files` 本就是检测新增/删除文件所必需）+ 聚合重建，文件读取与解析（原大头）全免。
+
+**实现细节**：`fs_cmds.rs` 新增 `AliasScanCache` / `AliasScanCacheFile` 结构 + `alias_file_signature` 辅助；`save_import_aliases` 签名扩展为 `(root, hits, scan_cache)`（单次落盘双键）；薄委托 `parse_import_alias_line` 删除（生产调用方已切内容级解析，测试统一走 `parse_import_alias_content`，避免 dead_code）。**TS 侧零改动**（`read_import_aliases` / `scan_import_aliases` 返回结构不变）。
+
+**测试**：新增 2 例——增量行为用**哨兵法**验证（不动文件、直接改写缓存绑定为哨兵值 → 重扫命中缓存复用哨兵，证明未重读文件；再改文件内容（变长确保签名变化）→ 缓存失效重新解析；删除文件 → 条目消失）+ 损坏缓存兜底（garbage → 全量回退且缓存被健康结构覆盖写）。e2e 不适用（同 §1.1：纯 Rust 侧，浏览器 mock 够不着）。
+
+- 验证基线：`cargo test` 222 全绿（220→222，零警告）· TS 侧零改动（tsc / vitest / e2e 基线沿用 PR-P）。
+
+**Playwright 全量验收（PR-P + PR-Q 合并，2026-09-27，13 域 163 例分 4 批）**：
+- 结果：**163/163 全绿**（dx 34 · lsp/editor/autosave/debug 52 · ux/p3/perf/plugins/session 41 · git 36）。
+- **环境发现（值得登记，方法论补一条）**：首批 p3 域 P3-5（剪贴板 diff）报未捕获异常 `Error: no diff result available`，单独复跑**稳定复现**——初判非 flake。定位：报错串来自 Monaco `WorkerBasedDocumentDiffProvider`（diff worker 返回空结果即抛，业务代码零命中）→ 指向 **worker 脚本加载失败**。根因 = `reuseExistingServer: true` 复用的常驻 vite dev server 携带**过期 optimizeDeps 预构建**（此前 vitest 环境修复降级 happy-dom 动过 node_modules，旧实例的依赖预构建未失效重建）。杀掉旧实例由 Playwright 拉起新 dev server 后用例即过，且五域合跑 41/41 全绿。
+- **方法论沉淀**：e2e 单独复跑仍稳定失败 ≠ 真实回归，还要先排查「长驻 dev server × node_modules 变更」这一层——报错串定位到依赖内部（而非业务代码）是关键线索；涉及 node_modules 变更（装包/升级/降级）后应**主动重启 dev server** 再跑 e2e。
 
 ## 2. 现状核实结论（2026-09-26 二次核实，行号以当日代码为准）
 
@@ -423,7 +461,7 @@
 1. 各 PR 的实测坑与「计划 → 实现差异」全部写在 6.6/6.8 的落地记录里，动手前先读对应记录（尤其 PR-I 的 DOM dblclick 三条、PR-H 的 min-width 溢出、PR-N 的推送时序/pyproject.toml/e2e 定位三条）；
 2. 本机验证基线（2026-09-27 第三次更新）：`cargo test` 218 全绿 · `tsc` 全绿 · e2e dx 域 34/34 全绿（含真实 pyrefly 桥 4 例）· vitest 69 文件 / 664 用例全绿；
 3. **本机 vitest 环境已修复（2026-09-27）**：原「33 个 DOM 测试文件先在性损坏」根因有三层，全部定位并修复——① **盘符大小写**：从小写 `d:` 进入时 worker 模块解析与 runner 全局状态不一致（vitest#10812 同族），修复 = `scripts/vitest-launch.mjs` 启动器先 chdir 到 realpath 再拉起 vitest（Linux CI realpath 幂等无影响）；② **Node 22.4+ 实验性 webstorage**：全局 localStorage 被 Node 不可用实现占位，happy-dom populateGlobal 检测到键存在即跳过填充 → 测试里 localStorage undefined，修复 = 启动器注入 `--no-experimental-webstorage`（Linux CI 本由 happy-dom 提供，无行为变化）；③ **happy-dom 20.11.6 的多文件循环 teardown 缺陷**，修复 = 降级至同代 18.0.1（package.json/lock 已同步，CI 需注意重新验证）；另显式补声明 `@types/node`（此前靠传递依赖顶层提升碰巧可用）与 welcomeShortcuts 行数锁 14→19（PR-A/D/G/J 加行时因环境损坏欠账）。**验证：`npm run test` 全量 vitest 67 文件 / 331 用例三连全绿（小写盘符进入复现条件）**。npm run test 已接入启动器，用法不变；
-4. **第二梯队全部收官**（PR-G2 已落地，见 6.8 末尾记录）；DX 储备清单无剩余项——后续可从第三梯队（Extract refactor 探针）或 import 别名链路已知边界（§1 登记的三条）另立新档。
+4. **第二梯队全部收官**（PR-G2 已落地，见 6.8 末尾记录）；DX 储备清单无剩余项——import 别名链路 §1 登记的三条边界也已全部收口（PR-P/Q，见 §1.1/§1.2）；后续另立新档需重新调研（如引擎能力缺口对照表、新功能盘点）。
 
 #### PR-G2 落地记录（2026-09-27，已实现并全绿；第二梯队至此全部收官）
 - **数据源复用（按计划）**：quickOpen symbol 模式（Ctrl+F12）在已打开 tab 的 documentSymbol（PR-G）之外，并入 `autoImport.ts` 的 G-1 工作区顶层符号索引（PR-E 落地，同一份索引双消费方，无新建扫描管线）。

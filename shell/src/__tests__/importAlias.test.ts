@@ -76,6 +76,45 @@ describe("resolveImportAliasContext 上下文解析", () => {
   it("光标在词中间：前缀尾部决定上下文", () => {
     expect(resolveImportAliasContext("import pan")).toEqual({ kind: "module", typed: "pan" });
   });
+
+  it("跨行：圆括号续行内的成员 as 补全（回溯前文未闭合 from-import）", () => {
+    const prefix = "import os\n\nfrom pandas import (\n    DataFrame as ";
+    expect(resolveImportAliasContext(prefix)).toEqual({
+      kind: "fromAlias",
+      module: "pandas",
+      member: "DataFrame",
+      typed: "",
+    });
+    // 跨行多成员：取当前行段（同口径「最后一个逗号段」语义）
+    expect(
+      resolveImportAliasContext("from collections import (\n    OrderedDict,\n    defaultdict as d"),
+    ).toEqual({
+      kind: "fromAlias",
+      module: "collections",
+      member: "defaultdict",
+      typed: "d",
+    });
+    // 括号内空行/注释不打断续行
+    expect(
+      resolveImportAliasContext("from pandas import (\n    # 成员\n\n    DataFrame as "),
+    ).toEqual({
+      kind: "fromAlias",
+      module: "pandas",
+      member: "DataFrame",
+      typed: "",
+    });
+  });
+
+  it("跨行：续行闭合 / 无未闭合 from-import → null（不污染普通补全）", () => {
+    // 闭括号收束后续行结束
+    expect(
+      resolveImportAliasContext("from pandas import (\n    DataFrame as DF)\nx = "),
+    ).toBeNull();
+    // 成员名单独成行（无 as）不产生上下文（成员名补全不归本 provider）
+    expect(resolveImportAliasContext("from pandas import (\n    DataFra")).toBeNull();
+    // 前文 from-import 已闭合（同行完结）
+    expect(resolveImportAliasContext("from pandas import DataFrame\nx = ")).toBeNull();
+  });
 });
 
 describe("importAliasItems 建议构建", () => {

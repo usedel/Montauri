@@ -64,6 +64,28 @@ describe("importedNames", () => {
     expect(names.has("a")).toBe(true);
     expect(names.has("b")).toBe(false);
   });
+
+  it("分号多语句逐段识别（边界②：此前整段进 tokenizer 两边都丢）", () => {
+    const src = "import pandas as pd; import numpy as np\nfrom lib import A as b; import os\n";
+    const names = importedNames(src);
+    expect(names.has("pd")).toBe(true);
+    expect(names.has("np")).toBe(true);
+    expect(names.has("b")).toBe(true);
+    expect(names.has("os")).toBe(true);
+    // 分号后的非 import 段不误收
+    expect(names.has("x")).toBe(false);
+  });
+
+  it("续行中分号结束续行；括号内空行不打断续行", () => {
+    const src = "from lib import (\n    One,\n\n    Two; import x as y\n)\n";
+    const names = importedNames(src);
+    expect(names.has("One")).toBe(true);
+    expect(names.has("Two")).toBe(true);
+    expect(names.has("y")).toBe(true);
+    // 续行收束后的成员不误收
+    const closed = "from lib import (\n    One,\n    Two)\nThree = 1\n";
+    expect(importedNames(closed).has("Three")).toBe(false);
+  });
 });
 
 describe("autoImportContext", () => {

@@ -77,11 +77,24 @@ export type ImportAliasContext =
   | { kind: "fromAlias"; module: string; member: string; typed: string }; // `from M import A as <typed>`
 
 /**
- * 从行前缀（光标之前的部分）解析 import 别名补全上下文。
+ * 从行前缀（光标之前的部分，可含先前行）解析 import 别名补全上下文。
  * 仅认 `import …` / `from … import …` 行首，其余位置返回 null（不污染普通补全）。
- * 已知边界：from-import 圆括号跨行（成员在下一行）不识别。
+ * 跨行：光标行不直接匹配时，回溯前文找未闭合的 from-import 圆括号/逗号续行，
+ * 以 `from M import <光标行>` 虚拟前缀重判（朴素口径：字符串/注释内形态不排除）。
  */
 export function resolveImportAliasContext(linePrefix: string): ImportAliasContext | null {
+  const direct = resolveSingleLineContext(linePrefix);
+  if (direct || !linePrefix.includes("\n")) return direct;
+  const lines = linePrefix.split("\n");
+  const module = openFromModule(lines.slice(0, -1));
+  if (!module) return null;
+  const cur = lines[lines.length - 1].trim().replace(/\)+$/, "").trim();
+  if (!cur) return null;
+  return resolveSingleLineContext(`from ${module} import ${cur}`);
+}
+
+/** 单行（无换行）上下文解析 */
+function resolveSingleLineContext(linePrefix: string): ImportAliasContext | null {
   const asMatch = /^\s*import\s+([\w.]+)\s+as\s+(\w*)$/.exec(linePrefix);
   if (asMatch) return { kind: "alias", path: asMatch[1], typed: asMatch[2] };
   const modMatch = /^\s*import\s+([\w.]*)$/.exec(linePrefix);
@@ -101,6 +114,24 @@ export function resolveImportAliasContext(linePrefix: string): ImportAliasContex
     }
   }
   return null;
+}
+
+/** 回溯前文，返回最近一个未闭合的 from-import 语句的模块名（null = 无续行）。
+ *  续行判定与 autoImport.importedNames 同口径：行以 ',' / '(' 结尾则继续，闭括号或
+ *  其他行收束；空行/纯注释不打断（Python 允许括号内空行与注释）。 */
+function openFromModule(prevLines: string[]): string | null {
+  let pending: string | null = null;
+  for (const raw of prevLines) {
+    const line = raw.trim();
+    if (pending) {
+      if (!line || line.startsWith("#")) continue;
+      pending = /[,(]$/.test(line) ? pending : null;
+      continue;
+    }
+    const m = /^\s*from\s+([\w.]+)\s+import\s+(.*)$/.exec(raw);
+    if (m) pending = /[,(]$/.test(m[2].trim()) ? m[1] : null;
+  }
+  return pending;
 }
 
 export interface ImportAliasItem {
@@ -171,9 +202,13 @@ function item(label: string, filterText: string, insertText: string, doc: string
 export function registerImportAliasCompletion(monaco: Monaco): MonacoApi.IDisposable {
   return monaco.languages.registerCompletionItemProvider("python", {
     async provideCompletionItems(model: MonacoApi.editor.ITextModel, position: MonacoApi.Position) {
-      const linePrefix = model
-        .getLineContent(position.lineNumber)
-        .slice(0, position.column - 1);
+      // 文档起点到光标的前缀（可含先前行）：跨行续行上下文判定需要看到未闭合的 from-import
+      const linePrefix = model.getValueInRange({
+        startLineNumber: 1,
+        startColumn: 1,
+        endLineNumber: position.lineNumber,
+        endColumn: position.column,
+      });
       const ctx = resolveImportAliasContext(linePrefix);
       if (!ctx) return { suggestions: [] };
       const items = importAliasItems(ctx);

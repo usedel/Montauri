@@ -1135,23 +1135,62 @@ fn scan_import_aliases_impl(root: &str) -> Result<Vec<ImportAliasHit>, String> {
     if !root_path.is_dir() {
         return Err(format!("工作区目录不存在：{root}"));
     }
+    // 增量扫描（边界③）：上次每文件 (mtime,size) 签名 + 绑定缓存，签名一致则跳过
+    // 该文件的读取与解析，只重建聚合。缓存损坏 / 版本不符 → 整体作废走全量
+    // （首次扫描无缓存 = 全量，语义与旧实现一致）。
+    let prev_cache: HashMap<String, AliasScanCacheFile> = crate::env_cmds::load_config(root)
+        .get(ALIAS_SCAN_CACHE_KEY)
+        .and_then(|x| serde_json::from_value::<AliasScanCache>(x.clone()).ok())
+        .filter(|c| c.v == ALIAS_SCAN_CACHE_VERSION)
+        .map(|c| c.files)
+        .unwrap_or_default();
     // (kind, target, alias) → count；出口按 count 降序 + target/alias 升序稳定排序
     let mut counts: HashMap<(u8, String, String), u32> = HashMap::new();
+    let mut next_cache: HashMap<String, AliasScanCacheFile> = HashMap::new();
     for path in collect_files(root_path) {
         if path.extension().map_or(true, |e| e != "py") {
             continue;
         }
         // 与搜索同一口径：超大 / 二进制 / 非 UTF-8 一律跳过（不计数、不报错）
-        if let Ok(meta) = fs::metadata(&path) {
-            if meta.len() > MAX_FILE_SIZE {
+        let sig = fs::metadata(&path).ok().and_then(|m| alias_file_signature(&m));
+        if let Some((_, _, size)) = sig {
+            if size > MAX_FILE_SIZE {
                 continue;
             }
         }
-        let Some(content) = read_text_file(&path) else { continue };
-        for raw in content.lines() {
-            for (kind, target, alias) in parse_import_alias_line(raw) {
-                *counts.entry((kind, target, alias)).or_insert(0) += 1;
+        // 缓存键用相对路径（工作区移动 / 换盘符后仍命中）；统一 `/` 分隔
+        let rel = path
+            .strip_prefix(root_path)
+            .unwrap_or(path.as_path())
+            .to_string_lossy()
+            .replace('\\', "/");
+        let cached = sig.as_ref().and_then(|s| {
+            prev_cache
+                .get(&rel)
+                .filter(|c| (c.mtime_secs, c.mtime_nanos, c.size) == *s)
+        });
+        let bindings = match cached {
+            // 未变：跳过读取与解析（登记粒度：同 mtime 刻度内等长改写不感知，标准
+            // mtime 缓存取舍，编辑器落盘必更新 mtime，实际不可达）
+            Some(c) => c.bindings.clone(),
+            None => {
+                let Some(content) = read_text_file(&path) else { continue };
+                parse_import_alias_content(&content)
             }
+        };
+        for b in &bindings {
+            *counts.entry(b.clone()).or_insert(0) += 1;
+        }
+        if let Some((secs, nanos, size)) = sig {
+            next_cache.insert(
+                rel,
+                AliasScanCacheFile {
+                    mtime_secs: secs,
+                    mtime_nanos: nanos,
+                    size,
+                    bindings,
+                },
+            );
         }
     }
     let mut out: Vec<ImportAliasHit> = counts
@@ -1170,17 +1209,53 @@ fn scan_import_aliases_impl(root: &str) -> Result<Vec<ImportAliasHit>, String> {
             .then_with(|| a.alias.cmp(&b.alias))
     });
     out.truncate(MAX_IMPORT_ALIASES);
-    // 学习结果落盘（工作区 config `import_aliases`，下次打开先读缓存秒生效）；
-    // 落盘失败不吞扫描结果——补全数据比缓存更重要（best-effort，同 sweep 口径）
-    let _ = save_import_aliases(root, &out);
+    // 学习结果 + 增量缓存基线同一次落盘（工作区 config 两个键）；落盘失败不吞
+    // 扫描结果——补全数据比缓存更重要（best-effort，同 sweep 口径）
+    let cache = AliasScanCache {
+        v: ALIAS_SCAN_CACHE_VERSION,
+        files: next_cache,
+    };
+    let _ = save_import_aliases(root, &out, &serde_json::to_value(&cache).unwrap_or(Value::Null));
     Ok(out)
+}
+
+/// 增量扫描缓存条目：文件签名（mtime + size）+ 该文件解析出的绑定
+#[derive(serde::Serialize, serde::Deserialize)]
+struct AliasScanCacheFile {
+    mtime_secs: u64,
+    mtime_nanos: u32,
+    size: u64,
+    bindings: Vec<(u8, String, String)>,
+}
+
+/// 增量扫描缓存整体（工作区 config `import_aliases_scan_cache` 键）；
+/// v = 结构/解析器版本，不符即整体作废
+#[derive(serde::Serialize, serde::Deserialize)]
+struct AliasScanCache {
+    v: u32,
+    files: HashMap<String, AliasScanCacheFile>,
+}
+
+const ALIAS_SCAN_CACHE_KEY: &str = "import_aliases_scan_cache";
+/// 解析器或缓存结构变更时递增，使旧缓存整体失效走全量
+const ALIAS_SCAN_CACHE_VERSION: u32 = 1;
+
+/// 文件未变判定三元组 (mtime_secs, mtime_nanos, size)
+fn alias_file_signature(meta: &fs::Metadata) -> Option<(u64, u32, u64)> {
+    let d = meta
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?;
+    Some((d.as_secs(), d.subsec_nanos(), meta.len()))
 }
 
 /// 工作区配置存储键（env_cmds 工作区 config，与 framework_hints / dep_ignored 同文件同口径）
 const IMPORT_ALIASES_KEY: &str = "import_aliases";
 
-/// 学习别名落盘；空清单移除键保持配置精简（同 dep_ignored 先例）
-fn save_import_aliases(root: &str, hits: &[ImportAliasHit]) -> Result<(), String> {
+/// 学习别名 + 增量扫描缓存落盘（同一次 load/save 写两个键）；空清单移除别名键
+/// 保持配置精简（同 dep_ignored 先例），缓存始终覆盖写（作为下次扫描的增量基线）
+fn save_import_aliases(root: &str, hits: &[ImportAliasHit], scan_cache: &Value) -> Result<(), String> {
     let mut v = crate::env_cmds::load_config(root);
     let obj = v.as_object_mut().ok_or("工作区配置格式非法")?;
     if hits.is_empty() {
@@ -1191,6 +1266,7 @@ fn save_import_aliases(root: &str, hits: &[ImportAliasHit]) -> Result<(), String
             serde_json::to_value(hits).map_err(|e| e.to_string())?,
         );
     }
+    obj.insert(ALIAS_SCAN_CACHE_KEY.into(), scan_cache.clone());
     crate::env_cmds::save_config(root, &v)
 }
 
@@ -1206,44 +1282,85 @@ pub fn read_import_aliases(root: String) -> Option<Vec<ImportAliasHit>> {
     import_aliases_from_config(&crate::env_cmds::load_config(&root))
 }
 
-/// 解析单行 import 语句中的别名绑定，kind 0 = module（`import X as Y`）、1 = member
-/// （`from X import A as Y`）。仅认稳定语法：多目标逗号分隔、from 后单层圆括号、
-/// 行尾 `#` 注释截断（模块名不可能含引号/#，朴素截断安全）；分号多语句与续行是已知边界。
-fn parse_import_alias_line(line: &str) -> Vec<(u8, String, String)> {
+/// 解析 import 语句文本中的别名绑定，kind 0 = module（`import X as Y`）、1 = member
+/// （`from X import A as Y`）。仅认稳定语法：多目标逗号分隔、from 后圆括号（含跨行
+/// 续行）、行尾 `#` 注释截断（模块名不可能含引号/#，朴素截断安全）、分号多语句
+/// （每段独立成语句；续行中首个 `;` 结束续行）。字符串字面量内的分号不识别（朴素口径）。
+fn parse_import_alias_content(content: &str) -> Vec<(u8, String, String)> {
     let mut out = Vec::new();
-    let trimmed = line.trim();
-    // 行尾注释截断（'#' 前有空白才算，防 base 编码类误截；模块名后必有空白才跟注释）
-    let trimmed = match trimmed.find(" #") {
-        Some(pos) => trimmed[..pos].trim_end(),
-        None => trimmed,
-    };
-    if trimmed.is_empty() {
-        return out;
-    }
-    if let Some(rest) = trimmed.strip_prefix("import ") {
-        // `import X as Y, Z` → 逗号分段逐段认领
-        for seg in rest.split(',') {
-            let t: Vec<&str> = seg.split_whitespace().collect();
-            if t.len() == 3 && t[1] == "as" && is_dotted_ident(t[0]) && is_ident(t[2]) {
-                out.push((0u8, t[0].to_string(), t[2].to_string()));
+    // Some(module) = from-import 续行进行中（上一段以 ',' 或 '(' 结尾）
+    let mut pending_from: Option<String> = None;
+    for raw in content.lines() {
+        let trimmed = raw.trim();
+        // 行尾注释截断（'#' 前有空白才算，防 base 编码类误截；模块名后必有空白才跟注释）
+        let trimmed = match trimmed.find(" #") {
+            Some(pos) => trimmed[..pos].trim_end(),
+            None => trimmed,
+        };
+        if trimmed.is_empty() {
+            continue;
+        }
+        let mut segments = trimmed.split(';');
+        if let Some(module) = pending_from.take() {
+            // 续行段：首个分号前的部分仍是成员段，之后的是新语句
+            let first = segments.next().unwrap_or("");
+            pending_from = parse_from_members(first, &module, &mut out).then(|| module.clone());
+        }
+        for stmt in segments {
+            let stmt = stmt.trim();
+            if stmt.is_empty() {
+                continue;
             }
-        }
-    } else if let Some(rest) = trimmed.strip_prefix("from ") {
-        // `from X import A as B, C` → 成员段逐段认领；括号容错（去 '('）
-        let Some(pos) = rest.find(" import ") else { return out };
-        let module = rest[..pos].trim();
-        if !is_dotted_ident(module) {
-            return out;
-        }
-        let members = rest[pos + " import ".len()..].trim_start().trim_start_matches('(');
-        for seg in members.split(',') {
-            let t: Vec<&str> = seg.split_whitespace().collect();
-            if t.len() == 3 && t[1] == "as" && is_dotted_ident(t[0]) && is_ident(t[2]) {
-                out.push((1u8, format!("{module}.{}", t[0]), t[2].to_string()));
+            if let Some(rest) = stmt.strip_prefix("import ") {
+                parse_import_targets(rest, &mut out);
+            } else if let Some(rest) = stmt.strip_prefix("from ") {
+                if let Some(module) = parse_from_stmt(rest, &mut out) {
+                    pending_from = Some(module); // 同行多条 from 语句取最后一条的续行态
+                }
             }
         }
     }
     out
+}
+
+/// `import X as Y, Z` → 逗号分段逐段认领（无续行语义）
+fn parse_import_targets(rest: &str, out: &mut Vec<(u8, String, String)>) {
+    for seg in rest.split(',') {
+        let t: Vec<&str> = seg.split_whitespace().collect();
+        if t.len() == 3 && t[1] == "as" && is_dotted_ident(t[0]) && is_ident(t[2]) {
+            out.push((0u8, t[0].to_string(), t[2].to_string()));
+        }
+    }
+}
+
+/// `from X import <members>` → 成员别名绑定；返回 Some(module) 表示 members 以
+/// ',' 或 '(' 结尾（跨行续行开启）。模块名非法返回 None 且不产生绑定。
+fn parse_from_stmt(rest: &str, out: &mut Vec<(u8, String, String)>) -> Option<String> {
+    let pos = rest.find(" import ")?;
+    let module = rest[..pos].trim();
+    if !is_dotted_ident(module) {
+        return None;
+    }
+    let members = rest[pos + " import ".len()..].trim_start();
+    parse_from_members(members, module, out).then(|| module.to_string())
+}
+
+/// 成员段（可能是跨行续行）解析：逐逗号分段，段首 '(' / 段尾 ')' 剥除（括号容错，
+/// 含 `(A as B, C as D)` 尾段 ')' 粘连形态——旧实现该形态尾段会被 is_ident 拒绝）；
+/// 只认领 `A as B` 形态（成员无别名不学）。返回是否续行（原始 members 以 ','/'(' 结尾）。
+fn parse_from_members(members: &str, module: &str, out: &mut Vec<(u8, String, String)>) -> bool {
+    let cont = members.ends_with(',') || members.ends_with('(');
+    for seg in members.split(',') {
+        let seg = seg.trim().trim_start_matches('(').trim_end_matches(')');
+        if seg.is_empty() {
+            continue;
+        }
+        let t: Vec<&str> = seg.split_whitespace().collect();
+        if t.len() == 3 && t[1] == "as" && is_dotted_ident(t[0]) && is_ident(t[2]) {
+            out.push((1u8, format!("{module}.{}", t[0]), t[2].to_string()));
+        }
+    }
+    cont
 }
 
 /// 点分标识符：非空且每个 `.` 段均为合法标识符（含 Unicode 字母，走 char 判定）
@@ -2132,10 +2249,10 @@ mod tests {
 
     #[test]
     fn import_alias_parse_module_and_member() {
-        let mut hits = parse_import_alias_line("import pandas as pd");
+        let mut hits = parse_import_alias_content("import pandas as pd");
         assert_eq!(hits, vec![(0, "pandas".to_string(), "pd".to_string())]);
         // from-import 成员型：target 为 module.member
-        hits = parse_import_alias_line("from pandas import DataFrame as DF");
+        hits = parse_import_alias_content("from pandas import DataFrame as DF");
         assert_eq!(
             hits,
             vec![(1, "pandas.DataFrame".to_string(), "DF".to_string())]
@@ -2145,24 +2262,99 @@ mod tests {
     #[test]
     fn import_alias_parse_multi_and_paren_and_comment() {
         // 多目标 + 混合有无别名
-        let hits = parse_import_alias_line("import os, numpy as np");
+        let hits = parse_import_alias_content("import os, numpy as np");
         assert_eq!(hits, vec![(0, "numpy".to_string(), "np".to_string())]);
         // from + 圆括号 + 多成员
-        let hits = parse_import_alias_line("from torch import (nn as NN, optim)");
+        let hits = parse_import_alias_content("from torch import (nn as NN, optim)");
         assert_eq!(hits, vec![(1, "torch.nn".to_string(), "NN".to_string())]);
         // 行尾注释截断（'#' 前有空白）
-        let hits = parse_import_alias_line("import pandas as pd  # 数据处理");
+        let hits = parse_import_alias_content("import pandas as pd  # 数据处理");
         assert_eq!(hits, vec![(0, "pandas".to_string(), "pd".to_string())]);
     }
 
     #[test]
     fn import_alias_parse_rejects_noise() {
-        assert!(parse_import_alias_line("# import pandas as pd").is_empty()); // 注释行
-        assert!(parse_import_alias_line("import pandas").is_empty()); // 无别名
-        assert!(parse_import_alias_line("from pandas import DataFrame").is_empty());
-        assert!(parse_import_alias_line("x = import pandas as pd").is_empty()); // 非 import 行首
-        assert!(parse_import_alias_line("import pandas as pd.DataFrame").is_empty()); // 别名非法
-        assert!(parse_import_alias_line("from 'x' import y as z").is_empty()); // 模块名非法
+        assert!(parse_import_alias_content("# import pandas as pd").is_empty()); // 注释行
+        assert!(parse_import_alias_content("import pandas").is_empty()); // 无别名
+        assert!(parse_import_alias_content("from pandas import DataFrame").is_empty());
+        assert!(parse_import_alias_content("x = import pandas as pd").is_empty()); // 非 import 行首
+        assert!(parse_import_alias_content("import pandas as pd.DataFrame").is_empty()); // 别名非法
+        assert!(parse_import_alias_content("from 'x' import y as z").is_empty()); // 模块名非法
+    }
+
+    #[test]
+    fn import_alias_parse_multiline_from_import() {
+        // 圆括号跨行续行（含逗号尾行与闭括号行）
+        let src = "from pandas import (\n    DataFrame as DF,\n    read_csv as rc,\n)\n";
+        assert_eq!(
+            parse_import_alias_content(src),
+            vec![
+                (1u8, "pandas.DataFrame".to_string(), "DF".to_string()),
+                (1, "pandas.read_csv".to_string(), "rc".to_string()),
+            ]
+        );
+        // 逗号续行（无括号形态）
+        let src = "from torch import nn as NN,\n    optim as opt\nx = 1\n";
+        assert_eq!(
+            parse_import_alias_content(src),
+            vec![
+                (1u8, "torch.nn".to_string(), "NN".to_string()),
+                (1, "torch.optim".to_string(), "opt".to_string()),
+            ]
+        );
+        // 同行多成员尾段 ')' 粘连（旧实现只学到第一个）
+        assert_eq!(
+            parse_import_alias_content("from lib import (A as B, C as D)"),
+            vec![
+                (1u8, "lib.A".to_string(), "B".to_string()),
+                (1, "lib.C".to_string(), "D".to_string()),
+            ]
+        );
+        // 续行遇非续行语句收束；空行不打断计数判定由语句边界负责
+        let src = "from lib import (\n    A as B,\n)\nx = 1\nimport os as o\n";
+        assert_eq!(
+            parse_import_alias_content(src),
+            vec![
+                (1u8, "lib.A".to_string(), "B".to_string()),
+                (0, "os".to_string(), "o".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn import_alias_parse_semicolon_statements() {
+        // 分号多语句：两条 module 别名都学到
+        assert_eq!(
+            parse_import_alias_content("import pandas as pd; import numpy as np"),
+            vec![
+                (0u8, "pandas".to_string(), "pd".to_string()),
+                (0, "numpy".to_string(), "np".to_string()),
+            ]
+        );
+        // from + import 混排
+        assert_eq!(
+            parse_import_alias_content("from pandas import DataFrame as DF; import numpy as np"),
+            vec![
+                (1u8, "pandas.DataFrame".to_string(), "DF".to_string()),
+                (0, "numpy".to_string(), "np".to_string()),
+            ]
+        );
+        // 分号后的语句独立成句（不再受前句非 import 前缀影响）
+        assert_eq!(
+            parse_import_alias_content("x = 1; import pandas as pd"),
+            vec![(0u8, "pandas".to_string(), "pd".to_string())]
+        );
+        // 跨行续行中首个分号结束续行，其后是新语句
+        assert_eq!(
+            parse_import_alias_content("from lib import (\n    A as B; import os as o\n)\n"),
+            vec![
+                (1u8, "lib.A".to_string(), "B".to_string()),
+                (0, "os".to_string(), "o".to_string()),
+            ]
+        );
+        // 无别名的分号段不产生绑定
+        assert!(parse_import_alias_content("import pandas as pd; x = 1")
+            == vec![(0u8, "pandas".to_string(), "pd".to_string())]);
     }
 
     #[test]
@@ -2190,6 +2382,63 @@ mod tests {
     fn scan_import_aliases_rejects_missing_root() {
         let missing = std::env::temp_dir().join("opencharm-import-alias-missing-dir");
         assert!(scan_import_aliases_impl(&missing.to_string_lossy()).is_err());
+    }
+
+    #[test]
+    fn scan_import_aliases_incremental_reuse_and_invalidation() {
+        let base = tmpdir("import-alias-incr");
+        let a = base.join("a.py");
+        fs::write(&a, "import pandas as pd\n").unwrap();
+        fs::write(base.join("b.py"), "from numpy import array as arr\n").unwrap();
+        let root_str = base.to_string_lossy().to_string();
+        let r1 = scan_import_aliases_impl(&root_str).unwrap();
+        assert_eq!(r1.iter().find(|h| h.target == "pandas").unwrap().count, 1);
+
+        // 哨兵验证：不动文件、直接改写缓存绑定 → 重扫命中缓存复用哨兵（证明未重读文件）
+        let mut cfg = crate::env_cmds::load_config(&root_str);
+        cfg["import_aliases_scan_cache"]["files"]["a.py"]["bindings"] =
+            json!([[0, "pandas", "sentinel"]]);
+        crate::env_cmds::save_config(&root_str, &cfg).unwrap();
+        let r2 = scan_import_aliases_impl(&root_str).unwrap();
+        assert!(r2.iter().any(|h| h.target == "pandas" && h.alias == "sentinel"));
+        assert!(!r2.iter().any(|h| h.target == "pandas" && h.alias == "pd"));
+        // 未动过的 b.py 条目同轮复用（arr 仍在）
+        assert!(r2.iter().any(|h| h.kind == "member" && h.target == "numpy.array"));
+
+        // 文件内容变化（长度不同确保签名变化）→ 该文件缓存失效重新解析
+        fs::write(&a, "import pandas as pd\nimport pandas as pd\nimport os as o\n").unwrap();
+        let r3 = scan_import_aliases_impl(&root_str).unwrap();
+        assert_eq!(
+            r3.iter().find(|h| h.target == "pandas" && h.alias == "pd").unwrap().count,
+            2
+        );
+        assert!(r3.iter().any(|h| h.target == "os" && h.alias == "o"));
+        assert!(!r3.iter().any(|h| h.alias == "sentinel"));
+
+        // 文件删除 → 条目从聚合与缓存基线中消失
+        fs::remove_file(&a).unwrap();
+        let r4 = scan_import_aliases_impl(&root_str).unwrap();
+        assert!(!r4.iter().any(|h| h.target == "pandas"));
+        assert!(!r4.iter().any(|h| h.target == "os"));
+        assert!(r4.iter().any(|h| h.kind == "member" && h.target == "numpy.array"));
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn scan_import_aliases_tolerates_garbage_cache() {
+        let base = tmpdir("import-alias-garbage");
+        fs::write(base.join("a.py"), "import pandas as pd\n").unwrap();
+        let root_str = base.to_string_lossy().to_string();
+        let mut cfg = crate::env_cmds::load_config(&root_str);
+        cfg["import_aliases_scan_cache"] = json!("not-an-object");
+        crate::env_cmds::save_config(&root_str, &cfg).unwrap();
+        // 缓存损坏 → 整体作废走全量，结果正确
+        let r = scan_import_aliases_impl(&root_str).unwrap();
+        assert!(r.iter().any(|h| h.target == "pandas" && h.alias == "pd"));
+        // 重扫后缓存被健康结构覆盖写
+        let cfg2 = crate::env_cmds::load_config(&root_str);
+        assert_eq!(cfg2["import_aliases_scan_cache"]["v"], json!(1));
+        fs::remove_dir_all(&base).unwrap();
     }
 
     #[test]
