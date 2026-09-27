@@ -1,8 +1,9 @@
 # Python 库特别支持 · 开发计划
 
-> 版本：v1.1 · 日期：2026-09-27 · 状态：待开工
+> 版本：v1.2 · 日期：2026-09-27 · 状态：已交付（P0 四件套 `ac85980` · P1 五件套 `cd0af89`，验收基线复验全绿）
 > 上游：`docs/python_library_support_research.md` v1.3（调研 + 已裁决）
 > **v1.1 变更**（同步上游 v1.3）：py_eval 定档 `python -I -X utf8 -c`、`args_json` 改走 **stdin**、输出按 UTF-8 字节解码（§3.1）；解释器缓存补「仅缓存指向工作区 `.venv` 的结果」失效条件（§0-P1）；内省脚本补 `sys.path.insert(0, os.getcwd())`（§6、R-7 修订）；诊断桶锚点修正（§2）；P1 批次补 requests/httpx → cURL 反向生成 0.5 天（§1、§7）；键位表 55→56 项（§2）。
+> **v1.2 变更**：全部 PR 交付（PR-1~4 见 `ac85980`，P1 五件套见 `cd0af89`）；§9 风险结论回填；R-5 遗留待复测。
 > 本文档面向实施，是 PR 切分与验收的依据；与上游调研冲突时**以上游已裁决项为准**并反馈修订。
 > 排期依据：`python_ide_dev_plan_v2.md`；通用 DX 纪律复用 `dx_features_backlog.md` §6。
 
@@ -194,3 +195,15 @@ cd shell && npx playwright test e2e/<域>/…   # 相关 e2e
 | **R-6** | 大文件（>2000 行）decorations 性能未知 | 探针 P5：PR-2 实现期用 bench 项目实测，超预算则加"可见区域才扫描"的闸门 |
 | **R-7** | `-I` 隔离模式下 `sys.path` 变化（v1.1 修订） | `-I` 隐含 `-P`，cwd 不在 `sys.path`：`regex_test` / `format_preview` / `ast_argparse` 只用标准库、不 import 用户模块 → 无影响；**内省 kind（import 用户模块）受影响** → 受控脚本须显式 `sys.path.insert(0, os.getcwd())`（§6 已同步）。另注意 `-I` 屏蔽 `PYTHONIOENCODING` → 编码用 `-X utf8` 解决（§3.1） |
 | **R-8** | click/typer 的静态解析覆盖率低 | v1 只承诺 argparse 完整 + click 基础；解析失败一律降级为纯命令行输入框（不阻断运行） |
+
+### 实施回填（2026-09-27，随 v1.2）
+
+- **R-1 已定**：未注册第二 hover provider——hover 走 `lsp/client.ts` 既有合并管线追加，`dslLens.ts` 只提供 `regexHoverAt`（避免双 provider 打架，推荐方案落地）。
+- **R-2 已定**：CodeLens 两条并存由 Monaco 多 provider 合并实现（D-2），`dslLens.ts` 不动 `codeVision.ts` 引用逻辑。
+- **R-3 / R-4 已定**：脚本 `include_str!` 编译进二进制（`lib_cmds.rs` SCRIPTS 表）；`run_with_timeout` / `run_with_timeout_bytes` 改 `pub(crate)` 复用，未复制逻辑。
+- **R-6 已定**：扫描 O(n) 闸门落地——单文件扫描上限 500,000 字符（`dslLens.ts` `MAX_SCAN_CHARS`），超限跳过扫描与诊断。
+- **R-5 已定**（2026-09-27 复测，探针 `shell/e2e/libs/04-monaco-memory-r5.spec.ts`）：
+  - **CACHE_MAX=5 维持不变**——正则面板（含面板内 Monaco 实例 #2）激活态堆增量 ~3.2MB、LRU 缓存隐藏态驻留 ~4.3MB，远低于内存红线顾虑；
+  - **复测发现并修复一个真实泄漏**：`hash / base64 / urlcode / uuid / jsonfmt(×2) / json2model` 六个工具的 `mount` 未返回 `dispose`，其 `kit.output` Monaco 实例在面板关闭 / LRU 逐出后永不释放（每次重挂净增 ~1.2MB 线性累积）；已对齐 curl2python/jsonpath 先例补齐 `return { dispose() { … } }`，修复后重挂趋势降至 ~0.14MB/轮且逐轮收敛（平台），dispose-all 后残余 ~3.7MB 为一次性成本（首次加载的模块代码 + Monaco 静态注册结构，不随实例回收）；
+  - 测量手段：CDP `Performance.getMetrics`（JSHeapUsedSize）+ `HeapProfiler.collectGarbage` 强制 GC；注意事项：CDP `Runtime.enable` 会保留 console 消息参数引用造成伪泄漏，GC 前须 `discardConsoleEntries`。
+- **验收基线（2026-09-27 复验）**：`npx tsc --noEmit` 全绿 · vitest 765/765 全绿 · `cargo test` 229/229 全绿。
