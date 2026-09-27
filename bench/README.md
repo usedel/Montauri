@@ -11,6 +11,7 @@
 | `sample/unannotated_scraper/` | 无注解、动态结构 | 运行时采样价值（Phase 2/3 主战场） | ✅ 可导入 |
 | `sample/pydantic_models/` | Pydantic 模型 + 标准库 dataclass 对照组 | **静态引擎对 Pydantic 的支持度**（F0：补全 / 类型检查 / 缺失必填 / 改名传播 / alias / validator） | ✅ 已实测，报告见 `reports/pydantic-engine-probe.md` |
 | `sample/large_repo/` | 88 个 .py × 4 层深目录（生成器 `gen_large_repo.py`） | **dep_scan 全量性能红线 ≤ 2s**（M4-6） | ✅ 880ms（含 uv.lock + E5） |
+| `sample/extract_refactor/` | 单文件选区式 code action 靶场（无第三方依赖，无需 venv） | **Extract 重构支持度**（refactor.extract code action，dx_features_backlog 第三梯队 PR-O 探针） | ✅ 已实测：pyrefly 1.3.1 原生支持；脚本 `extract-refactor-probe/probe.cjs` |
 
 每个样例目录含独立 `pyproject.toml` + `.venv`（uv 管理，Python 3.13.7；`.venv` 已被根 `.gitignore` 忽略）。
 

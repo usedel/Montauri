@@ -2,6 +2,7 @@
 
 > 状态：调研完成，2026-09-26 二次核实（对照当前代码逐条验证事实底座，并新增缺口挖掘）；同日补齐详细实施计划（第 6 节），可直接按 PR 推进。
 > **进度（2026-09-27）**：第一梯队 PR-A~E 与第二梯队 PR-F~N + PR-G2 **已全部落地**（各节均有落地记录与验证基线）；PR-J 人工验证已收口（Ctrl+Space 确认被中文 IME 吞键 → Alt+/ 备选键落地）。**DX 储备清单全部完成**。新会话续推请直接读 **6.8 进度快照**，再按 6.6/6.8 各落地记录恢复上下文。
+> **第三梯队推进（2026-09-27）**：Extract 重构探针完成并转正——pyrefly 1.3.1 原生支持 refactor.extract（修正了「basedpyright 已支持」的旧判断），**PR-O 已落地全绿**（helper 抑制 + URI 归一化修复 + 真机桥 e2e），详见文末探针报告与落地记录。
 > 来源：import 别名补全（已落地）延伸出的「顺手/爽」功能调研。
 > 约定：本档与开发计划冲突时以 `python_ide_dev_plan_v2.md` 为准；实现落地区分 shell 侧（纯前端/自研命令）与引擎侧（pyrefly/intel）。
 > 核实方法：对第 2 节每条结论逐条回到代码验证（含行号）；另做了一轮 PyCharm 常见体验 × 现有模块的缺口盘点（结果并入第 3 节候选）。
@@ -112,7 +113,7 @@
 
 ### 第三梯队：依赖引擎能力，先探针再决策
 
-- **Extract Variable / Function 重构**：先探针 pyrefly 是否出 refactor 类 code action（探针方法论沿用引用计数那次：Node 起 pyrefly 裸会话试请求）；basedpyright 已支持，可并入 Pydantic 引擎推荐链路一起考虑。若引擎不给，则不建议 shell 侧自研（成本失控）。
+- **Extract Variable / Function 重构**：探针 + PR-O 均已落地（2026-09-27，见文末探针报告与落地记录）——pyrefly 原生 refactor.extract 直通灯泡，helper 变体受抑制清单过滤。
 
 ## 4. 建议推进顺序（PR 级拆分与验证基线见第 6 节）
 
@@ -303,6 +304,7 @@
 - e2e `e2e/dx/13-paste-json.spec.ts`（2 例）：PJ1 粘贴完整 JSON 就地转 Python 字面量（True/None/无 true/null 残留）；PJ2 预置关闭后原样保留。
 - 验证基线：`tsc` 全绿 · vitest pasteJson 8/8 · `cargo test` 218 全绿 · **e2e dx 域 29/29 全绿**（含真实 pyrefly 桥 2 例）。
 - **关联登记（不在本 PR 修）**：`devtools/curl2python/gen.ts::fmtDict` 用 `JSON.stringify` 冒充 Python dict 字面量，true/false/null 三值不合法——属 curl2python 的既存潜在缺陷，后续可复用 `jsonToPythonLiteral` 收口（单独立项）。
+- **关联缺陷收口（2026-09-27，已实现并全绿）**：序列化实现抽至零依赖纯函数模块 `shell/src/pyLiteral.ts`（`pythonLiteralOf(value)` 单一实现），pasteJson 与 curl2python 同源复用；`fmtDict` 收口为薄封装（headers/cookies/data/params 纯字符串 dict 形态随迁为尾逗号风格，合法且 diff 友好；`json = <body>` 路径三值改写为 True/False/None）。新增 `__tests__/curl2pythonGen.test.ts`（3 例，curl2python 首次有测试覆盖）与 `__tests__/pyLiteral.test.ts`（3 例）。验证基线：`tsc` 全绿 · vitest 69 文件 / 664 用例全绿（无 Rust 改动、无 e2e 断言依赖旧输出形态）。
 | PR-J · Ctrl+Space IME 探针 | 纯探针项：WebView2 + 中文 IME 下 Ctrl+Space 是否被系统输入法切换吞掉（Windows 惯例冲突）；产出结论：若被吞，注册 `Alt+/` 为「触发建议」备选键位（editor 级 + 键位表登记）；不被吞则只登记结论 |
 
 另有三项未入 6.6 表（排期见 6.8）：**PR-L · ruff 规则中文速释**（ruffLint hover 补人话解释表，首发 30~50 条常见规则，量在内容无技术风险）· **PR-M · 粘贴 JSON → Python dict**（paste 拦截 + `devtools/jsonpath` 解析复用，设置开关，嵌套边界用例：true/False、null/None、引号转义）· **PR-N · 参数名行内提示**（唯一探针前置项：pyrefly 1.3.0 是否支持 `textDocument/inlayHint` 未验证，PR-E 已证明该引擎能力有缺口，不能想当然；不支持则登记放弃，禁止 shell 侧自研类型推断）。
@@ -419,7 +421,7 @@
 
 **续推须知（恢复上下文的最短路径）**：
 1. 各 PR 的实测坑与「计划 → 实现差异」全部写在 6.6/6.8 的落地记录里，动手前先读对应记录（尤其 PR-I 的 DOM dblclick 三条、PR-H 的 min-width 溢出、PR-N 的推送时序/pyproject.toml/e2e 定位三条）；
-2. 本机验证基线（2026-09-27 更新）：`cargo test` 218 全绿 · `tsc` 全绿 · e2e dx 域 30/30 全绿（含真实 pyrefly 桥 2 例）；vitest 单测以 CI 为准（本机 vitest 环境受限，见第 3 条）；
+2. 本机验证基线（2026-09-27 第三次更新）：`cargo test` 218 全绿 · `tsc` 全绿 · e2e dx 域 34/34 全绿（含真实 pyrefly 桥 4 例）· vitest 69 文件 / 664 用例全绿；
 3. **本机 vitest 环境已修复（2026-09-27）**：原「33 个 DOM 测试文件先在性损坏」根因有三层，全部定位并修复——① **盘符大小写**：从小写 `d:` 进入时 worker 模块解析与 runner 全局状态不一致（vitest#10812 同族），修复 = `scripts/vitest-launch.mjs` 启动器先 chdir 到 realpath 再拉起 vitest（Linux CI realpath 幂等无影响）；② **Node 22.4+ 实验性 webstorage**：全局 localStorage 被 Node 不可用实现占位，happy-dom populateGlobal 检测到键存在即跳过填充 → 测试里 localStorage undefined，修复 = 启动器注入 `--no-experimental-webstorage`（Linux CI 本由 happy-dom 提供，无行为变化）；③ **happy-dom 20.11.6 的多文件循环 teardown 缺陷**，修复 = 降级至同代 18.0.1（package.json/lock 已同步，CI 需注意重新验证）；另显式补声明 `@types/node`（此前靠传递依赖顶层提升碰巧可用）与 welcomeShortcuts 行数锁 14→19（PR-A/D/G/J 加行时因环境损坏欠账）。**验证：`npm run test` 全量 vitest 67 文件 / 331 用例三连全绿（小写盘符进入复现条件）**。npm run test 已接入启动器，用法不变；
 4. **第二梯队全部收官**（PR-G2 已落地，见 6.8 末尾记录）；DX 储备清单无剩余项——后续可从第三梯队（Extract refactor 探针）或 import 别名链路已知边界（§1 登记的三条）另立新档。
 
@@ -447,3 +449,26 @@
   1. Rust `lsp.rs`：目前**无 didChangeConfiguration 通道**（全库 0 命中）——initialize 就绪后补发一次 + 设置变更时补发；设置真值进 `Settings`（建议 `inlay_hints`：off/all/partial 三档或 boolean，默认对齐 PyCharm=开）；
   2. TS `lsp/client.ts`：`registerLspInlayHints()`（`:1473`）现**只查 intel**——扩展为静态引擎 + intel 双源（注意双源并存时去重/归属：静态=类型+参数名，intel=运行时标注，kind 已有 Type/Parameter 区分）；pyrefly 的 label 分段数组现映射逻辑已兼容（`:1491` join）；
   3. 风险登记：Monaco InlayHintsProvider 对 `textEdits`（点击插入注解）的支持度待 PR-N 动工时实测，不支持则降级纯显示。
+
+#### Extract 重构探针报告（2026-09-27，PR-O 前置探针；脚本 `bench/extract-refactor-probe/probe.cjs` · 原始报告 `bench/reports/extract-refactor-probe-{pyrefly,basedpyright}.json` · 受控靶场 `bench/sample/extract_refactor/`）
+
+- **引擎版本口径（探针先决发现）**：本机 `uv tool` 装的 pyrefly 是 **1.2.0**（旧），探针必须走 `uv tool run pyrefly@1.3.1 lsp` 才命中 `ci/versions.toml` 锁定版；basedpyright 同理须 `--from basedpyright@1.39.10`（不锁会拉到 1.40.1）。后续任何裸会话探针照此办理。
+- **pyrefly 1.3.1：原生支持 refactor 类 code action，立项条件成立**：
+  - 选区罩住表达式（0-based 行/字符区间）→ `textDocument/codeAction` 返回 **`refactor.extract` 三项全给**：Extract into variable `extracted_value` / Extract into helper `extracted_function` / Introduce parameter `param`；
+  - **直接带 `WorkspaceEdit`（changes 形态）**，无 command / codeAction-resolve 往返（比 pyright 血统的 applyRefactoring 两段式简单得多）；
+  - `context.only=["refactor"]` / `["refactor.extract"]` 过滤均生效；return 长表达式选区另给 `refactor.inline`（Inline variable）与 `refactor.rewrite`（Invert boolean）；
+  - 端到端质量（模拟应用 edit 逐例核对）：**extract variable 与 introduce parameter 产出完全正确**（赋值行插入位置/缩进、签名参数追加、调用点替换全对）；**extract helper 函数体漏 return**（`def extracted_function(price, qty):` 体只有裸表达式 `price * qty`，值语义断裂）——pyrefly 成熟度缺陷，非协议问题；
+  - initialize 需声明 `codeAction.codeActionLiteralSupport`（+ dataSupport/resolvesSupport）才会返回动作清单；didOpen 后等首诊断（探针 3s + 轮询）即就绪。
+- **basedpyright 1.39.10：refactor 动作 0 项——修正本档原「basedpyright 已支持」的判断**：
+  - 引擎存活（hover 正常返回）但裸 LSP 会话 codeAction 恒空；对 langserver bundle 源码核实：`CodeActionProvider.mightSupport` 注释「**Only support quick fix actions**」、`CommandController.isRefactoringCommand() { return false; }`——重构是 Pylance / basedpyright VS Code 扩展侧能力，**不随开源 langserver 分发**；
+  - 「并入 basedpyright 引擎推荐链路」的期待不成立：切备选引擎时 Extract 功能自然缺失（与 PR-E auto-import 的 pyrefly 缺口正好互补，引擎选择时需对照此表）。
+- **判定与量级**：产品管线 `lsp/client.ts:1436-1457`（`registerLspCodeAction`）已透传带 edit 的引擎动作且 `kind` 直通 Monaco——refactor 动作**可能已能进 Ctrl+. 灯泡**，shell 侧自研成本不再成立担忧。PR-O 实施内容收敛为：① 产品内真机验证（选区 → 灯泡 → 应用 edit）；② **extract helper 过滤策略裁决**（建议：按 title 过滤直至 pyrefly 补 return，避免一键产出坏代码）；③ e2e 一例（mock 层按探针报告伪造 refactor.extract action 形状）。半天级。
+- 待裁决（动工前确认）：① helper 过滤（建议过滤）；② 灯泡分组文案是否需要调整（Monaco 按 kind 分组，预计零改动）；③ `Introduce parameter` 是否保留（产出正确但语义上不如 extract variable 直觉，可全保留交用户选择）。
+
+#### PR-O 落地记录（2026-09-27，已实现并全绿；第三梯队 Extract 重构至此落地）
+- **shell 侧改动收敛为两处**（引擎原生 + 管线已透传，探针判定兑现）：
+  1. `quickFix.ts` 新增纯函数 `isSuppressedEngineAction(title)`：抑制 pyrefly 的 `Extract into helper` 变体（探针实测 1.2.0/1.3.1 函数体均漏 return，一键即产出坏代码），仅作用于引擎下发动作、自研 D-1/D-2 不经此判断；`Introduce parameter` 产出正确予以保留；
+  2. `lsp/client.ts::registerLspCodeAction` 接入该过滤；**顺带修复一个 CR-22 同族隐患**：`codeActionEditToMonaco` 原以 `uri !== modelUri` 严格比较丢弃非当前文件的 edit——Windows 盘符大小写/编码形态与 `model.uri.toString()` 逐字不等时 edit 整块静默丢失（探针实测 pyrefly 回 `file:///D:/...`），改为 decode + 分隔符归一 + 小写后比较（`normUri`）。
+- **e2e `e2e/dx/16-extract-refactor.spec.ts`（2 例，真实 pyrefly 桥）**：ER1 选区 → Ctrl+. 菜单 → 应用 Extract into variable → model 断言插入 `extracted_value = PRICE * QUANTITY` 且调用点替换；ER2 抑制清单生效（helper 不进菜单）+ Introduce parameter 保留。
+- **e2e 实测坑（已就地注释）**：① Monaco 0.52 的 code action 菜单走 ActionWidget（`.action-widget` + `.monaco-list-row`），**打开时不设初始焦点**——Enter 不可靠，行点击的 locator.click 会因 hover 触发列表重渲染无限重试（row 节点重建），须取 boundingBox 后 `page.mouse.click` 坐标点击；② 选区经 `app.editor.setSelection`（state.ts 动态 import）注入，比 monospace 估宽鼠标拖拽稳定；③ pyrefly 1.2.0 起即支持 refactor.extract（探针 pyrefly_path 组实测），e2e 对本机 PATH 版本不敏感，但 helper 漏 return 两版本一致、过滤不可省。
+- 验证基线：`tsc` 全绿 · vitest 67 文件 / 658 用例全绿（quickFix 18 含新增 3 例）· **e2e dx 域 34/34 全绿**（dx/16 新增 2 例，含真实 pyrefly 桥；无 Rust 改动，cargo 不涉及）。

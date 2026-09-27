@@ -8,6 +8,7 @@ import { STDLIB_MODULES } from "../stdlib";
 import { app } from "../state";
 import * as dap from "../dap/client"; // B-8：暂停态 hover 求值（dap 不依赖 lsp，无环）
 import { depActionsForLine, latestDiff, toWorkspaceRelative } from "../depHealth";
+import { isSuppressedEngineAction } from "../quickFix";
 
 // Monaco 实例注入（配合 main.ts 动态加载；providers 注册前必须先注入）
 let monaco: typeof MonacoApi;
@@ -1374,16 +1375,31 @@ function markerSeverityToLsp(sev: number): number {
   }
 }
 
+/**
+ * WorkspaceEdit 的 URI 归一比较（CR-22 同族教训）：引擎回包的盘符大小写/编码形态
+ * 未必与 model.uri.toString() 逐字相等（pyrefly 实测回 `file:///D:/...`），严格 ===
+ * 会把 edit 整块静默丢弃。decode + 分隔符归一 + 小写后再比。
+ */
+function normUri(u: string): string {
+  let s = u;
+  try {
+    s = decodeURIComponent(s);
+  } catch {
+    /* 非法 % 序列保留原文（tech-debt #6 同口径） */
+  }
+  return s.replace(/\\/g, "/").toLowerCase();
+}
+
 /** 将 LSP WorkspaceEdit（changes 或 documentChanges）转为 Monaco edits（仅当前 model） */
 function codeActionEditToMonaco(
   edit: LspCodeAction["edit"],
   model: MonacoApi.editor.ITextModel,
 ): MonacoApi.languages.IWorkspaceTextEdit[] {
   if (!edit) return [];
-  const modelUri = model.uri.toString();
+  const modelUri = normUri(model.uri.toString());
   const out: MonacoApi.languages.IWorkspaceTextEdit[] = [];
   const pushEdits = (uri: string, items: Array<{ range: LspRange; newText: string }>) => {
-    if (uri !== modelUri) return;
+    if (normUri(uri) !== modelUri) return;
     for (const it of items) {
       const s = lspPosToMonaco(it.range.start);
       const e = lspPosToMonaco(it.range.end);
@@ -1443,6 +1459,8 @@ export function registerLspCodeAction(): MonacoApi.IDisposable {
         });
         if (Array.isArray(result)) {
           for (const a of result) {
+            // PR-O：抑制产出坏代码的引擎动作（extract helper 漏 return，探针报告为准）
+            if (isSuppressedEngineAction(a.title)) continue;
             const edits = codeActionEditToMonaco(a.edit, model);
             // 只处理有 edit 的 CodeAction；纯 command 类型暂不支持
             if (edits.length === 0 && !a.edit) continue;

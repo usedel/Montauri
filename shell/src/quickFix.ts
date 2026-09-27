@@ -41,6 +41,17 @@ export function extractUndefinedName(message: string): string | null {
   return null;
 }
 
+/**
+ * 引擎动作抑制清单（PR-O 探针依据：bench/reports/extract-refactor-probe-*.json，
+ * 报告登记 docs/dx_features_backlog.md 第三梯队）：pyrefly 的 Extract into helper 变体
+ * 产出的函数体漏 return（`def extracted_function(price, qty):` 体只有裸表达式），
+ * 一键即产出坏代码——按 title 前缀过滤，直至引擎补 return 再放开。
+ * 仅影响引擎下发动作；自研 D-1/D-2 动作不经此判断。
+ */
+export function isSuppressedEngineAction(title: string): boolean {
+  return title.startsWith("Extract into helper");
+}
+
 /** 轻量解析：content 顶层（无缩进）是否有名字定义；返回定义种类 */
 export function scanTopLevelSymbol(content: string, name: string): "def" | "class" | "var" | null {
   for (const line of content.split(/\r?\n/)) {

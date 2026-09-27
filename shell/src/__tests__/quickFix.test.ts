@@ -7,6 +7,7 @@ import {
   findImportInsertLine,
   findModuleHeaderEnd,
   inferCallArity,
+  isSuppressedEngineAction,
   scanTopLevelSymbol,
 } from "../quickFix";
 import { buildNoqaLine, normalizeSeverity } from "../ruffLint";
@@ -26,6 +27,19 @@ describe("extractUndefinedName（诊断文案 → 未定义名字）", () => {
     expect(extractUndefinedName("IndentationError: unexpected indent")).toBeNull();
     expect(extractUndefinedName("E501 Line too long (120 > 100)")).toBeNull();
     expect(extractUndefinedName("")).toBeNull();
+  });
+});
+
+describe("isSuppressedEngineAction（引擎动作抑制清单，PR-O 探针）", () => {
+  it("pyrefly extract helper 变体被抑制（函数体漏 return，产出坏代码）", () => {
+    expect(isSuppressedEngineAction("Extract into helper `extracted_function`")).toBe(true);
+  });
+
+  it("extract variable / introduce parameter / quickfix 类不受影响", () => {
+    expect(isSuppressedEngineAction("Extract into variable `extracted_value`")).toBe(false);
+    expect(isSuppressedEngineAction("Introduce parameter `param`")).toBe(false);
+    expect(isSuppressedEngineAction("从 utils 导入 helper")).toBe(false);
+    expect(isSuppressedEngineAction("")).toBe(false);
   });
 });
 
