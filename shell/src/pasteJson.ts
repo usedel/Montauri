@@ -14,6 +14,7 @@
 import type * as MonacoApi from "monaco-editor/esm/vs/editor/editor.api";
 import { app } from "./state";
 import { toast } from "./toast";
+import { pythonLiteralOf } from "./pyLiteral";
 
 /** trim 后是否形似 JSON（对象/数组）——廉价前置判定，避免无效 JSON.parse */
 export function looksLikeJson(text: string): boolean {
@@ -21,33 +22,9 @@ export function looksLikeJson(text: string): boolean {
   return (t.startsWith("{") && t.endsWith("}")) || (t.startsWith("[") && t.endsWith("]"));
 }
 
-/** 4 空格缩进的 Python 字面量序列化（尾逗号收尾，利于 diff 与后续编辑） */
-function toPy(v: unknown, indent: number): string {
-  const pad = "    ".repeat(indent);
-  const padIn = "    ".repeat(indent + 1);
-  if (v === null) return "None";
-  if (typeof v === "boolean") return v ? "True" : "False";
-  // 数字与字符串的 JSON 字面量语法是 Python 合法子集（NaN/Infinity 不是合法 JSON，不会出现）
-  if (typeof v === "number") return JSON.stringify(v);
-  if (typeof v === "string") return JSON.stringify(v);
-  if (Array.isArray(v)) {
-    if (v.length === 0) return "[]";
-    return "[\n" + v.map((x) => `${padIn}${toPy(x, indent + 1)}`).join(",\n") + ",\n" + pad + "]";
-  }
-  if (typeof v === "object") {
-    const entries = Object.entries(v as Record<string, unknown>);
-    if (entries.length === 0) return "{}";
-    return (
-      "{\n" +
-      entries.map(([k, val]) => `${padIn}${JSON.stringify(k)}: ${toPy(val, indent + 1)}`).join(",\n") +
-      ",\n" + pad + "}"
-    );
-  }
-  return JSON.stringify(v);
-}
-
 /** JSON 文本 → Python dict/list 字面量（4 空格缩进）。
- *  返回 null = 不是完整合法 JSON 或不是对象/数组（标量不动）。纯函数（单测）。 */
+ *  返回 null = 不是完整合法 JSON 或不是对象/数组（标量不动）。纯函数（单测）。
+ *  序列化实现在 pyLiteral.ts（单一实现，curl2python 同源复用）。 */
 export function jsonToPythonLiteral(text: string): string | null {
   if (!looksLikeJson(text)) return null;
   let value: unknown;
@@ -57,7 +34,7 @@ export function jsonToPythonLiteral(text: string): string | null {
     return null;
   }
   if (value === null || typeof value !== "object") return null; // 标量 / JSON null 不动
-  return toPy(value, 0);
+  return pythonLiteralOf(value);
 }
 
 /** 编辑器 paste 拦截：返回 Disposable（入 lspProviders 统一收口）。 */

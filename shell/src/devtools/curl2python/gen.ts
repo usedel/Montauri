@@ -1,6 +1,7 @@
 // 由解析出的 CurlCommand 生成 Python requests 代码（风格对齐内置爬虫模板 reqget/reqpost）。
 
 import type { CurlCommand } from "./parse";
+import { pythonLiteralOf } from "../../pyLiteral";
 
 /** 生成 Python 字符串字面量（JSON 字符串与 Python 双引号字符串转义一致） */
 function pyStr(s: string): string {
@@ -55,9 +56,11 @@ function parseQuery(s: string): Record<string, string> {
   return out;
 }
 
-/** 格式化 dict（JSON 序列化即可作为合法 Python dict 字面量） */
+/** 格式化 dict（pyLiteral 单一实现：true/false/null → True/False/None。
+ *  原 JSON.stringify 实现对 JSON body 产出非法 Python——缺陷收口，登记见
+ *  dx_features_backlog §6.6 PR-M 关联登记） */
 function fmtDict(obj: unknown): string {
-  return JSON.stringify(obj, null, 4);
+  return pythonLiteralOf(obj);
 }
 
 export function generatePython(input: CurlCommand): string {
