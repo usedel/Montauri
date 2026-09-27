@@ -587,7 +587,7 @@ async function dispatchGit(cmd: string, args: Record<string, unknown>, repo: Git
 
 /** fs 命令白名单（未列出的 fs 命令直接报错，避免静默 null 引发前端崩溃难排查） */
 const FS_DISPATCH_CMDS = new Set(["list_dir", "read_dir", "read_file", "read_file_base64", "write_file",
-  "create_dir", "rename_path", "paste_path", "delete_file", "watch_start", "watch_stop", "list_workspace_files"]);
+  "create_dir", "create_file", "create_py_package", "rename_path", "paste_path", "delete_file", "watch_start", "watch_stop", "list_workspace_files"]);
 
 async function dispatchFs(cmd: string, args: Record<string, unknown>, repo: GitRepo): Promise<unknown> {
   const guard = (p: string): string => {
@@ -631,6 +631,22 @@ async function dispatchFs(cmd: string, args: Record<string, unknown>, repo: GitR
     }
     case "create_dir": {
       mkdirSync(guard(String(args.path)), { recursive: true });
+      return null;
+    }
+    // PR-K：对齐 Rust file_ops::create_file（已存在报错；父目录不存在自动创建）
+    case "create_file": {
+      const target = guard(String(args.path));
+      if (existsSync(target)) throw new Error(`文件已存在：${target}`);
+      mkdirSync(dirname(target), { recursive: true });
+      writeFileSync(target, "", "utf8");
+      return null;
+    }
+    // 对齐 Rust file_ops::create_py_package（目录 + 空 __init__.py 原子创建；已存在报错）
+    case "create_py_package": {
+      const pkg = guard(String(args.path));
+      if (existsSync(pkg)) throw new Error(`路径已存在：${pkg}`);
+      mkdirSync(pkg, { recursive: true });
+      writeFileSync(join(pkg, "__init__.py"), "", "utf8");
       return null;
     }
     case "rename_path": {
@@ -804,7 +820,7 @@ export async function equipPage(page: Page, repo: GitRepo, opts: { slowGitMs?: R
   const GIT_WRITE_CMDS = new Set(["git_stage", "git_unstage", "git_commit", "git_discard", "git_clean",
     "git_accept_current", "git_accept_incoming", "git_stash_push", "git_stash_pop", "git_stash_pop_at",
     "git_stash_drop_at", "git_checkout", "git_create_branch", "git_init"]);
-  const FS_WRITE_CMDS = new Set(["write_file", "create_dir", "rename_path", "delete_file"]);
+  const FS_WRITE_CMDS = new Set(["write_file", "create_dir", "create_file", "create_py_package", "rename_path", "delete_file"]);
 
   /** 模拟 Rust plugin watcher 推送 plugins-dir-changed（plugin_cmds.rs::watch_plugins_dir） */
   const emitPluginsDirChanged = (): void => {

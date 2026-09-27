@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "vitest run",
+    "test": "node scripts/vitest-launch.mjs",
     "tauri": "tauri"
   },
   "dependencies": {
@@ -23,7 +23,9 @@
   "devDependencies": {
     "@playwright/test": "^1.63.0",
     "@tauri-apps/cli": "^2.0.0",
-    "happy-dom": "^20.11.6",
+    "@types/node": "^26.6.3",
+    "happy-dom": "^18.0.1",
+    "jsdom": "^30.1.1",
     "typescript": "^5.6.0",
     "vite": "^6.0.0",
     "vitest": "^3.2.7"

@@ -14,6 +14,7 @@ import type * as MonacoApi from "monaco-editor/esm/vs/editor/editor.api";
 import { invoke } from "@tauri-apps/api/core";
 import { app } from "./state";
 import { toast } from "./toast"; // D-4：noqa 动作反馈（G-3）
+import { withRuffHint } from "./ruffHints"; // PR-L：规则码中文速释（追加进 marker 消息，hover 原生渲染）
 
 /** 后端 fs_cmds::RuffDiagnostic 的镜像 */
 export interface RuffDiagnostic {
@@ -165,7 +166,7 @@ export async function lintActiveFile(): Promise<void> {
     startColumn: d.column,
     endLineNumber: Math.max(d.end_line, d.line),
     endColumn: Math.max(d.end_column, d.column + 1),
-    message: d.code ? `${d.code} ${d.message}` : d.message,
+    message: withRuffHint(d.code, d.message), // PR-L：code 前缀 + 命中速释表时追加中文解释
     severity: severityFor(d.code),
     source: d.code ?? "ruff",
   }));

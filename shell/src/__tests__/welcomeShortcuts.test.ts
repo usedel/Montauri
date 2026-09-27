@@ -39,8 +39,11 @@ afterEach(() => {
 });
 
 describe("欢迎页快捷键网格（UI-25）", () => {
-  // v3.4 §17-7（M3-3.5）：run 拆为 run_script + run_project，网格 13 → 14 行
-  const ROW_COUNT = 14;
+  // 行数演进：13（UI-25 初版）→ 14（v3.4 §17-7 run 拆分）→ 17（PR-A 删除行/重开标签、
+  // PR-D 上一个编辑位置）→ 18（PR-G 转到文件内符号）→ 19（PR-J 触发补全建议）。
+  // 登记修复（2026-09-27）：本文件此前长期落在「本机 happy-dom 环境竞态」损坏名单内从未真正
+  // 执行，PR-A/D/G/J 四次加行均未同步此处断言；环境以 pool=vmThreads 绕过后本锁恢复生效。
+  const ROW_COUNT = 19;
 
   it("出厂键位：条目齐全，键位按 + 拆成独立 kbd 分段", () => {
     renderWelcomeShortcuts();
@@ -104,9 +107,10 @@ describe("欢迎页快捷键网格（UI-25）", () => {
     const labels = Array.from(document.querySelectorAll<HTMLElement>(".ew-shortcut .label")).map(
       (l) => l.textContent,
     );
-    expect(labels).toEqual([
+        expect(labels).toEqual([
       "保存文件", "全局搜索", "运行脚本", "运行项目", "跳转到定义", "查找引用", "格式化文档",
-      "启动调试", "关闭标签", "新建文件", "转到文件", "导航后退", "最近打开的文件", "打开设置",
+      "启动调试", "关闭标签", "删除行", "重新打开关闭的标签", "上一个编辑位置", "新建文件",
+      "转到文件", "转到文件内符号", "触发补全建议", "导航后退", "最近打开的文件", "打开设置",
     ]);
   });
 });

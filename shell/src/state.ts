@@ -70,6 +70,12 @@ export interface Settings {
   trim_trailing_whitespace: boolean;
   /** 保存时确保文件以换行结束（PR-C；仅显式保存） */
   final_newline: boolean;
+  /** 新建 .py/.pyw 文件后自动插 header 文件头模板（PR-K · dx_features_backlog §6.6；
+   *  默认关——避免污染草稿流；草稿（Ctrl+Alt+Shift+Insert）不走此路径天然豁免） */
+  new_file_template: boolean;
+  /** 粘贴 JSON 自动转 Python dict 字面量（PR-M · dx_features_backlog §6.6；默认开——
+   *  单次 executeEdits = 单一撤销粒度，Ctrl+Z 一步回原文，非破坏性） */
+  paste_json_to_python: boolean;
   /** D-4：ruff 规则严重度映射——E（pycodestyle 风格）/ W（pycodestyle 警告）/
    *  F（pyflakes）三类规则各自的显示级别："hint" | "info" | "warning" | "error"
    *  （其余规则类别回落 warning；非法值由 ruffLint.ts 归一化为 warning） */
@@ -135,6 +141,10 @@ export const DEFAULT_SETTINGS: Settings = {
   // PR-C（PyCharm 对标）：保存清理默认开——「保存即干净」，不影响 autosave 静默落盘
   trim_trailing_whitespace: true,
   final_newline: true,
+  // PR-K：新建 .py 文件自动插文件头模板，默认关（避免污染草稿流；须与 Rust Settings::default 保持同步）
+  new_file_template: false,
+  // PR-M：粘贴 JSON 自动转 Python 字面量，默认开（Ctrl+Z 单步可撤；须与 Rust Settings::default 保持同步）
+  paste_json_to_python: true,
   // D-4：默认全 Warning（维持映射引入前的行为，默认值保守）
   ruff_severity_e: "warning",
   ruff_severity_w: "warning",

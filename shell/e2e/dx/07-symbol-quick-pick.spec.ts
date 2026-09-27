@@ -60,7 +60,8 @@ test("E-DX-SQ1 Ctrl+F12 搜符号并跳转到定义行", async ({ page }) => {
   const input = page.locator("#quick-open-input");
   await expect(input).toBeVisible({ timeout: 5_000 });
   // 占位符 = 符号模式（证明走的不是混搜/文件模式）
-  await expect(input).toHaveAttribute("placeholder", "搜索符号（已打开的文件，Enter 跳转）");
+  // PR-G2 扩展工作区级符号后占位符文案更新
+  await expect(input).toHaveAttribute("placeholder", "搜索符号（已打开文件 + 工作区，Enter 跳转）");
 
   await input.fill("calctot"); // 模糊（子序列）命中 calculate_total
   const row = page.locator("#quick-open-list .quick-open-item").first();

@@ -1,7 +1,7 @@
 # DX 顺手功能储备（PyCharm 对标 · 调研与推进清单）
 
 > 状态：调研完成，2026-09-26 二次核实（对照当前代码逐条验证事实底座，并新增缺口挖掘）；同日补齐详细实施计划（第 6 节），可直接按 PR 推进。
-> **进度（2026-09-27）**：第一梯队 PR-A~E 与第二梯队 PR-F/G/H/I/N 已全部落地（各节均有落地记录与验证基线）；PR-J 探针报告已出、**待人工验证**；剩余 PR-K / PR-L / PR-M / PR-G2 未启动。新会话续推请直接读 **6.8 进度快照**，再按 6.6/6.8 各落地记录恢复上下文。
+> **进度（2026-09-27）**：第一梯队 PR-A~E 与第二梯队 PR-F~N + PR-G2 **已全部落地**（各节均有落地记录与验证基线）；PR-J 人工验证已收口（Ctrl+Space 确认被中文 IME 吞键 → Alt+/ 备选键落地）。**DX 储备清单全部完成**。新会话续推请直接读 **6.8 进度快照**，再按 6.6/6.8 各落地记录恢复上下文。
 > 来源：import 别名补全（已落地）延伸出的「顺手/爽」功能调研。
 > 约定：本档与开发计划冲突时以 `python_ide_dev_plan_v2.md` 为准；实现落地区分 shell 侧（纯前端/自研命令）与引擎侧（pyrefly/intel）。
 > 核实方法：对第 2 节每条结论逐条回到代码验证（含行号）；另做了一轮 PyCharm 常见体验 × 现有模块的缺口盘点（结果并入第 3 节候选）。
@@ -275,6 +275,34 @@
 | PR-I · 双击词查找引用 | 默认双击保持选词不破坏习惯；新增 **Ctrl+Shift+双击 = 查找引用**：编辑器 mouse 事件里判定 `e.event.shiftKey && ctrlKey` + 词非空 → `findUsages`（手势先例 Double Shift，`main.ts:2031-2047`；引用面板已有 `waitReferencesStable` 防抖） |
 | PR-F · 保存语法错误提示 | `saveTab` 写盘前 `monaco.editor.getModelMarkers({ resource: model.uri })` 查 error 级 → toast「N 处语法错误（已保存）」，**不阻止保存**。**owner 实测结论（2026-09-26）**：三桶 = `opencharm-lsp` / `opencharm-intel`（`lsp/client.ts:1523`）+ `opencharm-ruff`（`ruffLint.ts:29`）；查全量（不带 owner 过滤）即可，与 `quickFix.ts:233-234` 双桶口径一致且更宽。走 `runActions` 门控：autosave / 运行前落盘不提示（自动化场景不打扰） |
 | PR-K · 新建 .py 模板 | 设置 `new_file_template: boolean`（默认 false）；挂在新建文件流程，模板体复用 `live-templates/builtin.ts:248` header 模板；只对工作区新建生效，草稿（Ctrl+Alt+Shift+Insert）不插 |
+
+**PR-K 落地记录（2026-09-27，已实现并全绿）**：
+- **现状核实修正（比本档调研记录更进一步）**：调研记「新建文件为空」，实测文件树右键「新建 Python 文件」入口（`createPyFileAt`）**当时已会**无条件插 header 模板（无开关）；普通「新建文件」新建 .py 后缀仍为空。故本 PR 实际 = ①补设置开关门控（收敛两个入口为同一语义）；②普通「新建文件」输入 .py/.pyw 后缀也走模板。
+- 设置项 `new_file_template`（**默认 false**，按本档「避免污染草稿流」；旧配置缺字段 `?? DEFAULT_SETTINGS` 兜底关）全链：state.ts + index.html 开关 + settingsPanel 三步接线 + Rust struct/Default 同步。
+- 新增零依赖纯函数模块 `shell/src/newFileTemplate.ts`（`headerTemplateApplies(path, enabled)`：开关开 且 .py/.pyw 后缀大小写不敏感）——门控判定单一实现，禁止两入口漂移；`fileTree.ts` 两入口经 `insertHeaderIfEnabled` 共用。**行为变更登记**：`createPyFileAt` 由无条件插改为受开关门控（默认关，专属入口默认不再插文件头）。
+- 草稿（`newScratch`）不走新建文件流程天然豁免，未改动。
+- **e2e 环境缺口补齐（值得登记）**：tauri-mock 的 `FS_CMDS` 与 helpers 的 `FS_DISPATCH_CMDS` 此前**都没映射 `create_file`/`create_py_package`**——新建文件流程从未被 e2e 覆盖过（调研记「新建文件为空」却无人发现的根因）。已按 Rust `file_ops.rs` 语义补齐（已存在报错、父目录自动创建、写命令推送 fs-changed）。
+- **e2e 实测两坑（已就地注释）**：① autosave=off 下模板插入只改内存 model 不落盘，断言必须走 `app.tabs[].model.getValue()` 而非磁盘 `repo.read()`；② boot 早期（未开任何文件）Ctrl+Alt+S 键位分发未就绪，开设置面板用标题栏 `#btn-settings` 按钮。
+- e2e `e2e/dx/11-new-file-template.spec.ts`（2 例）：NT1 默认关 → 新建 Python 文件为空；NT2 开关开 → 自动插 `# -*- coding: utf-8 -*-` 文件头。
+- 验证基线：`tsc` 全绿 · vitest newFileTemplate 5/5 · `cargo test` 218 全绿 · **e2e dx 域 25/25 全绿**（含真实 pyrefly 桥 2 例）。
+
+**PR-L 落地记录（2026-09-27，已实现并全绿）**：
+- 新增 `shell/src/ruffHints.ts`：`RUFF_HINTS` 精确规则码 → 中文速释表（首发 ~60 条，覆盖 E/W/F/I/N/UP/B/C4/SIM/RET/ARG/A/DTZ/ERA/S/T/RUF 等常见类别）+ `withRuffHint(code, message)` 纯函数（命中时在 `<code> <message>` 后追加 `\n\n〔速释〕<解释>`）。
+- **落点比计划更轻**：计划设想「hover 补人话解释」，实际直接追加进 marker `message`（`ruffLint.ts` 构造处一行接入）——Monaco 诊断 hover 原生渲染多行消息，**无需自建 hover provider**，且问题面板/悬停两处同时受益。
+- 维护纪律（已写进模块头注释 + 测试锁）：键为精确码不支持通配；解释「可执行」且以句号收尾；条目量上下限防意外清空/无限膨胀（`__tests__/ruffHints.test.ts` 8 例，含表卫生断言）。
+- e2e 基建：mock 的 `ruff_lint` 支持 `window.__E2E_RUFF_LINT__` 预置诊断数组（仿 `__E2E_SETTINGS_PRESET__` 先例），使 marker 链路首次可被 e2e 覆盖。
+- e2e `e2e/dx/12-ruff-hints.spec.ts`（2 例）：RH1 命中规则码追加〔速释〕段；RH2 未命中保持原形态 + 严重度映射不受速释影响。被测边界 = ruffLint marker 构造链路（hover 渲染是 Monaco 原生行为）。
+- 顺带修复 PR-K 的 e2e flake：`dx/11` NT2 在 boot 未就绪时点「设置」按钮会被吞——点击前先等树渲染完成（两轮连跑确认消除）。
+- 验证基线：`tsc` 全绿 · vitest ruffHints 8/8 · e2e dx 27/27 全绿（无 Rust 改动，cargo 不涉及）。
+
+**PR-M 落地记录（2026-09-27，已实现并全绿）**：
+- 新增 `shell/src/pasteJson.ts`：`jsonToPythonLiteral` 纯函数（完整合法 JSON 对象/数组 → 4 空格缩进 Python 字面量，尾逗号收内层；true/false/null → True/False/None；标量与非法 JSON 返回 null 不动）+ `installPasteJson`（`onDidPaste` 拦截：读粘贴范围 → 转换 → `executeEdits` 单次替换）。
+- **语义收紧（比调研要点更严）**：只认 trim 后以 `{`/`[` 开头的**完整** JSON——裸 `true`/`42`/字符串一律不改写，避免误改用户要贴的原文；仅 `.py`/`.pyw` 文件触发。
+- 设置项 `paste_json_to_python`（**默认开**——单次 executeEdits = 单一撤销粒度，Ctrl+Z 一步回原文，非破坏性；`!== false` 兼容旧配置）全链：state.ts + index.html 开关 + settingsPanel 三步接线 + Rust struct/Default 同步。main.ts 经 `lspProviders.add(installPasteJson(app.editor))` 收口。
+- **e2e 实测坑（已就地注释）**：① 粘贴须走真实浏览器剪贴板 + Ctrl+V（`test.use permissions clipboard-*`）——`keyboard.insertText` 不触发 Monaco paste 管线，`onDidPaste` 不 fire；② 运行时 `app.settings.paste_json_to_python = false` 会被 boot 后的设置装载竞态覆盖，关闭开关的用例必须走 `__E2E_SETTINGS_PRESET__` 预置通道 + reload。
+- e2e `e2e/dx/13-paste-json.spec.ts`（2 例）：PJ1 粘贴完整 JSON 就地转 Python 字面量（True/None/无 true/null 残留）；PJ2 预置关闭后原样保留。
+- 验证基线：`tsc` 全绿 · vitest pasteJson 8/8 · `cargo test` 218 全绿 · **e2e dx 域 29/29 全绿**（含真实 pyrefly 桥 2 例）。
+- **关联登记（不在本 PR 修）**：`devtools/curl2python/gen.ts::fmtDict` 用 `JSON.stringify` 冒充 Python dict 字面量，true/false/null 三值不合法——属 curl2python 的既存潜在缺陷，后续可复用 `jsonToPythonLiteral` 收口（单独立项）。
 | PR-J · Ctrl+Space IME 探针 | 纯探针项：WebView2 + 中文 IME 下 Ctrl+Space 是否被系统输入法切换吞掉（Windows 惯例冲突）；产出结论：若被吞，注册 `Alt+/` 为「触发建议」备选键位（editor 级 + 键位表登记）；不被吞则只登记结论 |
 
 另有三项未入 6.6 表（排期见 6.8）：**PR-L · ruff 规则中文速释**（ruffLint hover 补人话解释表，首发 30~50 条常见规则，量在内容无技术风险）· **PR-M · 粘贴 JSON → Python dict**（paste 拦截 + `devtools/jsonpath` 解析复用，设置开关，嵌套边界用例：true/False、null/None、引号转义）· **PR-N · 参数名行内提示**（唯一探针前置项：pyrefly 1.3.0 是否支持 `textDocument/inlayHint` 未验证，PR-E 已证明该引擎能力有缺口，不能想当然；不支持则登记放弃，禁止 shell 侧自研类型推断）。
@@ -317,6 +345,14 @@
 - **冲突性质**：Windows 中文输入法默认把 Ctrl+Space 用作「输入法开关」系统热键，是否先于 WebView2 被系统消费，取决于用户本机的 IME 设置（多数 IME 可关闭该热键，但默认开启）。
 - **能否自动验证：不能**（这是本次探针的结论性判断）：浏览器 e2e 是 mock 无 IME 层；CDP / 合成键事件**绕过 IME**，只能验证应用内链路（已由 lsp/01 的补全用例覆盖），无法证明「系统是否吞键」。真机结论只能**人工复现**：切到中文输入法 → 编辑器内按 Ctrl+Space → 观察是切输入法还是弹补全。
 - **决策建议**（低成本零风险，待裁决）：无论是否被吞，都可新增可配置键位 `trigger_suggest`（`Alt+/`，editor 级，keybindingDefaults + Rust 漂移锁 55→56 + 命令面板入口）——保证任何 IME 配置下都有可用入口，且不动固定键语义；若人工验证确认未被吞，则只保留本报告的登记结论。
+
+**PR-J 人工验证结论 + 落地记录（2026-09-27，已实现并全绿）**：
+- **人工验证（Windows 11 + 微软拼音）**：切中文输入法 → 编辑器内按 Ctrl+Space → **执行的是输入法中英切换**，补全未弹出——确认系统 IME 热键先于 WebView2 消费该键。按决策建议落地备选键。
+- 键位 `trigger_suggest: Alt+/`（editor 级；可重绑可发现，不走「固定键」路线）全链：`keybindingDefaults.ts`（id + META 条目）→ `keybindings.ts` handler（`editor.action.triggerSuggest`，带 `.action` 前缀，同 deleteLines 家族）→ Rust `settings.rs` default_keybindings + **两处条目数断言 55→56** → 命令面板入口（走 `triggerEditorKeybindingAction` 同 handler）→ welcomeShortcuts 网格。
+- Ctrl+Space 本体不动（Monaco 内建固定键；IME 未吞键的配置下仍可用）。
+- e2e `e2e/dx/14-trigger-suggest.spec.ts`（1 例）：输入 `s.` 自动弹补全 → Escape 关闭 → **Alt+/ 重新唤起** 且含 str 成员——证明键位解析与 handler 接线正确（IME 吞键本身无法在浏览器 e2e 复现，探针报告已论证）。
+- e2e 实测坑：dblclick 打开文件后焦点留在文件树（`focusEditor:false`），键入前必须点进编辑器，否则按键全部丢失。
+- 验证基线：`tsc` 全绿 · `cargo test` 218 全绿（56 断言生效）· **e2e dx 域 30/30 两轮全绿**。
 
 **PR-N 落地记录（2026-09-27，已实现并全绿）**：
 - **零 Rust 改动的推送方案（与计划的一处偏差）**：`lsp.rs` 不需要加 didChangeConfiguration 通道——TS 桥本来就有 `notifyEngine`，`client.ts::pushInlayHintSettings()` 直接发 `workspace/didChangeConfiguration`（Pyright 兼容形态 `python.analysis.inlayHints.callArgumentNames`）。调用点两处：`startEngine` 就绪后 + `settingsPanel.saveSettingsPanel`（开关即时生效，无需重启引擎）。
@@ -375,17 +411,27 @@
 | PR-G 文件内符号 Quick Pick | ✅ 已落地（e2e dx/07，Ctrl+F12，漂移锁 55） | 6.6 PR-G 落地记录 |
 | PR-H 全局搜索正则 + 文件 glob | ✅ 已落地（e2e dx/08，Cargo 只加 `regex`，掩码走 ignore overrides） | 6.6 PR-H 落地记录 |
 | PR-I Ctrl+Shift+双击查找引用 | ✅ 已落地（e2e dx/09；**不能用 DOM dblclick**，见记录三条实测） | 6.6 PR-I 落地记录 |
-| PR-J Ctrl+Space IME 探针 | ⏸ **待人工验证**（探针报告在 6.6 末尾；结论：无法自动验证 IME 吞键，人工复现后再定是否补 `Alt+/` 备选键） | 6.6 PR-J 探针报告 |
-| PR-K 新建 .py 模板 | ☐ 未启动（实施要点见 6.6 表） | — |
-| PR-L ruff 规则中文速释 | ☐ 未启动（未入 6.6 表的三项之一，要点见 6.6 表后段落） | — |
-| PR-M 粘贴 JSON → Python dict | ☐ 未启动（同上） | — |
-| PR-G2 工作区级符号 Quick Pick | ☐ 未启动（复用 autoImport.ts 的 G-1 索引；v2 扩展 PR） | — |
+| PR-J Ctrl+Space IME 探针 | ✅ 已落地（人工验证确认吞键 → `trigger_suggest: Alt+/` 备选键全链 + e2e dx/14，键位表 55→56） | 6.6 PR-J 落地记录（探针报告 + 人工验证结论） |
+| PR-K 新建 .py 模板 | ✅ 已落地（e2e dx/11，默认关；**mock 桥补齐 create_file 映射**、`createPyFileAt` 改为门控，见落地记录） | 6.6 PR-K 落地记录 |
+| PR-L ruff 规则中文速释 | ✅ 已落地（e2e dx/12；速释表 `ruffHints.ts` 首发 ~60 条，hover 经 marker 消息原生渲染） | 6.6 末尾 PR-L 落地记录 |
+| PR-M 粘贴 JSON → Python dict | ✅ 已落地（e2e dx/13，默认开、单步可撤；`pasteJson.ts` 纯函数 + onDidPaste 拦截） | 6.6 末尾 PR-M 落地记录 |
+| PR-G2 工作区级符号 Quick Pick | ✅ 已落地（e2e dx/15；复用 G-1 索引加 file/line 字段 + 就绪订阅，键位仍 Ctrl+F12） | 6.8 末尾 PR-G2 落地记录 |
 
 **续推须知（恢复上下文的最短路径）**：
 1. 各 PR 的实测坑与「计划 → 实现差异」全部写在 6.6/6.8 的落地记录里，动手前先读对应记录（尤其 PR-I 的 DOM dblclick 三条、PR-H 的 min-width 溢出、PR-N 的推送时序/pyproject.toml/e2e 定位三条）；
-2. 当前验证基线：`cargo test` 218 全绿 · vitest 292 例全过（33 个 DOM 测试文件为本机 Node 24 先在性损坏，CI 正常）· e2e 全量 153 例（`git/11-gutter-hunks` 在全量高负载下偶发 flake，单独复跑全绿）；
-3. 键位表现状 **55 项**（Rust 漂移锁两处断言同步 54→55；`keybindings.test.ts` 本机跑不了，CI 兜底）；
-4. 第二梯队剩余项均为独立 PR，按 6.7 通用验收执行即可；PR-J 的人工验证方法：切中文输入法 → 编辑器内按 Ctrl+Space → 观察是切输入法还是弹补全。
+2. 本机验证基线（2026-09-27 更新）：`cargo test` 218 全绿 · `tsc` 全绿 · e2e dx 域 30/30 全绿（含真实 pyrefly 桥 2 例）；vitest 单测以 CI 为准（本机 vitest 环境受限，见第 3 条）；
+3. **本机 vitest 环境已修复（2026-09-27）**：原「33 个 DOM 测试文件先在性损坏」根因有三层，全部定位并修复——① **盘符大小写**：从小写 `d:` 进入时 worker 模块解析与 runner 全局状态不一致（vitest#10812 同族），修复 = `scripts/vitest-launch.mjs` 启动器先 chdir 到 realpath 再拉起 vitest（Linux CI realpath 幂等无影响）；② **Node 22.4+ 实验性 webstorage**：全局 localStorage 被 Node 不可用实现占位，happy-dom populateGlobal 检测到键存在即跳过填充 → 测试里 localStorage undefined，修复 = 启动器注入 `--no-experimental-webstorage`（Linux CI 本由 happy-dom 提供，无行为变化）；③ **happy-dom 20.11.6 的多文件循环 teardown 缺陷**，修复 = 降级至同代 18.0.1（package.json/lock 已同步，CI 需注意重新验证）；另显式补声明 `@types/node`（此前靠传递依赖顶层提升碰巧可用）与 welcomeShortcuts 行数锁 14→19（PR-A/D/G/J 加行时因环境损坏欠账）。**验证：`npm run test` 全量 vitest 67 文件 / 331 用例三连全绿（小写盘符进入复现条件）**。npm run test 已接入启动器，用法不变；
+4. **第二梯队全部收官**（PR-G2 已落地，见 6.8 末尾记录）；DX 储备清单无剩余项——后续可从第三梯队（Extract refactor 探针）或 import 别名链路已知边界（§1 登记的三条）另立新档。
+
+#### PR-G2 落地记录（2026-09-27，已实现并全绿；第二梯队至此全部收官）
+- **数据源复用（按计划）**：quickOpen symbol 模式（Ctrl+F12）在已打开 tab 的 documentSymbol（PR-G）之外，并入 `autoImport.ts` 的 G-1 工作区顶层符号索引（PR-E 落地，同一份索引双消费方，无新建扫描管线）。
+- **索引能力扩展**（autoImport.ts）：`topLevelSymbolNames` 增加 `line`（1-based 行号，纯函数）；`IndexSymbol` 增加 `file`（绝对路径）/`line` 字段——quickOpen 跳转需要文件+行号，auto-import 语义不受影响；新增 `workspaceSymbolsSnapshot(root)`（顺带触发后台构建）与 `onWorkspaceIndexReady(cb)` 就绪订阅（构建完成后 fire，一次性退订）。
+- **排序与去重语义**：已打开标签的文件由 documentSymbol 覆盖（含方法/嵌套层级，质量更高），工作区符号**跳过这些文件**避免双条目；G-1 只有顶层符号无容器名，给 **-3 小罚分**排在同分 tab 符号之后（罚分 < 连续匹配 +8 的档位差，不淹没强候选）。
+- **首开体验**：symbol 模式秒开只等 documentSymbol（PR-G 口径不变）；G-1 未就绪时先展示 tab 符号，索引构建完成后经订阅**重刷一次**（token 守卫防旧弹窗覆盖；一次性订阅自动退订）。
+- 占位符文案更新：「搜索符号（已打开文件 + 工作区，Enter 跳转）」——**dx/07 的精确断言已同步**（存量 spec 漂移点）。
+- e2e `e2e/dx/15-workspace-symbols.spec.ts`（2 例）：WS1 未打开文件的顶层 def 在列（sub=`b.py:6`）→ Enter 跳转且光标落定义行；WS2 类与顶层赋值（var）同样可搜可跳（util.py:1）。
+- 全量回归登记：dx 域合跑曾出现 10 例失败 + artifacts ENOENT，失败子集单独复跑 11/11 全绿、再跑全量 32/32 全绿——判定高负载环境 flake（方法论同 PR-E 验收登记），非真实回归。
+- 验证基线：`tsc` 全绿 · vitest autoImport 10/10（新增 CRLF 行号用例）· **e2e dx 域 32/32 全绿**（含真实 pyrefly 桥 2 例；无 Rust 改动）。
 
 #### PR-N 探针报告（2026-09-26 D1 PM 实测，pyrefly 1.3.0 裸 LSP 会话，脚本复用 PR-E 探针骨架）
 

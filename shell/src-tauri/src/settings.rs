@@ -89,6 +89,8 @@ fn default_keybindings() -> HashMap<String, String> {
     m.insert("recent_edit_locations".into(), "Ctrl+Shift+Backspace".into());
     // PR-G（dx_features_backlog §6.6）：文件内符号 Quick Pick（PyCharm Ctrl+F12 同款）
     m.insert("goto_symbol".into(), "Ctrl+F12".into());
+    // PR-J（dx_features_backlog §6.6）：触发补全建议备选键（Ctrl+Space 被中文 IME 吞键，人工验证）
+    m.insert("trigger_suggest".into(), "Alt+/".into());
     m
 }
 
@@ -127,6 +129,10 @@ pub struct Settings {
     pub trim_trailing_whitespace: bool,
     /// 保存时确保文件以换行结束（PR-C；仅显式保存触发；须与前端同步）
     pub final_newline: bool,
+    /// 新建 .py/.pyw 文件后自动插 header 文件头模板（PR-K；默认关；须与前端 new_file_template 同步）
+    pub new_file_template: bool,
+    /// 粘贴 JSON 自动转 Python dict 字面量（PR-M；默认开，Ctrl+Z 可撤；须与前端同步）
+    pub paste_json_to_python: bool,
     /// 调试「只步进我的代码」（B-3：不误入 site-packages；改动需重启调试会话生效）
     pub debug_just_my_code: bool,
     /// 自动保存："off" | "delay" | "blur"
@@ -191,6 +197,10 @@ impl Default for Settings {
             inlay_param_hints: true,
             trim_trailing_whitespace: true,
             final_newline: true,
+            // PR-K：默认关（避免污染草稿流；与前端 DEFAULT_SETTINGS 保持一致）
+            new_file_template: false,
+            // PR-M：默认开（Ctrl+Z 单步可撤；与前端 DEFAULT_SETTINGS 保持一致）
+            paste_json_to_python: true,
             // B-3（PyCharm 调研）：只步进我的代码，默认开
             debug_just_my_code: true,
             // autosave 默认 delay 2s（须与前端 DEFAULT_SETTINGS 保持同步）
@@ -350,8 +360,10 @@ mod tests {
         assert_eq!(d.keybindings.get("recent_edit_locations").map(String::as_str), Some("Ctrl+Shift+Backspace"));
         // PR-G（dx_features_backlog §6.6）：文件内符号 Quick Pick
         assert_eq!(d.keybindings.get("goto_symbol").map(String::as_str), Some("Ctrl+F12"));
+        // PR-J（dx_features_backlog §6.6）：触发补全建议备选键（Ctrl+Space 被中文 IME 吞键，人工验证）
+        assert_eq!(d.keybindings.get("trigger_suggest").map(String::as_str), Some("Alt+/"));
         // 键位表条目数 = 前端 KEYBINDING_META 条目数（漂移锁，新增键须同步改这里）
-        assert_eq!(d.keybindings.len(), 55);
+        assert_eq!(d.keybindings.len(), 56);
         assert_eq!(d.optimize_imports_on_save, false);
     }
 
@@ -408,7 +420,9 @@ mod tests {
         assert_eq!(s.keybindings.get("move_line_down").map(String::as_str), Some("Ctrl+Shift+Down"));
         // PR-A：键位补齐组同步（与上方 default_keybindings 断言同批）
         assert_eq!(s.keybindings.get("delete_line").map(String::as_str), Some("Ctrl+Y"));
-        assert_eq!(s.keybindings.len(), 55);
+        // PR-J：触发补全建议备选键（与 default_keybindings 断言同批）
+        assert_eq!(s.keybindings.get("trigger_suggest").map(String::as_str), Some("Alt+/"));
+        assert_eq!(s.keybindings.len(), 56);
         assert_eq!(s.optimize_imports_on_save, false); // 旧配置文件无此字段 → 默认关闭
     }
 }

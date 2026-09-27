@@ -50,6 +50,8 @@ const SHORTCUTS: WelcomeShortcut[] = [
   { label: "转到文件", kb: "goto_file" },
   // PR-G（dx_features_backlog §6.6）：文件内符号 Quick Pick
   { label: "转到文件内符号", kb: "goto_symbol" },
+  // PR-J（dx_features_backlog §6.6）：触发补全建议备选键（Ctrl+Space 被中文 IME 吞键，人工验证）
+  { label: "触发补全建议", kb: "trigger_suggest" },
   { label: "导航后退", kb: "nav_back" },
   { label: "最近打开的文件", kb: "recent_files" },
   { label: "打开设置", kb: "open_settings" },

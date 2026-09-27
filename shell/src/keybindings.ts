@@ -295,6 +295,12 @@ export function initKeybindingCommands(monaco: MonacoModule): void {
   setKeybindingHandler("jump_to_bracket", () => {
     app.editor.trigger("keybindings", "editor.action.jumpToBracket", null);
   });
+  // PR-J（dx_features_backlog §6.6）：触发补全建议的备选键（Alt+/）。Ctrl+Space 是 Monaco 内建
+  // 固定键且被 Windows 中文 IME 吞键（人工验证），此处注册可配置的保底入口；Monaco 0.52 命令 id
+  // 为 "editor.action.triggerSuggest"（带 .action 前缀，同 deleteLines 家族）
+  setKeybindingHandler("trigger_suggest", () => {
+    app.editor.trigger("keybindings", "editor.action.triggerSuggest", null);
+  });
   for (const m of KEYBINDING_META) {
     if (m.scope !== "editor") continue;
     monaco.editor.addCommand({

@@ -46,6 +46,7 @@
   };
 
   var FS_CMDS = ["list_dir", "read_dir", "read_file", "read_file_base64", "write_file", "create_dir",
+    "create_file", "create_py_package",
     "rename_path", "paste_path", "delete_file", "watch_start", "watch_stop"];
 
   function bridge() {
@@ -121,7 +122,11 @@
     format_python: function () { return { formatted: null, message: "E2E mock：ruff 未接入" }; },
     optimize_imports: function () { return { formatted: null, message: "E2E mock：ruff 未接入" }; },
     // ruff lint / 终端 shell 探测（近期功能：mock 兜底防 null 被迭代 pageerror）
-    ruff_lint: function () { return []; },
+    // PR-L：测试可经 window.__E2E_RUFF_LINT__ 预置诊断数组（RuffDiagnostic 形状）；无预置返回空
+    ruff_lint: function () {
+      var preset = window.__E2E_RUFF_LINT__;
+      return Array.isArray(preset) ? preset : [];
+    },
     list_shells: function () { return ["pwsh", "powershell", "cmd"]; },
     // P2：文件对话框（plugin-dialog）——测试经 window.__E2E_DIALOG_PRESET__ 预置返回值
     // （open/save 无预置时返回 null = 用户取消，避免用例挂起）

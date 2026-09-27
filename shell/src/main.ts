@@ -34,6 +34,7 @@ import { registerAutoImportCompletion, resetAutoImportIndex } from "./autoImport
 import { initRenameWidget, setAfterRenameHandler } from "./renameWidget";
 import { initClipboardDiffAction } from "./clipboardDiff"; // C-5：与剪贴板对比（右键菜单）
 import { initNoqaAction } from "./ruffLint"; // D-4：忽略此规则（# noqa，右键菜单）
+import { installPasteJson } from "./pasteJson"; // PR-M（dx_features_backlog §6.6）：粘贴 JSON → Python 字面量
 import { initQuickFixActions, resetQuickFixCache } from "./quickFix"; // P4：D-1 缺失 import 兜底 + D-2 就地创建符号
 import * as splitEditor from "./splitEditor"; // P4（C-4）：向右分屏（handlers 注入，防 settingsPanel 成环）
 import { recordClosedTab, reopenClosedTab, resetTabReopen, setTabReopenHandlers } from "./tabReopen"; // PR-A（dx_features_backlog §6.1）：重开关闭的标签
@@ -1371,6 +1372,8 @@ function buildQuickOpenActions(): QuickOpenAction[] {
     { id: "run_history", label: "运行历史", run: () => openRunHistory() },
     { id: "goto_file", label: "转到文件", run: () => void openQuickOpen("files") },
     { id: "goto_symbol", label: "转到文件内符号", run: () => kb.triggerEditorKeybindingAction("goto_symbol") },
+    // PR-J：触发补全建议备选键（Ctrl+Space 被中文 IME 吞键，人工验证；handler 在 keybindings.ts）
+    { id: "trigger_suggest", label: "触发补全建议", run: () => kb.triggerEditorKeybindingAction("trigger_suggest") },
     { id: "goto_line", label: "转到行 / 列", run: () => void openQuickOpen("line") },
     { id: "goto_definition", label: "跳转定义", run: () => void lsp.gotoDefinitionAtCursor(app.editor) },
     { id: "global_search", label: "全局搜索", run: () => setSidebarTab("search") },
@@ -1957,6 +1960,7 @@ async function init(): Promise<void> {
   lspProviders.add(initRenameWidget(app.editor)); // F2 就地重命名 + 右键菜单「重命名…」
   lspProviders.add(initClipboardDiffAction(app.editor)); // C-5：右键菜单「与剪贴板对比」
   lspProviders.add(initNoqaAction(app.editor)); // D-4：右键菜单「忽略此规则（# noqa）」
+  lspProviders.add(installPasteJson(app.editor)); // PR-M：粘贴 JSON → Python 字面量（onDidPaste 拦截）
   initQuickFixActions(); // P4：D-1/D-2 自研快速修复（Ctrl+. 灯泡；registerCodeActionProvider 自持 dispose 无需入 store）
   lspProviders.add(lsp.registerLspSignatureHelp()); // 签名帮助（参数提示）
   lspProviders.add(lsp.registerLspCodeAction()); // Ctrl+. 快速修复

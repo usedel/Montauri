@@ -19,6 +19,7 @@ import { hideEl, showEl } from "./anim";
 import { trapFocus } from "./focusTrap";
 import { KEYBINDING_META, bindingLabel } from "./keybindings";
 import * as lsp from "./lsp/client";
+import { onWorkspaceIndexReady, workspaceSymbolsSnapshot } from "./autoImport"; // PR-G2：工作区级符号
 import { app } from "./state";
 import { basename, codicon, emptyState, relativePath, renderFileIcon, symbolIcon } from "./util";
 
@@ -208,6 +209,12 @@ function actionHint(a: QuickOpenAction): string {
   return meta ? bindingLabel(meta.id) : "";
 }
 
+/** PR-G2：G-1 索引的符号类型（"def"|"class"|"var"）→ LSP SymbolKind（复用 symbolIcon 图标管线）。
+ *  数值定义同 LSP 规范：12=Function / 5=Class / 13=Variable。纯函数（可单测）。 */
+export function wsKindToLsp(kind: "def" | "class" | "var"): number {
+  return kind === "def" ? 12 : kind === "class" ? 5 : 13;
+}
+
 function buildItems(mode: QuickOpenMode, query: string): Item[] {
   const out: Item[] = [];
   if (mode === "line") return out; // 行号模式不参与列表检索
@@ -268,6 +275,28 @@ function buildItems(mode: QuickOpenMode, query: string): Item[] {
         filePath: s.path,
         run: () => handlers?.openFile(s.path, s.line),
       });
+    }
+    // PR-G2（dx_features_backlog §6.6）：工作区级符号（G-1 索引，PR-E 落地的同一份数据源）。
+    // 已打开标签的文件由上方 documentSymbol 覆盖（含方法/嵌套层级，质量更高），此处跳过；
+    // G-1 只有顶层符号且无容器名，给 -3 小罚分让它稳定排在同分 tab 符号之后
+    //（罚分量 < 连续匹配 +8 的档位差，不会淹没强候选）。
+    const root = app.workspaceRoot;
+    if (root) {
+      const openPaths = new Set(app.tabs.map((t) => t.path));
+      for (const s of workspaceSymbolsSnapshot(root).symbols) {
+        if (openPaths.has(s.file)) continue;
+        const score = fuzzyScore(s.name, q);
+        if (score === null) continue;
+        out.push({
+          kind: "symbol",
+          title: s.name,
+          sub: `${basename(s.file)}:${s.line}`,
+          score: score - 3,
+          icon: symbolIcon(wsKindToLsp(s.kind)),
+          filePath: s.file,
+          run: () => handlers?.openFile(s.file, s.line),
+        });
+      }
     }
   }
 
@@ -338,7 +367,7 @@ function rememberQuery(q: string): void {
 const PLACEHOLDERS: Record<QuickOpenMode, string> = {
   all: "搜索文件 / 符号 / 命令（支持 :行号）",
   files: "搜索文件名（支持 :行号）",
-  symbol: "搜索符号（已打开的文件，Enter 跳转）",
+  symbol: "搜索符号（已打开文件 + 工作区，Enter 跳转）",
   line: "行号 或 行:列，Enter 跳转，Esc 关闭",
   commands: "输入命令名（Ctrl+Shift+P）",
 };
@@ -465,6 +494,16 @@ async function refresh(): Promise<void> {
     await ensureSymbols();
     if (token !== loadToken) return;
     items = buildItems(mode, inputEl?.value ?? "");
+    // PR-G2：工作区符号索引未就绪时后台构建，完成后重刷一次（token 守卫防旧弹窗覆盖；
+    // 一次性订阅——重刷时 snapshot 已 ready，不会再挂回调）
+    const root = app.workspaceRoot;
+    if (root && !workspaceSymbolsSnapshot(root).ready) {
+      const off = onWorkspaceIndexReady(() => {
+        off();
+        if (token !== loadToken || !isQuickOpenOpen()) return;
+        void refresh();
+      });
+    }
   } else if (mode !== "line") {
     await Promise.all([ensureFiles(), ensureSymbols()]);
     if (token !== loadToken) return;

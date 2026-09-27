@@ -69,6 +69,10 @@ const settingsInlayParamHintsEl = $("settings-inlay-param-hints") as HTMLInputEl
 // PR-C（dx_features_backlog §6.3）：保存清理
 const settingsTrimTrailingEl = $("settings-trim-trailing") as HTMLInputElement;
 const settingsFinalNewlineEl = $("settings-final-newline") as HTMLInputElement;
+// PR-K（dx_features_backlog §6.6）：新建 .py 文件自动插文件头模板
+const settingsNewFileTemplateEl = $("settings-new-file-template") as HTMLInputElement;
+// PR-M（dx_features_backlog §6.6）：粘贴 JSON 自动转 Python 字面量
+const settingsPasteJsonEl = $("settings-paste-json") as HTMLInputElement;
 // B-3（PyCharm 调研）：调试只步进我的代码
 const settingsDebugJmcEl = $("settings-debug-jmc") as HTMLInputElement;
 const settingsAutosaveEl = $("settings-autosave") as HTMLSelectElement;
@@ -506,6 +510,10 @@ function fillForm(settings: Settings): void {
   settingsInlayParamHintsEl.checked = settings.inlay_param_hints !== false; // PR-N
   settingsTrimTrailingEl.checked = settings.trim_trailing_whitespace !== false; // PR-C
   settingsFinalNewlineEl.checked = settings.final_newline !== false;
+  // PR-K：默认关，旧配置缺字段时兜底关（与 DEFAULT_SETTINGS 同向，!== true 反向兼容不适用）
+  settingsNewFileTemplateEl.checked = settings.new_file_template ?? DEFAULT_SETTINGS.new_file_template;
+  // PR-M：默认开，旧配置缺字段兜底开（!== false 惯例）
+  settingsPasteJsonEl.checked = settings.paste_json_to_python !== false;
   settingsDebugJmcEl.checked = settings.debug_just_my_code !== false; // B-3
   settingsAutosaveEl.value = settings.autosave;
   settingsProbeEl.checked = settings.probe_enabled;
@@ -596,6 +604,8 @@ async function saveSettingsPanel(): Promise<void> {
   const inlayParamHints = settingsInlayParamHintsEl.checked; // PR-N
   const trimTrailing = settingsTrimTrailingEl.checked; // PR-C
   const finalNewline = settingsFinalNewlineEl.checked;
+  const newFileTemplate = settingsNewFileTemplateEl.checked; // PR-K
+  const pasteJson = settingsPasteJsonEl.checked; // PR-M
   const autosave = settingsAutosaveEl.value;
   const probeEnabled = settingsProbeEl.checked;
   const lspEngine = settingsEngineEl.value;
@@ -632,6 +642,8 @@ async function saveSettingsPanel(): Promise<void> {
     inlay_param_hints: inlayParamHints,
     trim_trailing_whitespace: trimTrailing,
     final_newline: finalNewline,
+    new_file_template: newFileTemplate, // PR-K
+    paste_json_to_python: pasteJson, // PR-M
     debug_just_my_code: settingsDebugJmcEl.checked, // B-3
     autosave,
     autosave_delay: app.settings.autosave_delay,

@@ -1,4 +1,5 @@
 // PR-E（dx_features_backlog §6.5）：auto-import 纯函数单测（无 Monaco/invoke 依赖）。
+// PR-G2：topLevelSymbolNames 增加 line（1-based）字段；IndexSymbol 增加 file/line（quickOpen 消费）。
 
 import { describe, expect, it } from "vitest";
 import {
@@ -10,28 +11,36 @@ import {
 } from "../autoImport";
 
 describe("topLevelSymbolNames", () => {
-  it("收集 def/class/顶层赋值，跳过缩进与注释", () => {
+  it("收集 def/class/顶层赋值，跳过缩进与注释；line 为 1-based 行号", () => {
     const src = [
-      "class DataFrame:",
+      "class DataFrame:",           // 1
       "    def head(self):  # 缩进方法不算",
       "        pass",
       "",
-      "def convert(obj): return obj",
-      "MAX_ROWS = 100",
+      "def convert(obj): return obj", // 5
+      "MAX_ROWS = 100",               // 6
       "# 注释行",
       "if __name__ == '__main__':",
       "    main()",
     ].join("\n");
     expect(topLevelSymbolNames(src)).toEqual([
-      { name: "DataFrame", kind: "class" },
-      { name: "convert", kind: "def" },
-      { name: "MAX_ROWS", kind: "var" },
+      { name: "DataFrame", kind: "class", line: 1 },
+      { name: "convert", kind: "def", line: 5 },
+      { name: "MAX_ROWS", kind: "var", line: 6 },
     ]);
   });
 
   it("块首关键字（else:/try:）不误收为 var；async def 收集", () => {
     const src = "async def fetch():\n    pass\n\nelse:\n    x = 1\n\ntry:\n    run()\n";
-    expect(topLevelSymbolNames(src)).toEqual([{ name: "fetch", kind: "def" }]);
+    expect(topLevelSymbolNames(src)).toEqual([{ name: "fetch", kind: "def", line: 1 }]);
+  });
+
+  it("CRLF 行尾行号正确（\\r\\n 不影响计数）", () => {
+    const src = "a = 1\r\n\r\ndef f():\r\n    pass\r\n";
+    expect(topLevelSymbolNames(src)).toEqual([
+      { name: "a", kind: "var", line: 1 },
+      { name: "f", kind: "def", line: 3 },
+    ]);
   });
 });
 
@@ -72,9 +81,9 @@ describe("autoImportContext", () => {
 });
 
 const INDEX: IndexSymbol[] = [
-  { module: "lib", name: "DataFrame", kind: "class" },
-  { module: "lib", name: "pd_convert", kind: "def" },
-  { module: "lib.mod", name: "DataBlk", kind: "class" },
+  { module: "lib", name: "DataFrame", kind: "class", file: "lib.py", line: 1 },
+  { module: "lib", name: "pd_convert", kind: "def", file: "lib.py", line: 9 },
+  { module: "lib.mod", name: "DataBlk", kind: "class", file: "lib/mod.py", line: 3 },
 ];
 
 describe("autoImportItems", () => {
@@ -106,6 +115,8 @@ describe("autoImportItems", () => {
       module: `m${i}`,
       name: `DataX${i}`,
       kind: "class" as const,
+      file: `m${i}.py`,
+      line: i + 1,
     }));
     expect(autoImportItems("data", many, "")).toHaveLength(5);
   });

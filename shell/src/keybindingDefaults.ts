@@ -74,7 +74,10 @@ export type KeybindingId =
   // PR-D（dx_features_backlog §6.4）：最近编辑位置（PyCharm Ctrl+Shift+Backspace 同款）
   | "recent_edit_locations"
   // PR-G（dx_features_backlog §6.6）：文件内符号 Quick Pick（PyCharm Ctrl+F12「文件结构」同位）
-  | "goto_symbol";
+  | "goto_symbol"
+  // PR-J（dx_features_backlog §6.6）：触发补全建议的可配置备选键——Ctrl+Space 是 Monaco 内建
+  // 固定键，实测被 Windows 中文输入法切换热键吞掉（2026-09-27 人工验证），Alt+/ 保底
+  | "trigger_suggest";
 
 export interface KeybindingMeta {
   id: KeybindingId;
@@ -171,4 +174,7 @@ export const KEYBINDING_META: KeybindingMeta[] = [
   // PR-G：文件内符号 Quick Pick（PyCharm Ctrl+F12 同款；editor 级——符号列表依附编辑器上下文。
   // handler 在 main.ts（避免 keybindings.ts 反向依赖 quickOpen 成环），命令面板/前往菜单同走该 handler）
   { id: "goto_symbol", label: "转到文件内符号", def: "Ctrl+F12", scope: "editor" },
+  // PR-J：触发补全建议（Alt+/，editor 级）——Ctrl+Space 被中文 IME 吞键（人工验证），此为可配置保底；
+  // handler 在 keybindings.ts（纯 app.editor.trigger，无循环依赖），命令面板同走该 handler
+  { id: "trigger_suggest", label: "触发补全建议", def: "Alt+/", scope: "editor" },
 ];

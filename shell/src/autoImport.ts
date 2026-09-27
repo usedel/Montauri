@@ -14,6 +14,9 @@
 // 红线对齐：G-1（索引文件数有界、整体 TTL+会话缓存，首次查询后台建索引不阻塞按键）；
 // 纯函数（topLevelSymbolNames / importedNames / autoImportItems / autoImportContext）
 // 全部导出供 vitest 单测；provider 注册走 registerAutoImportCompletion（main.ts 收口）。
+//
+// PR-G2（dx_features_backlog §6.6）：索引条目扩展 file/line，并导出 workspaceSymbolsSnapshot
+// + onWorkspaceIndexReady 供 quickOpen 符号模式并入工作区级符号（同一份索引，双消费方）。
 
 import { invoke } from "@tauri-apps/api/core";
 import type * as MonacoApi from "monaco-editor/esm/vs/editor/editor.api";
@@ -32,6 +35,10 @@ export interface IndexSymbol {
   module: string;
   name: string;
   kind: SymbolKind;
+  /** PR-G2：符号所在文件绝对路径（quickOpen 工作区符号跳转用；import 语义仍走 module） */
+  file: string;
+  /** PR-G2：定义行号（1-based，quickOpen 跳转用） */
+  line: number;
 }
 
 export interface AutoImportItemData {
@@ -56,23 +63,25 @@ const PY_KEYWORDS = new Set([
   "return", "try", "while", "with", "yield",
 ]);
 
-export function topLevelSymbolNames(content: string): { name: string; kind: SymbolKind }[] {
-  const out: { name: string; kind: SymbolKind }[] = [];
-  for (const line of content.split(/\r?\n/)) {
-    const code = line.replace(/\s+#.*$/, "");
+export function topLevelSymbolNames(content: string): { name: string; kind: SymbolKind; line: number }[] {
+  const out: { name: string; kind: SymbolKind; line: number }[] = [];
+  const lines = content.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const code = lines[i].replace(/\s+#.*$/, "");
     if (/^\s/.test(code) || !code) continue;
+    const line = i + 1; // 1-based（PR-G2：quickOpen 跳转用）
     let m = /^(?:async\s+)?def\s+(\w+)/.exec(code);
     if (m) {
-      out.push({ name: m[1], kind: "def" });
+      out.push({ name: m[1], kind: "def", line });
       continue;
     }
     m = /^class\s+(\w+)/.exec(code);
     if (m) {
-      out.push({ name: m[1], kind: "class" });
+      out.push({ name: m[1], kind: "class", line });
       continue;
     }
     m = /^(\w+)\s*(?::|=)/.exec(code);
-    if (m && m[1] !== "__name__" && !PY_KEYWORDS.has(m[1])) out.push({ name: m[1], kind: "var" });
+    if (m && m[1] !== "__name__" && !PY_KEYWORDS.has(m[1])) out.push({ name: m[1], kind: "var", line });
   }
   return out;
 }
@@ -175,6 +184,15 @@ let indexAt = 0;
 let indexGeneration = 0; // reset 世代号（review 阻断 1：旧工作区在途扫描不得脏写新索引）
 let indexPromise: Promise<void> | null = null;
 
+/** PR-G2：索引构建完成订阅（quickOpen 在「未就绪」时挂回调，完成后重刷候选项） */
+const readySubs = new Set<() => void>();
+
+/** PR-G2：订阅索引就绪事件；返回退订函数（组件销毁时调用，防悬挂回调） */
+export function onWorkspaceIndexReady(cb: () => void): () => void {
+  readySubs.add(cb);
+  return () => readySubs.delete(cb);
+}
+
 /** 工作区切换时重置（main.ts openWorkspace 接线） */
 export function resetAutoImportIndex(): void {
   index = [];
@@ -183,6 +201,13 @@ export function resetAutoImportIndex(): void {
   indexAt = 0;
   indexGeneration++;
   indexPromise = null;
+}
+
+/** PR-G2：工作区符号快照（quickOpen 符号模式消费；顺带触发 ensureIndex 后台构建）。
+ *  ready=false 表示索引正在后台构建——调用方订阅 onWorkspaceIndexReady 后重取。 */
+export function workspaceSymbolsSnapshot(root: string): { symbols: IndexSymbol[]; ready: boolean } {
+  ensureIndex(root);
+  return { symbols: index, ready: indexReady };
 }
 
 /** 首次查询后台建索引（不阻塞当前次补全——本次返回空，敲下一个字符即有数据） */
@@ -205,12 +230,15 @@ function ensureIndex(root: string): void {
       } catch {
         continue;
       }
-      for (const { name, kind } of topLevelSymbolNames(content)) out.push({ module: mod, name, kind });
+      for (const { name, kind, line } of topLevelSymbolNames(content)) {
+        out.push({ module: mod, name, kind, file: f, line });
+      }
     }
     if (gen !== indexGeneration) return; // 途中被 reset（切换工作区）：丢弃旧结果
     index = out;
     indexReady = true;
     indexAt = Date.now();
+    for (const cb of readySubs) cb(); // PR-G2：通知订阅方（quickOpen）重刷
   })()
     .catch(() => {
       if (gen === indexGeneration) indexRoot = null; // 失败允许下次重试

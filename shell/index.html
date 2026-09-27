@@ -816,6 +816,16 @@
                 <label for="settings-final-newline">保存时确保文件以换行结束</label>
                 <input id="settings-final-newline" type="checkbox" />
               </div>
+              <!-- PR-K（dx_features_backlog §6.6）：新建 .py 文件自动插文件头模板，默认关 -->
+              <div class="settings-row">
+                <label for="settings-new-file-template">新建 Python 文件自动插文件头模板</label>
+                <input id="settings-new-file-template" type="checkbox" />
+              </div>
+              <!-- PR-M（dx_features_backlog §6.6）：粘贴 JSON 自动转 Python 字面量，默认开 -->
+              <div class="settings-row">
+                <label for="settings-paste-json">粘贴 JSON 自动转 Python 字面量</label>
+                <input id="settings-paste-json" type="checkbox" />
+              </div>
             </div>
             <div id="settings-section-keybindings" class="settings-section hidden" role="tabpanel">
               <div id="settings-keybinding-rows"></div>

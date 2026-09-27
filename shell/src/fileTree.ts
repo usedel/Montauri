@@ -18,6 +18,7 @@ import * as lsp from "./lsp/client";
 import { hideMenu, showMenu, type MenuItem } from "./menu";
 import { openLocalHistory } from "./localHistory"; // E-3：右键「本地历史」入口（localHistory 不反向依赖本模块，无环）
 import { diffFileWithClipboard } from "./clipboardDiff"; // C-5：右键「与剪贴板对比」（clipboardDiff 不依赖本模块，无环）
+import { headerTemplateApplies } from "./newFileTemplate"; // PR-K：新建 .py 文件头模板门控（零依赖纯函数）
 
 // ---------- 注入（main 的 init 中 setFileTreeHandlers） ----------
 // TD-13：解「fileTree.ts → main.ts」循环边——打开文件 / 重绘标签 / 静默关标签 / 插入文件头
@@ -765,6 +766,7 @@ export async function createFileAt(entry: Entry): Promise<void> {
   }
   await reloadDir(base);
   await fh().openFile(target);
+  await insertHeaderIfEnabled(target); // PR-K：新建 .py 时按设置插文件头模板
 }
 
 /** P1（UX 审查）：全局「新建文件」入口（键位 Ctrl+Alt+Insert / 工具栏按钮）。
@@ -805,7 +807,7 @@ export async function createDirAt(entry: Entry): Promise<void> {
   await reloadDir(base);
 }
 
-/** 新建 Python 文件（.py/.pyw）：自动补扩展名，创建后立即打开并插入 header 文件头（若模板可用） */
+/** 新建 Python 文件（.py/.pyw）：自动补扩展名，创建后立即打开并按设置插 header 文件头（PR-K 门控） */
 export async function createPyFileAt(entry: Entry): Promise<void> {
   const base = entry.is_dir ? entry.path : parentDirOf(entry.path);
   const { container, depth } = await ensureDirExpanded(base);
@@ -821,6 +823,13 @@ export async function createPyFileAt(entry: Entry): Promise<void> {
   }
   await reloadDir(base);
   await fh().openFile(target);
+  await insertHeaderIfEnabled(target);
+}
+
+/** PR-K：按设置对新建的 .py/.pyw 文件插入 header 模板（开关关/非 Python 文件为 no-op）。
+ *  门控判定收敛到 newFileTemplate.ts 纯函数（普通新建/专属 Python 新建两入口共用）。 */
+async function insertHeaderIfEnabled(target: string): Promise<void> {
+  if (!headerTemplateApplies(target, app.settings.new_file_template === true)) return;
   app.editor.setPosition({ lineNumber: 1, column: 1 });
   await fh().insertHeaderTemplate();
 }
