@@ -1461,8 +1461,9 @@ button:focus-visible,
 
 /* 底部面板标签（输出 / 终端） */
 #bottom-tabs { display: flex; align-items: center; gap: var(--space-1); }
-/* P2：输出面板 channel 过滤 chips（调试 / 环境 / Git） */
-#output-channels { display: flex; align-items: center; gap: var(--space-1); }
+/* P2：输出面板 channel 过滤 chips（调试 / 环境 / Git）+ P1 日志级别过滤 chips（多选） */
+#output-channels,
+#output-levels { display: flex; align-items: center; gap: var(--space-1); }
 .out-chip {
   background: transparent;
   color: var(--fg-dim);
@@ -1474,7 +1475,8 @@ button:focus-visible,
   line-height: 1.2;
 }
 .out-chip:hover { color: var(--fg); border-color: var(--fg-dim); }
-.out-chip.active { color: var(--fg); border-color: var(--fg-dim); background: var(--hover); }
+.out-chip.active,
+.out-chip[aria-pressed="true"] { color: var(--fg); border-color: var(--fg-dim); background: var(--hover); }
 /* P2：channel 过滤下的隐藏行（纯显示层，行仍在 DOM 与历史采集里） */
 .out-line.out-ch-hidden { display: none; }
 .bottom-tab {
@@ -1690,6 +1692,12 @@ button:focus-visible,
 /* S4：未完结行（脚本写了半行还没换行，典型是 input() 的提示符）——尾部挂光标暗示「还在等」 */
 .out-line.partial::after { content: "▌"; color: var(--fg-dim); }
 .out-line.cmd { color: var(--fg-dim); }
+/* P1（库支持 §7-1）：日志级别着色——inset box-shadow 画左侧色条（不挪文本保持行对齐）；
+   识别规则与过滤见 output.ts LEVEL_RULES。debug 额外降为暗色弱化噪音 */
+.out-line.lvl-error { box-shadow: inset 2px 0 0 var(--danger); }
+.out-line.lvl-warn { box-shadow: inset 2px 0 0 var(--warn); }
+.out-line.lvl-info { box-shadow: inset 2px 0 0 var(--ok); }
+.out-line.lvl-debug { box-shadow: inset 2px 0 0 var(--border); color: var(--fg-dim); }
 .out-line.diff-meta { color: var(--meta); }
 .out-line.diff-hunk { color: var(--diff-hunk); }
 .out-line.diff-add { color: var(--diff-add); }
@@ -4504,6 +4512,14 @@ button:focus-visible,
   text-decoration: underline dotted;
   text-underline-offset: 3px;
   text-decoration-color: var(--meta-border);
+}
+
+/* P1（库支持 §7-3）：JSON 字面量高亮——同纪律只改前景色 + 下划线，不改字体/背景 */
+.oc-json-literal {
+  color: var(--ok);
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--ok-border);
 }
 
 .oc-regex-hit-a { background: var(--accent-faint); }

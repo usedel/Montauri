@@ -4,6 +4,7 @@
 import type { PanelHost } from "../../extensions/facade";
 import { flashError, flashSuccess } from "../feedback";
 import { buildJsonTree, toJsonPath, toPythonSubscript, tryParseJson, type JsonNode } from "../jsonpath/tree";
+import { takePendingJsonPathRequest } from "../../libsBridge"; // 库支持 P1 §7-3：编辑器右键带入
 
 const SAMPLE = JSON.stringify(
   {
@@ -259,6 +260,13 @@ export function mount(host: PanelHost): { dispose(): void } | void {
   copyPathBtn.disabled = true;
   copyValueBtn.disabled = true;
   setMode("jsonpath");
+
+  // 库支持 P1 §7-3：编辑器「JSONPath 提取」右键带入的字面量 → 填入并自动解析
+  const pendingReq = takePendingJsonPathRequest();
+  if (pendingReq) {
+    input.value = pendingReq.json;
+    parse();
+  }
 
   return {
     dispose() {

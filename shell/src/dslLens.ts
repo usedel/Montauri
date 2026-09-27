@@ -10,15 +10,24 @@ import { DisposableStore } from "./util";
 import { toast } from "./toast";
 import {
   offsetToPosition,
-  regexHoverMarkdown,
   scanRegexLiterals,
-  staticDiagnostics,
   type RegexHit,
 } from "./libRegex";
-import { formatDiagnostics, formatHoverMarkdown, scanFormatLiterals } from "./libFormat";
 import { setPendingRegexRequest } from "./libsBridge";
 import { evalKind } from "./libEval";
 import type { AstArgsData } from "./scriptArgs";
+import {
+  collectInjectDiagnostics,
+  injectHoverAt,
+  ruleOf,
+  scanInjectLiterals,
+  type InjectLiteral,
+} from "./libInject";
+
+/** 规则的装饰类名（无装饰规则返回 undefined；调用侧已过滤） */
+function ruleDecorClass(id: InjectLiteral["rule"]): string | undefined {
+  return ruleOf(id).decorClass;
+}
 
 /** 诊断新桶（与 opencharm-lsp / opencharm-intel / opencharm-ruff 并列；仅 warning/error 两级） */
 export const LIBS_OWNER = "opencharm-libs";
@@ -90,36 +99,17 @@ export function replaceRegexLiteralInEditor(contentOffset: number, source: strin
 
 // ---------- hover（lsp/client.ts 合并管线调用；R-1 追加段） ----------
 
-/** 光标若落在正则字面量内 → 返回 hover markdown（否则 null） */
-function regexHoverAt(model: MonacoApi.editor.ITextModel, position: MonacoApi.Position): string | null {
-  if (app.settings.libs_regex === false) return null;
-  const offset = model.getOffsetAt(position);
-  const hits = scanRegexLiterals(model.getValue());
-  const hit = hits.find((h) => offset >= h.start && offset <= h.end);
-  if (!hit) return null;
-  return regexHoverMarkdown(hit);
-}
-
-/** 光标若落在格式串字面量内 → 返回 hover markdown（否则 null） */
-function formatHoverAt(model: MonacoApi.editor.ITextModel, position: MonacoApi.Position): string | null {
-  if (app.settings.libs_format === false) return null;
-  const offset = model.getOffsetAt(position);
-  const hit = scanFormatLiterals(model.getValue()).find((h) => offset >= h.start && offset <= h.end);
-  if (!hit) return null;
-  return formatHoverMarkdown(hit.mode, hit.fmt);
-}
-
-/** 库支持 hover 总入口（正则 + 格式串；PR-2/PR-3 同一管线追加） */
+/** 库支持 hover 总入口（规则表 dispatcher：正则 + 格式串 + JSON，P1 §7-4 收敛） */
 export function libsHoverAt(model: MonacoApi.editor.ITextModel, position: MonacoApi.Position): string | null {
   if (model.getLanguageId() !== "python") return null;
-  return regexHoverAt(model, position) ?? formatHoverAt(model, position);
+  return injectHoverAt(model.getValue(), model.getOffsetAt(position));
 }
 
 // ---------- L1：装饰 + 诊断 ----------
 
 function updateLibsArtifacts(editor: MonacoApi.editor.IStandaloneCodeEditor): void {
   const model = editor.getModel();
-  if (!model || model.getLanguageId() !== "python" || app.settings.libs_regex === false) {
+  if (!model || model.getLanguageId() !== "python") {
     setMarkers(model, []);
     applyDecorations(model, []);
     return;
@@ -130,12 +120,13 @@ function updateLibsArtifacts(editor: MonacoApi.editor.IStandaloneCodeEditor): vo
     applyDecorations(model, []);
     return;
   }
-  const hits = scanRegexLiterals(text);
+  // 规则表统一扫描（P1 §7-4）：正则 / 格式串 / JSON 一趟汇总
+  const literals = scanInjectLiterals(text);
 
-  // 装饰：只改前景色 + 下划线（§11.3.4，不改字体/背景，避免与主题语法着色打架）
-  applyDecorations(model, hits);
+  // 装饰：规则自带 decorClass（只改前景色 + 下划线，§11.3.4；format 无装饰）
+  applyDecorations(model, literals.filter((l) => ruleDecorClass(l.rule) !== undefined));
 
-  // 诊断：静态检查（正则 + 格式串未知码）→ opencharm-libs 桶
+  // 诊断：规则表统一收集 → opencharm-libs 桶
   const markers: MonacoApi.editor.IMarkerData[] = [];
   const pushMarker = (offset: number, message: string, isError: boolean, length: number): void => {
     const p = offsetToPosition(text, offset);
@@ -149,19 +140,8 @@ function updateLibsArtifacts(editor: MonacoApi.editor.IStandaloneCodeEditor): vo
       source: LIBS_OWNER,
     });
   };
-  for (const hit of hits) {
-    for (const d of staticDiagnostics(hit.source, hit.isRaw)) {
-      // diag.pos 是 pattern 值内位置；非 raw 串的转义诊断落在源码 contentStart + pos（近似定位）
-      const offset = Math.min(hit.contentStart + d.pos, Math.max(hit.end - 1, hit.contentStart));
-      pushMarker(offset, d.message, d.severity === "error", d.length);
-    }
-  }
-  if (app.settings.libs_format !== false) {
-    for (const hit of scanFormatLiterals(text)) {
-      for (const d of formatDiagnostics(hit.mode, hit.fmt)) {
-        pushMarker(hit.contentStart + d.pos, d.message, false, d.length);
-      }
-    }
+  for (const d of collectInjectDiagnostics(text)) {
+    pushMarker(d.offset, d.message, d.isError, d.length);
   }
   setMarkers(model, markers);
 }
@@ -336,7 +316,7 @@ interface DecoStore {
 }
 const decoStore: DecoStore = { model: null, collection: null };
 
-function applyDecorations(model: MonacoApi.editor.ITextModel | null, hits: RegexHit[]): void {
+function applyDecorations(model: MonacoApi.editor.ITextModel | null, literals: InjectLiteral[]): void {
   if (decoStore.model !== model) {
     decoStore.collection = null; // 换模型：旧 collection 属于旧 model，作废重建
     decoStore.model = model;
@@ -346,12 +326,15 @@ function applyDecorations(model: MonacoApi.editor.ITextModel | null, hits: Regex
     return;
   }
   const text = model.getValue();
-  const decos: MonacoApi.editor.IModelDeltaDecoration[] = hits.map((h) => {
-    const s = offsetToPosition(text, h.start);
-    const e = offsetToPosition(text, h.end);
+  const decos: MonacoApi.editor.IModelDeltaDecoration[] = literals.map((l) => {
+    const s = offsetToPosition(text, l.start);
+    const e = offsetToPosition(text, l.end);
     return {
       range: new app.monaco.Range(s.line + 1, s.col + 1, e.line + 1, e.col + 1),
-      options: { inlineClassName: "oc-regex-literal", stickiness: 1 /* NeverGrowsWhenTypingAtEdges */ },
+      options: {
+        inlineClassName: ruleDecorClass(l.rule)!,
+        stickiness: 1 /* NeverGrowsWhenTypingAtEdges */,
+      },
     };
   });
   if (!decoStore.collection) {

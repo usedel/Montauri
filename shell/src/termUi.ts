@@ -13,7 +13,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { app, $, outputEl } from "./state";
 import { basename, codicon, emptyState, parentDirOf, stripAnsi } from "./util"; // UI-12：终端无会话时的空态；stripAnsi（§11 历史采集）
 import { IntegratedTerminal } from "./terminal";
-import { clearOutput, refilterOutputChannel, setOutputChannelFilter, type OutputChannel } from "./output";
+import { clearOutput, refilterOutputChannel, refilterOutputLevels, setOutputChannelFilter, setOutputLevelFilter, type OutputChannel, type OutputLogLevel } from "./output";
 import { hasGitDetailContent, renderGitDetailEmptyState } from "./git";
 import { showMenu } from "./menu";
 import { sniffTerminalOutput, handleTracebackLine } from "./depHealth"; // M2 §4.4 嗅探 / M4-3 traceback 一键安装
@@ -103,6 +103,7 @@ export function setBottomTab(tab: BottomTab): void {
   $("terminal-cmd").classList.toggle("hidden", tab !== "terminal");
   // P2：输出过滤 chips 只在输出 tab 下出现（其他 tab 下无意义）
   $("output-channels").classList.toggle("hidden", tab !== "output");
+  $("output-levels").classList.toggle("hidden", tab !== "output");
   $("bottom").classList.remove("collapsed");
   if (tab === "terminal") void ensureAnyTerminal();
   outputHooks?.onTabChange();
@@ -783,6 +784,20 @@ export function wireBottomPanel(): void {
       c.classList.toggle("active", c === chip);
     }
   });
+  // P1（库支持 §7-1）：日志级别过滤 chips（多选 aria-pressed；默认全不选中 = 只着色不过滤，
+  // 任一选中 = 只显示所选级别 + 未分级行）。ARIA 状态单一写入点：aria-pressed 与 .active 同源切换。
+  $("output-levels").addEventListener("click", (e) => {
+    const chip = (e.target as HTMLElement).closest(".out-chip") as HTMLElement | null;
+    if (!chip?.dataset.lvl) return;
+    const pressed = chip.getAttribute("aria-pressed") !== "true";
+    chip.setAttribute("aria-pressed", String(pressed));
+    chip.classList.toggle("active", pressed);
+    const active = Array.from(
+      $("output-levels").querySelectorAll('.out-chip[aria-pressed="true"]'),
+    ).map((c) => (c as HTMLElement).dataset.lvl as OutputLogLevel);
+    setOutputLevelFilter(active.length > 0 ? active : null);
+    refilterOutputLevels(outputEl);
+  });
   // 高频命令下拉（P2-6）：选中即发送到终端
   ($("terminal-cmd") as HTMLSelectElement).addEventListener("change", (e) => {
     const sel = e.target as HTMLSelectElement;
@@ -800,6 +815,12 @@ export function resetOutputChannelUi(): void {
   setOutputChannelFilter(null);
   for (const c of $("output-channels").querySelectorAll(".out-chip")) {
     c.classList.toggle("active", (c as HTMLElement).dataset.ch === "all");
+  }
+  // P1（库支持 §7-1）：级别过滤一并复位到「不过滤」
+  setOutputLevelFilter(null);
+  for (const c of $("output-levels").querySelectorAll(".out-chip")) {
+    c.classList.toggle("active", false);
+    c.setAttribute("aria-pressed", "false");
   }
 }
 

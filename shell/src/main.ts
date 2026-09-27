@@ -30,6 +30,7 @@ import { runSearch, cancelSearch, resetSearch, setOpenMatchHandler, type SearchM
 import { findUsagesAtCursor, renameSymbolAtCursor, resetFindUsages, setOpenRefHandler, queryAndRender, initFindUsagesAction, installCtrlShiftDblclickUsages } from "./findUsages";
 import { initCodeVision, refreshCodeVision } from "./codeVision";
 import { initDslLens, openRegexTesterAtCursor } from "./dslLens"; // 库支持 PR-2：正则 lens/装饰/诊断/右键
+import { initJsonLiteral } from "./jsonLiteral"; // 库支持 P1 §7-3：JSON 字面量高亮/折叠/诊断/右键
 import { refreshImportAliases, registerImportAliasCompletion } from "./importAlias"; // import 别名补全（import pandas as pd）
 import { registerAutoImportCompletion, resetAutoImportIndex } from "./autoImport"; // PR-E：补全内联 auto-import（自研，探针结局 C）
 import { initRenameWidget, setAfterRenameHandler } from "./renameWidget";
@@ -1963,6 +1964,7 @@ async function init(): Promise<void> {
   lspProviders.add(initRenameWidget(app.editor)); // F2 就地重命名 + 右键菜单「重命名…」
   // 库支持 PR-2：正则字面量 lens / 高亮装饰 / opencharm-libs 诊断（与 codeVision 引用 lens 并存，D-2）
   lspProviders.add(initDslLens(app.editor));
+  lspProviders.add(initJsonLiteral(app.editor)); // 库支持 P1 §7-3：JSON 字面量高亮/折叠/诊断/右键
   lspProviders.add(initClipboardDiffAction(app.editor)); // C-5：右键菜单「与剪贴板对比」
   lspProviders.add(initNoqaAction(app.editor)); // D-4：右键菜单「忽略此规则（# noqa）」
   lspProviders.add(installPasteJson(app.editor)); // PR-M：粘贴 JSON → Python 字面量（onDidPaste 拦截）

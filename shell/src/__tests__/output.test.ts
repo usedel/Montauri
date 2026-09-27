@@ -167,3 +167,73 @@ describe("URL 链接识别（P2-L）", () => {
     expect(onLink).toHaveBeenCalledWith({ path: "main.py", line: 7 });
   });
 });
+
+describe("日志级别识别与过滤（P1 · 库支持 §7-1）", () => {
+  it("detectLogLevel 规则表：常见格式命中、普通句子不误判", async () => {
+    const { detectLogLevel } = await import("../output");
+    // error：logging / pip / uv / 带括号
+    expect(detectLogLevel("ERROR: pip's dependency resolver ...")).toBe("error");
+    expect(detectLogLevel("CRITICAL:root:boom")).toBe("error");
+    expect(detectLogLevel("FATAL  something")).toBe("error");
+    expect(detectLogLevel("[ERROR] failed")).toBe("error");
+    // warn / info / debug
+    expect(detectLogLevel("WARNING:root:deprecated")).toBe("warn");
+    expect(detectLogLevel("[WARN] disk almost full")).toBe("warn");
+    expect(detectLogLevel("INFO:     Uvicorn running on http://0.0.0.0:8000")).toBe("info");
+    expect(detectLogLevel("NOTICE hi")).toBe("info");
+    expect(detectLogLevel("DEBUG:详细的调试信息")).toBe("debug");
+    expect(detectLogLevel("TRACE: trace")).toBe("debug");
+    // 不误判：小写句子 / 前缀后紧跟单词字符 / 空行 / 普通输出
+    expect(detectLogLevel("Error opening file")).toBeNull();
+    expect(detectLogLevel("INFOfoo")).toBeNull();
+    expect(detectLogLevel("")).toBeNull();
+    expect(detectLogLevel("hello world")).toBeNull();
+    expect(detectLogLevel("Traceback (most recent call last):")).toBeNull();
+  });
+
+  it("默认只着色不过滤；多选级别过滤后未分级行仍显示", async () => {
+    const { setOutputLevelFilter, refilterOutputLevels } = await import("../output");
+    const container = document.createElement("div");
+    const err = appendOutputLine(container, "ERROR: bad", "stderr", vi.fn());
+    const warn = appendOutputLine(container, "WARNING: careful", "stdout", vi.fn());
+    const info = appendOutputLine(container, "INFO: hi", "stdout", vi.fn());
+    const plain = appendOutputLine(container, "普通输出", "stdout", vi.fn());
+    // 默认（null）：全部可见，但已按级别着色
+    expect(container.querySelectorAll(".out-ch-hidden").length).toBe(0);
+    expect(err.classList.contains("lvl-error")).toBe(true);
+    expect(warn.classList.contains("lvl-warn")).toBe(true);
+    expect(info.classList.contains("lvl-info")).toBe(true);
+    expect(plain.classList.contains("lvl-error")).toBe(false);
+    // 多选过滤：error + info 可见，warn 隐藏，未分级行永远显示
+    setOutputLevelFilter(["error", "info"]);
+    refilterOutputLevels(container);
+    expect(err.classList.contains("out-ch-hidden")).toBe(false);
+    expect(warn.classList.contains("out-ch-hidden")).toBe(true);
+    expect(info.classList.contains("out-ch-hidden")).toBe(false);
+    expect(plain.classList.contains("out-ch-hidden")).toBe(false);
+    // 过滤态下新追加的行直接按过滤渲染
+    const dbg = appendOutputLine(container, "DEBUG: x", "stdout", vi.fn());
+    expect(dbg.classList.contains("out-ch-hidden")).toBe(true);
+    // 复位 null：全部重新可见
+    setOutputLevelFilter(null);
+    refilterOutputLevels(container);
+    expect(container.querySelectorAll(".out-ch-hidden").length).toBe(0);
+  });
+
+  it("级别过滤与 channel 过滤联合判定（任一不可见即隐藏）", async () => {
+    const { setOutputChannelFilter, setOutputLevelFilter, refilterOutputChannel, refilterOutputLevels } =
+      await import("../output");
+    const container = document.createElement("div");
+    const envErr = appendOutputLine(container, "ERROR: pip fail", "stdout", vi.fn(), "env");
+    setOutputLevelFilter(["error"]);
+    refilterOutputLevels(container);
+    expect(envErr.classList.contains("out-ch-hidden")).toBe(false);
+    // channel 过滤开到 git：env 行即使级别命中也隐藏
+    setOutputChannelFilter("git");
+    refilterOutputChannel(container);
+    expect(envErr.classList.contains("out-ch-hidden")).toBe(true);
+    // 复位全局态，不污染后续用例
+    setOutputChannelFilter(null);
+    setOutputLevelFilter(null);
+  });
+});

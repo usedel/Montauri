@@ -78,9 +78,53 @@ function channelVisible(ch: OutputChannel | undefined): boolean {
 }
 
 /** 渲染一行的可见性并返回行元素（appendOutputLine 内部 + 已入 DOM 行的重过滤共用） */
-function applyChannelVisibility(line: HTMLElement, ch: OutputChannel | undefined): void {
+function applyLineVisibility(
+  line: HTMLElement,
+  ch: OutputChannel | undefined,
+  lvl: OutputLogLevel | null,
+): void {
   line.dataset.channel = ch ?? "all";
-  line.classList.toggle("out-ch-hidden", !channelVisible(ch));
+  line.dataset.level = lvl ?? "";
+  line.classList.toggle("out-ch-hidden", !channelVisible(ch) || !levelVisible(lvl));
+}
+
+// ---------- 日志级别识别与过滤（P1 · 库支持 §7-1） ----------
+//
+// 输出行按前缀规则表识别日志级别（logging 默认格式 `WARNING:msg`、uvicorn `INFO:     …`、
+// pip `ERROR: …`、带括号 `[ERROR]`）。识别结果只做**着色**（左侧色条 + 级别文字色），
+// 不过滤；顶部级别 chips 多选激活后进入过滤（纯显示层，同 channel 过滤思路）。
+// 规则表大小写敏感（仅大写），避免 "Error opening file" 这类普通句子误判。
+
+/** 输出行日志级别（前缀识别；未识别 = null，着色与过滤都不参与） */
+export type OutputLogLevel = "error" | "warn" | "info" | "debug";
+
+/** 前缀规则表：`^(?:\[)?(LEVEL)(?:\])?(?=[分隔符]|行尾)`，分隔符含空白 / 冒号 / 右括号 / 竖线 */
+const LEVEL_RULES: readonly (readonly [OutputLogLevel, RegExp])[] = [
+  ["error", /^(?:\[)?(?:CRITICAL|FATAL|ERROR)(?:\])?(?=[\s:\]|]|$)/],
+  ["warn", /^(?:\[)?(?:WARNING|WARN)(?:\])?(?=[\s:\]|]|$)/],
+  ["info", /^(?:\[)?(?:INFO|NOTICE)(?:\])?(?=[\s:\]|]|$)/],
+  ["debug", /^(?:\[)?(?:DEBUG|TRACE)(?:\])?(?=[\s:\]|]|$)/],
+];
+
+/** 识别一行的日志级别（纯函数，供单测）；未命中返回 null */
+export function detectLogLevel(text: string): OutputLogLevel | null {
+  for (const [lvl, re] of LEVEL_RULES) if (re.test(text)) return lvl;
+  return null;
+}
+
+/** 当前激活的级别过滤集合（null / 空 = 不过滤，全部显示；默认——只着色不过滤） */
+let levelFilter: ReadonlySet<OutputLogLevel> | null = null;
+
+/** 设置级别过滤（termUi 的级别 chips 点击驱动）；null = 恢复全部显示 */
+export function setOutputLevelFilter(levels: Iterable<OutputLogLevel> | null): void {
+  levelFilter = levels ? new Set(levels) : null;
+}
+
+/** 行是否在当前级别过滤下可见：未分级行永远显示 */
+function levelVisible(lvl: string | null | undefined): boolean {
+  if (!levelFilter || levelFilter.size === 0) return true;
+  if (lvl === undefined || lvl === "") return true;
+  return levelFilter.has(lvl as OutputLogLevel);
 }
 function renderLineContent(
   el: HTMLElement,
@@ -224,7 +268,9 @@ export function appendOutputLine(
   if (cls === "stderr") tracebackHandler?.(text);
   const line = document.createElement("div");
   renderLineContent(line, text, cls, onLink);
-  applyChannelVisibility(line, channel);
+  const lvl = detectLogLevel(text);
+  if (lvl) line.classList.add(`lvl-${lvl}`); // 着色（左侧色条 + 级别文字色），不影响既有 cls 语义
+  applyLineVisibility(line, channel, lvl);
   container.appendChild(line);
   wireScrollFollow(container);
   // 只在用户没往上翻时才拽到底部（上滚即"锁定"，回到底部自动解锁）
@@ -233,13 +279,23 @@ export function appendOutputLine(
   return line;
 }
 
-/** 切换过滤后重刷已有行（termUi 的 chips 点击驱动）：遍历容器行，按 dataset.channel 重算显隐 */
+/** 切换过滤后重刷已有行（termUi 的 chips 点击驱动）：遍历容器行，按 dataset 联合重算显隐。
+ *  两个导出名是同一实现——channel chips 与级别 chips 任一变化都全量重刷（行数 ≤ 上限，开销可忽略）。 */
 export function refilterOutputChannel(container: HTMLElement): void {
+  refilterOutput(container);
+}
+export function refilterOutputLevels(container: HTMLElement): void {
+  refilterOutput(container);
+}
+function refilterOutput(container: HTMLElement): void {
   for (const line of Array.from(container.children)) {
     if (!(line instanceof HTMLElement)) continue;
     if (line.classList.contains("out-omitted")) continue; // 顶部提示行不参与过滤
-    const ch = line.dataset.channel as OutputChannel | undefined;
-    line.classList.toggle("out-ch-hidden", !channelVisible(ch));
+    line.classList.toggle(
+      "out-ch-hidden",
+      !channelVisible(line.dataset.channel as OutputChannel | undefined) ||
+        !levelVisible(line.dataset.level),
+    );
   }
 }
 

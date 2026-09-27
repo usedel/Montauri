@@ -24,3 +24,23 @@ export function takePendingRegexRequest(): RegexPanelRequest | null {
   pending = null;
   return p;
 }
+
+// ---------- JSONPath 面板请求（库特别支持 P1 §7-3：编辑器右键「JSONPath 提取」入口） ----------
+
+export interface JsonPathPanelRequest {
+  /** 字面量反转义后的 JSON 文本 */
+  json: string;
+}
+
+let pendingJsonPath: JsonPathPanelRequest | null = null;
+
+export function setPendingJsonPathRequest(req: JsonPathPanelRequest): void {
+  pendingJsonPath = req;
+}
+
+/** 面板挂载时取走（取后清空） */
+export function takePendingJsonPathRequest(): JsonPathPanelRequest | null {
+  const p = pendingJsonPath;
+  pendingJsonPath = null;
+  return p;
+}

@@ -18,6 +18,7 @@ import * as timestamp from "./timestamp";
 import * as uuid from "./uuid";
 import * as regex from "./regex";
 import * as format from "./format";
+import * as json2model from "./json2model";
 
 /** 内置工具模块表：entry 名 → 模块（对应第三方 manifest 的 entry 文件） */
 export const BUILTIN_TOOL_MODULES: Record<string, ToolModuleLike> = {
@@ -31,6 +32,7 @@ export const BUILTIN_TOOL_MODULES: Record<string, ToolModuleLike> = {
   "./uuid.ts": uuid as ToolModuleLike,
   "./regex.ts": regex as ToolModuleLike,
   "./format.ts": format as ToolModuleLike,
+  "./json2model.ts": json2model as ToolModuleLike,
 };
 
 /** 工具模块契约（与第三方 ES module 导出同形；见 loader.ToolModule） */
@@ -85,8 +87,8 @@ export const BUILTIN_MANIFEST: PluginManifest = {
       },
       {
         id: "curl2python",
-        title: "cURL 转 Python",
-        description: "把 curl 命令转换为 requests 代码",
+        title: "cURL ⇄ Python",
+        description: "curl 命令与 requests / httpx 代码互转（双向）",
         category: "转换",
         icon: "terminal",
         entry: "./curl2python.ts",
@@ -131,6 +133,14 @@ export const BUILTIN_MANIFEST: PluginManifest = {
         category: "文本",
         icon: "calendar",
         entry: "./format.ts",
+      },
+      {
+        id: "json2model",
+        title: "JSON → Python 模型",
+        description: "由 JSON 生成 Pydantic / dataclass / TypedDict 模型类",
+        category: "生成",
+        icon: "json",
+        entry: "./json2model.ts",
       },
     ],
   },
