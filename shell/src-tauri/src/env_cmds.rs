@@ -1521,6 +1521,13 @@ pub fn set_framework_hint_disabled(
     save_config(&workspace_root, &v)
 }
 
+/// 读取工作区级提示开关（research §11.1-5 首次命中引导的「只提示一次」标志读取侧；
+/// 与 set_framework_hint_disabled 同一存储：config 的 `framework_hints`）。
+#[tauri::command]
+pub fn is_framework_hint_disabled(workspace_root: String, framework: String) -> Result<bool, String> {
+    Ok(framework_hints_disabled(&load_config(&workspace_root)).contains(&framework))
+}
+
 // ---------- Pydantic 栈检测（F0 裁决 B：推荐切换静态引擎） ----------
 //
 // 来源：`bench/reports/pydantic-engine-probe.md`——pyrefly 对 Pydantic/dataclass 缺

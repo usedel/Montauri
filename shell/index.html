@@ -856,6 +856,16 @@
                 <label for="settings-libs-argparse">脚本参数表单（argparse / click）</label>
                 <input id="settings-libs-argparse" type="checkbox" />
               </div>
+              <!-- 库特别支持 P1：JSON 字面量注入（高亮/诊断；research §11.9） -->
+              <div class="settings-row">
+                <label for="settings-libs-json-inject">JSON 字面量注入（高亮与诊断）</label>
+                <input id="settings-libs-json-inject" type="checkbox" />
+              </div>
+              <!-- 库特别支持 P1：输出面板日志级别着色与过滤（research §11.9） -->
+              <div class="settings-row">
+                <label for="settings-log-level-colors">输出面板日志级别着色</label>
+                <input id="settings-log-level-colors" type="checkbox" />
+              </div>
             </div>
             <div id="settings-section-keybindings" class="settings-section hidden" role="tabpanel">
               <div id="settings-keybinding-rows"></div>

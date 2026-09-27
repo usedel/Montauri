@@ -8,7 +8,7 @@
 import { app } from "./state";
 import { regexHoverMarkdown, scanRegexLiterals, staticDiagnostics, type RegexHit } from "./libRegex";
 import { formatDiagnostics, formatHoverMarkdown, scanFormatLiterals, type FormatHit } from "./libFormat";
-import { jsonParseError, scanJsonLiterals, type JsonHit } from "./libJson";
+import { jsonHoverSummary, jsonParseError, scanJsonLiterals, type JsonHit } from "./libJson";
 
 export type InjectRuleId = "regex" | "format" | "json";
 
@@ -36,7 +36,7 @@ export interface InjectRuleDef {
   decorClass?: string;
   enabled(): boolean;
   scan(text: string): InjectLiteral[];
-  /** hover markdown（可选：json 无离线 hover） */
+  /** hover markdown（可选） */
   hover?(data: unknown): string | null;
   /** 静态诊断（可选） */
   diagnostics?(data: unknown): InjectDiag[];
@@ -87,11 +87,12 @@ export const INJECT_RULES: readonly InjectRuleDef[] = [
   {
     id: "json",
     decorClass: "oc-json-literal",
-    enabled: () => true,
+    enabled: () => app.settings.libs_json_inject !== false, // §11.9 开关（v1.4 补齐漏接线）
     scan: (text) =>
       scanJsonLiterals(text).map((h: JsonHit) => ({
         rule: "json" as const, start: h.start, end: h.end, contentStart: h.contentStart, source: h.source, data: h,
       })),
+    hover: (data) => jsonHoverSummary((data as JsonHit).value), // §11.6：`object · N 键 · D 层` 摘要
     diagnostics: (data) => {
       const h = data as JsonHit;
       const err = jsonParseError(h.value);

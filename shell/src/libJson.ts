@@ -166,6 +166,30 @@ export function jsonParseError(value: string): { message: string; pos: number } 
   }
 }
 
+/** JSON 摘要 hover（research §11.6）：`object · 14 键 · 3 层` / `array · 128 项` / 标量给类型。
+ *  解析失败返回 null（错误由静态诊断呈现，hover 不重复报错）。 */
+export function jsonHoverSummary(value: string): string | null {
+  let v: unknown;
+  try {
+    v = JSON.parse(value);
+  } catch {
+    return null;
+  }
+  // 嵌套深度：根为 0 层，每进一层 +1；空容器（{} / []）算 1 层
+  const depth = (x: unknown, d: number): number => {
+    if (x === null || typeof x !== "object") return d;
+    const children = Array.isArray(x) ? x : Object.values(x);
+    if (children.length === 0) return d + 1;
+    return Math.max(...children.map((c) => depth(c, d + 1)));
+  };
+  if (v !== null && typeof v === "object" && !Array.isArray(v)) {
+    return `**JSON** · object · ${Object.keys(v).length} 键 · ${depth(v, 0)} 层`;
+  }
+  if (Array.isArray(v)) return `**JSON** · array · ${v.length} 项`;
+  if (v === null) return "**JSON** · null";
+  return `**JSON** · ${typeof v}`;
+}
+
 /** 把解析后的 JSON 值重新编码为 Python 字符串字面量（保持原引号形态）。
  *  单行形态：JSON.stringify 整体再剥壳——\n / \" 等转义天然兼容 Python 字符串语法；
  *  JSON.stringify 不转义 '，单引号形态须补 \'，否则内容会截断字面量。

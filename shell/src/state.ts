@@ -109,6 +109,10 @@ export interface Settings {
   libs_format: boolean;
   /** 库特别支持：参数表单（关掉后运行面板不显示参数区；须与 Rust settings.rs 同步） */
   libs_argparse: boolean;
+  /** 库特别支持：JSON 字面量注入（高亮/诊断；research §11.9，须与 Rust settings.rs 同步） */
+  libs_json_inject: boolean;
+  /** 输出面板日志级别着色与过滤（research §11.7，须与 Rust settings.rs 同步） */
+  log_level_colors: boolean;
 }
 
 /** 从单一来源（keybindingDefaults.ts）派生出厂键位表，避免三处手写漂移（tech-debt #6） */
@@ -177,6 +181,9 @@ export const DEFAULT_SETTINGS: Settings = {
   libs_regex: true,
   libs_format: true,
   libs_argparse: true,
+  // 库特别支持 P1（research §11.9，默认开，与 Rust Settings::default 同步）
+  libs_json_inject: true,
+  log_level_colors: true,
 };
 
 export interface AppState {

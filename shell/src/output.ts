@@ -120,8 +120,16 @@ export function setOutputLevelFilter(levels: Iterable<OutputLogLevel> | null): v
   levelFilter = levels ? new Set(levels) : null;
 }
 
+/** `log_level_colors` 开关注入（main.ts 注册；本模块保持无 state 依赖可单测，同 urlHandler 模式）。
+ *  关闭后：新行不做级别识别着色，既有过滤恒放行（research §11.7）。 */
+let levelColorsEnabled: () => boolean = () => true;
+export function setOutputLevelColorsEnabled(fn: () => boolean): void {
+  levelColorsEnabled = fn;
+}
+
 /** 行是否在当前级别过滤下可见：未分级行永远显示 */
 function levelVisible(lvl: string | null | undefined): boolean {
+  if (!levelColorsEnabled()) return true; // 开关关闭：级别过滤整体失效
   if (!levelFilter || levelFilter.size === 0) return true;
   if (lvl === undefined || lvl === "") return true;
   return levelFilter.has(lvl as OutputLogLevel);
@@ -268,7 +276,7 @@ export function appendOutputLine(
   if (cls === "stderr") tracebackHandler?.(text);
   const line = document.createElement("div");
   renderLineContent(line, text, cls, onLink);
-  const lvl = detectLogLevel(text);
+  const lvl = levelColorsEnabled() ? detectLogLevel(text) : null;
   if (lvl) line.classList.add(`lvl-${lvl}`); // 着色（左侧色条 + 级别文字色），不影响既有 cls 语义
   applyLineVisibility(line, channel, lvl);
   container.appendChild(line);
@@ -286,6 +294,25 @@ export function refilterOutputChannel(container: HTMLElement): void {
 }
 export function refilterOutputLevels(container: HTMLElement): void {
   refilterOutput(container);
+}
+
+/** `log_level_colors` 开关切换后重刷已有行（settingsPanel 保存驱动）：
+ *  按开关重算每行的级别类（开 → 从行文本重新识别；关 → 摘除）与可见性。 */
+export function applyOutputLevelSetting(container: HTMLElement): void {
+  const enabled = levelColorsEnabled();
+  for (const line of Array.from(container.children)) {
+    if (!(line instanceof HTMLElement)) continue;
+    if (line.classList.contains("out-omitted")) continue;
+    const prev = line.dataset.level ?? "";
+    const lvl = enabled ? detectLogLevel(line.textContent ?? "") : null;
+    if (prev) line.classList.remove(`lvl-${prev}`);
+    if (lvl) line.classList.add(`lvl-${lvl}`);
+    line.dataset.level = lvl ?? "";
+    line.classList.toggle(
+      "out-ch-hidden",
+      !channelVisible(line.dataset.channel as OutputChannel | undefined) || !levelVisible(lvl),
+    );
+  }
 }
 function refilterOutput(container: HTMLElement): void {
   for (const line of Array.from(container.children)) {

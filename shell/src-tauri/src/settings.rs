@@ -186,6 +186,10 @@ pub struct Settings {
     pub libs_format: bool,
     /// 库特别支持：参数表单（关掉后运行面板不显示参数区；须与前端同步）
     pub libs_argparse: bool,
+    /// 库特别支持：JSON 字面量注入（高亮/诊断；research §11.9，须与前端同步）
+    pub libs_json_inject: bool,
+    /// 输出面板日志级别着色与过滤（research §11.9，须与前端同步）
+    pub log_level_colors: bool,
 }
 
 impl Default for Settings {
@@ -235,11 +239,13 @@ impl Default for Settings {
             log_level: "info".into(),
             log_keep: 3,
             log_stdout: false,
-            // 库特别支持 PR-2/PR-3/PR-4（默认开，与前端 DEFAULT_SETTINGS 保持同步）
+            // 库特别支持 PR-2/PR-3/PR-4/P1（默认开，与前端 DEFAULT_SETTINGS 保持同步）
             libs_editor_lens: true,
             libs_regex: true,
             libs_format: true,
             libs_argparse: true,
+            libs_json_inject: true,
+            log_level_colors: true,
         }
     }
 }

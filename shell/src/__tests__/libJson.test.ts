@@ -1,6 +1,6 @@
-// JSON 字面量扫描（P1 · 库支持 §7-3）纯函数用例：识别 / 反转义 / 诊断 / 重编码
+// JSON 字面量扫描（P1 · 库支持 §7-3）纯函数用例：识别 / 反转义 / 诊断 / 重编码 / hover 摘要
 import { describe, expect, it } from "vitest";
-import { jsonParseError, pythonLiteralFor, scanJsonLiterals } from "../libJson";
+import { jsonHoverSummary, jsonParseError, pythonLiteralFor, scanJsonLiterals } from "../libJson";
 
 describe("scanJsonLiterals（json.loads 字面量识别）", () => {
   it("双引号非 raw 串：识别 + 反转义（\\\" 与 \\n）", () => {
@@ -73,5 +73,23 @@ describe("jsonParseError / pythonLiteralFor", () => {
     const sq = pythonLiteralFor({ "z": "它's fine" }, "'", false, 0);
     const backSq = scanJsonLiterals(`json.loads(${sq})`)[0]!;
     expect(JSON.parse(backSq.value)).toEqual({ z: "它's fine" });
+  });
+});
+
+describe("jsonHoverSummary（§11.6 hover 摘要）", () => {
+  it("object：顶层键数 + 嵌套深度（空容器算 1 层）", () => {
+    expect(jsonHoverSummary('{"a": 1, "b": "x"}')).toBe("**JSON** · object · 2 键 · 1 层");
+    expect(jsonHoverSummary('{"a": {"b": {"c": 1}}}')).toBe("**JSON** · object · 1 键 · 3 层");
+    expect(jsonHoverSummary("{}")).toBe("**JSON** · object · 0 键 · 1 层");
+  });
+
+  it("array：项数；嵌套深度在 object 内；标量给类型；非法返回 null", () => {
+    expect(jsonHoverSummary("[1, 2, 3]")).toBe("**JSON** · array · 3 项");
+    expect(jsonHoverSummary("[]")).toBe("**JSON** · array · 0 项");
+    expect(jsonHoverSummary('"hi"')).toBe("**JSON** · string");
+    expect(jsonHoverSummary("42")).toBe("**JSON** · number");
+    expect(jsonHoverSummary("true")).toBe("**JSON** · boolean");
+    expect(jsonHoverSummary("null")).toBe("**JSON** · null");
+    expect(jsonHoverSummary("{'bad': trailing}")).toBeNull();
   });
 });

@@ -44,3 +44,25 @@ export function takePendingJsonPathRequest(): JsonPathPanelRequest | null {
   pendingJsonPath = null;
   return p;
 }
+
+// ---------- 格式串面板请求（§11.1-2 聚合 lens：lens 点击带入选中模式与格式串） ----------
+
+export interface FormatPanelRequest {
+  /** 格式串模式（由识别规则给出：strftime / format / logging） */
+  mode: "strftime" | "format" | "logging";
+  /** 格式串值（非 raw 串已反转义） */
+  fmt: string;
+}
+
+let pendingFormat: FormatPanelRequest | null = null;
+
+export function setPendingFormatRequest(req: FormatPanelRequest): void {
+  pendingFormat = req;
+}
+
+/** 面板挂载时取走（取后清空，避免下次打开误用旧上下文） */
+export function takePendingFormatRequest(): FormatPanelRequest | null {
+  const p = pendingFormat;
+  pendingFormat = null;
+  return p;
+}

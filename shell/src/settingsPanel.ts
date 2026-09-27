@@ -4,13 +4,14 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import type * as MonacoApi from "monaco-editor/esm/vs/editor/editor.api";
-import { app, $, $btn, DEFAULT_SETTINGS, type Settings } from "./state";
+import { app, $, $btn, DEFAULT_SETTINGS, outputEl, type Settings } from "./state";
 import * as lsp from "./lsp/client";
 import { renderEngineChip } from "./engineChip";
 import { repaintRunWidget } from "./runWidget";
 import * as ltUi from "./live-templates/ui/manager";
 import { KEYBINDING_META, chordFromEvent, modsFromEvent, validateKeybindingMap, applyEditorKeybindings } from "./keybindings";
-import { refreshTerminalFonts, refreshTerminalMotion, refreshTerminalThemes } from "./termUi";
+import { refreshTerminalFonts, refreshTerminalMotion, refreshTerminalThemes, syncOutputLevelChips } from "./termUi";
+import { applyOutputLevelSetting } from "./output";
 import { applyReduceMotion, hideEl, motionDisabled, reduceMotionEnabled, showEl } from "./anim";
 import { trapFocus } from "./focusTrap";
 import { openAlert } from "./dialog";
@@ -82,6 +83,9 @@ const settingsLibsRegexEl = $("settings-libs-regex") as HTMLInputElement;
 const settingsLibsFormatEl = $("settings-libs-format") as HTMLInputElement;
 // 库特别支持 PR-4：参数表单
 const settingsLibsArgparseEl = $("settings-libs-argparse") as HTMLInputElement;
+// 库特别支持 P1：JSON 字面量注入 / 输出面板日志级别着色（research §11.9）
+const settingsLibsJsonInjectEl = $("settings-libs-json-inject") as HTMLInputElement;
+const settingsLogLevelColorsEl = $("settings-log-level-colors") as HTMLInputElement;
 const settingsAutosaveEl = $("settings-autosave") as HTMLSelectElement;
 const settingsProbeEl = $("settings-probe") as HTMLInputElement;
 const settingsIntelEl = $("settings-intel") as HTMLInputElement;
@@ -527,6 +531,8 @@ function fillForm(settings: Settings): void {
   settingsLibsRegexEl.checked = settings.libs_regex !== false;
   settingsLibsFormatEl.checked = settings.libs_format !== false;
   settingsLibsArgparseEl.checked = settings.libs_argparse !== false;
+  settingsLibsJsonInjectEl.checked = settings.libs_json_inject !== false;
+  settingsLogLevelColorsEl.checked = settings.log_level_colors !== false;
   settingsAutosaveEl.value = settings.autosave;
   settingsProbeEl.checked = settings.probe_enabled;
   settingsIntelEl.checked = settings.runtime_intel_enabled;
@@ -661,6 +667,8 @@ async function saveSettingsPanel(): Promise<void> {
     libs_regex: settingsLibsRegexEl.checked, // 库支持 PR-2
     libs_format: settingsLibsFormatEl.checked, // 库支持 PR-3
     libs_argparse: settingsLibsArgparseEl.checked, // 库支持 PR-4
+    libs_json_inject: settingsLibsJsonInjectEl.checked, // 库支持 P1
+    log_level_colors: settingsLogLevelColorsEl.checked, // 库支持 P1
     autosave,
     autosave_delay: app.settings.autosave_delay,
     probe_enabled: probeEnabled,
@@ -705,6 +713,9 @@ async function saveSettingsPanel(): Promise<void> {
   renderWelcomeShortcuts();
   // PR-N：参数名提示开关 → 立即把 inlay 配置推给静态引擎（引擎侧 150ms 防抖，无需重启引擎）
   void lsp.pushInlayHintSettings();
+  // 库支持 P1：日志级别着色开关即时生效（既有行重刷 + chips 显隐，research §11.9）
+  applyOutputLevelSetting(outputEl);
+  syncOutputLevelChips();
   await saveSettings();
   toast("设置已保存", "success"); // tech-debt #19：即时操作结果统一轻提示
   // D-4：严重度映射保存后立即重查当前文件（波浪线级别即时生效，无需等下次编辑）

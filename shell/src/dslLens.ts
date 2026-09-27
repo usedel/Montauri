@@ -13,7 +13,9 @@ import {
   scanRegexLiterals,
   type RegexHit,
 } from "./libRegex";
-import { setPendingRegexRequest } from "./libsBridge";
+import { scanFormatLiterals } from "./libFormat";
+import type { FormatHit } from "./libFormat";
+import { setPendingFormatRequest, setPendingRegexRequest } from "./libsBridge";
 import { evalKind } from "./libEval";
 import type { AstArgsData } from "./scriptArgs";
 import {
@@ -78,6 +80,15 @@ export function openRegexTesterAtCursor(): void {
   openRegexTester(hit);
 }
 
+/** 面板工具全局 id（builtin/index.ts manifest 的 format 项） */
+const FORMAT_TOOL_ID = "opencharm.builtin.format";
+
+/** 格式串字面量 → 打开格式串面板并带入选中模式与格式串（§11.1-2 聚合 lens 落点） */
+export function openFormatTester(hit: Pick<FormatHit, "mode" | "fmt">): void {
+  setPendingFormatRequest({ mode: hit.mode, fmt: hit.fmt });
+  void import("./devtools/index").then((m) => m.openDevTools(FORMAT_TOOL_ID));
+}
+
 /** 面板「替换字面量」写回（I-4：executeEdits 单一撤销粒度，禁 setValue 整文替换）。
  *  contentOffset 变化（用户在源文件上改动过）→ 返回 false 防误写。 */
 export function replaceRegexLiteralInEditor(contentOffset: number, source: string, newSource: string): boolean {
@@ -123,6 +134,10 @@ function updateLibsArtifacts(editor: MonacoApi.editor.IStandaloneCodeEditor): vo
   // 规则表统一扫描（P1 §7-4）：正则 / 格式串 / JSON 一趟汇总
   const literals = scanInjectLiterals(text);
 
+  // Q5 首次命中引导（research §11.1-5，默认裁决「做」）：本工作区第一次识别出正则字面量时
+  // toast 一次，标志写 workspace config 的 `framework_hints`（与框架提示同存储同机制）
+  if (literals.some((l) => l.rule === "regex")) void maybeShowRegexIntroToast();
+
   // 装饰：规则自带 decorClass（只改前景色 + 下划线，§11.3.4；format 无装饰）
   applyDecorations(model, literals.filter((l) => ruleDecorClass(l.rule) !== undefined));
 
@@ -149,6 +164,27 @@ function updateLibsArtifacts(editor: MonacoApi.editor.IStandaloneCodeEditor): vo
 function setMarkers(model: MonacoApi.editor.ITextModel | null, markers: MonacoApi.editor.IMarkerData[]): void {
   if (!model) return;
   app.monaco.editor.setModelMarkers(model, LIBS_OWNER, markers);
+}
+
+// ---------- Q5 首次命中引导（research §11.1-5） ----------
+
+/** 引导标志的存储键（workspace config 的 `framework_hints`，语义 = 该提示的工作区级开关） */
+const INTRO_HINT_KEY = "regex_tester_intro";
+/** 会话级去重：同工作区本会话最多查询一次（Set 规模 = 打开过的工作区数，无增长风险） */
+const introChecked = new Set<string>();
+
+async function maybeShowRegexIntroToast(): Promise<void> {
+  if (app.settings.libs_editor_lens === false) return; // 开关关掉：入口已降级，无需引导
+  const root = app.workspaceRoot;
+  if (!root || introChecked.has(root)) return;
+  introChecked.add(root);
+  try {
+    if (await invoke<boolean>("is_framework_hint_disabled", { workspaceRoot: root, framework: INTRO_HINT_KEY })) return;
+    toast("提示：右键 → 「在正则测试器中打开」，或按 Ctrl+Alt+R 测试正则", "info");
+    await invoke("set_framework_hint_disabled", { workspaceRoot: root, framework: INTRO_HINT_KEY, disabled: true });
+  } catch {
+    // 配置读写失败静默放弃：引导是锦上添花，不得打断编辑
+  }
 }
 
 // ---------- L2：CodeLens ----------
@@ -214,8 +250,19 @@ export function initDslLens(editor: MonacoApi.editor.IStandaloneCodeEditor): Mon
     return { dispose: () => (listeners = listeners.filter((x) => x !== l)) };
   };
 
-  const commandId = editor.addCommand(0, (_ctx, hit: RegexHit) => {
-    openRegexTester(hit);
+  // 工具 lens 命令（§11.1-2）：单 DSL 直开；双 DSL 同行按光标所在字面量选模式，不在字面量内取先命中者
+  const toolCommandId = editor.addCommand(0, (_ctx, regexHit: RegexHit | null, formatHit: FormatHit | null) => {
+    if (regexHit && formatHit) {
+      const model = app.editor.getModel();
+      const pos = app.editor.getPosition();
+      const off = model && pos ? model.getOffsetAt(pos) : -1;
+      const inRegex = off >= 0 && off >= regexHit.start && off <= regexHit.end;
+      if (inRegex) openRegexTester(regexHit);
+      else openFormatTester(formatHit);
+      return;
+    }
+    if (regexHit) openRegexTester(regexHit);
+    else if (formatHit) openFormatTester(formatHit);
   });
   const argsCommandId = editor.addCommand(0, (_ctx, modelRef: MonacoApi.editor.ITextModel) => {
     openArgsLensTarget(modelRef);
@@ -229,34 +276,43 @@ export function initDslLens(editor: MonacoApi.editor.IStandaloneCodeEditor): Mon
         return { lenses: [], dispose: () => undefined };
       }
       const lenses: MonacoApi.languages.CodeLens[] = [];
-      // 正则 lens（libs_regex 开关；D-2：与引用 lens 并存，[工具][引用] 顺序由 provider 注册序决定）
+      // 工具 lens（libs_regex / libs_format 开关；D-2：与引用 lens 并存，[工具][引用] 顺序由 provider 注册序决定）。
+      // §11.1-2 聚合：同一行同时命中正则与格式串 → 只出一条 lens，点击后按光标所在字面量选模式。
+      const text = model.getValue();
+      const byLine = new Map<number, { regex?: RegexHit; format?: FormatHit }>();
       if (app.settings.libs_regex !== false) {
-        const hits = scanRegexLiterals(model.getValue());
-        // 单行聚合（同一行多个 re 调用只出一条 lens）
-        const byLine = new Map<number, RegexHit>();
-        for (const h of hits) {
-          const prev = byLine.get(h.callLine);
-          if (!prev || h.start < prev.start) byLine.set(h.callLine, h);
+        for (const h of scanRegexLiterals(text)) {
+          const e = byLine.get(h.callLine) ?? {};
+          if (!e.regex || h.start < e.regex.start) e.regex = h;
+          byLine.set(h.callLine, e);
         }
-        let entries = [...byLine.entries()].sort((a, b) => a[0] - b[0]);
-        // 超上限：收敛到可见区域 + 光标 ±50 行（§11.1-3）
-        if (entries.length > LENS_MAX) {
-          const visible = new Set<number>();
-          for (const r of editor.getVisibleRanges()) {
-            for (let ln = r.startLineNumber; ln <= r.endLineNumber; ln++) visible.add(ln);
-          }
-          const cursor = editor.getPosition()?.lineNumber ?? 1;
-          const windowed = entries.filter(([ln]) => visible.has(ln + 1) || Math.abs(ln + 1 - cursor) <= LENS_WINDOW);
-          entries = (windowed.length ? windowed : entries).slice(0, LENS_MAX);
+      }
+      if (app.settings.libs_format !== false) {
+        for (const h of scanFormatLiterals(text)) {
+          const e = byLine.get(h.line) ?? {};
+          if (!e.format || h.start < e.format.start) e.format = h;
+          byLine.set(h.line, e);
         }
-        for (const [line, hit] of entries) {
-          lenses.push({
-            range: { startLineNumber: line + 1, startColumn: 1, endLineNumber: line + 1, endColumn: 1 },
-            command: commandId
-              ? { id: commandId, title: "🧪 测试正则", arguments: [hit] }
-              : undefined,
-          });
+      }
+      let entries = [...byLine.entries()].sort((a, b) => a[0] - b[0]);
+      // 超上限：收敛到可见区域 + 光标 ±50 行（§11.1-3）
+      if (entries.length > LENS_MAX) {
+        const visible = new Set<number>();
+        for (const r of editor.getVisibleRanges()) {
+          for (let ln = r.startLineNumber; ln <= r.endLineNumber; ln++) visible.add(ln);
         }
+        const cursor = editor.getPosition()?.lineNumber ?? 1;
+        const windowed = entries.filter(([ln]) => visible.has(ln + 1) || Math.abs(ln + 1 - cursor) <= LENS_WINDOW);
+        entries = (windowed.length ? windowed : entries).slice(0, LENS_MAX);
+      }
+      for (const [line, e] of entries) {
+        const title = e.regex && e.format ? "🧪 测试（正则/格式串）" : e.regex ? "🧪 测试正则" : "🧪 测试格式串";
+        lenses.push({
+          range: { startLineNumber: line + 1, startColumn: 1, endLineNumber: line + 1, endColumn: 1 },
+          command: toolCommandId
+            ? { id: toolCommandId, title, arguments: [e.regex ?? null, e.format ?? null] }
+            : undefined,
+        });
       }
       // 参数 lens（libs_argparse 开关；文件顶部「⚙ N 个参数」→ 打开运行面板聚焦参数区，D-3）
       if (app.settings.libs_argparse !== false && argsCommandId) {

@@ -82,6 +82,14 @@ const findUsagesPanelEl = $("find-usages-panel");
 
 // ---------- 底部面板 ----------
 
+/** `log_level_colors` 开关读取（research §11.9）：关闭后级别着色与过滤整体失效 */
+const levelColorsEnabled = (): boolean => app.settings.log_level_colors !== false;
+
+/** 设置保存后重算级别 chips 显隐（tab 判定复用 bottomTab；新行着色与既有行重刷走 output.applyOutputLevelSetting） */
+export function syncOutputLevelChips(): void {
+  $("output-levels").classList.toggle("hidden", bottomTab !== "output" || !levelColorsEnabled());
+}
+
 /** 切换底部面板标签（输出 / 终端 / Git 详情；差异视图已迁入编辑区 tab） */
 export function setBottomTab(tab: BottomTab): void {
   bottomTab = tab;
@@ -101,9 +109,10 @@ export function setBottomTab(tab: BottomTab): void {
   gitDetailPanelEl.classList.toggle("hidden", tab !== "git");
   findUsagesPanelEl.classList.toggle("hidden", tab !== "findUsages");
   $("terminal-cmd").classList.toggle("hidden", tab !== "terminal");
-  // P2：输出过滤 chips 只在输出 tab 下出现（其他 tab 下无意义）
+  // P2：输出过滤 chips 只在输出 tab 下出现（其他 tab 下无意义）；
+  // 级别 chips 还须 `log_level_colors` 开关打开（关掉后着色与过滤整体失效，research §11.9）
   $("output-channels").classList.toggle("hidden", tab !== "output");
-  $("output-levels").classList.toggle("hidden", tab !== "output");
+  $("output-levels").classList.toggle("hidden", tab !== "output" || !levelColorsEnabled());
   $("bottom").classList.remove("collapsed");
   if (tab === "terminal") void ensureAnyTerminal();
   outputHooks?.onTabChange();
@@ -788,7 +797,7 @@ export function wireBottomPanel(): void {
   // 任一选中 = 只显示所选级别 + 未分级行）。ARIA 状态单一写入点：aria-pressed 与 .active 同源切换。
   $("output-levels").addEventListener("click", (e) => {
     const chip = (e.target as HTMLElement).closest(".out-chip") as HTMLElement | null;
-    if (!chip?.dataset.lvl) return;
+    if (!chip?.dataset.lvl || !levelColorsEnabled()) return;
     const pressed = chip.getAttribute("aria-pressed") !== "true";
     chip.setAttribute("aria-pressed", String(pressed));
     chip.classList.toggle("active", pressed);

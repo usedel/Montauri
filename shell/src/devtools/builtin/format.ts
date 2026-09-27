@@ -13,6 +13,7 @@ import {
   segmentFormat,
   type FormatMode,
 } from "../../libFormat";
+import { takePendingFormatRequest } from "../../libsBridge";
 
 interface FormatEvalData {
   result: string;
@@ -22,10 +23,13 @@ export function mount(host: PanelHost): { dispose(): void } | void {
   const { kit } = host;
   host.root.textContent = "";
 
+  // lens / 右键带入的上下文（§11.1-2 聚合 lens 落点；挂载时取走，取后清空）
+  const initial = takePendingFormatRequest();
+
   // ---------- 骨架 ----------
   const wrap = kit.body();
 
-  // 三模式（互斥 → radioGroup，§11.4）
+  // 三模式（互斥 → radioGroup，§11.4；初始模式由带入请求决定）
   const modeGroup = kit.radioGroup<FormatMode>({
     label: "格式串模式",
     options: [
@@ -33,7 +37,7 @@ export function mount(host: PanelHost): { dispose(): void } | void {
       { value: "format", label: "数字 format" },
       { value: "logging", label: "logging" },
     ],
-    value: "strftime",
+    value: initial?.mode ?? "strftime",
     onChange: () => {
       syncMode();
       scheduleEval(true);
@@ -42,6 +46,7 @@ export function mount(host: PanelHost): { dispose(): void } | void {
 
   // 格式输入（点击解释段时定位）
   const fmtEl = kit.input({ placeholder: "%Y-%m-%d %H:%M:%S", onInput: () => scheduleEval() });
+  if (initial) fmtEl.value = initial.fmt;
   fmtEl.id = "fmt-input";
 
   // 速查 chips（按频率排序，点击插入光标处；data-tip 释义）
@@ -254,7 +259,11 @@ export function mount(host: PanelHost): { dispose(): void } | void {
   });
 
   syncMode();
-  setStatus("empty");
+  if (initial) {
+    scheduleEval(true); // 带入上下文：立即求值
+  } else {
+    setStatus("empty");
+  }
 
   return {
     dispose() {

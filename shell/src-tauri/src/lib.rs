@@ -165,6 +165,7 @@ pub fn run() {
             // 框架探针表（P1：Django / Flask / FastAPI，docs/pycharm_framework_support_report.md §8.2）
             env_cmds::detect_framework,
             env_cmds::set_framework_hint_disabled,
+            env_cmds::is_framework_hint_disabled,
             // Pydantic 栈检测（F0 裁决 B：推荐切换静态引擎，bench/reports/pydantic-engine-probe.md）
             env_cmds::detect_pydantic_stack,
             // 端点扫描（F1：FastAPI / Flask 静态路由，docs/pycharm_framework_support_report.md §8.3）

@@ -43,7 +43,7 @@ import { recordClosedTab, reopenClosedTab, resetTabReopen, setTabReopenHandlers 
 import { registerSidebarView, setSidebarTab, activeView, restoreSidebarView } from "./views";
 import * as lsp from "./lsp/client";
 import * as kb from "./keybindings";
-import { appendOutputLine, clearOutput, setOutputTracebackHandler, setOutputUrlHandler } from "./output";
+import { appendOutputLine, clearOutput, setOutputLevelColorsEnabled, setOutputTracebackHandler, setOutputUrlHandler } from "./output";
 import { openAlert, openConfirm, openPrompt } from "./dialog";
 import { app, $, outputEl, statusFileEl, type Entry, type SaveOptions, type Tab } from "./state";
 import {
@@ -2568,6 +2568,8 @@ async function init(): Promise<void> {
   setOutputUrlHandler((url) => {
     invoke("open_external", { url }).catch((e) => toastFail("打开浏览器", e));
   });
+  // 库支持 P1：`log_level_colors` 开关注入（research §11.9；output.ts 保持无 state 依赖可单测）
+  setOutputLevelColorsEnabled(() => app.settings.log_level_colors !== false);
   // v3.4 §9（M3-3.9）：FastAPI 服务就绪（Uvicorn running on http://…）自动开浏览器
   // ——与输出面板 URL 点击共用同一 open_external 通道
   setExternalUrlOpener((url) => {
