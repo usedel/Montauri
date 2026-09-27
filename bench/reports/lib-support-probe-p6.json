@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-26T22:50:00.248Z",
+  "generatedAt": "2026-09-27T14:24:59.200Z",
   "pageErrors": [],
   "probe": "P6 面板内只读 Monaco 成本",
   "monacoVersion": null,
@@ -10,39 +10,39 @@
   "createEditors": [
     {
       "index": 1,
-      "create_ms": 364.3,
-      "nextFrame_ms": 114.7
+      "create_ms": 37,
+      "nextFrame_ms": 11.2
     },
     {
       "index": 2,
-      "create_ms": 16.7,
-      "nextFrame_ms": 36.2
+      "create_ms": 2.5,
+      "nextFrame_ms": 22.2
     },
     {
       "index": 3,
-      "create_ms": 14.3,
-      "nextFrame_ms": 47
+      "create_ms": 2.1,
+      "nextFrame_ms": 3.7
     }
   ],
   "decorations500": {
-    "apply_ms": 11.3,
-    "nextFrame_ms": 23.6,
+    "apply_ms": 2.5,
+    "nextFrame_ms": 8.2,
     "note": "createDecorationsCollection 一次性写入 500 条"
   },
   "decorations500Update": {
-    "apply_ms": 6.9,
-    "nextFrame_ms": 17.5
+    "apply_ms": 1.2,
+    "nextFrame_ms": 8
   },
   "setValue": {
-    "apply_ms": 15.9,
-    "nextFrame_ms": 46.3
+    "apply_ms": 2.9,
+    "nextFrame_ms": 14.9
   },
   "overlay500Spans": {
-    "apply_ms": 17.5,
-    "nextFrame_ms": 7.3,
+    "apply_ms": 3.3,
+    "nextFrame_ms": 11.8,
     "injectedSpans": 500
   },
-  "dispose3_ms": 14.6,
+  "dispose3_ms": 2.5,
   "heap": {
     "before": 13400000,
     "afterCreate3": 13400000,

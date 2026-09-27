@@ -1,6 +1,7 @@
 # Python 常用库「特别支持」调研报告
 
-> 版本：**v1.3** · 日期：2026-09-26（v1.0 调研）· 2026-09-27（v1.1 裁决 / v1.2 探针实测 / v1.3 动工前置修订）· 性质：**调研报告 + 已裁决立项依据**
+> 版本：**v1.4** · 日期：2026-09-26（v1.0 调研）· 2026-09-27（v1.1 裁决 / v1.2 探针实测 / v1.3 动工前置修订 / v1.4 交付收尾）· 性质：**调研报告 + 已裁决立项依据**
+> **v1.4 变更**（交付收尾，全部为状态回填，不改裁决）：① 交付状态——P0 四项 + P1 五项全部落地（开发计划 v1.2，`ac85980` / `cd0af89`）；② **P7 完成**：CACHE_MAX=5 维持（驻留 ~4.3MB）+ 发现并修复 6 个内置工具的 kit.output Monaco 泄漏（§10.1）；③ **P3 完成**：intel 对 DataFrame 只能给私有属性名（`_mgr` 等），列集合不可得 → pandas / NumPy 运行时卡按裁决**登记放弃**（§4.6、§10.1）；④ §11.9 清单收口——`libs_json_inject` / `log_level_colors` 两开关补齐接线；§11.6 JSON hover 摘要与 §11.1-2 双 DSL 聚合 lens 已补齐（v1.3 遗漏项）；⑤ Q5 首次命中 toast 引导已落地（标志写 workspace config `framework_hints["regex_tester_intro"]`）；⑥ §6「库探测门控」评估后不做（识别规则的调用点限定已是精确门控，见 §6 注记）。新增脚本/报告：`bench/lib-support-probe/p3_pandas_probe.py` / `-p3-pandas.json`。
 > **v1.1 变更**：§12 的四项裁决已由产品负责人拍板（全部采纳推荐项），§11 交互设计随之冻结；§11.10 的 Q1/Q3 关闭，Q4/Q5 按推荐默认执行。
 > **v1.2 变更**：三份探针实测回填——**P1** 求值桥耗时（定 `-I` + 解释器缓存 + 超时档位）· **P2** pyrefly 对字符串内 DSL **零支持**（L1 必须自研）· **P6** 只读 Monaco 边际成本 ~8ms（Q2 关闭）。新增待跑探针 P7（内存）。
 > **v1.3 变更**（评审后的动工前置修订，只动协议与探针口径，不动 §11 交互冻结项）：① 求值桥命令定档 **`python -I -X utf8 -c`**——`-I` 会忽略 `PYTHONIOENCODING`/`PYTHONUTF8`，Windows 默认 locale 编码（cp936）会破坏 stdout JSON，须用不受 `-I` 影响的 `-X utf8` 强制 UTF-8（§5.2）；② `args_json` 改走 **stdin**（正则模式含引号/反斜杠/换行，`re.X` 多行是明确支持场景；Windows argv 有 ~32K 限制与引号转义问题）（§5.2）；③ **P1b 补测**回填「无 `.venv` 冷启动」：实测 **965ms**（原 1017ms 无报告留痕，已替换为可溯源数字）（§10.1）；④ P1b 发现 **`.venv` 创建前 `uv python find` 返回系统解释器而非项目解释器** → 解释器路径缓存增加「仅缓存指向工作区 `.venv` 的结果」失效条件（§5.2、§10.1）；⑤ 内省受控脚本须显式 `sys.path.insert(0, os.getcwd())`（`-I` 隐含 `-P`，cwd 不在 `sys.path`）（§4.3）。新增脚本/报告：`bench/lib-support-probe/p1b_coldstart.py` / `bench/reports/lib-support-probe-p1b-coldstart.json`；⑥ 维护修订：requests/httpx → cURL 反向生成补入 P1（#9，§0-10、§7.2）· 诊断 owner 锚点修正（§6）· P1 表 179ms/126ms 口径说明（§10.1）。
@@ -25,7 +26,7 @@
 7. **数据科学（pandas / NumPy）在本项目应「浅做 + 探针先行」**：调研数据（PSF + JetBrains 第八次年度调查，3 万+ 受访）显示 **51% 的 Python 开发者参与数据探索与处理，pandas / NumPy 是最常用工具**，但这是**全体 Python 开发者**的画像，不是本项目「自用脚本 / 小项目」画像；且 dev plan v2 §1.1 已裁决 **Jupyter / Scientific 模式不做**。唯一值得探的是**借 intel 运行时数据做「跑过的 DataFrame 变量」洞察**（我们的差异化资产），且必须先出探针结论（§10-P3），探针不成立即登记放弃。
 8. **`pytest` 面板维持不做**（dev plan v2 §1.1 明列、`pycharm_ux_review_and_proposal.md:393` 已裁决 F-1 非目标）。本文档不复议；但把「测试运行器」与「库支持」的边界写清：不做测试发现/结果树，不等于不做 argparse 参数表单。
 9. **明确不做（避免立项阶段反复）**：matplotlib 图预览、Streamlit/Jupyter、asyncio 协程调试、sqlite/DB 工具窗、SQLAlchemy 深语义、Jinja2 语言包、`struct`/`fnmatch` 这类窄众格式串、`subprocess` 安全（ruff 已覆盖）、LLM SDK。理由见 §8。
-10. **建议的第一批（P0，约 5–7 个工作日）**：① Python 求值桥（基建，1 天）② re 三件套（2 天）③ 格式串工具 + hover 预览（1.5 天）④ argparse/click 参数表单（2 天）。第二批（P1）「输出面板日志级别着色」「JSON→Pydantic 模型生成」「JSON 字面量注入」「注入框架化」「requests/httpx → cURL 反向生成」共约 3.5 天。详见 §7。
+10. **建议的第一批（P0，约 5–7 个工作日）**：① Python 求值桥（基建，1 天）② re 三件套（2 天）③ 格式串工具 + hover 预览（1.5 天）④ argparse/click 参数表单（2 天）。第二批（P1）「输出面板日志级别着色」「JSON→Pydantic 模型生成」「JSON 字面量注入」「注入框架化」「requests/httpx → cURL 反向生成」共约 3.5 天。详见 §7。（✅ **v1.4：两批共 9 项已全部交付**，开发计划 v1.2）
 11. **交互必须先定死再动手（§11）**：本批功能几乎全部是「编辑器 ↔ 面板」的双向联动，真正决定成败的不是能不能算出来，而是**用户写正则的当下能不能发现工具、面板会不会抢走编辑器已有位置、求值失败时会不会误导**。§11 已把线框、状态机、CodeLens 与既有引用 lens 的共存规则、六态文案模板、设置开关与键位清单全部定死，实现阶段只做填空题。
 
 ---
@@ -96,8 +97,8 @@
 
 | 库 | 热度 | 痛点 | 可做形态 | 成本 | 裁决 |
 |---|---|---|---|---|---|
-| `pandas` | ✅ 极高（51% 数据探索，最常用） | 调试时只看到 `DataFrame` 不看到内容 | L3 运行时对象洞察（借 intel） | 高 | **P2 探针先行** |
-| `numpy` | ✅ 极高（同上） | shape/dtype 看不见 | L3 同上 | 高 | **P2 探针先行** |
+| `pandas` | ✅ 极高（51% 数据探索，最常用） | 调试时只看到 `DataFrame` 不看到内容 | L3 运行时对象洞察（借 intel） | 高 | **P2 探针完成：放弃**（列不可得，§10.1-P3） |
+| `numpy` | ✅ 极高（同上） | shape/dtype 看不见 | L3 同上 | 高 | **P2 探针完成：放弃**（同上） |
 | `matplotlib` | ✅ 高 | 图要弹窗 | L3 图预览（需执行 + 渲染） | 很高 | **不做** |
 | `polars` | 🔍 上升中 | 同上 | 同上 | 高 | **不做**（与 pandas 同档，等探针） |
 | `scikit-learn` / `torch` / `transformers` | ✅ 高（整体数据/AI 占比过半） | IDE 层面没有可做的具体形态 | — | — | **不做**（L0 引擎已够） |
@@ -200,10 +201,11 @@
 
 **交互细节**：见 §11.7（过滤 chips 多选语义、默认只着色不过滤、错误行复用既有 traceback 跳转）。
 
-### 4.6 pandas / NumPy（P2，探针先行）
+### 4.6 pandas / NumPy（P2，探针先行 → **✅ 探针完成：登记放弃**）
 
 - 数据（§1）显示数据科学占 Python 的 51%，但**本项目画像是自用脚本**（dev plan v2 §1.1 且已裁决 Scientific 模式不做），故 S1 只给 2 分。
 - 唯一值得探的是**差异化路径**：intel 的 hover 已能给出「运行时类型 + shape（dict 键 / 实例属性名）」（`intel/README.md` P3-T05）。探针问题：**对 `df = pd.read_csv(...)` 这类变量，intel 实际能提供什么？**（DataFrame 的列是数据不是属性，shape 大概率给不到列）。若探针能给到「类型 + 列集合」，则可做一个轻量「运行时对象卡」；否则登记放弃，不做 DataFrame 查看器（那需要 DAP evaluate + 大规模序列化，成本高且会拖慢调试）。
+- **✅ P3 探针结论（2026-09-27，§10.1）**：type_label 正常（`pandas.DataFrame`），但 shape 只采到私有属性名（`_mgr` 等），**列集合不可得** → **登记放弃**。numpy 同批放弃（`ndarray` 无 `__dict__`，shape 为 None）。
 
 **交互细节**：见 §11.8（只做变量行 chip + 列 chips，明确不做表格查看器）。
 
@@ -271,7 +273,7 @@ pub async fn py_eval(
 | 侧栏视图（参数表单可能用到） | `views.ts` 注册表，现 6 个视图 | `views.ts`、`main.ts:2391-2434` |
 | 求值 | **新增** `py_eval`（§5） | `lib.rs` generate_handler |
 | 设置开关 | 4 处接线：`Settings` struct + `DEFAULT_SETTINGS` + index.html 控件 + `settingsPanel`，Rust `Settings::default` 同步 | `settings.rs:101-213`、`state.ts:104`、`settingsPanel.ts:485/569` |
-| 库探测门控 | 已有 `dep_scan` 的 import 统计与 `check_missing_imports`；**新增**「命中某库才启用某提示」的门控（如未 import `re` 时不显示正则相关入口） | `env_cmds.rs:2943`、`env_cmds.rs:871`、`stdlib.ts` |
+| 库探测门控 | 已有 `dep_scan` 的 import 统计与 `check_missing_imports`；**新增**「命中某库才启用某提示」的门控（如未 import `re` 时不显示正则相关入口） | `env_cmds.rs:2943`、`env_cmds.rs:871`、`stdlib.ts`（v1.4 评估结论：**不做**——识别规则本身限定在 `re.<api>(` / `.strftime(` / `json.loads(` 等调用点的字面量上，未写调用就没有任何入口，「按调用点出现」已是精确门控；工作区级 import 统计反而对单文件脚本失真，且增加 dep_scan 耦合） |
 
 ---
 
@@ -403,14 +405,43 @@ pub async fn py_eval(
 - **定案**：测试文本用**只读 Monaco**。理由不仅是性能——**边际创建仅 ~8ms、500 处高亮 4–8ms**，而 span 覆盖层反而更慢（10.7ms）且**没有**点击定位（`revealRange` + `setSelection`）、滚动、大文本虚拟渲染、换行折叠。
 - **已知边界**：堆内存增量测量无效（`performance.memory` 被 Chrome 量化，delta 恒为 0），内存开销需在实现期用真实面板复测；>100KB 文本未测。
 
-### 10.2 待跑（实现期）
+#### P7 · 面板内第二个 Monaco 实例的内存（**结论：CACHE_MAX=5 维持；顺带发现并修复 6 工具泄漏**）
 
-| # | 探针 | 决定什么 | 何时 |
+探针 `shell/e2e/libs/04-monaco-memory-r5.spec.ts`（CDP JSHeapUsedSize + 强制 GC，vite dev + tauri mock 真实面板）：
+
+| 指标 | 实测 |
+|---|---|
+| 激活态堆增量（Monaco 实例 #2 + 面板 DOM） | **~3.2MB** |
+| LRU 缓存隐藏态驻留 | **~4.3MB** |
+| 关面板 dispose-all 回收 | ~1.5MB（残余 ~3.7MB 为一次性成本：模块代码 + Monaco 静态结构） |
+| 重挂堆趋势（修复前） | **+1.2MB/轮线性累积（真实泄漏）** |
+| 重挂堆趋势（修复后） | ~0.14MB/轮且逐轮收敛（平台） |
+
+- **定案**：**CACHE_MAX=5 维持不变**（驻留远低于内存红线顾虑）。
+- **复测发现的真实缺陷（已修复）**：`hash / base64 / urlcode / uuid / jsonfmt(×2) / json2model` 六个内置工具 `mount` 未返回 `dispose`，其 `kit.output` Monaco 实例在面板关闭 / LRU 逐出后永不释放；已补齐，详见开发计划 v1.2 §9 R-5 回填。
+- **测量注意**：CDP `Runtime.enable` 会保留 console 消息参数引用造成伪泄漏，GC 前须 `Runtime.discardConsoleEntries`。
+
+#### P3 · intel 对 pandas / NumPy 运行时变量的实际输出（**结论：列集合不可得 → 登记放弃**）
+
+探针 `bench/lib-support-probe/p3_pandas_probe.py`（pandas 3.0.6 / numpy 实测；intel hover 的 shape 唯一来源是 probe `compact.shape_fingerprint`，故其输出即 intel 将呈现的内容）：
+
+| 对象 | type_label | shape（intel hover「字段」） | 列信息 |
 |---|---|---|---|
-| **P3** | intel 对 `df = pd.read_csv(...)` 的 hover 实际输出（是否含列信息） | pandas 洞察立项或放弃 | 按裁决：P0 落地后顺带测（不单独排期） |
-| **P4** | tauri-mock 能否注入 `py_eval` 命令 | e2e 形态 | PR-1 实现期 |
-| **P5** | 大文件（>2000 行）上 decorations 做字面量高亮的性能 | 注入的规模上限（lens 上限 20 之外的另一道闸） | PR-2 实现期 |
-| **P7**（新增） | 真实面板内第二个 Monaco 实例的**内存**开销（P6 未能测出） | 面板 LRU 缓存上限（现为 5）是否要调 | PR-2 实现期 |
+| `pd.read_csv(...)` | `pandas.DataFrame` | `["_attrs","_flags","_mgr"]`（私有属性） | ✘ |
+| `df["age"]` | `pandas.Series` | `["_attrs","_flags","_mgr","_name"]` | ✘ |
+| `np.zeros((2,3))` | `numpy.ndarray` | `None`（无 `__dict__`） | ✘ |
+| 对照 dict | `dict[str, str\|int]` | 键集合（既有能力正常） | — |
+
+- **定案**：列在 DataFrame 内部 `_mgr.blocks` 结构中、非对象属性，probe 现有 shape 采样（dict 键 / 实例 `__dict__` 属性名）拿不到列集合 → 按 §4.6 预判分支**登记放弃**「运行时对象卡 / DataFrame 查看器」。若未来要做，需 probe 侧为 pandas 专门扩展 shape 提取（识别 DataFrame 后改采 `df.columns`），成本中等、与本画像贴合度低，暂不立项。
+
+### 10.2 待跑（实现期）——已全部完成或关闭
+
+| # | 探针 | 结论 | 何时 |
+|---|---|---|---|
+| **P3** | intel 对 `df = pd.read_csv(...)` 的 hover 实际输出（是否含列信息） | **放弃**（列不可得，见 §10.1-P3） | ✅ 2026-09-27 |
+| **P4** | tauri-mock 能否注入 `py_eval` 命令 | ✅ 可注入（`__E2E_PY_EVAL__` 四态切换） | ✅ PR-1 实现期 |
+| **P5** | 大文件上 decorations 的性能 | ✅ 落地为 500KB 扫描闸门（`dslLens.ts` `MAX_SCAN_CHARS`） | ✅ PR-2 实现期 |
+| **P7** | 面板内第二个 Monaco 实例的内存开销 | ✅ CACHE_MAX=5 维持 + 修复 6 工具泄漏（见 §10.1-P7） | ✅ 2026-09-27 |
 
 ---
 
@@ -442,10 +473,10 @@ pub async fn py_eval(
 **CodeLens 共存规则**（这是最容易出问题的一处，必须定死）：
 
 1. 一行最多 **2 条** lens，顺序固定：`[工具] [N 处引用]`——引用计数是既有高频项，**不被新入口挤掉**。（✅ D-2 裁决确认）
-2. 同一行同时命中两种 DSL（如 `re.sub(r"...", "%Y-%m-%d", s)`）→ **只出一条**聚合 lens：`🧪 测试（正则/格式串）`，点击后面板按**光标所在位置**自动选模式。
+2. 同一行同时命中两种 DSL（如 `re.sub(r"...", "%Y-%m-%d", s)`）→ **只出一条**聚合 lens：`🧪 测试（正则/格式串）`，点击后面板按**光标所在位置**自动选模式。（✅ v1.4 补齐：`dslLens.ts` 按行聚合正则+格式串；格式串字面量同步获得 `🧪 测试格式串` lens，面板经 `libsBridge` 带入模式与格式串）
 3. **单文件 lens 上限 20**：超出时只对可见区域 + 光标附近 ±50 行出，避免长文件满屏 lens（CodeLens 还会改变行的视口位置——glyph 点击 flake 的教训：lens 插入 view zone 会顶偏行位置，数量必须受控）。
 4. 开关 `libs_editor_lens`（默认开）：关掉后入口全部降级到右键 + 命令面板，面板本身仍可用。
-5. **首次命中引导**：某工作区第一次识别出正则字面量时，toast 一次「提示：右键 → 在正则测试器中打开」（只提示一次，标志写进 workspace config，与 `framework_hints` 同文件同机制）。低成本解决"不知道有这功能"。
+5. **首次命中引导**：某工作区第一次识别出正则字面量时，toast 一次「提示：右键 → 在正则测试器中打开」（只提示一次，标志写进 workspace config，与 `framework_hints` 同文件同机制）。低成本解决"不知道有这功能"。（✅ v1.4 落地：标志 `framework_hints["regex_tester_intro"]`，读取走新命令 `is_framework_hint_disabled`）
 
 **gutter 纪律**：断点（`debugGutter`）、运行（`runGutter`）、诊断图标已占满行号槽语义，**库支持一律不进 gutter**。
 
@@ -571,10 +602,10 @@ pub async fn py_eval(
 | **双向同步纪律** | 手工编辑命令行后尽力回填表单；**无法回填时明确标注「表单与命令行不一致，以命令行为准」，绝不静默覆盖用户输入**（这是表单类 UI 最容易翻车的地方） |
 | **落点** | **运行面板内嵌**（✅ D-3 裁决确认）——不新增侧栏视图，省一次 `views.ts` 改动，也避免侧栏 tab 拥挤。编辑器 lens「⚙ N 个参数」点击 → 打开运行面板并聚焦参数区 |
 
-### 11.6 JSON 字面量注入（P1）
+### 11.6 JSON 字面量注入（P1 → ✅ 已交付）
 
 - 高亮 + 折叠 + 诊断（错误偏移量映射到字面量内绝对位置）。
-- hover 摘要：`object · 14 键 · 3 层` / `array · 128 项`。
+- hover 摘要：`object · 14 键 · 3 层` / `array · 128 项`（✅ v1.4 补齐：`libJson.jsonHoverSummary`）。
 - **右键三项**：「格式化 JSON」「压缩 JSON」「用 JSONPath 提取」——后两者**只是给已有 DevTool 补编辑器入口**（`jsonfmt` / `jsonpath` 已存在），**纯入口补齐，零新功能成本，性价比极高**。
 
 ### 11.7 输出面板日志级别（P1）
@@ -585,9 +616,11 @@ pub async fn py_eval(
 - 错误行若含 `File "...", line N` → **复用既有 traceback 点击跳转**，不重复实现。
 - 开关 `log_level_colors`，默认开。
 
-### 11.8 pandas / NumPy 运行时卡（P2 条件项）
+### 11.8 pandas / NumPy 运行时卡（P2 条件项 → ✅ P3 探针后关闭）
 
 调试变量面板内命中 `pandas.DataFrame` / `Series` / `ndarray` 时：变量行右侧加 chip（`DataFrame · 3×12` / `ndarray · (2,3) float64`），hover 或展开显示列 chips（上限 30，超出「…等 N 列」）。**不实现表格查看器**（成本与风险都不可控，见 §4.6）。
+
+> ✅ **v1.4 关闭**：P3 探针证实列集合不可得（§10.1-P3），本项按裁决登记放弃，未实现。
 
 ### 11.9 横切规范
 
@@ -599,8 +632,8 @@ pub async fn py_eval(
 | `libs_regex` | 开 | 正则高亮/hover/诊断 + 测试器 |
 | `libs_format` | 开 | 格式串 hover/诊断 + 工具 |
 | `libs_argparse` | 开 | 参数表单（关掉后运行面板不显示参数区） |
-| `libs_json_inject` | 开 | JSON 字面量高亮/折叠/诊断 |
-| `log_level_colors` | 开 | 输出面板级别着色与过滤 |
+| `libs_json_inject` | 开 | JSON 字面量高亮/折叠/诊断（v1.4 补齐接线） |
+| `log_level_colors` | 开 | 输出面板级别着色与过滤（v1.4 补齐接线；关闭后 chips 整体隐藏、既有行摘除着色） |
 
 **键位清单**（走 `keybindingDefaults.ts` 单一来源 + Rust `default_keybindings` 漂移锁同步）：
 
@@ -655,11 +688,11 @@ pub async fn py_eval(
 
 | 项 | 默认 |
 |---|---|
-| pandas 洞察（§4.6 / §11.8） | **不单独排探针**；P0 落地后用一次真实 pandas 脚本顺带看 intel hover 输出（成本≈0），能给列信息再议 |
-| Q2 测试文本形态（Monaco vs span 覆盖层） | 并入 P0 实现期做 **P6 探针**，按结论定 |
-| Q4「替换字面量」写回源码 | **提供**，但 `sourceDirty`（用户手改过）时置灰 |
-| Q5 首次命中 toast 引导 | **做**，只提示一次，标志写 workspace config |
-| 键位 `open_regex_tester`（`Ctrl+Alt+R`） | 保留建议，实现时先核对现有键位表冲突，冲突则换配（PR-A 先例） |
+| pandas 洞察（§4.6 / §11.8） | ✅ **已执行并关闭**：P3 探针完成，列集合不可得 → 登记放弃（§10.1-P3） |
+| Q2 测试文本形态（Monaco vs span 覆盖层） | ✅ P6 探针完成：只读 Monaco |
+| Q4「替换字面量」写回源码 | ✅ **提供**，`sourceDirty`（用户手改过）时置灰（已交付） |
+| Q5 首次命中 toast 引导 | ✅ **做**（v1.4 落地，标志写 workspace config） |
+| 键位 `open_regex_tester`（`Ctrl+Alt+R`） | ✅ 已核对无冲突并落地（键位表现 57 项） |
 
 **冻结声明**：§11 的交互设计随本裁决一并冻结——实现阶段只做填空题，改动交互形态需回头修订本文档。
 
