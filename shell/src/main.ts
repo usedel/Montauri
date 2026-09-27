@@ -29,6 +29,7 @@ import { formatPythonSource, optimizeImportsSource, registerRuffFormatter, setFo
 import { runSearch, cancelSearch, resetSearch, setOpenMatchHandler, type SearchMatch, type SearchScope, type SearchScopeMode } from "./search";
 import { findUsagesAtCursor, renameSymbolAtCursor, resetFindUsages, setOpenRefHandler, queryAndRender, initFindUsagesAction, installCtrlShiftDblclickUsages } from "./findUsages";
 import { initCodeVision, refreshCodeVision } from "./codeVision";
+import { initDslLens, openRegexTesterAtCursor } from "./dslLens"; // 库支持 PR-2：正则 lens/装饰/诊断/右键
 import { refreshImportAliases, registerImportAliasCompletion } from "./importAlias"; // import 别名补全（import pandas as pd）
 import { registerAutoImportCompletion, resetAutoImportIndex } from "./autoImport"; // PR-E：补全内联 auto-import（自研，探针结局 C）
 import { initRenameWidget, setAfterRenameHandler } from "./renameWidget";
@@ -1943,6 +1944,8 @@ async function init(): Promise<void> {
   kb.setKeybindingHandler("find_usages", () => void findUsagesAtCursor());
   // P2：跨文件重命名（默认 Shift+F6，PyCharm 同款）——定义 + 所有引用同步改名
   kb.setKeybindingHandler("rename_symbol", () => void renameSymbolAtCursor());
+  // 库支持 PR-2：正则测试器（默认 Ctrl+Alt+R，editor 级）——与右键/lens 同一入口
+  kb.setKeybindingHandler("open_regex_tester", () => openRegexTesterAtCursor());
   // CR-24：LSP providers 统一入应用级 DisposableStore——不再丢弃句柄。
   // providers 与引擎实例无关（内部按 engineStatus 短路），init 只注册一次；
   // store 便于应用级 teardown / 测试中整体清理，防句柄泄漏累积。
@@ -1958,6 +1961,8 @@ async function init(): Promise<void> {
   // PR-I：Ctrl+Shift+双击 = 查找引用（PyCharm 手势对标，鼠标事件因而按 into DisposableStore）
   lspProviders.add(installCtrlShiftDblclickUsages(app.editor));
   lspProviders.add(initRenameWidget(app.editor)); // F2 就地重命名 + 右键菜单「重命名…」
+  // 库支持 PR-2：正则字面量 lens / 高亮装饰 / opencharm-libs 诊断（与 codeVision 引用 lens 并存，D-2）
+  lspProviders.add(initDslLens(app.editor));
   lspProviders.add(initClipboardDiffAction(app.editor)); // C-5：右键菜单「与剪贴板对比」
   lspProviders.add(initNoqaAction(app.editor)); // D-4：右键菜单「忽略此规则（# noqa）」
   lspProviders.add(installPasteJson(app.editor)); // PR-M：粘贴 JSON → Python 字面量（onDidPaste 拦截）

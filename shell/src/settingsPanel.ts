@@ -75,6 +75,13 @@ const settingsNewFileTemplateEl = $("settings-new-file-template") as HTMLInputEl
 const settingsPasteJsonEl = $("settings-paste-json") as HTMLInputElement;
 // B-3（PyCharm 调研）：调试只步进我的代码
 const settingsDebugJmcEl = $("settings-debug-jmc") as HTMLInputElement;
+// 库特别支持 PR-2：编辑器工具 lens / 正则高亮与测试器
+const settingsLibsEditorLensEl = $("settings-libs-editor-lens") as HTMLInputElement;
+const settingsLibsRegexEl = $("settings-libs-regex") as HTMLInputElement;
+// 库特别支持 PR-3：格式串 hover/诊断 + 工具
+const settingsLibsFormatEl = $("settings-libs-format") as HTMLInputElement;
+// 库特别支持 PR-4：参数表单
+const settingsLibsArgparseEl = $("settings-libs-argparse") as HTMLInputElement;
 const settingsAutosaveEl = $("settings-autosave") as HTMLSelectElement;
 const settingsProbeEl = $("settings-probe") as HTMLInputElement;
 const settingsIntelEl = $("settings-intel") as HTMLInputElement;
@@ -515,6 +522,11 @@ function fillForm(settings: Settings): void {
   // PR-M：默认开，旧配置缺字段兜底开（!== false 惯例）
   settingsPasteJsonEl.checked = settings.paste_json_to_python !== false;
   settingsDebugJmcEl.checked = settings.debug_just_my_code !== false; // B-3
+  // 库特别支持 PR-2：默认开，旧配置缺字段兜底开（!== false 惯例）
+  settingsLibsEditorLensEl.checked = settings.libs_editor_lens !== false;
+  settingsLibsRegexEl.checked = settings.libs_regex !== false;
+  settingsLibsFormatEl.checked = settings.libs_format !== false;
+  settingsLibsArgparseEl.checked = settings.libs_argparse !== false;
   settingsAutosaveEl.value = settings.autosave;
   settingsProbeEl.checked = settings.probe_enabled;
   settingsIntelEl.checked = settings.runtime_intel_enabled;
@@ -645,6 +657,10 @@ async function saveSettingsPanel(): Promise<void> {
     new_file_template: newFileTemplate, // PR-K
     paste_json_to_python: pasteJson, // PR-M
     debug_just_my_code: settingsDebugJmcEl.checked, // B-3
+    libs_editor_lens: settingsLibsEditorLensEl.checked, // 库支持 PR-2
+    libs_regex: settingsLibsRegexEl.checked, // 库支持 PR-2
+    libs_format: settingsLibsFormatEl.checked, // 库支持 PR-3
+    libs_argparse: settingsLibsArgparseEl.checked, // 库支持 PR-4
     autosave,
     autosave_delay: app.settings.autosave_delay,
     probe_enabled: probeEnabled,

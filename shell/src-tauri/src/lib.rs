@@ -6,6 +6,7 @@ mod fs_cmds;
 mod git_cmds;
 mod git_status;
 mod history;
+mod lib_cmds;
 mod logging;
 mod lsp;
 mod plugin_cmds;
@@ -174,6 +175,8 @@ pub fn run() {
             env_cmds::pip_uninstall,
             env_cmds::pip_upgrade,
             env_cmds::check_missing_imports,
+            // Python 求值桥（库特别支持 PR-1：正则/格式串/参数表单的受控脚本求值）
+            lib_cmds::py_eval,
             // 依赖健康（dep health M1，docs/dep_health_dev_plan.md）
             env_cmds::dep_style,
             env_cmds::dep_scan,

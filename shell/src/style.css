@@ -4495,6 +4495,77 @@ button:focus-visible,
   pointer-events: none;
 }
 
+/* ---------- 库特别支持：正则字面量（PR-2；dslLens.ts） ----------
+   编辑器内装饰只改前景色 + 下划线（§11.3.4：不改字体/背景，避免与主题语法着色打架）；
+   匹配高亮奇偶交替两种底色 + 选中边框（§11.3.2），全部走语义 token。 */
+
+.oc-regex-literal {
+  color: var(--meta); /* 紫：VS Code 正则/转义 token 同族 */
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--meta-border);
+}
+
+.oc-regex-hit-a { background: var(--accent-faint); }
+.oc-regex-hit-b { background: var(--warn-soft); }
+.oc-regex-hit-sel { outline: 1px solid var(--accent); }
+
+/* 正则测试器面板（regex.ts） */
+.rx-flags-summary { color: var(--fg-dim); font-size: var(--text-xs); align-self: center; white-space: nowrap; }
+.rx-flags { display: flex; flex-wrap: wrap; gap: 4px; } /* 360px 窄屏换行（缺陷 #19） */
+.rx-flag-btn { min-width: 28px; justify-content: center; }
+.rx-flag-btn[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
+.rx-raw-hint { color: var(--warn); font-size: var(--text-xs); padding: 2px 0; }
+.rx-test { height: 110px; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
+.rx-table-wrap { overflow: auto; max-height: 220px; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.rx-table { width: 100%; border-collapse: collapse; font-size: var(--text-xs); }
+.rx-table th, .rx-table td { text-align: left; padding: 2px 8px; border-bottom: 1px solid var(--border-soft); white-space: nowrap; }
+.rx-table th { color: var(--fg-dim); position: sticky; top: 0; background: var(--bg-panel); }
+.rx-row { cursor: pointer; }
+.rx-row:hover { background: var(--hover-subtle); }
+.rx-row td:first-child { color: var(--fg-dim); }
+.rx-truncated { color: var(--fg-dim); font-size: var(--text-xs); padding: 4px 0; }
+.rx-sub-out { font-family: var(--mono); white-space: pre-wrap; padding: 4px 0; }
+.rx-status { min-height: 20px; font-size: var(--text-sm); padding: 2px 0; }
+.rx-status--idle { color: var(--fg-dim); }
+.rx-status--ok { color: var(--fg); }
+.rx-status--err { color: var(--danger); }
+.rx-status--degraded { color: var(--warn); }
+.rx-status--pending { color: var(--fg-dim); }
+.rx-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.rx-chip { font-size: var(--text-xs); }
+
+/* 格式串工具面板（PR-3；format.ts） */
+.fmt-segments { display: flex; flex-wrap: wrap; gap: 4px; }
+.fmt-seg {
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--syntax-string);
+  cursor: pointer;
+}
+.fmt-seg:hover { background: var(--hover-subtle); }
+.fmt-seg--unknown { color: var(--warn); border-color: var(--warn-border); }
+.fmt-out { height: 64px; }
+.fmt-out--degraded { opacity: 0.45; }
+
+/* 脚本参数表单（PR-4；scriptArgsForm.ts，运行面板内嵌 D-3） */
+#run-config-args-form { display: flex; flex-direction: column; gap: 4px; padding: 4px 0; }
+.ra-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ra-introspect { font-size: var(--text-xs); }
+.ra-row { display: flex; align-items: center; gap: 8px; }
+.ra-row > label { min-width: 96px; color: var(--fg); font-size: var(--text-sm); }
+.ra-row > input[type="text"], .ra-row > input[type="number"], .ra-row > select {
+  flex: 1; min-width: 0;
+}
+.ra-check { flex: 0; }
+.ra-row .rx-flags-summary { white-space: nowrap; }
+#ra-required-note { white-space: nowrap; }
+#ra-sync-note { color: var(--warn); font-size: var(--text-xs); }
+
 /* ---------- 书签（P2；bookmarks.ts） ---------- */
 
 .gutter-bookmark { cursor: pointer; }

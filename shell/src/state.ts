@@ -101,6 +101,14 @@ export interface Settings {
   log_keep: number;
   /** 日志是否同时打印 stdout（dev 终端可见；release 无控制台可关） */
   log_stdout: boolean;
+  /** 库特别支持：编辑器内工具 lens（关掉后入口降级到右键 + 命令面板；须与 Rust settings.rs 同步） */
+  libs_editor_lens: boolean;
+  /** 库特别支持：正则高亮/hover/诊断 + 测试器（须与 Rust settings.rs 同步） */
+  libs_regex: boolean;
+  /** 库特别支持：格式串 hover/诊断 + 工具（须与 Rust settings.rs 同步） */
+  libs_format: boolean;
+  /** 库特别支持：参数表单（关掉后运行面板不显示参数区；须与 Rust settings.rs 同步） */
+  libs_argparse: boolean;
 }
 
 /** 从单一来源（keybindingDefaults.ts）派生出厂键位表，避免三处手写漂移（tech-debt #6） */
@@ -164,6 +172,11 @@ export const DEFAULT_SETTINGS: Settings = {
   log_level: "info",
   log_keep: 3,
   log_stdout: false,
+  // 库特别支持 PR-2/PR-3/PR-4（默认开；须与 Rust Settings::default 保持同步）
+  libs_editor_lens: true,
+  libs_regex: true,
+  libs_format: true,
+  libs_argparse: true,
 };
 
 export interface AppState {

@@ -388,17 +388,32 @@ fn venv_python(root: &str) -> Option<String> {
 
 // ---------- 命令执行（带超时） ----------
 
-fn run_with_timeout(cmd: &mut Command, timeout: Duration) -> Result<(String, String, Option<i32>), String> {
+/// 字节级通用执行：可选 stdin 数据 + 字节输出 + 超时。
+/// 供 py_eval（lib_cmds）这类需要 stdin 传参、且要求按 UTF-8 字节显式解码输出的调用方使用；
+/// 普通调用方走 `run_with_timeout`（本函数的 String 包装，保持既有语义：无效 UTF-8 → 空串）。
+pub(crate) fn run_with_timeout_bytes(
+    cmd: &mut Command,
+    timeout: Duration,
+    stdin_data: Option<&[u8]>,
+) -> Result<(Vec<u8>, Vec<u8>, Option<i32>), String> {
     let mut child = no_window(cmd)
-        .stdin(Stdio::null())
+        .stdin(if stdin_data.is_some() { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| e.to_string())?;
+    if let Some(data) = stdin_data {
+        // 写完立即 drop 关闭 stdin：脚本侧 read() 才能拿到 EOF 返回
+        use std::io::Write;
+        if let Some(mut stdin) = child.stdin.take() {
+            let _ = stdin.write_all(data);
+            let _ = stdin.flush();
+        }
+    }
     let stdout = child.stdout.take().unwrap();
     let stderr = child.stderr.take().unwrap();
-    let out_reader = std::thread::spawn(move || read_all(stdout));
-    let err_reader = std::thread::spawn(move || read_all(stderr));
+    let out_reader = std::thread::spawn(move || read_all_bytes(stdout));
+    let err_reader = std::thread::spawn(move || read_all_bytes(stderr));
 
     let start = Instant::now();
     let code = loop {
@@ -419,11 +434,23 @@ fn run_with_timeout(cmd: &mut Command, timeout: Duration) -> Result<(String, Str
     Ok((out, err, code))
 }
 
-fn read_all(r: impl Read) -> String {
-    let mut s = String::new();
+/// String 包装：与历史行为一致——stdout/stderr 按字符串读取，无效 UTF-8 时整体降级为空串。
+/// pub(crate)：lib_cmds 的 `uv python find` 与测试复用（R-4：改可见性，禁止复制一份）。
+pub(crate) fn run_with_timeout(cmd: &mut Command, timeout: Duration) -> Result<(String, String, Option<i32>), String> {
+    run_with_timeout_bytes(cmd, timeout, None).map(|(o, e, c)| {
+        (
+            String::from_utf8(o).unwrap_or_default(),
+            String::from_utf8(e).unwrap_or_default(),
+            c,
+        )
+    })
+}
+
+fn read_all_bytes(r: impl Read) -> Vec<u8> {
+    let mut buf = Vec::new();
     let mut reader = BufReader::new(r);
-    let _ = reader.read_to_string(&mut s);
-    s
+    let _ = reader.read_to_end(&mut buf);
+    buf
 }
 
 /// 运行 uv 命令并返回「成功输出」或「错误信息」（供 pip 安装/卸载等）。

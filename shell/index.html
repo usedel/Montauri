@@ -622,6 +622,8 @@
           <div class="settings-hint run-config-field-error hidden" id="run-config-field-error" role="alert"></div>
           <!-- P1：调试复用同一份运行配置（debug_start / debug_attach_debuggee 消费同一份 entry / cwd / 参数 / env） -->
           <div class="settings-hint">此配置对「运行」与「调试」同时生效（同一份入口 / 参数 / 环境变量 / 工作目录）。</div>
+          <!-- 库特别支持 PR-4：脚本参数表单（D-3 内嵌运行面板；三态由 scriptArgsForm 渲染） -->
+          <div id="run-config-args-form" class="hidden"></div>
           <div class="settings-row">
             <label for="run-config-args">参数 (Parameters)</label>
             <input id="run-config-args" type="text" autocomplete="off" placeholder="--flag value  含空格用引号" spellcheck="false" />
@@ -825,6 +827,26 @@
               <div class="settings-row">
                 <label for="settings-paste-json">粘贴 JSON 自动转 Python 字面量</label>
                 <input id="settings-paste-json" type="checkbox" />
+              </div>
+              <!-- 库特别支持 PR-2：编辑器内工具 lens（关掉后入口降级到右键 + 命令面板） -->
+              <div class="settings-row">
+                <label for="settings-libs-editor-lens">编辑器内工具 lens（正则测试等入口）</label>
+                <input id="settings-libs-editor-lens" type="checkbox" />
+              </div>
+              <!-- 库特别支持 PR-2：正则高亮/hover/诊断 + 测试器 -->
+              <div class="settings-row">
+                <label for="settings-libs-regex">正则高亮与测试器</label>
+                <input id="settings-libs-regex" type="checkbox" />
+              </div>
+              <!-- 库特别支持 PR-3：格式串 hover/诊断 + 工具 -->
+              <div class="settings-row">
+                <label for="settings-libs-format">格式串预览（strftime / 数字 / logging）</label>
+                <input id="settings-libs-format" type="checkbox" />
+              </div>
+              <!-- 库特别支持 PR-4：参数表单（关掉后运行面板不显示参数区） -->
+              <div class="settings-row">
+                <label for="settings-libs-argparse">脚本参数表单（argparse / click）</label>
+                <input id="settings-libs-argparse" type="checkbox" />
               </div>
             </div>
             <div id="settings-section-keybindings" class="settings-section hidden" role="tabpanel">

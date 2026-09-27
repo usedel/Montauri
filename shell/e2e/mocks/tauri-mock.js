@@ -128,6 +128,27 @@
       return Array.isArray(preset) ? preset : [];
     },
     list_shells: function () { return ["pwsh", "powershell", "cmd"]; },
+    // Python 求值桥（库特别支持 PR-1）：四态可切。
+    // 测试经 window.__E2E_PY_EVAL__ = { mode, data, error } 预置：
+    //   mode="ok"（默认）    → {"ok":true,"data":...}（data 未预置时回显 argsJson）
+    //   mode="err"           → {"ok":false,"error":preset.error || "re.error: ..."}
+    //   mode="timeout"       → reject "Timeout: ..."（libEval 分流为 timeout 态）
+    //   mode="noInterpreter" → reject "NoInterpreter: ..."（分流为 noInterpreter 态）
+    py_eval: function (args) {
+      var preset = window.__E2E_PY_EVAL__ || {};
+      var mode = preset.mode || "ok";
+      if (mode === "noInterpreter") throw new Error("NoInterpreter: E2E mock 未找到可用解释器");
+      if (mode === "timeout") throw new Error("Timeout: E2E mock 模拟求值超时（3s）");
+      if (mode === "err") {
+        return JSON.stringify({ ok: false, error: preset.error || "re.error: missing ), unterminated subpattern at position 0" });
+      }
+      var data = preset.data;
+      if (data === undefined) {
+        // 默认：与 RegexEvalData 形状对齐的空结果（无匹配）
+        data = { match: null, matches: [], count: 0, truncated: false };
+      }
+      return JSON.stringify({ ok: true, data: data });
+    },
     // P2：文件对话框（plugin-dialog）——测试经 window.__E2E_DIALOG_PRESET__ 预置返回值
     // （open/save 无预置时返回 null = 用户取消，避免用例挂起）
     "plugin:dialog|open": function () {

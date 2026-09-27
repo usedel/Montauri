@@ -91,6 +91,8 @@ fn default_keybindings() -> HashMap<String, String> {
     m.insert("goto_symbol".into(), "Ctrl+F12".into());
     // PR-J（dx_features_backlog §6.6）：触发补全建议备选键（Ctrl+Space 被中文 IME 吞键，人工验证）
     m.insert("trigger_suggest".into(), "Alt+/".into());
+    // 库特别支持 PR-2（python_library_support_dev_plan §4.2）：正则测试器（editor 级）
+    m.insert("open_regex_tester".into(), "Ctrl+Alt+R".into());
     m
 }
 
@@ -176,6 +178,14 @@ pub struct Settings {
     pub log_keep: usize,
     /// 日志是否同时打印 stdout（dev 终端可见；release 无控制台可关）
     pub log_stdout: bool,
+    /// 库特别支持：编辑器内工具 lens（关掉后入口降级到右键 + 命令面板；须与前端同步）
+    pub libs_editor_lens: bool,
+    /// 库特别支持：正则高亮/hover/诊断 + 测试器（须与前端同步）
+    pub libs_regex: bool,
+    /// 库特别支持：格式串 hover/诊断 + 工具（须与前端同步）
+    pub libs_format: bool,
+    /// 库特别支持：参数表单（关掉后运行面板不显示参数区；须与前端同步）
+    pub libs_argparse: bool,
 }
 
 impl Default for Settings {
@@ -225,6 +235,11 @@ impl Default for Settings {
             log_level: "info".into(),
             log_keep: 3,
             log_stdout: false,
+            // 库特别支持 PR-2/PR-3/PR-4（默认开，与前端 DEFAULT_SETTINGS 保持同步）
+            libs_editor_lens: true,
+            libs_regex: true,
+            libs_format: true,
+            libs_argparse: true,
         }
     }
 }
@@ -363,7 +378,7 @@ mod tests {
         // PR-J（dx_features_backlog §6.6）：触发补全建议备选键（Ctrl+Space 被中文 IME 吞键，人工验证）
         assert_eq!(d.keybindings.get("trigger_suggest").map(String::as_str), Some("Alt+/"));
         // 键位表条目数 = 前端 KEYBINDING_META 条目数（漂移锁，新增键须同步改这里）
-        assert_eq!(d.keybindings.len(), 56);
+        assert_eq!(d.keybindings.len(), 57);
         assert_eq!(d.optimize_imports_on_save, false);
     }
 
@@ -422,7 +437,9 @@ mod tests {
         assert_eq!(s.keybindings.get("delete_line").map(String::as_str), Some("Ctrl+Y"));
         // PR-J：触发补全建议备选键（与 default_keybindings 断言同批）
         assert_eq!(s.keybindings.get("trigger_suggest").map(String::as_str), Some("Alt+/"));
-        assert_eq!(s.keybindings.len(), 56);
+        // 库特别支持 PR-2：旧配置无正则测试器键位 → 回落默认
+        assert_eq!(s.keybindings.get("open_regex_tester").map(String::as_str), Some("Ctrl+Alt+R"));
+        assert_eq!(s.keybindings.len(), 57);
         assert_eq!(s.optimize_imports_on_save, false); // 旧配置文件无此字段 → 默认关闭
     }
 }

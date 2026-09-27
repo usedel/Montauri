@@ -9,6 +9,7 @@ import { app } from "../state";
 import * as dap from "../dap/client"; // B-8：暂停态 hover 求值（dap 不依赖 lsp，无环）
 import { depActionsForLine, latestDiff, toWorkspaceRelative } from "../depHealth";
 import { isSuppressedEngineAction } from "../quickFix";
+import { libsHoverAt } from "../dslLens"; // 库支持 PR-2/PR-3（R-1）：hover 合并管线的自研追加段
 
 // Monaco 实例注入（配合 main.ts 动态加载；providers 注册前必须先注入）
 let monaco: typeof MonacoApi;
@@ -715,11 +716,17 @@ async function queryHover(engine: string, params: unknown): Promise<LspHover | n
   }
 }
 
-/** Hover 合并：静态 + 运行时（intel）拼接展示；调试暂停时并入运行时求值（B-8） */
+/** Hover 合并：静态 + 运行时（intel）拼接展示；调试暂停时并入运行时求值（B-8）。
+ *  库特别支持 PR-2（R-1 结论）：正则字面量 hover 作为自研段**追加进本合并管线**——
+ *  不注册第二 hover provider（Monaco 多 provider 合并行为未验证），与 intel 合并同源。 */
 export function registerLspHover(): MonacoApi.IDisposable {
   return monaco.languages.registerHoverProvider("python", {
     async provideHover(model: MonacoApi.editor.ITextModel, position: MonacoApi.Position) {
-      if (engineStatus !== "ready") return null;
+      // 自研段：正则 / 格式串字面量解释（独立于引擎就绪态；libs_regex / libs_format 关闭时返回 null）
+      const libsValue = libsHoverAt(model, position);
+      if (engineStatus !== "ready") {
+        return libsValue ? { range: undefined, contents: [{ value: libsValue }] } : null;
+      }
       const params = {
         textDocument: { uri: pathToFileUri(currentPath(model)) },
         position: monacoPosToLsp(position),
@@ -731,6 +738,7 @@ export function registerLspHover(): MonacoApi.IDisposable {
       const sv = hoverToText(staticHover);
       const iv = hoverToText(intelHover);
       let value = [sv, iv].filter(Boolean).join(sv && iv ? "\n\n" : "");
+      if (libsValue) value = value ? `${libsValue}\n\n${value}` : libsValue;
       // B-8：调试暂停时，光标处标识符的**运行时值**并入 hover（context="hover"，
       // DAP 语义为无副作用求值；帧取 debugView 同步过来的镜像）。求值失败静默——
       // hover 是高频路径，失败不该打扰用户。

@@ -77,7 +77,10 @@ export type KeybindingId =
   | "goto_symbol"
   // PR-J（dx_features_backlog §6.6）：触发补全建议的可配置备选键——Ctrl+Space 是 Monaco 内建
   // 固定键，实测被 Windows 中文输入法切换热键吞掉（2026-09-27 人工验证），Alt+/ 保底
-  | "trigger_suggest";
+  | "trigger_suggest"
+  // 库特别支持 PR-2（python_library_support_dev_plan §4.2）：正则测试器（editor 级，需焦点；
+  // Ctrl+Alt+R 与既有 56 项无冲突，2026-09-27 核对）
+  | "open_regex_tester";
 
 export interface KeybindingMeta {
   id: KeybindingId;
@@ -177,4 +180,6 @@ export const KEYBINDING_META: KeybindingMeta[] = [
   // PR-J：触发补全建议（Alt+/，editor 级）——Ctrl+Space 被中文 IME 吞键（人工验证），此为可配置保底；
   // handler 在 keybindings.ts（纯 app.editor.trigger，无循环依赖），命令面板同走该 handler
   { id: "trigger_suggest", label: "触发补全建议", def: "Alt+/", scope: "editor" },
+  // 库特别支持 PR-2：正则测试器（editor 级）
+  { id: "open_regex_tester", label: "在正则测试器中打开", def: "Ctrl+Alt+R", scope: "editor" },
 ];

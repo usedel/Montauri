@@ -16,6 +16,8 @@ import * as hash from "./hash";
 import * as jsonfmt from "./jsonfmt";
 import * as timestamp from "./timestamp";
 import * as uuid from "./uuid";
+import * as regex from "./regex";
+import * as format from "./format";
 
 /** 内置工具模块表：entry 名 → 模块（对应第三方 manifest 的 entry 文件） */
 export const BUILTIN_TOOL_MODULES: Record<string, ToolModuleLike> = {
@@ -27,6 +29,8 @@ export const BUILTIN_TOOL_MODULES: Record<string, ToolModuleLike> = {
   "./jsonfmt.ts": jsonfmt as ToolModuleLike,
   "./timestamp.ts": timestamp as ToolModuleLike,
   "./uuid.ts": uuid as ToolModuleLike,
+  "./regex.ts": regex as ToolModuleLike,
+  "./format.ts": format as ToolModuleLike,
 };
 
 /** 工具模块契约（与第三方 ES module 导出同形；见 loader.ToolModule） */
@@ -112,7 +116,24 @@ export const BUILTIN_MANIFEST: PluginManifest = {
         icon: "json",
         entry: "./jsonpath.ts",
       },
+      {
+        id: "regex",
+        title: "正则测试器",
+        description: "真实 re 引擎下验证正则：匹配 / 替换 / 分组 / flags",
+        category: "文本",
+        icon: "regex",
+        entry: "./regex.ts",
+      },
+      {
+        id: "format",
+        title: "格式串预览",
+        description: "strftime / 数字格式规范 / logging 格式串预览与速查",
+        category: "文本",
+        icon: "calendar",
+        entry: "./format.ts",
+      },
     ],
   },
-  permissions: ["clipboard", "selection"], // 内置默认授予（信任边界内）
+  // monaco：正则测试器的测试文本区（P6 定案）需要裸 Monaco 实例；fs:read：workspaceRoot()（求值桥定位解释器）
+  permissions: ["clipboard", "selection", "monaco", "fs:read"],
 };

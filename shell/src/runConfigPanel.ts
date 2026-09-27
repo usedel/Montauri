@@ -18,6 +18,7 @@ import { basename, relativePathRaw } from "./util";
 import { toast, toastFail } from "./toast";
 import { EMPTY_RUN_CONFIG, normalizeRunConfig, type EnvVar, type RunConfig, type RunEntry } from "./runState";
 import { createCombobox, type Combobox, type ComboboxItem } from "./combobox";
+import { renderScriptArgs } from "./scriptArgsForm"; // 库支持 PR-4：脚本参数表单（D-3 内嵌）
 
 // ---------- 域内 DOM ----------
 
@@ -272,13 +273,15 @@ async function loadSection(sec: Section): Promise<void> {
     const path = scriptTargetPath;
     if (!path) {
       fillEditor(EMPTY_RUN_CONFIG);
-      return;
+    } else {
+      const cfg = await invoke<Partial<RunConfig>>("get_run_config", { workspaceRoot: app.workspaceRoot, scriptPath: path })
+        .catch(() => ({}) as Partial<RunConfig>);
+      fillEditor(normalizeRunConfig(cfg));
     }
-    const cfg = await invoke<Partial<RunConfig>>("get_run_config", { workspaceRoot: app.workspaceRoot, scriptPath: path })
-      .catch(() => ({}) as Partial<RunConfig>);
-    fillEditor(normalizeRunConfig(cfg));
   }
   syncEntryTargetLabel();
+  // 库支持 PR-4：脚本参数表单（D-3 内嵌；仅脚本分区，project 分区清空）
+  void renderScriptArgs(sec === "script" ? scriptTargetPath : null, runConfigArgsEl);
 }
 
 // ---------- 面板开合 ----------
@@ -286,8 +289,9 @@ async function loadSection(sec: Section): Promise<void> {
 /**
  * 打开运行配置面板（v3.4 §17-6 M3-3.6：两分区——脚本配置（当前文件）/ 项目配置）。
  * `path` 用于脚本分区的目标文件（活动 .py 文件；非 .py 或缺省时脚本分区只读提示）。
+ * `focusArgs`（库支持 PR-4）：lens「⚙ N 个参数」入口 → 打开后聚焦参数区（D-3）。
  */
-export async function openRunConfig(path?: string): Promise<void> {
+export async function openRunConfig(path?: string, focusArgs?: boolean): Promise<void> {
   if (!app.workspaceRoot) {
     toast("运行配置需先打开一个工作区", "info");
     return;
@@ -307,7 +311,7 @@ export async function openRunConfig(path?: string): Promise<void> {
   document.addEventListener("keydown", onRunConfigKeydown);
   renderSections();
   await loadSection(section);
-  runConfigTargetInputEl.focus();
+  (focusArgs ? runConfigArgsEl : runConfigTargetInputEl).focus();
 }
 
 function closeRunConfig(): void {
