@@ -14,7 +14,8 @@ import {
   staticDiagnostics,
 } from "../../libRegex";
 import { replaceRegexLiteralInEditor } from "../../dslLens";
-import { takePendingRegexRequest } from "../../libsBridge";
+import { takePendingRegexRequest, type RegexPanelRequest } from "../../libsBridge";
+import { openSettingsPanel } from "../../settingsPanel"; // §11.2 降级态：[设置解释器] 引导跳设置页
 
 /** 匹配表上限（§11.2：仅显示前 N 项 + 总数徽标） */
 const MATCH_CAP = 500;
@@ -39,12 +40,26 @@ export function mount(host: PanelHost): { dispose(): void } | void {
 
   // ---------- 状态 ----------
   let sourceInfo: { contentOffset: number; source: string; pattern: string } | null = null;
+  /** 用户是否手改过模式（§11.2 sourceDirty ②：不覆盖手改内容） */
+  let userEditedPattern = false;
 
   // ---------- 骨架 ----------
   const wrap = kit.body();
 
+  // 求值中：顶部细进度条（§11.2：陈旧灰显而非清空，不要 spinner）
+  const progressEl = document.createElement("div");
+  progressEl.className = "rx-progress hidden";
+  progressEl.id = "rx-progress";
+
   // 模式（单行；re.X 时切多行）
-  const patternEl = kit.textarea({ rows: 1, placeholder: 'r"\\b(\\w+)@(\\w+)\\.com"', onInput: () => scheduleEval() });
+  const patternEl = kit.textarea({
+    rows: 1,
+    placeholder: 'r"\\b(\\w+)@(\\w+)\\.com"',
+    onInput: () => {
+      userEditedPattern = true; // §11.2：手改过的内容不被编辑器带入覆盖
+      scheduleEval();
+    },
+  });
   patternEl.id = "rx-pattern";
   const flagsSummary = document.createElement("span");
   flagsSummary.className = "rx-flags-summary";
@@ -106,8 +121,17 @@ export function mount(host: PanelHost): { dispose(): void } | void {
   const monaco = host.monaco;
   let testEditor: MonacoApi.editor.IStandaloneCodeEditor | null = null;
   let hitDecos: MonacoApi.editor.IEditorDecorationsCollection | null = null;
+  /** 选中匹配的边框装饰（独立集合：不与奇偶交替底色互相覆盖，§11.3.2） */
+  let selDecos: MonacoApi.editor.IEditorDecorationsCollection | null = null;
+  /** 当前选中匹配（Ctrl+C 复制用，§11.3.2） */
+  let selectedMatch: MatchInfo | null = null;
   /** 测试文本变更 → 重算（可编辑；「只读」仅指不写回任何文件） */
   let suppressTestInput = false;
+
+  // 求值产出区（匹配表 + 替换结果）：求值中降透明度、无解释器整块置灰（§11.2 陈旧灰显 / 降级置灰）
+  const evalZone = document.createElement("div");
+  evalZone.className = "rx-eval-zone";
+  evalZone.id = "rx-eval-zone";
 
   // 匹配表（真 <table> 语义，§11.9）
   const tableWrap = document.createElement("div");
@@ -133,6 +157,14 @@ export function mount(host: PanelHost): { dispose(): void } | void {
   const statusEl = document.createElement("div");
   statusEl.className = "rx-status";
   statusEl.id = "rx-status";
+
+  // 无解释器引导（§11.2 / §11.3.3：求值区置灰 + [设置解释器] 跳设置页）
+  const guideRow = document.createElement("div");
+  guideRow.className = "rx-guide hidden";
+  guideRow.id = "rx-guide";
+  const interpBtn = kit.button("设置解释器", "gear", () => openSettingsPanel("python"));
+  interpBtn.id = "rx-open-settings";
+  guideRow.append(interpBtn);
 
   // 空态示例 chips（邮箱 / URL / 日期 / 数字 / HTML 标签）
   const examples: Array<[string, string, string]> = [
@@ -194,18 +226,20 @@ export function mount(host: PanelHost): { dispose(): void } | void {
   actionsRow.id = "rx-actions";
 
   wrap.append(
+    progressEl,
     kit.row(patternEl, flagsSummary),
     flagsRow,
     rawHint,
     view.el,
     chipsRow,
     testWrap,
-    tableWrap,
-    replRow,
+    evalZone,
     statusEl,
+    guideRow,
     actionsRow,
   );
   replRow.append(kit.row(replEl), subOut);
+  evalZone.append(tableWrap, replRow);
   host.root.appendChild(wrap);
 
   // ---------- 测试文本 Monaco（只读） ----------
@@ -222,6 +256,7 @@ export function mount(host: PanelHost): { dispose(): void } | void {
       wordWrap: "on",
     });
     hitDecos = testEditor.createDecorationsCollection([]);
+    selDecos = testEditor.createDecorationsCollection([]);
     testEditor.onDidChangeModelContent(() => {
       if (suppressTestInput) return;
       testText = testEditor!.getValue();
@@ -279,14 +314,21 @@ export function mount(host: PanelHost): { dispose(): void } | void {
       renderState("empty");
       return;
     }
+    // 静态已判定为错误（括号不闭合等）：不浪费一次 IPC，也不显示进度条
+    if (staticDiagnostics(pattern, true).some((d) => d.severity === "error")) {
+      renderStatusLine();
+      return;
+    }
     const args = {
       pattern,
       flags: flagsToValue(activeFlags()),
       test: testText,
       repl: view.get() === "sub" ? replEl.value : undefined,
     };
+    setStale(true); // 求值中：上次结果灰显 + 顶部细进度条（§11.2）
     const res = force ? await controller.force(args) : await controller.request(args);
     if (res.stale) return; // 被更新的求值超越：丢弃本次渲染（§11.2 陈旧灰显由下次结果接管）
+    setStale(false);
     render(res, pattern);
   }
 
@@ -308,6 +350,9 @@ export function mount(host: PanelHost): { dispose(): void } | void {
   let lastResult: EvalResult<RegexEvalData> | null = null;
 
   function renderMatches(data: RegexEvalData): void {
+    // 结果换了一批：选中态与新结果无关，清掉（奇偶底色由 hitDecos 重建）
+    selDecos?.clear();
+    selectedMatch = null;
     // 表
     table.textContent = "";
     const thead = document.createElement("thead");
@@ -385,13 +430,26 @@ export function mount(host: PanelHost): { dispose(): void } | void {
     const range = new host.monaco!.Range(s.lineNumber, s.column, e.lineNumber, e.column);
     testEditor.setSelection(range);
     testEditor.revealRangeInCenter(range);
-    // 当前匹配行加边框（§11.3.2）
-    hitDecos?.set([
+    // 当前匹配加边框：独立装饰集合，奇偶交替底色保留（§11.3.2）
+    selDecos?.set([
       {
         range,
         options: { inlineClassName: "oc-regex-hit-sel", stickiness: 1 },
       },
     ]);
+    selectedMatch = m;
+  }
+
+  /** 求值中：保留上次结果降透明度 + 顶部细进度条（§11.2：不要 spinner、不要清空） */
+  function setStale(on: boolean): void {
+    evalZone.classList.toggle("is-stale", on);
+    progressEl.classList.toggle("hidden", !on);
+  }
+
+  /** 无解释器：求值产出区整块置灰 + [设置解释器] 引导（§11.2 / §11.3.3） */
+  function setDegraded(on: boolean): void {
+    evalZone.classList.toggle("is-disabled", on);
+    guideRow.classList.toggle("hidden", !on);
   }
 
   /** 六态呈现（§11.3.3 + §11.9 文案模板） */
@@ -403,16 +461,21 @@ export function mount(host: PanelHost): { dispose(): void } | void {
       statusEl.textContent = "输入正则模式开始测试（可点上方示例一键填充）";
       table.textContent = "";
       hitDecos?.clear();
+      selDecos?.clear();
+      selectedMatch = null;
+      setStale(false);
       return;
     }
     if (state === "nomatch") {
       statusEl.classList.add("rx-status--idle");
       statusEl.textContent = "无匹配（是否忘了 re.I？^$ 锚点？match 只从头匹配？）";
+      setStale(false);
       return;
     }
     if (state === "evaluating") {
       statusEl.classList.add("rx-status--pending");
       statusEl.textContent = "求值中…";
+      setStale(true); // 上次结果留在原地灰显，表格高度不抖动
     }
   }
 
@@ -431,6 +494,10 @@ export function mount(host: PanelHost): { dispose(): void } | void {
       caretInPattern(errorDiag.pos);
       table.textContent = "";
       hitDecos?.clear();
+      selDecos?.clear();
+      selectedMatch = null;
+      setStale(false);
+      setDegraded(false);
       return;
     }
 
@@ -441,11 +508,14 @@ export function mount(host: PanelHost): { dispose(): void } | void {
     }
     switch (res.state) {
       case "ok": {
+        setDegraded(false);
         const data = res.data!;
         if (data.count === 0) {
           renderState("nomatch");
           table.textContent = "";
           hitDecos?.clear();
+          selDecos?.clear();
+          selectedMatch = null;
         } else {
           statusEl.className = "rx-status rx-status--ok";
           statusEl.textContent = `共 ${data.count} 处匹配${data.truncated ? `（仅显示前 ${MATCH_CAP}）` : ""}`;
@@ -454,17 +524,22 @@ export function mount(host: PanelHost): { dispose(): void } | void {
         break;
       }
       case "err":
+        setDegraded(false);
         statusEl.className = "rx-status rx-status--err";
         statusEl.textContent = res.error ?? "模式无效";
         caretFromReError(res.error ?? "");
         break;
       case "timeout":
+        setDegraded(false);
         statusEl.className = "rx-status rx-status--err";
         statusEl.textContent = "求值超时（3s）：模式可能存在灾难性回溯，避免嵌套量词（如 (a+)+）";
         break;
       case "noInterpreter":
+        // 求值产出区置灰 + [设置解释器] 引导；模式解释（离线）仍可用
+        setStale(false);
+        setDegraded(true);
         statusEl.className = "rx-status rx-status--degraded";
-        statusEl.textContent = "未配置工作区解释器，无法验证匹配（模式解释仍可用）——可在状态栏选择解释器";
+        statusEl.textContent = "未配置工作区解释器，无法验证匹配（模式解释仍可用）";
         break;
       case "pending":
         renderState("evaluating");
@@ -502,17 +577,45 @@ export function mount(host: PanelHost): { dispose(): void } | void {
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
       void runEval(true);
+      return;
+    }
+    // Ctrl+C 复制当前匹配（§11.3.2）：无选区时才接管，避免抢走正常复制
+    if ((e.key === "c" || e.key === "C") && (e.ctrlKey || e.metaKey)) {
+      if (!selectedMatch || hasActiveTextSelection(e.target)) return;
+      const text = testText.slice(selectedMatch.span[0], selectedMatch.span[1]);
+      if (!text) return;
+      e.preventDefault();
+      void host.copyToClipboard(text).then((ok) =>
+        host.toast(ok ? "已复制当前匹配" : "复制失败", ok ? "ok" : "error"),
+      );
     }
   });
 
-  // ---------- 编辑器上下文（lens / 右键 / 键位带入） ----------
-  const req = takePendingRegexRequest();
-  if (req) {
+  /** 事件目标是否已有文本选区（输入框选区 / 页面选区） */
+  function hasActiveTextSelection(target: EventTarget | null): boolean {
+    const el = target as HTMLTextAreaElement | HTMLInputElement | null;
+    if (el && (el.tagName === "TEXTAREA" || el.tagName === "INPUT")) {
+      return el.selectionStart !== el.selectionEnd;
+    }
+    return Boolean(window.getSelection()?.toString());
+  }
+
+  /** 带入编辑器上下文（lens / 右键 / 键位）；用户已手改过模式时不覆盖（§11.2 sourceDirty ②） */
+  function applyRegexRequest(req: RegexPanelRequest): void {
+    if (userEditedPattern) {
+      host.toast("编辑器正则已带入，但你的模式已手工修改，未覆盖", "info");
+      return;
+    }
     sourceInfo = { contentOffset: req.contentOffset, source: req.source, pattern: req.pattern };
     patternEl.value = req.pattern;
     setFlags(req.flags);
     rawHint.classList.toggle("hidden", req.isRaw);
   }
+
+  // ---------- 编辑器上下文（lens / 右键 / 键位带入） ----------
+  // 过期请求（面板被 LRU 逐出后重新挂载）已在 libsBridge 内按 TTL 丢弃，不套用陈旧上下文
+  const req = takePendingRegexRequest();
+  if (req) applyRegexRequest(req);
 
   // ---------- 初始渲染 ----------
   syncFlagUi();

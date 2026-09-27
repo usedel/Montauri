@@ -10,11 +10,14 @@ import {
   type ScriptParam,
 } from "../scriptArgs";
 
-const P_INPUT: ScriptParam = { name: "input", flag: "--input", type: "str", default: null, required: true, help: null, choices: null, source: "argparse" };
-const P_LANG: ScriptParam = { name: "lang", flag: "--lang", type: "str", default: "zh", required: false, help: null, choices: ["zh", "en"], source: "argparse" };
-const P_VERBOSE: ScriptParam = { name: "verbose", flag: "--verbose", type: "bool", default: null, required: false, help: null, choices: null, source: "argparse" };
-const P_LEVEL: ScriptParam = { name: "level", flag: "-l", type: "int", default: 1, required: false, help: null, choices: null, source: "argparse" };
-const P_INFILE: ScriptParam = { name: "infile", flag: null, type: "str", default: null, required: false, help: null, choices: null, source: "argparse" };
+const P_INPUT: ScriptParam = { name: "input", flag: "--input", type: "str", default: null, required: true, help: null, choices: null, nargs: null, source: "argparse" };
+const P_LANG: ScriptParam = { name: "lang", flag: "--lang", type: "str", default: "zh", required: false, help: null, choices: ["zh", "en"], nargs: null, source: "argparse" };
+const P_VERBOSE: ScriptParam = { name: "verbose", flag: "--verbose", type: "bool", default: null, required: false, help: null, choices: null, nargs: null, source: "argparse" };
+const P_LEVEL: ScriptParam = { name: "level", flag: "-l", type: "int", default: 1, required: false, help: null, choices: null, nargs: null, source: "argparse" };
+const P_INFILE: ScriptParam = { name: "infile", flag: null, type: "str", default: null, required: false, help: null, choices: null, nargs: null, source: "argparse" };
+/** nargs='*' / 2 的多值参数（§11.5：多行文本 → 命令行多个 token） */
+const P_FILES: ScriptParam = { name: "files", flag: "--files", type: "str", default: null, required: false, help: null, choices: null, nargs: "*", source: "argparse" };
+const P_PAIR: ScriptParam = { name: "pair", flag: "--pair", type: "str", default: null, required: false, help: null, choices: null, nargs: "2", source: "argparse" };
 const PARAMS = [P_INPUT, P_LANG, P_VERBOSE, P_LEVEL, P_INFILE];
 
 describe("toFormModel", () => {
@@ -22,7 +25,7 @@ describe("toFormModel", () => {
     expect(toFormModel(null)).toEqual([]);
     const raw = [null, { name: "" }, { name: "ok", flag: "notflag", type: 42 }] as unknown as ScriptParam[];
     expect(toFormModel({ params: raw })).toEqual([
-      { name: "ok", flag: null, type: "str", default: null, required: false, help: null, choices: null, source: "argparse" },
+      { name: "ok", flag: null, type: "str", default: null, required: false, help: null, choices: null, nargs: null, source: "argparse" },
     ]);
   });
 });
@@ -41,6 +44,14 @@ describe("buildCommandLine（表单 → 命令行）", () => {
   });
   it("无 flag（位置参数）只出值不带 flag", () => {
     expect(buildCommandLine([{ ...P_INPUT, flag: null }], { input: "x" })).toBe("x");
+  });
+  // §11.5：nargs='*' / N → 多值（空格或逗号分隔）展开成多个 token
+  it("nargs='*'：多值展开", () => {
+    expect(buildCommandLine([P_FILES], { files: "a.txt b.txt" })).toBe("--files a.txt b.txt");
+    expect(buildCommandLine([P_FILES], { files: "a.txt,b.txt" })).toBe("--files a.txt b.txt");
+  });
+  it("nargs=2：超出上限的值照常输出（表单不替用户截断）", () => {
+    expect(buildCommandLine([P_PAIR], { pair: "x y" })).toBe("--pair x y");
   });
 });
 
@@ -81,6 +92,15 @@ describe("backfillFromCommandLine（命令行 → 表单）", () => {
   });
   it("bool --flag=false", () => {
     expect(backfillFromCommandLine(PARAMS, "--verbose=false").values).toEqual({ verbose: false });
+  });
+  it("nargs='*'：其后连续非 flag token 全归入，遇下一个 flag 停止", () => {
+    const r = backfillFromCommandLine([P_FILES, P_INPUT], "--files a.txt b.txt --input c.csv");
+    expect(r.inconsistent).toBe(false);
+    expect(r.values).toEqual({ files: "a.txt b.txt", input: "c.csv" });
+  });
+  it("nargs=2：吃掉两个值后归还后续 flag", () => {
+    const r = backfillFromCommandLine([P_PAIR, P_INPUT], "--pair x y --input c.csv");
+    expect(r.values).toEqual({ pair: "x y", input: "c.csv" });
   });
 });
 

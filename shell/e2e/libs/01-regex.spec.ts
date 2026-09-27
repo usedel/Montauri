@@ -101,6 +101,10 @@ test.describe("正则测试器（库支持 PR-2）", () => {
     await expect(page.locator("#rx-status")).toContainText("共 2 处");
     // 奇偶交替高亮已落 DOM（Monaco decoration span）
     await expect(page.locator("#rx-test .oc-regex-hit-a").first()).toBeVisible();
+    // 点击匹配行 → 选中加边框，且奇偶交替底色保留（§11.3.2：独立装饰集合，不互相覆盖）
+    await page.locator("#rx-table tbody tr").first().click();
+    await expect(page.locator("#rx-test .oc-regex-hit-sel").first()).toBeVisible();
+    await expect(page.locator("#rx-test .oc-regex-hit-a").first()).toBeVisible();
   });
 
   test("03 非法模式 → re.error 原文（mock err 态）", async ({ page }) => {
@@ -133,6 +137,18 @@ test.describe("正则测试器（库支持 PR-2）", () => {
     });
     await page.locator("#rx-pattern").fill("\\w+");
     await expect(page.locator("#rx-status")).toContainText("未配置工作区解释器");
+    // §11.2 / §11.3.3：求值产出区整块置灰 + [设置解释器] 引导按钮
+    await expect(page.locator("#rx-eval-zone")).toHaveClass(/is-disabled/);
+    await expect(page.locator("#rx-guide")).toBeVisible();
+    await expect(page.locator("#rx-open-settings")).toBeVisible();
+    // 恢复 ok 态后置灰撤销
+    await page.evaluate(() => {
+      (window as unknown as { __E2E_PY_EVAL__?: object }).__E2E_PY_EVAL__ = { data: { match: null, matches: [], count: 0, truncated: false } };
+    });
+    await page.locator("#rx-pattern").fill("\\w");
+    await expect(page.locator("#rx-status")).toContainText("无匹配");
+    await expect(page.locator("#rx-eval-zone")).not.toHaveClass(/is-disabled/);
+    await expect(page.locator("#rx-guide")).toBeHidden();
   });
 
   test("05 sourceDirty 后替换字面量置灰", async ({ page }) => {

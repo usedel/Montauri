@@ -52,8 +52,11 @@ def _param(name, flag, kw, source):
     _, type_, tyname = kw.get("type", (None, None, None))
     _, action, _ = kw.get("action", (None, None, None))
     _, is_flag, _ = kw.get("is_flag", (None, None, None))
+    _, nargs, _ = kw.get("nargs", (None, None, None))
     # action="store_true"/"store_false" 或 is_flag=True → bool 开关
     ptype = "bool" if (action in ("store_true", "store_false") or is_flag is True) else (tyname or "str")
+    # nargs 只认字面量（"*" / "+" / "?" / 整数）；非常量（变量 / 表达式）一律 None
+    nargs_val = nargs if isinstance(nargs, (str, int)) and not isinstance(nargs, bool) else None
     return {
         "name": name,
         "flag": flag,
@@ -62,6 +65,7 @@ def _param(name, flag, kw, source):
         "required": required,
         "help": help_,
         "choices": choices,
+        "nargs": nargs_val,
         "source": source,
     }
 

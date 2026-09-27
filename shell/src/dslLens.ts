@@ -89,6 +89,30 @@ export function openFormatTester(hit: Pick<FormatHit, "mode" | "fmt">): void {
   void import("./devtools/index").then((m) => m.openDevTools(FORMAT_TOOL_ID));
 }
 
+/** 光标处（或光标前最近的）格式串字面量 → 打开格式串工具（§11.1：每个工具都有编辑器内入口） */
+export function openFormatTesterAtCursor(): void {
+  const editor = app.editor;
+  const model = editor.getModel();
+  if (!model || model.getLanguageId() !== "python") {
+    toast("格式串工具需要打开一个 Python 文件", "info");
+    return;
+  }
+  if (app.settings.libs_format === false) return;
+  const text = model.getValue();
+  const hits = scanFormatLiterals(text);
+  if (hits.length === 0) {
+    toast("当前文件未识别到格式串字面量", "info");
+    return;
+  }
+  const pos = editor.getPosition();
+  const offset = model.getOffsetAt(pos ?? { lineNumber: 1, column: 1 });
+  const hit =
+    hits.find((h) => offset >= h.start && offset <= h.end) ??
+    [...hits].reverse().find((h) => h.end <= offset) ??
+    hits[0]!;
+  openFormatTester(hit);
+}
+
 /** 面板「替换字面量」写回（I-4：executeEdits 单一撤销粒度，禁 setValue 整文替换）。
  *  contentOffset 变化（用户在源文件上改动过）→ 返回 false 防误写。 */
 export function replaceRegexLiteralInEditor(contentOffset: number, source: string, newSource: string): boolean {
@@ -315,7 +339,9 @@ export function initDslLens(editor: MonacoApi.editor.IStandaloneCodeEditor): Mon
         });
       }
       // 参数 lens（libs_argparse 开关；文件顶部「⚙ N 个参数」→ 打开运行面板聚焦参数区，D-3）
-      if (app.settings.libs_argparse !== false && argsCommandId) {
+      // D-2 纪律：libs 侧每行最多 1 条（与引用 lens 合计 ≤2），且占用同一 LENS_MAX 预算
+      const firstLineTaken = entries.some(([line]) => line === 0);
+      if (app.settings.libs_argparse !== false && argsCommandId && !firstLineTaken && lenses.length < LENS_MAX) {
         const count = await argsCountFor(model);
         if (count !== null && count > 0) {
           lenses.push({
@@ -341,13 +367,27 @@ export function initDslLens(editor: MonacoApi.editor.IStandaloneCodeEditor): Mon
   );
 
   // 右键菜单「在正则测试器中打开」（findUsages.ts 样板；导航组，查找引用之后）
+  // precondition：仅 Python 文件可见（编辑器级 action 无法按语言注册，用上下文键门控）
   store.add(
     editor.addAction({
       id: "opencharm.openRegexTester",
       label: "在正则测试器中打开",
       contextMenuGroupId: "navigation",
       contextMenuOrder: 1.8,
+      precondition: "editorLangId == python",
       run: () => openRegexTesterAtCursor(),
+    }),
+  );
+
+  // 右键菜单「在格式串工具中打开」（I-2：工具必须有编辑器内入口，§11.1）
+  store.add(
+    editor.addAction({
+      id: "opencharm.openFormatTester",
+      label: "在格式串工具中打开",
+      contextMenuGroupId: "navigation",
+      contextMenuOrder: 1.9,
+      precondition: "editorLangId == python",
+      run: () => openFormatTesterAtCursor(),
     }),
   );
 

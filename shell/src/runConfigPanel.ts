@@ -18,7 +18,7 @@ import { basename, relativePathRaw } from "./util";
 import { toast, toastFail } from "./toast";
 import { EMPTY_RUN_CONFIG, normalizeRunConfig, type EnvVar, type RunConfig, type RunEntry } from "./runState";
 import { createCombobox, type Combobox, type ComboboxItem } from "./combobox";
-import { renderScriptArgs } from "./scriptArgsForm"; // 库支持 PR-4：脚本参数表单（D-3 内嵌）
+import { renderScriptArgs, validateScriptArgs } from "./scriptArgsForm"; // 库支持 PR-4：脚本参数表单（D-3 内嵌）
 
 // ---------- 域内 DOM ----------
 
@@ -379,6 +379,8 @@ async function saveRunConfig(): Promise<void> {
     runConfigTargetInputEl.focus();
     return;
   }
+  // 库支持 PR-4：必填参数校验（§11.5 提交时校验，缺参 toast 指出缺哪个）
+  if (section === "script" && !validateScriptArgs()) return;
   clearFieldError();
   const config: RunConfig = {
     entry: { kind: entryKind, target: entryTarget },

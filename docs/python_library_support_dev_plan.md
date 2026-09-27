@@ -1,6 +1,7 @@
 # Python 库特别支持 · 开发计划
 
-> 版本：v1.2 · 日期：2026-09-27 · 状态：已交付（P0 四件套 `ac85980` · P1 五件套 `cd0af89`，验收基线复验全绿）
+> 版本：v1.3 · 日期：2026-09-28 · 状态：已交付（P0 四件套 `ac85980` · P1 五件套 `cd0af89`）· **v1.3：交互一致性收口（10 项）**
+> **v1.3 变更**：按 `python_library_support_research.md` §11 冻结项逐条复查后补齐实现缺口（清单见 §11），并回改三处文档口径（测试文本「只读」→ 可编辑不写回、hover 示例的样本口径、lens 预算含参数 lens）。
 > 上游：`docs/python_library_support_research.md` v1.3（调研 + 已裁决）
 > **v1.1 变更**（同步上游 v1.3）：py_eval 定档 `python -I -X utf8 -c`、`args_json` 改走 **stdin**、输出按 UTF-8 字节解码（§3.1）；解释器缓存补「仅缓存指向工作区 `.venv` 的结果」失效条件（§0-P1）；内省脚本补 `sys.path.insert(0, os.getcwd())`（§6、R-7 修订）；诊断桶锚点修正（§2）；P1 批次补 requests/httpx → cURL 反向生成 0.5 天（§1、§7）；键位表 55→56 项（§2）。
 > **v1.2 变更**：全部 PR 交付（PR-1~4 见 `ac85980`，P1 五件套见 `cd0af89`）；§9 风险结论回填；R-5 遗留待复测。
@@ -207,3 +208,28 @@ cd shell && npx playwright test e2e/<域>/…   # 相关 e2e
   - **复测发现并修复一个真实泄漏**：`hash / base64 / urlcode / uuid / jsonfmt(×2) / json2model` 六个工具的 `mount` 未返回 `dispose`，其 `kit.output` Monaco 实例在面板关闭 / LRU 逐出后永不释放（每次重挂净增 ~1.2MB 线性累积）；已对齐 curl2python/jsonpath 先例补齐 `return { dispose() { … } }`，修复后重挂趋势降至 ~0.14MB/轮且逐轮收敛（平台），dispose-all 后残余 ~3.7MB 为一次性成本（首次加载的模块代码 + Monaco 静态注册结构，不随实例回收）；
   - 测量手段：CDP `Performance.getMetrics`（JSHeapUsedSize）+ `HeapProfiler.collectGarbage` 强制 GC；注意事项：CDP `Runtime.enable` 会保留 console 消息参数引用造成伪泄漏，GC 前须 `discardConsoleEntries`。
 - **验收基线（2026-09-27 复验）**：`npx tsc --noEmit` 全绿 · vitest 765/765 全绿 · `cargo test` 229/229 全绿。
+
+---
+
+## 11. 交互一致性收口（v1.3，2026-09-28）
+
+> 起因：按研究文档 §11（冻结项）逐条复查实现，发现「功能已交付但交互形态与 §11 不一致」的 10 项缺口。
+> 原则：**裁决（D-1~D-4）与交互形态不变**，一律按 §11 把实现补齐；确属文档表述歧义的才回改文档（3 处）。
+
+| # | 缺口（复查发现） | 处置 | 落点 |
+|---|---|---|---|
+| 1 | 无解释器态只有一行文案，缺「求值区置灰」与 `[设置解释器]` | 求值产出区（匹配表 + 替换结果）整块 `is-disabled` 置灰 + 引导行 `[设置解释器]`（跳设置页 python 分类），行点击同步失效 | `devtools/builtin/regex.ts`（`setDegraded`）、`style.css` |
+| 2 | 求值中态只有「求值中…」文案 | 上次结果留在原地降透明度（`is-stale`）+ 顶部细进度条（`rx-progress`，含 `prefers-reduced-motion` 降级）；静态已判错时不再发 IPC、不显进度条 | 同上（`setStale` / `runEval`） |
+| 3 | `sourceDirty` ②「不覆盖手改内容」未落地 | `userEditedPattern` 守卫 + `libsBridge` pending 请求 **30s TTL**（LRU 逐出后重挂不套用陈旧上下文） | `regex.ts`、`libsBridge.ts` |
+| 4 | 点击匹配行把奇偶交替底色整体替换掉 | 选中边框改用**独立装饰集合** `selDecos`，两套装饰并存 | `regex.ts` |
+| 5 | 缺 `Ctrl+C` 复制当前匹配 | 面板 keydown 接管（无选区时才接管，不抢正常复制） | `regex.ts` |
+| 6 | 格式串 hover 无示例；hover 底行指向不存在的右键项 | hover 补「示例（固定样本）」；新增右键 action「在格式串工具中打开」+ `openFormatTesterAtCursor`；**未知码 / tz·locale 依赖码不给示例**（I-3） | `libFormat.ts`（`formatSample`）、`dslLens.ts` |
+| 7 | `libs_argparse` 关闭后运行面板仍显示参数区 | `renderScriptArgs` 读开关；关闭即清空隐藏 | `scriptArgsForm.ts` |
+| 8 | 输出面板：缺 `- LEVEL -` 形态、缺计数徽标、色条 2px | 规则表加 `^(?:-\s*)?` 前缀；`levelCounts` + 上浮通道（termUi 写徽标，0 时隐藏）；色条改 3px | `output.ts`、`termUi.ts`、`index.html`、`style.css` |
+| 9 | `nargs` 未解析、缺参无 toast | `ast_argparse.py` 产出 `nargs`（只认字面量）；`ScriptParam.nargs` + `isMultiNargs`/`nargsCap`/`splitMultiValue`；多值 → 多行文本，命令行按空格/逗号展开、回填按上限吃掉后续 token；`validateScriptArgs()` 缺参 toast 并在保存运行配置时校验 | `ast_argparse.py`、`scriptArgs.ts`、`scriptArgsForm.ts`、`runConfigPanel.ts` |
+| 10 | CodeLens：参数 lens 不计入 20 条预算、可与工具 lens 叠成 2 条 libs lens（+引用 = 3 条）；右键项无语言门控 | 参数 lens 占用同一预算且第 1 行已有工具 lens 时不再出；两个右键 action 加 `precondition: editorLangId == python` | `dslLens.ts` |
+
+**文档口径回改（3 处，研究文档 v1.5）**：① 测试文本「只读 Monaco」→ **可编辑（不写回文件）**；② hover 示例明确为**离线固定样本**并列出「不给示例」的码；③ lens 预算写明含参数 lens、libs 每行最多 1 条。
+
+**验收基线（2026-09-28）**：`npx tsc --noEmit` 全绿 · 受影响 vitest 用例（libFormat / output / scriptArgs）全量通过 · e2e `libs/01-regex` 增补「无解释器置灰 + 引导」「点击行保留奇偶高亮」断言。
+⚠️ 本机 happy-dom 环境异常（33 个 DOM 用例文件报 `Vitest failed to find the runner`，与本次改动无关，未触碰的文件同样失败），**全量 vitest 需在 CI 复核**。

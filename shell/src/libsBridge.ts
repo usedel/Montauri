@@ -12,17 +12,25 @@ export interface RegexPanelRequest {
   source: string;
 }
 
-let pending: RegexPanelRequest | null = null;
+/**
+ * 带入请求的有效期（§11.2 sourceDirty ②）：
+ * 面板被 LRU 逐出 / 关闭后重新挂载时，不套用几分钟前点 lens 产生的陈旧编辑器上下文。
+ */
+const PENDING_TTL_MS = 30_000;
+
+let pending: { req: RegexPanelRequest; at: number } | null = null;
 
 export function setPendingRegexRequest(req: RegexPanelRequest): void {
-  pending = req;
+  pending = { req, at: Date.now() };
 }
 
-/** 面板挂载时取走（取后清空，避免下次打开误用旧上下文） */
+/** 面板挂载时取走（取后清空，避免下次打开误用旧上下文）；超过 TTL 视为陈旧，返回 null */
 export function takePendingRegexRequest(): RegexPanelRequest | null {
   const p = pending;
   pending = null;
-  return p;
+  if (!p) return null;
+  if (Date.now() - p.at > PENDING_TTL_MS) return null;
+  return p.req;
 }
 
 // ---------- JSONPath 面板请求（库特别支持 P1 §7-3：编辑器右键「JSONPath 提取」入口） ----------
@@ -54,15 +62,17 @@ export interface FormatPanelRequest {
   fmt: string;
 }
 
-let pendingFormat: FormatPanelRequest | null = null;
+let pendingFormat: { req: FormatPanelRequest; at: number } | null = null;
 
 export function setPendingFormatRequest(req: FormatPanelRequest): void {
-  pendingFormat = req;
+  pendingFormat = { req, at: Date.now() };
 }
 
-/** 面板挂载时取走（取后清空，避免下次打开误用旧上下文） */
+/** 面板挂载时取走（取后清空）；超过 PENDING_TTL_MS 视为陈旧，返回 null */
 export function takePendingFormatRequest(): FormatPanelRequest | null {
   const p = pendingFormat;
   pendingFormat = null;
-  return p;
+  if (!p) return null;
+  if (Date.now() - p.at > PENDING_TTL_MS) return null;
+  return p.req;
 }

@@ -346,10 +346,10 @@
           <!-- P1（库支持 §7-1）：日志级别过滤 chips——多选语义（aria-pressed），默认全不选中 =
                只着色不过滤；任一选中 = 只显示所选级别 + 未分级行 -->
           <div id="output-levels" role="group" aria-label="日志级别过滤">
-            <button class="out-chip" data-lvl="error" aria-pressed="false">错误</button>
-            <button class="out-chip" data-lvl="warn" aria-pressed="false">警告</button>
-            <button class="out-chip" data-lvl="info" aria-pressed="false">信息</button>
-            <button class="out-chip" data-lvl="debug" aria-pressed="false">调试</button>
+            <button class="out-chip" data-lvl="error" aria-pressed="false">错误<span class="out-chip-count" data-count="error"></span></button>
+            <button class="out-chip" data-lvl="warn" aria-pressed="false">警告<span class="out-chip-count" data-count="warn"></span></button>
+            <button class="out-chip" data-lvl="info" aria-pressed="false">信息<span class="out-chip-count" data-count="info"></span></button>
+            <button class="out-chip" data-lvl="debug" aria-pressed="false">调试<span class="out-chip-count" data-count="debug"></span></button>
           </div>
           <select id="terminal-cmd" class="hidden" title="高频命令">
             <option value="">命令…</option>

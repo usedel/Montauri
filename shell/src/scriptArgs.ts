@@ -17,12 +17,37 @@ export interface ScriptParam {
   help: string | null;
   /** 已归一化为字符串（choices 数字/混合统一 String()） */
   choices: string[] | null;
+  /** argparse `nargs`（"*" / "+" / "?" / "N"）；null = 单值（§11.5：多值 → 多行文本） */
+  nargs: string | null;
   source: "argparse" | "click" | "typer";
+}
+
+/** 多值参数（nargs='*' / '+' / N≥2）→ 表单用多行文本（§11.5 类型→控件映射） */
+export function isMultiNargs(p: ScriptParam): boolean {
+  return p.nargs === "*" || p.nargs === "+" || (/^\d+$/.test(p.nargs ?? "") && Number(p.nargs) >= 2);
+}
+
+/** 数值型 nargs 的取值个数上限；"*" / "+" 返回 null（不限） */
+export function nargsCap(p: ScriptParam): number | null {
+  return /^\d+$/.test(p.nargs ?? "") ? Number(p.nargs) : null;
+}
+
+/** 多值控件文本 → 值列表（空格 / 逗号分隔） */
+export function splitMultiValue(v: string): string[] {
+  return v.split(/[\s,]+/).filter(Boolean);
 }
 
 /** py_eval ast_argparse 的 data 形状 */
 export interface AstArgsData {
   params: ScriptParam[];
+}
+
+/** nargs 归一化：只保留 "*" / "+" / "?" / 数字字符串，其余一律 null */
+function normalizeNargs(v: unknown): string | null {
+  if (v === "*" || v === "+" || v === "?") return v;
+  if (typeof v === "number" && Number.isInteger(v) && v > 0) return String(v);
+  if (typeof v === "string" && /^\d+$/.test(v) && Number(v) > 0) return v;
+  return null;
 }
 
 /** 归一化解析结果（脚本字段缺失容错；非法条目丢弃） */
@@ -39,6 +64,7 @@ export function toFormModel(data: AstArgsData | null | undefined): ScriptParam[]
       required: p.required === true,
       help: typeof p.help === "string" ? p.help : null,
       choices: Array.isArray(p.choices) && p.choices.length ? p.choices.map(String) : null,
+      nargs: normalizeNargs(p.nargs),
       source: p.source === "click" || p.source === "typer" ? p.source : "argparse",
     });
   }
@@ -62,6 +88,11 @@ export function buildCommandLine(params: ScriptParam[], values: Record<string, F
     const s = String(v);
     // 位置参数（flag=null）只出值，不带 flag
     if (p.flag) parts.push(p.flag);
+    // 多值参数（nargs='*'/'+'/N）：控件文本按空格 / 逗号切成多个 token
+    if (isMultiNargs(p)) {
+      for (const item of splitMultiValue(s)) parts.push(needsQuoting(item) ? quote(item) : item);
+      continue;
+    }
     parts.push(needsQuoting(s) ? quote(s) : s);
   }
   return parts.join(" ");
@@ -155,6 +186,21 @@ export function backfillFromCommandLine(params: ScriptParam[], cmdline: string):
       if (p.type === "bool") {
         values[p.name] = inlineValue === null ? true : inlineValue !== "false";
         i++;
+        continue;
+      }
+      // 多值参数（nargs）：其后连续的非 flag token 全部归入（数值型 nargs 到上限为止）
+      if (isMultiNargs(p)) {
+        const collected: string[] = [];
+        if (inlineValue !== null) collected.push(inlineValue);
+        let j = i + 1;
+        const cap = nargsCap(p);
+        while (j < tokens.length && !tokens[j]!.startsWith("-")) {
+          collected.push(tokens[j]!);
+          j++;
+          if (cap !== null && collected.length >= cap) break;
+        }
+        if (collected.length > 0) values[p.name] = collected.join(" ");
+        i = j;
         continue;
       }
       if (inlineValue !== null) {

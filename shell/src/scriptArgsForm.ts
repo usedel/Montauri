@@ -10,12 +10,14 @@ import { evalKind } from "./libEval";
 import {
   backfillFromCommandLine,
   buildCommandLine,
+  isMultiNargs,
   missingRequired,
   toFormModel,
   type AstArgsData,
   type FormValue,
   type ScriptParam,
 } from "./scriptArgs";
+import { toast } from "./toast";
 
 const container = $("run-config-args-form") as HTMLElement;
 const INTROSPECT_TIP = "将执行脚本顶层代码以获取默认值（有副作用）";
@@ -37,6 +39,8 @@ export async function renderScriptArgs(path: string | null, argsInput: HTMLInput
   params = [];
   values = {};
   if (!path) return;
+  // §11.9：libs_argparse 关闭 → 运行面板不显示参数区（开关四处接线已齐，此处是 UI 侧落点）
+  if (app.settings.libs_argparse === false) return;
   if (!argsInput.dataset.raWired) {
     argsInput.dataset.raWired = "1";
     argsInput.addEventListener("input", () => void onArgsEdited(argsInput));
@@ -122,7 +126,7 @@ function renderRow(p: ScriptParam, argsInput: HTMLInputElement): HTMLElement {
   row.appendChild(label);
 
   const cur = values[p.name];
-  let control: HTMLInputElement | HTMLSelectElement;
+  let control: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
   if (p.type === "bool") {
     const cb = document.createElement("input");
     cb.type = "checkbox";
@@ -154,6 +158,21 @@ function renderRow(p: ScriptParam, argsInput: HTMLInputElement): HTMLElement {
       applyToArgs(argsInput);
     });
     control = sel;
+  } else if (isMultiNargs(p)) {
+    // nargs='*' / '+' / N：多行文本（空格或逗号分隔多个值，§11.5）
+    const ta = document.createElement("textarea");
+    ta.id = `ra-${p.name}`;
+    ta.className = "ra-input ra-multi";
+    ta.rows = 2;
+    ta.placeholder = p.default != null ? String(p.default) : "多个值用空格或逗号分隔";
+    if (typeof cur === "string") ta.value = cur;
+    ta.spellcheck = false;
+    ta.autocomplete = "off";
+    ta.addEventListener("input", () => {
+      values[p.name] = ta.value;
+      applyToArgs(argsInput);
+    });
+    control = ta;
   } else {
     const input = document.createElement("input");
     input.type = p.type === "int" || p.type === "float" ? "number" : "text";
@@ -175,7 +194,8 @@ function renderRow(p: ScriptParam, argsInput: HTMLInputElement): HTMLElement {
 
   const tag = document.createElement("span");
   tag.className = "rx-flags-summary";
-  tag.textContent = p.type === "bool" ? "bool" : p.type + (p.required ? "  * 必填" : "");
+  const nargsTag = p.nargs ? ` nargs=${p.nargs}` : "";
+  tag.textContent = p.type === "bool" ? "bool" : p.type + nargsTag + (p.required ? "  * 必填" : "");
   row.appendChild(tag);
   return row;
 }
@@ -209,6 +229,18 @@ function applyToArgs(argsInput: HTMLInputElement): void {
   }
 }
 
+/**
+ * 提交（保存运行配置）时的必填校验：缺参 toast 指出缺哪个（§11.5）。
+ * 无参数表 / 解析失败退化态恒通过——三态都不阻止运行。
+ */
+export function validateScriptArgs(): boolean {
+  if (params.length === 0) return true;
+  const missing = missingRequired(params, values);
+  if (missing.length === 0) return true;
+  toast(`缺少必填参数：${missing.join("、")}`, "error");
+  return false;
+}
+
 /** 命令行被手工编辑 → 尽力回填；inconsistent 标注「以命令行为准」（绝不覆盖表单） */
 async function onArgsEdited(argsInput: HTMLInputElement): Promise<void> {
   if (rendering || params.length === 0) return;
@@ -225,7 +257,7 @@ async function onArgsEdited(argsInput: HTMLInputElement): Promise<void> {
   values = r.values;
   rendering = true;
   for (const p of params) {
-    const el = document.getElementById(`ra-${p.name}`) as HTMLInputElement | HTMLSelectElement | null;
+    const el = document.getElementById(`ra-${p.name}`) as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | null;
     if (!el) continue;
     const v = values[p.name];
     if (el instanceof HTMLInputElement && el.type === "checkbox") {

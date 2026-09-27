@@ -189,6 +189,25 @@ describe("日志级别识别与过滤（P1 · 库支持 §7-1）", () => {
     expect(detectLogLevel("")).toBeNull();
     expect(detectLogLevel("hello world")).toBeNull();
     expect(detectLogLevel("Traceback (most recent call last):")).toBeNull();
+    // §11.7 第四条形态：- LEVEL -（行首短横线包裹，如 uvicorn / structlog 风格）
+    expect(detectLogLevel("- ERROR - boom")).toBe("error");
+    expect(detectLogLevel("- WARNING - careful")).toBe("warn");
+    expect(detectLogLevel("- INFO - hi")).toBe("info");
+    expect(detectLogLevel("- DEBUG - verbose")).toBe("debug");
+  });
+
+  it("级别计数徽标（§11.7）：按级累计，clearOutput 归零", async () => {
+    const { clearOutput, getOutputLevelCounts, resetOutputLevelCounts } = await import("../output");
+    resetOutputLevelCounts();
+    const container = document.createElement("div");
+    appendOutputLine(container, "ERROR: a", "stderr", vi.fn());
+    appendOutputLine(container, "ERROR: b", "stderr", vi.fn());
+    appendOutputLine(container, "WARNING: c", "stdout", vi.fn());
+    appendOutputLine(container, "普通输出", "stdout", vi.fn());
+    expect(getOutputLevelCounts().error).toBe(2);
+    expect(getOutputLevelCounts().warn).toBe(1);
+    clearOutput(container);
+    expect(getOutputLevelCounts().error).toBe(0);
   });
 
   it("默认只着色不过滤；多选级别过滤后未分级行仍显示", async () => {

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   formatDiagnostics,
   formatHoverMarkdown,
+  formatSample,
   scanFormatLiterals,
   segmentFormat,
   STRFTIME_CHIP_ORDER,
@@ -107,6 +108,27 @@ describe("hover markdown", () => {
     const bad = formatHoverMarkdown("strftime", "%Q");
     expect(bad).toContain("未知格式码");
     expect(bad).toContain("常见码");
+  });
+
+  // §11.4：hover 给「示例输出」；未知码 / tz·locale 依赖码一律不给示例（I-3 不臆测）
+  it("hover 示例输出（固定样本）", () => {
+    expect(formatHoverMarkdown("strftime", "%Y-%m-%d")).toContain("示例：`2026-09-26`");
+    expect(formatHoverMarkdown("strftime", "%Y-%m-%d %H:%M:%S")).toContain("2026-09-26 14:03:11");
+    expect(formatHoverMarkdown("format", ">10,.2f")).toContain("1,234.57");
+    expect(formatHoverMarkdown("logging", "%(levelname)s %(message)s")).toContain("INFO started");
+  });
+
+  it("未知码 / tz 依赖码不给示例", () => {
+    expect(formatHoverMarkdown("strftime", "%Q")).not.toContain("示例");
+    expect(formatSample("strftime", "%Y-%m-%dT%H:%M:%S%z")).toBeNull();
+    expect(formatSample("strftime", "%Y %Q")).toBeNull();
+    expect(formatSample("format", "{:q}")).toBeNull();
+    expect(formatSample("logging", "%(nope)s")).toBeNull();
+  });
+
+  it("离线示例与真值口径分离：标注样本来源", () => {
+    expect(formatHoverMarkdown("strftime", "%Y")).toContain("样本 2026-09-26 14:03:11");
+    expect(formatHoverMarkdown("format", ".2f")).toContain("样本 1234.5678");
   });
 });
 

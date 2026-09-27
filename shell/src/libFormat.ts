@@ -335,9 +335,212 @@ export function formatDiagnostics(mode: FormatMode, fmt: string): FormatDiag[] {
     .map((t) => ({ message: `未知格式码「${t.text}」：${t.desc}`, pos: t.pos, length: t.length }));
 }
 
+// ---------- 离线示例（§11.4 hover「示例输出」；固定样本，真值以面板求值桥为准） ----------
+
+/** 固定样本：时刻 2026-09-26 14:03:11（周六）· 数字 1234.5678 */
+const SAMPLE_NUM = 1234.5678;
+const SAMPLE_STR = "1234.5678";
+const SAMPLE_INT = 1234;
+const WEEK_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const WEEK_FULL = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const MONTH_FULL = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+/** logging 固定记录（§11.4：示例值给一条模拟日志记录） */
+const LOGGING_SAMPLE: Record<string, string> = {
+  asctime: "2026-09-27 10:30:15,123",
+  levelname: "INFO",
+  levelno: "20",
+  name: "app",
+  message: "started",
+  module: "main",
+  filename: "main.py",
+  pathname: "/ws/app/main.py",
+  lineno: "42",
+  funcName: "main",
+  msecs: "123",
+  thread: "140736",
+  threadName: "MainThread",
+  process: "8812",
+  processName: "MainProcess",
+  created: "1780000000.0",
+};
+
+/**
+ * 离线示例渲染（固定样本）。**不支持的段一律返回 null**（不给示例，I-3：不臆测、不近似冒充真值）：
+ * - strftime：%z %Z %c %x %X %U %W %G %V（时区 / locale 依赖）与未知码；
+ * - 格式规范：未知类型、`#` 交替形式、g/G/n/c；
+ * - logging：未知字段。
+ */
+export function formatSample(mode: FormatMode, fmt: string): string | null {
+  if (!fmt) return null;
+  if (mode === "strftime") return strftimeSample(fmt);
+  if (mode === "logging") return loggingSample(fmt);
+  return specSample(fmt);
+}
+
+function strftimeSample(fmt: string): string | null {
+  let out = "";
+  for (let i = 0; i < fmt.length; i++) {
+    if (fmt[i] !== "%") {
+      out += fmt[i];
+      continue;
+    }
+    const c = fmt[i + 1];
+    if (c === undefined) return null;
+    i++;
+    switch (c) {
+      case "%": out += "%"; break;
+      case "Y": out += "2026"; break;
+      case "y": out += "26"; break;
+      case "m": out += "09"; break;
+      case "d": out += "26"; break;
+      case "H": out += "14"; break;
+      case "I": out += "02"; break;
+      case "M": out += "03"; break;
+      case "S": out += "11"; break;
+      case "f": out += "000000"; break;
+      case "a": out += WEEK_SHORT[6]; break;
+      case "A": out += WEEK_FULL[6]; break;
+      case "b": out += MONTH_SHORT[8]; break;
+      case "B": out += MONTH_FULL[8]; break;
+      case "p": out += "PM"; break;
+      case "j": out += "269"; break;
+      case "w": out += "6"; break;
+      case "u": out += "6"; break;
+      // %z %Z %c %x %X %U %W %G %V：时区 / locale 依赖，离线不给值
+      default: return null;
+    }
+  }
+  return out;
+}
+
+function loggingSample(fmt: string): string | null {
+  let out = "";
+  let last = 0;
+  for (const m of fmt.matchAll(/%\((\w+)\)([sdfg])/g)) {
+    const v = LOGGING_SAMPLE[m[1]!];
+    if (v === undefined) return null; // 未知字段：不给示例
+    out += fmt.slice(last, m.index) + v;
+    last = (m.index ?? 0) + m[0].length;
+  }
+  return out + fmt.slice(last);
+}
+
+/** 格式规范 / 模板的离线示例；含 {} 时按模板展开，否则按 spec 渲染样本值 */
+function specSample(fmt: string): string | null {
+  if (!fmt.includes("{")) return renderSpec(fmt, SAMPLE_NUM);
+  let out = "";
+  for (let i = 0; i < fmt.length; i++) {
+    const c = fmt[i];
+    if (c === "{" && fmt[i + 1] === "{") {
+      out += "{";
+      i++;
+      continue;
+    }
+    if (c === "}" && fmt[i + 1] === "}") {
+      out += "}";
+      i++;
+      continue;
+    }
+    if (c !== "{") {
+      out += c;
+      continue;
+    }
+    const close = fmt.indexOf("}", i);
+    if (close < 0) return null;
+    const inner = fmt.slice(i + 1, close);
+    const spec = inner.includes(":") ? inner.slice(inner.indexOf(":") + 1) : "";
+    const rendered = renderSpec(spec, SAMPLE_NUM);
+    if (rendered === null) return null;
+    out += rendered;
+    i = close;
+  }
+  return out;
+}
+
+/** 按 spec 渲染样本（不支持的形态返回 null） */
+function renderSpec(spec: string, sample: number): string | null {
+  const parts = parseSpec(spec);
+  if (parts.unknownType || parts.alt) return null;
+  const type = parts.type ?? "";
+  if (type === "g" || type === "G" || type === "n" || type === "c") return null;
+  let body: string;
+  let negative = false;
+  const prec = parts.precision;
+  switch (type) {
+    case "":
+    case "s":
+      body = SAMPLE_STR;
+      break;
+    case "d":
+      body = String(SAMPLE_INT);
+      break;
+    case "b":
+      body = SAMPLE_INT.toString(2);
+      break;
+    case "o":
+      body = SAMPLE_INT.toString(8);
+      break;
+    case "x":
+      body = SAMPLE_INT.toString(16);
+      break;
+    case "X":
+      body = SAMPLE_INT.toString(16).toUpperCase();
+      break;
+    case "e":
+    case "E":
+      body = sample.toExponential(prec ?? 6).replace("e", type === "E" ? "E" : "e");
+      break;
+    case "%":
+      body = `${(sample * 100).toFixed(prec ?? 6)}%`;
+      break;
+    case "f":
+    case "F":
+      body = sample.toFixed(prec ?? 6);
+      break;
+    default:
+      return null;
+  }
+  if (parts.grouping && /^\d/.test(body)) body = groupDigits(body);
+  if (body.startsWith("-")) {
+    negative = true;
+    body = body.slice(1);
+  }
+  const sign = negative ? "-" : parts.sign === "+" ? "+" : parts.sign === " " ? " " : "";
+  body = sign + body;
+  const width = parts.width ? Number(parts.width) : 0;
+  if (body.length >= width) return body;
+  const fill = parts.fill ?? (parts.zero && !parts.align ? "0" : " ");
+  const align = parts.align ?? (parts.zero ? "=" : type === "s" || type === "" ? "<" : ">");
+  const padLen = width - body.length;
+  if (align === "=") {
+    const sgn = /^[+\- ]/.test(body) ? body[0] : "";
+    return sgn + fill!.repeat(padLen) + body.slice(sgn.length);
+  }
+  if (align === "<") return body + fill!.repeat(padLen);
+  if (align === ">") return fill!.repeat(padLen) + body;
+  const left = Math.floor(padLen / 2);
+  return fill!.repeat(left) + body + fill!.repeat(padLen - left);
+}
+
+/** 千分位分组（只处理整数部分；Python 的 `,` 与此处语义一致） */
+function groupDigits(body: string): string {
+  const m = /^([+]?|-)(\d+)(\D.*)?$/.exec(body);
+  if (!m) return body;
+  return `${m[1]}${m[2]!.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}${m[3] ?? ""}`;
+}
+
 // ---------- hover markdown（§11.4：示例输出 + 分段说明） ----------
 
 const MODE_LABEL: Record<FormatMode, string> = { strftime: "日期 strftime", format: "格式规范", logging: "logging 格式" };
+const SAMPLE_HINT: Record<FormatMode, string> = {
+  strftime: "样本 2026-09-26 14:03:11",
+  format: "样本 1234.5678",
+  logging: "样本记录",
+};
 
 const COMMON_HINT: Record<FormatMode, string> = {
   strftime: "常见码：%Y 年 %m 月 %d 日 %H 时 %M 分 %S 秒",
@@ -345,15 +548,19 @@ const COMMON_HINT: Record<FormatMode, string> = {
   logging: "常见字段：%(asctime)s %(levelname)s %(name)s %(message)s",
 };
 
-/** hover 卡（R-1 结论：追加进 lsp/client.ts 合并管线）；示例输出由面板预览给真值，hover 只给分段 */
+/** hover 卡（R-1 结论：追加进 lsp/client.ts 合并管线）：§11.4 示例输出 + 分段说明 */
 export function formatHoverMarkdown(mode: FormatMode, fmt: string): string {
   const tokens = segmentFormat(mode, fmt).slice(0, 20);
-  const lines = tokens.map((t) => `\`${escapeMd(t.text)}\` — ${t.desc}`);
+  const lines: string[] = [];
+  // 示例输出（离线、固定样本；未知码 / tz·locale 依赖码一律不给示例，I-3 不臆测）
+  const sample = tokens.every((t) => !t.unknown) ? formatSample(mode, fmt) : null;
+  if (sample !== null) lines.push(`示例：\`${escapeMd(sample)}\`（${SAMPLE_HINT[mode]}）`);
+  for (const t of tokens) lines.push(`\`${escapeMd(t.text)}\` — ${t.desc}`);
   if (segmentFormat(mode, fmt).length > 20) lines.push("…（仅显示前 20 段）");
   const hasUnknown = tokens.some((t) => t.unknown);
   if (hasUnknown) lines.push(`⚠ 含未知格式码。${COMMON_HINT[mode]}`);
   lines.push("---");
-  lines.push(`在格式串工具中打开：右键 →「在格式串工具中打开」`);
+  lines.push("在格式串工具中打开：右键 →「在格式串工具中打开」/ 编辑器 lens");
   return [`**Python ${MODE_LABEL[mode]}**`, ...lines].join("\n\n");
 }
 

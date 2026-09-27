@@ -98,13 +98,40 @@ function applyLineVisibility(
 /** 输出行日志级别（前缀识别；未识别 = null，着色与过滤都不参与） */
 export type OutputLogLevel = "error" | "warn" | "info" | "debug";
 
-/** 前缀规则表：`^(?:\[)?(LEVEL)(?:\])?(?=[分隔符]|行尾)`，分隔符含空白 / 冒号 / 右括号 / 竖线 */
+/**
+ * 前缀规则表（§11.7 四条形态，按优先级）：
+ * `[LEVEL]` → `LEVEL:` → `LEVEL:name:msg` → `- LEVEL -`。
+ * 正则 = `^(?:-\s*)?(?:\[)?(LEVEL)(?:\])?(?=[分隔符]|行尾)`，分隔符含空白 / 冒号 / 右括号 / 竖线；
+ * 大小写敏感（仅大写），避免 "Error opening file" 这类普通句子误判。
+ */
 const LEVEL_RULES: readonly (readonly [OutputLogLevel, RegExp])[] = [
-  ["error", /^(?:\[)?(?:CRITICAL|FATAL|ERROR)(?:\])?(?=[\s:\]|]|$)/],
-  ["warn", /^(?:\[)?(?:WARNING|WARN)(?:\])?(?=[\s:\]|]|$)/],
-  ["info", /^(?:\[)?(?:INFO|NOTICE)(?:\])?(?=[\s:\]|]|$)/],
-  ["debug", /^(?:\[)?(?:DEBUG|TRACE)(?:\])?(?=[\s:\]|]|$)/],
+  ["error", /^(?:-\s*)?(?:\[)?(?:CRITICAL|FATAL|ERROR)(?:\])?(?=[\s:\]|]|$)/],
+  ["warn", /^(?:-\s*)?(?:\[)?(?:WARNING|WARN)(?:\])?(?=[\s:\]|]|$)/],
+  ["info", /^(?:-\s*)?(?:\[)?(?:INFO|NOTICE)(?:\])?(?=[\s:\]|]|$)/],
+  ["debug", /^(?:-\s*)?(?:\[)?(?:DEBUG|TRACE)(?:\])?(?=[\s:\]|]|$)/],
 ];
+
+// ---------- 级别计数（§11.7 chips 计数徽标） ----------
+
+const levelCounts: Record<OutputLogLevel, number> = { error: 0, warn: 0, info: 0, debug: 0 };
+/** 计数变化的上浮通道（外壳注入，本模块保持无 DOM 依赖可单测） */
+let levelCountsSink: (() => void) | null = null;
+
+export function setOutputLevelCountsSink(fn: (() => void) | null): void {
+  levelCountsSink = fn;
+}
+
+export function getOutputLevelCounts(): Readonly<Record<OutputLogLevel, number>> {
+  return levelCounts;
+}
+
+export function resetOutputLevelCounts(): void {
+  levelCounts.error = 0;
+  levelCounts.warn = 0;
+  levelCounts.info = 0;
+  levelCounts.debug = 0;
+  levelCountsSink?.();
+}
 
 /** 识别一行的日志级别（纯函数，供单测）；未命中返回 null */
 export function detectLogLevel(text: string): OutputLogLevel | null {
@@ -277,7 +304,11 @@ export function appendOutputLine(
   const line = document.createElement("div");
   renderLineContent(line, text, cls, onLink);
   const lvl = levelColorsEnabled() ? detectLogLevel(text) : null;
-  if (lvl) line.classList.add(`lvl-${lvl}`); // 着色（左侧色条 + 级别文字色），不影响既有 cls 语义
+  if (lvl) {
+    line.classList.add(`lvl-${lvl}`); // 着色（左侧色条 + 级别文字色），不影响既有 cls 语义
+    levelCounts[lvl]++; // §11.7：级别计数徽标
+    levelCountsSink?.();
+  }
   applyLineVisibility(line, channel, lvl);
   container.appendChild(line);
   wireScrollFollow(container);
@@ -331,6 +362,7 @@ export function clearOutput(container: HTMLElement): void {
   omittedCounts.delete(container);
   omittedRows.delete(container);
   followPaused.delete(container);
+  resetOutputLevelCounts(); // §11.7：清空输出后级别计数归零
 }
 
 // v3.4 §17-3：RunTranscript（S4 半行累积交互逻辑）已随 stdin 体系删除——运行输出统一走终端

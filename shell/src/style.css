@@ -1694,10 +1694,12 @@ button:focus-visible,
 .out-line.cmd { color: var(--fg-dim); }
 /* P1（库支持 §7-1）：日志级别着色——inset box-shadow 画左侧色条（不挪文本保持行对齐）；
    识别规则与过滤见 output.ts LEVEL_RULES。debug 额外降为暗色弱化噪音 */
-.out-line.lvl-error { box-shadow: inset 2px 0 0 var(--danger); }
-.out-line.lvl-warn { box-shadow: inset 2px 0 0 var(--warn); }
-.out-line.lvl-info { box-shadow: inset 2px 0 0 var(--ok); }
-.out-line.lvl-debug { box-shadow: inset 2px 0 0 var(--border); color: var(--fg-dim); }
+.out-line.lvl-error { box-shadow: inset 3px 0 0 var(--danger); }
+.out-line.lvl-warn { box-shadow: inset 3px 0 0 var(--warn); }
+.out-line.lvl-info { box-shadow: inset 3px 0 0 var(--ok); }
+.out-line.lvl-debug { box-shadow: inset 3px 0 0 var(--border); color: var(--fg-dim); }
+/* §11.7：级别 chips 计数徽标（0 时由 termUi 加 .hidden） */
+.out-chip-count { margin-left: 4px; padding: 0 4px; border-radius: 8px; background: var(--hover-subtle); color: var(--fg-dim); font-size: var(--text-xs); }
 .out-line.diff-meta { color: var(--meta); }
 .out-line.diff-hunk { color: var(--diff-hunk); }
 .out-line.diff-add { color: var(--diff-add); }
@@ -4548,6 +4550,17 @@ button:focus-visible,
 .rx-status--err { color: var(--danger); }
 .rx-status--degraded { color: var(--warn); }
 .rx-status--pending { color: var(--fg-dim); }
+/* 求值中：顶部细进度条（§11.2 不要 spinner）；陈旧结果灰显不清空 */
+.rx-progress { height: 2px; border-radius: 1px; background: var(--border); overflow: hidden; margin-bottom: 2px; }
+.rx-progress::after {
+  content: ""; display: block; width: 40%; height: 100%; background: var(--accent);
+  animation: rx-progress-slide 1.1s ease-in-out infinite;
+}
+@keyframes rx-progress-slide { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+@media (prefers-reduced-motion: reduce) { .rx-progress::after { animation: none; width: 100%; opacity: .5; } }
+.rx-eval-zone.is-stale { opacity: .55; } /* 求值中：保留上次结果 */
+.rx-eval-zone.is-disabled { opacity: .45; pointer-events: none; } /* 无解释器：求值产出区置灰 */
+.rx-guide { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: var(--text-xs); color: var(--warn); }
 .rx-chips { display: flex; flex-wrap: wrap; gap: 4px; }
 .rx-chip { font-size: var(--text-xs); }
 
@@ -4577,6 +4590,8 @@ button:focus-visible,
 .ra-row > input[type="text"], .ra-row > input[type="number"], .ra-row > select {
   flex: 1; min-width: 0;
 }
+/* nargs 多值（'*' / '+' / N）：多行文本（§11.5 类型→控件映射） */
+.ra-row > textarea.ra-multi { flex: 1; min-width: 0; resize: vertical; font: inherit; color: var(--fg); background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 2px 6px; }
 .ra-check { flex: 0; }
 .ra-row .rx-flags-summary { white-space: nowrap; }
 #ra-required-note { white-space: nowrap; }

@@ -13,7 +13,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { app, $, outputEl } from "./state";
 import { basename, codicon, emptyState, parentDirOf, stripAnsi } from "./util"; // UI-12：终端无会话时的空态；stripAnsi（§11 历史采集）
 import { IntegratedTerminal } from "./terminal";
-import { clearOutput, refilterOutputChannel, refilterOutputLevels, setOutputChannelFilter, setOutputLevelFilter, type OutputChannel, type OutputLogLevel } from "./output";
+import { clearOutput, getOutputLevelCounts, refilterOutputChannel, refilterOutputLevels, setOutputChannelFilter, setOutputLevelFilter, setOutputLevelCountsSink, type OutputChannel, type OutputLogLevel } from "./output";
 import { hasGitDetailContent, renderGitDetailEmptyState } from "./git";
 import { showMenu } from "./menu";
 import { sniffTerminalOutput, handleTracebackLine } from "./depHealth"; // M2 §4.4 嗅探 / M4-3 traceback 一键安装
@@ -84,6 +84,19 @@ const findUsagesPanelEl = $("find-usages-panel");
 
 /** `log_level_colors` 开关读取（research §11.9）：关闭后级别着色与过滤整体失效 */
 const levelColorsEnabled = (): boolean => app.settings.log_level_colors !== false;
+
+/** §11.7：级别 chips 计数徽标（output.ts 每追加一行上浮一次；计数为 0 时不显示徽标） */
+function updateLevelChipCounts(): void {
+  const counts = getOutputLevelCounts();
+  for (const el of $("output-levels").querySelectorAll<HTMLElement>(".out-chip-count")) {
+    const key = el.dataset.count as OutputLogLevel | undefined;
+    if (!key) continue;
+    const n = counts[key] ?? 0;
+    el.textContent = n > 0 ? String(n) : "";
+    el.classList.toggle("hidden", n === 0);
+  }
+}
+setOutputLevelCountsSink(updateLevelChipCounts);
 
 /** 设置保存后重算级别 chips 显隐（tab 判定复用 bottomTab；新行着色与既有行重刷走 output.applyOutputLevelSetting） */
 export function syncOutputLevelChips(): void {
