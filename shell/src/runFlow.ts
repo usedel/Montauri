@@ -8,7 +8,7 @@
 // （terminal.ts::setTerminalLinkHandler 的 handler 注入先例，避免与 main 循环依赖）。
 
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { app, outputEl, type SaveOptions, type Tab } from "./state";
 import { basename, joinPath, parentDirOf } from "./util";
 import { appendOutputLine } from "./output";
@@ -20,7 +20,7 @@ import { frameworkHintText, frameworkLabel, presetConfigured, type FrameworkPres
 import * as kb from "./keybindings";
 import * as dap from "./dap/client";
 import {
-  runScriptInTerminal, stopRunInstanceById, cancelRunInstance, setOutputPanelHooks,
+  runScriptInTerminal, stopRunInstanceById, finalizeStoppedRunInstance, cancelRunInstance, setOutputPanelHooks,
   setRunTabClosedHook, setRunTabStopHook, setRunAbortProbe,
 } from "./termUi";
 import { currentInterpreter, shortInterpreter } from "./envPanel";
@@ -359,7 +359,11 @@ async function stopAllProjectInstances(): Promise<void> {
 }
 
 /** 并行停止一批实例：preparing 的标记 canceled；running 的先全部广播 Ctrl+C，
- *  共享一次宽限等待后集中强杀（多实例时不再各自等 1.2s）。 */
+ *  共享一次宽限等待后集中强杀（多实例时不再各自等 1.2s）。
+ *  P2-2（2026-09-29 review）：强杀阶段原实现逐个调 stopRunInstanceById——其内部对
+ *  runActive 仍为 true 的实例会**再等一次 1.2s**（\x03 已广播过、宽限已给过），
+ *  3 个未自行退出的长驻实例 = 关工作区时串行多卡 3.6s+，与注释宣称的并行语义相反。
+ *  改为宽限后直接 term_kill + UI 收尾（软杀信号早已送达）。 */
 async function stopInstancesParallel(ids: string[]): Promise<void> {
   const runningIds: string[] = [];
   for (const id of ids) {
@@ -377,7 +381,8 @@ async function stopInstancesParallel(ids: string[]): Promise<void> {
   if (runningIds.length > 0) {
     await new Promise((r) => setTimeout(r, 1200));
     for (const id of runningIds) {
-      await stopRunInstanceById(id); // 幂等：已退出的（term-exit 先到）只做 UI 收尾
+      // 幂等：已退出的（term-exit 先到）term_kill 由后端 no-op；UI 收尾照常
+      await finalizeStoppedRunInstance(id);
       settleExited(id, { kind: "stopped" });
     }
   }
@@ -772,7 +777,15 @@ export async function runSelection(): Promise<void> {
       return;
     }
 
-    if (scriptRunActive()) return; // 准备期间已有运行启动 → 放弃（闸门在 finally 释放）
+    if (scriptRunActive()) {
+      // 准备期间已有运行启动 → 放弃（闸门在 finally 释放）。
+      // P2-3（2026-09-29 review）：临时文件必须清理——残留在源文件同目录会污染 git
+      // 未跟踪列表 / depHealth 扫描 / quickOpen 清单。
+      invoke("delete_file", { path: tempPath }).catch((e) => {
+        appendOutputLine(outputEl, `清理选区临时文件失败（可手工删除）: ${tempPath} — ${e}`, "hint", gotoFromLink);
+      });
+      return;
+    }
 
     // 选区运行用临时文件、**刻意不套运行配置**（含 args / env）：语义上是一次性片段。
     const startedAt = Date.now();
@@ -812,6 +825,10 @@ export async function runSelection(): Promise<void> {
     } catch (e) {
       appendOutputLine(outputEl, `运行失败: ${e}`, "stderr", gotoFromLink);
       toastFail("运行", e);
+      // P2-3：失败路径同样清选区临时文件（成功路径由 settleExited/runTabClosedHook 负责）
+      invoke("delete_file", { path: tempPath }).catch((e2) => {
+        appendOutputLine(outputEl, `清理选区临时文件失败（可手工删除）: ${tempPath} — ${e2}`, "hint", gotoFromLink);
+      });
       removeRunInstance("run-term-script");
       h().renderTabs();
     }
@@ -869,12 +886,12 @@ export function wireRunFlow(): void {
  * debug-stdout / debug-stderr → 输出面板（运行角色的 run-* 事件已随 piped 路径下线，
  * 输出面板保留调试承载角色）。 */
 export async function initRunEvents(): Promise<void> {
-  await listen<{ data: string }>("debug-stdout", (e) => {
+  await getCurrentWindow().listen<{ data: string }>("debug-stdout", (e) => {
     for (const line of splitLines(e.payload.data)) {
       appendOutputLine(outputEl, line, "stdout", gotoFromLink, "debug");
     }
   });
-  await listen<{ data: string }>("debug-stderr", (e) => {
+  await getCurrentWindow().listen<{ data: string }>("debug-stderr", (e) => {
     for (const line of splitLines(e.payload.data)) {
       appendOutputLine(outputEl, line, "stderr", gotoFromLink, "debug");
     }

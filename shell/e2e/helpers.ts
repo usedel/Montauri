@@ -587,7 +587,8 @@ async function dispatchGit(cmd: string, args: Record<string, unknown>, repo: Git
 
 /** fs 命令白名单（未列出的 fs 命令直接报错，避免静默 null 引发前端崩溃难排查） */
 const FS_DISPATCH_CMDS = new Set(["list_dir", "read_dir", "read_file", "read_file_base64", "write_file",
-  "create_dir", "create_file", "create_py_package", "rename_path", "paste_path", "delete_file", "watch_start", "watch_stop", "list_workspace_files"]);
+  "create_dir", "create_file", "create_py_package", "rename_path", "paste_path", "delete_file", "watch_start", "watch_stop", "list_workspace_files",
+  "create_project"]);
 
 async function dispatchFs(cmd: string, args: Record<string, unknown>, repo: GitRepo): Promise<unknown> {
   const guard = (p: string): string => {
@@ -682,6 +683,40 @@ async function dispatchFs(cmd: string, args: Record<string, unknown>, repo: GitR
     case "watch_start":
     case "watch_stop":
       return null; // watcher 走轮询刷新即可
+    // F9（新建 FastAPI 项目）：对齐 Rust fs_cmds::create_project（真实磁盘）。
+    // 模板与 Rust 粗粒度同步（断言只锁 FastAPI( / fastapi 键形状，细节以 Rust 单测为准——
+    // fs_cmds.rs test_create_project_fastapi_template_and_deps 注释互指本处）。
+    case "create_project": {
+      const parent = String(args.parentDir ?? "");
+      const name = String(args.name ?? "");
+      const projectType = String(args.projectType ?? "script");
+      if (!name || /[\\/:*?"<>|]/.test(name)) throw new Error(`项目名称非法：${name}`);
+      // guard(parent)：真实磁盘调用方（NP-2）用 parent=repo.root 绕开越权 guard 的语义在此不适用——
+      // 项目目录在 repo 内（repo.root/<name>），guard(parent) 校验父目录合法即可
+      const parentAbs = guard(parent);
+      if (!existsSync(parentAbs)) throw new Error(`位置不存在或不是文件夹：${parent}`);
+      const root = join(parentAbs, name);
+      if (existsSync(root)) throw new Error(`目标已存在：${root}`);
+      mkdirSync(root, { recursive: true });
+      const isFastapi = projectType === "fastapi";
+      const mainPy = isFastapi
+        ? 'from fastapi import FastAPI\n\napp = FastAPI()\n\n\n@app.get("/")\ndef root() -> str:\n    return "Hello from OpenCharm FastAPI!"\n'
+        : 'def main() -> None:\n    print("Hello from OpenCharm!")\n\n\nif __name__ == "__main__":\n    main()\n'
+      writeFileSync(join(root, "main.py"), mainPy, "utf8");
+      // 最小 pyproject（对齐 Rust 方案 B 形状；方案 A/B 断言都用 contains）
+      const pkg = name.toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^[._-]+|[._-]+$/g, "") || "app";
+      const depsLine = isFastapi ? 'dependencies = ["fastapi", "uvicorn"]' : "dependencies = []";
+      writeFileSync(
+        join(root, "pyproject.toml"),
+        `[project]\nname = "${pkg}"\nversion = "0.1.0"\nrequires-python = ">=3.12"\n${depsLine}\n`,
+        "utf8",
+      );
+      if (args.gitInit) {
+        writeFileSync(join(root, ".gitignore"), "# Python\n__pycache__/\n.venv/\n", "utf8");
+        // git init 交由前端后续 git 流程；mock 下 gitInit 仅落 .gitignore（E2E 不断言 git_ok）
+      }
+      return { path: root, git_ok: true, git_message: "", pyproject_note: "E2E mock：已写入最小 pyproject.toml" };
+    }
     default:
       throw new Error(`[e2e-fs] 未实现命令: ${cmd}`);
   }
@@ -790,8 +825,10 @@ export async function clickGlyph(page: Page, line: number): Promise<void> {
  *  opts.pluginsDir：插件目录（plugin 验收用）——提供后 list_plugin_dirs/read_plugin_file
  *  映射到该真实目录；返回值附带 triggerPluginsChanged() 供测试手动模拟 watcher 事件。
  *  opts.realPyrefly：true 时 LSP 命令走 Node 侧真实 `pyrefly lsp` 进程（而非 tauri-mock
- *  内置语义引擎），用于真实验证前端对 pyrefly 的协议适配。 */
-export async function equipPage(page: Page, repo: GitRepo, opts: { slowGitMs?: Record<string, number>; pluginsDir?: string; realPyrefly?: boolean } = {}) {
+ *  内置语义引擎），用于真实验证前端对 pyrefly 的协议适配。
+ *  opts.startEmpty：true 时最近工作区为空——应用启动停在欢迎页（F9 新建项目面板用：
+ *  有工作区时 #ew-actions 隐藏，欢迎页入口不可达）。 */
+export async function equipPage(page: Page, repo: GitRepo, opts: { slowGitMs?: Record<string, number>; pluginsDir?: string; realPyrefly?: boolean; startEmpty?: boolean } = {}) {
   // realPyrefly 标志须先于 mock 注入（addInitScript 按序执行；mock 读取 window.__E2E_LSP_REAL__ 决定走真实进程还是内置语义引擎）
   if (opts.realPyrefly) {
     await page.addInitScript(() => {
@@ -801,7 +838,7 @@ export async function equipPage(page: Page, repo: GitRepo, opts: { slowGitMs?: R
   const mockSrc = readFileSync(MOCK_PATH, "utf8");
   // 注入必须在任何应用模块前（addInitScript 保证先于页面脚本执行）
   await page.addInitScript(mockSrc);
-  let recentWorkspaces: string[] = [repo.root];
+  let recentWorkspaces: string[] = opts.startEmpty ? [] : [repo.root];
   const slowGitMs = opts.slowGitMs ?? {};
   const pluginsDir = opts.pluginsDir;
   // 真实 pyrefly 桥（惰性 start，见 bridge 的 "lsp" 通道）

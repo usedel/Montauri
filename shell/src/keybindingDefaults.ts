@@ -80,7 +80,13 @@ export type KeybindingId =
   | "trigger_suggest"
   // 库特别支持 PR-2（python_library_support_dev_plan §4.2）：正则测试器（editor 级，需焦点；
   // Ctrl+Alt+R 与既有 56 项无冲突，2026-09-27 核对）
-  | "open_regex_tester";
+  | "open_regex_tester"
+  // 诊断导航（2026-09-29 保存错误排查交付）：F8 / Shift+F8 逐个跳转 error/warning marker。
+  // PyCharm 同款 F8 = 下一个错误；editor 级（导航目标依附编辑器上下文）
+  | "goto_next_problem"
+  | "goto_prev_problem"
+  // 问题面板（对标 PyCharm Problems View；Alt+0 = PyCharm 同款打开 Problems 工具窗）
+  | "open_problems";
 
 export interface KeybindingMeta {
   id: KeybindingId;
@@ -182,4 +188,9 @@ export const KEYBINDING_META: KeybindingMeta[] = [
   { id: "trigger_suggest", label: "触发补全建议", def: "Alt+/", scope: "editor" },
   // 库特别支持 PR-2：正则测试器（editor 级）
   { id: "open_regex_tester", label: "在正则测试器中打开", def: "Ctrl+Alt+R", scope: "editor" },
+  // 诊断导航（PyCharm 同款 F8 / Shift+F8）：下一个 / 上一个错误（error+warning 序列，循环回绕）
+  { id: "goto_next_problem", label: "下一个问题", def: "F8", scope: "editor" },
+  { id: "goto_prev_problem", label: "上一个问题", def: "Shift+F8", scope: "editor" },
+  // 问题面板（PyCharm Problems View 同款 Alt+0；window 级——面板打开不依赖编辑器聚焦）
+  { id: "open_problems", label: "打开问题面板", def: "Alt+0", scope: "window" },
 ];

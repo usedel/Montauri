@@ -8,9 +8,9 @@
 //
 // v3.4 §11（M3-3.8）：运行历史采集挂到 term-data 分发点——按实例 id 归属，剥离 ANSI。
 
-import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
-import { app, $, outputEl } from "./state";
+import { app, $, lazyEl, outputEl } from "./state";
 import { basename, codicon, emptyState, parentDirOf, stripAnsi } from "./util"; // UI-12：终端无会话时的空态；stripAnsi（§11 历史采集）
 import { IntegratedTerminal } from "./terminal";
 import { clearOutput, getOutputLevelCounts, refilterOutputChannel, refilterOutputLevels, setOutputChannelFilter, setOutputLevelFilter, setOutputLevelCountsSink, type OutputChannel, type OutputLogLevel } from "./output";
@@ -65,7 +65,7 @@ export function setOutputPanelHooks(h: OutputPanelHooks): void {
 }
 
 /** 底部面板可切换标签（差异视图已迁入编辑区 tab，不再属于底部） */
-export type BottomTab = "output" | "terminal" | "git" | "findUsages";
+export type BottomTab = "output" | "terminal" | "git" | "findUsages" | "problems";
 /** 底部面板当前激活标签（输出 / 终端 / 差异 / Git） */
 let bottomTab: BottomTab = "output";
 
@@ -74,11 +74,14 @@ export function activeBottomTab(): BottomTab {
   return bottomTab;
 }
 
-const terminalPanelEl = $("terminal-panel");
-const terminalTabsEl = $("terminal-tabs");
-const terminalViewsEl = $("terminal-views");
-const gitDetailPanelEl = $("git-detail-panel");
-const findUsagesPanelEl = $("find-usages-panel");
+// P2-6（2026-09-29 review）：顶层快照改惰性（铁律 1，测试环境可 import）。
+// 全部用法为方法调用/属性访问（Proxy 安全）；作为参数传给 DOM/组件 API 的元素
+// 不可用 lazyEl（见 dialog.ts 的 insertBefore 踩坑注释）。
+const terminalPanelEl = lazyEl("terminal-panel");
+const terminalTabsEl = lazyEl("terminal-tabs");
+const terminalViewsEl = lazyEl("terminal-views");
+const gitDetailPanelEl = lazyEl("git-detail-panel");
+const findUsagesPanelEl = lazyEl("find-usages-panel");
 
 // ---------- 底部面板 ----------
 
@@ -112,6 +115,7 @@ export function setBottomTab(tab: BottomTab): void {
     ["tab-terminal", tab === "terminal"],
     ["tab-git-detail", tab === "git"],
     ["tab-find-usages", tab === "findUsages"],
+    ["tab-problems", tab === "problems"],
   ] as const) {
     const el = $(id);
     el.classList.toggle("active", sel);
@@ -121,6 +125,7 @@ export function setBottomTab(tab: BottomTab): void {
   terminalPanelEl.classList.toggle("hidden", tab !== "terminal");
   gitDetailPanelEl.classList.toggle("hidden", tab !== "git");
   findUsagesPanelEl.classList.toggle("hidden", tab !== "findUsages");
+  $("problems-panel").classList.toggle("hidden", tab !== "problems");
   $("terminal-cmd").classList.toggle("hidden", tab !== "terminal");
   // P2：输出过滤 chips 只在输出 tab 下出现（其他 tab 下无意义）；
   // 级别 chips 还须 `log_level_colors` 开关打开（关掉后着色与过滤整体失效，research §11.9）
@@ -616,9 +621,18 @@ export async function stopRunInstanceById(id: string): Promise<void> {
   if (!s || !s.runActive) return; // 幂等：对已结束实例无操作（§7.5 硬规则 3）
   await invoke("term_write", { id: s.id, data: "\x03" }).catch(() => undefined);
   await new Promise((r) => setTimeout(r, 1200));
-  await invoke("term_kill", { id: s.id }).catch(() => undefined);
-  s.runActive = false;
-  s.iterm.markStopped();
+  await finalizeStoppedRunInstance(id);
+}
+
+/** 强杀 + UI 收尾（无宽限等待）：P2-2——批量停止的集中强杀阶段复用。
+ *  软杀信号（\x03）已由调用方广播并共享等待过，此处只做 term_kill 与会话态复位。 */
+export async function finalizeStoppedRunInstance(id: string): Promise<void> {
+  await invoke("term_kill", { id }).catch(() => undefined);
+  const s = sessionById(id);
+  if (s) {
+    s.runActive = false;
+    s.iterm.markStopped();
+  }
   renderTerminalTabs();
 }
 
@@ -748,6 +762,7 @@ export async function disposeTerminal(): Promise<void> {
   // 不宜触发 ensureAnyTerminal 等副作用，故手动同步两态）
   for (const [id, active] of [
     ["tab-output", true], ["tab-terminal", false], ["tab-git-detail", false], ["tab-find-usages", false],
+    ["tab-problems", false],
   ] as const) {
     $(id).classList.toggle("active", active);
     $(id).setAttribute("aria-selected", String(active));
@@ -756,6 +771,13 @@ export async function disposeTerminal(): Promise<void> {
   terminalPanelEl.classList.add("hidden");
   gitDetailPanelEl.classList.add("hidden");
   findUsagesPanelEl.classList.add("hidden");
+  $("problems-panel").classList.add("hidden");
+  // P0-2（2026-09-30 审计）：setBottomTab 管理的三个辅助元素显隐此前漏同步——
+  // 关闭工作区前底部正显示终端 tab 时，复位到输出后：输出过滤 chips / 级别 chips 不出现、
+  // 终端高频命令下拉残留在输出 tab 上。与 setBottomTab("output") 的三行同口径。
+  $("terminal-cmd").classList.add("hidden");
+  $("output-channels").classList.remove("hidden");
+  $("output-levels").classList.toggle("hidden", !levelColorsEnabled());
 }
 
 // ---------- 事件接线 ----------
@@ -853,7 +875,7 @@ export function resetOutputChannelUi(): void {
 export async function wireTerminalEvents(): Promise<void> {
   // 启动即预取可用 shell 列表，让默认路径（右键「在终端中打开」/「命令…」落点）也能正确退化
   void fetchAvailableShells();
-  await listen<{ id: string; data: string }>("term-data", (e) => {
+  await getCurrentWindow().listen<{ id: string; data: string }>("term-data", (e) => {
     const s = termSessions.find((x) => x.id === e.payload.id);
     if (!s) return;
     s.iterm.writeData(e.payload.data);
@@ -872,7 +894,7 @@ export async function wireTerminalEvents(): Promise<void> {
     // 红线随 restartEngine 消失）。run 会话也一并嗅探（正则足够特异，脚本极少打印装包完成摘要）。
     sniffTerminalOutput(plain);
   });
-  await listen<{ id: string; code?: number }>("term-exit", (e) => {
+  await getCurrentWindow().listen<{ id: string; code?: number }>("term-exit", (e) => {
     const s = termSessions.find((x) => x.id === e.payload.id);
     if (!s) return;
     s.iterm.handleExit();

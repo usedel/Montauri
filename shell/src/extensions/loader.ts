@@ -58,16 +58,29 @@ export function initPluginLoader(deps: FacadeDeps, onRegistryChanged: () => void
   refreshUi = onRegistryChanged;
 }
 
-/** host.log 落点：写该插件的记录日志（设置页日志面板可见；未注册插件静默丢弃） */
+/** host.log 落点：写该插件的记录日志（设置页日志面板可见；未注册插件静默丢弃）。
+ *  v1.1（§9.14）：旁路落盘 `<data_root>/logs/plugins/<id>.log`（跨重启诊断）——
+ *  fire-and-forget，失败静默（诊断日志不得反噬主流程；Rust 侧自带 id 收口与滚动截断）。 */
 function writePluginLog(pluginId: string, msg: string): void {
   const rec = records.get(pluginId);
   if (rec) log(rec, msg);
+  void invoke("append_plugin_log", {
+    pluginId,
+    line: `${formatLogTime(Date.now())} ${msg.replace(/\r?\n/g, " ")}`,
+  }).catch(() => undefined);
 }
 
 function log(rec: PluginRecord, msg: string): void {
   const t = Date.now();
   rec.logs.push({ t, msg });
   if (rec.logs.length > 50) rec.logs.splice(0, rec.logs.length - 50); // 环形 50（§9.14）
+}
+
+/** 日志时间戳（落盘行前缀；带日期——跨重启诊断须能区分是哪天，比面板的时分秒格式多一层日期） */
+function formatLogTime(t: number): string {
+  const d = new Date(t);
+  const pad = (x: number): string => String(x).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
 // ---------- 停用清单 ----------
@@ -125,6 +138,7 @@ function registerPluginTool(rec: PluginRecord, tc: PluginToolContribution, mod: 
     description: tc.description ?? "",
     category: tc.category?.trim() || "其他",
     icon: tc.icon || "symbol-extension",
+    inlineLabel: tc.inline?.label ?? null,
     mount(host): ToolInstance | void {
       if (!facadeDeps) throw new Error("插件系统未初始化");
       // PR-3：host.root = panel 分配给本工具的独立 rootEl（devtools/panel.ts 缓存单元）；

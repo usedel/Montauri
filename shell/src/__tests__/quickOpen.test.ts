@@ -1,6 +1,12 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from "vitest";
-import { fuzzyScore, parseLineSuffix, parseTargetLine } from "../quickOpen";
+import {
+  findQuickOpenAction,
+  fuzzyScore,
+  parseLineSuffix,
+  parseTargetLine,
+  registerQuickOpenActions,
+} from "../quickOpen";
 
 describe("fuzzyScore 子序列模糊匹配", () => {
   it("按序命中即得分为正；有字符找不到返回 null", () => {
@@ -34,6 +40,29 @@ describe("fuzzyScore 子序列模糊匹配", () => {
 
   it("长度不同的 query 不会误命中（字符必须够用）", () => {
     expect(fuzzyScore("ab", "aab")).toBeNull();
+  });
+});
+
+describe("findQuickOpenAction 命令注册表读取器（onboarding 巡礼前置 P0）", () => {
+  it("未注册任何条目时返回 null", () => {
+    registerQuickOpenActions([]);
+    expect(findQuickOpenAction("open_devtools")).toBeNull();
+  });
+
+  it("注册后按 id 命中，返回完整条目", () => {
+    let ran = 0;
+    registerQuickOpenActions([{ id: "open_devtools", label: "开发工具面板", run: () => { ran += 1; } }]);
+    const a = findQuickOpenAction("open_devtools");
+    expect(a?.label).toBe("开发工具面板");
+    a?.run();
+    expect(ran).toBe(1);
+    expect(findQuickOpenAction("nope")).toBeNull();
+  });
+
+  it("registerQuickOpenActions 是整体替换语义：重建后实时查到新表（巡礼不缓存引用）", () => {
+    registerQuickOpenActions([{ id: "todo_panel", label: "TODO 旧", run: () => undefined }]);
+    registerQuickOpenActions([{ id: "todo_panel", label: "TODO 新", run: () => undefined }]);
+    expect(findQuickOpenAction("todo_panel")?.label).toBe("TODO 新");
   });
 });
 

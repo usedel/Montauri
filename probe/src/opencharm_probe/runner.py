@@ -66,11 +66,18 @@ def run_with_probe(cfg: ProbeConfig, script: str, argv: list[str] | None = None)
         sys.path[:] = old_path
         os.chdir(old_dir)
 
-    path = save(cfg, sink, project_root, script, wall_started, elapsed)
+    # P2-3（2026-09-29 review）：save 失败只告警不吞脚本原始异常——脚本崩溃（error
+    # 非 None）且落库同时失败（盘满等）时，原实现 save 的异常会替换原始异常传播，
+    # 最有价值的异常路径 trace 连同原始错误一起丢失。铁律「探针失败只打警告」。
+    try:
+        path = save(cfg, sink, project_root, script, wall_started, elapsed)
+    except Exception as e:  # noqa: BLE001 - 探针侧失败不吞脚本异常
+        print(f"[opencharm-probe] ⚠ 落库失败（观测未写入 trace 库）：{e}", file=sys.stderr)
+        path = None
     if error is not None:
         raise error
     return {
-        "db": str(path),
+        "db": str(path) if path is not None else "(未落库)",
         "functions": sink.func_count,
         "observations": sink.observation_count,
         "elapsed": elapsed,

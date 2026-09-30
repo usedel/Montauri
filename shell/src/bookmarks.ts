@@ -13,6 +13,7 @@ import { hideEl, showEl } from "./anim";
 import { trapFocus } from "./focusTrap";
 import { app, type MonacoModule } from "./state";
 import { basename, emptyState, relativePath } from "./util";
+import { bindingLabel } from "./keybindings";
 import { openConfirm } from "./dialog";
 import { toastFail } from "./toast";
 
@@ -272,8 +273,13 @@ function renderList(): void {
   if (!list) return;
   list.textContent = "";
   if (items.length === 0) {
+    // S4 键位防漂移：文案改读键位系统（原硬编码 Ctrl+F11，用户改键后失真）
     list.appendChild(
-      emptyState("bookmark", "暂无书签", "在目标行按 Ctrl+F11 添加书签，可疑行与待办行一眼找回"),
+      emptyState(
+        "bookmark",
+        "暂无书签",
+        `在目标行按 ${bindingLabel("bookmark_toggle") || "书签键位（设置 → 快捷键）"} 添加书签，可疑行与待办行一眼找回`,
+      ),
     );
     return;
   }

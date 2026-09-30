@@ -10,6 +10,7 @@ mod lib_cmds;
 mod logging;
 mod lsp;
 mod plugin_cmds;
+mod per_window;
 mod plugin_pkg;
 mod proc_stats;
 mod run_env;
@@ -21,6 +22,7 @@ mod tool_paths;
 mod toolchain;
 mod util;
 mod watcher;
+mod window_mgr;
 
 use tauri::webview::{PageLoadEvent, WebviewWindowBuilder};
 use tauri::WebviewUrl;
@@ -132,6 +134,8 @@ pub fn run() {
             plugin_pkg::export_plugin,
             plugin_pkg::import_plugin,
             plugin_pkg::plugin_export_filename,
+            // v1.1（§9.14）：插件日志跨重启落盘
+            plugin_cmds::append_plugin_log,
             file_ops::get_recent,
             file_ops::add_recent,
             // P2：书签（行级，工作区级持久化）
@@ -170,6 +174,9 @@ pub fn run() {
             env_cmds::detect_pydantic_stack,
             // 端点扫描（F1：FastAPI / Flask 静态路由，docs/pycharm_framework_support_report.md §8.3）
             fs_cmds::scan_endpoints,
+            // Pydantic 语义层（阶段 4：构造校验诊断 + rename 传播补充，docs/pyrefly_pydantic_support_plan.md §3.4）
+            fs_cmds::scan_pydantic_issues,
+            fs_cmds::scan_pydantic_ctor_refs,
             env_cmds::list_packages,
             env_cmds::list_outdated,
             env_cmds::pip_install,
@@ -234,6 +241,9 @@ pub fn run() {
             // 文件监听（体验优化）
             watcher::watch_start,
             watcher::watch_stop,
+            // 多窗口（阶段 2）：新开项目窗口 + 窗口项目目录反查
+            window_mgr::open_workspace_window,
+            window_mgr::get_window_project,
             // Git 状态
             git_status::git_status,
             // Git 写操作（暂存/取消暂存/提交/diff/分支）
@@ -295,12 +305,14 @@ pub fn run() {
             if let tauri::RunEvent::Exit = event {
                 crate::logging::log_line(
                     crate::logging::Level::Info,
-                    "[exit] 清理子进程与监听：lsp / terminal / run / dap / watcher",
+                    "[exit] 清理子进程与监听：lsp / terminal / run / dap / watcher / git-net / plugins",
                 );
-                watcher::watch_stop().ok();
+                watcher::watch_stop_all_for_exit();
                 dap::debug_stop_for_exit();
                 terminal::term_kill_all_for_exit(); // v3.4 §17-16：运行全走 PTY，运行进程清理随会话统一承担
                 lsp::lsp_stop_all_for_exit();
+                git_cmds::git_stop_net_ops_for_exit(); // P2-6：进行中的 push/pull/fetch 同步杀树
+                plugin_cmds::plugins_stop_watcher_for_exit(); // P2-6：插件目录 watcher
             }
         });
 }

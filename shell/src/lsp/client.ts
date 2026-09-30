@@ -3,7 +3,8 @@
 
 import type * as MonacoApi from "monaco-editor/esm/vs/editor/editor.api";
 import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { type UnlistenFn } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { STDLIB_MODULES } from "../stdlib";
 import { app } from "../state";
 import * as dap from "../dap/client"; // B-8：暂停态 hover 求值（dap 不依赖 lsp，无环）
@@ -258,7 +259,7 @@ async function ensureListeners(): Promise<void> {
 async function doEnsureListeners(): Promise<void> {
   if (unlistenMessage) return;
 
-  unlistenMessage = await listen<{ engine?: string; id?: number; method?: string; params?: any; result?: any; error?: any }>(
+  unlistenMessage = await getCurrentWindow().listen<{ engine?: string; id?: number; method?: string; params?: any; result?: any; error?: any }>(
     "lsp-message",
     (e) => {
       const msg = e.payload;
@@ -284,7 +285,7 @@ async function doEnsureListeners(): Promise<void> {
       }
     },
   );
-  unlistenExit = await listen<{ engine?: string; code: number | null }>("lsp-exit", (e) => {
+  unlistenExit = await getCurrentWindow().listen<{ engine?: string; code: number | null }>("lsp-exit", (e) => {
     const eng = e.payload?.engine ?? "static";
     const s = session(eng);
     const err = new Error(`LSP 进程退出（code=${e.payload?.code}）`);
@@ -297,7 +298,7 @@ async function doEnsureListeners(): Promise<void> {
     dropStartingQueue(eng); // CR-23：进程已退，排队通知永不送达
     if (eng === "static") setEngineStatus("exited");
   });
-  unlistenStderr = await listen<{ engine?: string; data: string }>("lsp-stderr", (e) => {
+  unlistenStderr = await getCurrentWindow().listen<{ engine?: string; data: string }>("lsp-stderr", (e) => {
     console.warn(`[lsp-stderr:${e.payload?.engine ?? "static"}]`, e.payload?.data);
   });
 }
@@ -305,7 +306,10 @@ async function doEnsureListeners(): Promise<void> {
 export async function startEngine(engine: string, rootUri: string, interpreter: string | null, cwd?: string): Promise<void> {
   await stopEngine();
   setEngineStatus("starting");
-  diagnosticsCache.clear(); // 旧引擎的诊断不带入新引擎
+  // 阶段 4 子项 1c：owner 感知清空——只清静态引擎桶（opencharm-lsp），
+  // opencharm-intel / opencharm-pydantic 等自研桶不随引擎切换失效
+  //（pydantic 诊断不属于任何静态引擎，切引擎丢它是语义错误）。
+  clearEngineDiagnostics();
   currentEngine = engine;
   currentInterpreter = interpreter;
 
@@ -354,6 +358,8 @@ export async function startEngine(engine: string, rootUri: string, interpreter: 
   session("static").status = "ready";
   flushStartingQueue("static"); // CR-23：冲刷 starting 期间排队的文档同步
   setEngineStatus("ready");
+  // 阶段 4 子项 1c：引擎重启后重放缓存的非引擎诊断（opencharm-pydantic 桶等）。
+  // 已打开 model 由 main 的 onEngineStatus 监听统一重放（这里只负责状态翻转通知）。
   // PR-N：inlay hints 配置必须在就绪**之后**推（pyrefly 默认 `callArgumentNames: "off"`，
   // 不推就永远只有变量类型提示、没有参数名提示）。推的是 Pyright 兼容设置形态
   // （探针实测：python.analysis.inlayHints.callArgumentNames = "all" 立即生效，引擎侧 150ms 防抖）。
@@ -499,6 +505,34 @@ export function didChangeFull(path: string, model: MonacoApi.editor.ITextModel):
   return broadcast("textDocument/didChange", {
     textDocument: { uri: pathToFileUri(path), version: model.getVersionId() },
     contentChanges: [{ text: model.getValue() }],
+  });
+}
+
+/**
+ * 增量同步：只发「自上次同步起」的编辑序列（Monaco IModelContentChange[] → LSP contentChanges）。
+ * basedpyright（Pyright 内核）对 LSP 增量可靠；pyrefly 对多 range 增量有实测错位
+ * （补全丢失，见 didChangeFull 注释），故非 basedpyright 时回落全量。
+ * Monaco 的 e.changes 按时间顺序累积时，其 range 坐标语义与 LSP 增量一致
+ * （每个 range 基于前一个 change 应用后的文档），直接映射即可，无需重算。
+ */
+export function didChange(
+  path: string,
+  model: MonacoApi.editor.ITextModel,
+  changes: MonacoApi.editor.IModelContentChange[],
+): Promise<void> {
+  if (currentEngine !== "basedpyright") {
+    return didChangeFull(path, model);
+  }
+  const contentChanges = changes.map((c) => ({
+    range: {
+      start: { line: c.range.startLineNumber - 1, character: c.range.startColumn - 1 },
+      end: { line: c.range.endLineNumber - 1, character: c.range.endColumn - 1 },
+    },
+    text: c.text,
+  }));
+  return broadcast("textDocument/didChange", {
+    textDocument: { uri: pathToFileUri(path), version: model.getVersionId() },
+    contentChanges,
   });
 }
 
@@ -1598,6 +1632,24 @@ function normPath(p: string): string {
 /** 诊断缓存：normPath → (owner → { 原始 path, markers })。不同引擎（pyrefly / opencharm-intel）分 owner 并存显示 */
 const diagnosticsCache = new Map<string, Map<string, { path: string; markers: MonacoApi.editor.IMarkerData[] }>>();
 
+/** 静态引擎切换时只清引擎自己的诊断桶（opencharm-lsp），自研桶（intel / pydantic / ruff）
+ *  不随引擎重启失效——它们与静态引擎生命周期无关（阶段 4 子项 1c）。 */
+function clearEngineDiagnostics(): void {
+  for (const [norm, byOwner] of diagnosticsCache) {
+    byOwner.delete("opencharm-lsp");
+    if (byOwner.size === 0) diagnosticsCache.delete(norm);
+  }
+}
+
+/** 引擎就绪后重放非引擎桶的缓存诊断（applyCachedDiagnostics 按全 owner 回放，
+ *  引擎桶清空后自然只剩自研桶；main 在 onEngineStatus ready 时对已打开 tab 调用）。 */
+export function replayPersistentDiagnostics(
+  setMarkers: (path: string, markers: MonacoApi.editor.IMarkerData[], owner?: string) => void,
+  openedPaths: string[],
+): void {
+  for (const p of openedPaths) applyCachedDiagnostics(p, setMarkers);
+}
+
 export function handleDiagnostics(
   params: { uri: string; diagnostics: LspDiagnostic[] },
   engine: string | undefined,
@@ -1605,26 +1657,95 @@ export function handleDiagnostics(
 ): void {
   const path = fileUriToPath(params.uri);
   const owner = engine === "intel" ? "opencharm-intel" : "opencharm-lsp";
-  const markers: MonacoApi.editor.IMarkerData[] = params.diagnostics.map((d) => ({
-    startLineNumber: d.range.start.line + 1,
-    startColumn: d.range.start.character + 1,
-    endLineNumber: d.range.end.line + 1,
-    endColumn: d.range.end.character + 1,
-    message: d.message,
-    severity:
-      d.severity === 1 ? monaco.MarkerSeverity.Error :
-      d.severity === 2 ? monaco.MarkerSeverity.Warning :
-      monaco.MarkerSeverity.Info,
-    source: d.source ?? currentEngine,
-    code: typeof d.code === "string" ? d.code : d.code !== undefined ? String(d.code) : undefined,
-  }));
+  // 去重（2026-09-29 实测）：pyrefly 单批内会对同一位置重复推送同形态诊断
+  //（实案：`Unpacked keyword argument` 一条消息 ×19 份同 range），不去重时 hover
+  // 列表 / 问题面板 / 保存 toast 计数全部虚高，squiggle 也因同 range 装饰互相
+  // 压盖只渲染一条。键 = range + severity + code + message（任一不同即视为独立诊断）。
+  const seen = new Set<string>();
+  const markers: MonacoApi.editor.IMarkerData[] = [];
+  for (const d of params.diagnostics) {
+    const code = typeof d.code === "string" ? d.code : d.code !== undefined ? String(d.code) : undefined;
+    const m: MonacoApi.editor.IMarkerData = {
+      startLineNumber: d.range.start.line + 1,
+      startColumn: d.range.start.character + 1,
+      endLineNumber: d.range.end.line + 1,
+      endColumn: d.range.end.character + 1,
+      message: d.message,
+      // PyCharm 语义降级（2026-09-29 用户实案反馈）：pyrefly typeCheckingMode=default 把
+      // 大量类型检查问题判为 error（实测 203 条中仅 23 条 parse-error，其余 145 条 error
+      // 是 bad-function-definition / bad-argument-type / missing-attribute 等——PyCharm 里
+      // 均为警告级）。红线只留给「代码跑不起来/名字解析不了」的硬错误，类型问题降黄线。
+      severity: severityForEngine(d.severity, code),
+      source: d.source ?? currentEngine,
+      code,
+    };
+    const key = `${m.startLineNumber}:${m.startColumn}-${m.endLineNumber}:${m.endColumn}|${m.severity}|${m.code ?? ""}|${m.message}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    markers.push(m);
+  }
   let byOwner = diagnosticsCache.get(normPath(path));
   if (!byOwner) {
     byOwner = new Map();
     diagnosticsCache.set(normPath(path), byOwner);
   }
-  byOwner.set(owner, { path, markers });
-  setMarkers(path, markers, owner);
+  byOwner.set(owner, { path, markers: capMarkersBySeverity(markers) });
+  setMarkers(path, byOwner.get(owner)!.markers, owner);
+}
+
+/** 硬错误 code（保留 Error 级 / 红线）：代码无法运行或名字解析失败。
+ *  code 兼容两引擎：pyrefly 短横线风格（parse-error / missing-import / unbound-name）；
+ *  basedpyright 的 reportUndefinedVariable / reportGeneralTypeIssues 等「运行即炸」类。
+ *  注：missing-import 在 PyCharm 是硬错误（运行必 ImportError）——保留红线。 */
+const HARD_ERROR_CODES: ReadonlySet<string> = new Set([
+  "parse-error", "missing-import", "missing-module", "unbound-name",
+  "reportUndefinedVariable", "reportGeneralTypeIssues",
+]);
+
+/** LSP severity → Monaco severity（PyCharm 语义）：
+ *  · LSP error + 硬错误 code → Error（红线）
+ *  · LSP error + 类型检查类 code → Warning（黄线，PyCharm 同款分级）
+ *  · LSP warning 以下原样映射 */
+// 修（2026-09-30）：返回类型原写作 `monaco.MarkerSeverity`——模块级变量 `monaco` 不是
+// 命名空间，类型位置报 TS2503。类型用 `MonacoApi.MarkerSeverity`（type-only 导入的
+// 命名空间，类型位置合法）；返回**值**仍取运行时注入的 `monaco`（诊断路径必然已
+// setMonaco——引擎就绪才有诊断进来）。
+function severityForEngine(lspSeverity: number | undefined, code: string | undefined): MonacoApi.MarkerSeverity {
+  if (lspSeverity === 1) {
+    return code !== undefined && HARD_ERROR_CODES.has(code)
+      ? monaco.MarkerSeverity.Error
+      : monaco.MarkerSeverity.Warning;
+  }
+  return lspSeverity === 2 ? monaco.MarkerSeverity.Warning : monaco.MarkerSeverity.Info;
+}
+
+/** Monaco markerDecorationsService 的渲染硬上限：每 model 只取前 500 条 marker 建装饰
+ *  （markerDecorationsService.js `_updateDecorations` 的 `take: 500`），**按 marker service
+ *  内部插入序**截断——大文件实案（hermes-agent/cli.py，851 条：169 error + 682 warning）
+ *  中 75 行的 missing-import error 排在 500 名后 → 无装饰 → 无红线，而早期插入的
+ *  warning 恰在前 500 → 有黄线，表现为「警告有线、错误没线」（2026-09-29 真实环境
+ *  CDP 取证定位）。注入前按 severity 分层截断（Error 全保留 > Warning > Info > Hint），
+ *  保证 error 永远进入渲染窗口。阈值 450：留 50 余量给其他 owner 桶（ruff/pydantic/
+ *  libs——它们也走同一 model 的 marker service，合并后仍受 500 截断）。 */
+const MARKER_RENDER_CAP = 450;
+export function capMarkersBySeverity(markers: MonacoApi.editor.IMarkerData[], cap = MARKER_RENDER_CAP): MonacoApi.editor.IMarkerData[] {
+  if (markers.length <= cap) return markers;
+  // MarkerSeverity 稳定数字枚举（monaco 0.52：Hint=1 / Info=2 / Warning=4 / Error=8）——
+  // 不读注入的 monaco 实例（本函数可能在 setMonaco 之前的测试路径被直接调用）
+  const bySev = new Map<number, MonacoApi.editor.IMarkerData[]>();
+  for (const m of markers) {
+    const arr = bySev.get(m.severity) ?? [];
+    arr.push(m);
+    bySev.set(m.severity, arr);
+  }
+  const out: MonacoApi.editor.IMarkerData[] = [];
+  for (const sev of [8, 4, 2, 1]) {
+    const arr = bySev.get(sev);
+    if (!arr) continue;
+    if (out.length >= cap) break;
+    out.push(...arr.slice(0, cap - out.length));
+  }
+  return out;
 }
 
 /** 打开文件时应用缓存的诊断（若引擎已发布过该文件的诊断） */

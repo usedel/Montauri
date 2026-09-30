@@ -54,19 +54,20 @@ pub fn detect_toolchain(engine: String) -> Result<Value, String> {
 
 /// 一键安装缺失工具（uv → 静态引擎），进度经 toolchain-stdout / toolchain-stderr 流式推送。
 #[tauri::command]
-pub async fn install_toolchain(app: AppHandle, engine: String) -> Result<bool, String> {
-    tauri::async_runtime::spawn_blocking(move || install_toolchain_impl(app, &engine))
+pub async fn install_toolchain(app: AppHandle, window: tauri::WebviewWindow, engine: String) -> Result<bool, String> {
+    let wid = window.label().to_string();
+    tauri::async_runtime::spawn_blocking(move || install_toolchain_impl(app, &engine, &wid))
         .await
         .map_err(|e| format!("安装任务异常：{e}"))?
 }
 
-fn install_toolchain_impl(app: AppHandle, engine: &str) -> Result<bool, String> {
+fn install_toolchain_impl(app: AppHandle, engine: &str, wid: &str) -> Result<bool, String> {
     let pkg = engine_package(engine);
     let cmd = engine_command(engine);
 
     // 1. 确保 uv 就绪（缺失则走官方安装脚本，装到官方默认位置 ~/.local/bin，不重定向）
     if !is_available("uv", ENV_UV) {
-        emit(&app, "toolchain-stdout", "安装 uv（官方脚本，默认位置 ~/.local/bin，需联网）…\n")?;
+        emit(&app, "toolchain-stdout", "安装 uv（官方脚本，默认位置 ~/.local/bin，需联网）…\n", wid)?;
         if cfg!(windows) {
             // 不设置 UV_INSTALL_DIR——uv 归用户所有，落官方默认位置，与其他项目共享。
             run_streaming(
@@ -80,6 +81,7 @@ fn install_toolchain_impl(app: AppHandle, engine: &str) -> Result<bool, String> 
                     "irm https://astral.sh/uv/install.ps1 | iex",
                 ],
                 INSTALL_TIMEOUT,
+                wid,
             )?;
         } else {
             run_streaming(
@@ -87,6 +89,7 @@ fn install_toolchain_impl(app: AppHandle, engine: &str) -> Result<bool, String> 
                 "sh",
                 &["-c", "curl -LsSf https://astral.sh/uv/install.sh | sh"],
                 INSTALL_TIMEOUT,
+                wid,
             )?;
         }
     }
@@ -94,16 +97,16 @@ fn install_toolchain_impl(app: AppHandle, engine: &str) -> Result<bool, String> 
     // 2. 定位 uv 绝对路径（~/.local/bin 命中，无需新 shell 刷新 PATH）
     let uv = resolve_tool("uv", ENV_UV)
         .ok_or_else(|| "uv 安装后仍未找到，请重启 OpenCharm 或手动把 uv 加入 PATH".to_string())?;
-    emit(&app, "toolchain-stdout", &format!("uv 位置：{}\n", uv.display()))?;
+    emit(&app, "toolchain-stdout", &format!("uv 位置：{}\n", uv.display()), wid)?;
 
     // 3. 安装静态引擎（uv tool install，走用户 uv 默认工具目录，入口脚本落 ~/.local/bin）
     if !is_available(cmd, "") {
-        emit(&app, "toolchain-stdout", &format!("安装静态引擎 `{pkg}`（uv tool install）…\n"))?;
+        emit(&app, "toolchain-stdout", &format!("安装静态引擎 `{pkg}`（uv tool install）…\n"), wid)?;
         // 不设 UV_TOOL_BIN_DIR / UV_TOOL_DIR——工具落用户 uv 默认目录，跨项目可复用；
         // tool_command 仅注入 UV_DEFAULT_INDEX（PyPI 包源设置）。
         let mut cmd = crate::tool_paths::tool_command("uv", ENV_UV);
         cmd.args(["tool", "install", pkg]);
-        run_streaming_cmd(&app, cmd, INSTALL_TIMEOUT)?;
+        run_streaming_cmd(&app, cmd, INSTALL_TIMEOUT, wid)?;
     }
 
     // 4. 复核
@@ -112,13 +115,14 @@ fn install_toolchain_impl(app: AppHandle, engine: &str) -> Result<bool, String> 
         &app,
         "toolchain-stdout",
         if ok { "环境就绪。\n" } else { "安装结束，但引擎仍不可见；请重启 OpenCharm 后再试。\n" },
+        wid,
     )?;
     Ok(ok)
 }
 
 /// 向 WebView 推送一行安装日志。
-fn emit(app: &AppHandle, event: &str, data: &str) -> Result<(), String> {
-    app.emit(event, json!({ "data": data })).map_err(|e| e.to_string())
+fn emit(app: &AppHandle, event: &str, data: &str, wid: &str) -> Result<(), String> {
+    app.emit_to(wid, event, json!({ "data": data })).map_err(|e| e.to_string())
 }
 
 /// 后台线程逐行读取子进程输出并转发事件。
@@ -126,6 +130,7 @@ fn stream_lines<R: Read + Send + 'static>(
     r: R,
     app: AppHandle,
     event: &'static str,
+    wid: String,
 ) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
         let mut reader = BufReader::new(r);
@@ -136,7 +141,7 @@ fn stream_lines<R: Read + Send + 'static>(
                 Ok(0) => break,
                 Ok(_) => {
                     let text = String::from_utf8_lossy(&buf).replace("\r\n", "\n").replace('\r', "\n");
-                    let _ = app.emit(event, json!({ "data": text }));
+                    let _ = app.emit_to(&wid, event, json!({ "data": text }));
                 }
                 Err(_) => break,
             }
@@ -145,14 +150,14 @@ fn stream_lines<R: Read + Send + 'static>(
 }
 
 /// 运行外部命令，流式转发 stdout/stderr，带超时；返回退出码。
-fn run_streaming(app: &AppHandle, program: &str, args: &[&str], timeout: Duration) -> Result<i32, String> {
+fn run_streaming(app: &AppHandle, program: &str, args: &[&str], timeout: Duration, wid: &str) -> Result<i32, String> {
     let mut cmd = Command::new(program);
     cmd.args(args);
-    run_streaming_cmd(app, cmd, timeout)
+    run_streaming_cmd(app, cmd, timeout, wid)
 }
 
 /// 同 [`run_streaming`]，但接收已配置好（含环境变量注入）的 `Command`。
-fn run_streaming_cmd(app: &AppHandle, mut cmd: Command, timeout: Duration) -> Result<i32, String> {
+fn run_streaming_cmd(app: &AppHandle, mut cmd: Command, timeout: Duration, wid: &str) -> Result<i32, String> {
     let program = cmd.get_program().to_string_lossy().to_string();
     let mut child = no_window(&mut cmd)
         .stdin(Stdio::null())
@@ -161,8 +166,8 @@ fn run_streaming_cmd(app: &AppHandle, mut cmd: Command, timeout: Duration) -> Re
         .spawn()
         .map_err(|e| format!("无法启动 `{program}`：{e}"))?;
 
-    let out_thread = stream_lines(child.stdout.take().unwrap(), app.clone(), "toolchain-stdout");
-    let err_thread = stream_lines(child.stderr.take().unwrap(), app.clone(), "toolchain-stderr");
+    let out_thread = stream_lines(child.stdout.take().expect("stdout 已设为 piped"), app.clone(), "toolchain-stdout", wid.to_string());
+    let err_thread = stream_lines(child.stderr.take().unwrap(), app.clone(), "toolchain-stderr", wid.to_string());
 
     let start = Instant::now();
     let code = loop {
@@ -170,7 +175,10 @@ fn run_streaming_cmd(app: &AppHandle, mut cmd: Command, timeout: Duration) -> Re
             Ok(Some(st)) => break st.code(),
             Ok(None) => {
                 if start.elapsed() > timeout {
-                    let _ = child.kill();
+                    // P1-4（2026-09-29 review，铁律 1）：uv 安装脚本（powershell irm | iex）
+                    // 会链式拉起下载/安装子进程——裸 kill 后这些子进程孤儿化继续写
+                    // ~/.local/bin。改杀整棵进程树再 join 读线程。
+                    crate::util::kill_process_tree(&mut child);
                     let _ = out_thread.join();
                     let _ = err_thread.join();
                     return Err(format!("命令执行超时（{} 秒）", timeout.as_secs()));

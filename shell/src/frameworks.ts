@@ -46,23 +46,6 @@ export function presetConfigured(
   );
 }
 
-// ---------- F0 裁决 B：Pydantic 栈的引擎推荐（纯函数部分） ----------
-// 依据：bench/reports/pydantic-engine-probe.md——pyrefly 缺「类型检查 / 缺失必填 / 改名传播」，
-// basedpyright 覆盖 4/6；仅当用户还在 pyrefly 上时才值得提示（已在 basedpyright 则无意义）。
-
-/** 是否应提示「推荐切到 basedpyright」：仅当当前引擎还是 pyrefly（含缺省回退） */
-export function shouldSuggestPydanticEngine(currentEngine: string | undefined): boolean {
-  return (currentEngine || "pyrefly") === "pyrefly";
-}
-
-/** 提示行正文（不含可点击链接） */
-export function pydanticEngineHintText(): string {
-  return (
-    "检测到 Pydantic 栈（pydantic/fastapi）。当前引擎 pyrefly 对 Pydantic 缺少请求体校验红线" +
-    "与字段改名传播（实测见 bench/reports/pydantic-engine-probe.md），推荐切换到 basedpyright："
-  );
-}
-
 // ---------- F1：端点路由合并（纯函数；Rust 侧同款语义见 fs_cmds::ep_join_route） ----------
 
 /** 路由段合并：两端斜杠归一 + 空段跳过；全空 → "/"。

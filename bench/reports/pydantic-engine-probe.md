@@ -92,6 +92,22 @@
 - **alias 误报实测不可单独规避（连坐实验）**：给受控项目加 `[tool.basedpyright] reportCallIssue = "none"` 后重跑——alias 双向误报消失，但「缺失必填」（同属 reportCallIssue）被**连坐关闭**，只剩 reportArgumentType。结论：**不推荐配置规避**，接受为已知边界（alias 场景在 FastAPI 项目占比低；重度 alias 用户可自行权衡该开关的代价）。
 - C（跟踪 pyrefly 的 `__init__` 校验 / `dataclass_transform` 进展）仍开放，达标后可回切默认。
 
+### 4.2 基线刷新（2026-09-28，pyrefly 1.3.1）
+
+撤销推荐（计划阶段 1）实施当日重跑探针，**pyrefly 1.3.1 与 1.3.0 结论完全一致**：
+
+| 项 | pyrefly 1.3.1 | 对照 1.3.0 |
+|---|---|---|
+| `usage.py` 诊断（类型错 / 缺必填） | 零诊断 ❌ | 同 ❌ |
+| rename 字段传播 | references=0，只改 `models.py` 声明处 ❌ | 同 ❌ |
+| 补全（`id=` / `is_active=` / `name=`） | ✅ 3 候选 | 同 ✅ |
+| hover | ✅ | 同 ✅ |
+| alias / validators 误报 | 零 ❌（静默但无误报） | 同 |
+
+basedpyright 侧（`rename references=3`，覆盖 `usage.py` 3 处调用）结论不变。原始数据：`bench/reports/pydantic-probe-{pyrefly,basedpyright}.json`（`generatedAt: 2026-09-28`）。
+
+> 升级跟踪基线以此为准：pyrefly 后续版本任一缺失项转绿即按计划阶段 3 回补并退役对应自研/提示。
+
 ---
 
 ## 5. 复现

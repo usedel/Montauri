@@ -11,6 +11,7 @@ function tool(id: string, category: string): DevTool {
     description: "",
     category,
     icon: "symbol-file",
+    inlineLabel: null,
     mount: () => undefined,
   };
 }

@@ -16,19 +16,23 @@ use std::sync::{Arc, LazyLock, Mutex};
 use tauri::{AppHandle, Emitter};
 
 use crate::logging::{log_line, Level};
+use crate::per_window::PerWindow;
 use crate::tool_paths::{find_on_path, ENV_UV};
 use crate::util::{unpoison, IncrementalUtf8Decoder};
 
 /// 单个终端会话：master 供 resize / clone reader / take writer；writer/child 各自持有。
 /// CR-03：writer 独立 `Arc<Mutex>` —— `term_write` 取克隆后释放全局锁再写。
 /// 持 TERMS 全局锁写 PTY（大段粘贴 / 引擎卡死）会阻塞 `term_kill` → 无法停止，子系统死锁。
+/// P2-8（2026-09-29 review）：master 同样独立 `Arc<Mutex>` —— `term_resize` 的 ConPTY
+/// resize 涉及底层 buffer 重分配，系统繁忙时可阻塞；持全局锁 resize 会饿死
+/// term_kill / 退出监视线程（与 term_write 同一纪律）。
 struct TermSession {
-    master: Box<dyn MasterPty>,
+    master: Arc<Mutex<Box<dyn MasterPty>>>,
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     child: Box<dyn Child + Send + Sync>,
 }
 
-static TERMS: LazyLock<Mutex<HashMap<String, TermSession>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+static TERMS: LazyLock<PerWindow<HashMap<String, TermSession>>> = LazyLock::new(PerWindow::new);
 
 /// 「运行终端」会话 id 前缀（S3）：前端按此约定分配 id，后端据此与普通 shell 会话区分——
 /// 会话生命周期管理与前端退出事件路由都依赖它。
@@ -41,17 +45,23 @@ pub(crate) const RUN_TERM_PREFIX: &str = "run-term-";
 /// 是否有**脚本**运行会话在跑（§13.2，裁决 10：互斥收窄——调试只与脚本运行互斥，
 /// 项目实例（长驻服务）可与调试并存）。会话 id 约定见 `run_in_terminal` 文档：
 /// `run-term-script` / `run-term-project-<N>`。
-pub(crate) fn script_run_busy() -> bool {
-    unpoison(TERMS.lock()).keys().any(|k| k == &format!("{RUN_TERM_PREFIX}script"))
+pub(crate) fn script_run_busy(wid: &str) -> bool {
+    TERMS.lock()
+        .get(wid)
+        .map(|m| m.keys().any(|k| k == &format!("{RUN_TERM_PREFIX}script")))
+        .unwrap_or(false)
 }
 
 /// 杀掉并移除指定会话（不 emit term-exit——只有「自然退出」才 notify 前端）。
 /// CR-03：锁内只取出，kill 与 drop（ConPTY master 清理，可能阻塞）都在锁外。
-fn kill_session(id: &str) {
-    let taken = unpoison(TERMS.lock()).remove(id);
-    if let Some(mut s) = taken {
-        let _ = s.child.kill();
-    } // s 在锁外 drop
+/// 铁律 1（2026-09-29 review P0-1）：裸 `child.kill()` 只杀 shell 本体——用户在终端里
+/// 启动的 python server.py / uvicorn 是 shell 的子进程，会成孤儿继续运行（停止按钮失效）。
+/// 必须按 pid 杀整棵进程树；taskkill /T /F 可耗时数秒，一律在后台线程执行。
+fn kill_session(wid: &str, id: &str) {
+    let taken = TERMS.lock().get_mut(wid).and_then(|m| m.remove(id));
+    if let Some(s) = taken {
+        crate::util::kill_pty_child_tree_async(s.child);
+    } // TermSession（master/writer）在锁外 drop
 }
 
 // 注：曾有 kill_session_internal（dap.rs 调试会话清理用）——v1.2 架构 debuggee 落
@@ -150,6 +160,7 @@ fn venv_root_of(interpreter: &str) -> Option<std::path::PathBuf> {
 #[tauri::command]
 pub fn term_spawn(
     app: AppHandle,
+    window: tauri::WebviewWindow,
     id: String,
     cols: u16,
     rows: u16,
@@ -157,7 +168,8 @@ pub fn term_spawn(
     shell: Option<String>,
     workspace_root: Option<String>,
 ) -> Result<Option<String>, String> {
-    kill_session(&id); // 同名重启先杀旧会话
+    let wid = window.label().to_string();
+    kill_session(&wid, &id); // 同名重启先杀旧会话
 
     // 复用解释器系统（工作区配置 > .venv 自动检测 > 无），与运行按钮行为一致
     let venv_root = workspace_root
@@ -209,7 +221,7 @@ pub fn term_spawn(
     }
     let child = child.ok_or_else(|| format!("无法启动终端 shell: {last_err}"))?;
 
-    start_session(&app, &id, pair.master, child)?;
+    start_session(&app, &id, pair.master, child, &wid)?;
 
     Ok(venv_root
         .as_ref()
@@ -224,17 +236,19 @@ pub(crate) fn start_session(
     id: &str,
     master: Box<dyn MasterPty>,
     child: Box<dyn Child + Send + Sync>,
+    wid: &str,
 ) -> Result<(), String> {
     let reader = master.try_clone_reader().map_err(|e| e.to_string())?;
     let writer = master.take_writer().map_err(|e| e.to_string())?;
 
-    unpoison(TERMS.lock()).insert(id.to_string(), TermSession { master, writer: Arc::new(Mutex::new(writer)), child });
+    TERMS.lock().entry(wid.to_string()).or_default().insert(id.to_string(), TermSession { master: Arc::new(Mutex::new(master)), writer: Arc::new(Mutex::new(writer)), child });
 
     // 读线程：PTY 输出 → term-data 事件（ANSI 原样透传，payload 带 id）。
     // 坑 5：按 8192 字节切块后直接 `from_utf8_lossy`，中文若正好跨块会被替换成乱码。
     // 终端平时输出量大不显眼，但交互式一问一答（每块就几个字）必然暴露 → 换增量 UTF-8 解码。
     let app_out = app.clone();
     let id_out = id.to_string();
+    let wid_out = wid.to_string();
     std::thread::spawn(move || {
         let mut reader = reader;
         let mut buf = [0u8; 8192];
@@ -247,7 +261,7 @@ pub(crate) fn start_session(
                     if data.is_empty() {
                         continue; // 整块都是被截断的多字节尾巴，等下一块拼完整
                     }
-                    let _ = app_out.emit("term-data", json!({ "id": id_out, "data": data }));
+                    let _ = app_out.emit_to(&wid_out, "term-data", json!({ "id": id_out, "data": data }));
                 }
                 Err(_) => break,
             }
@@ -255,7 +269,7 @@ pub(crate) fn start_session(
         // 流结束：冲刷残留字节（不静默吞掉最后半个字符）
         let tail = decoder.finish();
         if !tail.is_empty() {
-            let _ = app_out.emit("term-data", json!({ "id": id_out, "data": tail }));
+            let _ = app_out.emit_to(&wid_out, "term-data", json!({ "id": id_out, "data": tail }));
         }
     });
 
@@ -264,11 +278,13 @@ pub(crate) fn start_session(
     // 供运行历史记录退出码（§11）。旧前端不读这两个字段时行为不变（向后兼容的加法）。
     let app_exit = app.clone();
     let id_exit = id.to_string();
+    let wid_exit = wid.to_string();
     std::thread::spawn(move || loop {
         std::thread::sleep(std::time::Duration::from_millis(200));
         let exited = {
-            let mut map = unpoison(TERMS.lock());
-            let done = match map.get_mut(&id_exit) {
+            let mut map = TERMS.lock();
+            let Some(inner) = map.get_mut(&wid_exit) else { return };
+            let done = match inner.get_mut(&id_exit) {
                 Some(s) => match s.child.try_wait() {
                     Ok(Some(status)) => Some((status.exit_code(), status.signal().map(String::from))),
                     Ok(None) => None,
@@ -279,13 +295,13 @@ pub(crate) fn start_session(
             match done {
                 None => None, // 仍在运行
                 Some(info) => {
-                    map.remove(&id_exit);
+                    inner.remove(&id_exit);
                     Some(info)
                 }
             }
         };
         if let Some((code, signal)) = exited {
-            let _ = app_exit.emit("term-exit", json!({ "id": id_exit, "code": code, "signal": signal }));
+            let _ = app_exit.emit_to(&wid_exit, "term-exit", json!({ "id": id_exit, "code": code, "signal": signal }));
             return;
         }
     });
@@ -310,6 +326,7 @@ pub(crate) fn start_session(
 #[tauri::command]
 pub fn run_in_terminal(
     app: AppHandle,
+    window: tauri::WebviewWindow,
     id: String,
     cols: u16,
     rows: u16,
@@ -317,15 +334,16 @@ pub fn run_in_terminal(
     workspace_root: Option<String>,
     kind: Option<String>,
 ) -> Result<Vec<String>, String> {
+    let wid = window.label().to_string();
     let kind = kind.unwrap_or_else(|| "script".to_string());
     // 三态互斥收窄（§13.2，裁决 10）：调试占用时拒绝**脚本**运行；项目实例（长驻服务）放行
-    if crate::dap::debug_busy() && kind != "project" {
+    if crate::dap::debug_busy(&wid) && kind != "project" {
         return Err("已有调试会话在运行".into());
     }
     if !id.starts_with(RUN_TERM_PREFIX) {
         return Err(format!("运行终端会话 id 必须以 `{RUN_TERM_PREFIX}` 开头（前后端约定，用于与普通 shell 会话区分）"));
     }
-    kill_session(&id); // 复用同一会话槽：停止运行后会话可立即复用（验收项）
+    kill_session(&wid, &id); // 复用同一会话槽：停止运行后会话可立即复用（验收项）
 
     // 入口 / 脚本锚点解析（§17-12）——kind=project 时忽略 path，读项目配置；
     // kind=script 与调试链路同口径（解释器 / 配置 / uv 兜底）。
@@ -433,18 +451,19 @@ pub fn run_in_terminal(
         .spawn_command(cb)
         .map_err(|e| format!("无法在终端中启动运行命令: {e}"))?;
 
-    start_session(&app, &id, pair.master, child)?;
+    start_session(&app, &id, pair.master, child, &wid)?;
     Ok(run_env.warnings)
 }
 
 /// 前端 xterm onData → 写入 PTY
 #[tauri::command]
-pub fn term_write(id: String, data: String) -> Result<(), String> {
+pub fn term_write(window: tauri::WebviewWindow, id: String, data: String) -> Result<(), String> {
+    let wid = window.label().to_string();
     // CR-03：全局锁只查表——克隆 Arc 后立即释放，写阻塞不再持全局锁，
     // term_kill / term_spawn / 退出监视线程始终可以拿到 map 完成清理。
     let writer = {
-        let map = unpoison(TERMS.lock());
-        map.get(&id).map(|s| s.writer.clone()).ok_or("终端未启动")?
+        let map = TERMS.lock();
+        map.get(&wid).and_then(|m| m.get(&id)).map(|s| s.writer.clone()).ok_or("终端未启动")?
     };
     let mut w = unpoison(writer.lock());
     w.write_all(data.as_bytes()).map_err(|e| e.to_string())?;
@@ -453,53 +472,71 @@ pub fn term_write(id: String, data: String) -> Result<(), String> {
 
 /// 前端 xterm 尺寸变化 → 调整 PTY 大小
 #[tauri::command]
-pub fn term_resize(id: String, cols: u16, rows: u16) -> Result<(), String> {
-    let map = unpoison(TERMS.lock());
-    match map.get(&id) {
-        Some(s) => s
-            .master
-            .resize(PtySize {
-                rows: rows.max(4),
-                cols: cols.max(4),
-                pixel_width: 0,
-                pixel_height: 0,
-            })
-            .map_err(|e| e.to_string()),
-        None => Ok(()), // 会话未启动，静默忽略
-    }
+pub fn term_resize(window: tauri::WebviewWindow, id: String, cols: u16, rows: u16) -> Result<(), String> {
+    let wid = window.label().to_string();
+    // P2-8：全局锁只查表——克隆 Arc 后立即释放，ConPTY resize（可能阻塞的
+    // buffer 重分配）在锁外执行（与 term_write 同款纪律）。
+    let master = {
+        let map = TERMS.lock();
+        match map.get(&wid).and_then(|m| m.get(&id)) {
+            Some(s) => s.master.clone(),
+            None => return Ok(()), // 会话未启动，静默忽略
+        }
+    };
+    let m = unpoison(master.lock());
+    m.resize(PtySize {
+        rows: rows.max(4),
+        cols: cols.max(4),
+        pixel_width: 0,
+        pixel_height: 0,
+    })
+    .map_err(|e| e.to_string())
 }
 
 /// 终止指定会话（关闭某个终端 tab / 重新 spawn 前调用）
 #[tauri::command]
-pub fn term_kill(id: String) -> Result<(), String> {
+pub fn term_kill(window: tauri::WebviewWindow, id: String) -> Result<(), String> {
+    let wid = window.label().to_string();
     let start = std::time::Instant::now();
-    kill_session(&id);
+    kill_session(&wid, &id);
     log_line(Level::Debug, &format!("[term_kill] id={id}, took={:?}", start.elapsed()));
     Ok(())
 }
 
 /// 终止全部会话（关闭工作区时调用）
 #[tauri::command]
-pub fn term_kill_all() -> Result<(), String> {
+pub fn term_kill_all(window: tauri::WebviewWindow) -> Result<(), String> {
+    let wid = window.label().to_string();
     let sessions: Vec<TermSession> = {
-        let mut map = unpoison(TERMS.lock());
-        map.drain().map(|(_, s)| s).collect()
+        let mut map = TERMS.lock();
+        map.remove(&wid).map(|m| m.into_values().collect()).unwrap_or_default()
     };
-    for mut s in sessions {
-        let _ = s.child.kill();
+    for s in sessions {
+        crate::util::kill_pty_child_tree_async(s.child);
     }
     Ok(())
 }
 
 /// CR-14：应用退出（RunEvent::Exit）清理——同步终止全部 PTY 会话。
 /// 与 `term_kill_all` 同逻辑但免走 IPC，且此时不 emit term-exit（前端已不存在）。
+/// 退出路径例外用同步杀树（CR-14 纪律：后台线程会被进程退出截断）。
 pub(crate) fn term_kill_all_for_exit() {
-    let sessions: Vec<TermSession> = {
-        let mut map = unpoison(TERMS.lock());
-        map.drain().map(|(_, s)| s).collect()
-    };
-    for mut s in sessions {
-        let _ = s.child.kill();
+    let sessions: Vec<TermSession> = TERMS.drain_all().into_iter().flat_map(|m| m.into_values()).collect();
+    for s in sessions {
+        let mut s = s;
+        // 同步杀整棵树（shell 里用户启动的 python/uvicorn 等孙进程一并终结），
+        // 再回收 child 句柄；顺序同 kill_pty_child_tree_async 的注释（先树后 child）。
+        crate::util::kill_pid_tree(s.child.process_id().unwrap_or(0));
+        let _ = s.child.kill(); // 兜底：树杀失败时仍终止直接子进程
+        let _ = s.child.wait();
+    }
+}
+
+/// 窗口销毁清理：停止该窗口的全部会话。
+pub(crate) fn term_kill_all_for_window(wid: &str) {
+    let sessions: Vec<TermSession> = TERMS.lock().remove(wid).map(|m| m.into_values().collect()).unwrap_or_default();
+    for s in sessions {
+        crate::util::kill_pty_child_tree_async(s.child);
     }
 }
 

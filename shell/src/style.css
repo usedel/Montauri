@@ -900,6 +900,10 @@ button:focus-visible,
    （行号档保持默认光标，两者一眼可区分）。逐行的淡化预示见 gutterHover.ts。 */
 .monaco-editor .margin .glyph-margin {
   cursor: pointer;
+  /* 收窄 glyph 边距背景：Monaco 默认宽度 = 一个行高（≈21px），比断点/运行图标宽一圈，
+     整档视觉上全是空白。此处只收背景底色 + 右边界线（红点/行号位置由 Monaco JS 内联控制，
+     不随此变化），目的是让「可点中 glyph 档」的那块高亮更贴合图标轮廓。 */
+  width: 17px !important;
   box-shadow: inset -1px 0 0 var(--border-soft); /* 用 inset 阴影而非 border：不改变布局宽度 */
   transition: background-color var(--transition-fast);
 }
@@ -1409,6 +1413,136 @@ button:focus-visible,
 }
 .ew-recent-remove:hover { background: var(--hover-subtle); color: var(--fg); }
 .ew-recent-item:hover .ew-recent-remove { display: flex; }
+
+/* ---------- 欢迎页新手引导区（onboarding plan PR-S2：三步卡 + 功能巡礼 + force-close） ---------- */
+
+/* force-show 态的右上角关闭按钮（仅 force 态显示） */
+.ew-force-close {
+  position: absolute;
+  top: var(--space-4);
+  right: var(--space-4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--fg-dim);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  z-index: 1;
+}
+.ew-force-close:hover { background: var(--hover-subtle); color: var(--fg); }
+
+/* 三步卡（快速开始） */
+.ew-quickstart-steps {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-4);
+}
+.ew-qs-step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-panel);
+  min-width: 0;
+}
+.ew-qs-head { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
+.ew-qs-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-md);
+  color: var(--on-accent);
+  background: var(--brand-gradient);
+  flex: none;
+  font-size: var(--text-sm);
+}
+.ew-qs-title { color: var(--fg); font-weight: 600; font-size: var(--text-sm); }
+.ew-qs-head kbd {
+  margin-left: auto;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 1px var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--fg-dim);
+  white-space: nowrap;
+  flex: none;
+}
+.ew-qs-desc { color: var(--fg-dim); font-size: var(--text-xs); line-height: 1.5; }
+.ew-guide-link {
+  display: inline-block;
+  margin-top: var(--space-5);
+  color: var(--accent);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+.ew-guide-link:hover { text-decoration: underline; }
+
+/* 功能巡礼（数据驱动 checklist；条目多时内部滚动，整卡总高不失控——布局防御同 memory 54362534 族） */
+.ew-tour-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  cursor: default;
+}
+.ew-tour-count { color: var(--fg-dim); font-weight: 400; letter-spacing: 0; }
+.ew-tour-arrow { margin-left: auto; font-size: var(--text-sm); color: var(--fg-dim); visibility: hidden; }
+.ew-tour-section.collapsed .ew-tour-arrow { visibility: visible; }
+#ew-tour-section.collapsed #ew-tour-body,
+#ew-tour-section.collapsed #ew-tour-foot { display: none !important; }
+.ew-tour-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-height: 220px;
+  overflow-y: auto;
+  min-height: 0;
+}
+.ew-tour-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-lg);
+  font-size: var(--text-sm);
+  color: var(--fg);
+  min-width: 0;
+}
+.ew-tour-item .ew-tour-check { display: flex; align-items: center; color: var(--fg-dim); flex: none; font-size: var(--text-sm); }
+.ew-tour-item.done { color: var(--fg-dim); }
+.ew-tour-item.done .ew-tour-check { color: var(--accent); }
+.ew-tour-item.done .ew-tour-desc { text-decoration: line-through; text-decoration-color: var(--border); }
+.ew-tour-desc { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ew-tour-item .btn { margin-left: auto; flex: none; }
+.ew-tour-item kbd {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 1px var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--fg-dim);
+  white-space: nowrap;
+  flex: none;
+}
+.ew-tour-foot { margin-top: var(--space-4); display: flex; gap: var(--space-6); }
+.ew-tour-fold { color: var(--fg-dim); font-size: var(--text-xs); cursor: pointer; }
+.ew-tour-fold:hover { color: var(--fg); text-decoration: underline; }
+
+/* 窄容器回落：三步卡单列（与快捷键网格同一断点，container 声明在 #editor-overlay） */
+@container (max-width: 560px) {
+  .ew-quickstart-steps { grid-template-columns: 1fr; }
+}
+
 
 /* 快捷键网格（UI-25：内容由 welcomeShortcuts.ts 按键位系统动态渲染，index.html 只留空容器——
    原先是 6 行硬编码 <kbd>，用户在设置里改键后欢迎页仍显示出厂默认值，与实际键位不符） */
@@ -3622,6 +3756,44 @@ button:focus-visible,
   color: var(--fg-dim);
   letter-spacing: .5px;
 }
+
+/* ---------- 问题面板（对标 PyCharm Problems View；problemsPanel.ts） ---------- */
+/* 布局同 #find-usages-panel：toolbar（过滤 chips）+ 结果滚动区（按文件分组） */
+#problems-panel {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.pb-empty {
+  padding: var(--space-6) var(--space-5);
+  color: var(--fg-dim);
+  font-size: var(--text-sm);
+  text-align: center;
+}
+/* 单条问题行：徽标 + 行:列 + 消息 + 来源（点击/Enter 跳转） */
+.pb-item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: var(--space-1) var(--space-5);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.pb-item:hover { background: var(--hover); }
+.pb-sev { flex: none; font-size: var(--text-xs); border-radius: var(--radius-sm); padding: 0 var(--space-2); }
+.pb-sev-error { color: var(--danger); background: var(--danger-soft); }
+.pb-sev-warning { color: var(--warn); background: var(--warn-soft); }
+.pb-line { flex: none; color: var(--fg-dim); font-size: var(--text-xs); min-width: 5.5em; }
+.pb-msg {
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pb-src { flex: none; color: var(--fg-dim); font-size: var(--text-xs); margin-left: auto; padding-right: var(--space-2); }
+/* 状态栏问题芯片（#status-problems）：error 态红色警示 */
+#status-problems { font-size: var(--text-xs); }
+#status-problems.has-errors { color: var(--danger); font-weight: 600; }
 #git-detail-header {
   display: flex;
   align-items: center;
@@ -3964,6 +4136,18 @@ button:focus-visible,
 .picker-item-desc { font-size: var(--text-xs); color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .picker-item-cat { flex: none; font-size: var(--text-xs); color: var(--fg-dim); }
 .picker-empty { padding: var(--space-6) var(--space-4); text-align: center; color: var(--fg-dim); font-size: var(--text-sm); }
+/* v1.1 上下文感知 picker：inline 模式提示条（有选区时 Ctrl+Shift+T 进入变换模式） */
+.picker-mode-hint {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-xs);
+  color: var(--fg-dim);
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+}
+.picker-mode-hint .codicon { font-size: var(--text-sm); color: var(--accent); }
 
 /* 工具通用骨架 */
 .tool-body { flex: 1; display: flex; flex-direction: column; gap: var(--space-4); min-height: 0; }
@@ -4042,6 +4226,23 @@ button:focus-visible,
   overflow: hidden;
 }
 .tool-error { font-size: var(--text-sm); color: var(--danger); min-height: 16px; flex: none; }
+
+/* v1.1 工具专属（2026-09-30 批次） */
+/* 颜色工具：色卡（正方形预览，尺寸走 space token 组合；背景由 JS 按解析结果更新） */
+.color-swatch {
+  flex: none;
+  width: calc(var(--space-4) * 6);
+  height: calc(var(--space-4) * 6);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg); /* 未解析时的空态 */
+}
+/* 进制/颜色/字数等「标签 + 只读结果」行：结果框占满剩余宽度 */
+.radix-out, .color-out, .wc-out { flex: 1; min-width: 0; font-family: var(--mono); }
+.radix-input { flex: 1; min-width: calc(var(--space-4) * 10); font-family: var(--mono); }
+/* 密码工具：结果框占满（等宽字体对齐） */
+.pw-out { flex: 1; min-width: 0; font-family: var(--mono); }
+.pw-len { flex: none; width: calc(var(--space-4) * 5); }
 
 /* UI-08：按钮反馈（成功绿 / 失败红）与按压下沉已收敛到 .btn.flash-ok / .btn.flash-error /
    .btn:not(:disabled):active（见「通用按钮体系」）。原先这里用 `button.flash-ok { !important }`

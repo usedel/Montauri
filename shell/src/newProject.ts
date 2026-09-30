@@ -3,7 +3,7 @@
 // openWorkspace / openFile 经 wireNewProject 注入——避免与 main 循环依赖（terminal.ts 先例）。
 
 import { invoke } from "@tauri-apps/api/core";
-import { $, $btn, outputEl } from "./state";
+import { $, $btn, lazyEl, outputEl } from "./state";
 import { joinPath, parentDirOf, setBusy } from "./util";
 import { appendOutputLine } from "./output";
 import { gotoFromLink } from "./tracebackLink";
@@ -22,15 +22,17 @@ interface CreateProjectResult {
 }
 
 // ---------- 域内 DOM ----------
+// P2-6（2026-09-29 review）：顶层快照改惰性（铁律 1，测试环境可 import）。
 
-const newProjectModalEl = $("new-project-modal");
-const newProjectNameEl = $("new-project-name") as HTMLInputElement;
-const newProjectLocationEl = $("new-project-location") as HTMLInputElement;
-const newProjectGitEl = $("new-project-git") as HTMLInputElement;
-const newProjectEnvTypeEl = $("new-project-env-type") as HTMLSelectElement;
-const newProjectVersionEl = $("new-project-version") as HTMLSelectElement;
-const newProjectVersionRowEl = $("new-project-version-row");
-const newProjectPreviewEl = $("new-project-preview");
+const newProjectModalEl = lazyEl("new-project-modal");
+const newProjectNameEl = lazyEl<HTMLInputElement>("new-project-name");
+const newProjectLocationEl = lazyEl<HTMLInputElement>("new-project-location");
+const newProjectTypeEl = lazyEl<HTMLSelectElement>("new-project-type");
+const newProjectGitEl = lazyEl<HTMLInputElement>("new-project-git");
+const newProjectEnvTypeEl = lazyEl<HTMLSelectElement>("new-project-env-type");
+const newProjectVersionEl = lazyEl<HTMLSelectElement>("new-project-version");
+const newProjectVersionRowEl = lazyEl("new-project-version-row");
+const newProjectPreviewEl = lazyEl("new-project-preview");
 
 /** UI-05：模态焦点陷阱解除句柄，关闭时置 null */
 let releaseNewProjectFocus: (() => void) | null = null;
@@ -48,6 +50,29 @@ let openFileFn: ((path: string, revealLine?: number) => Promise<void>) | null = 
 
 // ---------- 面板 ----------
 
+/** F9：项目类型元数据（纯函数，可单测）。preview 文案与安装 spec 共用同一实现，防漂移。
+ *  未知值一律回退 script（与 Rust create_project 的回退口径一致）。 */
+export interface ProjectTypeMeta {
+  type: "script" | "fastapi";
+  /** 下拉/预览用的展示名 */
+  label: string;
+  /** 依赖声明（pyproject dependencies + uv add spec）；script 为空 */
+  deps: string[];
+}
+
+const PROJECT_TYPES: Record<"script" | "fastapi", { label: string; deps: string[] }> = {
+  script: { label: "Python 脚本", deps: [] },
+  fastapi: { label: "FastAPI 服务", deps: ["fastapi", "uvicorn"] },
+};
+
+export function projectTypeMeta(type: string): ProjectTypeMeta {
+  const hit = (PROJECT_TYPES as Record<string, { label: string; deps: string[] } | undefined>)[type];
+  if (hit && type !== "script") {
+    return { type: "fastapi", label: hit.label, deps: hit.deps.slice() };
+  }
+  return { type: "script", label: PROJECT_TYPES.script.label, deps: [] };
+}
+
 /** 拼接父目录 + 项目名（沿用 joinPath 的分隔符规则） */
 function projectTargetPath(): string {
   const parent = newProjectLocationEl.value.trim().replace(/[\\/]+$/, "");
@@ -56,16 +81,24 @@ function projectTargetPath(): string {
   return joinPath(parent, name);
 }
 
-/** 更新「将创建于」预览行 */
+/** 更新「将创建于」预览行（F9：非 script 类型追加入口 + 依赖说明） */
 function updateNewProjectPreview(): void {
   const target = projectTargetPath();
-  newProjectPreviewEl.textContent = target ? `将创建于：${target}` : "";
+  if (!target) {
+    newProjectPreviewEl.textContent = "";
+    return;
+  }
+  const meta = projectTypeMeta(newProjectTypeEl.value);
+  const suffix =
+    meta.type === "script" ? "" : `（${meta.label} 入口 main.py + ${meta.deps.join(" / ")} 依赖）`;
+  newProjectPreviewEl.textContent = `将创建于：${target}${suffix}`;
 }
 
 /** 打开新建项目面板（位置默认取最近工作区的父目录，便于就近创建） */
 export async function openNewProjectPanel(): Promise<void> {
   newProjectNameEl.value = "";
   newProjectEnvTypeEl.value = "venv";
+  newProjectTypeEl.value = "script"; // F9：类型复位（与 venv 复位同口径——不残留上次选择）
   if (!newProjectLocationEl.value.trim()) {
     let recents: string[] = [];
     try {
@@ -140,6 +173,7 @@ async function createProject(): Promise<void> {
   const wantGit = newProjectGitEl.checked;
   const envType = newProjectEnvTypeEl.value; // venv | system | none
   const version = newProjectVersionEl.value; // venv 时为版本 spec，其余为空
+  const meta = projectTypeMeta(newProjectTypeEl.value); // F9：项目类型
   const createBtn = $btn("new-project-create");
   setBusy(createBtn, true, "创建中…");
 
@@ -150,6 +184,7 @@ async function createProject(): Promise<void> {
       name,
       gitInit: wantGit,
       pythonVersion: version || null, // P2（建议 1）：所选版本写入 pyproject.toml 的 requires-python
+      projectType: meta.type, // F9：script / fastapi
     });
   } catch (e) {
     newProjectPreviewEl.textContent = `创建失败：${e}`;
@@ -197,6 +232,37 @@ async function createProject(): Promise<void> {
     toastFail("环境配置", e);
   }
 
+  // F9：依赖安装（best-effort，不阻断）——声明已由 create_project 写入 pyproject.toml，
+  // 这里走既有 pip_install（有 pyproject 自动 uv add + 流式输出 + cwd），幂等。
+  // 失败 = 操作结果 → toastFail（q3 裁决：用户视线多已在新工作区，仅输出面板 stderr 偏静默）；
+  // 成功不加 toast（流式输出 + 面板关闭即完成信号，与 script 路径的克制一致）。
+  if (meta.deps.length > 0) {
+    const spec = meta.deps.join(" ");
+    setBusy(createBtn, true, "安装依赖…");
+    appendOutputLine(outputEl, `> uv add ${spec}  (${result.path})`, "cmd", gotoFromLink, "env");
+    try {
+      const code = await invoke<number>("pip_install", {
+        workspaceRoot: result.path,
+        interpreter: null,
+        spec,
+      });
+      if (code !== 0) {
+        const msg = `依赖安装失败（exit ${code}），详见上方输出；声明已写入 pyproject.toml，可稍后运行项目由 uv 自动同步`;
+        appendOutputLine(outputEl, msg, "stderr", gotoFromLink, "env");
+        toastFail("依赖安装", `exit ${code}（声明已写入，不阻断）`);
+      }
+    } catch (e) {
+      appendOutputLine(
+        outputEl,
+        `依赖安装失败（声明已写入 pyproject.toml，不阻断）：${e}，可稍后运行项目由 uv 自动同步`,
+        "stderr",
+        gotoFromLink,
+        "env",
+      );
+      toastFail("依赖安装", e);
+    }
+  }
+
   closeNewProjectPanel();
   setBusy(createBtn, false);
   await refreshInterpreterStatus();
@@ -224,6 +290,7 @@ export function wireNewProject(deps: {
   });
   newProjectNameEl.addEventListener("input", updateNewProjectPreview);
   newProjectLocationEl.addEventListener("input", updateNewProjectPreview);
+  newProjectTypeEl.addEventListener("change", updateNewProjectPreview); // F9：切换类型刷新预览说明
   newProjectEnvTypeEl.addEventListener("change", updateNewProjectEnvFields);
   newProjectNameEl.addEventListener("keydown", (e) => {
     if (e.key === "Enter") createProject();

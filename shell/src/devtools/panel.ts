@@ -11,7 +11,6 @@ import { codicon } from "../util";
 import { fuzzyScore } from "../quickOpen"; // 复用 Search Everywhere 的模糊匹配
 import { getDevTool, listDevTools, onRegistryChanged } from "./registry";
 import { groupToolsByCategory, type DevTool, type ToolHost, type ToolInstance } from "./types";
-
 // CR-26：模块顶层禁止立即解析 DOM（测试环境 happy-dom 无完整 DOM，import 即炸）——一律 lazyEl
 const panelEl = lazyEl("right-panel");
 const bodyEl = lazyEl("devtools-body");
@@ -35,6 +34,8 @@ let activeToolId: string | null = null;
 /** 注册表变更期间的「最后激活」记忆：unregister→register 两轮通知间 activeToolId 会被清空，
  *  凭此在第二轮通知重挂热重载后的新定义（用户无感恢复） */
 let lastActiveId: string | null = null;
+/** inline 变换执行器（inlineMenu.ts 注入；panel 不反向依赖 extensions/inline 防环） */
+let inlineRunner: ((toolId: string) => void) | null = null;
 
 // ---------- recent ----------
 
@@ -82,20 +83,35 @@ function renderHeaderCurrent(): void {
 
 // ---------- picker ----------
 
-/** 渲染 picker 列表（搜索过滤 + 分组 + 最近使用置顶） */
+/** picker 当前模式（v1.1 §9.9 上下文感知）：normal = 全量工具；inline = 有选区时的变换模式 */
+let pickerMode: "normal" | "inline" = "normal";
+
+/** 渲染 picker 列表（搜索过滤 + 分组 + 最近使用置顶；inline 模式只列 inline 工具） */
 function renderPickerList(query: string): void {
   const listEl = $("devtools-picker-list");
   listEl.textContent = "";
   const q = query.trim();
 
   // 过滤：fuzzyScore 匹配 title + description + category；query 空 → 全量
-  const tools = listDevTools();
-  const matched = q
+  let tools = listDevTools();
+  if (pickerMode === "inline") tools = tools.filter((t) => t.inlineLabel !== null);
+  let matched = q
     ? tools.filter((t) => {
         const hay = `${t.title} ${t.description} ${t.category}`;
         return fuzzyScore(hay, q) !== null;
       })
     : tools;
+
+  // inline 模式搜索回退：搜索词把 inline 工具滤没了 → 回退全量工具（用户在找具体工具，
+  // 不再是「快速变换选区」意图；此时选中走面板模式打开而非执行变换）
+  let fallbackToNormal = false;
+  if (pickerMode === "inline" && q && matched.length === 0) {
+    matched = listDevTools().filter((t) => {
+      const hay = `${t.title} ${t.description} ${t.category}`;
+      return fuzzyScore(hay, q) !== null;
+    });
+    fallbackToNormal = matched.length > 0;
+  }
 
   if (matched.length === 0) {
     const empty = document.createElement("div");
@@ -103,6 +119,13 @@ function renderPickerList(query: string): void {
     empty.textContent = "无匹配工具";
     listEl.appendChild(empty);
     return;
+  }
+  if (fallbackToNormal) {
+    // 回退提示行（列表顶部）：告知当前显示的是全部工具（非仅变换工具）
+    const note = document.createElement("div");
+    note.className = "picker-empty";
+    note.textContent = "选区变换工具中无匹配，已显示全部工具";
+    listEl.appendChild(note);
   }
 
   const addGroup = (title: string, items: DevTool[]): void => {
@@ -140,7 +163,9 @@ function renderPickerItem(tool: DevTool): HTMLElement {
   main.className = "picker-item-main";
   const title = document.createElement("span");
   title.className = "picker-item-title";
-  title.textContent = tool.title;
+  // inline 模式：显示变换入口名（执行的就是它，面板模式下才显示工具标题）
+  const asInline = pickerMode === "inline" && tool.inlineLabel !== null;
+  title.textContent = asInline ? tool.inlineLabel! : tool.title;
   const desc = document.createElement("span");
   desc.className = "picker-item-desc";
   desc.textContent = tool.description;
@@ -150,17 +175,29 @@ function renderPickerItem(tool: DevTool): HTMLElement {
   cat.className = "picker-item-cat";
   cat.textContent = tool.category?.trim() || "其他";
   item.appendChild(cat);
+  // 行为在渲染时刻定死（dataset）：inline 直执行；normal/回退态开面板——避免点击时
+  // 读取模块级 pickerMode 与渲染态不一致（搜索回退后模式仍为 inline 但行为应为面板）
+  item.dataset.action = asInline ? "inline" : "panel";
   item.addEventListener("click", () => {
     hidePicker();
-    openDevTools(tool.id);
+    if (item.dataset.action === "inline") {
+      // 上下文感知（§9.9 v1.1）：有选区时选中项 = 直接执行选区变换，不开面板
+      inlineRunner?.(tool.id);
+    } else {
+      openDevTools(tool.id);
+    }
   });
   return item;
 }
 
-/** 打开 picker：重渲染列表 + 聚焦搜索框 */
+/** 打开 picker：重渲染列表 + 聚焦搜索框。
+ *  手动入口（header 点击 / Enter）：显式重置为 normal 模式——inline 模式只属于
+ *  Ctrl+Shift+T 的「有选区」瞬间，用户主动开选择器意味着要浏览全部工具。 */
 function showPicker(): void {
+  pickerMode = "normal";
   const search = $("devtools-picker-search") as HTMLInputElement;
   search.value = "";
+  updatePickerModeHint();
   renderPickerList("");
   pickerEl.classList.remove("hidden");
   search.focus();
@@ -274,19 +311,41 @@ function syncToolRoots(): void {
 
 // ---------- 面板开关 ----------
 
-/** PR-1 快捷键入口（Ctrl+Shift+T）：面板收起 → 展开并聚焦 picker；已展开 → 直接收起（toggle 语义） */
+/** PR-1 快捷键入口（Ctrl+Shift+T）：面板收起 → 展开并聚焦 picker；已展开 → 直接收起（toggle 语义）。
+ *  v1.1（§9.9 上下文感知）：编辑器**有选区**时 picker 进入 inline 模式——只列选区变换工具，
+ *  选中直接执行（不开面板、零上下文切换）；无选区保持全量。 */
 export function openDevToolsPanel(): void {
   if (!panelEl.classList.contains("hidden")) {
     closeDevTools();
     return;
   }
+  // 选区探测：host.getSelection 读取（devtools host 同源实现，无选区返回 null）
+  const hasSelection = host?.getSelectedText() != null;
+  pickerMode = hasSelection ? "inline" : "normal";
   openDevTools();
   // 面板展开后弹出 picker，让键盘流直接选工具（焦点进搜索框）
+  showPickerWithMode();
+}
+
+/** 按当前模式渲染 picker 并聚焦搜索框（含 inline 模式提示条） */
+function showPickerWithMode(): void {
   const search = $("devtools-picker-search") as HTMLInputElement;
   search.value = "";
+  updatePickerModeHint();
   renderPickerList("");
   pickerEl.classList.remove("hidden");
   search.focus();
+}
+
+/** inline 模式提示条：picker 头部显示「将变换选区」语义 + 退出方式（编辑器搜索框右侧） */
+function updatePickerModeHint(): void {
+  const hint = $("devtools-picker-mode-hint");
+  hint.classList.toggle("hidden", pickerMode !== "inline");
+}
+
+/** 注入 inline 变换执行器（inlineMenu.ts 接线；inline 模式 picker 选中项直接执行） */
+export function setInlineRunner(run: (toolId: string) => void): void {
+  inlineRunner = run;
 }
 
 /** 展开右侧面板并激活工具（未指定则取 recent 首个或第一个）；面板展开后不抢编辑器焦点 */

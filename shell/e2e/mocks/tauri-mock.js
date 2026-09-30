@@ -47,7 +47,7 @@
 
   var FS_CMDS = ["list_dir", "read_dir", "read_file", "read_file_base64", "write_file", "create_dir",
     "create_file", "create_py_package",
-    "rename_path", "paste_path", "delete_file", "watch_start", "watch_stop"];
+    "rename_path", "paste_path", "delete_file", "watch_start", "watch_stop", "create_project"];
 
   function bridge() {
     return window.__E2E_BRIDGE__;
@@ -105,6 +105,9 @@
     get_bookmarks: function () { return []; },
     run_config_list: function () { return []; },
     list_python_versions: function () { return []; },
+    // F9：新建 FastAPI 项目的依赖安装（uv add）——mock 返回 exit 0（成功路径；
+    // 输出无真实 uv 流，pip-stdout 事件不发也不影响：前端只回显 cmd 行 + busy 复位）
+    pip_install: function () { return 0; },
     // PR-2 插件域（plugin_cmds.rs）：watch/reveal 静态即可；list/read/scaffold/get_plugins_dir 走 plugins bridge
     watch_plugins_dir: function () { return null; },
     unwatch_plugins_dir: function () { return null; },
@@ -609,12 +612,17 @@
     };
   }
 
-  /** 重命名：全部已镜像文档中该词的所有出现 → WorkspaceEdit.changes */
+  /** 重命名：全部已镜像文档中该词的所有出现 → WorkspaceEdit.changes。
+   *  window.__E2E_RENAME_SCOPE__ = "single" 时只改当前文件——复刻真实 pyrefly 对
+   *  Pydantic 字段的缺陷行为（F0 实测 references=0 / rename 只改声明处），供阶段 4
+   *  「改名传播补充」验收：补充路径把跨文件调用点找回来。 */
   function lspRename(uri, pos, newName) {
     var w = lspWordAt(uri, pos);
     if (!w) return { changes: {} };
+    var single = window.__E2E_RENAME_SCOPE__ === "single";
     var changes = {};
     lspDocs.forEach(function (doc, docUri) {
+      if (single && docUri !== uri) return;
       var edits = [];
       for (var i = 0; i < doc.lines.length; i++) {
         var re = new RegExp("\\b" + w.word + "\\b", "g");
@@ -793,7 +801,8 @@
     if (cmd === "lsp_send_response" || cmd === "lsp_start" || cmd === "lsp_stop") return null;
     // 4.65) 框架探针表 / Pydantic 引擎推荐 / 端点扫描（形状对齐 env_cmds.rs / fs_cmds.rs）
     if (cmd === "detect_framework" || cmd === "set_framework_hint_disabled" || cmd === "detect_pydantic_stack" ||
-        cmd === "scan_endpoints" || cmd === "get_project_run" || cmd === "set_project_run") {
+        cmd === "scan_endpoints" || cmd === "scan_pydantic_issues" || cmd === "scan_pydantic_ctor_refs" ||
+        cmd === "get_project_run" || cmd === "set_project_run") {
       var fw = FW_STATE();
       if (cmd === "detect_framework") {
         // 优先级同 Rust：django（manage.py 强约定）→ fastapi → flask；hints 内为 true 的框架跳过
@@ -816,6 +825,19 @@
       }
       if (cmd === "detect_pydantic_stack") return !!fw.pydanticStack && !fw.hints.pydantic_engine;
       if (cmd === "scan_endpoints") return JSON.parse(JSON.stringify(fw.endpoints));
+      // 阶段 4：Pydantic 构造校验 / rename 传播补充（形状对齐 fs_cmds.rs；测试经
+      // window.__E2E_PYDANTIC_PRESET__ 预置 { issues, ctorRefs }；未预置返回空）
+      if (cmd === "scan_pydantic_issues") {
+        var pd = window.__E2E_PYDANTIC_PRESET__ || {};
+        return Array.isArray(pd.issues) ? JSON.parse(JSON.stringify(pd.issues)) : [];
+      }
+      if (cmd === "scan_pydantic_ctor_refs") {
+        var pd2 = window.__E2E_PYDANTIC_PRESET__ || {};
+        var refs = Array.isArray(pd2.ctorRefs) ? pd2.ctorRefs : [];
+        // 与 Rust 同语义：按 (model, field) 过滤（预置面给全量，mock 侧筛选）
+        var wantModel = String(args.model ?? ""), wantField = String(args.field ?? "");
+        return refs.filter(function (r) { return (!wantModel || r.model === wantModel) && (!wantField || r.field === wantField); });
+      }
       if (cmd === "get_project_run") return window.__E2E_PROJECT_RUN__ || null;
       if (cmd === "set_project_run") { window.__E2E_PROJECT_RUN__ = args.config || null; return null; }
     }
@@ -853,6 +875,8 @@
       if (pb) return await pb("plugins", cmd, args);
       return cmd === "list_plugin_dirs" ? [] : cmd === "get_plugins_dir" ? "" : null;
     }
+    // 5.7b) 插件日志落盘（v1.1 §9.14）：E2E 无数据根，成功空响应即可（前端 fire-and-forget 容错）
+    if (cmd === "append_plugin_log") return null;
     // 5.6) 已知数组型命令兜底 []（防前端 for...of "list is not iterable"）
     if (ARRAY_CMDS.indexOf(cmd) >= 0) return [];
     // 6) 未覆盖命令：静默 null（应用多已 .catch 容错）+ 控制台留痕便于排查

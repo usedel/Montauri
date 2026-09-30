@@ -900,8 +900,9 @@ async function handleRenameLinks(oldPath: string, newPath: string): Promise<void
     lsp.markModelPath(t.model, newTabPath);
     lsp.didOpen(newTabPath, t.model); // 以新路径重开（内容不变）
     if (app.pendingChanges.has(oldTabPath)) {
+      const ch = app.pendingChanges.get(oldTabPath) ?? [];
       app.pendingChanges.delete(oldTabPath);
-      app.pendingChanges.add(newTabPath);
+      app.pendingChanges.set(newTabPath, ch);
     }
     if (app.activeTab === t) statusFileEl.textContent = newTabPath;
   }

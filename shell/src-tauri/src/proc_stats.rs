@@ -52,10 +52,10 @@ fn to_info(pid: Pid, name: String, mem_bytes: u64, cpu: f32) -> ProcInfo {
     }
 }
 
-/// 当前外壳与子进程的资源快照
-#[tauri::command]
-pub fn proc_stats() -> Result<ProcStats, String> {
-    let mut guard = SYS.lock().map_err(|e| e.to_string())?;
+fn proc_stats_impl() -> Result<ProcStats, String> {
+    // P2-9（2026-09-29 review，铁律 3）：poisoned 锁走 unpoison 恢复——一次持锁 panic
+    // 不该让本命令永久失败（sysinfo 刷新失败后还能重建）。
+    let mut guard = crate::util::unpoison(SYS.lock());
     let sys = guard.get_or_insert_with(System::new);
     // (ProcessesToUpdate::All, true)：全量刷新并移除已退出进程（防止 children 里残留死 PID）
     sys.refresh_processes(ProcessesToUpdate::All, true);
@@ -82,6 +82,17 @@ pub fn proc_stats() -> Result<ProcStats, String> {
     Ok(ProcStats { shell, children, total_mb: (total_mb * 10.0).round() / 10.0 })
 }
 
+/// 当前外壳与子进程的资源快照
+/// P1-5（2026-09-29 review，铁律 5）：refresh_processes(All) 全系统进程枚举可耗时数百
+/// 毫秒，前端按固定间隔调用（面板 2s / 芯片 30s）——同步命令会在主线程周期性卡顿。
+/// 改 async + spawn_blocking（与同文件 storage_usage 等重 IO 命令同纪律）。
+#[tauri::command]
+pub async fn proc_stats() -> Result<ProcStats, String> {
+    tauri::async_runtime::spawn_blocking(proc_stats_impl)
+        .await
+        .map_err(|e| format!("任务执行异常：{e}"))?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -96,7 +107,7 @@ mod tests {
     #[test]
     fn proc_stats_runs_and_contains_self() {
         // 真实调用一次：至少能看到外壳自身，且 total ≥ shell
-        let st = proc_stats().expect("proc_stats 应成功");
+        let st = proc_stats_impl().expect("proc_stats 应成功");
         assert!(st.shell.pid > 0);
         assert!(st.total_mb + 0.01 >= st.shell.rss_mb);
     }

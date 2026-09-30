@@ -1,7 +1,7 @@
 {
   "engine": "basedpyright",
-  "generatedAt": "2026-09-26T06:04:31.849Z",
-  "venvPython": "d:\\aipro\\opencharm\\bench\\sample\\pydantic_models\\.venv\\Scripts\\python.exe",
+  "generatedAt": "2026-09-28T08:30:01.114Z",
+  "venvPython": "F:\\ai-pro\\opencharm\\bench\\sample\\pydantic_models\\.venv\\Scripts\\python.exe",
   "diagReady": true,
   "diagnostics": {
     "models.py": [],
@@ -93,7 +93,7 @@
     ]
   },
   "completion": {
-    "total": 127,
+    "total": 140,
     "labels": [
       "name=",
       "__name__",
@@ -126,7 +126,6 @@
       "no_type_check_decorator",
       "NamedTuple",
       "NamedTuple",
-      "NoDefault",
       "NoDefault",
       "NoExtraItems",
       "NAMED_FLAGS",
@@ -186,6 +185,9 @@
       "NullHandler",
       "NoSuchMailboxError",
       "NetrcParseError",
+      "NNTPTemporaryError",
+      "NNTPPermanentError",
+      "NNTPDataError",
       "normcase",
       "normcase",
       "normpath",
@@ -212,6 +214,17 @@
       "_NamedIntConstant",
       "NormalDist",
       "NannyNag",
+      "NAMS",
+      "NAOL",
+      "NAOP",
+      "NAOCRD",
+      "NAOHTS",
+      "NAOHTD",
+      "NAOFFD",
+      "NAOVTS",
+      "NAOVTD",
+      "NAOLFD",
+      "NAWS",
       "NamedTemporaryFile",
       "NORMAL",
       "NORMAL",
@@ -230,13 +243,13 @@
       "label": "name=",
       "kind": 6,
       "data": {
-        "uri": "file:///d%3A/aipro/opencharm/bench/sample/pydantic_models/complete.py",
+        "uri": "file:///f%3A/ai-pro/opencharm/bench/sample/pydantic_models/complete.py",
         "position": {
           "line": 3,
           "character": 17
         }
       },
-      "sortText": "06.9999.name",
+      "sortText": "05.9999.name",
       "filterText": "name"
     }
   },

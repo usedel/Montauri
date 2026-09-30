@@ -25,6 +25,8 @@ playwright-report/
 test-results/
 .playwright-artifacts-*/
 old-tr-*/
+# 真机 CDP 脚本运行时日志（e2e-real/*.cjs 落盘的 tauri dev 输出）
+shell/e2e-real/.tauri-dev*.log
 
 # Zed / IDE
 .DS_Store

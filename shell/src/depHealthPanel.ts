@@ -360,10 +360,19 @@ function groupMeta(edge: EdgeId, diff: DepDiff): GroupMeta {
   }
 }
 
+// ---------- 三视图 ----------
+
 function renderEdgeView(diff: DepDiff | null): void {
   contentEl.textContent = "";
   if (!diff) {
-    contentEl.appendChild(hintEl(NOT_READY_HINT));
+    // S4 空态教学（onboarding plan §3.4 缺口 2）：区分「尚未体检」与「没有可体检的声明文件」——
+    // bare 工作区（无 pyproject / requirements）体检结果天然为空，此时教用户「这面板属于谁」。
+    const style = latestStyleInfo()?.style;
+    contentEl.appendChild(hintEl(
+      style === "bare"
+        ? "当前工作区没有 pyproject.toml / requirements.txt——打开含依赖声明的项目后自动体检"
+        : NOT_READY_HINT,
+    ));
     return;
   }
   for (const edge of ["e1", "e2", "e3", "e4", "e5"] as EdgeId[]) {
@@ -576,7 +585,13 @@ interface FileItem { line: number; module: string; label: string; dist: string |
 function renderFileView(diff: DepDiff | null): void {
   contentEl.textContent = "";
   if (!diff) {
-    contentEl.appendChild(hintEl(NOT_READY_HINT));
+    // S4 空态教学：与按断边视图同口径（bare 工作区 vs 尚未体检）
+    const style = latestStyleInfo()?.style;
+    contentEl.appendChild(hintEl(
+      style === "bare"
+        ? "当前工作区没有 pyproject.toml / requirements.txt——打开含依赖声明的项目后自动体检"
+        : NOT_READY_HINT,
+    ));
     return;
   }
   const byFile = new Map<string, FileItem[]>();

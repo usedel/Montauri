@@ -273,6 +273,8 @@
           </div>
           <div id="editor-overlay">
             <div id="ew-get-started" class="ew-card">
+              <!-- PR-S2c：force-show 态的右上角关闭按钮（仅 force 态显示，显隐由 updateEditorOverlay 同步） -->
+              <button id="ew-force-close" class="ew-force-close hidden" data-tip="关闭欢迎页" aria-label="关闭欢迎页"><i class="codicon codicon-close" aria-hidden="true"></i></button>
               <div class="ew-brand">
                 <!-- D4 品牌触点：渐变底 + 白色 Charm Snake 品牌标 -->
                 <div class="ew-logo"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M6 19C6 15 17 16.5 17 12.5C17 8.5 8 9.5 8 5.8" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><path fill="currentColor" fill-rule="evenodd" d="M10.2 4.9a2.3 2.3 0 1 0-4.6 0a2.3 2.3 0 1 0 4.6 0ZM8 4.3a.7.7 0 1 0-1.4 0a.7.7 0 1 0 1.4 0Z"/><path fill="currentColor" d="M17.5 1.9Q17.5 4.6 20.2 4.6Q17.5 4.6 17.5 7.3Q17.5 4.6 14.8 4.6Q17.5 4.6 17.5 1.9Z"/></svg></div>
@@ -285,6 +287,24 @@
               <div id="ew-actions" class="ew-actions">
                 <button id="ew-open-folder" class="btn btn--lg btn--primary"><span class="icon"><i class="codicon codicon-folder-opened" aria-hidden="true"></i></span>打开文件夹</button>
                 <button id="ew-new-project" class="btn btn--lg"><span class="icon"><i class="codicon codicon-add" aria-hidden="true"></i></span>新建项目</button>
+              </div>
+
+              <!-- PR-S2：快速开始三步卡 + 功能巡礼（onboarding dev plan §3.2）。
+                   显隐与 #ew-actions 同口径（updateEditorOverlay）：无工作区全量、有工作区隐藏。 -->
+              <div id="ew-quickstart" class="ew-section hidden">
+                <div class="ew-section-title">快速开始</div>
+                <div id="ew-quickstart-steps" class="ew-quickstart-steps"></div>
+                <a id="ew-guide-link" class="ew-guide-link" role="button" tabindex="0">查看完整指南 →</a>
+              </div>
+
+              <div id="ew-tour-section" class="ew-section hidden">
+                <div id="ew-tour-header" class="ew-section-title ew-tour-title">
+                  探索功能
+                  <span id="ew-tour-count" class="ew-tour-count"></span>
+                  <i class="codicon codicon-chevron-down ew-tour-arrow" aria-hidden="true"></i>
+                </div>
+                <div id="ew-tour-body" class="ew-tour-body"></div>
+                <div id="ew-tour-foot" class="ew-tour-foot"></div>
               </div>
 
               <div id="ew-recent-section" class="ew-section hidden">
@@ -314,8 +334,10 @@
             <span class="spacer"></span>
             <button id="devtools-close" class="btn btn--ghost btn--icon" data-tip="收起面板" aria-label="收起面板"><i class="codicon codicon-close" aria-hidden="true"></i></button>
           </div>
-          <!-- 工具选择器浮层：搜索 + 分组列表（最近使用置顶） -->
+          <!-- 工具选择器浮层：搜索 + 分组列表（最近使用置顶）。
+               模式提示条（v1.1）：有选区时 Ctrl+Shift+T 进入 inline 模式——只列选区变换工具，选中直接执行 -->
           <div id="devtools-picker" class="hidden">
+            <div id="devtools-picker-mode-hint" class="picker-mode-hint hidden"><i class="codicon codicon-selection" aria-hidden="true"></i>选区变换模式 — 选中即变换当前选区；清空选区后重新打开恢复全工具</div>
             <input id="devtools-picker-search" type="text" placeholder="搜索工具…" autocomplete="off" spellcheck="false" aria-label="搜索工具">
             <div id="devtools-picker-list" role="listbox" aria-label="工具列表"></div>
           </div>
@@ -332,6 +354,7 @@
             <button id="tab-terminal" class="bottom-tab" role="tab" aria-selected="false" aria-controls="terminal-panel">终端</button>
             <button id="tab-git-detail" class="bottom-tab" role="tab" aria-selected="false" aria-controls="git-detail-panel">Git</button>
             <button id="tab-find-usages" class="bottom-tab" role="tab" aria-selected="false" aria-controls="find-usages-panel">引用</button>
+            <button id="tab-problems" class="bottom-tab" role="tab" aria-selected="false" aria-controls="problems-panel">问题</button>
           </div>
           <span class="spacer"></span>
           <!-- P2：输出面板 channel 过滤（调试 / 环境 / Git）——仅输出 tab 下显示（termUi 同步显隐）。
@@ -377,6 +400,9 @@
           <div id="git-detail-view"></div>
         </div>
         <div id="find-usages-panel" class="hidden" role="tabpanel" aria-labelledby="tab-find-usages"></div>
+        <!-- 问题面板（对标 PyCharm Problems）：按文件分组的诊断列表，点击条目跳转定位。
+             空态/列表由 problemsPanel.ts 渲染；数据源 = 全 owner 桶 marker（与 F8 导航同口径）。 -->
+        <div id="problems-panel" class="hidden" role="tabpanel" aria-labelledby="tab-problems"></div>
         <div id="terminal-panel" class="hidden" role="tabpanel" aria-labelledby="tab-terminal">
           <!-- UI-16：终端会话 tabs（tab 由 termUi.ts 渲染）；每个 .terminal-view 是 tabpanel -->
           <div id="terminal-tabs" role="tablist" aria-label="终端会话"></div>
@@ -402,6 +428,9 @@
         <span id="status-mem" class="hidden" data-tip="资源占用（外壳 + 子进程）· 点击查看明细" style="cursor:pointer" role="button" aria-haspopup="dialog" aria-expanded="false" tabindex="0"></span>
         <span id="status-engine" data-tip="点击切换静态语义引擎" style="cursor:pointer" role="button" aria-haspopup="menu" aria-expanded="false" tabindex="0"></span>
         <span id="status-lsp"></span>
+        <!-- 问题计数芯片（problemsPanel.ts 驱动）：当前文件 错误/警告 计数；有错红色警示态；
+             点击打开问题面板。role=button + tabindex + Enter/Space 激活（可读屏可键盘操作） -->
+        <span id="status-problems" class="hidden" style="cursor:pointer" role="button" tabindex="0" aria-haspopup="true" aria-expanded="false"></span>
       </footer>
     </div>
     <!-- 树右键菜单（自绘 div，非原生 contextmenu）。UI-30：三个弹出菜单容器均声明 role=menu，
@@ -565,6 +594,14 @@
             <label for="new-project-location">位置</label>
             <input id="new-project-location" type="text" autocomplete="off" placeholder="F:\path\to\parent" spellcheck="false" />
             <button id="new-project-browse" class="btn">浏览…</button>
+          </div>
+          <!-- F9：项目类型（script 默认 / fastapi 生成 FastAPI 模板 + 依赖注入） -->
+          <div class="settings-row">
+            <label for="new-project-type">项目类型</label>
+            <select id="new-project-type">
+              <option value="script">Python 脚本</option>
+              <option value="fastapi">FastAPI 服务</option>
+            </select>
           </div>
           <div class="settings-row">
             <label for="new-project-git">初始化 Git 仓库</label>
@@ -865,6 +902,11 @@
               <div class="settings-row">
                 <label for="settings-log-level-colors">输出面板日志级别着色</label>
                 <input id="settings-log-level-colors" type="checkbox" />
+              </div>
+              <!-- 阶段 4：Pydantic 构造校验诊断（opencharm-pydantic 第四桶） -->
+              <div class="settings-row">
+                <label for="settings-pydantic-diagnostics">Pydantic 构造校验（类型 / 必填红线）</label>
+                <input id="settings-pydantic-diagnostics" type="checkbox" autocomplete="off" />
               </div>
             </div>
             <div id="settings-section-keybindings" class="settings-section hidden" role="tabpanel">

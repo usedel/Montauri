@@ -68,8 +68,22 @@ pub fn read_file(path: &str) -> Result<String, String> {
 
 /// 读取文件字节并 base64 编码（Markdown 导出 HTML 时把本地图片内联为 data URI）。
 /// 图片是二进制，read_file 的 read_to_string 对非 UTF-8 会失败，故单独走字节读取。
+/// P1-6（2026-09-29 review）：补大小守卫（同 read_file 范式）——此前无上限，任意大
+/// 文件整读 + base64（×1.33）会撑爆内存并长时间冻结主线程；设计用途是图片内联，
+/// 32 MB 足够（超出常见 RAW/视频不在导出场景）。
 #[tauri::command]
 pub fn read_file_base64(path: &str) -> Result<String, String> {
+    const MAX_READ_BYTES: u64 = 32 * 1024 * 1024;
+    let meta = fs::metadata(path).map_err(|e| e.to_string())?;
+    if meta.is_dir() {
+        return Err(format!("路径是目录而非文件：{}", path));
+    }
+    if meta.len() > MAX_READ_BYTES {
+        return Err(format!(
+            "文件过大（{:.1} MB），超过 32 MB 上限，无法内联为 data URI",
+            meta.len() as f64 / 1048576.0
+        ));
+    }
     let bytes = fs::read(path).map_err(|e| e.to_string())?;
     use base64::Engine;
     Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
@@ -287,12 +301,19 @@ fn python_short_from(version: &str) -> Option<String> {
     None
 }
 
-/// 写入最小 pyproject.toml（方案 B，回退路径）：仅 [project] 元数据 + 空依赖，
+/// 写入最小 pyproject.toml（方案 B，回退路径）：仅 [project] 元数据 + 依赖列表，
 /// 任何工具链都认、不含 IDE 私有配置。供 create_project 与 env_cmds::init_pyproject 共用。
-pub(crate) fn write_min_pyproject(root: &Path, name: &str, requires_python: &str) -> std::io::Result<()> {
+/// deps 非空时写入 dependencies（F9 新建 FastAPI 项目：fastapi / uvicorn）。
+pub(crate) fn write_min_pyproject(root: &Path, name: &str, requires_python: &str, deps: &[&str]) -> std::io::Result<()> {
     let pkg = sanitize_pkg_name(name);
+    let deps_line = if deps.is_empty() {
+        "dependencies = []".to_string()
+    } else {
+        let items: Vec<String> = deps.iter().map(|d| format!("\"{d}\"")).collect();
+        format!("dependencies = [{}]", items.join(", "))
+    };
     let content = format!(
-        "[project]\nname = \"{pkg}\"\nversion = \"0.1.0\"\nrequires-python = \"{requires_python}\"\ndependencies = []\n"
+        "[project]\nname = \"{pkg}\"\nversion = \"0.1.0\"\nrequires-python = \"{requires_python}\"\n{deps_line}\n"
     );
     fs::write(root.join("pyproject.toml"), content)
 }
@@ -337,6 +358,58 @@ fn normalize_project_name(root: &Path, expected: &str) -> std::io::Result<()> {
     Ok(())
 }
 
+/// F9（方案 A 路径依赖注入）：`uv init --bare` 生成的 pyproject.toml（实测 uv 0.10.11 产物
+/// 为 `[project]` 段 + `dependencies = []` 单行）里写入指定依赖。行扫描实现（复刻
+/// `normalize_project_name` 先例，不引 TOML 依赖）：
+/// - `[project]` 段内已有 `dependencies = [...]` 行 → 原样跳过（幂等，uv 未来产物变化天然兼容）；
+/// - 只有空 `dependencies = []` 行 → 替换为 `dependencies = ["fastapi", "uvicorn"]`；
+/// - 无 dependencies 键 → 在 `[project]` 段末尾（下一个 `[` 段之前）插行；
+/// - 无 `[project]` 段或 IO 失败 → 静默不写（调用方 best-effort，不阻断创建）。
+fn inject_project_deps(root: &Path, deps: &[&str]) -> std::io::Result<()> {
+    if deps.is_empty() {
+        return Ok(());
+    }
+    let path = root.join("pyproject.toml");
+    let content = fs::read_to_string(&path)?;
+    let items: Vec<String> = deps.iter().map(|d| format!("\"{d}\"")).collect();
+    let deps_line = format!("dependencies = [{}]", items.join(", "));
+    let mut out: Vec<String> = Vec::with_capacity(content.lines().count() + 1);
+    let mut in_project = false;
+    let mut written = false;
+    for line in content.lines() {
+        let t = line.trim();
+        if t.starts_with('[') && t.ends_with(']') {
+            // 离开 [project] 段且尚未写入 → 在段末插入（本行之前）
+            if in_project && !written {
+                out.push(deps_line.clone());
+                written = true;
+            }
+            in_project = t == "[project]";
+            out.push(line.to_string());
+            continue;
+        }
+        if in_project && t.starts_with("dependencies") && t.contains('=') {
+            // 已有 dependencies 键：空数组（uv init --bare 产物主路径）→ 替换为目标依赖；
+            // 非空（防御分支，全新目录理论上不出现）→ 原样保留，不覆盖已有内容（uv add 兜底同步）。
+            if !written {
+                let val = t.split_once('=').map(|(_, v)| v.trim()).unwrap_or("");
+                out.push(if val == "[]" { deps_line.clone() } else { line.to_string() });
+                written = true;
+            }
+            continue;
+        }
+        out.push(line.to_string());
+    }
+    if in_project && !written {
+        out.push(deps_line.clone());
+    }
+    let mut new_content = out.join("\n");
+    if content.ends_with('\n') && !new_content.ends_with('\n') {
+        new_content.push('\n');
+    }
+    fs::write(&path, new_content)
+}
+
 /// 方案 A：用 uv 官方脚手架生成 pyproject.toml。
 /// `uv init --bare` 只写 pyproject.toml——实测 uv 0.10.11 在非空目录下不生成 main.py/README/.gitignore，
 /// 也不触碰既有文件，因此与 create_project 的 main.py/.gitignore 写入无双写冲突（调研报告 §5 建议 1 的顾虑）。
@@ -374,22 +447,31 @@ fn uv_init_bare(root: &Path, python_arg: Option<&str>) -> Result<(), String> {
 /// 生成 pyproject.toml：方案 A（`uv init --bare`）为主，uv 缺席/失败时回退方案 B（最小模板），
 /// 保证「创建永不因 uv 缺席而失败」（调研报告 §9 回退约定）。
 /// fallback_requires 为回退模板写入的 requires-python。返回 (是否由 uv 生成, 面向用户的说明)。
+/// deps：额外写入 dependencies 的依赖（F9 新建 FastAPI 项目用；两条路径都要注入）。
 pub(crate) fn ensure_pyproject(
     root: &Path,
     name: &str,
     python_arg: Option<String>,
     fallback_requires: &str,
+    deps: &[&str],
 ) -> (bool, String) {
+    let deps_note = if deps.is_empty() {
+        String::new()
+    } else {
+        format!("，并写入 {} 依赖", deps.join(" / "))
+    };
     match uv_init_bare(root, python_arg.as_deref()) {
         Ok(()) => {
             // tech-debt #12：改写 name 使与方案 B 口径一致（失败静默，不阻断生成）
             let _ = normalize_project_name(root, name);
-            (true, "已用 uv init --bare 生成 pyproject.toml".to_string())
+            // F9：方案 A 产物里注入依赖（失败静默——uv add 安装时兜底同步，闭环不破）
+            let _ = inject_project_deps(root, deps);
+            (true, format!("已用 uv init --bare 生成 pyproject.toml{deps_note}"))
         }
-        Err(e) => match write_min_pyproject(root, name, fallback_requires) {
+        Err(e) => match write_min_pyproject(root, name, fallback_requires, deps) {
             Ok(()) => (
                 false,
-                format!("uv 不可用（{e}），已写入最小 pyproject.toml 模板（requires-python = \"{fallback_requires}\"）"),
+                format!("uv 不可用（{e}），已写入最小 pyproject.toml 模板（requires-python = \"{fallback_requires}\"{deps_note}）"),
             ),
             Err(we) => (false, format!("生成 pyproject.toml 失败：{we}")),
         },
@@ -399,6 +481,8 @@ pub(crate) fn ensure_pyproject(
 /// 新建项目：parent_dir/name 下创建 main.py 入口 + 最小 pyproject.toml；git_init 时附 .gitignore 并初始化仓库。
 /// .venv 创建复用既有 create_venv 命令（前端在打开工作区后调用，输出流式可见）。
 /// python_version：创建向导所选版本（uv spec 或版本号，可空），用于 pyproject 的 requires-python。
+/// project_type：项目类型（F9）——"fastapi" 生成 FastAPI 模板 main.py 并把 fastapi/uvicorn
+/// 写入 pyproject dependencies；None / 空 / "script" 为默认脚本模板（旧调用零感知）。
 /// async + spawn_blocking：git init 子进程可能耗时，同步 command 会卡死主线程 UI。
 #[tauri::command]
 pub async fn create_project(
@@ -406,17 +490,30 @@ pub async fn create_project(
     name: String,
     git_init: bool,
     python_version: Option<String>,
+    project_type: Option<String>,
 ) -> Result<CreateProjectResult, String> {
-    tauri::async_runtime::spawn_blocking(move || create_project_impl(parent_dir, name, git_init, python_version))
-        .await
-        .map_err(|e| format!("任务执行异常：{e}"))?
+    tauri::async_runtime::spawn_blocking(move || {
+        create_project_impl(parent_dir, name, git_init, python_version, project_type)
+    })
+    .await
+    .map_err(|e| format!("任务执行异常：{e}"))?
 }
+
+/// F9：FastAPI 模板 main.py。设计依据（调研报告 §8.3.1）：
+/// - `app = FastAPI(` 命中 detect_framework 探针的 scan_app_decl；
+/// - 两条路由让端点视图开箱有内容（`{item_id}` 顺带演示路径参数）；
+/// - 注解驱动契合静态引擎；`str | None` 需 3.10+（默认 requires-python >= 3.12 已满足）。
+const FASTAPI_MAIN_PY: &str = "from fastapi import FastAPI\n\napp = FastAPI()\n\n\n@app.get(\"/\")\ndef root() -> str:\n    return \"Hello from OpenCharm FastAPI!\"\n\n\n@app.get(\"/items/{item_id}\")\ndef read_item(item_id: int, q: str | None = None) -> dict:\n    return {\"item_id\": item_id, \"q\": q}\n";
+
+/// F9：FastAPI 项目的 pyproject dependencies（uvicorn 为 uv add 的服务依赖）。
+const FASTAPI_PROJECT_DEPS: &[&str] = &["fastapi", "uvicorn"];
 
 fn create_project_impl(
     parent_dir: String,
     name: String,
     git_init: bool,
     python_version: Option<String>,
+    project_type: Option<String>,
 ) -> Result<CreateProjectResult, String> {
     if !valid_project_name(&name) {
         return Err(format!("项目名称非法：{name:?}（不能为空，不能包含 \\ / : * ? \" < > | 等字符）"));
@@ -431,7 +528,13 @@ fn create_project_impl(
     }
     fs::create_dir_all(&root).map_err(|e| e.to_string())?;
 
-    let main_py = "def main() -> None:\n    print(\"Hello from OpenCharm!\")\n\n\nif __name__ == \"__main__\":\n    main()\n";
+    // F9：按项目类型切换 main.py 模板（fastapi / 默认脚本）
+    let is_fastapi = project_type.as_deref() == Some("fastapi");
+    let main_py = if is_fastapi {
+        FASTAPI_MAIN_PY
+    } else {
+        "def main() -> None:\n    print(\"Hello from OpenCharm!\")\n\n\nif __name__ == \"__main__\":\n    main()\n"
+    };
     fs::write(root.join("main.py"), main_py).map_err(|e| e.to_string())?;
 
     // P2（建议 1）：默认生成 pyproject.toml，让 uv run / 依赖管理语义明确（对应痛点①）。
@@ -441,7 +544,8 @@ fn create_project_impl(
     let python_arg = python_short_from(python_version.as_deref().unwrap_or(""))
         .unwrap_or_else(|| "3.12".to_string());
     let requires_python = format!(">={python_arg}");
-    let (_used_uv, pyproject_note) = ensure_pyproject(&root, &name, Some(python_arg), &requires_python);
+    let deps: &[&str] = if is_fastapi { FASTAPI_PROJECT_DEPS } else { &[] };
+    let (_used_uv, pyproject_note) = ensure_pyproject(&root, &name, Some(python_arg), &requires_python, deps);
 
     let mut git_ok = true;
     let mut git_message = String::new();
@@ -1665,6 +1769,663 @@ fn scan_endpoints_impl(root: &str) -> Result<Vec<EndpointInfo>, String> {
     Ok(out)
 }
 
+// ---------- Pydantic 构造校验与改名传播（阶段 4：诊断第四桶 + rename 补充） ----------
+//
+// docs/pyrefly_pydantic_support_plan.md §3.4：pyrefly 缺 Pydantic 构造校验与字段改名传播
+// （F0 实测 references=0，rename 只改声明处），这里用轻量文本解析补齐，纪律与 scan_endpoints
+// 完全一致：纯文本逐行解析、零子进程、零正则依赖、拉取式（前端显式 invoke）、无守护无索引
+// ——架构裁决 §3.4.0 四条全部满足（≤500 行、无守护、无持久索引、被动响应）。
+//
+// 判定语义（v2 红线，全部「识别到即跳过」——宁可漏报不误报）：
+// - alias 字段（Field(alias=...)）跳过校验（basedpyright 都在此误报）；
+// - Optional[...] 无默认值在 Pydantic v2 是必填——按 v2 语义处理（不做 v1 兼容）；
+// - `**kwargs` 展开传参的调用点整行跳过；位置参数传字段（User(1, "a")）跳过；
+// - 跨文件继承链不合并（模型解析按单文件）；
+// - 类型检查只做字面量名义等价（"str" vs int / 1 vs str）；复杂表达式静默跳过。
+
+/// 解析出的 Pydantic 字段（单文件内）
+#[derive(Debug, Clone, PartialEq)]
+struct PydField {
+    name: String,
+    /// 类型标注文本（如 "int" / "Optional[str]"）；用于字面量名义比对
+    type_text: Option<String>,
+    /// 是否必填（无默认值）
+    required: bool,
+    /// Field(alias="...") 的别名（构造处可用别名传参）；has_alias 时校验按别名放行
+    alias: Option<String>,
+}
+
+/// 解析出的 Pydantic 模型（BaseModel 子类，含同文件继承合并后的字段）
+#[derive(Debug, Clone)]
+struct PydModel {
+    name: String,
+    /// 类声明所在文件绝对路径（正斜杠）
+    file: String,
+    /// 合并后字段（继承在前、自有覆盖在后）
+    fields: Vec<PydField>,
+}
+
+/// 单文件类解析中间结构（尚未判定是否 Pydantic 模型、未合并继承）
+#[derive(Debug, Clone)]
+struct PydClassInfo {
+    name: String,
+    /// 基类名列表（去空白；模块限定名取尾段）
+    bases: Vec<String>,
+    /// 本类自有字段
+    fields: Vec<PydField>,
+}
+
+/// 行首缩进宽度（空格数；Tab 计 1——仅作类体边界比较，不追求精确列）
+fn pyd_indent_of(line: &str) -> usize {
+    line.len() - line.trim_start().len()
+}
+
+/// 剥离行内注释：首个**引号外** `#` 起截断（引号状态机，与 find_call_head 同款语义）。
+/// 返回前缀切片（字节偏移不变，调用方的列号计算不受影响）。
+fn pyd_strip_comment(line: &str) -> &str {
+    let mut quote: Option<u8> = None;
+    for (i, &b) in line.as_bytes().iter().enumerate() {
+        match quote {
+            None => {
+                if b == b'"' || b == b'\'' {
+                    quote = Some(b);
+                } else if b == b'#' {
+                    return &line[..i];
+                }
+            }
+            Some(q) if b == q => quote = None,
+            _ => {}
+        }
+    }
+    line
+}
+
+/// 字节偏移 → 字符索引（列号必须按字符算：中文值字面量会让字节列错位，
+/// 错位列号在 rename 编辑里会写坏代码——2026-09-29 复核修复）
+fn byte_to_char_idx(line: &str, byte_idx: usize) -> usize {
+    line[..byte_idx].chars().count()
+}
+
+/// `class X(BaseModel):` / `class X(User):` → 类名与基类列表文本；非类声明行返回 None。
+/// 行内注释先剥离（`class A(BaseModel):  # 说明` 的注释文本不进基类列表）。
+fn pyd_parse_class_decl(line: &str) -> Option<(String, String)> {
+    let t = pyd_strip_comment(line).trim_start();
+    if t.starts_with('#') {
+        return None;
+    }
+    let rest = t.strip_prefix("class ")?;
+    let name: String = rest.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
+    if name.is_empty() {
+        return None;
+    }
+    let after = rest[name.len()..].trim_start();
+    let paren = after.strip_prefix('(')?;
+    let close = paren.rfind(')')?;
+    Some((name, paren[..close].trim().to_string()))
+}
+
+/// 字段声明行 `name: type` / `name: type = default` / `name: type = Field(...)`
+/// → PydField。非字段行返回 None：方法 / 嵌套类 / 装饰器 / `model_config =` 赋值
+/// （Pydantic 类配置不是字段）/ `ClassVar[...]` 注解（v2 语义：非构造字段）。
+fn pyd_parse_field(line: &str) -> Option<PydField> {
+    let t = pyd_strip_comment(line).trim_start();
+    if t.starts_with('#') || t.is_empty() {
+        return None;
+    }
+    if t.starts_with("def ") || t.starts_with("async def ") || t.starts_with("class ") || t.starts_with('@') {
+        return None;
+    }
+    let Some(colon) = t.find(':') else { return None };
+    let name = t[..colon].trim();
+    if name.is_empty() || !name.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_') {
+        return None;
+    }
+    if !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        return None;
+    }
+    let after = t[colon + 1..].trim_start();
+    if after.is_empty() {
+        return None;
+    }
+    if after.starts_with("ClassVar") {
+        return None; // v2：ClassVar 不是构造字段
+    }
+    if name == "model_config" {
+        return None; // Pydantic 类配置（ConfigDict 赋值），不是构造字段
+    }
+    // 类型文本截到 `=` 或行尾：类型标注不含裸 `=`（嵌套 [] 内也无），split_once 安全
+    let (type_part, default_part) = match after.split_once('=') {
+        Some((ty, d)) => (ty.trim(), Some(d.trim())),
+        None => (after.trim_end(), None),
+    };
+    if type_part.is_empty() {
+        return None;
+    }
+    // Field(alias="...") 提取别名（单双引号均可；不含引号的复杂 alias 表达式不认）
+    let alias = default_part.and_then(|d| {
+        if !d.starts_with("Field") {
+            return None;
+        }
+        let v = d.find("alias")?;
+        let seg = &d[v..];
+        let eq = seg.find('=')? + 1;
+        let after = seg[eq..].trim_start();
+        let q = after.chars().next()?;
+        if q != '"' && q != '\'' {
+            return None;
+        }
+        let rest = &after[1..];
+        let end = rest.find(q)?;
+        Some(rest[..end].to_string())
+    });
+    Some(PydField {
+        name: name.to_string(),
+        type_text: Some(type_part.to_string()),
+        required: default_part.is_none(),
+        alias,
+    })
+}
+
+/// 单文件解析：收集全部类声明与各自类体字段（类体 = 声明行之后缩进更深的行，
+/// 遇到缩进 ≤ 类行缩进的非空行即结束）。
+fn pyd_parse_file(content: &str) -> Vec<PydClassInfo> {
+    let lines: Vec<&str> = content.lines().collect();
+    let mut classes: Vec<PydClassInfo> = Vec::new();
+    let mut i = 0usize;
+    while i < lines.len() {
+        if let Some((name, bases)) = pyd_parse_class_decl(lines[i]) {
+            let class_indent = pyd_indent_of(lines[i]);
+            let mut fields: Vec<PydField> = Vec::new();
+            let mut j = i + 1;
+            while j < lines.len() {
+                let l = lines[j];
+                let t = l.trim();
+                if t.is_empty() || t.starts_with('#') {
+                    j += 1;
+                    continue;
+                }
+                if pyd_indent_of(l) <= class_indent {
+                    break;
+                }
+                if let Some(f) = pyd_parse_field(l) {
+                    fields.push(f);
+                }
+                j += 1;
+            }
+            classes.push(PydClassInfo {
+                name,
+                bases: bases
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect(),
+                fields,
+            });
+            i = j;
+        } else {
+            i += 1;
+        }
+    }
+    classes
+}
+
+/// 类是否为 Pydantic 模型：基类链（同文件）含 BaseModel（或 pydantic.BaseModel）。
+/// memo 防环（文本层面的循环继承）；未知基类（跨文件 / 外部库）不认。
+fn pyd_class_is_model(name: &str, classes: &[PydClassInfo], memo: &mut HashMap<String, bool>) -> bool {
+    if let Some(&v) = memo.get(name) {
+        return v;
+    }
+    memo.insert(name.to_string(), false); // 防环：计算中再入直接 false
+    let v = classes
+        .iter()
+        .find(|c| c.name == name)
+        .map_or(false, |cls| {
+            cls.bases.iter().any(|b| {
+                let base = b.rsplit('.').next().unwrap_or(b);
+                base == "BaseModel" || pyd_class_is_model(base, classes, memo)
+            })
+        });
+    memo.insert(name.to_string(), v);
+    v
+}
+
+/// 继承合并：父类字段在前、自有覆盖在后（同名去重）；depth 防文本循环继承。
+fn pyd_resolve_fields(cls: &PydClassInfo, classes: &[PydClassInfo], depth: usize) -> Vec<PydField> {
+    let mut fields: Vec<PydField> = Vec::new();
+    if depth < 10 {
+        for b in &cls.bases {
+            let base = b.rsplit('.').next().unwrap_or(b);
+            if let Some(parent) = classes.iter().find(|c| c.name == base) {
+                for f in pyd_resolve_fields(parent, classes, depth + 1) {
+                    if !fields.iter().any(|x| x.name == f.name) {
+                        fields.push(f);
+                    }
+                }
+            }
+        }
+    }
+    for f in &cls.fields {
+        fields.retain(|x| x.name != f.name);
+        fields.push(f.clone());
+    }
+    fields
+}
+
+/// 工作区扫描收集全部 Pydantic 模型（单文件解析 + 同文件继承合并；跨文件继承不合并）
+fn pyd_collect_models(root: &Path) -> Vec<PydModel> {
+    let mut out: Vec<PydModel> = Vec::new();
+    for path in collect_files(root) {
+        if let Ok(meta) = fs::metadata(&path) {
+            if meta.len() > MAX_FILE_SIZE {
+                continue;
+            }
+        }
+        let Some(content) = read_text_file(&path) else { continue };
+        let file_abs = path.to_string_lossy().replace('\\', "/");
+        let classes = pyd_parse_file(&content);
+        let mut memo: HashMap<String, bool> = HashMap::new();
+        for cls in &classes {
+            if pyd_class_is_model(&cls.name, &classes, &mut memo) {
+                out.push(PydModel {
+                    name: cls.name.clone(),
+                    file: file_abs.clone(),
+                    fields: pyd_resolve_fields(cls, &classes, 0),
+                });
+            }
+        }
+    }
+    out
+}
+
+/// 字面量名义类型："..."→str、整数→int、True/False→bool、浮点→float；
+/// 复杂表达式返回 None（跳过类型检查）
+fn pyd_literal_type(text: &str) -> Option<&'static str> {
+    let t = text.trim();
+    if (t.starts_with('"') && t.ends_with('"') && t.len() >= 2)
+        || (t.starts_with('\'') && t.ends_with('\'') && t.len() >= 2)
+    {
+        return Some("str");
+    }
+    if t == "True" || t == "False" {
+        return Some("bool");
+    }
+    if t.parse::<i64>().is_ok() {
+        return Some("int");
+    }
+    if t.parse::<f64>().is_ok() {
+        return Some("float");
+    }
+    None
+}
+
+/// 注解文本 → 名义类型名（仅 int / str / bool / float；Optional[X] 剥壳后同判；其余 None）
+fn pyd_annot_type(text: &str) -> Option<String> {
+    let t = text.trim();
+    let inner = t.strip_prefix("Optional[").and_then(|r| r.strip_suffix(']'));
+    let base = inner.unwrap_or(t);
+    match base {
+        "int" | "str" | "bool" | "float" => Some(base.to_string()),
+        _ => None,
+    }
+}
+
+/// 构造调用诊断（owner = opencharm-pydantic，前端第四桶）
+#[derive(Serialize, Clone, Debug)]
+pub struct PydanticIssue {
+    /// 诊断所在文件（绝对路径正斜杠）
+    pub file: String,
+    /// 1 基行号
+    pub line: u32,
+    /// 1 基列号（参数名起始列）
+    pub column: u32,
+    pub end_column: u32,
+    /// "missing" | "unknown" | "type"
+    pub kind: String,
+    pub message: String,
+    /// 涉及字段名
+    pub field: String,
+    /// 所属模型名
+    pub model: String,
+}
+
+/// 工作区 Pydantic 构造校验扫描：模型收集 + `X(...)` 调用点逐行校验。
+#[tauri::command]
+pub async fn scan_pydantic_issues(root: String) -> Result<Vec<PydanticIssue>, String> {
+    tauri::async_runtime::spawn_blocking(move || scan_pydantic_issues_impl(&root))
+        .await
+        .map_err(|e| format!("任务执行异常：{e}"))?
+}
+
+fn scan_pydantic_issues_impl(root: &str) -> Result<Vec<PydanticIssue>, String> {
+    let root_path = Path::new(root);
+    if !root_path.is_dir() {
+        return Err(format!("工作区目录不存在：{root}"));
+    }
+    let models = pyd_collect_models(root_path);
+    if models.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut out: Vec<PydanticIssue> = Vec::new();
+    for path in collect_files(root_path) {
+        if let Ok(meta) = fs::metadata(&path) {
+            if meta.len() > MAX_FILE_SIZE {
+                continue;
+            }
+        }
+        let Some(content) = read_text_file(&path) else { continue };
+        let file_abs = path.to_string_lossy().replace('\\', "/");
+        for (i, raw) in content.lines().enumerate() {
+            let line = pyd_strip_comment(raw); // 注释里的 `User(name=)` 不参与诊断（2026-09-29 修复）
+            let lineno = (i + 1) as u32;
+            // **kwargs 展开传参：该行所有调用点跳过（v2 红线）
+            if line.contains("**") {
+                continue;
+            }
+            for m in &models {
+                let Some(at) = find_call_head(line, &m.name) else { continue };
+                scan_pydantic_call_args(line, lineno, &file_abs, at, m, &mut out);
+            }
+        }
+    }
+    out.sort_by(|a, b| a.file.cmp(&b.file).then(a.line.cmp(&b.line)));
+    Ok(out)
+}
+
+/// 行内 `Model(` 调用头位置：Model 名前后非标识符字符、后紧跟 `(`、
+/// 前文不是 `def ` / `class `（`def Model(` 不算调用）、且不在字符串字面量内
+/// （`e = "User(name=1)"` 不算）。简易引号状态机：行内未闭合引号后的内容全部跳过。
+fn find_call_head(line: &str, name: &str) -> Option<usize> {
+    let bytes = line.as_bytes();
+    let mut from = 0usize;
+    while let Some(pos) = line[from..].find(name) {
+        let at = from + pos;
+        let after = at + name.len();
+        let ok_before = at == 0 || !(bytes[at - 1].is_ascii_alphanumeric() || bytes[at - 1] == b'_');
+        let ok_after = bytes.get(after).copied() == Some(b'(');
+        let head = line[..at].trim_end();
+        let not_def = !head.ends_with("def ") && !head.ends_with("class ");
+        let in_string = count_unpaired_quote(line, at) > 0;
+        if ok_before && ok_after && not_def && !in_string {
+            return Some(at);
+        }
+        from = at + name.len();
+    }
+    None
+}
+
+/// line[..at] 内未配对引号数（>0 = at 处于字符串字面量内；简易状态机，不处理转义嵌套）
+fn count_unpaired_quote(line: &str, upto: usize) -> usize {
+    let mut quote: Option<u8> = None;
+    let mut n = 0usize;
+    for &b in &line.as_bytes()[..upto] {
+        match quote {
+            None => {
+                if b == b'"' || b == b'\'' {
+                    quote = Some(b);
+                    n += 1;
+                }
+            }
+            Some(q) if b == q => {
+                quote = None;
+                n -= 1;
+            }
+            _ => {}
+        }
+    }
+    n
+}
+
+/// 单行调用点参数校验：kwargs 提取 → unknown / type；必填缺失另查。
+/// 没识别出任何 kwargs（位置参数 / 跨行调用）时整个调用点跳过（v2 红线）。
+fn scan_pydantic_call_args(
+    line: &str,
+    lineno: u32,
+    file: &str,
+    at: usize,
+    model: &PydModel,
+    out: &mut Vec<PydanticIssue>,
+) {
+    let args = extract_call_kwargs(line, at);
+    if args.is_empty() {
+        let inner = line[at + model.name.len() + 1..].trim_start();
+        // 空参数 `User()` 也要判缺失必填；其余（位置参数 / 跨行）跳过
+        if !inner.starts_with(')') {
+            return;
+        }
+    }
+    for (k, v, col) in &args {
+        // 字段本体或其 alias 均合法（populate_by_name 语义：双合法）
+        let Some(field) = model
+            .fields
+            .iter()
+            .find(|f| f.name == *k || f.alias.as_deref() == Some(k.as_str()))
+        else {
+            out.push(PydanticIssue {
+                file: file.to_string(),
+                line: lineno,
+                column: *col,
+                end_column: col + k.len() as u32,
+                kind: "unknown".into(),
+                message: format!("Pydantic：模型 {} 没有字段 {}（构造参数未知）", model.name, k),
+                field: k.clone(),
+                model: model.name.clone(),
+            });
+            continue;
+        };
+        // alias 字段的类型检查跳过（basedpyright 都在此误报；本名与别名混传形态太复杂）
+        if field.alias.is_some() {
+            continue;
+        }
+        if let (Some(ann), Some(lit)) = (
+            field.type_text.as_deref().and_then(pyd_annot_type),
+            pyd_literal_type(v),
+        ) {
+            if ann != lit {
+                out.push(PydanticIssue {
+                    file: file.to_string(),
+                    line: lineno,
+                    column: *col,
+                    end_column: col + k.len() as u32,
+                    kind: "type".into(),
+                    message: format!(
+                        "Pydantic：字段 {} 期望 {}，传入 {}",
+                        k,
+                        field.type_text.as_deref().unwrap_or("?"),
+                        v
+                    ),
+                    field: k.clone(),
+                    model: model.name.clone(),
+                });
+            }
+        }
+    }
+    // 缺失必填：只对「全部 kwargs 形态 / 空参数」的调用点判；
+    // 有 alias 的字段按「本名或别名任一传入」判定
+    let passed: std::collections::HashSet<&str> = args.iter().map(|(k, _, _)| k.as_str()).collect();
+    for f in &model.fields {
+        let ok = passed.contains(f.name.as_str())
+            || f.alias.as_deref().map_or(false, |a| passed.contains(a));
+        if f.required && !ok {
+            out.push(PydanticIssue {
+                file: file.to_string(),
+                line: lineno,
+                column: 0,
+                end_column: 0,
+                kind: "missing".into(),
+                message: format!("Pydantic：构造 {} 缺少必填字段 {}", model.name, f.name),
+                field: f.name.clone(),
+                model: model.name.clone(),
+            });
+        }
+    }
+}
+
+/// 从调用行提取关键字参数 `k=v`（v 为到下一个 `,` 或 `)` 的文本）。
+/// 返回 (参数名, 值文本, 参数名列 1 基)；不完整（跨行/嵌套括号）时返回已识别前缀。
+fn extract_call_kwargs(line: &str, open_byte: usize) -> Vec<(String, String, u32)> {
+    let mut out = Vec::new();
+    let Some(open) = line.get(open_byte..).and_then(|s| s.find('(')).map(|p| open_byte + p) else {
+        return out;
+    };
+    let rest = &line[open + 1..];
+    // 逐字符扫描：ident= → 值到下一个顶层逗号
+    let mut i = 0usize;
+    let chars: Vec<char> = rest.chars().collect();
+    // 列号按**字符**算（1 基）：open 前字符数 + 1（'('）+ i + 1。
+    // 旧实现按字节偏移直加——中文值字面量会让列错位，rename 编辑落点会写坏代码。
+    let prefix_chars = byte_to_char_idx(line, open);
+    while i < chars.len() {
+        let c = chars[i];
+        if c == ')' {
+            break;
+        }
+        if c.is_ascii_alphabetic() || c == '_' {
+            let start = i;
+            while i < chars.len() && (chars[i].is_ascii_alphanumeric() || chars[i] == '_') {
+                i += 1;
+            }
+            // 跳过空白找 `=`
+            let mut j = i;
+            while j < chars.len() && chars[j] == ' ' { j += 1; }
+            if j < chars.len() && chars[j] == '=' && (j + 1 >= chars.len() || chars[j + 1] != '=') {
+                // 值：从 j+1 到顶层 `,` 或 `)`
+                let mut k = j + 1;
+                let mut d2 = 0i32;
+                while k < chars.len() {
+                    let ck = chars[k];
+                    if ck == '(' { d2 += 1; }
+                    if ck == ')' && d2 == 0 { break; }
+                    if ck == ')' { d2 -= 1; }
+                    if ck == ',' && d2 == 0 { break; }
+                    k += 1;
+                }
+                let name: String = chars[start..i].iter().collect();
+                let value: String = chars[j + 1..k.min(chars.len())].iter().collect();
+                out.push((name, value.trim().to_string(), (prefix_chars + 1 + start + 1) as u32));
+                i = k;
+                continue;
+            }
+            // 不是 kwargs 形态（位置参数）：跳过到顶层 `,`
+            let mut k = i;
+            let mut d2 = 0i32;
+            while k < chars.len() {
+                let ck = chars[k];
+                if ck == '(' { d2 += 1; }
+                if ck == ')' && d2 == 0 { break; }
+                if ck == ')' { d2 -= 1; }
+                if ck == ',' && d2 == 0 { break; }
+                k += 1;
+            }
+            i = k;
+            continue;
+        }
+        i += 1;
+    }
+    out
+}
+
+/// rename 补充引用点（子项 2a）：`Model(field=` 的文本级定位。
+#[derive(Serialize, Clone, Debug)]
+pub struct PydanticCtorRef {
+    /// 文件绝对路径（正斜杠）
+    pub file: String,
+    /// 1 基行号
+    pub line: u32,
+    /// field 参数名 1 基起始列
+    pub column: u32,
+    /// 字段名长度（rename 替换宽度）
+    pub len: u32,
+}
+
+/// 扫描工作区内 `Model(field=` 构造调用点（rename 传播补充；无索引按需扫描）。
+/// 匹配规则：Model 名后紧跟 `(`，括号内出现 `field=`（field 后必须紧跟 `=`，
+/// 前一字符非标识符——`name=` 不命中 `user_name=`）。
+/// 子类调用点一并命中（字段可经继承传入：`User.name` 改名时 `Admin(name=)` 也要改）；
+/// 行内注释先剥离（2026-09-29 复核修复）。
+#[tauri::command]
+pub async fn scan_pydantic_ctor_refs(
+    root: String,
+    model: String,
+    field: String,
+) -> Result<Vec<PydanticCtorRef>, String> {
+    tauri::async_runtime::spawn_blocking(move || scan_pydantic_ctor_refs_impl(&root, &model, &field))
+        .await
+        .map_err(|e| format!("任务执行异常：{e}"))?
+}
+
+fn scan_pydantic_ctor_refs_impl(root: &str, model: &str, field: &str) -> Result<Vec<PydanticCtorRef>, String> {
+    let root_path = Path::new(root);
+    if !root_path.is_dir() {
+        return Err(format!("工作区目录不存在：{root}"));
+    }
+    // 同文件继承链上的全部模型名（子类构造调用点也算字段引用）
+    let mut names: Vec<String> = vec![model.to_string()];
+    for m in pyd_collect_models(root_path) {
+        if &m.name != model && m.fields.iter().any(|f| f.name == field) {
+            // 只收「继承链含 model」的子类（fields 含同名字段可能是巧合的独立字段）
+            if model_inherits_from(&m.name, model, root_path) {
+                names.push(m.name.clone());
+            }
+        }
+    }
+    let mut out: Vec<PydanticCtorRef> = Vec::new();
+    for path in collect_files(root_path) {
+        let Ok(meta) = fs::metadata(&path) else { continue };
+        if meta.len() > MAX_FILE_SIZE {
+            continue;
+        }
+        let Some(content) = read_text_file(&path) else { continue };
+        let file_abs = path.to_string_lossy().replace('\\', "/");
+        for (i, raw) in content.lines().enumerate() {
+            let line = pyd_strip_comment(raw);
+            for name in &names {
+                let Some(at) = find_call_head(line, name) else { continue };
+                let args = extract_call_kwargs(line, at);
+                for (k, _, col) in args {
+                    if k == field {
+                        out.push(PydanticCtorRef {
+                            file: file_abs.clone(),
+                            line: (i + 1) as u32,
+                            column: col, // extract_call_kwargs 已按整行字符列计算（含 at 偏移）
+                            len: field.chars().count() as u32,
+                        });
+                    }
+                }
+            }
+        }
+    }
+    out.sort_by(|a, b| a.file.cmp(&b.file).then(a.line.cmp(&b.line)).then(a.column.cmp(&b.column)));
+    Ok(out)
+}
+
+/// model_name 的同文件继承链是否含 ancestor（BFS 全链遍历，多继承不漏；
+/// 跨文件继承不判——已知边界）
+fn model_inherits_from(model_name: &str, ancestor: &str, root: &Path) -> bool {
+    let Some(m) = pyd_collect_models(root).into_iter().find(|m| m.name == model_name) else {
+        return false;
+    };
+    let Some(content) = read_text_file(Path::new(&m.file)) else { return false };
+    let classes = pyd_parse_file(&content);
+    let mut queue: Vec<String> = vec![model_name.to_string()];
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    while let Some(cur) = queue.pop() {
+        if !seen.insert(cur.clone()) {
+            continue;
+        }
+        let Some(cls) = classes.iter().find(|c| c.name == cur) else { continue };
+        for b in &cls.bases {
+            let base = b.rsplit('.').next().unwrap_or(b).to_string();
+            if base == ancestor {
+                return true;
+            }
+            if base != "BaseModel" {
+                queue.push(base); // 未知基类（跨文件/外部）也入队：找到声明就继续向上
+            }
+        }
+    }
+    false
+}
+
 // ---------- ruff 实时 lint（P2：诊断第三桶） ----------
 
 /// lint 规则集：E/W = pycodestyle（PEP8 风格与格式），F = pyflakes（未使用导入/变量、未定义名）。
@@ -1937,7 +2698,7 @@ mod tests {
     #[test]
     fn test_create_project_basic() {
         let base = tmpdir("proj");
-        let r = create_project_impl(base.to_string_lossy().to_string(), "demo".into(), false, None).unwrap();
+        let r = create_project_impl(base.to_string_lossy().to_string(), "demo".into(), false, None, None).unwrap();
         let root = Path::new(&r.path);
         assert!(root.is_dir());
         assert!(root.join("main.py").is_file());
@@ -1947,17 +2708,22 @@ mod tests {
         assert!(pyproject.contains("requires-python = \">=3.12\""));
         assert!(!root.join(".gitignore").exists()); // 未要求 git
         assert!(r.git_ok);
+        // script 默认：main.py 是脚本模板（不含 FastAPI），pyproject 无 fastapi 依赖
+        let main_py = fs::read_to_string(root.join("main.py")).unwrap();
+        assert!(main_py.contains("def main()"), "实际内容：{main_py}");
+        assert!(!main_py.contains("FastAPI"));
+        assert!(!pyproject.contains("fastapi"));
         // 重名 / 非法名 / 父目录不存在
-        assert!(create_project_impl(base.to_string_lossy().to_string(), "demo".into(), false, None).is_err());
-        assert!(create_project_impl(base.to_string_lossy().to_string(), "a/b".into(), false, None).is_err());
-        assert!(create_project_impl(base.join("nope").to_string_lossy().to_string(), "x".into(), false, None).is_err());
+        assert!(create_project_impl(base.to_string_lossy().to_string(), "demo".into(), false, None, None).is_err());
+        assert!(create_project_impl(base.to_string_lossy().to_string(), "a/b".into(), false, None, None).is_err());
+        assert!(create_project_impl(base.join("nope").to_string_lossy().to_string(), "x".into(), false, None, None).is_err());
         fs::remove_dir_all(&base).unwrap();
     }
 
     #[test]
     fn test_create_project_git_best_effort() {
         let base = tmpdir("proj-git");
-        let r = create_project_impl(base.to_string_lossy().to_string(), "demo".into(), true, None).unwrap();
+        let r = create_project_impl(base.to_string_lossy().to_string(), "demo".into(), true, None, None).unwrap();
         let root = Path::new(&r.path);
         // .gitignore 必写；git 是否成功取决于环境（未装 git 时 git_ok=false 但项目仍创建）
         assert!(root.join(".gitignore").is_file());
@@ -1979,6 +2745,7 @@ mod tests {
             "My Demo".into(),
             false,
             Some("cpython-3.13.7-windows-x86_64-none".into()),
+            None,
         )
         .unwrap();
         let root = Path::new(&r.path);
@@ -1986,6 +2753,110 @@ mod tests {
         assert!(pyproject.contains("requires-python = \">=3.13\""));
         assert!(pyproject.contains("name = \"my-demo\"")); // 非法字符折叠为 '-'
         fs::remove_dir_all(&base).unwrap();
+    }
+
+    /// F9：fastapi 类型 → FastAPI 模板 main.py + pyproject 写入 fastapi/uvicorn 依赖。
+    /// 断言**路径无关**（contains 而非精确全文比对）：CI 有无 uv 走方案 A/B 均过——
+    /// 方案 A（uv init --bare 产物 + 行扫描注入）与方案 B（最小模板直接带 deps）的
+    /// pyproject 具体行序/备注可能不同，但两个关键契约（模板形状 + 依赖存在）必须都满足。
+    #[test]
+    fn test_create_project_fastapi_template_and_deps() {
+        let base = tmpdir("proj-fa");
+        let r = create_project_impl(
+            base.to_string_lossy().to_string(),
+            "demo-api".into(),
+            false,
+            None,
+            Some("fastapi".into()),
+        )
+        .unwrap();
+        let root = Path::new(&r.path);
+        // main.py：FastAPI 模板（app = FastAPI( 命中探针 scan_app_decl；两条路由命中端点扫描）
+        let main_py = fs::read_to_string(root.join("main.py")).unwrap();
+        assert!(main_py.contains("from fastapi import FastAPI"), "实际内容：{main_py}");
+        assert!(main_py.contains("app = FastAPI("), "实际内容：{main_py}");
+        assert!(main_py.contains("@app.get(\"/\")"), "实际内容：{main_py}");
+        assert!(main_py.contains("@app.get(\"/items/{item_id}\")"), "实际内容：{main_py}");
+        // pyproject：依赖写入（两条生成路径都要注入）
+        let pyproject = fs::read_to_string(root.join("pyproject.toml")).unwrap();
+        assert!(pyproject.contains("\"fastapi\""), "实际内容：{pyproject}");
+        assert!(pyproject.contains("\"uvicorn\""), "实际内容：{pyproject}");
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    /// F9 边界：未知 project_type 按脚本模板处理（None / 空 / "script" 等价）
+    #[test]
+    fn test_create_project_unknown_type_falls_back_to_script() {
+        let base = tmpdir("proj-unknown");
+        for (i, t) in [None, Some(""), Some("script"), Some("django")].into_iter().enumerate() {
+            let r = create_project_impl(
+                base.to_string_lossy().to_string(),
+                format!("p-{i}").into(),
+                false,
+                None,
+                t.map(String::from),
+            )
+            .unwrap();
+            let main_py = fs::read_to_string(Path::new(&r.path).join("main.py")).unwrap();
+            assert!(main_py.contains("def main()"), "type={t:?} 应回退脚本模板：{main_py}");
+        }
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    /// F9：方案 A 路径依赖注入（行扫描）——空 dependencies 行替换 / 已有键跳过 / 无键段末插入
+    #[test]
+    fn test_inject_project_deps_line_scan() {
+        // ① uv init --bare 实测产物：空 dependencies = [] → 替换
+        let dir = tmpdir("inj-empty");
+        fs::write(
+            dir.join("pyproject.toml"),
+            "[project]\nname = \"demo\"\nversion = \"0.1.0\"\nrequires-python = \">=3.12\"\ndependencies = []\n",
+        )
+        .unwrap();
+        inject_project_deps(&dir, &["fastapi", "uvicorn"]).unwrap();
+        let c = fs::read_to_string(dir.join("pyproject.toml")).unwrap();
+        assert!(c.contains("dependencies = [\"fastapi\", \"uvicorn\"]"), "实际内容：{c}");
+        assert_eq!(c.matches("dependencies").count(), 1, "旧空行应被替换而非并存：{c}");
+        fs::remove_dir_all(dir).unwrap();
+
+        // ② 已有 dependencies 键（含值）→ 跳过（幂等：不合并、不重复）
+        let dir2 = tmpdir("inj-skip");
+        fs::write(
+            dir2.join("pyproject.toml"),
+            "[project]\nname = \"demo\"\ndependencies = [\"httpx\"]\n[tool.uv]\n\n[build-system]\nrequires = [\"hatchling\"]\n",
+        )
+        .unwrap();
+        inject_project_deps(&dir2, &["fastapi"]).unwrap();
+        let c2 = fs::read_to_string(dir2.join("pyproject.toml")).unwrap();
+        assert!(c2.contains("dependencies = [\"httpx\"]"), "实际内容：{c2}");
+        assert!(!c2.contains("fastapi"), "已有键应跳过注入：{c2}");
+        // 其他段（含同样以 requires 开头的 [build-system] 键）不受影响
+        assert!(c2.contains("[tool.uv]"));
+        assert!(c2.contains("requires = [\"hatchling\"]"), "build-system 的 requires 不得误伤：{c2}");
+        fs::remove_dir_all(dir2).unwrap();
+
+        // ③ 无 dependencies 键 → [project] 段末尾、下一个 [ 段之前插入
+        let dir3 = tmpdir("inj-append");
+        fs::write(
+            dir3.join("pyproject.toml"),
+            "[project]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[tool.uv]\npackage = false\n",
+        )
+        .unwrap();
+        inject_project_deps(&dir3, &["fastapi", "uvicorn"]).unwrap();
+        let c3 = fs::read_to_string(dir3.join("pyproject.toml")).unwrap();
+        let proj_end = c3.find("[tool.uv]").unwrap();
+        let deps_at = c3.find("dependencies = [\"fastapi\", \"uvicorn\"]").expect("应已插入");
+        assert!(deps_at < proj_end, "应插在 [project] 段内：{c3}");
+        assert!(c3.contains("package = false"), "后段内容不丢：{c3}");
+        fs::remove_dir_all(dir3).unwrap();
+
+        // ④ [project] 是最后一个段（无后续 [）→ 段末追加
+        let dir4 = tmpdir("inj-tail");
+        fs::write(dir4.join("pyproject.toml"), "[project]\nname = \"demo\"\n").unwrap();
+        inject_project_deps(&dir4, &["fastapi"]).unwrap();
+        let c4 = fs::read_to_string(dir4.join("pyproject.toml")).unwrap();
+        assert!(c4.contains("dependencies = [\"fastapi\"]"), "实际内容：{c4}");
+        fs::remove_dir_all(dir4).unwrap();
     }
 
     #[test]
@@ -2613,6 +3484,310 @@ mod tests {
                 .unwrap_or_else(|e| panic!("read_file 消费失败（{}）：{}", ep.file, e));
             assert!(content.contains("MARKER_"), "读到的不是工作区文件内容：{}", ep.file);
         }
+    }
+
+    // ---------- Pydantic 语义层（阶段 4）单测 ----------
+
+    fn pyd_tmpdir(tag: &str) -> PathBuf {
+        let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let d = std::env::temp_dir().join(format!("opencharm-pyd-{tag}-{nanos}"));
+        fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    /// 受控语义用例（与 bench/sample/pydantic_models 同款）：类型错 / 缺必填 / 继承合并 / unknown
+    #[test]
+    fn pydantic_issues_full_semantics() {
+        let d = pyd_tmpdir("issues");
+        fs::write(
+            d.join("models.py"),
+            concat!(
+                "from pydantic import BaseModel\n",
+                "\n",
+                "\n",
+                "class User(BaseModel):\n",
+                "    id: int\n",
+                "    name: str\n",
+                "    is_active: bool = True\n",
+                "\n",
+                "\n",
+                "class Admin(User):\n",
+                "    level: int = 1\n",
+            ),
+        )
+        .unwrap();
+        fs::write(
+            d.join("usage.py"),
+            concat!(
+                "from models import Admin, User\n",
+                "\n",
+                "good = User(id=1, name=\"Alice\")\n",
+                "bad_type = User(id=\"not-an-int\", name=\"Steve\")\n",
+                "missing = User(id=1)\n",
+                "admin = Admin(id=2, name=\"Bob\", level=3)\n",
+                "bad_admin = Admin(id=3, level=\"x\")\n",
+            ),
+        )
+        .unwrap();
+        let r = scan_pydantic_issues_impl(&d.to_string_lossy()).unwrap();
+        // bad_type：id 传 str（type）+ bad_admin：level 传 str（type，继承字段默认值可省）+ missing：缺 name
+        // 4 条：bad_type 的 id 类型错（行4）；missing 的 name 缺失（行5）；
+        // bad_admin 的 level 类型错（行7）+ name 缺失（行7，Admin 继承 User 必填 name）
+        assert_eq!(r.len(), 4, "应恰好 4 条：type×2 + missing×2，实际 {:?}",
+            r.iter().map(|i| (i.kind.as_str(), i.field.as_str(), i.line)).collect::<Vec<_>>());
+        let types: Vec<_> = r.iter().filter(|i| i.kind == "type").map(|i| (i.field.clone(), i.line)).collect();
+        assert!(types.contains(&("id".to_string(), 4)), "bad_type 行的 id 类型错：{:?}", types);
+        assert!(types.contains(&("level".to_string(), 7)), "bad_admin 行的 level 类型错（继承链合并）：{:?}", types);
+        assert!(r.iter().any(|i| i.kind == "missing" && i.field == "name" && i.line == 5));
+        assert!(r.iter().any(|i| i.kind == "missing" && i.field == "name" && i.line == 7), "Admin 继承必填 name");
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    /// v2 红线：alias 跳过 / **kwargs 跳过 / 位置参数跳过 / unknown 报告 / 空参数判缺失
+    #[test]
+    fn pydantic_issues_v2_skip_rules() {
+        let d = pyd_tmpdir("v2");
+        fs::write(
+            d.join("m.py"),
+            concat!(
+                "from pydantic import BaseModel, Field\n",
+                "\n",
+                "class M(BaseModel):\n",
+                "    a: str = Field(alias=\"a_alias\")\n",
+                "    b: int\n",
+                "    c: str = \"x\"\n",
+            ),
+        )
+        .unwrap();
+        fs::write(
+            d.join("u.py"),
+            concat!(
+                "from m import M\n",
+                "\n",
+                "x = M(b=1)\n",
+                "y = M(a_alias=\"s\", b=2)\n",
+                "z = M(**data)\n",
+                "w = M(1, 2)\n",
+                "v = M(b=1, d=9)\n",
+            ),
+        )
+        .unwrap();
+        let r = scan_pydantic_issues_impl(&d.to_string_lossy()).unwrap();
+        // x/y/z/w 都不报（alias 跳过含缺失判定；** 与位置参数整行跳过）；
+        // v 报 unknown d（c 有默认可省、a 有 alias 缺失不判）。
+        // 注意 `z = M(**data)` 与 `w = M(1, 2)` 行内含引号前的嵌套括号不影响——
+        // `w = M(1, 2)` 首参位置参数整点跳过；`z` 含 ** 跳过。
+        assert_eq!(r.len(), 1, "只应报 v 行的 unknown d，实际 {:?}", r);
+        assert_eq!(r[0].kind, "unknown");
+        assert_eq!(r[0].field, "d");
+        assert_eq!(r[0].line, 7);
+        // 空参数判缺失：M() 缺 b
+        fs::write(d.join("u.py"), "from m import M\n\nv = M()\n").unwrap();
+        let r2 = scan_pydantic_issues_impl(&d.to_string_lossy()).unwrap();
+        assert!(r2.iter().any(|i| i.kind == "missing" && i.field == "b"), "M() 应缺必填 b：{:?}", r2);
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    /// 非模型类不产生诊断；def Model( / 同前缀类名不误命中
+    #[test]
+    fn pydantic_issues_no_false_positive() {
+        let d = pyd_tmpdir("nfp");
+        fs::write(
+            d.join("a.py"),
+            concat!(
+                "class Plain:\n",
+                "    x: int\n",
+                "\n",
+                "def Model():\n",
+                "    return 1\n",
+                "\n",
+                "class MyModel(BaseModel):\n",
+                "    y: int\n",
+            ),
+        )
+        .unwrap();
+        fs::write(
+            d.join("b.py"),
+            concat!(
+                "from a import MyModel\n",
+                "\n",
+                "p = Plain(x=1)\n",
+                "m = MyModel(y=\"s\")\n",
+            ),
+        )
+        .unwrap();
+        let r = scan_pydantic_issues_impl(&d.to_string_lossy()).unwrap();
+        // Plain 非 BaseModel 链：不报；def Model() 非调用：不报；MyModel(y=\"s\")：报 type
+        assert_eq!(r.len(), 1, "只应报 MyModel(y=\"s\") 的 type，实际 {:?}", r);
+        assert_eq!(r[0].kind, "type");
+        assert_eq!(r[0].model, "MyModel");
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    /// rename 传播补充：`Model(field=` 命中 / 同前缀字段不命中 / 非调用行不命中
+    #[test]
+    fn pydantic_ctor_refs_semantics() {
+        let d = pyd_tmpdir("refs");
+        fs::write(
+            d.join("m.py"),
+            concat!(
+                "from pydantic import BaseModel\n",
+                "\n",
+                "class User(BaseModel):\n",
+                "    name: str\n",
+            ),
+        )
+        .unwrap();
+        fs::write(
+            d.join("u.py"),
+            concat!(
+                "from m import User\n",
+                "\n",
+                "a = User(name=\"x\")\n",
+                "b = User(  name = 2)\n",
+                "c = User(user_name=\"y\")\n",
+                "d = User(name)\n",
+                "\n",
+                "name = User(name=\"z\")\n",
+                "e = \"User(name=1)\"\n",
+            ),
+        )
+        .unwrap();
+        let r = scan_pydantic_ctor_refs_impl(&d.to_string_lossy(), "User", "name").unwrap();
+        // 行 3（紧邻）/ 行 4（空白容忍）/ 行 8（赋值行右侧调用）命中；
+        // 行 5 user_name= 不命中；行 6 name 无 = 不命中；行 9 字符串内不命中（引号状态机）
+        assert_eq!(r.len(), 3, "应命中 3 处（行3/4/8），实际 {:?}", r);
+        let lines: Vec<u32> = r.iter().map(|x| x.line).collect();
+        assert_eq!(lines, vec![3, 4, 8]);
+        // 列号：行 3 `a = User(name=...)` → name 起始列 10（1 基）
+        assert_eq!(r[0].column, 10, "行3 name 列号");
+        assert_eq!(r[0].len, 4);
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    /// 开销红线实测（§5：受控用例全量 < 500ms）：对 bench/sample/pydantic_models 计时。
+    /// ignored + 手动跑：cargo test --release pyd_bench -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn pyd_bench_scan_issues() {
+        let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../bench/sample/pydantic_models");
+        for i in 0..5 {
+            let t = std::time::Instant::now();
+            let n = scan_pydantic_issues_impl(root).unwrap().len();
+            println!("run {}: {} issues in {:?}", i + 1, n, t.elapsed());
+        }
+    }
+
+    /// 复核修复回归（2026-09-29）：中文值字面量的字符列号 / 嵌套调用 / 注释剥离
+    #[test]
+    fn pydantic_review_fixes() {
+        let d = pyd_tmpdir("review");
+        fs::write(
+            d.join("m.py"),
+            concat!(
+                "from pydantic import BaseModel\n",
+                "\n",
+                "class User(BaseModel):  # 用户模型\n",
+                "    name: str  # 姓名\n",
+                "    id: int\n",
+            ),
+        )
+        .unwrap();
+        fs::write(
+            d.join("u.py"),
+            concat!(
+                "from m import User\n",
+                "\n",
+                "a = User(name=\"中文字符串\", id=1)\n",
+                "b = wrap(User(name=\"x\", id=2), extra=3)\n",
+                "c = User(name=\"y\", id=3)  # User(name=错, id=0)\n",
+            ),
+        )
+        .unwrap();
+        let r = scan_pydantic_issues_impl(&d.to_string_lossy()).unwrap();
+        // 行3：中文串后 id 列号必须按字符算（旧字节列会偏移）；行4 嵌套：extra 不算 User 参数；
+        // 行5 注释里的调用不诊断。三条调用点全部正确传参 → 零诊断
+        assert_eq!(r.len(), 0, "三行调用点均合法，不应有诊断，实际 {:?}", r);
+
+        // 列号精确性：构造含中文前缀的坏参行，验证 type 诊断的 column 落在参数名上
+        fs::write(
+            d.join("u.py"),
+            concat!(
+                "from m import User\n",
+                "\n",
+                "a = User(name=\"中文\", id=\"bad\")\n",
+            ),
+        )
+        .unwrap();
+        let r2 = scan_pydantic_issues_impl(&d.to_string_lossy()).unwrap();
+        assert_eq!(r2.len(), 1, "id 传 str 应报 type：{:?}", r2);
+        // `a = User(name="中文", id="bad")`：id 的 1 基字符列 = 21
+        assert_eq!(r2[0].column, 21, "列号必须按字符算（中文场景），实际 {}", r2[0].column);
+
+        // 旧实现的真正错位场景：`(` 之前有非 ASCII（旧 base 按字节偏移直加）
+        fs::write(
+            d.join("u.py"),
+            concat!(
+                "from m import User\n",
+                "\n",
+                "变量 = User(name=\"x\", id=\"bad\")\n",
+            ),
+        )
+        .unwrap();
+        let r3 = scan_pydantic_issues_impl(&d.to_string_lossy()).unwrap();
+        assert_eq!(r3.len(), 1, "id 传 str 应报 type：{:?}", r3);
+        // `变量 = User(...)`：`变`(1)`量`(2)` `(3)`=`(4)` `(5)U(6)s(7)e(8)r(9)`(`(10)n(11)...
+        // id 的 1 基字符列 = 21；旧字节算法 `(` 在字节 12 → base 13 → 会报 24
+        assert_eq!(r3[0].column, 21, "（ 前有中文时列号仍须按字符算，实际 {}", r3[0].column);
+
+        // ctor_refs：注释里的 field= 不命中；列号按字符算
+        let refs = scan_pydantic_ctor_refs_impl(&d.to_string_lossy(), "User", "name").unwrap();
+        assert!(refs.iter().all(|x| x.line == 3), "只应命中行3，实际 {:?}", refs);
+        // 行3 `变量 = User(name="x", id="bad")`：name 的 1 基字符列 = 11
+        assert_eq!(refs[0].column, 11, "name 列号按字符算，实际 {}", refs[0].column);
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    /// 复核修复回归：子类调用点传播（User.name 改名 → Admin(name=) 也命中）
+    #[test]
+    fn pydantic_ctor_refs_subclass() {
+        let d = pyd_tmpdir("sub");
+        fs::write(
+            d.join("m.py"),
+            concat!(
+                "from pydantic import BaseModel\n",
+                "\n",
+                "class User(BaseModel):\n",
+                "    name: str\n",
+                "\n",
+                "\n",
+                "class Admin(User):\n",
+                "    level: int = 1\n",
+            ),
+        )
+        .unwrap();
+        fs::write(
+            d.join("u.py"),
+            concat!(
+                "from m import Admin, User\n",
+                "\n",
+                "a = User(name=\"x\")\n",
+                "b = Admin(name=\"y\", level=2)\n",
+                "c = Admin(level=3)  # 独立字段 rename 不应命中 User.name\n",
+            ),
+        )
+        .unwrap();
+        // User.name → 两处调用点（User 直调 + Admin 子类调用）
+        let r = scan_pydantic_ctor_refs_impl(&d.to_string_lossy(), "User", "name").unwrap();
+        assert_eq!(r.len(), 2, "User(name=) 与 Admin(name=) 都应命中，实际 {:?}", r);
+        let lines: Vec<u32> = r.iter().map(|x| x.line).collect();
+        assert_eq!(lines, vec![3, 4]);
+        // Admin.level → Admin 自己的两处调用点（行4 b 与行5 c）；User(name=) 无 level 不命中
+        let r2 = scan_pydantic_ctor_refs_impl(&d.to_string_lossy(), "Admin", "level").unwrap();
+        assert_eq!(r2.len(), 2, "Admin 两处构造调用都应命中 level，实际 {:?}", r2);
+        let lines2: Vec<u32> = r2.iter().map(|x| x.line).collect();
+        assert_eq!(lines2, vec![4, 5]);
+        fs::remove_dir_all(&d).unwrap();
     }
 
     #[test]

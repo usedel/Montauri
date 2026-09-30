@@ -6,9 +6,9 @@
 // startLsp 经 initEnvPanel 注入（restartEngine）——避免与 main 循环依赖（terminal.ts 先例）。
 
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { app, $, $btn, outputEl } from "./state";
+import { app, $, $btn, lazyEl, outputEl } from "./state";
 import { basename, codicon, relativePathRaw, setBusy, spinIcon as utilSpinIcon, SNAKE_SVG } from "./util";
 import { appendOutputLine } from "./output";
 import { gotoFromLink } from "./tracebackLink";
@@ -35,23 +35,25 @@ interface OutdatedInfo { name: string; version: string; latest_version: string; 
 export interface CreateVenvResult { output: string; python: string }
 
 // ---------- 域内 DOM ----------
+// P2-6（2026-09-29 review）：顶层快照改惰性（铁律 1，测试环境可 import）。
+// $btn 改用 lazyEl<HTMLButtonElement>（$btn 无惰性变体，按钮按 id 解析语义相同）。
 
-const statusInterpreterEl = $("status-interpreter");
-const envModalEl = $("env-modal");
-const envPackagesEl = $("env-packages");
-const envPkgInputEl = $("env-pkg-input") as HTMLInputElement;
-const envPkgFilterEl = $("env-pkg-filter") as HTMLInputElement;
-const envPkgCountEl = $("env-pkg-count");
-const envPkgUpgradeAllBtn = $btn("env-pkg-upgrade-all");
-const envPkgUninstallSelectedBtn = $btn("env-pkg-uninstall-selected");
+const statusInterpreterEl = lazyEl("status-interpreter");
+const envModalEl = lazyEl("env-modal");
+const envPackagesEl = lazyEl("env-packages");
+const envPkgInputEl = lazyEl<HTMLInputElement>("env-pkg-input");
+const envPkgFilterEl = lazyEl<HTMLInputElement>("env-pkg-filter");
+const envPkgCountEl = lazyEl("env-pkg-count");
+const envPkgUpgradeAllBtn = lazyEl<HTMLButtonElement>("env-pkg-upgrade-all");
+const envPkgUninstallSelectedBtn = lazyEl<HTMLButtonElement>("env-pkg-uninstall-selected");
 // 自定义解释器下拉（#2 决策 1=3b）：trigger + popover listbox + 创建流程的版本选择模态
-const interpTriggerEl = $btn("interp-trigger");
-const interpLabelEl = $("interp-trigger-label");
-const interpPopoverEl = $("interp-popover");
-const interpSelectEl = $("interp-select");
-const venvVersionModalEl = $("venv-version-modal");
-const venvVersionListEl = $("venv-version-list");
-const venvVersionHintEl = $("venv-version-hint");
+const interpTriggerEl = lazyEl<HTMLButtonElement>("interp-trigger");
+const interpLabelEl = lazyEl("interp-trigger-label");
+const interpPopoverEl = lazyEl("interp-popover");
+const interpSelectEl = lazyEl("interp-select");
+const venvVersionModalEl = lazyEl("venv-version-modal");
+const venvVersionListEl = lazyEl("venv-version-list");
+const venvVersionHintEl = lazyEl("venv-version-hint");
 // 原 env-pyproject-banner / env-pyproject-init 已退役（dep plan M3）：bare 引导横幅并入
 // dep-health-banner 四级优先级（§6.2 优先级 2），由 depHealthPanel.ts 渲染（动作仍是 init_pyproject）。
 
@@ -181,6 +183,9 @@ export function resetEnvPanelState(): void {
   lastPythons = [];
   hasWorkspaceVenv = false;
   closeInterp();
+  // P2（2026-09-30 审计）：面板开着时关工作区 → 此前只清包区 DOM 留下头部信息残留的
+  // 孤儿半清空面板。直接关闭模态（数据层已清，留着无意义且各按钮已失效）。
+  if (!envModalEl.classList.contains("hidden")) closeEnvPanel();
 }
 
 // ---------- 环境面板 ----------
@@ -1034,17 +1039,17 @@ export function initEnvPanel(deps: { restartEngine: () => Promise<void> }): void
 /** 环境域事件流接线：pip 与 toolchain 的流式输出（原 main init 内的四个 listen） */
 export async function initEnvPanelEvents(): Promise<void> {
   // 包安装事件（流式输出，确认安装后由 pip_install 逐行推送）
-  await listen<{ data: string }>("pip-stdout", (e) => {
+  await getCurrentWindow().listen<{ data: string }>("pip-stdout", (e) => {
     for (const line of e.payload.data.split("\n")) if (line) appendOutputLine(outputEl, line, "stdout", gotoFromLink, "env");
   });
-  await listen<{ data: string }>("pip-stderr", (e) => {
+  await getCurrentWindow().listen<{ data: string }>("pip-stderr", (e) => {
     for (const line of e.payload.data.split("\n")) if (line) appendOutputLine(outputEl, line, "stderr", gotoFromLink, "env");
   });
   // 工具链引导事件（Phase 4 第 4 步：uv/pyrefly 安装进度流式输出）
-  await listen<{ data: string }>("toolchain-stdout", (e) => {
+  await getCurrentWindow().listen<{ data: string }>("toolchain-stdout", (e) => {
     for (const line of e.payload.data.split("\n")) if (line) appendOutputLine(outputEl, line, "stdout", gotoFromLink, "env");
   });
-  await listen<{ data: string }>("toolchain-stderr", (e) => {
+  await getCurrentWindow().listen<{ data: string }>("toolchain-stderr", (e) => {
     for (const line of e.payload.data.split("\n")) if (line) appendOutputLine(outputEl, line, "stderr", gotoFromLink, "env");
   });
 }

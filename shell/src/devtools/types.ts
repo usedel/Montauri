@@ -45,6 +45,9 @@ export interface DevTool {
   category: string;
   /** codicon 图标名（如 "terminal" / "json"） */
   icon: string;
+  /** inline 变换入口显示名（manifest 的 inline.label 投影；null = 无 inline）。
+   *  v1.1：Ctrl+Shift+T 上下文感知——编辑器有选区时 picker 过滤为 inline 工具并直接执行。 */
+  inlineLabel: string | null;
   /** 打开工具：挂载 UI 到 host.root，返回清理句柄（可返回 null 表示无需清理） */
   mount(host: ToolHost): ToolInstance | void;
 }

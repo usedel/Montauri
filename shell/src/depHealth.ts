@@ -6,7 +6,7 @@
 // M2 扩展点：fs-changed 消费 / 终端完成摘要嗅探 / site-packages 级联都接到 rescan 入口。
 
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { app, $, outputEl } from "./state";
 import { appendOutputLine } from "./output";
 import { gotoFromLink } from "./tracebackLink";
@@ -563,8 +563,8 @@ export function handleTracebackLine(line: string): boolean {
 /** 接线 dep 域失效信号事件（main 的 init 调用）：watcher 的 dep-fs-changed / dep-env-changed。
  *  终端嗅探不经事件——termUi 的 term-data 分发直接调 sniffTerminalOutput（同 watchServiceUrlLine 先例）。 */
 export async function wireDepHealthEvents(): Promise<void> {
-  await listen<DepFileEvent[]>("dep-fs-changed", (e) => handleDepFsChanged(e.payload));
-  await listen("dep-env-changed", () => scheduleEnvCheck());
+  await getCurrentWindow().listen<DepFileEvent[]>("dep-fs-changed", (e) => handleDepFsChanged(e.payload));
+  await getCurrentWindow().listen("dep-env-changed", () => scheduleEnvCheck());
 }
 
 // ---------- M3：异常触达 toast（§4.7 / §5.5 步骤 2，会话去重） ----------

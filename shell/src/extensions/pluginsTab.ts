@@ -414,7 +414,8 @@ function renderPluginDetail(rec: PluginRecord): HTMLElement {
   logBox.className = "plugin-logs";
   const logTitle = document.createElement("div");
   logTitle.className = "plugin-logs-title";
-  logTitle.textContent = "日志（最近 50 条 · 插件经 host.log() 输出）";
+  // v1.1（§9.14）：日志同时落盘（跨重启可查），面板只展示本会话内存环形
+  logTitle.textContent = "日志（本会话最近 50 条 · 跨重启记录落盘于 logs/plugins/<id>.log）";
   logBox.appendChild(logTitle);
   const lines = rec.logs.slice(-50);
   if (lines.length === 0) {

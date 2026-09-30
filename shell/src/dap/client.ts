@@ -3,7 +3,8 @@
 // 与 lsp/client.ts 对称（id 自增 + Promise 表匹配响应 + 事件回调注册）。
 
 import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { type UnlistenFn } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { app } from "../state"; // B-3：justMyCode 开关真值（state 零依赖，无环）
 
 // ---------- 类型（DAP MVP 子集，§5.3） ----------
@@ -99,6 +100,18 @@ export type BreakpointKind = "plain" | "condition" | "log";
 let phase: DebugPhase = "idle";
 const phaseListeners: Array<(p: DebugPhase) => void> = [];
 
+// P1-11（2026-09-29 review）：会话身份——旧会话清理线程的 debug-exited（stop → 快速
+// 重启场景）无身份标识时会把新会话的 pending 全拒 + phase 踩成 exited。Rust 侧的
+// debug-started / debug-exited 事件均携带会话 seq；本会话 seq 在收到 debug-started 时
+// 记录，迟到的旧事件（seq 不匹配 / 本会话尚未 started）直接忽略。
+let sessionSeq: number | null = null;
+
+/** P1-13：在 runDebug 首个 await 前同步置 starting（门控提前），失败路径由调用方复位。 */
+export function markStarting(): void {
+  sessionSeq = null;
+  setPhase("starting");
+}
+
 export function onPhase(fn: (p: DebugPhase) => void): void {
   phaseListeners.push(fn);
   fn(phase);
@@ -149,8 +162,12 @@ export function getActiveFrameId(): number | null {
 
 // ---------- 请求关联（id 自增 + Promise 表） ----------
 
+// P2-3（2026-09-29 review）：单序号域——原实现有 nextRequestId（pending 表键）与
+// nextMsgSeq（实际出站 seq）两个计数器，响应按 request_seq（= msgSeq）查以 id 为键
+// 的表，两者数值恒等纯属「每次请求各自 +1」的巧合。任何路径单独消耗其一（只发消息
+// 不建 pending 或反之）都会让全部响应静默错配。删掉 nextMsgSeq，id 直接作出站 seq
+// （Rust 侧 dap_send_request 的出站 seq 设计，debugpy 以 request_seq 回显）。
 let nextRequestId = 1;
-let nextMsgSeq = 1;
 const pending = new Map<number, { resolve: (v: any) => void; reject: (e: any) => void; timer: ReturnType<typeof setTimeout> }>();
 
 /** 请求超时（ms）：正常 DAP 请求远小于此；debugpy 慢启动给足余量 */
@@ -164,16 +181,15 @@ function settlePending(id: number, fn: (p: { resolve: (v: any) => void; reject: 
   fn(p);
 }
 
-/** 发送 DAP 请求，返回 Promise（响应按 request_seq 关联） */
+/** 发送 DAP 请求，返回 Promise（响应按 request_seq 关联；id 即出站 seq，单序号域） */
 export function request(command: string, arguments_: unknown): Promise<any> {
   const id = nextRequestId++;
-  const msgSeq = nextMsgSeq++;
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       settlePending(id, (p) => p.reject(new Error(`DAP 请求超时（${DAP_REQUEST_TIMEOUT_MS / 1000}s）: ${command}`)));
     }, DAP_REQUEST_TIMEOUT_MS);
     pending.set(id, { resolve, reject, timer });
-    invoke("dap_send_request", { id: msgSeq, method: command, params: arguments_ ?? {} }).catch((e) => {
+    invoke("dap_send_request", { id, method: command, params: arguments_ ?? {} }).catch((e) => {
       settlePending(id, (p) => p.reject(e));
     });
   });
@@ -208,7 +224,7 @@ export function disposeDapListeners(): void {
 export async function wireDapEvents(): Promise<void> {
   if (unlistenMessage) return;
 
-  unlistenMessage = await listen<DapMessage>("dap-message", (e) => {
+  unlistenMessage = await getCurrentWindow().listen<DapMessage>("dap-message", (e) => {
     const msg = e.payload;
     if (msg.type === "response") {
       // 响应：按 Rust 侧回传的 request_seq（= 我们发请求时的 msgSeq）关联
@@ -230,8 +246,15 @@ export async function wireDapEvents(): Promise<void> {
     }
   });
 
-  // 会话结束（debug_stop / debugpy 自然退出 / 崩溃）：拒绝全部 pending + 状态机复位
-  unlistenExited = await listen<{ reason: string }>("debug-exited", () => {
+  // 会话结束（debug_stop / debugpy 自然退出 / 崩溃）：拒绝全部 pending + 状态机复位。
+  // P1-11：Rust 侧事件携带会话 seq（debug-exited payload.seq）——与本会话 seq 比对，
+  // 不匹配说明是旧会话的迟到事件（stop → 快速 F5 重启场景），新会话不受影响。
+  // 本会话尚未收到 debug-started（sessionSeq=null）时也忽略（starting 早段的迟到事件）。
+  unlistenExited = await getCurrentWindow().listen<{ reason: string; seq?: number }>("debug-exited", (e) => {
+    const evSeq = e.payload?.seq;
+    if (typeof evSeq === "number") {
+      if (sessionSeq === null || evSeq !== sessionSeq) return; // 旧会话迟到事件
+    }
     const err = new Error("调试会话已结束");
     for (const [, p] of pending) {
       clearTimeout(p.timer);
@@ -241,7 +264,11 @@ export async function wireDapEvents(): Promise<void> {
     setPhase("exited");
   });
 
-  unlistenStarted = await listen<{ port: number; pid: number | null }>("debug-started", () => {
+  unlistenStarted = await getCurrentWindow().listen<{ port: number; pid: number | null; seq?: number }>("debug-started", (e) => {
+    // P1-11：记录本会话身份（Rust 侧会话 seq），后续 debug-exited 按此比对。
+    if (typeof e.payload?.seq === "number") {
+      sessionSeq = e.payload.seq;
+    }
     setPhase("starting");
   });
 }
@@ -269,6 +296,9 @@ export async function startDebug(
   pushBreakpoints: () => Promise<void>,
 ): Promise<void> {
   await wireDapEvents();
+  // markStarting 已在 runDebug 侧提前调用（P1-13）；此处兜底（直调 startDebug 的测试 /
+  // 其他调用方）：sessionSeq 清空 + 置 starting。
+  sessionSeq = null;
   setPhase("starting");
   await invoke("debug_start", { path, workspaceRoot });
 
@@ -452,7 +482,8 @@ export async function dapStepOut(threadId: number): Promise<void> {
   await request("stepOut", { threadId });
 }
 
-/** 状态复位（debug-exited 后 UI 清场用；不触碰后端） */
+/** 状态复位（debug-exited 后 UI 清场用；不触碰后端）。P1-11：同时清会话身份。 */
 export function resetDebugState(): void {
+  sessionSeq = null;
   setPhase("idle");
 }

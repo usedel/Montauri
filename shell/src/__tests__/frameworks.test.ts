@@ -5,8 +5,6 @@ import {
   fullEndpointUrl,
   joinRoute,
   presetConfigured,
-  pydanticEngineHintText,
-  shouldSuggestPydanticEngine,
   type FrameworkPreset,
 } from "../frameworks";
 
@@ -62,18 +60,6 @@ describe("frameworks（框架探针表 TS 侧）", () => {
     });
     expect(presetConfigured({ entry: { kind: "script", target: "manage.py" } }, django)).toBe(true);
     expect(presetConfigured({ entry: { kind: "script", target: "main.py" } }, django)).toBe(false);
-  });
-
-  it("shouldSuggestPydanticEngine：仅 pyrefly（含缺省）时提示", () => {
-    expect(shouldSuggestPydanticEngine(undefined)).toBe(true);
-    expect(shouldSuggestPydanticEngine("pyrefly")).toBe(true);
-    expect(shouldSuggestPydanticEngine("basedpyright")).toBe(false);
-  });
-
-  it("pydanticEngineHintText：说明缺口并指向目标引擎", () => {
-    const t = pydanticEngineHintText();
-    expect(t).toContain("basedpyright");
-    expect(t).toContain("改名传播");
   });
 
   it("joinRoute：斜杠归一 + 空段跳过 + 全空根路径（F1）", () => {

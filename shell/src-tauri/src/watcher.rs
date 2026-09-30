@@ -8,10 +8,11 @@ use notify_debouncer_mini::notify::RecursiveMode;
 use notify_debouncer_mini::{new_debouncer, DebouncedEvent, Debouncer};
 use serde::Serialize;
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::LazyLock;
 use tauri::{AppHandle, Emitter};
 
-use crate::util::{opencharm_home, unpoison};
+use crate::per_window::PerWindow;
+use crate::util::opencharm_home;
 
 /// dep 域失效信号（M2，docs/dep_health_dev_plan.md §4.4）：变更文件的相对路径 + 分层分类。
 /// 与 `fs-changed`（只发父目录，服务树/git 增量刷新）分开——depHealth 需要**文件级**信息
@@ -31,7 +32,7 @@ const WATCH_IGNORED: [&str; 6] = [".git", ".venv", "node_modules", "__pycache__"
 const WATCH_IGNORED_PREFIXES: [&str; 1] = ["__opencharm_selection__"];
 
 /// 全局 watcher 实例（同一时刻只监听一个工作区）
-static WATCHER: Mutex<Option<Debouncer<notify_debouncer_mini::notify::RecommendedWatcher>>> = Mutex::new(None);
+static WATCHER: LazyLock<PerWindow<Debouncer<notify_debouncer_mini::notify::RecommendedWatcher>>> = LazyLock::new(PerWindow::new);
 
 /// 目录名是否在监听忽略清单（dep_health_dev_plan §4.1：依赖探针的 .py 遍历复用同一口径，
 /// 剔除 .venv/.git 等，避免把虚拟环境内容扫进代码层）
@@ -106,12 +107,14 @@ fn is_site_packages_signal(path: &Path) -> bool {
 
 /// 启动文件监听（停止旧监听 → 新建 debouncer → 监听工作区根目录）
 #[tauri::command]
-pub fn watch_start(app: AppHandle, root: String) -> Result<(), String> {
-    // 先停止旧的
-    watch_stop_impl();
+pub fn watch_start(app: AppHandle, window: tauri::WebviewWindow, root: String) -> Result<(), String> {
+    let wid = window.label().to_string();
+    // 先停止本窗口旧监听
+    watch_stop_impl(&wid);
 
     let root_path = Path::new(&root).to_path_buf();
     let app_handle = app.clone();
+    let wid_cb = wid.clone();
     let root_for_cb = root_path.clone();
 
     let mut debouncer = new_debouncer(
@@ -155,13 +158,13 @@ pub fn watch_start(app: AppHandle, root: String) -> Result<(), String> {
                 }
             }
             if !dirs.is_empty() {
-                let _ = app_handle.emit("fs-changed", dirs);
+                let _ = app_handle.emit_to(&wid_cb, "fs-changed", dirs);
             }
             if !dep_files.is_empty() {
-                let _ = app_handle.emit("dep-fs-changed", dep_files);
+                let _ = app_handle.emit_to(&wid_cb, "dep-fs-changed", dep_files);
             }
             if env_changed {
-                let _ = app_handle.emit("dep-env-changed", true);
+                let _ = app_handle.emit_to(&wid_cb, "dep-env-changed", true);
             }
         },
     )
@@ -178,21 +181,25 @@ pub fn watch_start(app: AppHandle, root: String) -> Result<(), String> {
         let _ = debouncer.watcher().watch(&lt_dir, RecursiveMode::NonRecursive);
     }
 
-    let mut guard = unpoison(WATCHER.lock());
-    *guard = Some(debouncer);
+    WATCHER.insert(&wid, debouncer);
     Ok(())
 }
 
-/// 停止文件监听
+/// 停止本窗口文件监听
 #[tauri::command]
-pub fn watch_stop() -> Result<(), String> {
-    watch_stop_impl();
+pub fn watch_stop(window: tauri::WebviewWindow) -> Result<(), String> {
+    let wid = window.label().to_string();
+    watch_stop_impl(&wid);
     Ok(())
 }
 
-fn watch_stop_impl() {
-    let mut guard = unpoison(WATCHER.lock());
-    *guard = None; // drop debouncer → 自动停止监听
+pub(crate) fn watch_stop_impl(wid: &str) {
+    WATCHER.remove(wid); // drop debouncer → 自动停止监听
+}
+
+/// CR-14：应用退出清理——停止全部窗口的文件监听。
+pub(crate) fn watch_stop_all_for_exit() {
+    WATCHER.drain_all(); // drop 全部 debouncer → 自动停止监听
 }
 
 #[cfg(test)]

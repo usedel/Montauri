@@ -465,7 +465,11 @@ export function wireDebugViewEvents(): void {
       dap.setActiveFrameId(null); // B-8：会话结束清帧镜像
       activeVars = [];
       activeScopeRef = 0;
-      tempBreakpoint = null;
+      // P2-1（2026-09-29 review）：会话结束时 Run to Cursor 的临时断点若未被命中
+      //（用户 Shift+F5 / 脚本自然退出 / 崩溃），此前只丢引用不删表项——该断点残留
+      // 在断点表 + breakpoints.json（跨会话持久化 + pushAllBreakpoints 重放），
+      // 用户从未主动设置过它。改为真正撤掉（clearTempBreakpoint 幂等：无临时断点时 no-op）。
+      clearTempBreakpoint();
       clearWatchesValues(); // B-1：清监视值（表达式保留）
       expandedRefs.clear();
       clearInlineValues();

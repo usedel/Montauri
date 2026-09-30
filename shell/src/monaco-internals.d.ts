@@ -31,3 +31,40 @@ declare module "monaco-editor/esm/vs/editor/standalone/browser/standaloneService
   /** monaco standalone 的服务定位器（官方公开 API，但 npm 包未带 .d.ts） */
   export const StandaloneServices: { get(identifier: unknown): unknown };
 }
+
+// ---------- 编辑器右键「变换选区 ▸」子菜单（extensions/inlineMenu.ts，P2 2026-09-30） ----------
+// 同版本锁纪律：声明与实际 js 对齐，monaco 升级走回归 CI。
+
+declare module "monaco-editor/esm/vs/platform/actions/common/actions" {
+  /** 菜单 id（MenuRegistry 全局注册表键）；new 实例即注册一个新菜单容器 */
+  export class MenuId {
+    constructor(id: string);
+    readonly id: string;
+  }
+  export namespace MenuId {
+    /** 编辑器右键菜单容器 */
+    export const EditorContext: MenuId;
+  }
+  /** 菜单注册表：appendMenuItem 返回 revoke disposable */
+  export const MenuRegistry: {
+    appendMenuItem(id: MenuId, item: unknown): { dispose(): void };
+  };
+}
+
+declare module "monaco-editor/esm/vs/platform/contextkey/common/contextkey" {
+  /** 上下文键表达式（when 子句）；deserialize 解析 "a == b" 串 */
+  export class ContextKeyExpr {
+    static deserialize(serialized: string | undefined): ContextKeyExpr | undefined;
+    static equals(key: string, value: unknown): ContextKeyExpr;
+  }
+}
+
+declare module "monaco-editor/esm/vs/platform/commands/common/commands" {
+  /** 命令注册表（MenuItemAction.run → commandService.executeCommand(id)） */
+  export const CommandsRegistry: {
+    registerCommand(
+      id: string,
+      handler: (accessor: unknown, ...args: unknown[]) => unknown,
+    ): { dispose(): void };
+  };
+}

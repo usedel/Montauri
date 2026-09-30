@@ -1,6 +1,8 @@
 """观测聚合器：monitor 回调的最小出口，运行期零 I/O（采集无感的关键）。"""
 from __future__ import annotations
 
+import threading
+
 
 class ObservationSink:
     """内存聚合观测数据；finalize 时由 store 批量写入 SQLite。
@@ -13,12 +15,17 @@ class ObservationSink:
     - excs:      (fid, 异常类型标签) -> 次数
     """
 
-    __slots__ = ("funcs", "_next_fid", "hits", "args", "rets", "excs",
+    __slots__ = ("funcs", "_next_fid", "_fid_lock", "hits", "args", "rets", "excs",
                  "arg_seen", "ret_seen")
 
     def __init__(self) -> None:
         self.funcs: dict[tuple[str, str, int], int] = {}
         self._next_fid = 0
+        # P1-14（2026-09-29 review）：func_id 的 get+赋值非原子——多线程首次并发调用
+        # 同一函数时两人拿到相同 _next_fid，后写者覆盖 funcs[key]，先返回的 fid 成孤儿，
+        # 落库时 fid_map[mf] KeyError → save 抛异常 → 整次观测丢失。冷路径（新函数首见）
+        # 加双重检查锁；热路径（get 命中）无锁，开销红线不受影响。
+        self._fid_lock = threading.Lock()
         self.hits: dict[int, int] = {}
         self.args: dict[tuple[int, str, str, str | None], int] = {}
         self.rets: dict[tuple[int, str, str | None], int] = {}
@@ -31,9 +38,12 @@ class ObservationSink:
         key = (filename, qualname, lineno)
         fid = self.funcs.get(key)
         if fid is None:
-            fid = self._next_fid
-            self._next_fid += 1
-            self.funcs[key] = fid
+            with self._fid_lock:
+                fid = self.funcs.get(key)
+                if fid is None:
+                    fid = self._next_fid
+                    self._next_fid += 1
+                    self.funcs[key] = fid
         return fid
 
     def add_hit(self, fid: int) -> None:

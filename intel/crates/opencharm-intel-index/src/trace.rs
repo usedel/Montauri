@@ -129,9 +129,12 @@ pub struct TraceIndex {
     by_last_segment: HashMap<String, Vec<usize>>,
     /// CR-17：qualname 倒数第二段 → 函数下标（符号补全 parent 段链匹配的粗筛）。
     by_second_last_segment: HashMap<String, Vec<usize>>,
-    /// (type_label, 函数下标) → 该函数内此类型观测的 (是否在 rets, 观测下标) 列表。
-    /// args 与 rets 合并登记（观测来源用 flag 区分，消费端按需过滤 stale 函数）。
-    by_type_label: HashMap<(String, usize), Vec<(bool, usize)>>,
+    /// A-P2-1（2026-09-29 review）：type_label → 函数下标 → 观测定位列表（args+rets 合并，
+    /// 观测来源用 flag 区分，消费端按需过滤 stale）。原结构键为 `(type_label, fid)` 复合
+    /// 元组，查询却要线性遍历整个 map 逐键字符串比较——CR-17 声称的加速对 type_label
+    /// 维度未落地（每次补全/hover/jmespath 诊断全量扫描 20-30 万键）。改为两层嵌套
+    /// map，查询降为一次哈希查找。
+    by_type_label: HashMap<String, HashMap<usize, Vec<(bool, usize)>>>,
 }
 
 impl TraceIndex {
@@ -214,20 +217,26 @@ impl TraceIndex {
             }
         }
 
-        // CR-17：type_label 倒排——(type_label, 函数下标) → 观测定位列表（args+rets 合并）。
+        // CR-17：type_label 倒排——type_label → 函数下标 → 观测定位列表（args+rets 合并）。
         // members_for_type / chain_keys / first_shape_node 原本全表扫描 × 每观测重复
         // serde_json 解析，现在只遍历命中类型的观测。
-        let mut by_type_label: HashMap<(String, usize), Vec<(bool, usize)>> = HashMap::new();
+        // A-P2-1：两层嵌套（type_label → fid → 观测），查询一次哈希命中（原复合元组键
+        // 仍要全 map 线性比较，倒排未生效）。
+        let mut by_type_label: HashMap<String, HashMap<usize, Vec<(bool, usize)>>> = HashMap::new();
         for (i, f) in functions.iter().enumerate() {
             for (j, obs) in f.args.iter().enumerate() {
                 by_type_label
-                    .entry((obs.type_label.clone(), i))
+                    .entry(obs.type_label.clone())
+                    .or_default()
+                    .entry(i)
                     .or_default()
                     .push((false, j));
             }
             for (j, obs) in f.rets.iter().enumerate() {
                 by_type_label
-                    .entry((obs.type_label.clone(), i))
+                    .entry(obs.type_label.clone())
+                    .or_default()
+                    .entry(i)
                     .or_default()
                     .push((true, j));
             }
@@ -370,22 +379,23 @@ impl TraceIndex {
 
     /// CR-17：按 type_label 拉出全部观测（args+rets 合并）。
     /// 返回迭代器元素：`(函数, 观测, 是否来自 rets)`；消费端自行过滤 stale。
+    /// A-P2-1：一次哈希查找（原实现线性遍历整个 map 逐键比较）。
     pub fn observations_of_type<'a>(
         &'a self,
         type_label: &'a str,
     ) -> impl Iterator<Item = (&'a Function, &'a TypeObs, bool)> + 'a {
         self.by_type_label
-            .iter()
-            .filter_map(move |((label, fi), locs)| {
-                (label.as_str() == type_label).then(|| {
+            .get(type_label)
+            .into_iter()
+            .flat_map(move |per_fid| {
+                per_fid.iter().flat_map(move |(&fi, locs)| {
                     locs.iter().filter_map(move |&(is_ret, oi)| {
-                        let f = self.functions.get(*fi)?;
+                        let f = self.functions.get(fi)?;
                         let obs = if is_ret { f.rets.get(oi)? } else { f.args.get(oi)? };
                         Some((f, obs, is_ret))
                     })
                 })
             })
-            .flatten()
     }
 
     /// CR-17：符号补全迭代入口——只遍历「最后段以 prefix 开头」的函数

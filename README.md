@@ -97,6 +97,11 @@ powershell -File .\build-release.ps1
 
 排查线上问题：设置面板 → 日志分类 → 调高级别到 `debug`，或点「打开日志目录」直接定位日志文件。
 
+## 已知边界
+
+- **Pydantic 构造校验**：默认引擎 pyrefly 不对 `BaseModel` 子类的构造调用做静态红线；OpenCharm 以自研第四桶诊断（`opencharm-pydantic`）补齐**类型错 / 缺失必填 / 未知字段**三类检查（设置 → Pydantic 构造校验，默认开）。检查为轻量文本解析（非完整类型系统）：跨文件继承链不合并、多行构造调用跳过、复杂表达式跳过；alias 字段按别名放行。实测与上游跟踪见 [`bench/reports/pydantic-engine-probe.md`](bench/reports/pydantic-engine-probe.md)。
+- **Pydantic 字段重命名**：pyrefly 对此类字段 references=0（只改声明处）；OpenCharm 已自研**改名传播补充**——rename 时扫描 `Model(field=` 构造调用点并入编辑集（引擎结果优先去重，扫描 2s 超时自动降级）。basedpyright 引擎下两者均由引擎自身覆盖，自研层自动旁路。计划与实施记录见 [`docs/pyrefly_pydantic_support_plan.md`](docs/pyrefly_pydantic_support_plan.md)。
+
 ## 当前状态
 
 - 项目阶段：**Phase 1 / Phase 2 / Phase 3（opencharm-intel）均已交付**；当前进入 **Phase 4（持续打磨）**，进度见 `docs/python_ide_dev_plan_v2.md` §7。

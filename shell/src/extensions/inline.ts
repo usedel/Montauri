@@ -1,5 +1,5 @@
 // inline 变换管线（PR-2，plugin_system_design §9.15）：选中 → 变换 → 原地替换 → 撤销 toast。
-// 入口：命令面板「工具: <inline.label>」/ 编辑器右键「变换选区 ▸ <label>」（main.ts 接线）。
+// 入口：命令面板「工具: <inline.label>」（main.ts）/ 编辑器右键「变换选区 ▸ <label>」（inlineMenu.ts，P2 落地）。
 
 import { toast } from "../toast";
 import { createInlineHost, type FacadeDeps, type InlineHost } from "./facade";

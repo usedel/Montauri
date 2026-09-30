@@ -143,3 +143,18 @@ def test_shape_elem_sample_cap():
     v = [{"x": 1} for _ in range(1000)] + [{"late_only": 1}]
     obj = json.loads(shape_fingerprint(v))
     assert set(obj["e"]["k"]) == {"x"}  # late_only 在采样上限之外，被省略
+
+
+def test_set_union_order_stable():
+    """回归（P1-15）：set/frozenset 的类型联合排序后拼接——迭代序受
+    PYTHONHASHSEED 影响是进程级随机源，必须排序保证跨进程产出相同字符串。"""
+    assert compact_type({1, "a", 2.0}) == "set[float|int|str]"
+    assert compact_type(frozenset({1, "a", 2.0})) == "frozenset[float|int|str]"
+
+
+def test_shape_list_of_dict_key_order_stable():
+    """回归（P1-15）：同构 list-of-dict 因构造路径键序不同（先 {"b"} 后 {"a"} vs 反之）
+    不得分裂出不同指纹——顶层 list 序列化补 sort_keys=True。"""
+    a = shape_fingerprint([{"b": 1, "a": 2}, {"c": 3}])
+    b = shape_fingerprint([{"c": 3}, {"a": 2, "b": 1}])
+    assert a is not None and a == b

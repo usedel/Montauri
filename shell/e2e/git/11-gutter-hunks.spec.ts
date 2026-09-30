@@ -57,9 +57,13 @@ test("E2E-12：hunk 级暂存——只暂存光标所在块", async ({ page }) =
     .last(); // 两栏都可能渲染该文本？不会——左栏是旧文本 line1，只有右栏有 -CHANGED
   await rightChangedLine.click();
 
-  // 「+块」暂存该块（严格断言 success——info=光标不在块内也算失败）
+  // 「+块」暂存该块（严格断言 success——info=光标不在块内也算失败）。
+  // 注：环境提示 toast（「未检测到 Python 环境…」，maybePromptVenv 后台探测完成后
+  // 弹出，会话去重）会与本动作 toast 竞争 .first()——按文案过滤后再断言。
   await page.locator("#git-diff-hunk-stage").click();
-  const toastEl = page.locator(".toast").first();
+  const toastEl = page
+    .locator(".toast", { hasNotText: /未检测到 Python 环境/ })
+    .first();
   await expect(toastEl).toBeVisible({ timeout: 10_000 });
   const toastText = (await toastEl.textContent()) ?? "";
   test.info().annotations.push({ type: "toast", description: toastText });

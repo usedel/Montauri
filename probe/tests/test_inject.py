@@ -155,3 +155,44 @@ def test_inject_old_python_skips_gracefully(tmp_path, monkeypatch):
     # 未落库（无 trace db 生成）
     dbs = list((tmp_path / "home" / "traces").glob("*.db"))
     assert dbs == []
+
+
+def test_inject_run_id_dedups_duplicate_summary(tmp_path):
+    """TD-020：同一 run_id 的父子进程（相同 argv[0]）各自触发 atexit._finalize 时，
+    只落库一次 + 只打印一次摘要（消除重复摘要与观测翻倍）。"""
+    script = tmp_path / "app.py"
+    script.write_text(
+        "import os, subprocess, sys\n"
+        "def work():\n"
+        "    return list(range(3))\n"
+        "work()\n"
+        "if os.environ.get('OC_NO_RECURSE') != '1':\n"
+        "    subprocess.run([sys.executable, os.path.abspath(sys.argv[0])],\n"
+        "                   env={**os.environ, 'OC_NO_RECURSE': '1'})\n"
+        "print('done')\n",
+        encoding="utf-8",
+    )
+    env = _env(tmp_path)
+    env["OPENCHARM_PROBE_RUN_ID"] = "run-dedup-1"
+
+    r = subprocess.run(
+        [sys.executable, "-u", str(script)],
+        capture_output=True, text=True, env=env,
+        encoding="utf-8", errors="replace",
+    )
+    assert r.returncode == 0, r.stderr
+    assert r.stderr.count("✓") == 1, f"摘要应只打印一次，实际 stderr:\n{r.stderr}"
+
+    dbs = list((tmp_path / "home" / "traces").glob("*.db"))
+    assert len(dbs) == 1
+    conn = sqlite3.connect(dbs[0])
+    try:
+        rows = conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
+        assert rows == 1, conn.execute("SELECT id, script FROM runs").fetchall()
+        # work() 只被采集一次（同 run_id 的子进程被去重，不再重复累加 hits）
+        work_hits = conn.execute(
+            "SELECT hits FROM functions WHERE qualname='work'").fetchone()
+        assert work_hits is not None and work_hits[0] == 1, \
+            f"work hits 应为 1，实际 {work_hits}"
+    finally:
+        conn.close()

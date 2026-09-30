@@ -8,7 +8,9 @@
 - 之后采集完全靠局部事件（OR 语义：全局+局部同开不双触发）。
   局部事件只对项目内函数派发回调，库代码零派发——这是开销达标的核心。
 - 自适应关窗：连续 _QUIET_CLOSE 次派发无新函数发现即提前关窗
-  （短脚本不再傻等时间窗口）；周期性重开窗口捕获新函数。
+  （短脚本不再傻等时间窗口）。窗口重开由「项目函数再度活跃」驱动
+  （P2-8：原 docstring 承诺的周期性重开从未实现，`_next_win` 是死字段——已清理；
+  `<module>` 返回后才首次调用的函数（atexit/延迟回调）确实漏采，属已知取舍）。
 
 实测确认的语义（2026-08-21，Python 3.13.7）：
 - PY_START 回调内 sys._getframe(1) 即被监控函数帧，f_locals 已含实参+默认值；
@@ -52,7 +54,6 @@ _QUIET_CLOSE = 2000          # 连续 N 次派发无新函数即提前关窗
 # 要求静默关窗距 start() 至少本时长：库噪音在启动瞬间涌完，而主脚本的 <module>
 # 帧一旦开始执行，_active > 0 会接管保窗——地板只挡「启动噪音」，不影响正常关窗。
 _MIN_DISCOVERY_FLOOR = 0.25  # 秒
-_REDISCOVERY_INTERVAL = 5.0  # 窗口关闭后多久重开一次（秒）
 
 
 class Monitor:
@@ -68,11 +69,16 @@ class Monitor:
         self._armed: set[types.CodeType] = set()          # 已开局部事件的 code
         self._muted: set[types.CodeType] = set()          # 超限静音的 code
         self._own_files = _own_source_files()
+        # P2-4（2026-09-29 review）：filename 归一化缓存（code → 归一化 fid 键）。
+        # func_id 的入库键此前存原始 co_filename——Windows 下大小写/分隔符变体
+        #（f:/proj/app.py vs F:\Proj\app.py）会让同函数跨运行分裂多行（project_hash
+        # 已在 store 侧修过同类问题，函数级漏网）。realpath+normcase 成本高，
+        # 必须在 code 级缓存（回调热路径只查 dict）。
+        self._code_fid_key: dict[types.CodeType, tuple[str, str, int]] = {}
         self._include = tuple(cfg.include_modules or ())  # 白名单 glob（空 = 不启用）
         self._exclude = tuple(cfg.exclude_modules or ())  # 黑名单 glob（优先于白名单）
         # 发现窗口状态
         self._win_until = 0.0        # 当前窗口关闭时刻（perf_counter）
-        self._next_win = 0.0         # 下次窗口开启时刻
         self._in_window = False
         self._quiet = 0              # 连续无新函数的派发计数
         self._win_opened_at = 0.0    # 当前窗口开启时刻（静默关窗的时间地板基准）
@@ -132,7 +138,6 @@ class Monitor:
         now = time.perf_counter()
         self._win_until = now + _DISCOVERY_WINDOW
         self._win_opened_at = now
-        self._next_win = self._win_until + _REDISCOVERY_INTERVAL
         self._in_window = True
         self._quiet = 0
         E = sys.monitoring.events
@@ -174,12 +179,10 @@ class Monitor:
             # 推进窗口也拦不住（时间条件早满足、静默条件永远不满足），节流失效
             # 退化成 O(派发数×栈深)（实测 bench 60004 次派发跑出 57999 次栈回溯）。
             self._win_until = now + _DISCOVERY_WINDOW
-            self._next_win = self._win_until + _REDISCOVERY_INTERVAL
             self._quiet = 0
             return
         sys.monitoring.set_events(self._tid, sys.monitoring.events.RAISE)
         self._in_window = False
-        self._next_win = now + _REDISCOVERY_INTERVAL
 
     def _sync_active(self) -> int:
         """从调用栈精确重算活跃项目函数帧数，用于修复 _active 的计数漂移。"""
@@ -212,8 +215,7 @@ class Monitor:
                 return None
             if code in self._muted:
                 return None
-            fid = self._sink.func_id(code.co_filename, code.co_qualname,
-                                     code.co_firstlineno)
+            fid = self._fid(code)
             if self._sink.over_limit(fid, self._cfg.max_calls_per_func):
                 # 高频降采样：静音并清局部事件（此后零派发开销）
                 self._mute(code)
@@ -231,8 +233,7 @@ class Monitor:
         # 非窗口期：局部事件路径（仅项目内函数会走到这里）
         if code in self._muted:
             return None
-        fid = self._sink.func_id(code.co_filename, code.co_qualname,
-                                 code.co_firstlineno)
+        fid = self._fid(code)
         if self._sink.over_limit(fid, self._cfg.max_calls_per_func):
             self._mute(code)
             return None
@@ -254,6 +255,19 @@ class Monitor:
             except ValueError:
                 pass
             self._armed.discard(code)
+
+    def _fid(self, code: types.CodeType) -> int:
+        """按归一化 filename 取函数 id（P2-4：code 级缓存，热路径零 realpath）。"""
+        key = self._code_fid_key.get(code)
+        if key is None:
+            fn = code.co_filename
+            try:
+                fn = os.path.normcase(os.path.normpath(fn))
+            except (OSError, ValueError):
+                pass
+            key = (fn, code.co_qualname, code.co_firstlineno)
+            self._code_fid_key[code] = key
+        return self._sink.func_id(*key)
 
     @staticmethod
     def _glob_match(rel: str, patterns: tuple[str, ...]) -> bool:
@@ -283,8 +297,7 @@ class Monitor:
 
     def _on_return(self, code: types.CodeType, offset: int, retval):
         self._active = max(0, self._active - 1)
-        fid = self._sink.func_id(code.co_filename, code.co_qualname,
-                                 code.co_firstlineno)
+        fid = self._fid(code)
         if not self._sink.ret_over(fid, self._cfg.max_type_obs_per_site):
             self._sink.add_ret(fid, compact_type(retval, self._cfg.max_container_depth,
                                                  self._cfg.max_union_types,
@@ -300,8 +313,7 @@ class Monitor:
             self._code_ok[code] = ok
         if not ok:
             return None
-        fid = self._sink.func_id(code.co_filename, code.co_qualname,
-                                 code.co_firstlineno)
+        fid = self._fid(code)
         self._sink.add_exc(fid, type_label(type(exc)))
         return None
     # -- 内部 -------------------------------------------------------------

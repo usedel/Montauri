@@ -310,7 +310,8 @@ type InlineHost = BaseHost;
 | UUID 生成 | 生成 | 面板（插入） | v1 新增 | 纯输出型，验证非 inline 工具形态 |
 | JSONPath 提取器 | 提取 | 面板 | 现有迁移 | 已存在，迁为内置插件 |
 
-> v1.1 备选（不进 v1）：**正则测试**（优先做 Python `re` 语义——JS `RegExp` 与 Python `re` 语义不一致，直接 JS 实现会误导 Python 用户；届时需补 kit 高亮原语 + Python 桥）、进制转换、HTML 实体、Unicode ⇄ 中文、大小写转换、字数统计、排序去重、颜色转换、文本 Diff、密码生成、Lorem ipsum。
+> v1.1 备选（不进 v1）：**正则测试**（已由库支持 PR-2 以真实 `re` 引擎交付）、进制转换、HTML 实体、Unicode ⇄ 中文、大小写转换、字数统计、排序去重、颜色转换、文本 Diff、密码生成、Lorem ipsum。
+> **v1.1 首批落地（2026-09-30）**：上述清单除正则测试（另行交付）与 Lorem ipsum 外的 **9 个工具**已全部内置（`builtin/textfns.ts` 纯函数库 + 各工具模块），4 个提供 inline 入口。
 > 预置 category 中「文本」「其他」v1 暂未被内置工具使用，留给第三方与 v1.1。
 
 ### 9.8 菜单分类与入口一致性
@@ -338,7 +339,7 @@ type InlineHost = BaseHost;
 
 - **Tab → 工具选择器（picker）**：面板 header 只显示当前工具（图标 + 名称 + ▾），点击弹出搜索式 picker（复用 `quickOpen.ts` 的 `fuzzyScore` + 按 category 分组 + 最近使用置顶）。工具再多也不溢出。
 - **实例缓存（带 LRU 上限）**：`Map<toolId, { instance, rootEl }>`，切换时 hide/show 而非 destroy/create，保住输入状态（小工具高频「同一段文本试完 base64 试 md5」场景）。**缓存设上限（常驻 ≤5），超出按 LRU dispose 最久未用实例**；面板关闭则全部 dispose + 清缓存。
-- **就地变换入口**：选中文本 → 命令面板搜 `<inline.label>` 或编辑器右键「变换选区 ▸」→ 原地替换 → toast 带「撤销」。无需打开面板，零上下文切换（对齐 JetBrains Encode/Decode 手感）。`Ctrl+Shift+T` 专用于开面板 picker、不触发 inline，避免歧义；上下文感知变体（有选区时 picker 过滤为 inline 工具）留 v1.1。
+- **就地变换入口**：选中文本 → 命令面板搜 `<inline.label>` 或编辑器右键「变换选区 ▸」→ 原地替换 → toast 带「撤销」。无需打开面板，零上下文切换（对齐 JetBrains Encode/Decode 手感）。`Ctrl+Shift+T` 专用于开面板 picker、不触发 inline，避免歧义；上下文感知变体（有选区时 picker 过滤为 inline 工具）**已落地（v1.1，2026-09-30）**：有选区时 picker 进入 inline 模式——只列选区变换工具（提示条说明语义），选中**直接执行变换**（不开面板）；搜索词把 inline 工具滤没时回退全量工具（行为随渲染态定死，回退项走面板模式）。手动入口（header 点击）恒 normal 模式。
 - **命令面板注册**：`buildQuickOpenActions()` 遍历 registry，命名统一为「工具: \<title\>」（面板工具）与「工具: \<inline.label\>」（inline 工具），前缀一致、可被 `工具:` 一搜即达。
 
 ### 9.10 Python 作者展望（不阻塞 v1）
@@ -489,7 +490,7 @@ interface PluginRecord {
 - 停用/启用 → 写 `localStorage["opencharm.plugins.disabled"]`（id 数组）；停用即注销其工具 + dispose 存活实例 + 刷新菜单/picker；启用即重新 import + 注册。
 - 重载 = 热重载（revoke URL → re-import → 重注册）；打开目录 = Tauri reveal（内置行禁用）；重新扫描 = 重跑发现流程。
 - 错误态行红字 + 摘要，展开看完整错误与日志，提供「重试」。
-- 日志环形缓冲仅内存（重启后运行时日志丢失，`error` 字段保留但缓冲清空）；跨重启诊断可选落盘 `~/.opencharm/logs/plugins/`（v1.1，非必需）。
+- 日志环形缓冲仅内存（重启后运行时日志丢失，`error` 字段保留但缓冲清空）；跨重启诊断落盘 `<data_root>/logs/plugins/<id>.log`（**已落地 v1.1，2026-09-30**：Rust `append_plugin_log` 旁路追加写——id 白名单收口防逃逸、换行剥离防注入、64KB 上限滚动截断保尾部；前端 fire-and-forget，失败静默不反噬主流程）。
 
 ### 9.15 加载 / 热重载 / 激活时序
 

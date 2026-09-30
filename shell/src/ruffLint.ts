@@ -15,6 +15,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { app } from "./state";
 import { toast } from "./toast"; // D-4：noqa 动作反馈（G-3）
 import { withRuffHint } from "./ruffHints"; // PR-L：规则码中文速释（追加进 marker 消息，hover 原生渲染）
+import { capMarkersBySeverity } from "./lsp/client"; // Monaco 渲染上限分层截断（Error 优先）
 
 /** 后端 fs_cmds::RuffDiagnostic 的镜像 */
 export interface RuffDiagnostic {
@@ -170,7 +171,10 @@ export async function lintActiveFile(): Promise<void> {
     severity: severityFor(d.code),
     source: d.code ?? "ruff",
   }));
-  handlers?.setMarkers(tab.path, markers, RUFF_OWNER);
+  // Monaco 渲染上限（markerDecorationsService take:500，全 owner 桶共享）：
+  // ruff 桶默认全 warning（卫生建议定位），长尾价值低——上限 50，把名额让给 lsp 桶的
+  // error/类型诊断（实测实案：ruff 450 条 warning 挤掉了 lsp 的 parse-error 红线）
+  handlers?.setMarkers(tab.path, capMarkersBySeverity(markers, 50), RUFF_OWNER);
 }
 
 /** 清空某文件的 ruff 标记（关闭 tab / 切到非 Python 文件） */

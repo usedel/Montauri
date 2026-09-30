@@ -1,9 +1,10 @@
 # PyCharm 对 Python 框架的支持调研报告
 
-> 版本：v1.1 · 日期：2026-09-26 · 性质：调研报告（非排期依据）
+> 版本：v1.2 · 日期：2026-09-30 · 性质：调研报告（非排期依据）
 > 调研对象：PyCharm 2026.2 Help（官方文档）+ JetBrains 官方博客 + 本仓库现状核对
 > 覆盖：Django / Flask / FastAPI 三大主线，DRF、Pydantic 等生态层，以及 Pyramid / web2py / GAE / Sanic / Tornado 等"非主线"框架的存废状态
 > **v1.1 变更**：按产品裁决重排优先级——**FastAPI 第一（做深）、Flask 第二（做中）、Django 第三（做浅）**；§0 新增裁决条目，§8 重写为三档路线图 + FastAPI 深化清单（§8.3）
+> **v1.2 变更（2026-09-30）**：§8.3 新增 **F9（新建 FastAPI 项目模板）** 条目 + 完整实施计划（PR-R，1.5~2 天）——对齐 PyCharm「专属项目类型」能力（§3.3：装 fastapi+uvicorn、生成 main.py、可直接跑），下游探针表/端点视图/运行配置链路已全部就绪，只缺创建入口。
 > 结论用途：为 OpenCharm「是否做框架支持、做到什么程度」提供输入；**是否立项、何时排期仍以 `python_ide_dev_plan_v2.md` 及产品负责人裁决为准**（tech plan v3 §1.2 已明确"❌ 复刻 PyCharm 全部功能"为非目标）
 
 ---
@@ -287,6 +288,7 @@ Django/DRF 场景下 `db.sqlite3` 首次打开即被注册为数据源，Databas
 | **F6** | `Depends` 依赖注入 / 请求体-响应模型语义 | **PyCharm 也没有**（见 §3.3：官方未列任何 DI 语义） | **不做**：靠静态引擎类型推断 + Pydantic 自然兜底（与 PyCharm 同策略）；即便要做也应下沉为类型引擎能力，而非 IDE 层 | 高 | 不做 |
 | **F7** | 依赖前置检查（缺 fastapi / uvicorn / hypercorn 提示） | 无对应 | 已有雏形：`FrameworkPreset.missing`（提示行里提示 `uv add uvicorn`）；可顺带覆盖 hypercorn | 低 | P2 |
 | **F8** | probe 驱动的端点命中热度 / 请求耗时 | PyCharm 无（Profiler 不按端点聚合） | 差异化，Phase 5+ 评估 | 高 | 候选 |
+| **F9** | **新建 FastAPI 项目**：向导选「FastAPI 服务」类型 → 生成 `app = FastAPI()` 模板 main.py + pyproject 写入 fastapi/uvicorn 依赖 + 开箱即可一键运行 | 专属项目类型（§3.3：装 fastapi+uvicorn，生成 main.py / test_main.http） | 下游全链路已就绪（F1 端点扫描、F3 uvicorn 预设、探针表提示），只缺创建入口。实施计划见 §8.3.1（PR-R） | 中（1.5~2 天） | **P1（已立项，PR-R）** |
 
 **F0 实测结论（2026-09-26，详见 `bench/reports/pydantic-engine-probe.md`）**
 
@@ -302,6 +304,93 @@ Django/DRF 场景下 `db.sqlite3` 首次打开即被注册为数据源，Databas
 **根因不是"不认 Pydantic"**：标准库 `@dataclass` 对照组在 pyrefly 上同样零诊断 → 缺的是整块「`__init__` 构造参数校验 + 字段↔调用处引用关系」（PEP 681 `dataclass_transform` 语义链）。
 
 **裁决：B + C（B 已落地，2026-09-26）**——工作区依赖含 `pydantic` / `fastapi` 时**提示推荐**切换 basedpyright（Rust `detect_pydantic_stack` + 前端 `pydanticEngineHint.ts`，每工作区每会话一次、仅 pyrefly 时提示；关闭开关 = `framework_hints["pydantic_engine"]`，切换走 `engineChip::switchEngineTo` 同一套语义）；C 仍开放（跟踪 pyrefly 进展，达标回切）。**注意第 4 项是"重命名静默漏改"而非"少一个提示"，风险等级高于其他项。**落地细节（含 alias 误报不可单独规避的连坐实验）见 `bench/reports/pydantic-engine-probe.md` §4.1。
+
+#### 8.3.1 F9 实施计划：新建 FastAPI 项目（PR-R，2026-09-30 立项，量级 1.5~2 天，单 PR）
+
+> **落地状态（2026-09-30 同日交付 + 验收）**：F9 ✅。交互裁决（用户确认）：下拉文案「Python 脚本」/「FastAPI 服务」（简洁版）；预览行追加「（FastAPI 服务 入口 main.py + fastapi / uvicorn 依赖）」；依赖安装失败 toastFail + 成功静默（流式输出即完成信号）；低版本（<3.10）警示不做（登记为边缘态）；e2e 增 NP-3（下游零接线 hint 验收）。实施：Rust `create_project` 加 `project_type`（`inject_project_deps` 行扫描注入——空 `dependencies = []` 替换 / 已有非空键保留 / 无键段末插入，实测 uv 0.10.11 `init --bare` 产物即空数组形态）；前端 `projectTypeMeta` 纯函数 + 第 4 阶段 `pip_install`（uv add）best-effort 安装；e2e mock 双侧补 `create_project`（真实磁盘）+ `pip_install`（exit 0）+ `equipPage(startEmpty)`（启动停欢迎页——有工作区时 `#ew-actions` 隐藏）。验收：cargo 246/246 · tsc 零错误 · vitest 885/885（新增 `newProjectType.test.ts` 4 用例）· e2e ux+dx 84/84（新增 `ux/03-new-project-fastapi.spec.ts` NP-1/2/3）。
+>
+> **真机修复 A（2026-09-30，用户实测报告）**：创建 FastAPI 项目时依赖安装报 `invalid type: null, expected a string`——前端 F9 调 `pip_install` 传 `interpreter: null`，而 Rust 签名是 `interpreter: String`（非 Option），Tauri 反序列化直接报类型错。**浏览器 e2e 复现不了**：mock 对 `pip_install` 静态返回 0，不校验参数类型契约（与 §8.3 修复 B「mock 兜底掩盖路径契约缺口」同源，这次是参数类型契约的翻版）。修复：`pip_install` 的 `interpreter` 改 `Option<String>`——`uv add` 分支本就不用解释器，`uv pip install` 分支对 None 提前报可读错误；对既有调用方（都传字符串）零破坏。补真机层防复发：新增 `shell/e2e-real/new-project-fastapi-real.cjs`（NP-REAL-1..4，CDP 驱动 tauri dev + 真实 uv：面板 → 创建落盘 → 安装无类型错 → uv.lock 生成），修复后 4/4 PASS。真机脚本两处时序坑（已写入脚本注释）：① `dismissBlockingModals` 不得按序全点按钮——storage-onboarding 的「自定义位置…」会拉起原生目录框阻塞 UI，只点 `.btn--primary`；② `#ew-new-project` 监听器在 init 尾部才挂，CDP 连上即点会落空——须「点击 → 验证面板打开 → 重试」循环（mock e2e 因 invoke 全同步 init 极快，掩盖此差异）。
+
+**方案一句话**：新建项目面板加「项目类型」下拉（脚本 / FastAPI），Rust `create_project` 按 `project_type` 切换 main.py 模板 + 把 `fastapi`/`uvicorn` 写进 pyproject dependencies；创建后复用 `pip_install`（uv add）装依赖（best-effort）；下游零接线——`detect_framework` 探针自动命中 → 既有「一键生成配置并运行」提示接管。
+
+```
+面板选 FastAPI → create_project(projectType)
+  ├─ main.py = FastAPI 模板（app = FastAPI() + 2 条示例路由）
+  ├─ pyproject dependencies += ["fastapi", "uvicorn"]   ← 两条生成路径都要注入
+  └─ openWorkspace 后：pip_install("fastapi uvicorn")（uv add，幂等，失败不阻断）
+                          ↓ 零新接线
+       detect_fastapi_preset 命中（deps 含 fastapi + 源码 app = FastAPI(）
+                          ↓
+       「生成『FastAPI』配置并运行」hint → uvicorn main:app --reload
+```
+
+**Rust 侧（`fs_cmds.rs`，半天）**：
+
+1. 命令参数（`create_project` / `create_project_impl`）：加 `project_type: Option<String>`（`"script"` | `"fastapi"`，`None`/空 = script，旧调用零感知）。`CreateProjectResult` 不动。
+2. FastAPI main.py 模板（替换现有硬编码的 `def main()` 模板）：
+
+   ```python
+   from fastapi import FastAPI
+
+   app = FastAPI()
+
+
+   @app.get("/")
+   def root() -> str:
+       return "Hello from OpenCharm FastAPI!"
+
+
+   @app.get("/items/{item_id}")
+   def read_item(item_id: int, q: str | None = None) -> dict:
+       return {"item_id": item_id, "q": q}
+   ```
+
+   模板设计依据：① `app = FastAPI()` 命中 `scan_app_decl`；② 两条路由让端点视图开箱有内容（`{item_id}` 顺带演示路径参数保留）；③ 注解驱动契合 pyrefly；④ `str | None` 需 3.10+，默认 `requires-python >= 3.12` 已满足。
+3. dependencies 注入（**两条生成路径都要**）：
+   - 方案 B（`write_min_pyproject`）：加 `deps: &[&str]` 参数拼进 `dependencies = [...]`；现有两处调用方（create_project + `env_cmds.rs::init_pyproject`）传空切片保持行为。
+   - 方案 A（`uv init --bare` 成功后）：行扫描插入 `dependencies = [...]`——复刻 `normalize_project_name` 的字符串扫描先例（不引 TOML 依赖）：在 `[project]` 段内、下一个 `[` 段之前插行；已存在 `dependencies` 键则跳过。`pyproject_note` 相应更新（如「…并写入 fastapi / uvicorn 依赖」）。
+
+**前端（`newProject.ts` + `index.html`，半天）**：
+
+1. `index.html`（环境行之前）加「项目类型」select：`#new-project-type`，`script`（默认）/ `fastapi`（FastAPI 服务）；
+2. `newProject.ts`：
+   - 新纯函数 `projectTypeMeta(type)` → `{ label, deps: string[] }`（供 preview 文案 + 安装 spec 共用，单一实现防漂移）；
+   - `createProject()` invoke 加 `projectType`；
+   - preview 增强：选 fastapi 时追加「（FastAPI 入口 + fastapi/uvicorn 依赖）」；
+   - 安装步骤：环境配置 try 块之后、`closeNewProjectPanel()` 之前，fastapi 时调既有 `pip_install`（spec = `"fastapi uvicorn"`）——有 pyproject 自动走 `uv add` 分支，输出经 pip-stdout 流式；按钮 busy 态「安装依赖…」；**失败不阻断**：catch 后 `appendOutputLine` stderr「依赖安装失败（声明已写入 pyproject.toml，不阻断）：…，可稍后运行项目由 uv 自动同步」。
+   - 打开面板时 reset `#new-project-type` 为 script（同 venv 复位口径）。
+
+**e2e 基建（mock 缺口补齐，半天）**：
+
+- 现状缺口：`create_project` 在 mock 双侧均未映射（`tauri-mock.js` FS_CMDS 与 `helpers.ts` FS_DISPATCH_CMDS 均无）——新建项目面板从未被 e2e 覆盖（与 PR-K 新建文件同款缺口）。
+- 补法：`helpers.ts` `dispatchFs` 加 `case "create_project"`（真实磁盘：建目录 + 按类型写模板 + 写最小 pyproject + 返回 `CreateProjectResult` 形状）+ FS_DISPATCH_CMDS 白名单。模板内容与 Rust 粗粒度同步（断言只锁 `FastAPI(` / `fastapi`，注释互指防漂移细节）。
+- 新 spec `e2e/ux/03-new-project-fastapi.spec.ts`（放 ux 域，与 02-frameworks 同族）：
+  - NP-1：默认「脚本」类型创建 → main.py 为 `def main()` 模板（回归）；
+  - NP-2：选 FastAPI 创建（**parent 填 repo.root**，绕开 dispatchFs 的越权 guard）→ 工作区切换成功 → main.py 打开且含 `app = FastAPI(` → 磁盘 pyproject 含 `"fastapi"`（`repo.read()` 断言）→ busy 态复位。
+
+**测试与验收基线**：
+
+| 层 | 用例 |
+|---|---|
+| Rust 单测（`fs_cmds.rs` impl 级） | ① fastapi：main.py 含 `app = FastAPI(`、pyproject 含 `"fastapi"`（**路径无关断言**——CI 有无 uv 走 A/B 均过）；② dependencies 行扫描插入：无键插入 / 已有键跳过 / `[project]` 后跟 `[tool.uv]` 段的插位；③ 既有 3 个 create_project 测试零改动（script 默认回归） |
+| vitest | `projectTypeMeta` 纯函数（label/deps/未知值回退 script） |
+| e2e | NP-1/NP-2 + ux 域回归 |
+| 通用 | `tsc` 全绿 · `cargo test` · `npm run test` · e2e ux + dx 域回归 |
+
+**关键设计决策（已定，实施勿摇摆）**：
+
+1. **依赖写入模板阶段、安装 best-effort**：「创建永不因 uv 缺席/联网失败而失败」是既有铁律——声明先落盘（永不失败），`uv add` 是增强步骤，失败只提示。声明已在，运行时 uv run 兜底自动同步，闭环不破。
+2. **用 `pip_install` 而非新命令**：它已带「有 pyproject → uv add + 流式 + cwd」全套语义，零 Rust 新增。`uv add` 对已声明依赖幂等（顺带补版本下界，可接受）。
+3. **不做 test_main.http**：HTTP Client 明确非目标（§0-6 裁决），端点视图 + 复制 URL 已覆盖「可调」。
+4. **Flask/Django 模板不进本 PR**：Flask 复用同套扫描但优先级次之（§8.4）；数据结构（`projectTypeMeta`）已预留扩展位，后续一个 option + 一个模板的边际成本，单独立项。
+5. **系统解释器 + uv add 建 .venv 的边缘**：用户明确选 system 后 uv add 可能创建 .venv，运行预检会提示——可接受的边缘态，不在本 PR 纠结（登记）。
+
+**风险与登记**：
+
+- 行扫描插入与 uv 未来版本产物变化：断言用 contains，`dependencies` 已存在时跳过，天然幂等；
+- e2e 切工作区后 LSP 重启（mock 下 lsp 命令返回 null，安全）；`#status-git` 断言等 boot 稳定（ux/02 同款 20s 预算）；
+- 耗时命令一律子进程 + 明确超时，勿串行拉起多个耗时进程。
+
 
 ### 8.4 Flask 支持边界（第二档）
 

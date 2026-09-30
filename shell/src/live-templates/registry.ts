@@ -10,6 +10,10 @@ const SEP = "\u0000";
 
 export type TemplateLayer = "builtin" | "user" | "workspace";
 
+/** 层序（B-P2-3）：数值越大层越窄（builtin=0 < user=1 < workspace=2）。
+ *  listEffective 判定「最窄生效层」用此序，而非 Map 遍历序。 */
+const LAYER_RANK: Record<TemplateLayer, number> = { builtin: 0, user: 1, workspace: 2 };
+
 interface Slot {
   tpl: TemplateDef;
   origin: TemplateLayer;
@@ -167,9 +171,18 @@ export class TemplateRegistry {
       for (const [scope, slot] of scopeMap) {
         if (slot.tpl.enabled) {
           enabledScopes.push(scope);
-          narrowestEnabled = slot; // 遍历序即应用序（builtin→user→workspace），后者更窄
+          // B-P2-3（2026-09-29 review）：原注释「遍历序即应用序（后者更窄）」不成立——
+          // scopeMap 以 scope 为键，遍历序由 scope 键在 slots 中的首次插入序决定，
+          // 与层序无关；「取最后遍历到的启用槽」在部分覆盖场景会拿到错误层的定义
+          //（如 user 层窄化覆盖了 module scope，builtin 层仍占 class/function scope 时，
+          // 原逻辑可能把 builtin 条目当最窄层）。改按 LAYER_RANK 数值判定。
+          if (!narrowestEnabled || LAYER_RANK[slot.origin] >= LAYER_RANK[narrowestEnabled.origin]) {
+            narrowestEnabled = slot;
+          }
         } else {
-          narrowestTombstone = slot;
+          if (!narrowestTombstone || LAYER_RANK[slot.origin] >= LAYER_RANK[narrowestTombstone.origin]) {
+            narrowestTombstone = slot;
+          }
         }
       }
       const ref = narrowestEnabled ?? narrowestTombstone;

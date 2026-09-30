@@ -24,20 +24,27 @@ import { initDevTools, openDevTools, openDevToolsPanel, listDevTools, groupTools
 // PR-2：插件域（plugin_system_design §9）——加载器 / facade 依赖注入 / inline 管线
 import { initPluginLoader, scanPlugins, schedulePluginRescan, listPluginRecords, setAppVersion } from "./extensions/loader";
 import { initInlineRunner, listInlineEntries, runInline, inlineCommandLabel } from "./extensions/inline";
+import { initInlineSelectionMenu } from "./extensions/inlineMenu"; // P2：编辑器右键「变换选区 ▸」子菜单
 import { setPluginsTabHandlers, openGuide } from "./extensions/pluginsTab";
+import {
+  openOnboardingGuide, wireWelcomeGuide, isWelcomeForced, setWelcomeOverlayRefresh, setWelcomeGuideHandlers,
+  renderQuickstartCards, renderTour, showWelcomeOverlay, dismissWelcomeOverlay,
+} from "./welcomeGuide";
 import { formatPythonSource, optimizeImportsSource, registerRuffFormatter, setFormatErrorHandler } from "./format";
 import { runSearch, cancelSearch, resetSearch, setOpenMatchHandler, type SearchMatch, type SearchScope, type SearchScopeMode } from "./search";
 import { findUsagesAtCursor, renameSymbolAtCursor, resetFindUsages, setOpenRefHandler, queryAndRender, initFindUsagesAction, installCtrlShiftDblclickUsages } from "./findUsages";
+import { wireProblemsPanel, resetProblemsPanel, setOpenProblemHandler, setShowPanelHandler, renderProblemsChip, openProblemsPanel } from "./problemsPanel"; // 问题面板（对标 PyCharm Problems）
 import { initCodeVision, refreshCodeVision } from "./codeVision";
 import { initDslLens, openRegexTesterAtCursor } from "./dslLens"; // 库支持 PR-2：正则 lens/装饰/诊断/右键
 import { initJsonLiteral } from "./jsonLiteral"; // 库支持 P1 §7-3：JSON 字面量高亮/折叠/诊断/右键
 import { refreshImportAliases, registerImportAliasCompletion } from "./importAlias"; // import 别名补全（import pandas as pd）
 import { registerAutoImportCompletion, resetAutoImportIndex } from "./autoImport"; // PR-E：补全内联 auto-import（自研，探针结局 C）
-import { initRenameWidget, setAfterRenameHandler } from "./renameWidget";
+import { initRenameWidget, setAfterRenameHandler, resetPydanticRenameWarn } from "./renameWidget";
 import { initClipboardDiffAction } from "./clipboardDiff"; // C-5：与剪贴板对比（右键菜单）
 import { initNoqaAction } from "./ruffLint"; // D-4：忽略此规则（# noqa，右键菜单）
 import { installPasteJson } from "./pasteJson"; // PR-M（dx_features_backlog §6.6）：粘贴 JSON → Python 字面量
 import { initQuickFixActions, resetQuickFixCache } from "./quickFix"; // P4：D-1 缺失 import 兜底 + D-2 就地创建符号
+import { breakDownSaveErrors, saveErrorToastMessage, revealFirstError } from "./markerNavigation"; // 诊断导航 + 保存错误分类（F8 / 保存 toast 定位）
 import * as splitEditor from "./splitEditor"; // P4（C-4）：向右分屏（handlers 注入，防 settingsPanel 成环）
 import { recordClosedTab, reopenClosedTab, resetTabReopen, setTabReopenHandlers } from "./tabReopen"; // PR-A（dx_features_backlog §6.1）：重开关闭的标签
 import { registerSidebarView, setSidebarTab, activeView, restoreSidebarView } from "./views";
@@ -45,7 +52,7 @@ import * as lsp from "./lsp/client";
 import * as kb from "./keybindings";
 import { appendOutputLine, clearOutput, setOutputLevelColorsEnabled, setOutputTracebackHandler, setOutputUrlHandler } from "./output";
 import { openAlert, openConfirm, openPrompt } from "./dialog";
-import { app, $, outputEl, statusFileEl, type Entry, type SaveOptions, type Tab } from "./state";
+import { app, $, lazyEl, outputEl, statusFileEl, type Entry, type SaveOptions, type Tab } from "./state";
 import {
   createDirAt, createFileInteractive, isDirExpanded, isTreeEmpty, refreshTree, reloadDir,
   renderCtxMenu, resetTreeState, scheduleFollowReveal, setFileTreeHandlers, wireFileTree, type CtxItem,
@@ -57,7 +64,7 @@ import {
   toggleBranchList, toggleHistory, wireGitUI,
 } from "./git";
 import {
-  disposeTerminal, openTerminalAt, resetOutputChannelUi, toggleBottomPanel, wireBottomPanel, wireTerminalEvents,
+  disposeTerminal, openTerminalAt, resetOutputChannelUi, setBottomTab, toggleBottomPanel, wireBottomPanel, wireTerminalEvents,
 } from "./termUi";
 import { setTerminalLinkHandler, setTerminalUrlHandler } from "./terminal";
 import { setExternalUrlOpener } from "./termUi";
@@ -70,8 +77,7 @@ import { toast, toastFail } from "./toast";
 import { restoreLayout, toggleSidebar, wireSplitters } from "./layout";
 import { motionDisabled, restoreReduceMotion } from "./anim";
 import { wireTooltip } from "./tooltip";
-import { renderEngineChip, setEngineBusy, setEngineChipHandlers, switchEngineTo, wireEngineChip } from "./engineChip";
-import { maybeSuggestPydanticEngine, resetPydanticEngineHint, setPydanticEngineHandlers } from "./pydanticEngineHint";
+import { renderEngineChip, setEngineBusy, setEngineChipHandlers, wireEngineChip } from "./engineChip";
 import { renderRunWidget, setRunWidgetHandlers, setRunWidgetRepaint, wireRunWidget, runWidgetHandlers } from "./runWidget";
 import { clearRunGutter, isRunGutterLine, refreshRunGutter, setRunGutterHandlers, wireRunGutter } from "./runGutter";
 import { clearGitGutter, refreshGitGutter, scheduleGitGutter, wireGitGutter } from "./gitGutter"; // 迭代 2 · P0-5
@@ -89,27 +95,28 @@ import { initDebugView, notifyDepFound, renderDebugView, runToCursor as runToCur
 import { closeRecentFiles, initRecentFiles, openRecentFiles, setRecentFilesHandlers } from "./recentFiles"; // P0：最近打开的文件（Ctrl+E）
 // P1（PyCharm 调研）：Search Everywhere / 导航历史 / 本地历史 / 调试控制台
 import {
-  initQuickOpen, invalidateQuickOpenFiles, isQuickOpenOpen, openQuickOpen,
+  initQuickOpen, invalidateQuickOpenFiles, isQuickOpenOpen, openQuickOpen, closeQuickOpen,
   registerQuickOpenActions, setQuickOpenHandlers, type QuickOpenAction,
 } from "./quickOpen";
 import { goBack, goForward, noteOpen, pushCurrent, resetNavHistory, setNavHistoryHandlers } from "./navHistory";
-import { initLocalHistory, openLocalHistory, setLocalHistoryHandlers } from "./localHistory";
+import { initLocalHistory, openLocalHistory, closeLocalHistory, setLocalHistoryHandlers } from "./localHistory";
 import { initEditHistory } from "./editHistory"; // 低延迟编辑预测数据源 V1：行对采集
 // P2
 import {
   initBreadcrumbs, invalidateBreadcrumbs, resetBreadcrumbs, scheduleBreadcrumbs, setBreadcrumbHandlers,
 } from "./breadcrumbs";
-import { initDebugConsole, notifyNotPaused, openEvaluatePrompt } from "./debugConsole";
+import { initDebugConsole, clearDebugConsole, notifyNotPaused, openEvaluatePrompt } from "./debugConsole";
 import { initInlineValues } from "./inlineValues";
 import { lintActiveFile, resetRuffLint, scheduleRuffLint, setRuffLintHandlers } from "./ruffLint";
+import { applyPydanticMarkersOnOpen, initPydanticDiagnostics, resetPydanticDiagnostics, schedulePydanticRescan, setPydanticDiagnosticsHandlers } from "./pydanticDiagnostics";
 import { cleanupSaveContent } from "./saveCleanup"; // PR-C（dx_features_backlog §6.3）：保存清理
 import { initEditPoints, jumpToLastEdit, resetEditPoints } from "./editPoints"; // PR-D（dx_features_backlog §6.4）：最近编辑位置
 import {
-  initBookmarks, loadBookmarks, openBookmarks, refreshBookmarkGutter,
+  initBookmarks, loadBookmarks, openBookmarks, closeBookmarks, refreshBookmarkGutter,
   resetBookmarks, setBookmarkHandlers, toggleBookmarkAtCursor,
 } from "./bookmarks";
 import {
-  initRunHistory, openRunHistory, resetRunHistory,
+  initRunHistory, openRunHistory, closeRunHistory, resetRunHistory,
   setRunHistoryHandlers,
 } from "./runHistory";
 import { renderWelcomeShortcuts } from "./welcomeShortcuts"; // UI-25：欢迎页快捷键跟随键位系统
@@ -156,10 +163,11 @@ let fsWatchTimer: number | undefined;
 const DOUBLE_SHIFT_MS = 400;
 
 // ---------- DOM ----------
-
-const tabbarEl = $("tabbar");
-const outlineEl = $("outline");
-const statusLspEl = $("status-lsp");
+// P2-6（2026-09-29 review）：顶层快照改惰性（铁律 1——模块加载期解析 DOM 会让
+// 精简 DOM 测试环境 import 即炸，main 域因此一直无法单测）。
+const tabbarEl = lazyEl("tabbar");
+const outlineEl = lazyEl("outline");
+const statusLspEl = lazyEl("status-lsp");
 
 // ---------- 工作区 ----------
 
@@ -172,6 +180,11 @@ const editorTimers = {
    *  后台 tab 的编辑静默到期也落盘，不再是只存 activeTab） */
   autosave: new Map<string, number>(),
   gutter: undefined as number | undefined,
+  /** P1-8（2026-09-29 review）：断点/书签 gutter 防抖槽位——此前两处裸 setTimeout
+   *  既不 clear 前值也不入集中管理，快速输入 N 字符 = N 次全量重算，且工作区切换后
+   *  clearAll 清不到（靠 refreshXxx 内部判空兜底）。 */
+  debug: undefined as number | undefined,
+  bookmark: undefined as number | undefined,
   /** 全部 clearTimeout（切换/关闭工作区时调用，防旧工作区回调跨生命周期触发） */
   clearAll(): void {
     window.clearTimeout(this.change);
@@ -179,7 +192,9 @@ const editorTimers = {
     for (const t of this.autosave.values()) window.clearTimeout(t);
     this.autosave.clear();
     window.clearTimeout(this.gutter);
-    this.change = this.outline = this.gutter = undefined;
+    window.clearTimeout(this.debug);
+    window.clearTimeout(this.bookmark);
+    this.change = this.outline = this.gutter = this.debug = this.bookmark = undefined;
   },
   /** 清除指定文件的 autosave 计时器（关闭 tab 时调用，防 dispose 后回调触发） */
   clearAutosave(path: string): void {
@@ -197,6 +212,7 @@ function resetWorkspaceUiState(): void {
   app.pendingChanges.clear();   // CR-13：在途文档同步一并作废
   outlineToken++;               // CR-20：作废在途大纲请求
   clearOutput(outputEl);        // 输出面板（调试输出 / traceback）
+  clearDebugConsole();          // P0（2026-09-30 审计）：调试控制台 #debug-console-log——renderDebugView/onShow 均不覆盖，唯一清空入口 clearDebugConsole 此前零调用
   resetGitState();              // git 状态 + diff 视图 + 分支列表
   outlineEl.textContent = "";   // 大纲符号树
   resetSearch();                // 搜索结果 + 作废在途请求
@@ -207,6 +223,8 @@ function resetWorkspaceUiState(): void {
   invalidateQuickOpenFiles();   // P1：工作区文件清单缓存随工作区失效
   resetBreadcrumbs();           // P2：面包屑（含符号缓存与防抖 timer）
   resetRuffLint();              // P2：ruff lint（防抖 timer + 在途请求）
+  resetPydanticDiagnostics();   // 阶段 4：Pydantic 诊断（timer + 在途请求 + 栈状态）
+  resetProblemsPanel();         // 问题面板（防抖 timer + 过滤态复位；marker 随 model 销毁自然清空）
   splitEditor.resetSplitEditor(); // C-4：分屏随工作区切换收起（快照不含分屏态）
   resetQuickFixCache();          // P4：自研快速修复的符号来源缓存随工作区失效
   resetBookmarks();             // P2：书签（列表缓存 + gutter 装饰）
@@ -216,6 +234,10 @@ function resetWorkspaceUiState(): void {
   resetDepHealth();              // 依赖健康域（在途体检令牌作废 + diff 快照清空，dep plan §4.7 规则 4）
   resetDepHealthPanel();         // 健康面板 UI 投影（横幅/tab/折叠态/状态栏图标，dep plan M3）
   ($("search-input") as HTMLInputElement).value = ""; // 清空搜索关键词
+  // P1（2026-09-30 审计）：文件掩码同属工作区级输入，残留会让新工作区首次搜索被旧掩码
+  // 静默过滤（*.py 残留 → 搜 .txt 无结果）；内存态 searchFileGlob 一并复位
+  ($("search-mask") as HTMLInputElement).value = "";
+  searchFileGlob = "";
   // v3.4 §15（M3-3.10）：停全部运行实例（teardownCurrent 已停止）+ 清实例表 + 清配置缓存
   resetRunSessionState();
   clearRunGutter(); // C5：切换/关闭工作区清空 gutter ▶
@@ -265,82 +287,127 @@ async function teardownCurrent(): Promise<boolean> {
   return true;
 }
 
+// P1-9（2026-09-29 review）：openWorkspace / closeWorkspace 的并发互斥。
+// 原实现「检查（workspaceRoot）→ await teardownCurrent（含确认弹窗可达数秒）→ 置位」，
+// 窗口期内第二路并发进入会再次走完整 teardown + 双份 refreshTree/startLsp/restoreSession
+// 交错（LSP 双启动）。同步置位互斥标志，finally 复位。
+let wsSwitching = false;
+
 async function openWorkspace(root: string): Promise<void> {
-  // 切换工作区：先清理旧工作区状态
-  if (app.workspaceRoot && app.workspaceRoot !== root) {
-    if (!(await teardownCurrent())) return;
-    cancelPendingSessionSave(); // A-5：teardown 已同步存过旧工作区快照，挂起的防抖不得用新 root 覆盖
-    await stopFileWatcher();
-    resetWorkspaceUiState();
+  if (wsSwitching) return; // 已有切换在进行：丢弃并发调用
+  // 复核注记（2026-09-30）：丢弃语义是有意取舍——并发场景主要是「启动自动恢复在途 +
+  // 用户主动选新目录」，此时丢弃的是**用户请求**（不理想，用户需重试一次）；备选方案
+  // 「排队最后一次」需处理排队合并与取消，复杂度不成比例。若后续用户反馈「点了没反应」
+  // 再升级为排队语义。串行损坏（双 teardown / LSP 双启动）的防护优先。
+  wsSwitching = true;
+  try {
+    // 切换工作区：先清理旧工作区状态
+    if (app.workspaceRoot && app.workspaceRoot !== root) {
+      if (!(await teardownCurrent())) return;
+      cancelPendingSessionSave(); // A-5：teardown 已同步存过旧工作区快照，挂起的防抖不得用新 root 覆盖
+      await stopFileWatcher();
+      resetWorkspaceUiState();
+    }
+    app.workspaceRoot = root;
+    $("tree-header-text").textContent = root;
+    // P2：书签按工作区持久化，换工作区要重新加载（并刷新 gutter 装饰）
+    await loadBookmarks();
+    refreshBookmarkGutter();
+    // P2-11（UX 审查）：断点同样按工作区持久化——回填后重绘当前文件的红点
+    await loadBreakpoints();
+    refreshDebugGutter();
+    // Markdown 预览：动态授权 asset 协议读取当前工作区根（本地图片渲染）
+    await invoke("allow_asset_dir", { path: root }).catch(console.error);
+    await invoke("add_recent_workspace", { path: root }).catch(console.error);
+    await refreshTree();
+    await invoke("sweep_run_configs", { workspaceRoot: root }).catch(console.error); // tech-debt #9：打开工作区清扫孤儿运行配置
+    await loadTemplatesConfig();
+    await refreshInterpreterStatus(); // 先确定解释器，供 startLsp/run 使用
+    await startLsp();
+    // 依赖健康体检（dep plan §4.7，M1 形态）：后台数据采集，绝不阻塞打开流程——
+    // L0 style 判定先行，1.5s 后若 venv 确认/工具链引导等弹窗在前台则排队轮询（R13 弹窗优先），
+    // 结果只进输出面板一行摘要（无横幅无弹窗，M3 才上 UI 投影）
+    void runOpenWorkspaceCheck(root);
+    await maybePromptVenv();
+    await startFileWatcher(); // 启动文件监听
+    await restoreSession(); // A-5：恢复上次现场（标签 / 光标 / 未保存草稿）
+    // 框架探针表（P1：Django / Flask / FastAPI）：仅提示，不打扰；工作区级可关闭
+    void maybeSuggestFramework();
+    // 阶段 4：Pydantic 构造校验诊断（第四桶）——栈命中才扫描，后台进行不阻塞打开流程
+    void initPydanticDiagnostics(root);
+    // import 别名频率学习：缓存秒生效 + 后台重扫回写，失败静默（importAlias 域）
+    void refreshImportAliases(root);
+    resetAutoImportIndex(); // PR-E：工作区切换后 auto-import 索引按新根重建（TTL 兜底文件变更）
+    // PR review（dx_features_backlog §6.5）：跨工作区残留一并清空——重开栈与编辑点栈
+    resetTabReopen();
+    resetEditPoints();
+    // P1-3（2026-09-30 审计）：切换工作区时若用户停在 git 视图，teardown 阶段的空态渲染
+    // 后不会再有 onShow 触发——补一次与新仓库数据的同步刷新（refreshTree 内部的
+    // refreshGitStatus 只更新内存，不重渲染面板 DOM）。
+    if (activeView() === "git") {
+      renderGitPanel();
+      void refreshBranchPanel();
+    }
+    updateEditorOverlay();
+  } finally {
+    wsSwitching = false;
   }
-  app.workspaceRoot = root;
-  $("tree-header-text").textContent = root;
-  // P2：书签按工作区持久化，换工作区要重新加载（并刷新 gutter 装饰）
-  await loadBookmarks();
-  refreshBookmarkGutter();
-  // P2-11（UX 审查）：断点同样按工作区持久化——回填后重绘当前文件的红点
-  await loadBreakpoints();
-  refreshDebugGutter();
-  // Markdown 预览：动态授权 asset 协议读取当前工作区根（本地图片渲染）
-  await invoke("allow_asset_dir", { path: root }).catch(console.error);
-  await invoke("add_recent_workspace", { path: root }).catch(console.error);
-  await refreshTree();
-  await invoke("sweep_run_configs", { workspaceRoot: root }).catch(console.error); // tech-debt #9：打开工作区清扫孤儿运行配置
-  await loadTemplatesConfig();
-  await refreshInterpreterStatus(); // 先确定解释器，供 startLsp/run 使用
-  await startLsp();
-  // 依赖健康体检（dep plan §4.7，M1 形态）：后台数据采集，绝不阻塞打开流程——
-  // L0 style 判定先行，1.5s 后若 venv 确认/工具链引导等弹窗在前台则排队轮询（R13 弹窗优先），
-  // 结果只进输出面板一行摘要（无横幅无弹窗，M3 才上 UI 投影）
-  void runOpenWorkspaceCheck(root);
-  await maybePromptVenv();
-  await startFileWatcher(); // 启动文件监听
-  await restoreSession(); // A-5：恢复上次现场（标签 / 光标 / 未保存草稿）
-  // 框架探针表（P1：Django / Flask / FastAPI）：仅提示，不打扰；工作区级可关闭
-  void maybeSuggestFramework();
-  // F0 裁决 B（Pydantic 栈 → 推荐切 basedpyright）：仅提示，不打扰；工作区级可关闭
-  void maybeSuggestPydanticEngine();
-  // import 别名频率学习：缓存秒生效 + 后台重扫回写，失败静默（importAlias 域）
-  void refreshImportAliases(root);
-  resetAutoImportIndex(); // PR-E：工作区切换后 auto-import 索引按新根重建（TTL 兜底文件变更）
-  // PR review（dx_features_backlog §6.5）：跨工作区残留一并清空——重开栈与编辑点栈
-  resetTabReopen();
-  resetEditPoints();
-  updateEditorOverlay();
 }
 
 /** 关闭当前工作区，回到无工作区状态 */
 async function closeWorkspace(): Promise<void> {
   if (!app.workspaceRoot) return;
-  if (!(await teardownCurrent())) return;
-  const t0 = performance.now();
-  console.debug("[closeWorkspace] stopFileWatcher begin");
-  await stopFileWatcher();
-  console.debug("[closeWorkspace] stopFileWatcher done, took=", (performance.now() - t0).toFixed(0), "ms");
-  resetWorkspaceUiState();
-  closeRecentFiles(); // 最近文件是工作区级的，切换工作区后旧列表不应还能被打开
-  app.workspaceRoot = null;
-  resetTreeState();
-  $("tree-header-text").textContent = "文件"; // UI-13：与 index.html 的静态文案保持一致（分组标题统一中文）
-  statusFileEl.textContent = "";
-  clearInterpreterStatus();
-  // 框架提示去重为工作区级，关闭工作区即清空
-  clearRunProfilesCache();
-  resetPydanticEngineHint();
-  renderRunWidget(runWidgetState());
-  updateEditorOverlay();
+  if (wsSwitching) return; // P1-9：与 openWorkspace 互斥（交叉并发防双 teardown）
+  wsSwitching = true;
+  try {
+    if (!(await teardownCurrent())) return;
+    const t0 = performance.now();
+    console.debug("[closeWorkspace] stopFileWatcher begin");
+    await stopFileWatcher();
+    console.debug("[closeWorkspace] stopFileWatcher done, took=", (performance.now() - t0).toFixed(0), "ms");
+    resetWorkspaceUiState();
+    closeRecentFiles(); // 最近文件是工作区级的，切换工作区后旧列表不应还能被打开
+    // P2（2026-09-30 审计）：工作区级弹层一并收口——开着弹层关工作区时，候选列表/历史
+    // 残留旧工作区数据且动作按钮已失效（内存已清、DOM 仍旧数据）。统一关闭最干净。
+    closeQuickOpen();          // Ctrl+P 候选列表（点旧条目会打开已关闭工作区的文件）
+    closeRunHistory();         // 运行历史（重放按钮指向已清空的 runs 表，静默 no-op）
+    closeBookmarks();          // 书签列表（items 已随 resetBookmarks 清空）
+    closeLocalHistory();       // 本地历史（针对当前文件，工作区关闭后无意义）
+    app.workspaceRoot = null;
+    resetTreeState();
+    $("tree-header-text").textContent = "文件"; // UI-13：与 index.html 的静态文案保持一致（分组标题统一中文）
+    statusFileEl.textContent = "";
+    clearInterpreterStatus();
+    // P1-3 补充：resetWorkspaceUiState 先于本行执行，其 renderGitPanel 走「不是 Git 仓库」
+    // 分支（gitRepoActive 已 false 但 root 未清）。root 置 null 后补一次终态渲染——
+    // 文案修正为「尚未打开工作区」空态，避免误导用户以为要 git init。
+    renderGitPanel();
+    // 框架提示去重为工作区级，关闭工作区即清空
+    clearRunProfilesCache();
+    // 阶段 2：Pydantic 字段改名提示的会话去重同样工作区级
+    resetPydanticRenameWarn();
+    renderRunWidget(runWidgetState());
+    updateEditorOverlay();
+  } finally {
+    wsSwitching = false;
+  }
 }
 
 /** 根据当前状态刷新编辑区覆盖层：
  *  - 已打开文件 → 隐藏
  *  - 无工作区 → 完整 Get Started（含快捷入口与最近工作区）
- *  - 有工作区但未打开文件 → 仅保留品牌与快捷键，隐藏快捷入口与最近工作区 */
+ *  - 有工作区但未打开文件 → 仅保留品牌与快捷键，隐藏快捷入口与最近工作区
+ *  PR-S2c（MB-13 收口）：forceWelcome 态下即使有 activeTab / workspaceRoot 也显示**完整版**
+ *  overlay（actions + quickstart + tour + recents 全显）——纯显示层覆盖，不动会话真值。 */
 function updateEditorOverlay(): void {
   const overlayEl = $("editor-overlay");
   const actionsEl = $("ew-actions");
   const recentEl = $("ew-recent-section");
+  const quickstartEl = $("ew-quickstart");
+  const tourEl = $("ew-tour-section");
+  const forceCloseEl = $("ew-force-close");
 
-  if (app.activeTab) {
+  if (app.activeTab && !isWelcomeForced()) {
     overlayEl.classList.add("hidden");
     return;
   }
@@ -348,14 +415,24 @@ function updateEditorOverlay(): void {
   overlayEl.classList.remove("hidden");
   // UI-25：覆盖层要显示了才重绘快捷键网格（改键后 / 设置加载完成后经此路径刷新为真实键位）
   renderWelcomeShortcuts();
+  // PR-S2：三步卡与巡礼同口径重绘（键位标签跟随改键；巡礼完成态即时刷新）
+  renderQuickstartCards();
+  renderTour();
 
-  if (app.workspaceRoot) {
+  const forced = isWelcomeForced();
+  forceCloseEl.classList.toggle("hidden", !forced);
+
+  if (app.workspaceRoot && !forced) {
     actionsEl.classList.add("hidden");
+    quickstartEl.classList.add("hidden");
+    tourEl.classList.add("hidden");
     recentEl.classList.add("hidden");
     return;
   }
 
   actionsEl.classList.remove("hidden");
+  quickstartEl.classList.remove("hidden");
+  tourEl.classList.remove("hidden");
   void renderEditorWelcomeRecents();
 }
 
@@ -443,11 +520,28 @@ async function autoOpenRecentWorkspace(): Promise<void> {
   }
 }
 
+/** 多窗口启动路径：项目窗口（label→path）优先于「恢复最近」。 */
+async function openInitialWorkspace(): Promise<void> {
+  const winProject = await invoke<string | null>("get_window_project").catch(() => null);
+  if (winProject) {
+    await openWorkspace(winProject).catch((e) => console.error("打开窗口项目失败", e));
+  } else {
+    await autoOpenRecentWorkspace();
+  }
+}
+
 /** 工具栏「📂 打开」：弹文件夹选择框并切换工作区 */
 async function openFolderFromToolbar(): Promise<void> {
   const path = await invoke<string | null>("pick_folder");
   if (!path) return;
   await openWorkspace(path);
+}
+
+/** 「在新窗口打开工作区」：弹文件夹选择框（挑选后经后端新开项目窗口，去重由后端承担） */
+async function openFolderInNewWindow(): Promise<void> {
+  const path = await invoke<string | null>("pick_folder");
+  if (!path) return;
+  await invoke("open_workspace_window", { path }).catch((e) => toastFail("在新窗口打开工作区", e));
 }
 
 async function loadTemplatesConfig(): Promise<void> {
@@ -696,12 +790,12 @@ async function refreshOutline(): Promise<void> {
  * 原来 for 循环内并发 fire-and-forget 多条 didChangeFull，invoke 到达顺序不保证 →
  * version 乱序，引擎文档状态错乱。此处逐条 await 保证 version 单调递增送达。 */
 async function syncPendingChanges(): Promise<void> {
-  for (const path of [...app.pendingChanges]) {
+  for (const [path, changes] of [...app.pendingChanges]) {
+    app.pendingChanges.delete(path);
     const t = app.tabs.find((x) => x.path === path);
     if (t) {
-      await lsp.didChangeFull(path, t.model);
+      await lsp.didChange(path, t.model, changes);
     }
-    app.pendingChanges.delete(path);
   }
 }
 
@@ -775,14 +869,18 @@ async function doOpenFile(path: string, revealLine?: number, opts?: OpenFileOpti
     const model = app.monaco.editor.getModel(uri) ?? app.monaco.editor.createModel(content, languageOf(path), uri);
     model.updateOptions({ tabSize: app.settings.tab_size, insertSpaces: app.settings.insert_spaces }); // P1 缩进设置
     lsp.markModelPath(model, path);
-    model.onDidChangeContent(() => {
+    model.onDidChangeContent((e) => {
       const t = app.tabs.find((x) => x.model === model);
       if (t && !t.dirty) {
         t.dirty = true;
         renderTabs();
       }
-      // 标记待同步（200ms 防抖后发全量，见 init 中的 changeTimer）
-      if (t) app.pendingChanges.add(t.path);
+      // 累积增量编辑（200ms 防抖后发；basedpyright 走增量、pyrefly 由 lsp.didChange 回落全量）
+      if (t) {
+        const acc = app.pendingChanges.get(t.path) ?? [];
+        acc.push(...e.changes);
+        app.pendingChanges.set(t.path, acc);
+      }
       scheduleSessionSave(); // A-5：编辑后刷新会话快照（草稿随内容一起留存）
       // autosave delay 模式：每个文件独立计时（model 级监听，后台 tab 的编辑也触发）
       if (t) scheduleAutosave(t.path);
@@ -792,6 +890,8 @@ async function doOpenFile(path: string, revealLine?: number, opts?: OpenFileOpti
     lsp.didOpen(path, model);
     // 应用引擎已发布的诊断（打开前就收到的 publishDiagnostics）
     lsp.applyCachedDiagnostics(path, setMarkers);
+    // 阶段 4：第四桶同款回放（扫描完成时文件未开 → marker 挂不上；打开时从缓存补）
+    applyPydanticMarkersOnOpen(path);
   }
   activateTab(tab, opts?.focusEditor === false ? { focusEditor: false } : undefined);
   void recordRecent(path);
@@ -847,6 +947,7 @@ function activateTab(tab: Tab, opts?: { focusEditor?: boolean }): void {
   refreshGitGutter(); // 迭代 2 · P0-5：切换 tab 重算 git 行级变更装饰
   scheduleBreadcrumbs(); // P2：面包屑跟随激活文件
   refreshBookmarkGutter(); // P2：书签标记跟随激活文件
+  renderProblemsChip(); // 问题芯片：切 tab 立即按新文件的 marker 刷新（不等 500ms 防抖）
   void lintActiveFile(); // P2：ruff 实时 lint（切 tab 立即跑，不等防抖）
   mdPreview.updatePreviewVisibility(); // Markdown 预览：切换 tab 后按「是否 md + 开关」刷新显隐
   // 鼠标切 tab / 关 tab 后焦点落回编辑器（打字立即生效）；tab 键盘激活路径传 false，
@@ -1078,12 +1179,19 @@ async function saveTab(tab: Tab, opts?: SaveOptions): Promise<void> {
   // opencharm-ruff，owner 名实测见 6.6），与 quickFix.ts 的双桶口径一致且更宽。
   // **只提示不阻止保存**（避免打断自动化场景）；runActions 门控——autosave / 运行前落盘 /
   // git 改写磁盘等非显式路径不弹 toast（高频路径会刷屏）。
+  // 2026-09-29 修订：文案区分「语法错误 / 类型/引用错误」（旧文案统称语法错误，pyrefly
+  // typeCheckingMode=default 下 168 error 中仅 23 个是语法错误——大文件场景用户按文案找不到
+  // 语法错误误以为错报），并加「定位」动作直达第一个错误（revealFirstError）。
   if (runActions) {
-    const errorCount = app.monaco.editor
+    const errorMarkers = app.monaco.editor
       .getModelMarkers({ resource: tab.model.uri })
-      .filter((m) => m.severity === app.monaco.MarkerSeverity.Error).length;
-    if (errorCount > 0) {
-      toast(`${basename(tab.path)}：${errorCount} 处语法错误（已保存）`, "error");
+      .filter((m) => m.severity === app.monaco.MarkerSeverity.Error);
+    if (errorMarkers.length > 0) {
+      const breakdown = breakDownSaveErrors(errorMarkers, app.monaco.MarkerSeverity.Error);
+      toast(saveErrorToastMessage(basename(tab.path), breakdown), "error", {
+        actionLabel: "定位",
+        onAction: () => revealFirstError(),
+      });
     }
   }
   // P1：本地历史——**写盘前**留一版快照（content 传 null = 后端读磁盘，落的是保存前的内容）。
@@ -1094,6 +1202,8 @@ async function saveTab(tab: Tab, opts?: SaveOptions): Promise<void> {
   renderTabs();
   // 保存通知（引擎常在保存时触发完整重新检查）
   lsp.didSave(tab.path, tab.model);
+  // 阶段 4：Pydantic 构造校验随保存防抖重扫（跨文件校验，全量毫秒级）
+  schedulePydanticRescan();
 }
 
 async function saveActive(opts?: SaveOptions): Promise<void> {
@@ -1174,10 +1284,36 @@ async function runDebug(): Promise<void> {
     toast("已有调试会话在运行，请先停止（Shift+F5）", "info");
     return;
   }
+  // P1-13（2026-09-29 review）：phase 门控到 startDebug 内部才置 starting——prepareRun /
+  // get_run_config / debug_detect 多个 await 期间双击 F5 可并发穿透，第二个失败调用的
+  // resetDebugState 会把第一会话的 phase 踩回 idle。这里在首个 await 前同步置位，
+  // 失败路径由下面的 catch / 各早退点统一复位。
+  // 复核补丁（2026-09-30）：markStarting 之后的代码若出现未预期异常（各早退点已复位，
+  // 但 prepareRun / appendOutputLine 等 throw 时无人收口），phase 会永卡 starting——
+  // F5 被门控拒死。包 try/catch 兜底；`sessionEstablished` 在 startDebug 握手成功的
+  // 那一刻置位，其后 phase 归状态机接管，兜底不再触发（避免误清已建立的后端会话，
+  // 同 P1-12 场景）。
+  dap.markStarting();
+  let sessionEstablished = false;
+  try {
+    await runDebugInner(path, () => { sessionEstablished = true; });
+  } catch (e) {
+    appendOutputLine(outputEl, `调试启动异常: ${e}`, "stderr", gotoFromLink, "debug");
+    toastFail("调试启动", e);
+  } finally {
+    if (!sessionEstablished) dap.resetDebugState();
+  }
+}
 
+/** runDebug 的主体（markStarting 已由外层置位；异常统一在外层兜底复位）。
+ *  `onEstablished` 在 startDebug 握手成功时回调（此后异常不复位 phase）。 */
+async function runDebugInner(path: string, onEstablished: () => void): Promise<void> {
   // prepareRun 复用（自动保存 / 依赖预检 / 读运行配置；stdin=file 场景由后端 fail fast）
   const prep = await prepareRun(path);
-  if (!prep) return;
+  if (!prep) {
+    dap.resetDebugState(); // markStarting 早退复位（P1-13）
+    return;
+  }
 
   // P1：调试复用运行配置——后端 debug_start 直读 run_configs（参数 / env / 工作目录），
   // 这里把「用上了什么」显式回显，避免用户以为调试是完全独立的一套配置。
@@ -1200,6 +1336,7 @@ async function runDebug(): Promise<void> {
   } catch (e) {
     appendOutputLine(outputEl, `调试环境检测失败: ${e}`, "stderr", gotoFromLink, "debug");
     toastFail("调试环境检测", e);
+    dap.resetDebugState(); // markStarting 早退复位（P1-13）
     return;
   }
   if (!detect.debugpyOk) {
@@ -1212,6 +1349,7 @@ async function runDebug(): Promise<void> {
         "powershell -ExecutionPolicy Bypass -File tools/fetch-debugpy.ps1",
       okLabel: "知道了",
     });
+    dap.resetDebugState(); // markStarting 早退复位（P1-13）
     return;
   }
   // §3.5：依赖清单命中 → 输出面板一次性提示（自带副本不冲突），不弹窗不阻断
@@ -1228,9 +1366,14 @@ async function runDebug(): Promise<void> {
   appendOutputLine(outputEl, `> [debug] ${basename(path)}  (${path})`, "cmd", gotoFromLink, "debug");
   try {
     await dap.startDebug(path, app.workspaceRoot, pushAllBreakpoints);
+    onEstablished(); // 握手成功：phase 归状态机接管，外层兜底从此不触发
   } catch (e) {
     appendOutputLine(outputEl, `调试启动失败: ${e}`, "stderr", gotoFromLink, "debug");
     toastFail("调试启动", e);
+    // P1-12（2026-09-29 review）：startDebug 中途失败（握手超时 / 断点异常 / debug_start
+    // 后任一步失败）时，后端 DEBUG 槽仍持有 adapter——只复位前端 phase 会让下次启动被
+    // 「已有调试会话在运行」永久卡住。先停后端会话再复位（stopDebug 对未启动场景幂等）。
+    await dap.stopDebug();
     dap.resetDebugState();
     return;
   }
@@ -1387,6 +1530,9 @@ function buildQuickOpenActions(): QuickOpenAction[] {
     { id: "markdown_preview", label: "Markdown 预览", run: () => mdPreview.togglePreview() },
     { id: "format_document", label: "格式化文档", hint: "Shift+Alt+F", run: () => void app.editor.getAction("editor.action.formatDocument")?.run() },
     { id: "open_settings", label: "打开设置", run: () => openSettingsPanel() },
+    // PR-S1/S2（onboarding plan §3.1）：新手指南 + 欢迎页 force-show 进命令面板
+    { id: "onboarding_guide", label: "新手指南", run: () => void openOnboardingGuide() },
+    { id: "welcome_page", label: "欢迎页", run: () => { if (isWelcomeForced()) dismissWelcomeOverlay(); else showWelcomeOverlay(); } },
     { id: "new_project", label: "新建项目", run: () => openNewProjectPanel() },
     { id: "git_panel", label: "Git 面板", run: () => setSidebarTab("git") },
     // P0-1：git 高频操作进命令面板（对标 VS Code Git: * 命令族）——
@@ -1406,11 +1552,16 @@ function buildQuickOpenActions(): QuickOpenAction[] {
     // 迭代 3：高级工作流进命令面板（cherry-pick/reset 等历史操作走历史条目右键）
     { id: "git_sync_status", label: "Git: 查看同步状态（↑待推 ↓待拉）", run: () => { setSidebarTab("git"); toast("同步状态已更新到状态栏", "info"); void refreshBranchPanel(); } },
     { id: "todo_panel", label: "TODO 工具窗", run: () => setSidebarTab("todo") },
+    // PR-S2 巡礼（onboarding plan §3.2b）：open_devtools 此前只有键位（Ctrl+Shift+T）与
+    // keybindings.ts 分发，命令面板查不到——巡礼「试一下」挂注册表 id，一并补上可发现性
+    { id: "open_devtools", label: "开发工具面板", run: () => openDevToolsPanel() },
     // P1（UX 审查）：高频操作进命令面板（id 对齐键位表 → 提示自动跟随改键）
     { id: "close_tab", label: "关闭标签", run: () => { if (app.activeTab) void closeTab(app.activeTab); } },
     { id: "new_file", label: "新建文件", run: () => void createFileInteractive() },
     { id: "toggle_sidebar", label: "切换侧栏", run: () => toggleSidebar() },
     { id: "toggle_bottom", label: "切换底部面板", run: () => toggleBottomPanel() },
+    // 问题面板（PyCharm Problems View 同位；hint 跟随键位表改键，run 直接调域入口）
+    { id: "open_problems", label: "打开问题面板", run: () => openProblemsPanel() },
     // PR-1（plugin_system_design §9.9）：注册表中的工具统一以「工具: <title>」前缀进命令面板
     ...listDevTools().map((t) => ({
       id: `tool_${t.id}`,
@@ -1566,7 +1717,9 @@ export async function startLsp(): Promise<void> {
 }
 
 function setMarkers(path: string, markers: MonacoApi.editor.IMarkerData[], owner = "opencharm-lsp"): void {
-  const tab = app.tabs.find((t) => t.path === path);
+  // samePath（斜杠+大小写归一）：pydantic 诊断的 Rust 侧返回正斜杠绝对路径，
+  // tab.path 可能是反斜杠——精确 === 会全程失配（2026-09-29 复核修复）
+  const tab = app.tabs.find((t) => samePath(t.path, path));
   if (tab) app.monaco.editor.setModelMarkers(tab.model, owner, markers);
 }
 
@@ -1628,6 +1781,7 @@ function getMenuItems(menu: string): MenuEntry[] {
       { label: "新建文件夹", action: () => { if (app.workspaceRoot) void createDirAt(rootEntry()); } },
       { sep: true, label: "" },
       { label: "打开工作区", shortcut: "Ctrl+K Ctrl+O", action: () => void openFolderFromToolbar() },
+      { label: "在新窗口打开工作区…", action: () => void openFolderInNewWindow() },
       { label: "保存", shortcut: kb.bindingLabel("save") || undefined, action: () => void saveActive() },
       { sep: true, label: "" },
       {
@@ -1694,6 +1848,8 @@ function getMenuItems(menu: string): MenuEntry[] {
       // P1（UX 审查）：面板开关 + 设置补键位标签，菜单与快捷键同源（改键后自动跟随）
       { label: "切换侧栏", shortcut: kb.bindingLabel("toggle_sidebar") || undefined, action: () => toggleSidebar() },
       { label: "切换底部面板", shortcut: kb.bindingLabel("toggle_bottom") || undefined, action: () => toggleBottomPanel() },
+      // 问题面板（PyCharm Problems View 同位，Alt+0）
+      { label: "问题面板", shortcut: kb.bindingLabel("open_problems") || undefined, action: () => openProblemsPanel() },
     ];
     // MB-11：前往（Go）——收编原「视图」的导航/跳转类命令（VS Code Go / PyCharm Navigate 同位）。
     // 口径：命令面板 / Search Everywhere 属「搜索式导航」，归此处而非 VS Code View 菜单
@@ -1731,8 +1887,22 @@ function getMenuItems(menu: string): MenuEntry[] {
     case "tools": return buildToolsMenu();
     // MB-13：帮助菜单（裁决 2026-09-21）——关于走 openAlert 轻量档；日志/数据目录复用设置页
     // 既有 invoke 命令；作者指南复用插件 tab 的 openGuide（同一份指南文档，导出复用）。
-    // 欢迎页一期不纳入（需 force-show 逻辑，登记为后续可选）。
+    // PR-S1/S2（onboarding plan）：新增「新手指南」（指南落盘打开）与「欢迎页」（force-show toggle，
+    // 收掉 MB-13「欢迎页一期不纳入」登记）。
     case "help": return [
+      {
+        label: "新手指南",
+        action: () => void openOnboardingGuide(),
+      },
+      {
+        label: "欢迎页",
+        action: () => {
+          // toggle（方案 §3.2c 关闭途径 ①）：force 态再点一次解除；否则置位显示完整版覆盖层
+          if (isWelcomeForced()) dismissWelcomeOverlay();
+          else showWelcomeOverlay();
+        },
+      },
+      { sep: true, label: "" },
       {
         label: "关于 OpenCharm",
         action: () => {
@@ -1818,12 +1988,18 @@ async function init(): Promise<void> {
     closeTabOf: (p) => {
       const tab = app.tabs.find((t) => t.path === p);
       if (!tab || tab.kind === "diff") return;
+      // P1-10（2026-09-29 review）：snapshotHistory 的 invoke 往返期间该 tab 的 autosave
+      // 计时器仍存活（closeTabSilent 内的 clearAutosave 要等快照回来才执行）——窗口内
+      // 到期会把缓冲写回**已删除的路径**（文件复活）。入口先清计时器。
+      editorTimers.clearAutosave(tab.path);
       void snapshotHistory(tab.path, tab.model.getValue()).then(() => closeTabSilent(tab));
     },
     // autosave 开启时批量改写后的 dirty tab：缓冲留历史 → 强制从磁盘重载（覆盖旧缓冲）
     reloadDirtyWithHistory: async (p) => {
       const tab = app.tabs.find((t) => t.path === p);
       if (!tab || tab.kind === "diff") return;
+      // P1-10：同 closeTabOf——快照往返窗口内 autosave 写回旧缓冲会顶掉 git 改写结果。
+      editorTimers.clearAutosave(tab.path);
       await snapshotHistory(tab.path, tab.model.getValue());
       await reloadFileFromDisk(p, true);
     },
@@ -1832,6 +2008,10 @@ async function init(): Promise<void> {
   setRunFlowHandlers({ openFile, activateTab, renderTabs, saveActive, saveTab });
   setFileTreeHandlers({ openFile, renderTabs, closeTabSilent, insertHeaderTemplate, runScript: (p) => void runScript(p) });
   setSettingsPanelHandlers({ startLsp });
+  // 阶段 4：Pydantic 诊断 handlers 必须先于 openWorkspace（autoOpenRecentWorkspace 在
+  // init 更深处才走到这里之前已可能触发首次扫描——扫描完成时 handlers 为 null 会被静默丢弃，
+  // marker 永远挂不上；与 setRuffLintHandlers 不同，ruff 首扫由用户编辑触发无此时序问题）
+  setPydanticDiagnosticsHandlers({ setMarkers });
   // A-5：会话恢复（session.ts 不反向 import main，能力经注入）
   setSessionHandlers({
     openFile,
@@ -1898,6 +2078,10 @@ async function init(): Promise<void> {
 
   // 失焦自动保存（P25-T08）：runOnSaveActions=false，与 delay 模式同口径（不跑 ruff）
   app.editor.onDidBlurEditorText(() => {
+    // P1-10（2026-09-29 review）：模态打开时的失焦是弹窗夺焦（focus trap），不是用户
+    // 离开编辑器——此刻 blur autosave 会与 git 确认后的丢弃/改写操作竞速（write_file
+    // 晚于删除落地即「复活」文件）。跳过；模态关闭后用户回到编辑器再自然触发。
+    if (document.querySelector(".modal:not(.hidden)")) return;
     if (app.settings.autosave === "blur" && app.activeTab?.dirty) {
       saveActive({ runOnSaveActions: false }).catch((e) => toastFail("自动保存", e));
     }
@@ -1922,8 +2106,15 @@ async function init(): Promise<void> {
   const pluginDeps = buildPluginFacadeDeps();
   initPluginLoader(pluginDeps, () => registerQuickOpenActions(buildQuickOpenActions()));
   initInlineRunner(pluginDeps, () => listPluginRecords());
+  initInlineSelectionMenu(); // P2：编辑器右键「变换选区 ▸」（子菜单条目随注册表自动重建）
   // P0 DX：作者指南落盘后经 openFile 打开（.md 自动开预览）
   setPluginsTabHandlers({ openFile: (p) => openFile(p) });
+  // PR-S1：新手指南落盘后经 openFile 打开（同 pluginsTab 模式）
+  setWelcomeGuideHandlers({ openFile: (p) => openFile(p) });
+  // PR-S2：欢迎页引导接线（指南链接 / force-close / 动作按钮自动解除 / 巡礼交互 + 首渲染）
+  wireWelcomeGuide();
+  // PR-S2c：force 态变化 → 刷新覆盖层（updateEditorOverlay 注入，防循环依赖）
+  setWelcomeOverlayRefresh(() => updateEditorOverlay());
   void getVersion()
     .then((v) => setAppVersion(v))
     .then(() => scanPlugins())
@@ -2019,6 +2210,17 @@ async function init(): Promise<void> {
     window.setTimeout(() => refreshCodeVision(), 1500);
     window.setTimeout(() => refreshCodeVision(), 4000);
   });
+  // 问题面板（对标 PyCharm Problems）：marker 驱动 + 点击条目跳转（openFile 复用 tab/model 管理）
+  setOpenProblemHandler((path, line, column) => {
+    void openFile(path, line).then(() => {
+      app.editor.setPosition({ lineNumber: line, column });
+      app.editor.revealLineInCenter(line);
+      app.editor.focus();
+    });
+  });
+  // 面板显示经回调注入（problemsPanel 不 import termUi，避免其 git→DOM 依赖链进单测）
+  setShowPanelHandler(() => setBottomTab("problems"));
+  lspProviders.add(wireProblemsPanel()); // marker 订阅入应用级 DisposableStore 收口（CR-24 纪律）
   // P1-BUG-002：补全请求前冲刷防抖窗口内未同步的 didChange——`.` 触发的补全请求会赶在
   // 200ms 防抖同步之前到达引擎，引擎按旧文档计算（补全位置越界 → 空结果）
   lsp.setBeforeCompletionHook(async (model) => {
@@ -2041,6 +2243,10 @@ async function init(): Promise<void> {
   });
   lsp.onEngineStatus((s) => {
     setEngineBusy(s === "starting"); // E-2：引擎启动期 chip 显示忙碌态
+    if (s === "ready") {
+      // 阶段 4 子项 1c：引擎切换只清了引擎桶，重放自研桶（pydantic 等）的缓存诊断
+      lsp.replayPersistentDiagnostics(setMarkers, app.tabs.map((t) => t.path));
+    }
     const map: Record<lsp.EngineStatus, string> = {
       off: "LSP: 未启动", starting: "LSP: 启动中…", ready: "LSP: 就绪",
       error: "LSP: 错误", exited: "LSP: 已退出",
@@ -2104,6 +2310,8 @@ async function init(): Promise<void> {
     else if (id === "open_settings") openSettingsPanel();
     else if (id === "toggle_sidebar") toggleSidebar();
     else if (id === "toggle_bottom") toggleBottomPanel();
+    // 问题面板（PyCharm Problems View 同款 Alt+0）
+    else if (id === "open_problems") openProblemsPanel();
     // 命令面板直达（VS Code Ctrl+Shift+P 同款）：不注册时该组合会触发浏览器/系统「打印」
     else if (id === "command_palette") void openQuickOpen("commands");
     // PR-1：开发工具面板 + picker（Ctrl+Shift+T，toggle 语义）
@@ -2121,10 +2329,17 @@ async function init(): Promise<void> {
   // P1：Double Shift → Search Everywhere（键位表无法表达双击手势，故固定在此）。
   // 误触防护：两次 Shift 之间若按下过任何**其它**键（如打大写字母 A 的 Shift+A），
   // 计时器立即作废——否则连续输入大写字母会被误判成双击 Shift。
+  // keydown 必须 capture：焦点在 Monaco 内时编辑器会 stopPropagation 非认领键，
+  // 冒泡阶段到不了 window——「Shift+End 选行后紧接着 Shift+F10 开右键菜单」会被误判成
+  // Double Shift（F10 keydown 被吞、reset 不发生，两次 Shift keyup 落进 400ms 窗口）。
   let lastShiftUpAt = 0;
-  window.addEventListener("keydown", (e) => {
-    if (e.key !== "Shift") lastShiftUpAt = 0;
-  });
+  window.addEventListener(
+    "keydown",
+    (e) => {
+      if (e.key !== "Shift") lastShiftUpAt = 0;
+    },
+    { capture: true },
+  );
   window.addEventListener("keyup", (e) => {
     if (e.key !== "Shift") return;
     const now = Date.now();
@@ -2146,7 +2361,9 @@ async function init(): Promise<void> {
     window.clearTimeout(editorTimers.gutter);
     editorTimers.gutter = window.setTimeout(() => refreshRunGutter(), 300);
     // D3：断点行随内容变化防抖重算（行增删后断点按 Monaco 当前行号定位，不随行迁移）
-    window.setTimeout(() => refreshDebugGutter(), 300);
+    // P1-8：入 editorTimers 集中管理（先 clear 前值，防连点叠加全量重算）
+    window.clearTimeout(editorTimers.debug);
+    editorTimers.debug = window.setTimeout(() => refreshDebugGutter(), 300);
     // CR-13：changeTimer 回调改串行 await——原来循环内并发 fire-and-forget，多 invoke
     // 到达顺序不保证 → version 乱序，引擎状态错乱
     editorTimers.change = window.setTimeout(() => {
@@ -2163,7 +2380,9 @@ async function init(): Promise<void> {
     // P2：ruff 实时 lint（停手 800ms 后跑一次）
     scheduleRuffLint();
     // P2：书签按行号定位，行增删后装饰要跟着重算（与断点红点同款处理）
-    window.setTimeout(() => refreshBookmarkGutter(), 300);
+    // P1-8：入 editorTimers 集中管理（先 clear 前值）
+    window.clearTimeout(editorTimers.bookmark);
+    editorTimers.bookmark = window.setTimeout(() => refreshBookmarkGutter(), 300);
     // 迭代 2 · P0-5：git 行级装饰随编辑防抖重算（dirty 文件实时反映新增/修改行）
     scheduleGitGutter();
     // （autosave delay 模式已迁移到 model 级监听 doOpenFile → scheduleAutosave：
@@ -2314,8 +2533,6 @@ async function init(): Promise<void> {
   // 引擎 chip（C2）：状态栏身份展示 + 切换入口；真值已收敛到 app.settings.lsp_engine
   setEngineChipHandlers({ startLsp, saveSettings });
   wireEngineChip();
-  // F0 裁决 B：Pydantic 栈的引擎推荐走同一套切换语义（同值跳过 / 持久化 / 重启）
-  setPydanticEngineHandlers({ switchEngine: switchEngineTo });
   renderEngineChip();
   // A-1：资源可观测（状态栏 MEM 芯片 + 面板；明细采样仅面板打开时进行）
   wireResourcePanel({ restartLsp: startLsp });
@@ -2577,7 +2794,7 @@ async function init(): Promise<void> {
   });
 
   // 文件监听事件（增量刷新树）
-  await listen<string[]>("fs-changed", (e) => {
+  await getCurrentWindow().listen<string[]>("fs-changed", (e) => {
     handleFsChanged(e.payload);
   });
 
@@ -2596,8 +2813,8 @@ async function init(): Promise<void> {
   // 首次启动环境引导（第 4 步）：缺失 uv/pyrefly 时弹窗引导一键安装
   await maybePromptToolchain();
 
-  // 启动即自动恢复最近工作区；无记录则保持 Welcome 页
-  await autoOpenRecentWorkspace();
+  // 多窗口：项目窗口按其绑定目录打开；主窗口回落「恢复最近」
+  await openInitialWorkspace();
   updateEditorOverlay();
   renderRunWidget(runWidgetState()); // 首次渲染（无工作区时 renderTabs 不被调用，需显式补一次）
 }

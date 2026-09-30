@@ -197,6 +197,47 @@ pub(crate) fn kill_process_tree_async(child: std::process::Child) {
     });
 }
 
+/// 通过 pid 终止**整棵进程树**（同步 taskkill /T /F，Windows；非 Windows 无操作）。
+///
+/// 与 [`kill_process_tree`] 同口径但操作 pid：PTY 会话的 child 是
+/// `Box<dyn portable_pty::Child>`（无法借用 `std::process::Child`），只能取 pid 杀树。
+/// 同步阻塞；「不应阻塞 UI」的场景由调用方放进后台线程（如 terminal::kill_child_tree_async）。
+pub(crate) fn kill_pid_tree(pid: u32) {
+    #[cfg(windows)]
+    {
+        if pid == 0 {
+            return;
+        }
+        // 体验修复：taskkill 补 CREATE_NO_WINDOW（防前台黑框闪，与 kill_process_tree 同口径）
+        let mut kill = std::process::Command::new("taskkill");
+        kill.args(["/PID", &pid.to_string(), "/T", "/F"])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        let _ = no_window(&mut kill).status();
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = pid;
+    }
+}
+
+/// PTY 会话 child（`Box<dyn portable_pty::Child + Send + Sync>`）的异步杀树（铁律 1）。
+///
+/// 与 [`kill_process_tree_async`] 同语义但操作 portable-pty 的 child：先取 pid，
+/// 阻塞性的 taskkill /T /F 与回收全部移到后台线程，函数立即返回。
+/// 顺序要求：**必须先 taskkill 杀树再 kill/wait child**——直接子进程死了 taskkill 就
+/// 找不到树根，孙进程会漏杀（这正是裸 `child.kill()` 的孤儿问题本身）。
+pub(crate) fn kill_pty_child_tree_async(mut child: Box<dyn portable_pty::Child + Send + Sync>) {
+    let pid = child.process_id().unwrap_or(0);
+    std::thread::spawn(move || {
+        crate::util::kill_pid_tree(pid);
+        // 兜底：树杀失败（pid 复用等罕见情形）时仍终止直接子进程并回收句柄
+        let _ = child.kill();
+        let _ = child.wait();
+    });
+}
+
 /// 打包后 Tauri 资源目录候选：`bundle.resources` 的落地位置跨平台有差异，
 /// 列出多个常见位置（`resource_dir()` 本身与其 `resources/` 子目录），命中即用。
 /// 供 `lsp::locate_intel_binary` / `run_env::locate_probe_src` 复用（第 2 步：资源目录支持）。

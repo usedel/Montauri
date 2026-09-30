@@ -173,8 +173,9 @@ export function renderEndpointPanel(error?: string): void {
     return;
   }
   if (results.length === 0) {
+    // S4 空态教学：补一句这面板属于谁（FastAPI / Flask 项目），非 Python Web 用户不困惑
     list.appendChild(
-      emptyState("globe", "没有端点", "暂无 @app.get / @router.get / @app.route 声明", true),
+      emptyState("globe", "没有端点", "暂无 @app.get / @router.get / @app.route 声明（FastAPI / Flask 项目）", true),
     );
     return;
   }

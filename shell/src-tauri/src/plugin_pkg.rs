@@ -17,8 +17,16 @@ use crate::util::opencharm_home;
 /// 导出插件目录为 zip（保存路径由前端文件对话框选择后传入）。
 /// 目录名（=插件 id）作为 zip 内的根目录前缀——导入端据此还原结构。
 /// 失败清理：zip 写入中途失败会留下损坏文件——删除后报错（不留半成品误导分享）。
+/// P2-3（2026-09-29 review）：改 async + spawn_blocking——插件含大资源时
+/// 递归读 + 压缩是重 IO，原同步命令在主线程执行会明显卡顿（铁律 5）。
 #[tauri::command]
-pub fn export_plugin(plugin_dir: &str, save_path: &str) -> Result<String, String> {
+pub async fn export_plugin(plugin_dir: String, save_path: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || export_plugin_impl(&plugin_dir, &save_path))
+        .await
+        .map_err(|e| format!("任务执行异常：{e}"))?
+}
+
+fn export_plugin_impl(plugin_dir: &str, save_path: &str) -> Result<String, String> {
     let src = Path::new(plugin_dir);
     if !src.is_dir() {
         return Err(format!("插件目录不存在：{plugin_dir}"));
@@ -88,8 +96,15 @@ fn collect_files(dir: &Path, prefix: &str, out: &mut Vec<(String, PathBuf)>) -> 
 
 /// 导入插件 zip：解包到临时目录 → 校验 → 落盘 extensions/<id>/。
 /// 返回新插件的 manifest 路径（前端据此重扫）。
+/// P2-3（2026-09-29 review）：同 export_plugin 改 async + spawn_blocking。
 #[tauri::command]
-pub fn import_plugin(zip_path: &str) -> Result<String, String> {
+pub async fn import_plugin(zip_path: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || import_plugin_impl(&zip_path))
+        .await
+        .map_err(|e| format!("任务执行异常：{e}"))?
+}
+
+fn import_plugin_impl(zip_path: &str) -> Result<String, String> {
     let file = fs::File::open(zip_path).map_err(|e| format!("打开 zip 失败：{e}"))?;
     let mut archive = zip::ZipArchive::new(file).map_err(|e| format!("读取 zip 失败（不是有效的 zip？）：{e}"))?;
 
@@ -112,6 +127,15 @@ fn import_inner(
     archive: &mut zip::ZipArchive<fs::File>,
     tmp: &Path,
 ) -> Result<String, String> {
+    // P2-4（2026-09-29 review）：zip 炸弹护栏——单文件有 10MB 上限，但条目数与
+    // 累计解压量无上限（10 万个小条目 = 10 万次文件写 + 目录创建，磁盘/inode DoS）。
+    const MAX_ENTRIES: usize = 2000;
+    const MAX_TOTAL_BYTES: u64 = 64 * 1024 * 1024;
+    if archive.len() > MAX_ENTRIES {
+        return Err(format!("zip 条目数超过上限（{} > {}）", archive.len(), MAX_ENTRIES));
+    }
+    let mut total_bytes: u64 = 0;
+
     // 2) 逐条目解包（条目名必须相对且无 ..）
     for i in 0..archive.len() {
         let mut entry = archive
@@ -134,6 +158,10 @@ fn import_inner(
         // 大小护栏：单文件 10MB（插件是文本工具，超限基本是塞了二进制资源——v1 不支持）
         if bytes.len() > 10 * 1024 * 1024 {
             return Err(format!("条目 {} 超过 10MB 上限", entry.name()));
+        }
+        total_bytes = total_bytes.saturating_add(bytes.len() as u64);
+        if total_bytes > MAX_TOTAL_BYTES {
+            return Err("zip 累计解压量超过 64MB 上限".into());
         }
         fs::write(&dest, &bytes).map_err(|e| format!("写入 {} 失败：{e}", dest.display()))?;
     }
@@ -249,7 +277,7 @@ mod tests {
         let work = tmpdir("roundtrip");
         let plugin = make_plugin(&work, "com.test.round", "export const x = 1;");
         let zip_path = work.join("out.zip");
-        export_plugin(plugin.to_str().unwrap(), zip_path.to_str().unwrap()).unwrap();
+        export_plugin_impl(plugin.to_str().unwrap(), zip_path.to_str().unwrap()).unwrap();
         assert!(zip_path.is_file());
 
         // 导入正路径由 E2E 覆盖（import_plugin 的数据根经 OnceLock 缓存，单测进程内
@@ -271,7 +299,7 @@ mod tests {
         // 非 zip 文件
         let notzip = work.join("not.zip");
         fs::write(&notzip, "this is not a zip").unwrap();
-        let err = import_plugin(notzip.to_str().unwrap()).unwrap_err();
+        let err = import_plugin_impl(notzip.to_str().unwrap()).unwrap_err();
         assert!(err.contains("zip"), "应报 zip 读取错误：{err}");
         let _ = fs::remove_dir_all(&work);
     }
@@ -287,7 +315,7 @@ mod tests {
         zip.start_file("../evil.txt", options).unwrap();
         zip.write_all(b"pwned").unwrap();
         zip.finish().unwrap();
-        let err = import_plugin(zip_path.to_str().unwrap()).unwrap_err();
+        let err = import_plugin_impl(zip_path.to_str().unwrap()).unwrap_err();
         assert!(err.contains("非法") || err.contains("逃逸"), "应拒绝路径逃逸：{err}");
         let _ = fs::remove_dir_all(&work);
     }
@@ -305,7 +333,7 @@ mod tests {
         zip.start_file("b/y.txt", options).unwrap();
         zip.write_all(b"2").unwrap();
         zip.finish().unwrap();
-        let err = import_plugin(zip_path.to_str().unwrap()).unwrap_err();
+        let err = import_plugin_impl(zip_path.to_str().unwrap()).unwrap_err();
         assert!(err.contains("顶层目录"), "应拒绝多顶层：{err}");
         let _ = fs::remove_dir_all(&work);
     }

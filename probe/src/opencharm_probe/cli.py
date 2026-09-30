@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import sqlite3
 import subprocess
 import sys
 
@@ -31,15 +32,27 @@ def _cmd_run(args) -> int:
     from .runner import run_with_probe
 
     cfg = load_config(quiet=args.quiet)
+    summary: dict | None = None
     try:
         summary = run_with_probe(cfg, args.script, args.argv)
     except FileNotFoundError as e:
         print(f"[opencharm-probe] ✗ 脚本不存在：{e}", file=sys.stderr)
         return 2
+    except (sqlite3.Error, OSError, RuntimeError) as e:
+        # P2-2（2026-09-29 review）：落库失败（盘满/库损坏）、monitor 初始化失败
+        #（低版本无 sys.monitoring 的 RuntimeError）等不再以裸 traceback 面向用户
+        #（对比注入模式 autostart 已有完整兜底）。脚本原始异常由 run_with_probe
+        # 原样抛出（类型各异，不走此分支——SystemExit 已被 runner 转为 exit_code）。
+        print(f"[opencharm-probe] ✗ 采集运行失败：{e}", file=sys.stderr)
+        return 3
+    if summary is None:  # 静态分析守卫：上方分支均已 return
+        return 3
     if not cfg.quiet:
         print(f"[opencharm-probe] ✓ {summary['functions']} 函数 · "
               f"{summary['observations']} 类型观测 · {summary['elapsed']:.3f}s → {summary['db']}")
-    return 0
+    # P2-1（2026-09-29 review）：退出码透传——runner 精心计算的 exit_code 此前被
+    # 无条件 return 0 吞掉，CI/脚本链中 `opencharm-probe run app.py && next` 会误判成功。
+    return int(summary.get("exit_code", 0))
 
 
 def _cmd_show(args) -> int:
@@ -92,7 +105,17 @@ def _cmd_inject(args) -> int:
         print("[opencharm-probe] ✗ inject 需要命令：opencharm-probe inject -- <command...>",
               file=sys.stderr)
         return 2
-    env = _inject_env(os.path.abspath(args.command[-1]) if args.command else "")
+    # P2-6（2026-09-29 review）：command[-1] 不是 .py 文件时（`uv run -m pkg` / pytest /
+    # `-c "..."`）bootstrap 会静默跳过，用户得到 0 采集且无任何提示。无法可靠推断
+    # 脚本路径时降级为空串（守卫用）并打印警告，明示约束。
+    script = os.path.abspath(args.command[-1])
+    if not script.endswith((".py", ".pyw")) or not os.path.isfile(script):
+        print("[opencharm-probe] ⚠ 无法从命令尾部推断 .py 脚本路径"
+              "（argv[0] 守卫可能不匹配 → 0 采集）。"
+              "inject 模式要求命令以脚本路径结尾（如 `inject -- uv run python app.py`）。",
+              file=sys.stderr)
+        script = ""
+    env = _inject_env(script)
     proc = subprocess.run(args.command, env=env)
     return proc.returncode
 

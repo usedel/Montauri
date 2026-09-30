@@ -93,6 +93,11 @@ fn default_keybindings() -> HashMap<String, String> {
     m.insert("trigger_suggest".into(), "Alt+/".into());
     // 库特别支持 PR-2（python_library_support_dev_plan §4.2）：正则测试器（editor 级）
     m.insert("open_regex_tester".into(), "Ctrl+Alt+R".into());
+    // 诊断导航（PyCharm 同款 F8 / Shift+F8）：下一个 / 上一个错误（与前端 KEYBINDING_META 三处同步）
+    m.insert("goto_next_problem".into(), "F8".into());
+    m.insert("goto_prev_problem".into(), "Shift+F8".into());
+    // 问题面板（PyCharm Problems View 同款 Alt+0；window 级）
+    m.insert("open_problems".into(), "Alt+0".into());
     m
 }
 
@@ -157,6 +162,8 @@ pub struct Settings {
     pub ruff_severity_f: String,
     /// 运行时智能层（opencharm-intel）开关——关闭时 LSP 桥不启动 intel（P3-T09）
     pub runtime_intel_enabled: bool,
+    /// Pydantic 构造校验诊断与改名传播（阶段 4：opencharm-pydantic 桶；须与前端同步）
+    pub pydantic_diagnostics: bool,
     /// 零引擎静态关键字补全开关（无 LSP 引擎的语言；python 不受影响）
     pub keyword_completion: bool,
     /// 终端默认启动目录："workspace"（工作区根）| "file"（活动文件所在目录）
@@ -229,6 +236,8 @@ impl Default for Settings {
             ruff_severity_w: "warning".into(),
             ruff_severity_f: "warning".into(),
             runtime_intel_enabled: true,
+            // 阶段 4：与前端 DEFAULT_SETTINGS.pydantic_diagnostics 保持同步
+            pydantic_diagnostics: true,
             // 与前端 DEFAULT_SETTINGS.keyword_completion 保持同步
             keyword_completion: true,
             terminal_cwd: "workspace".into(),
@@ -250,15 +259,40 @@ impl Default for Settings {
     }
 }
 
+/// 设置缓存（P2-1，2026-09-29 review）：logging 每条日志要读 3-4 次 settings
+/// （enabled / effective_level / keep_count / stdout 开关），全量读盘 + JSON 反序列化
+/// 在 LSP stderr 高频转发等场景被放大。以 (mtime, size) 失效——设置变更必然改写
+/// 文件（set_settings / 前端保存），命中缓存即零 IO。读取失败回落默认（原语义）。
+static SETTINGS_CACHE: std::sync::Mutex<Option<(Option<(std::time::SystemTime, u64)>, Settings)>> =
+    std::sync::Mutex::new(None);
+
 pub(crate) fn load() -> Settings {
     let p = settings_path();
-    if !p.is_file() {
-        return Settings::default();
+    let stamp: Option<(std::time::SystemTime, u64)> = std::fs::metadata(&p)
+        .and_then(|m| {
+            let mt = m.modified().map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+            Ok((mt, m.len()))
+        })
+        .ok();
+    {
+        let cache = crate::util::unpoison(SETTINGS_CACHE.lock());
+        if let Some((cached_stamp, cached)) = cache.as_ref() {
+            if *cached_stamp == stamp {
+                return cached.clone();
+            }
+        }
     }
-    fs::read_to_string(p)
-        .ok()
-        .and_then(|s| serde_json::from_str::<Settings>(&s).ok())
-        .unwrap_or_default()
+    let loaded = if stamp.is_none() && !p.is_file() {
+        Settings::default()
+    } else {
+        fs::read_to_string(&p)
+            .ok()
+            .and_then(|s| serde_json::from_str::<Settings>(&s).ok())
+            .unwrap_or_default()
+    };
+    let mut cache = crate::util::unpoison(SETTINGS_CACHE.lock());
+    *cache = Some((stamp, loaded.clone()));
+    loaded
 }
 
 /// 读取设置（文件不存在返回默认值；无效字段回落默认）
@@ -274,7 +308,8 @@ pub(crate) fn current_probe_enabled(_app: &tauri::AppHandle) -> bool {
     load().probe_enabled
 }
 
-/// 写入完整设置
+/// 写入完整设置（写盘后主动失效缓存——NTFS mtime 粒度下「快速连写两次且大小相同」
+/// 可能被 (mtime, size) 戳误判为未变，主动清缓存兜底；写失败保留旧缓存无害）。
 #[tauri::command]
 pub fn set_settings(settings: Settings) -> Result<(), String> {
     let p = settings_path();
@@ -282,7 +317,9 @@ pub fn set_settings(settings: Settings) -> Result<(), String> {
         fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
     let json = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
-    fs::write(&p, json).map_err(|e| e.to_string())
+    fs::write(&p, json).map_err(|e| e.to_string())?;
+    *crate::util::unpoison(SETTINGS_CACHE.lock()) = None;
+    Ok(())
 }
 
 /// 读取设置文件的原始路径（供测试/诊断）
@@ -383,8 +420,13 @@ mod tests {
         assert_eq!(d.keybindings.get("goto_symbol").map(String::as_str), Some("Ctrl+F12"));
         // PR-J（dx_features_backlog §6.6）：触发补全建议备选键（Ctrl+Space 被中文 IME 吞键，人工验证）
         assert_eq!(d.keybindings.get("trigger_suggest").map(String::as_str), Some("Alt+/"));
+        // 诊断导航（PyCharm 同款 F8 / Shift+F8）：下一个 / 上一个错误
+        assert_eq!(d.keybindings.get("goto_next_problem").map(String::as_str), Some("F8"));
+        assert_eq!(d.keybindings.get("goto_prev_problem").map(String::as_str), Some("Shift+F8"));
+        // 问题面板（PyCharm Problems View 同款 Alt+0）
+        assert_eq!(d.keybindings.get("open_problems").map(String::as_str), Some("Alt+0"));
         // 键位表条目数 = 前端 KEYBINDING_META 条目数（漂移锁，新增键须同步改这里）
-        assert_eq!(d.keybindings.len(), 57);
+        assert_eq!(d.keybindings.len(), 60);
         assert_eq!(d.optimize_imports_on_save, false);
     }
 
@@ -445,7 +487,10 @@ mod tests {
         assert_eq!(s.keybindings.get("trigger_suggest").map(String::as_str), Some("Alt+/"));
         // 库特别支持 PR-2：旧配置无正则测试器键位 → 回落默认
         assert_eq!(s.keybindings.get("open_regex_tester").map(String::as_str), Some("Ctrl+Alt+R"));
-        assert_eq!(s.keybindings.len(), 57);
+        // 诊断导航：旧配置无 F8 组 → 回落默认
+        assert_eq!(s.keybindings.get("goto_next_problem").map(String::as_str), Some("F8"));
+        assert_eq!(s.keybindings.get("goto_prev_problem").map(String::as_str), Some("Shift+F8"));
+        assert_eq!(s.keybindings.len(), 60);
         assert_eq!(s.optimize_imports_on_save, false); // 旧配置文件无此字段 → 默认关闭
     }
 }

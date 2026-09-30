@@ -109,6 +109,6 @@ helpers 增 `plugins` bridge 通道（list_plugin_dirs / read_plugin_file 真实
 
 | 项 | 说明 | 优先级 |
 |---|---|---|
-| 编辑器右键「变换选区 ▸」 | v1 未做（Monaco 菜单注册体系侵入较大）；命令面板已覆盖全部 inline 入口 | P2 |
-| v1.1 工具备选 | 正则测试（Python re 语义）、进制转换、HTML 实体、Unicode⇄中文、大小写、字数、排序去重、颜色、Diff、密码生成 | P2 |
+| ~~编辑器右键「变换选区 ▸」~~ | **已落地（2026-09-30）**：`extensions/inlineMenu.ts`——`MenuRegistry.appendMenuItem(EditorContext, { submenu })` 实现 Monaco 右键子菜单（addAction 不支持子菜单）；子项随插件注册表 `onRegistryChanged` 自动重建；`editorHasSelection` context key 门控（无选区隐藏）。E2E 用例 12/13 钉死（Shift+F10 唤出 → 子菜单 → 原地替换 → 撤销；无选区不显示）。**连带修复产品级缺陷**：Double Shift 重置监听改 capture 阶段（焦点在 Monaco 内时 keydown 被 stopPropagation，`Shift+End` 后紧接 `Shift+F10` 会误触发 Search Everywhere）。**同批落地 §9.9 上下文感知变体（v1.1）**：`Ctrl+Shift+T` 有选区时 picker 进 inline 模式（`DevTool.inlineLabel` 注册表投影 + 过滤 + 选中直执行 + 搜索回退全量）；E2E 用例 14/15 钉死 | ✅ |
+| v1.1 工具备选 | **首批 9 工具已落地（2026-09-30）**：进制转换（BigInt）/ HTML 实体 / Unicode⇄明文（代理对合并）/ 大小写与命名风格 / 字数统计 / 行排序去重（crypto 洗牌）/ 颜色转换（含 ANSI 256）/ 密码生成 / 文本 Diff（LCS）。纯函数库 `builtin/textfns.ts`（69 项单测：标准向量 + 往返 + 随机分布性质）；4 个新增 inline 入口（数字转十六进制 / HTML 实体编码 / Unicode 还原 / 英文转大写）。正则测试已由库支持 PR-2 以真实 re 引擎交付 | 剩余备选：Lorem ipsum 等按需 |
 | v2 议题 | iframe/Worker 沙箱 + 跨 realm facade · 工作区级插件目录 · Python 工具桥（Pyodide/OEP）· `.ocx` 安装包 | P3 |

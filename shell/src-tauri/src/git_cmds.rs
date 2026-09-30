@@ -12,13 +12,14 @@ use std::io::{BufRead, Read};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 
 use tauri::{AppHandle, Emitter};
 
+use crate::per_window::PerWindow;
 use crate::tool_paths::{tool_command, ENV_GIT};
-use crate::util::{kill_process_tree, no_window, unpoison};
+use crate::util::{kill_process_tree, no_window};
 
 /// 执行一个已构建好的 git 子命令（cwd 锚定到仓库根），成功返回 stdout，失败返回 stderr。
 fn exec_git(root: &str, mut cmd: Command) -> Result<String, String> {
@@ -757,11 +758,13 @@ pub async fn git_conflict_versions(root: String, path: String) -> Result<GitConf
 // ---------- 远程操作（push / pull / fetch，TD-002；迭代 4 · P2-1/P2-2/P2-3 重构） ----------
 
 /// 进行中网络操作句柄表（迭代 4 · P2-3：可取消）。key = "push"/"pull"/"fetch"。
-static GIT_NET_OPS: LazyLock<Mutex<HashMap<String, GitNetOp>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+static GIT_NET_OPS: LazyLock<PerWindow<HashMap<String, GitNetOp>>> = LazyLock::new(PerWindow::new);
 
-/// 一个进行中的网络 git 操作：取消标志（轮询线程见标志即杀进程树）。
+/// 一个进行中的网络 git 操作：取消标志（轮询线程见标志即杀进程树）+
+/// git 进程 pid（P2-6：退出钩子同步杀树用——轮询线程是后台线程，会被进程退出截断）。
 struct GitNetOp {
     cancel: Arc<AtomicBool>,
+    pid: u32,
 }
 
 /// 流式网络 git 执行（迭代 4 · P2-3）：
@@ -775,6 +778,7 @@ fn exec_git_streaming(
     root: &str,
     mut cmd: Command,
     op: &str,
+    wid: &str,
 ) -> Result<String, String> {
     cmd.env("GIT_TERMINAL_PROMPT", "0")
         .env("GIT_ASKPASS", "echo") // askpass=echo：任何凭据询问立即返回空串 → git 自行报错而非挂起
@@ -788,14 +792,17 @@ fn exec_git_streaming(
 
     let cancel = Arc::new(AtomicBool::new(false));
     {
-        let mut ops = unpoison(GIT_NET_OPS.lock());
-        ops.insert(op.to_string(), GitNetOp { cancel: cancel.clone() });
+        let mut ops = GIT_NET_OPS.lock();
+        ops.entry(wid.to_string())
+            .or_default()
+            .insert(op.to_string(), GitNetOp { cancel: cancel.clone(), pid: child.id() });
     }
 
     // stderr 逐行流式转发（git 的进度输出在 stderr）
-    let stderr = child.stderr.take().unwrap();
+    let stderr = child.stderr.take().expect("stderr 已设为 piped");
     let app_err = app.clone();
     let op_err = op.to_string();
+    let wid_err = wid.to_string();
     let err_stream = std::thread::spawn(move || {
         let reader = std::io::BufReader::new(stderr);
         let mut collected = String::new();
@@ -803,12 +810,12 @@ fn exec_git_streaming(
             let Ok(l) = line else { break };
             collected.push_str(&l);
             collected.push('\n');
-            let _ = app_err.emit("git-op-stdout", json!({ "op": op_err, "data": format!("{l}\n") }));
+            let _ = app_err.emit_to(&wid_err, "git-op-stdout", json!({ "op": op_err, "data": format!("{l}\n") }));
         }
         collected
     });
     // stdout 全量收集（push/pull 的正常输出少且非进度）
-    let stdout = child.stdout.take().unwrap();
+    let stdout = child.stdout.take().expect("stdout 已设为 piped");
     let out_reader = std::thread::spawn(move || {
         let mut s = String::new();
         let mut r = std::io::BufReader::new(stdout);
@@ -822,7 +829,7 @@ fn exec_git_streaming(
             kill_process_tree(&mut child);
             let _ = out_reader.join();
             let _ = err_stream.join();
-            cleanup_net_op(op);
+            cleanup_net_op(wid, op);
             return Err("已取消".to_string());
         }
         match child.try_wait() {
@@ -832,7 +839,7 @@ fn exec_git_streaming(
                     kill_process_tree(&mut child);
                     let _ = out_reader.join();
                     let _ = err_stream.join();
-                    cleanup_net_op(op);
+                    cleanup_net_op(wid, op);
                     return Err(format!("git 网络操作超时（{}s）", GIT_NET_TIMEOUT.as_secs()));
                 }
                 std::thread::sleep(Duration::from_millis(100));
@@ -841,14 +848,14 @@ fn exec_git_streaming(
                 kill_process_tree(&mut child);
                 let _ = out_reader.join();
                 let _ = err_stream.join();
-                cleanup_net_op(op);
+                cleanup_net_op(wid, op);
                 return Err(e.to_string());
             }
         }
     };
     let out = out_reader.join().unwrap_or_default();
     let err = err_stream.join().unwrap_or_default();
-    cleanup_net_op(op);
+    cleanup_net_op(wid, op);
 
     if status.success() {
         Ok(if out.trim().is_empty() { err } else { out })
@@ -866,18 +873,21 @@ fn exec_git_streaming(
 }
 
 /// 从句柄表移除（操作结束/失败/取消统一走这里）。
-fn cleanup_net_op(op: &str) {
-    if let Ok(mut ops) = GIT_NET_OPS.lock() {
-        ops.remove(op);
+fn cleanup_net_op(wid: &str, op: &str) {
+    let mut ops = GIT_NET_OPS.lock();
+    if let Some(map) = ops.get_mut(wid) {
+        map.remove(op);
     }
 }
 
 /// 取消进行中的网络 git 操作（P2-3）。无进行中操作时静默成功。
 #[tauri::command]
-pub async fn git_cancel_op(op: String) -> Result<(), String> {
+pub async fn git_cancel_op(window: tauri::WebviewWindow, op: String) -> Result<(), String> {
+    let wid = window.label().to_string();
     spawn_blocking(move || {
-        if let Ok(ops) = GIT_NET_OPS.lock() {
-            if let Some(handle) = ops.get(&op) {
+        let ops = GIT_NET_OPS.lock();
+        if let Some(map) = ops.get(&wid) {
+            if let Some(handle) = map.get(&op) {
                 handle.cancel.store(true, Ordering::Relaxed);
             }
         }
@@ -886,9 +896,22 @@ pub async fn git_cancel_op(op: String) -> Result<(), String> {
     .await
 }
 
+/// 应用退出清理（P2-6，CR-14 同款纪律）：进行中的 push/pull/fetch 的 git 进程树
+/// 同步杀灭——轮询线程的 cancel-杀树是后台路径会被进程退出截断，孤儿 git 会
+/// 继续网络传输。同时置位全部 cancel 标志（轮询线程若还在跑则提前退出）。
+pub(crate) fn git_stop_net_ops_for_exit() {
+    for map in GIT_NET_OPS.drain_all() {
+        for (_op, handle) in map {
+            handle.cancel.store(true, Ordering::Relaxed);
+            crate::util::kill_pid_tree(handle.pid);
+        }
+    }
+}
+
 /// 推送到远程（`git push`；可选 remote/branch——空则默认上游）。迭代 4：流式 + 可取消。
 #[tauri::command]
-pub async fn git_push(app: AppHandle, root: String, remote: Option<String>, branch: Option<String>) -> Result<String, String> {
+pub async fn git_push(app: AppHandle, window: tauri::WebviewWindow, root: String, remote: Option<String>, branch: Option<String>) -> Result<String, String> {
+    let wid = window.label().to_string();
     spawn_blocking(move || {
         let mut cmd = tool_command("git", ENV_GIT);
         cmd.arg("push");
@@ -900,14 +923,15 @@ pub async fn git_push(app: AppHandle, root: String, remote: Option<String>, bran
         } else if let Some(b) = branch.as_deref().filter(|s| !s.is_empty()) {
             cmd.arg("-u").arg("origin").arg(format!("HEAD:refs/heads/{b}"));
         }
-        exec_git_streaming(&app, &root, cmd, "push")
+        exec_git_streaming(&app, &root, cmd, "push", &wid)
     })
     .await
 }
 
 /// 拉取远程（`git pull`；可选 remote/branch）。迭代 4：流式 + 可取消。
 #[tauri::command]
-pub async fn git_pull(app: AppHandle, root: String, remote: Option<String>, branch: Option<String>) -> Result<String, String> {
+pub async fn git_pull(app: AppHandle, window: tauri::WebviewWindow, root: String, remote: Option<String>, branch: Option<String>) -> Result<String, String> {
+    let wid = window.label().to_string();
     spawn_blocking(move || {
         let mut cmd = tool_command("git", ENV_GIT);
         cmd.arg("pull");
@@ -917,14 +941,15 @@ pub async fn git_pull(app: AppHandle, root: String, remote: Option<String>, bran
                 cmd.arg(b);
             }
         }
-        exec_git_streaming(&app, &root, cmd, "pull")
+        exec_git_streaming(&app, &root, cmd, "pull", &wid)
     })
     .await
 }
 
 /// 抓取远程（`git fetch [--prune]`）。迭代 4：流式 + 可取消 + prune 选项。
 #[tauri::command]
-pub async fn git_fetch(app: AppHandle, root: String, prune: bool) -> Result<String, String> {
+pub async fn git_fetch(app: AppHandle, window: tauri::WebviewWindow, root: String, prune: bool) -> Result<String, String> {
+    let wid = window.label().to_string();
     spawn_blocking(move || {
         let mut cmd = tool_command("git", ENV_GIT);
         cmd.arg("fetch");
@@ -932,7 +957,7 @@ pub async fn git_fetch(app: AppHandle, root: String, prune: bool) -> Result<Stri
             cmd.arg("--prune");
         }
         cmd.arg("--all");
-        exec_git_streaming(&app, &root, cmd, "fetch")
+        exec_git_streaming(&app, &root, cmd, "fetch", &wid)
     })
     .await
 }

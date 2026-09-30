@@ -13,6 +13,7 @@ import { app, type MonacoModule } from "./state";
 import { KEYBINDING_META, type KeybindingId } from "./keybindingDefaults";
 import { toast } from "./toast"; // P4（C-3）：列选择开关的可见反馈（G-3）
 import { toggleSplit } from "./splitEditor"; // P4（C-4）：向右分屏（splitEditor 不反向依赖本模块，无环）
+import { gotoMarker } from "./markerNavigation"; // 诊断导航（F8 / Shift+F8；markerNavigation 不反向依赖本模块，无环）
 
 // re-export 出厂键位元数据，保持既有 `import ... from "./keybindings"` 调用方不变
 export { KEYBINDING_META } from "./keybindingDefaults";
@@ -301,6 +302,9 @@ export function initKeybindingCommands(monaco: MonacoModule): void {
   setKeybindingHandler("trigger_suggest", () => {
     app.editor.trigger("keybindings", "editor.action.triggerSuggest", null);
   });
+  // 诊断导航（PyCharm 同款 F8 / Shift+F8）：下一个 / 上一个 error/warning marker（循环回绕）
+  setKeybindingHandler("goto_next_problem", () => gotoMarker(1));
+  setKeybindingHandler("goto_prev_problem", () => gotoMarker(-1));
   for (const m of KEYBINDING_META) {
     if (m.scope !== "editor") continue;
     monaco.editor.addCommand({

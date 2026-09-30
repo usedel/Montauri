@@ -270,7 +270,7 @@ fn run_uv_capture(args: &[&str]) -> Result<String, String> {
         .spawn()
         .map_err(|e| format!("无法启动 uv：{e}"))?;
     // 管道在各读线程中消费，避免填满缓冲区导致 uv 阻塞
-    let mut out_h = child.stdout.take().unwrap();
+    let mut out_h = child.stdout.take().expect("stdout 已设为 piped");
     let mut err_h = child.stderr.take().unwrap();
     let out_t = std::thread::spawn(move || {
         let mut s = String::new();
@@ -288,7 +288,11 @@ fn run_uv_capture(args: &[&str]) -> Result<String, String> {
             Ok(Some(st)) => break st,
             Ok(None) => {
                 if start.elapsed() > CMD_TIMEOUT {
-                    let _ = child.kill();
+                    // P1-4（2026-09-29 review，铁律 1）：杀整棵进程树（uv 会拉起子进程，
+                    // 裸 kill 会孤儿化）；杀完 join 读线程（管道关闭后自然退出）。
+                    crate::util::kill_process_tree(&mut child);
+                    let _ = out_t.join();
+                    let _ = err_t.join();
                     return Err("uv 命令超时".into());
                 }
                 std::thread::sleep(Duration::from_millis(50));
@@ -502,8 +506,12 @@ mod tests {
 
     #[test]
     fn trace_hash_rejects_traversal() {
-        // clean_traces 的路径穿越校验（直接断言逻辑：含 ../ 的 hash 应被拒绝）
-        let bad = "../evil";
-        assert!(bad.contains(".."));
+        // P3-8（2026-09-29 review）：直接调用真实实现断言（原测试只断言字面量自身
+        // contains ".."，无任何校验价值——实现回归不会红）。
+        assert!(clean_traces_impl(Some("../evil".into())).is_err(), "含 .. 的 hash 必须被拒绝");
+        assert!(clean_traces_impl(Some("a/b".into())).is_err(), "含 / 的 hash 必须被拒绝");
+        assert!(clean_traces_impl(Some("a\\b".into())).is_err(), "含 \\ 的 hash 必须被拒绝");
+        // 合法 hash（指向不存在的库文件）：删除 0 字节成功，不报错
+        assert_eq!(clean_traces_impl(Some("0123abcd".into())).unwrap(), 0);
     }
 }

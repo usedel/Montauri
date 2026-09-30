@@ -4,7 +4,13 @@
 - 实例 → 「模块+类名」（builtins/__main__ 前缀省略）；
 - 容器 → 结构指纹（dict[K, V] / list[T]），深度受限（默认 2 层），元素类型采样联合；
 - 绝不 repr 值本身，避免大对象开销与内存膨胀；
-- shape_fingerprint 额外提取结构指纹：全 str 键小 dict 的键集合 / 实例属性名集合。
+- shape_fingerprint 额外提取结构指纹：全 str 键小 dict 的键集合 / 实例属性名集合；
+- **聚合键顺序必须稳定**（P1-15，2026-09-29 review）：同一观测位跨运行/跨进程必须
+  产出相同字符串。set/frozenset 迭代序受 PYTHONHASHSEED 影响是进程级随机源——其
+  类型联合 parts 排序；shape_fingerprint 的 merged 结构序列化补 sort_keys=True。
+  dict 分支的 kparts/vparts **保留插入序不排序**：插入序跨进程稳定，且已存 trace 库
+  的历史观测字符串（如 `dict[str, str|list[str]]`）按此格式沉淀，改排序会与历史
+  分裂（test_check 用例锁定的正是这一点）。
 """
 from __future__ import annotations
 
@@ -38,8 +44,18 @@ def type_label(t: type) -> str:
 
 
 def compact_type(value, max_depth: int = 2, max_union: int = 3, sample: int = 8) -> str:
-    """值的紧凑类型字符串。"""
-    return _compact(value, 0, max_depth, max_union, sample)
+    """值的紧凑类型字符串。
+
+    P2-5（2026-09-29 review）：顶层异常兜底——用户 metaclass 可在 `__module__` /
+    `__qualname__` / `__name__` / `len()` / 迭代上定义 property/`__getattr__` 魔法，
+    执行任意代码或抛异常。sys.monitoring 回调抛异常会按 unraisable 处理并可能令
+    回调被禁用（探针静默失效，违反「探针失败只打警告」）。shape_fingerprint 自带
+    兜底（返回 None），此处对齐：任何异常降级为 "?"（观测近似值，探针存活优先）。
+    """
+    try:
+        return _compact(value, 0, max_depth, max_union, sample)
+    except Exception:  # noqa: BLE001 - 恶意/魔法对象的降级路径
+        return "?"
 
 
 def _compact(v, depth: int, max_depth: int, max_union: int, sample: int) -> str:
@@ -70,6 +86,11 @@ def _compact(v, depth: int, max_depth: int, max_union: int, sample: int) -> str:
             s = _compact(item, depth + 1, max_depth, max_union, sample)
             if s not in parts:
                 parts.append(s)
+        # P1-15：set/frozenset 迭代序受 PYTHONHASHSEED 影响（进程级随机）——仅这两个
+        # 分支排序；list/tuple 保留插入序（跨进程稳定，且与已存 trace 库的历史观测
+        # 字符串兼容，排序反而会分裂）。
+        if cname in ("set", "frozenset"):
+            parts.sort()
         body = "|".join(parts)
         if scanned < n and len(parts) >= max_union:
             body += "|..."
@@ -132,7 +153,9 @@ def shape_fingerprint(value, max_keys: int = 16) -> str | None:
         if isinstance(value, (list, tuple)):
             node = _elem_shape(value, max_keys, 0)
             if node is not None:
-                return json.dumps({"e": node}, ensure_ascii=False, separators=(",", ":"))
+                # P1-15：补 sort_keys=True——merged 按元素键插入序构建，同构 list-of-dict
+                # 因构造路径键序不同会分裂出不同指纹（对比上方 dict 分支已有 sort_keys）。
+                return json.dumps({"e": node}, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
             return None
         if isinstance(value, type):
             return None

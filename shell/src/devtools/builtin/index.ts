@@ -19,6 +19,16 @@ import * as uuid from "./uuid";
 import * as regex from "./regex";
 import * as format from "./format";
 import * as json2model from "./json2model";
+// v1.1 批次（2026-09-30）
+import * as radix from "./radix";
+import * as htmlentity from "./htmlentity";
+import * as unicode from "./unicode";
+import * as caseconvert from "./caseconvert";
+import * as wordcount from "./wordcount";
+import * as sortlines from "./sortlines";
+import * as color from "./color";
+import * as password from "./password";
+import * as textdiff from "./textdiff";
 
 /** 内置工具模块表：entry 名 → 模块（对应第三方 manifest 的 entry 文件） */
 export const BUILTIN_TOOL_MODULES: Record<string, ToolModuleLike> = {
@@ -33,6 +43,16 @@ export const BUILTIN_TOOL_MODULES: Record<string, ToolModuleLike> = {
   "./regex.ts": regex as ToolModuleLike,
   "./format.ts": format as ToolModuleLike,
   "./json2model.ts": json2model as ToolModuleLike,
+  // v1.1 批次
+  "./radix.ts": radix as ToolModuleLike,
+  "./htmlentity.ts": htmlentity as ToolModuleLike,
+  "./unicode.ts": unicode as ToolModuleLike,
+  "./caseconvert.ts": caseconvert as ToolModuleLike,
+  "./wordcount.ts": wordcount as ToolModuleLike,
+  "./sortlines.ts": sortlines as ToolModuleLike,
+  "./color.ts": color as ToolModuleLike,
+  "./password.ts": password as ToolModuleLike,
+  "./textdiff.ts": textdiff as ToolModuleLike,
 };
 
 /** 工具模块契约（与第三方 ES module 导出同形；见 loader.ToolModule） */
@@ -141,6 +161,83 @@ export const BUILTIN_MANIFEST: PluginManifest = {
         category: "生成",
         icon: "json",
         entry: "./json2model.ts",
+      },
+      // ---------- v1.1 批次（2026-09-30，原 §9.7 备选清单） ----------
+      {
+        id: "radix",
+        title: "进制转换",
+        description: "0x/0b/0o/十进制互转（BigInt 精度无损）",
+        category: "转换",
+        icon: "symbol-numeric",
+        entry: "./radix.ts",
+        inline: { label: "数字转十六进制", handler: "toHexSelection" },
+      },
+      {
+        id: "htmlentity",
+        title: "HTML 实体编码/解码",
+        description: "命名实体与数字实体互转",
+        category: "编码",
+        icon: "code",
+        entry: "./htmlentity.ts",
+        inline: { label: "HTML 实体编码选区", handler: "encodeSelection" },
+      },
+      {
+        id: "unicode",
+        title: "Unicode ⇄ 明文",
+        description: "\\uXXXX 转义串与明文互转（含代理对合并）",
+        category: "转换",
+        icon: "whole-word",
+        entry: "./unicode.ts",
+        inline: { label: "Unicode 转义还原选区", handler: "unescapeSelection" },
+      },
+      {
+        id: "caseconvert",
+        title: "大小写/命名风格",
+        description: "UPPER / lower / Title / snake_case / camelCase",
+        category: "文本",
+        icon: "case-sensitive",
+        entry: "./caseconvert.ts",
+        inline: { label: "英文转大写", handler: "upperSelection" },
+      },
+      {
+        id: "wordcount",
+        title: "字数统计",
+        description: "字符 / 词 / CJK 字数 / 行数实时统计",
+        category: "文本",
+        icon: "symbol-keyword",
+        entry: "./wordcount.ts",
+      },
+      {
+        id: "sortlines",
+        title: "行排序去重",
+        description: "升/降/倒置/洗牌 × 去重/忽略大小写/空行",
+        category: "文本",
+        icon: "sort-precedence",
+        entry: "./sortlines.ts",
+      },
+      {
+        id: "color",
+        title: "颜色转换",
+        description: "Hex ⇄ RGB ⇄ HSL + ANSI 256 色号",
+        category: "转换",
+        icon: "color-mode",
+        entry: "./color.ts",
+      },
+      {
+        id: "password",
+        title: "密码生成",
+        description: "crypto 随机；四类字符集可组合",
+        category: "生成",
+        icon: "key",
+        entry: "./password.ts",
+      },
+      {
+        id: "textdiff",
+        title: "文本 Diff",
+        description: "两栏对比，行级差异（+ 新增 / - 删除）",
+        category: "文本",
+        icon: "diff",
+        entry: "./textdiff.ts",
       },
     ],
   },

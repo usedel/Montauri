@@ -94,7 +94,8 @@ export function mySelection(text) {
 - **只通过 `host` 与外壳交互**：禁止 import OpenCharm 内部模块（`shell/src/**`）——这是 API facade 硬约束，v2 沙箱化后违反即坏；
 - `mount` 返回 `{ dispose() {} }` 可省略；有 Monaco 实例/定时器/监听器时**必须**在 `dispose` 清理；
 - `inline.handler(text, host)` 返回 `string`（同步或 `Promise<string>`）；抛错 = toast 报错 + **保留原文**；
-- inline 触发时**面板可能从未打开**——`inline.handler` 收到的 `host` **没有** `root` / `kit` / `monaco`。
+- inline 触发时**面板可能从未打开**——`inline.handler` 收到的 `host` **没有** `root` / `kit` / `monaco`；
+- **inline 触发入口（无需配置，声明即生效）**：命令面板搜 `inline.label`、编辑器**选中文本后右键 → 「变换选区 ▸」** 子菜单（有选区才显示，无选区自动隐藏）。
 
 ## 四、host API 与权限
 
@@ -144,6 +145,8 @@ export function mySelection(text) {
 
 - **`host.log("...")` 是你的调试主力**：release 版没有浏览器控制台，`host.log` 写入
   设置 → 插件 → 你的插件行 → 展开后的**日志面板**（默认权限，无需声明）；
+  每条日志同时**落盘**到 `<数据根>/logs/plugins/<你的插件id>.log`（跨重启可查，
+  64KB 滚动截断）——设置 → 插件 页顶部有数据根真实路径与「复制路径」按钮；
 - **inline 工具免选区调试**：声明 inline（且无 mount）的工具在面板打开时自动获得
   **调试台**——输入文本 → 「运行」→ 结果/错误就地显示，不用去编辑器选文本；
 - **VS Code 类型补全**：脚手架生成的插件目录带 `opencharm-plugin.d.ts`——entry 首行

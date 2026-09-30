@@ -83,6 +83,8 @@ export interface Settings {
   ruff_severity_w: string;
   ruff_severity_f: string;
   runtime_intel_enabled: boolean;
+  /** 阶段 4：Pydantic 构造校验诊断（opencharm-pydantic 桶 + rename 传播补充）总开关 */
+  pydantic_diagnostics: boolean;
   /** 零引擎静态关键字补全（无 LSP 引擎的语言；python 不受影响——由三段语义补全负责） */
   keyword_completion: boolean;
   terminal_cwd: string;
@@ -162,6 +164,8 @@ export const DEFAULT_SETTINGS: Settings = {
   ruff_severity_w: "warning",
   ruff_severity_f: "warning",
   runtime_intel_enabled: true,
+  // 阶段 4：Pydantic 诊断默认开（须与 Rust Settings::default 保持同步）
+  pydantic_diagnostics: true,
   // 关键字补全默认开（须与 Rust Settings::default 保持同步）
   keyword_completion: true,
   terminal_cwd: "workspace",
@@ -197,8 +201,8 @@ export interface AppState {
   tabs: Tab[];
   /** 当前激活标签 */
   activeTab: Tab | null;
-  /** 待同步的文件（200ms 防抖后发全量 didChange） */
-  pendingChanges: Set<string>;
+  /** 待同步的文件（200ms 防抖后发增量/全量 didChange）；value = 自上次同步起的 Monaco 增量编辑序列 */
+  pendingChanges: Map<string, MonacoApi.editor.IModelContentChange[]>;
   /** 全局设置 */
   settings: Settings;
 }
@@ -228,7 +232,7 @@ export const app: AppState = {
   workspaceRoot: null,
   tabs: [],
   activeTab: null,
-  pendingChanges: new Set<string>(),
+  pendingChanges: new Map<string, MonacoApi.editor.IModelContentChange[]>(),
   settings: { ...DEFAULT_SETTINGS },
 };
 

@@ -418,6 +418,43 @@ test.describe("工具插件 E2E 验收", () => {
     await expect(row.locator(".plugin-log-line").last()).toContainText("变换输入", { timeout: 5_000 });
   });
 
+  test("16 host.log 落盘：日志面板可见的同时 append_plugin_log 已调用（v1.1 §9.14）", async ({ page }) => {
+    await equip(page);
+    await page.locator('.menubar-item[data-menu="tools"]').click();
+    await page.locator('#menu-dropdown .ctx-menu-item', { hasText: "插件管理…" }).click();
+    await page.locator("button", { hasText: "新建插件…" }).click();
+    await page.locator("#scaffold-id").fill("com.e2e.logger");
+    await page.locator("#scaffold-name").fill("落盘日志测试");
+    await page.locator(".scaffold-card button", { hasText: "创建" }).click();
+    await expect(page.locator(".toast", { hasText: "模板已创建" })).toBeVisible({ timeout: 10_000 });
+
+    // 打开模板工具触发 greet()（panel 模板 mount 即 host.log）
+    await openPanelFresh(page);
+    await page.locator("#devtools-picker-search").fill("我的第一个工具");
+    await page.keyboard.press("Enter");
+    await expect(page.locator("#devtools-body button", { hasText: "问候" })).toBeVisible({ timeout: 5_000 });
+
+    // 落盘旁路已触发：invoke 流水里出现 append_plugin_log（mock 记录 cmd+参数名，不含值；
+    // pluginId 正确性与落盘内容由 Rust 单测钉死，E2E 验前端接线）
+    await expect
+      .poll(
+        () =>
+          page.evaluate(() => {
+            const log = (window as unknown as { __TAURI_MOCK_INVOKE_LOG__?: string[] }).__TAURI_MOCK_INVOKE_LOG__ ?? [];
+            return log.some((x) => x.startsWith("append_plugin_log")) ? 1 : 0;
+          }),
+        { timeout: 10_000 },
+      )
+      .toBe(1);
+    // 日志面板标题提示落盘位置（可发现性）
+    await page.locator("#devtools-close").click();
+    await page.locator('.menubar-item[data-menu="tools"]').click();
+    await page.locator('#menu-dropdown .ctx-menu-item', { hasText: "插件管理…" }).click();
+    const row = page.locator(".plugin-row", { hasText: "落盘日志测试" });
+    await row.locator(".plugin-row-head").click();
+    await expect(row.locator(".plugin-logs-title")).toContainText("logs/plugins/");
+  });
+
   test("11 分发闭环：导出 zip → 删源 → 导入恢复（DX P2）", async ({ page }) => {
     const eq = await equip(page, {
       "com.e2e.share/opencharm.plugin.json": JSON.stringify({
@@ -458,5 +495,131 @@ test.describe("工具插件 E2E 验收", () => {
     await openPanelFresh(page);
     await page.locator("#devtools-picker-search").fill("分享工具");
     await expect(page.locator(".picker-item")).toHaveCount(1);
+  });
+
+  test("12 编辑器右键「变换选区 ▸」：子菜单 → 原地替换（v1 P2 遗留项）", async ({ page }) => {
+    await equip(page, {
+      "com.e2e.sample/opencharm.plugin.json": GOOD_MANIFEST,
+      "com.e2e.sample/upper.js": UPPER_JS_V1,
+    });
+    // 打开 main.py 并选中首行（Shift+End 全行选中 → editorHasSelection 置位）
+    await page.locator('.tree-item.file[data-path*="main.py"]').first().dblclick();
+    await expect(page.locator("#tabbar .tab", { hasText: "main.py" })).toBeVisible({ timeout: 5_000 });
+    await page.locator(".monaco-editor").first().click();
+    await page.keyboard.press("Control+Home");
+    await page.keyboard.press("Shift+End");
+
+    // Shift+F10 唤出 Monaco 编辑器右键菜单（headless 下比真实右键稳定，03-codevision-rename 同款）
+    await page.keyboard.press("Shift+F10");
+    const menu = page.locator(".context-view .monaco-menu");
+    await expect(menu).toBeVisible({ timeout: 10_000 });
+    // 「变换选区」父项出现（submenu 形态）
+    const parent = menu.getByRole("menuitem", { name: "变换选区" });
+    await expect(parent).toBeVisible();
+
+    // hover 展开子菜单 → 第三方 inline 工具在列（内置的 Base64/MD5 也在——只断言目标项）
+    // 子菜单容器 div.monaco-submenu 挂在父项元素内（menu.js::createSubmenu），自成一个 Menu；
+    // fixed 定位由 JS 计算，展开后等一拍再点（避免布局竞态让 click 落空）
+    await parent.hover();
+    const sub = page.locator(".monaco-menu .monaco-submenu");
+    await expect(sub).toBeVisible({ timeout: 5_000 });
+    await page.waitForTimeout(300);
+    await sub.getByRole("menuitem", { name: "选区转大写" }).click();
+
+    // toast 带撤销（与命令面板入口同一 runInline 链路）——先于文本断言（链路成功标志）
+    const toast = page.locator(".toast", { hasText: "已应用" });
+    await expect(toast).toBeVisible({ timeout: 10_000 });
+    // 原地替换生效（main.py 首行 print('hello world') → 大写）。
+    // Monaco 把空格渲染为 &nbsp;（textContent 读出 U+00A0），断言前归一化
+    const firstLine = (): Promise<string> =>
+      page.evaluate(() =>
+        (document.querySelector(".view-line")?.textContent ?? "").replace(/\u00a0/g, " "),
+      );
+    await expect.poll(firstLine, { timeout: 10_000 }).toContain("PRINT('HELLO WORLD')");
+    await toast.locator("button", { hasText: "撤销" }).click();
+    await expect.poll(firstLine, { timeout: 10_000 }).toContain("print('hello world')");
+  });
+
+  test("13 无选区时右键不显示「变换选区」（editorHasSelection 门控）", async ({ page }) => {
+    await equip(page, {
+      "com.e2e.sample/opencharm.plugin.json": GOOD_MANIFEST,
+      "com.e2e.sample/upper.js": UPPER_JS_V1,
+    });
+    await page.locator('.tree-item.file[data-path*="main.py"]').first().dblclick();
+    await expect(page.locator("#tabbar .tab", { hasText: "main.py" })).toBeVisible({ timeout: 5_000 });
+    // 光标归零（无选区）
+    await page.locator(".monaco-editor").first().click();
+    await page.keyboard.press("Control+Home");
+    await page.keyboard.press("Shift+F10");
+
+    const menu = page.locator(".context-view .monaco-menu");
+    await expect(menu).toBeVisible({ timeout: 10_000 });
+    await expect(menu.getByRole("menuitem", { name: "变换选区" })).toHaveCount(0);
+    await page.keyboard.press("Escape");
+  });
+
+  test("14 Ctrl+Shift+T 上下文感知：有选区 → inline 模式过滤 + 选中即变换（§9.9 v1.1）", async ({ page }) => {
+    await equip(page, {
+      "com.e2e.sample/opencharm.plugin.json": GOOD_MANIFEST,
+      "com.e2e.sample/upper.js": UPPER_JS_V1,
+    });
+    // 打开文件并选中首行
+    await page.locator('.tree-item.file[data-path*="main.py"]').first().dblclick();
+    await expect(page.locator("#tabbar .tab", { hasText: "main.py" })).toBeVisible({ timeout: 5_000 });
+    await page.locator(".monaco-editor").first().click();
+    await page.keyboard.press("Control+Home");
+    await page.keyboard.press("Shift+End");
+
+    // Ctrl+Shift+T：picker 进入 inline 模式（提示条可见）
+    await page.keyboard.press("Control+Shift+T");
+    await expect(page.locator("#devtools-picker")).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator("#devtools-picker-mode-hint:not(.hidden)")).toBeVisible();
+
+    // inline 过滤生效：只列选区变换工具（非 inline 的「JSON 美化/压缩」不在列）
+    await expect(page.locator(".picker-item")).not.toHaveCount(0);
+    await expect(page.locator(".picker-item", { hasText: "JSON 美化/压缩" })).toHaveCount(0);
+    // 第三方 inline 工具在列（显示 inlineLabel「选区转大写」而非工具标题「转大写」）
+    await expect(page.locator(".picker-item", { hasText: "选区转大写" })).toHaveCount(1);
+
+    // Enter（无高亮 fallback 第一项不可控——直接点击目标项）：选中即执行变换
+    await page.locator(".picker-item", { hasText: "选区转大写" }).click();
+    await expect(page.locator(".toast", { hasText: "已应用" })).toBeVisible({ timeout: 5_000 });
+    // 原地替换生效（NBSP 归一化断言——Monaco view-line 空格是 U+00A0）
+    await expect.poll(
+      () => page.evaluate(() =>
+        (document.querySelector(".view-line")?.textContent ?? "").replace(/\u00a0/g, " "),
+      ),
+      { timeout: 10_000 },
+    ).toContain("PRINT('HELLO WORLD')");
+  });
+
+  test("15 Ctrl+Shift+T 无选区：picker 全量（normal 模式）+ 手动开 picker 不受 inline 模式污染", async ({ page }) => {
+    await equip(page);
+    // 打开文件但无选区（光标归零）
+    await page.locator('.tree-item.file[data-path*="main.py"]').first().dblclick();
+    await expect(page.locator("#tabbar .tab", { hasText: "main.py" })).toBeVisible({ timeout: 5_000 });
+    await page.locator(".monaco-editor").first().click();
+    await page.keyboard.press("Control+Home");
+    await page.keyboard.press("Escape"); // 清可能的选区（Home 后无选区，防御性）
+
+    // Ctrl+Shift+T：normal 模式（提示条隐藏 + 非 inline 工具在列）
+    await page.keyboard.press("Control+Shift+T");
+    await expect(page.locator("#devtools-picker")).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator("#devtools-picker-mode-hint:not(.hidden)")).toHaveCount(0);
+    await expect(page.locator(".picker-item", { hasText: "JSON 美化/压缩" })).toHaveCount(1);
+
+    // 手动入口（header 点击）总是 normal：即使上一次 Ctrl+Shift+T 曾进 inline 模式
+    await page.locator("#devtools-close").click();
+    await page.locator(".monaco-editor").first().click();
+    await page.keyboard.press("Control+Home");
+    await page.keyboard.press("Shift+End"); // 制造选区
+    await page.keyboard.press("Control+Shift+T"); // 进入 inline 模式
+    await expect(page.locator("#devtools-picker-mode-hint:not(.hidden)")).toBeVisible();
+    await page.keyboard.press("Escape"); // 关 picker（面板保持开）
+    // 手动开 picker（header 点击）→ normal 模式（提示条隐藏、全量工具）
+    await page.locator("#devtools-current").click();
+    await expect(page.locator("#devtools-picker")).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator("#devtools-picker-mode-hint:not(.hidden)")).toHaveCount(0);
+    await expect(page.locator(".picker-item", { hasText: "JSON 美化/压缩" })).toHaveCount(1);
   });
 });

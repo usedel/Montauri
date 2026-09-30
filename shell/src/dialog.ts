@@ -60,6 +60,19 @@ function applyKind(kind: DialogKind): void {
   okBtn.classList.toggle("btn--primary", kind === "primary");
 }
 
+// P2-1：当前活动对话框的强制裁决钩子（openModal / openChoice / openPrompt 各自登记；
+// 新对话框打开前先裁决旧的，防 Promise 永久悬挂）。
+let activeFinish: (() => void) | null = null;
+
+/** 强制以「取消」裁决当前活动对话框（若存在）。
+ *  安全出口语义与 Esc / 点遮罩完全一致——旧调用方拿到 cancel/false/null 走既有的
+ *  取消分支，不产生新语义；裁决后清空钩子（finish 自身幂等，二次调用无副作用）。 */
+function forceFinishActive(): void {
+  const fin = activeFinish;
+  activeFinish = null;
+  fin?.();
+}
+
 /** 统一底层：withCancel 决定双按钮（confirm）或单按钮（alert）形态 */
 function openModal(opts: {
   title?: string;
@@ -69,6 +82,12 @@ function openModal(opts: {
   kind: DialogKind;
   withCancel: boolean;
 }): Promise<boolean> {
+  // P2-1（2026-09-29 review）：并发嵌套守卫——原实现假设「对话框同时只有一个实例」，
+  // 但 watcher/事件驱动的确认链可并发触发第二个 openConfirm/openChoice：后者覆盖
+  // 按钮回调与 modal 显隐后，**前一个 Promise 永远不会被 resolve**（悬挂的若是
+  // teardownCurrent / runPreparing 等关键路径，入口被永久锁死）。策略：新请求到来时
+  // 自动以「取消」裁决旧对话框（安全出口语义与 Esc/点遮罩一致），再接管 UI。
+  forceFinishActive();
   return new Promise((resolve) => {
     titleEl.textContent = opts.title ?? "";
     titleEl.classList.toggle("hidden", !opts.title);
@@ -105,8 +124,13 @@ function openModal(opts: {
       okBtn.onkeydown = null;
       cancelBtn.onkeydown = null;
       modalEl.onmousedown = null;
+      if (activeFinish === finishCancel) activeFinish = null; // P2-1：仅清自己的登记
       resolve(v);
     };
+
+    // P2-1：登记本实例的强制裁决入口（新对话框到来时以取消裁决本实例）
+    const finishCancel = () => finish(false);
+    activeFinish = finishCancel;
 
     okBtn.onclick = () => finish(true);
     cancelBtn.onclick = () => finish(false);
@@ -160,6 +184,8 @@ export type ChoiceResult = "ok" | "neutral" | "cancel";
  *  ⚠️ DOM 节点一律 getElementById 取**真元素**：模块级 lazyEl 代理不能作为
  *  insertBefore 的参照节点（Proxy 非 Node，DOM API 直接抛 TypeError——实测踩坑）。 */
 export function openChoice(opts: ChoiceOptions): Promise<ChoiceResult> {
+  // P2-1：并发嵌套守卫（同 openModal；取消语义 = Esc / 点遮罩的安全出口）
+  forceFinishActive();
   return new Promise((resolve) => {
     titleEl.textContent = opts.title ?? "";
     titleEl.classList.toggle("hidden", !opts.title);
@@ -193,8 +219,13 @@ export function openChoice(opts: ChoiceOptions): Promise<ChoiceResult> {
       cancelReal.onkeydown = null;
       modalEl.onmousedown = null;
       neutralBtn?.remove();
+      if (activeFinish === finishCancel) activeFinish = null; // P2-1：仅清自己的登记
       resolve(v);
     };
+
+    // P2-1：登记本实例的强制裁决入口（取消 = 安全出口）
+    const finishCancel = () => finish("cancel");
+    activeFinish = finishCancel;
 
     okReal.onclick = () => finish("ok");
     cancelReal.onclick = () => finish("cancel");
@@ -231,6 +262,8 @@ export function openAlert(opts: AlertOptions): Promise<void> {
  * - 取消 / Esc / 点遮罩 → 返回 null（与空串区分，调用方据此保持原值不变）。
  */
 export function openPrompt(opts: PromptOptions): Promise<string | null> {
+  // P2-1：并发嵌套守卫（同 openModal；null = 取消语义）
+  forceFinishActive();
   return new Promise((resolve) => {
     const card = promptModalEl.querySelector<HTMLElement>(".modal-card");
     card?.setAttribute("aria-label", opts.title);
@@ -252,8 +285,13 @@ export function openPrompt(opts: PromptOptions): Promise<string | null> {
       promptOkBtn.onclick = null;
       promptCancelBtn.onclick = null;
       promptInputEl.onkeydown = null;
+      if (activeFinish === finishCancel) activeFinish = null; // P2-1：仅清自己的登记
       resolve(v);
     };
+
+    // P2-1：登记本实例的强制裁决入口（null = 取消语义）
+    const finishCancel = () => finish(null);
+    activeFinish = finishCancel;
     // tech-debt #18：含可编辑内容，点遮罩不关闭；仅 Esc / 确定 / 取消关闭（document 级，close 时移除）
     const onKeydown = (e: KeyboardEvent): void => {
       if (e.key === "Escape") {

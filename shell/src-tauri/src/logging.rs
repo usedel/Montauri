@@ -59,21 +59,6 @@ fn current_log() -> PathBuf {
     log_dir().join("opencharm.log")
 }
 
-/// 从设置解析当前生效的级别阈值（设置缺失/非法回退 info）。
-fn effective_level() -> Level {
-    Level::from_str(&settings::load().log_level)
-}
-
-/// 是否启用（设置 log_enabled 关闭时，仅 error 仍落盘）。
-fn enabled() -> bool {
-    settings::load().log_enabled
-}
-
-/// 保留轮转份数（设置 log_keep，1-10 夹取）。
-fn keep_count() -> usize {
-    settings::load().log_keep.clamp(1, 10)
-}
-
 /// 写一行日志（调用方已通过 `log_line` 过滤级别）。
 fn write_line(level: Level, msg: &str) {
     // 打开文件（懒初始化）；路径父目录不存在时创建。
@@ -118,7 +103,7 @@ fn write_line(level: Level, msg: &str) {
 
 /// 轮转：opencharm.log.N 依次后移，超保留份数即删除。
 fn rotate() {
-    let keep = keep_count();
+    let keep = settings::load().log_keep.clamp(1, 10); // 低频路径（轮转时一次）
     let dir = log_dir();
     // 从最老开始：keep-1 → keep 存在则删；再依次后移
     let oldest = dir.join(format!("opencharm.log.{keep}"));
@@ -140,14 +125,17 @@ fn rotate() {
 
 /// 日志入口：级别过滤 + 落盘 + stdout。
 /// 调用约定：`log_line(Level::Info, "msg")`。
+/// P2-1（2026-09-29 review）：一次 `settings::load()` 取全部字段（内部有 mtime
+/// 缓存）——原实现每条日志独立调用 4 次 load（各自读盘 + 反序列化）。
 pub(crate) fn log_line(level: Level, msg: &str) {
+    let s = settings::load();
     // 关闭日志时仅保留 error（防止彻底黑盒）；打开时按阈值过滤。
-    let pass = if enabled() { level >= effective_level() } else { level == Level::Error };
+    let pass = if s.log_enabled { level >= Level::from_str(&s.log_level) } else { level == Level::Error };
     if pass {
         write_line(level, msg);
     }
     // stdout 受设置控制（dev 终端方便；release 无控制台，默认不开）
-    if settings::load().log_stdout {
+    if s.log_stdout {
         println!("[{}] {msg}", level.as_str());
     }
 }

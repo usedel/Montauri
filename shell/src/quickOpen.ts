@@ -53,6 +53,13 @@ export function registerQuickOpenActions(list: QuickOpenAction[]): void {
   actions = list;
 }
 
+/** 按命令面板 id 查注册条目（onboarding 巡礼「试一下」/ 数据卫生测试共用；未注册返回 null）。
+ *  每次实时 find 而非缓存引用——registerQuickOpenActions 是整体替换语义，main.ts 在插件扫描后
+ *  会重建注册表，缓存旧数组会拿到过期条目。 */
+export function findQuickOpenAction(id: string): QuickOpenAction | null {
+  return actions.find((a) => a.id === id) ?? null;
+}
+
 // ---------- 模糊匹配（纯函数，可单测） ----------
 
 /**
@@ -160,7 +167,20 @@ function flatten(path: string, symbols: lsp.LspDocumentSymbol[], chain: string[]
   return out;
 }
 
+/** 符号索引重建 in-flight 去重（P2-8）：symbol 模式下连续打字（每次 input →
+ *  refresh → ensureSymbols）会让两个并发重建交错 push 同一数组 → 重复条目 /
+ *  aria-activedescendant 索引错乱。后到者 await 同一 Promise，不重复执行。 */
+let ensureSymbolsInflight: Promise<void> | null = null;
+
 async function ensureSymbols(): Promise<void> {
+  if (ensureSymbolsInflight) return ensureSymbolsInflight;
+  ensureSymbolsInflight = ensureSymbolsInner().finally(() => {
+    ensureSymbolsInflight = null;
+  });
+  return ensureSymbolsInflight;
+}
+
+async function ensureSymbolsInner(): Promise<void> {
   if (!app.workspaceRoot) {
     symbolIndex = [];
     symbolFingerprint = "";
@@ -477,6 +497,21 @@ export function closeQuickOpen(): void {
   releaseFocus?.();
   releaseFocus = null;
   hideEl(modalEl);
+  // 焦点归还编辑器（debugConsole Esc 同款范式）：模态走两阶段出场（100ms 动画），
+  // 动画期内 input 仍可聚焦且其 keydown 带 stopPropagation —— 不还焦时 window 级
+  // 快捷键（Ctrl+Shift+F 等）在此窗口被吞；动画结束后浏览器虽会把 display:none 的
+  // input 焦点回落到 body，但编辑器级键位（Ctrl+B 等）仍要等用户点回编辑器才恢复。
+  const ae = document.activeElement;
+  if (ae && modalEl.contains(ae) && ae instanceof HTMLElement) {
+    ae.blur();
+    // app.editor 是「init 后非空」的 getter 约定（未初始化时抛错）；Quick Open 实际
+    // 只能在 init 后打开，但 ESC 收口还焦路径保持防御（如极端时序下的单测环境）。
+    try {
+      app.editor.focus();
+    } catch {
+      /* 编辑器未初始化：焦点留在 body，window 级快捷键不受影响 */
+    }
+  }
 }
 
 export function isQuickOpenOpen(): boolean {

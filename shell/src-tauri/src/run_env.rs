@@ -101,15 +101,33 @@ pub(crate) fn build_run_env(
     instance: Option<&str>,
 ) -> RunEnv {
     let probe_src = if probe { locate_probe_src(app) } else { None };
+    // TD-020：仅开启采集时才生成「每次运行唯一」的 run_id（父子共享、跨次运行不同），
+    // 探针据此跨进程去重（重复摘要 / 观测翻倍）。
+    let run_id = probe_src.as_ref().map(|_| generate_run_id());
     // ②-2 段（继承自 shell 的既有 PYTHONPATH）在此读取进程环境；作为显式入参下传，
     // 使四段合并顺序可被单测精确锁定，不受宿主机器环境变量干扰。
     let inherited = std::env::var("PYTHONPATH").ok().filter(|v| !v.is_empty());
     // P1-G：加载 .env 文件（有序；相对工作区根）。文件缺失仅告警不中断运行。
     let mut warnings: Vec<String> = Vec::new();
     let env_file_env = load_env_files(&run_config.env_files, workspace_root, &mut warnings);
-    let mut out = assemble(script_abs, workspace_root, run_config, probe_src, inherited.as_deref(), &env_file_env, instance);
+    let mut out = assemble(script_abs, workspace_root, run_config, probe_src, inherited.as_deref(), &env_file_env, instance, run_id.as_deref());
     out.warnings.extend(warnings);
     out
+}
+
+/// 每次运行唯一的 run id（TD-020 跨进程去重键）。纯 std 生成：
+/// 时间戳纳秒 + 进程 id + 进程内单调序号。只需保证「同一次运行的父子进程共享、
+/// 不同次运行互不相同」，无需密码学随机。
+fn generate_run_id() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let pid = std::process::id() as u64;
+    let seq = SEQ.fetch_add(1, Ordering::Relaxed);
+    format!("{now:x}-{pid:x}-{seq:x}")
 }
 
 /// 解析 `.env` 文件单行：`KEY=VALUE`（忽略空行/# 注释行；容忍 `export ` 前缀与成对引号包裹的值）。
@@ -183,6 +201,7 @@ pub(crate) fn assemble(
     inherited_pythonpath: Option<&str>,
     env_file_env: &[(String, String)],
     instance: Option<&str>,
+    run_id: Option<&str>,
 ) -> RunEnv {
     let mut env: Vec<(String, String)> = Vec::new();
     let mut warnings: Vec<String> = Vec::new();
@@ -251,6 +270,7 @@ pub(crate) fn assemble(
     // OPENCHARM_PROBE_INSTANCE（§19-5 运行实例归属）：terminal::run_in_terminal 按会话 id
     // 注入（run-term-script / run-term-project-<N>），probe 落库时写 runs.instance——
     // 多实例并行时每次 trace 可归属到单次运行；None（调试链路 / 旧调用方）不注入。
+    // OPENCHARM_PROBE_RUN_ID（TD-020）：每次运行唯一，probe 据此跨进程去重。
     if probe_src.is_some() {
         env.push(("OPENCHARM_PROBE_AUTOSTART".to_string(), "1".to_string()));
         env.push((
@@ -263,6 +283,9 @@ pub(crate) fn assemble(
         ));
         if let Some(inst) = instance {
             env.push(("OPENCHARM_PROBE_INSTANCE".to_string(), inst.to_string()));
+        }
+        if let Some(rid) = run_id.filter(|s| !s.is_empty()) {
+            env.push(("OPENCHARM_PROBE_RUN_ID".to_string(), rid.to_string()));
         }
     }
 
@@ -400,7 +423,7 @@ mod tests {
 
     /// 装配（不挂 probe、无继承 PYTHONPATH、无 .env）——单测统一入口
     fn asm(cfg: &RunProfile, root: Option<&str>) -> RunEnv {
-        assemble(Path::new(SCRIPT), root, cfg, None, None, &[], None)
+        assemble(Path::new(SCRIPT), root, cfg, None, None, &[], None, None)
     }
 
     /// §2.1 四段合并顺序的完整锁定：① 用户配置 → ② 继承 → ③ 工作区根 → ④ probe src
@@ -416,6 +439,7 @@ mod tests {
             Some("/inherited/lib"),
             &[],
             None,
+            None,
         );
         let pp = env_value(&e, "PYTHONPATH").expect("应注入 PYTHONPATH");
         let sep = if cfg!(windows) { ';' } else { ':' };
@@ -429,7 +453,7 @@ mod tests {
 
     #[test]
     fn inherited_blank_pythonpath_is_ignored() {
-        let e = assemble(Path::new(SCRIPT), None, &rc("", vec![]), None, Some("   "), &[], None);
+        let e = assemble(Path::new(SCRIPT), None, &rc("", vec![]), None, Some("   "), &[], None, None);
         assert!(env_value(&e, "PYTHONPATH").is_none());
     }
 
@@ -480,7 +504,7 @@ mod tests {
     fn env_file_env_sits_between_defaults_and_user_env() {
         let cfg = rc("", vec![EnvVar { key: "APP_MODE".into(), value: "user".into() }]);
         let env_file = vec![("APP_MODE".to_string(), "dotenv".to_string()), ("FROM_DOTENV".to_string(), "1".to_string())];
-        let e = assemble(Path::new(SCRIPT), None, &cfg, None, None, &env_file, None);
+        let e = assemble(Path::new(SCRIPT), None, &cfg, None, None, &env_file, None, None);
         // 顺序即优先级：.env 先写、用户 env 后写覆盖
         let hits: Vec<&str> = e.env.iter().filter(|(k, _)| k == "APP_MODE").map(|(_, v)| v.as_str()).collect();
         assert_eq!(hits, ["dotenv", "user"]);
@@ -494,7 +518,7 @@ mod tests {
     fn env_file_pythonpath_joins_merge_after_user_value() {
         let cfg = rc("", vec![EnvVar { key: "PYTHONPATH".into(), value: "/user/lib".into() }]);
         let env_file = vec![("PYTHONPATH".to_string(), "/dotenv/lib".to_string())];
-        let e = assemble(Path::new(SCRIPT), Some("/ws/root"), &cfg, None, Some("/inherited/lib"), &env_file, None);
+        let e = assemble(Path::new(SCRIPT), Some("/ws/root"), &cfg, None, Some("/inherited/lib"), &env_file, None, None);
         let pp = env_value(&e, "PYTHONPATH").expect("应注入 PYTHONPATH");
         let sep = if cfg!(windows) { ';' } else { ':' };
         let parts: Vec<&str> = pp.split(sep).collect();
@@ -539,7 +563,7 @@ mod tests {
     fn probe_trio_and_pythonpath_tail() {
         // probe/src 追加在 PYTHONPATH **末位**（用户同名模块优先命中，不被探针遮蔽）+ 四件套
         let probe_src = PathBuf::from(if cfg!(windows) { "F:\\oc\\probe\\src" } else { "/oc/probe/src" });
-        let e = assemble(Path::new(SCRIPT), Some("/ws/root"), &rc("", vec![]), Some(probe_src.clone()), None, &[], None);
+        let e = assemble(Path::new(SCRIPT), Some("/ws/root"), &rc("", vec![]), Some(probe_src.clone()), None, &[], None, None);
         let pp = env_value(&e, "PYTHONPATH").expect("应注入 PYTHONPATH");
         let sep = if cfg!(windows) { ';' } else { ':' };
         let parts: Vec<&str> = pp.split(sep).collect();
@@ -566,12 +590,45 @@ mod tests {
             None,
             &[],
             Some("run-term-project-2"),
+            None,
         );
         assert_eq!(env_value(&e, "OPENCHARM_PROBE_INSTANCE").as_deref(), Some("run-term-project-2"));
         // probe 关闭时 instance 一并不注入（四件套整体缺席）
         let e2 = asm(&rc("", vec![]), Some("/ws/root"));
         assert!(env_value(&e2, "OPENCHARM_PROBE_INSTANCE").is_none());
         assert!(env_value(&e2, "OPENCHARM_PROBE_AUTOSTART").is_none());
+    }
+
+    /// TD-020：run_id 传入 → OPENCHARM_PROBE_RUN_ID 注入（父子共享、跨进程去重键）
+    #[test]
+    fn probe_run_id_env_injected_when_provided() {
+        let probe_src = PathBuf::from(if cfg!(windows) { "F:\\oc\\probe\\src" } else { "/oc/probe/src" });
+        let e = assemble(
+            Path::new(SCRIPT),
+            Some("/ws/root"),
+            &rc("", vec![]),
+            Some(probe_src),
+            None,
+            &[],
+            None,
+            Some("run-abc123"),
+        );
+        assert_eq!(env_value(&e, "OPENCHARM_PROBE_RUN_ID").as_deref(), Some("run-abc123"));
+        // probe 关闭 → 不注入
+        let e2 = asm(&rc("", vec![]), Some("/ws/root"));
+        assert!(env_value(&e2, "OPENCHARM_PROBE_RUN_ID").is_none());
+        // run_id 为空串 → 不注入
+        let e3 = assemble(
+            Path::new(SCRIPT),
+            Some("/ws/root"),
+            &rc("", vec![]),
+            Some(PathBuf::from(if cfg!(windows) { "F:\\oc\\probe\\src" } else { "/oc/probe/src" })),
+            None,
+            &[],
+            None,
+            Some(""),
+        );
+        assert!(env_value(&e3, "OPENCHARM_PROBE_RUN_ID").is_none());
     }
 
     #[test]

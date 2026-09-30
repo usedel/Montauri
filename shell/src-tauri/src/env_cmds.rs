@@ -402,16 +402,21 @@ pub(crate) fn run_with_timeout_bytes(
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| e.to_string())?;
-    if let Some(data) = stdin_data {
-        // 写完立即 drop 关闭 stdin：脚本侧 read() 才能拿到 EOF 返回
-        use std::io::Write;
-        if let Some(mut stdin) = child.stdin.take() {
-            let _ = stdin.write_all(data);
+    // P1-7（2026-09-29 review）：stdin 写入移到独立线程——原实现在超时监督循环启动
+    // **之前**同步 write_all，若子进程 hang 且不读 stdin（数据量超管道缓冲 ~64KB 时），
+    // 写入永久阻塞，超时保护尚未生效，spawn_blocking 线程与命令 Promise 永久挂起。
+    // 独立线程与下方两个读线程对称；写完 drop 关闭 stdin（脚本侧 read() 拿到 EOF）。
+    let stdin_writer = stdin_data.map(|data| {
+        let mut stdin = child.stdin.take().unwrap();
+        let data = data.to_vec();
+        std::thread::spawn(move || {
+            use std::io::Write;
+            let _ = stdin.write_all(&data);
             let _ = stdin.flush();
-        }
-    }
-    let stdout = child.stdout.take().unwrap();
-    let stderr = child.stderr.take().unwrap();
+        })
+    });
+    let stdout = child.stdout.take().expect("stdout 已设为 piped");
+    let stderr = child.stderr.take().expect("stderr 已设为 piped");
     let out_reader = std::thread::spawn(move || read_all_bytes(stdout));
     let err_reader = std::thread::spawn(move || read_all_bytes(stderr));
 
@@ -422,6 +427,12 @@ pub(crate) fn run_with_timeout_bytes(
             Ok(None) => {
                 if start.elapsed() > timeout {
                     kill_process_tree(&mut child); // uv 可能已拉起子进程，须连树一起终止
+                    // 杀树后管道关闭，写/读线程自然退出；join 收尸（不阻塞——进程已死）
+                    if let Some(t) = stdin_writer {
+                        let _ = t.join();
+                    }
+                    let _ = out_reader.join();
+                    let _ = err_reader.join();
                     return Err(format!("命令执行超时（{}s）", timeout.as_secs()));
                 }
                 std::thread::sleep(Duration::from_millis(100));
@@ -429,6 +440,10 @@ pub(crate) fn run_with_timeout_bytes(
             Err(e) => return Err(e.to_string()),
         }
     };
+    if let Some(t) = stdin_writer {
+        // 正常退出：子进程已终止，写线程不会再阻塞（管道对端关闭后写失败即返回）
+        let _ = t.join();
+    }
     let out = out_reader.join().unwrap_or_default();
     let err = err_reader.join().unwrap_or_default();
     Ok((out, err, code))
@@ -468,6 +483,7 @@ fn stream_lines(
     r: impl Read + Send + 'static,
     app: AppHandle,
     event: &'static str,
+    wid: String,
 ) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
         let mut reader = BufReader::new(r);
@@ -478,7 +494,7 @@ fn stream_lines(
                 Ok(0) => break,
                 Ok(_) => {
                     let cleaned = String::from_utf8_lossy(&buf).replace("\r\n", "\n").replace('\r', "\n");
-                    let _ = app.emit(event, json!({ "data": cleaned }));
+                    let _ = app.emit_to(&wid, event, json!({ "data": cleaned }));
                 }
                 Err(_) => break,
             }
@@ -487,7 +503,7 @@ fn stream_lines(
 }
 
 /// 流式运行 uv 命令：stdout/stderr 逐行推送到前端（pip-stdout / pip-stderr），返回 exit code。
-fn run_uv_streaming(app: &AppHandle, cmd: &mut Command, timeout: Duration) -> Result<i32, String> {
+fn run_uv_streaming(app: &AppHandle, cmd: &mut Command, timeout: Duration, wid: &str) -> Result<i32, String> {
     let mut child = no_window(cmd)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -495,11 +511,11 @@ fn run_uv_streaming(app: &AppHandle, cmd: &mut Command, timeout: Duration) -> Re
         .spawn()
         .map_err(|e| format!("无法启动 uv：{e}"))?;
 
-    let stdout = child.stdout.take().unwrap();
+    let stdout = child.stdout.take().expect("stdout 已设为 piped");
     let stderr = child.stderr.take().unwrap();
 
-    let out_thread = stream_lines(stdout, app.clone(), "pip-stdout");
-    let err_thread = stream_lines(stderr, app.clone(), "pip-stderr");
+    let out_thread = stream_lines(stdout, app.clone(), "pip-stdout", wid.to_string());
+    let err_thread = stream_lines(stderr, app.clone(), "pip-stderr", wid.to_string());
 
     let start = Instant::now();
     let code = loop {
@@ -720,13 +736,14 @@ fn pick_default_system_interpreter_impl() -> Result<Option<String>, String> {
 /// 环境一律独立于项目目录内（项目环境隔离原则，不提供跨项目共享的全局环境）。
 /// 返回命令输出 + 创建后的解释器路径，供前端直接持久化选中。
 #[tauri::command]
-pub async fn create_venv(app: AppHandle, workspace_root: String, version: String) -> Result<CreateVenvResult, String> {
-    tauri::async_runtime::spawn_blocking(move || create_venv_impl(app, workspace_root, version))
+pub async fn create_venv(app: AppHandle, window: tauri::WebviewWindow, workspace_root: String, version: String) -> Result<CreateVenvResult, String> {
+    let wid = window.label().to_string();
+    tauri::async_runtime::spawn_blocking(move || create_venv_impl(app, workspace_root, version, wid))
         .await
         .map_err(|e| format!("任务执行异常：{e}"))?
 }
 
-fn create_venv_impl(app: AppHandle, workspace_root: String, version: String) -> Result<CreateVenvResult, String> {
+fn create_venv_impl(app: AppHandle, workspace_root: String, version: String, wid: String) -> Result<CreateVenvResult, String> {
     let target = Path::new(&workspace_root).join(".venv");
     let mut cmd = tool_command("uv", ENV_UV);
     cmd.arg("venv").arg(&target);
@@ -742,7 +759,7 @@ fn create_venv_impl(app: AppHandle, workspace_root: String, version: String) -> 
     // 流式输出（pip-stdout/pip-stderr）+ 宽松超时：--python 指定未安装版本时 uv 会联网下载
     // CPython，下载进度经流式实时可见（问题1），且不再被 120s 超时杀死（问题2）。
     // output 字段留空——内容已流式推送，前端不再二次 append。
-    let code = run_uv_streaming(&app, &mut cmd, UV_VENV_TIMEOUT)?;
+    let code = run_uv_streaming(&app, &mut cmd, UV_VENV_TIMEOUT, &wid)?;
     if code != 0 {
         // 错误文案不含「详见输出面板」——本 Err 会被前端 appendOutputLine 写进输出面板，
         // 含指引会变成「输出面板里说详见输出面板」的自我指涉；uv 的逐行详情已由流式推送在上方。
@@ -834,7 +851,7 @@ fn init_pyproject_impl(workspace_root: String) -> Result<String, String> {
     // 存量裸目录：把工作区「当前解释器」交给 uv --python，让 requires-python 贴合真实环境；
     // 未选解释器时交由 uv 自行决定（None），回退模板统一用 >=3.12。
     let python_arg = get_interpreter(workspace_root.clone()).ok().flatten();
-    let (_used_uv, note) = crate::fs_cmds::ensure_pyproject(root, &name, python_arg, ">=3.12");
+    let (_used_uv, note) = crate::fs_cmds::ensure_pyproject(root, &name, python_arg, ">=3.12", &[]);
     Ok(note)
 }
 
@@ -960,33 +977,40 @@ fn list_packages_impl(interpreter: String) -> Result<Vec<PackageInfo>, String> {
 }
 
 /// 安装包：
-/// - 工作区根目录存在 pyproject.toml 时用 `uv add`（写入项目依赖并更新 uv.lock，项目用 uv 管理）；
-/// - 否则回退 `uv pip install --python <解释器>`（仅装环境、不记录依赖）。
+/// - 工作区根目录存在 pyproject.toml 时用 `uv add`（写入项目依赖并更新 uv.lock，项目用 uv 管理）
+///   —— 此分支不需要解释器（interpreter 可为 None，F9 新建 FastAPI 项目安装依赖即如此）；
+/// - 否则回退 `uv pip install --python <解释器>`（仅装环境、不记录依赖）——此分支需要解释器，
+///   None 时返回可读错误（而非拼出空 --python 参数）。
 /// 输出经 pip-stdout / pip-stderr 事件流式推送前端；返回 exit code（0 成功）。
 #[tauri::command]
-pub async fn pip_install(app: AppHandle, workspace_root: String, interpreter: String, spec: String) -> Result<i32, String> {
-    tauri::async_runtime::spawn_blocking(move || pip_install_impl(app, workspace_root, interpreter, spec))
+pub async fn pip_install(app: AppHandle, window: tauri::WebviewWindow, workspace_root: String, interpreter: Option<String>, spec: String) -> Result<i32, String> {
+    let wid = window.label().to_string();
+    tauri::async_runtime::spawn_blocking(move || pip_install_impl(app, workspace_root, interpreter, spec, wid))
         .await
         .map_err(|e| format!("任务执行异常：{e}"))?
 }
 
-fn pip_install_impl(app: AppHandle, workspace_root: String, interpreter: String, spec: String) -> Result<i32, String> {
+fn pip_install_impl(app: AppHandle, workspace_root: String, interpreter: Option<String>, spec: String, wid: String) -> Result<i32, String> {
     let has_pyproject = Path::new(&workspace_root).join("pyproject.toml").is_file();
     let mut cmd = tool_command("uv", ENV_UV);
     if has_pyproject {
         cmd.arg("add");
         cmd.current_dir(&workspace_root);
-        let _ = app.emit("pip-stdout", json!({ "data": "检测到 pyproject.toml，使用 uv add 写入项目依赖并更新 uv.lock\n" }));
+        let _ = app.emit_to(&wid, "pip-stdout", json!({ "data": "检测到 pyproject.toml，使用 uv add 写入项目依赖并更新 uv.lock\n" }));
     } else {
-        cmd.args(["pip", "install", "--python", &interpreter]);
+        // uv pip install 分支必须有解释器：None 时给可读错误（调用方应已保证，防御分支）
+        let Some(interpreter) = interpreter.as_deref() else {
+            return Err("未选择解释器，无法安装（无 pyproject.toml 时走 uv pip install 需要解释器；可先生成 pyproject.toml 改走 uv add）".to_string());
+        };
+        cmd.args(["pip", "install", "--python", interpreter]);
         // §6.2 uv 建议的持续存在感（M3 文案升级）：明示「不写声明属正常现象 + 收敛建议」，
         // 防用户误判编辑器有 bug（R10：pip/裸装不写声明是 E3 的正常输入）
-        let _ = app.emit("pip-stdout", json!({ "data": "未检测到 pyproject.toml，仅安装到解释器环境（不记录依赖）——建议改用 uv add，或在终端使用 uv pip install，保持声明同步\n" }));
+        let _ = app.emit_to(&wid, "pip-stdout", json!({ "data": "未检测到 pyproject.toml，仅安装到解释器环境（不记录依赖）——建议改用 uv add，或在终端使用 uv pip install，保持声明同步\n" }));
     }
     for part in spec.split_whitespace() {
         cmd.arg(part);
     }
-    run_uv_streaming(&app, &mut cmd, UV_TIMEOUT)
+    run_uv_streaming(&app, &mut cmd, UV_TIMEOUT, &wid)
 }
 
 /// 卸载包：uv pip uninstall --python <解释器> <name…>
@@ -1028,19 +1052,20 @@ fn list_outdated_impl(interpreter: String) -> Result<Vec<OutdatedInfo>, String> 
 
 /// 升级包：uv pip install --python <解释器> --upgrade <names…>（流式输出，返回 exit code）
 #[tauri::command]
-pub async fn pip_upgrade(app: AppHandle, interpreter: String, names: Vec<String>) -> Result<i32, String> {
-    tauri::async_runtime::spawn_blocking(move || pip_upgrade_impl(app, interpreter, names))
+pub async fn pip_upgrade(app: AppHandle, window: tauri::WebviewWindow, interpreter: String, names: Vec<String>) -> Result<i32, String> {
+    let wid = window.label().to_string();
+    tauri::async_runtime::spawn_blocking(move || pip_upgrade_impl(app, interpreter, names, wid))
         .await
         .map_err(|e| format!("任务执行异常：{e}"))?
 }
 
-fn pip_upgrade_impl(app: AppHandle, interpreter: String, names: Vec<String>) -> Result<i32, String> {
+fn pip_upgrade_impl(app: AppHandle, interpreter: String, names: Vec<String>, wid: String) -> Result<i32, String> {
     let mut cmd = tool_command("uv", ENV_UV);
     cmd.args(["pip", "install", "--python", &interpreter, "--upgrade"]);
     for n in &names {
         cmd.arg(n);
     }
-    run_uv_streaming(&app, &mut cmd, UV_TIMEOUT)
+    run_uv_streaming(&app, &mut cmd, UV_TIMEOUT, &wid)
 }
 
 // ---------- 解析 ----------
@@ -3354,11 +3379,13 @@ fn plan_dep_fix(
 #[tauri::command]
 pub async fn dep_fix(
     app: AppHandle,
+    window: tauri::WebviewWindow,
     workspace_root: String,
     action: String,
     dists: Vec<String>,
 ) -> Result<i32, String> {
-    tauri::async_runtime::spawn_blocking(move || dep_fix_impl(app, workspace_root, action, dists))
+    let wid = window.label().to_string();
+    tauri::async_runtime::spawn_blocking(move || dep_fix_impl(app, workspace_root, action, dists, wid))
         .await
         .map_err(|e| format!("任务执行异常：{e}"))?
 }
@@ -3368,6 +3395,7 @@ fn dep_fix_impl(
     workspace_root: String,
     action: String,
     dists: Vec<String>,
+    wid: String,
 ) -> Result<i32, String> {
     if DEP_FIX_BUSY
         .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
@@ -3385,7 +3413,7 @@ fn dep_fix_impl(
         }
     }
     let _guard = BusyGuard;
-    dep_fix_inner(&app, &workspace_root, &action, &dists)
+    dep_fix_inner(&app, &workspace_root, &action, &dists, &wid)
 }
 
 fn dep_fix_inner(
@@ -3393,6 +3421,7 @@ fn dep_fix_inner(
     workspace_root: &str,
     action: &str,
     dists: &[String],
+    wid: &str,
 ) -> Result<i32, String> {
     let root = Path::new(workspace_root);
     if !root.is_dir() {
@@ -3412,7 +3441,7 @@ fn dep_fix_inner(
     // 此前后端再 emit 一次 "> uv …" 会在输出面板重复两行）——本层只流式转发 uv 自身输出
     let mut cmd = tool_command("uv", ENV_UV);
     cmd.args(&args).current_dir(root);
-    run_uv_streaming(app, &mut cmd, UV_TIMEOUT)
+    run_uv_streaming(app, &mut cmd, UV_TIMEOUT, wid)
 }
 
 // ---------- 单元测试 ----------

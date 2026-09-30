@@ -25,14 +25,6 @@
 - **处理时机**：各自独立成 PR，任一项先跑对应测试矩阵（terminal → perf/01；session → session/01；debug → debug specs + 真机）。
 - **涉及文件**：`shell/src/terminal.ts`、`shell/src/session.ts`、`shell/src-tauri/src/sessions.rs`、`shell/src-tauri/src/proc_stats.rs`、`shell/src/debugWatches.ts`。
 
-### TD-020 停止运行时 `[opencharm-probe]` 摘要日志重复打印（P3，观感/数据卫生）
-
-- **起因**：停止运行（脚本/项目）时，终端里的 `[opencharm-probe] ✓ …` 摘要日志偶发重复打印。
-- **根因（初步定位，待 Python 3.12+ 环境复现确认）**：探针经 `sitecustomize` + `atexit._finalize` 在进程退出时打印一次摘要；运行注入的 `OPENCHARM_PROBE_*` 环境变量会被子进程继承，若同一次运行下存在多个通过 `argv[0]` 守卫的进程（如 uvicorn `--reload` 在 POSIX 用 `fork`、子进程 argv 与父进程相同；或脚本内部以相同 argv 的 `subprocess` 重启自身），多个进程各自触发 `_finalize` → 重复打印/重复落库。现有 `argv[0]` 守卫仅能拦截 `multiprocessing spawn`（Windows，sitecustomize 期 argv[0]='-c'，2026-09-15 已用最小实验验证），拦不住 argv 相同的父子进程。
-- **建议方案**：后端 `run_in_terminal` 注入「每次运行唯一」的 `OPENCHARM_PROBE_RUN_ID`（父子共享、不同次运行不同）；探针 `autostart._finalize` 用纯标准库跨进程原子锁（`os.open(O_CREAT|O_EXCL)` 墓碑文件）保证同一 run_id 只落库+打印一次；锁文件按 mtime 惰性清理。
-- **处理时机**：可作为独立 PR；需先在有 Python 3.12+ 的运行环境复现确认根因后落地。
-- **涉及文件**：`shell/src-tauri/src/run_env.rs`（或 `terminal.rs`）、`probe/src/opencharm_probe/autostart.py`。
-
 ## 已归档
 
 > 处理完成的历史条目，仅保留标题与结论摘要；编号对应原 TD 编号。完整实施细节见对应 commit 历史。
@@ -40,6 +32,7 @@
 
 | 编号 | 标题 | 完成日期 | 结论摘要 |
 |---|---|---|---|
+| TD-020 | 停止运行时探针摘要重复打印/重复落库（P3，观感/数据卫生） | 2026-09-28 | 根因坐实（Python 3.13 复现）：`argv[0]` 守卫拦不住 argv 相同的父子进程（uvicorn `--reload` fork / 子进程自重启），多进程各自触发 `atexit._finalize` → 重复打印 + 多 `runs` 行 + `hits` 翻倍。修复：后端 `run_env.rs::build_run_env` 注入每次运行唯一的 `OPENCHARM_PROBE_RUN_ID`（纯 std：纳秒时间戳 + pid + 单调序号）；探针 `autostart._finalize` 用 `os.open(O_CREAT\|O_EXCL)` 墓碑文件（键=run_id，mtime 惰性清理）保证同 run_id 只落库+打印一次，非法 run_id / OSError 保守放行。probe pytest 全绿（新增 `test_run_lock.py` 3 例 + `test_inject.py` 1 例）、shell `cargo test run_env` 20 例全绿 |
 | 12 | pyproject.toml 两条生成路径包名归一化（P4，观感） | 2026-09-15 | 收敛：`fs_cmds.rs` 新增 `normalize_project_name`（字符串行扫描，定位 `[project].name` 改写为 `sanitize_pkg_name` 结果，不引入 TOML 依赖）+ `is_name_field` 防误配同前缀键；`ensure_pyproject` uv 生成后调用；`test_normalize_project_name` 覆盖大小写/空格与 `[tool.uv]` 段不误改 |
 | 17 | 全项目输入框未统一 autocomplete="off"（P4，一致性） | 2026-09-15 | `index.html` 10 处 `type=text` 输入框补 `autocomplete="off"`（tree-filter/search/env-pkg/new-project-*/settings-*/lt-search/storage-migrate-path/palette-search）；动态输入补 `settingsPanel.ts` 键位行 / `git.ts` 新分支 / `fileTree.ts` 内联重命名 / `manager.ts` 两处 text input |
 | 18 | 模态点遮罩关闭不一致（P4，一致性/数据安全） | 2026-09-15 | 含可编辑内容的模态统一「点遮罩不关闭 + Esc 关闭」：`dialog.ts::openPrompt`、`settingsPanel.ts`、`newProject.ts` 三处去遮罩关闭、补 document 级 keydown（open 挂/close 移除，对齐 runConfigPanel 范式）；其余选择/确认框点遮罩=取消语义保留 |

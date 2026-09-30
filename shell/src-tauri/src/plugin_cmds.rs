@@ -220,6 +220,16 @@ pub fn read_plugin_file(plugin_dir: &str, rel: &str) -> Result<String, String> {
     if rel_path.is_absolute() {
         return Err("插件文件路径必须是相对路径".into());
     }
+    // P2-5（2026-09-29 review）：显式拒绝 ParentDir 组件——原 `full.starts_with(base)`
+    // 检查无效：`Path::new("/a/b").join("../evil")` 的组件序列 [/, a, b, .., evil]
+    // 前缀仍匹配 base（starts_with 按组件逐段比较，`..` 作为普通组件参与比较），
+    // 放行后经文件系统解析逃出 base。既有测试误通过只因目标文件不存在走了其他分支。
+    if rel_path
+        .components()
+        .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+        return Err("插件文件路径不允许包含 `..`".into());
+    }
     let full = base.join(rel_path);
     if !full.starts_with(base) {
         return Err("插件文件路径越界".into());
@@ -239,6 +249,13 @@ pub(crate) const MANIFEST_FILE: &str = "opencharm.plugin.json";
 /// 插件目录 watcher（进程内单实例；重扫时先停旧实例）
 static PLUGIN_WATCHER: Mutex<Option<notify_debouncer_mini::Debouncer<notify_debouncer_mini::notify::RecommendedWatcher>>> =
     Mutex::new(None);
+
+/// 应用退出清理（P2-6）：释放插件目录 watcher（Drop 即 unwatch；进程退出虽会回收
+/// OS 资源，但显式停掉避免退出瞬间还派发无接收方的事件回调）。
+pub(crate) fn plugins_stop_watcher_for_exit() {
+    let mut guard = crate::util::unpoison(PLUGIN_WATCHER.lock());
+    *guard = None;
+}
 
 /// 开始监听插件目录变化：任何变更（增删改、递归）都向前端发 `plugins-dir-changed` 事件。
 /// 目录不存在时先创建（用户手动建目录放插件是预期用法）；重复调用先停旧 watcher。
@@ -286,6 +303,72 @@ pub fn reveal_plugins_dir() -> Result<(), String> {
     crate::file_ops::reveal_in_explorer(root.to_string_lossy().to_string())
 }
 
+// ---------- 插件日志落盘（§9.14 v1.1：跨重启诊断） ----------
+//
+// 设计：日志面板仍是内存环形 50 条（现状不变），落盘是**旁路**追加写——
+// host.log 每条同步写 `<data_root>/logs/plugins/<plugin_id>.log`（一行一条）。
+// 失败静默（诊断日志不得反噬主流程）；文件超上限时从头截断保尾部（环形语义的文件版）。
+
+/// 单插件日志文件上限（字节；超限截掉头部保尾部——对齐内存环形 50 条的「保最近」语义）
+const PLUGIN_LOG_MAX_BYTES: u64 = 64 * 1024;
+
+/// 插件日志目录：<data_root>/logs/plugins
+fn plugin_logs_dir() -> PathBuf {
+    opencharm_home().join("logs").join("plugins")
+}
+
+/// 追加一行插件日志（时间戳前缀由前端格式化后传入，这里只做纯追加）。
+/// id 合法性走 valid_plugin_id（防路径逃逸：id 即文件名，白名单字符集最可靠的收口）。
+#[tauri::command]
+pub fn append_plugin_log(plugin_id: &str, line: &str) -> Result<(), String> {
+    append_plugin_log_in(&plugin_logs_dir(), plugin_id, line)
+}
+
+/// append_plugin_log 的可测试实现（测试注入目录；P2-5 教训：helper 直接调真实逻辑）
+fn append_plugin_log_in(root: &Path, plugin_id: &str, line: &str) -> Result<(), String> {
+    if !valid_plugin_id(plugin_id) {
+        return Err(format!("插件 id 不合法：{plugin_id}"));
+    }
+    // 行内容剥离换行（单行一条；多行 msg 由前端先 join）；纯空白不落盘
+    let sanitized: String = line.chars().filter(|c| *c != '\n' && *c != '\r').collect();
+    if sanitized.trim().is_empty() {
+        return Ok(());
+    }
+    std::fs::create_dir_all(root).map_err(|e| e.to_string())?;
+    let file = root.join(format!("{plugin_id}.log"));
+    // 超限截断：保留尾部约一半，给后续追加留余量（避免每条都触发截断）
+    if let Ok(meta) = std::fs::metadata(&file) {
+        if meta.len() > PLUGIN_LOG_MAX_BYTES {
+            truncate_keep_tail(&file, PLUGIN_LOG_MAX_BYTES / 2)?;
+        }
+    }
+    use std::io::Write;
+    let mut f = std::fs::OpenOptions::new().create(true).append(true).open(&file).map_err(|e| e.to_string())?;
+    writeln!(f, "{sanitized}").map_err(|e| e.to_string())
+}
+
+/// 文件截断保尾部：读全文 → 从目标字节处对齐到行首（防半行）→ tmp 写回 → rename 覆盖。
+fn truncate_keep_tail(path: &Path, keep_bytes: u64) -> Result<(), String> {
+    let content = std::fs::read(path).map_err(|e| e.to_string())?;
+    if content.len() as u64 <= keep_bytes {
+        return Ok(());
+    }
+    let cut = (content.len() as u64 - keep_bytes) as usize;
+    // 对齐到行首（找不到换行则从 cut 整段保留——宁可多留不可半行）
+    let start = content[cut..]
+        .iter()
+        .position(|b| *b == b'\n')
+        .map(|i| cut + i + 1)
+        .unwrap_or(cut);
+    let tmp = path.with_extension("log.tmp");
+    {
+        use std::io::Write;
+        let mut f = std::fs::File::create(&tmp).map_err(|e| e.to_string())?;
+        f.write_all(&content[start..]).map_err(|e| e.to_string())?;
+    }
+    std::fs::rename(&tmp, path).map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -331,9 +414,16 @@ mod tests {
         assert!(read_plugin_file_in(dir.to_str().unwrap(), "C:/Windows/system32/config").is_err());
         // ../ 逃逸拒绝
         assert!(read_plugin_file_in(dir.to_str().unwrap(), "../evil.js").is_err());
+        // P2-5 回归：逃逸目标真实存在时也必须拒绝——原 starts_with 检查放行该形态
+        //（目标文件不存在时走「插件文件不存在」分支，掩盖了检查失效）。
+        let parent = dir.parent().unwrap().to_path_buf();
+        std::fs::write(parent.join("opencharm-plugin-test-escape-secret.txt"), "secret").unwrap();
+        let r = read_plugin_file_in(dir.to_str().unwrap(), "../opencharm-plugin-test-escape-secret.txt");
+        assert!(r.is_err(), "逃逸到真实存在的文件必须被拒绝");
         // 不存在报错
         assert!(read_plugin_file_in(dir.to_str().unwrap(), "nope.js").is_err());
         std::fs::remove_dir_all(&dir).unwrap();
+        std::fs::remove_file(parent.join("opencharm-plugin-test-escape-secret.txt")).unwrap();
     }
 
     #[test]
@@ -408,19 +498,62 @@ mod tests {
         Ok(out)
     }
 
+    /// 直接调用真实实现（P2-5 教训：测试 helper 复刻实现会漂移——原 escape 测试
+    /// 走的正是复刻版，与命令实现不同步导致防护失效未被察觉）。
     fn read_plugin_file_in(base: &str, rel: &str) -> Result<String, String> {
-        let base = Path::new(base);
-        let rel_path = Path::new(rel);
-        if rel_path.is_absolute() {
-            return Err("插件文件路径必须是相对路径".into());
-        }
-        let full = base.join(rel_path);
-        if !full.starts_with(base) {
-            return Err("插件文件路径越界".into());
-        }
-        if !full.is_file() {
-            return Err(format!("插件文件不存在: {rel}"));
-        }
-        std::fs::read_to_string(&full).map_err(|e| e.to_string())
+        read_plugin_file(base, rel)
+    }
+
+    // ---- 插件日志落盘（v1.1 §9.14） ----
+
+    fn logs_root() -> PathBuf {
+        std::env::temp_dir().join("opencharm-plugin-log-test")
+    }
+
+    #[test]
+    fn append_plugin_log_appends_lines() {
+        let root = logs_root().join("append");
+        let _ = std::fs::remove_dir_all(&root);
+        append_plugin_log_in(&root, "com.example.tool", "12:00:01 激活").unwrap();
+        append_plugin_log_in(&root, "com.example.tool", "12:00:02 权限拒绝: x").unwrap();
+        let content = std::fs::read_to_string(root.join("com.example.tool.log")).unwrap();
+        assert_eq!(content, "12:00:01 激活\n12:00:02 权限拒绝: x\n");
+    }
+
+    #[test]
+    fn append_plugin_log_rejects_bad_id_and_strips_newlines() {
+        let root = logs_root().join("reject");
+        let _ = std::fs::remove_dir_all(&root);
+        // 非法 id（路径逃逸载体）拒绝
+        assert!(append_plugin_log_in(&root, "../evil", "x").is_err());
+        assert!(append_plugin_log_in(&root, "a/b", "x").is_err());
+        assert!(append_plugin_log_in(&root, "", "x").is_err());
+        // 换行剥离（单行一条；防日志注入）
+        append_plugin_log_in(&root, "ok.plugin", "line1\nline2\r\nline3").unwrap();
+        let content = std::fs::read_to_string(root.join("ok.plugin.log")).unwrap();
+        assert_eq!(content, "line1line2line3\n");
+        // 空行不落盘
+        append_plugin_log_in(&root, "ok.plugin", "  \n ").unwrap();
+        let after = std::fs::read_to_string(root.join("ok.plugin.log")).unwrap();
+        assert_eq!(after, "line1line2line3\n");
+    }
+
+    #[test]
+    fn append_plugin_log_truncates_keeping_tail() {
+        let root = logs_root().join("truncate");
+        let _ = std::fs::remove_dir_all(&root);
+        // 预置超限文件（模拟历史日志）：100 行 × 8 字节 ≈ 800 字节 > 上限一半场景
+        let big: String = (0..100).map(|i| format!("L{:03}xxxx\n", i)).collect();
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("big.plugin.log"), &big).unwrap();
+        // 直接测截断函数：保尾部 256 字节 → 首行必须是完整行（非半行）
+        truncate_keep_tail(&root.join("big.plugin.log"), 256).unwrap();
+        let after = std::fs::read_to_string(root.join("big.plugin.log")).unwrap();
+        assert!(after.starts_with("L"), "截断后首行须完整（以行首对齐），实际：{}", &after[..8.min(after.len())]);
+        // 尾部保留（最后一行仍在）
+        assert!(after.ends_with("L099xxxx\n"), "尾部最新行须保留");
+        assert!(after.len() <= 260, "截断后不超过目标+一行余量，实际 {}", after.len());
+        // tmp 残留清理（rename 覆盖后不留 .tmp）
+        assert!(!root.join("big.plugin.log.tmp").exists());
     }
 }

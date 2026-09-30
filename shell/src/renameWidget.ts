@@ -9,6 +9,7 @@
 // LSP 数据层（锚定 / 请求编辑集 / 应用编辑集）在 lsp/client.ts；本模块只做交互。
 
 import type * as MonacoApi from "monaco-editor/esm/vs/editor/editor.api";
+import { invoke } from "@tauri-apps/api/core";
 import { app } from "./state";
 import {
   fetchRenameAnchor,
@@ -21,6 +22,7 @@ import {
   type LspReferenceLocation,
 } from "./lsp/client";
 import { relativePathOrName, samePath } from "./util";
+import { isPydanticFieldDecl } from "./pydanticField";
 import { toast, toastFail } from "./toast";
 import { openConfirm } from "./dialog";
 import { setEngineBusy } from "./engineChip";
@@ -152,6 +154,32 @@ function buildWidget(): void {
   });
 }
 
+/** 阶段 2 · Pydantic 字段改名提示的会话去重键 = 工作区 + "pydantic_rename"
+ * （每工作区每会话最多一次；Set 随应用生命周期存在，规模 = 打开过的工作区数，
+ * 关闭工作区由 main 调 resetPydanticRenameWarn 清空——与旧 pydanticEngineHint 同款模式） */
+const pydanticRenameWarned = new Set<string>();
+
+/** 阶段 2 · 显式化短板：重命名 Pydantic 字段前 toast 提示「pyrefly 不传播构造调用处引用」。
+ *  仅当前引擎为 pyrefly（含缺省回退）且 anchor 命中 BaseModel 子类字段声明时提示。 */
+function warnPydanticFieldRename(model: MonacoApi.editor.ITextModel, range: MonacoApi.Range): void {
+  if ((app.settings.lsp_engine || "pyrefly") !== "pyrefly") return; // basedpyright 下不提示
+  const all = model.getValue().split("\n");
+  if (!isPydanticFieldDecl(all, range.startLineNumber - 1, range.startColumn - 1)) return;
+  // 去重置位放在命中判定之后：普通符号的 rename 不得消耗本工作区的唯一提示机会
+  const root = app.workspaceRoot;
+  if (root) {
+    const key = `${root}#pydantic_rename`;
+    if (pydanticRenameWarned.has(key)) return;
+    pydanticRenameWarned.add(key);
+  }
+  toast("pyrefly 暂不传播 Pydantic 字段的构造调用处引用，重命名可能只改声明处", "info");
+}
+
+/** 关闭工作区时清空会话去重（main 的 clearRunProfilesCache 调用点旁） */
+export function resetPydanticRenameWarn(): void {
+  pydanticRenameWarned.clear();
+}
+
 async function startSession(): Promise<void> {
   const ed = app.editor;
   const model = ed.getModel();
@@ -176,6 +204,9 @@ async function startSession(): Promise<void> {
     toast("光标处不是可重命名的符号", "info");
     return;
   }
+  // 阶段 2 · 显式化短板：pyrefly 不传播 Pydantic 字段构造调用处引用（F0 实测 references=0），
+  // rename BaseModel 子类字段前提示「可能只改声明处」，避免静默漏改（每工作区每会话一次）
+  warnPydanticFieldRename(model, a.range);
   active = true;
   anchor = a.range;
   widgetModel = model;
@@ -193,6 +224,132 @@ async function startSession(): Promise<void> {
 export async function startRenameAtCursor(): Promise<void> {
   if (active) return;
   await startSession();
+}
+
+/** Pydantic 字段改名传播补充（阶段 4 子项 2b）：
+ *  anchor 命中 BaseModel 子类字段时，向 Rust 按需扫描 `Model(field=` 构造调用点，
+ *  把引擎未覆盖的引用追加进 edits（同位置去重，引擎结果优先）；扫描超时/失败静默降级
+ *  ——rename 本身已有 diff 确认与「可能不完整」提示兜底，不打扰用户。 */
+async function supplementPydanticCtorRefs(
+  model: MonacoApi.editor.ITextModel,
+  anchorRange: MonacoApi.Range,
+  oldName: string,
+  newName: string,
+  files: RenameFileEdits[],
+): Promise<RenameFileEdits[]> {
+  const root = app.workspaceRoot;
+  if (!root || app.settings.pydantic_diagnostics === false) return files;
+  if ((app.settings.lsp_engine || "pyrefly") !== "pyrefly") return files; // basedpyright 自己会传播
+  // 复用阶段 2 的识别：非 BaseModel 字段 rename 不走补充
+  const all = model.getValue().split("\n");
+  if (!isPydanticFieldDecl(all, anchorRange.startLineNumber - 1, anchorRange.startColumn - 1)) return files;
+  const model_name = pydanticModelNameOf(all, anchorRange.startLineNumber - 1);
+  if (!model_name) return files;
+  let refs: { file: string; line: number; column: number; len: number }[];
+  try {
+    refs = await withTimeout(
+      invoke<{ file: string; line: number; column: number; len: number }[]>("scan_pydantic_ctor_refs", {
+        root,
+        model: model_name,
+        field: oldName,
+      }),
+      2000,
+    );
+  } catch {
+    return files; // 超时 / 失败：降级为纯引擎结果
+  }
+  if (refs.length === 0) return files;
+  return mergeCtorRefsIntoFiles(files, refs, newName);
+}
+
+/** 纯函数（vitest 直测）：把 `Model(field=` 补充点合并进引擎 edits——
+ *  同位置（normPath + 行 + 列）去重，引擎结果优先；补充点宽度 = 字段名长度。 */
+export function mergeCtorRefsIntoFiles(
+  files: RenameFileEdits[],
+  refs: { file: string; line: number; column: number; len: number }[],
+  newName: string,
+): RenameFileEdits[] {
+  const engineKeys = new Set(
+    files.flatMap((f) => f.edits.map((e) => `${normPathOf(f.path)}#${e.startLine}#${e.startColumn}`)),
+  );
+  const byPath = new Map(files.map((f) => [f.path, f] as const));
+  for (const r of refs) {
+    const key = `${normPathOf(r.file)}#${r.line}#${r.column}`;
+    if (engineKeys.has(key)) continue;
+    let entry = byPath.get(r.file);
+    if (!entry) {
+      entry = { path: r.file, edits: [] };
+      byPath.set(r.file, entry);
+    }
+    entry.edits.push({
+      startLine: r.line,
+      startColumn: r.column,
+      endLine: r.line,
+      endColumn: r.column + r.len,
+      text: newName,
+    });
+  }
+  return [...byPath.values()].filter((f) => f.edits.length > 0);
+}
+
+/** 行号向上找所属模型类名：沿继承链向上直到 BaseModel（子类字段 rename 也能定位——
+ *  `class Admin(User)` 自有字段向上第一跳不是 BaseModel，须继续沿 bases 找到链头）。
+ *  返回**起点类**（字段真正所属的类），不是链头；链上任何祖先是 BaseModel 即认。
+ *  同文件继承链（跨文件继承是已知边界）。导出供单测。 */
+export function pydanticModelNameOf(lines: string[], line: number): string | null {
+  const CLASS_RE = /^\s*class\s+([A-Za-z_]\w*)\s*\((.*)\)\s*:/;
+  const PLAIN_CLASS_RE = /^\s*class\s+([A-Za-z_]\w*)\s*:/; // 无基类形态（普通类边界）
+  const findClass = (name: string): string | null => {
+    const re = new RegExp(`^\\s*class\\s+${name}\\s*\\((.*)\\)\\s*:`);
+    for (const l of lines) {
+      const m = re.exec(l);
+      if (m) return m[1];
+    }
+    return null;
+  };
+  // 1) 从字段行向上找最近的带括号类声明（起点）
+  let cur: { name: string; bases: string } | null = null;
+  for (let i = line; i >= 0 && i >= line - 200; i--) {
+    if (PLAIN_CLASS_RE.test(lines[i] ?? "")) return null; // 无基类普通类：终点边界
+    const m = CLASS_RE.exec(lines[i] ?? "");
+    if (m) {
+      cur = { name: m[1], bases: m[2] };
+      break;
+    }
+  }
+  if (!cur) return null;
+  const startName = cur.name;
+  // 2) 沿继承链向上：任一祖先是 BaseModel → 起点类就是模型
+  let hops = 0;
+  while (hops < 10) {
+    const baseNames: string[] = cur.bases
+      .split(",")
+      .map((s) => s.trim().split(".").pop() ?? "")
+      .filter(Boolean);
+    if (baseNames.includes("BaseModel")) return startName;
+    const nextName = baseNames.find((b) => findClass(b) !== null);
+    if (nextName === undefined) return null; // 全链找不到声明（跨文件/普通类）→ 边界
+    const nextBases = findClass(nextName);
+    if (nextBases === null) return null;
+    cur = { name: nextName, bases: nextBases };
+    hops++;
+  }
+  return null;
+}
+
+function normPathOf(p: string): string {
+  return p.replace(/\\/g, "/").toLowerCase();
+}
+
+/** Promise 超时包装（超时 reject；不 abort 底层 invoke——Rust 扫描毫秒级，迟到结果被丢弃即可） */
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = window.setTimeout(() => reject(new Error("timeout")), ms);
+    p.then(
+      (v) => { window.clearTimeout(t); resolve(v); },
+      (e) => { window.clearTimeout(t); reject(e); },
+    );
+  });
 }
 
 // ---------- 确认与应用 ----------
@@ -267,6 +424,9 @@ async function confirmRename(): Promise<void> {
     toastFail("重命名", e);
     return;
   }
+  // 阶段 4 子项 2b：Pydantic 字段改名传播补充——pyrefly 对 BaseModel 字段 references=0
+  // （只改声明处），此处用 AST 文本扫描补 `Model(field=` 调用点（engine 结果优先，去重合并）。
+  files = await supplementPydanticCtorRefs(model, a, currentName, newName, files);
   if (files.length === 0) {
     toast("引擎未返回任何改动", "info");
     return;

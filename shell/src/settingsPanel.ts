@@ -4,7 +4,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import type * as MonacoApi from "monaco-editor/esm/vs/editor/editor.api";
-import { app, $, $btn, DEFAULT_SETTINGS, outputEl, type Settings } from "./state";
+import { app, $, $btn, DEFAULT_SETTINGS, lazyEl, outputEl, type Settings } from "./state";
 import * as lsp from "./lsp/client";
 import { renderEngineChip } from "./engineChip";
 import { repaintRunWidget } from "./runWidget";
@@ -20,6 +20,7 @@ import { toast, toastFail } from "./toast";
 import { loadStorageUsage, wireStoragePanel } from "./storagePanel";
 import { renderPluginsTab } from "./extensions/pluginsTab";
 import { lintActiveFile, normalizeSeverity } from "./ruffLint"; // D-4：映射保存后立即重查当前文件
+import { refreshPydanticDiagnostics } from "./pydanticDiagnostics"; // 阶段 4：开关保存后即时生效
 import { refreshSplitEditorOptions } from "./splitEditor"; // C-4：分屏编辑器参数同步（splitEditor 不 import 本模块，无环）
 // UI-26：主题选择改自绘预览色卡（原生 <option> 放不下色卡），值读写经 themePicker
 import { getSelectedTheme, setSelectedTheme, wireThemePicker } from "./themePicker";
@@ -49,68 +50,73 @@ function sh(): SettingsPanelHandlers {
 }
 
 // ---------- 域内 DOM ----------
+// P2-6（2026-09-29 review）：顶层快照改惰性（铁律 1——此前模块加载期解析 60 个控件，
+// 精简 DOM 测试环境 import 即炸，设置域因此零单测）。用法均为 .value/.checked/
+// .classList 方法访问，Proxy 安全；作为参数传给 DOM/组件 API 的元素不可用 lazyEl。
 
-const statusFontEl = $("status-font");
-const settingsModalEl = $("settings-modal");
-const settingsFontEl = $("settings-font") as HTMLInputElement;
-const settingsFontFamilyEl = $("settings-font-family") as HTMLInputElement;
-const settingsFontLigaturesEl = $("settings-font-ligatures") as HTMLInputElement;
-const settingsTabSizeEl = $("settings-tab-size") as HTMLInputElement;
-const settingsInsertSpacesEl = $("settings-insert-spaces") as HTMLInputElement;
-const settingsWordWrapEl = $("settings-word-wrap") as HTMLSelectElement;
-const settingsMinimapEl = $("settings-minimap") as HTMLInputElement;
-const settingsKeywordCompletionEl = $("settings-keyword-completion") as HTMLInputElement;
+const statusFontEl = lazyEl("status-font");
+const settingsModalEl = lazyEl("settings-modal");
+const settingsFontEl = lazyEl<HTMLInputElement>("settings-font");
+const settingsFontFamilyEl = lazyEl<HTMLInputElement>("settings-font-family");
+const settingsFontLigaturesEl = lazyEl<HTMLInputElement>("settings-font-ligatures");
+const settingsTabSizeEl = lazyEl<HTMLInputElement>("settings-tab-size");
+const settingsInsertSpacesEl = lazyEl<HTMLInputElement>("settings-insert-spaces");
+const settingsWordWrapEl = lazyEl<HTMLSelectElement>("settings-word-wrap");
+const settingsMinimapEl = lazyEl<HTMLInputElement>("settings-minimap");
+const settingsKeywordCompletionEl = lazyEl<HTMLInputElement>("settings-keyword-completion");
 // C-6（PyCharm 调研）：可读性配置
-const settingsIndentGuidesEl = $("settings-indent-guides") as HTMLInputElement;
-const settingsBracketColorsEl = $("settings-bracket-colors") as HTMLInputElement;
+const settingsIndentGuidesEl = lazyEl<HTMLInputElement>("settings-indent-guides");
+const settingsBracketColorsEl = lazyEl<HTMLInputElement>("settings-bracket-colors");
 // PR-B（dx_features_backlog §6.2）：粘性滚动
-const settingsStickyScrollEl = $("settings-sticky-scroll") as HTMLInputElement;
+const settingsStickyScrollEl = lazyEl<HTMLInputElement>("settings-sticky-scroll");
 // PR-N（dx_features_backlog §6.8）：参数名行内提示
-const settingsInlayParamHintsEl = $("settings-inlay-param-hints") as HTMLInputElement;
+const settingsInlayParamHintsEl = lazyEl<HTMLInputElement>("settings-inlay-param-hints");
 // PR-C（dx_features_backlog §6.3）：保存清理
-const settingsTrimTrailingEl = $("settings-trim-trailing") as HTMLInputElement;
-const settingsFinalNewlineEl = $("settings-final-newline") as HTMLInputElement;
+const settingsTrimTrailingEl = lazyEl<HTMLInputElement>("settings-trim-trailing");
+const settingsFinalNewlineEl = lazyEl<HTMLInputElement>("settings-final-newline");
 // PR-K（dx_features_backlog §6.6）：新建 .py 文件自动插文件头模板
-const settingsNewFileTemplateEl = $("settings-new-file-template") as HTMLInputElement;
+const settingsNewFileTemplateEl = lazyEl<HTMLInputElement>("settings-new-file-template");
 // PR-M（dx_features_backlog §6.6）：粘贴 JSON 自动转 Python 字面量
-const settingsPasteJsonEl = $("settings-paste-json") as HTMLInputElement;
+const settingsPasteJsonEl = lazyEl<HTMLInputElement>("settings-paste-json");
 // B-3（PyCharm 调研）：调试只步进我的代码
-const settingsDebugJmcEl = $("settings-debug-jmc") as HTMLInputElement;
+const settingsDebugJmcEl = lazyEl<HTMLInputElement>("settings-debug-jmc");
 // 库特别支持 PR-2：编辑器工具 lens / 正则高亮与测试器
-const settingsLibsEditorLensEl = $("settings-libs-editor-lens") as HTMLInputElement;
-const settingsLibsRegexEl = $("settings-libs-regex") as HTMLInputElement;
+const settingsLibsEditorLensEl = lazyEl<HTMLInputElement>("settings-libs-editor-lens");
+const settingsLibsRegexEl = lazyEl<HTMLInputElement>("settings-libs-regex");
 // 库特别支持 PR-3：格式串 hover/诊断 + 工具
-const settingsLibsFormatEl = $("settings-libs-format") as HTMLInputElement;
+const settingsLibsFormatEl = lazyEl<HTMLInputElement>("settings-libs-format");
 // 库特别支持 PR-4：参数表单
-const settingsLibsArgparseEl = $("settings-libs-argparse") as HTMLInputElement;
+const settingsLibsArgparseEl = lazyEl<HTMLInputElement>("settings-libs-argparse");
 // 库特别支持 P1：JSON 字面量注入 / 输出面板日志级别着色（research §11.9）
-const settingsLibsJsonInjectEl = $("settings-libs-json-inject") as HTMLInputElement;
-const settingsLogLevelColorsEl = $("settings-log-level-colors") as HTMLInputElement;
-const settingsAutosaveEl = $("settings-autosave") as HTMLSelectElement;
-const settingsProbeEl = $("settings-probe") as HTMLInputElement;
-const settingsIntelEl = $("settings-intel") as HTMLInputElement;
-const settingsEngineEl = $("settings-engine") as HTMLSelectElement;
-const settingsFormatOnSaveEl = $("settings-format-on-save") as HTMLInputElement;
-const settingsOptimizeImportsOnSaveEl = $("settings-optimize-imports-on-save") as HTMLInputElement;
+const settingsLibsJsonInjectEl = lazyEl<HTMLInputElement>("settings-libs-json-inject");
+const settingsLogLevelColorsEl = lazyEl<HTMLInputElement>("settings-log-level-colors");
+// 阶段 4：Pydantic 构造校验诊断开关
+const settingsPydanticDiagnosticsEl = lazyEl<HTMLInputElement>("settings-pydantic-diagnostics");
+const settingsAutosaveEl = lazyEl<HTMLSelectElement>("settings-autosave");
+const settingsProbeEl = lazyEl<HTMLInputElement>("settings-probe");
+const settingsIntelEl = lazyEl<HTMLInputElement>("settings-intel");
+const settingsEngineEl = lazyEl<HTMLSelectElement>("settings-engine");
+const settingsFormatOnSaveEl = lazyEl<HTMLInputElement>("settings-format-on-save");
+const settingsOptimizeImportsOnSaveEl = lazyEl<HTMLInputElement>("settings-optimize-imports-on-save");
 // D-4（PyCharm 调研）：ruff 规则严重度映射（E/W/F 三类）
-const settingsRuffSeverityEEl = $("settings-ruff-severity-e") as HTMLSelectElement;
-const settingsRuffSeverityWEl = $("settings-ruff-severity-w") as HTMLSelectElement;
-const settingsRuffSeverityFEl = $("settings-ruff-severity-f") as HTMLSelectElement;
-const settingsTerminalCwdEl = $("settings-terminal-cwd") as HTMLSelectElement;
-const settingsTerminalShellEl = $("settings-terminal-shell") as HTMLSelectElement;
-const settingsReduceMotionEl = $("settings-reduce-motion") as HTMLInputElement;
-const settingsFontFamilyPresetEl = $("settings-font-family-preset") as HTMLSelectElement;
-const settingsPypiIndexPresetEl = $("settings-pypi-index-preset") as HTMLSelectElement;
-const settingsPypiIndexEl = $("settings-pypi-index") as HTMLInputElement;
-const settingsLogEnabledEl = $("settings-log-enabled") as HTMLInputElement;
-const settingsLogLevelEl = $("settings-log-level") as HTMLSelectElement;
-const settingsLogKeepEl = $("settings-log-keep") as HTMLInputElement;
-const settingsLogStdoutEl = $("settings-log-stdout") as HTMLInputElement;
-const settingsLogOpenEl = $("settings-log-open") as HTMLButtonElement;
-const settingsDataOpenEl = $("settings-data-open") as HTMLButtonElement;
+const settingsRuffSeverityEEl = lazyEl<HTMLSelectElement>("settings-ruff-severity-e");
+const settingsRuffSeverityWEl = lazyEl<HTMLSelectElement>("settings-ruff-severity-w");
+const settingsRuffSeverityFEl = lazyEl<HTMLSelectElement>("settings-ruff-severity-f");
+const settingsTerminalCwdEl = lazyEl<HTMLSelectElement>("settings-terminal-cwd");
+const settingsTerminalShellEl = lazyEl<HTMLSelectElement>("settings-terminal-shell");
+const settingsReduceMotionEl = lazyEl<HTMLInputElement>("settings-reduce-motion");
+const settingsFontFamilyPresetEl = lazyEl<HTMLSelectElement>("settings-font-family-preset");
+const settingsPypiIndexPresetEl = lazyEl<HTMLSelectElement>("settings-pypi-index-preset");
+const settingsPypiIndexEl = lazyEl<HTMLInputElement>("settings-pypi-index");
+const settingsLogEnabledEl = lazyEl<HTMLInputElement>("settings-log-enabled");
+const settingsLogLevelEl = lazyEl<HTMLSelectElement>("settings-log-level");
+const settingsLogKeepEl = lazyEl<HTMLInputElement>("settings-log-keep");
+const settingsLogStdoutEl = lazyEl<HTMLInputElement>("settings-log-stdout");
+const settingsLogOpenEl = lazyEl<HTMLButtonElement>("settings-log-open");
+const settingsDataOpenEl = lazyEl<HTMLButtonElement>("settings-data-open");
 // E-1（PyCharm 调研）：设置搜索
-const settingsSearchEl = $("settings-search") as HTMLInputElement;
-const settingsSearchEmptyEl = $("settings-search-empty");
+const settingsSearchEl = lazyEl<HTMLInputElement>("settings-search");
+const settingsSearchEmptyEl = lazyEl("settings-search-empty");
 
 // ---------- E-1：设置搜索 ----------
 
@@ -324,6 +330,13 @@ export function buildEditorOptions(settings: Settings): MonacoApi.editor.IEditor
       highlightActiveIndentation: settings.indent_guides !== false,
     },
     bracketPairColorization: { enabled: settings.bracket_colors !== false },
+    // 方案 2：收窄行号右侧的折叠箭头区。Monaco 默认 lineDecorationsWidth=10，且 folding 开启时
+    // 会再 +16（实际约 26px，其中大半是只有少数带折叠箭头的行才占用的空白）。压到 6 让 gutter 更紧凑。
+    lineDecorationsWidth: 6,
+    // 方案 3：行号列最小宽度。Monaco 默认 minChars=5，行号数字右对齐，短文件里数字左侧会留
+    // 大片空，视觉上拉大了「断点红点 ↔ 行号数字」的距离——这才是红点与行号间空白的头号来源。
+    // 压到 3；文件行数变多时仍按实际位数自动伸缩。
+    lineNumbersMinChars: 3,
     // PR-B：粘性滚动（Monaco 0.52 内建 stickyScroll；旧配置无字段时兜底为开，同 C-6 惯例）
     stickyScroll: { enabled: settings.sticky_scroll !== false },
   };
@@ -533,6 +546,8 @@ function fillForm(settings: Settings): void {
   settingsLibsArgparseEl.checked = settings.libs_argparse !== false;
   settingsLibsJsonInjectEl.checked = settings.libs_json_inject !== false;
   settingsLogLevelColorsEl.checked = settings.log_level_colors !== false;
+  // 阶段 4：Pydantic 诊断默认开（!== false 惯例）
+  settingsPydanticDiagnosticsEl.checked = settings.pydantic_diagnostics !== false;
   settingsAutosaveEl.value = settings.autosave;
   settingsProbeEl.checked = settings.probe_enabled;
   settingsIntelEl.checked = settings.runtime_intel_enabled;
@@ -669,6 +684,7 @@ async function saveSettingsPanel(): Promise<void> {
     libs_argparse: settingsLibsArgparseEl.checked, // 库支持 PR-4
     libs_json_inject: settingsLibsJsonInjectEl.checked, // 库支持 P1
     log_level_colors: settingsLogLevelColorsEl.checked, // 库支持 P1
+    pydantic_diagnostics: settingsPydanticDiagnosticsEl.checked, // 阶段 4
     autosave,
     autosave_delay: app.settings.autosave_delay,
     probe_enabled: probeEnabled,
@@ -720,6 +736,8 @@ async function saveSettingsPanel(): Promise<void> {
   toast("设置已保存", "success"); // tech-debt #19：即时操作结果统一轻提示
   // D-4：严重度映射保存后立即重查当前文件（波浪线级别即时生效，无需等下次编辑）
   void lintActiveFile();
+  // 阶段 4：Pydantic 诊断开关即时生效（开→立扫，关→清空）
+  refreshPydanticDiagnostics();
   closeSettingsPanel();
 
   if (engineChanged) {

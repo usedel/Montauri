@@ -2,7 +2,7 @@
 // 顶部下拉菜单 / flyout 子菜单的渲染与键盘导航机制。菜单项数据（getMenuItems）
 // 由 main 注入——菜单是跨域动作的汇聚点，机制与数据分离后本模块不再依赖任何业务域。
 
-import { $ } from "./state";
+import { lazyEl } from "./state";
 import { codicon } from "./util";
 import { moveMenuFocus, wireMenuKeyNav } from "./menuKeys"; // UI-30：与 menu.ts 共享同一套 APG 规则
 
@@ -29,8 +29,9 @@ export interface MenuEntry {
   danger?: boolean;
 }
 
-const menuDropdownEl = $("menu-dropdown");
-const submenuEl = $("menu-submenu");
+// P2-6（2026-09-29 review）：顶层快照改惰性（铁律 1，测试环境可 import）
+const menuDropdownEl = lazyEl("menu-dropdown");
+const submenuEl = lazyEl("menu-submenu");
 let activeMenuBtn: HTMLElement | null = null;
 /** 当前展开子菜单的父项元素（用于 hover 态与定位） */
 let activeSubmenuParent: HTMLElement | null = null;

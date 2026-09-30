@@ -52,25 +52,23 @@ async function boot(page: Page, repo: GitRepo, fw?: FrameworkPreset): Promise<vo
 const hintLine = (page: Page, text: string) =>
   page.locator("#output .out-line.hint", { hasText: text });
 
-// ---------- FW-1：Pydantic 引擎推荐（F0 裁决 B） ----------
+// ---------- FW-1：Pydantic 栈（阶段 1 撤销推荐后的行为） ----------
 
-test("FW-1 Pydantic 栈提示 + 一键切换 basedpyright", async ({ page }) => {
+test("FW-1 Pydantic 栈：不出现引擎推荐（已撤销），FastAPI 探针表照常", async ({ page }) => {
   const repo = await makeGitRepo({
     files: { "main.py": "from fastapi import FastAPI\napp = FastAPI()\n" },
     commitMsg: "baseline",
   });
   await boot(page, repo, { deps: "fastapi\npydantic\n", hasFastApiApp: true, pydanticStack: true });
 
-  const py = hintLine(page, "检测到 Pydantic 栈");
-  await expect(py).toBeVisible({ timeout: 15_000 });
-  // 同一工作区：FastAPI 探针表提示也应出现（deps 含 fastapi）
-  await expect(hintLine(page, "检测到 FastAPI 项目（main.py）")).toBeVisible();
-
-  await py.locator(".out-link", { hasText: "切换到 basedpyright" }).click();
-  // 引擎真值收敛到 settings + chip 渲染（engineChip::switchEngineTo 同一语义）
-  await expect(page.locator("#status-engine")).toContainText("basedpyright", { timeout: 10_000 });
-  // 状态落定后链接文案切换（实现会同时移除 .out-link 类，断言按文本）
-  await expect(py.getByText("（已切换）")).toBeVisible();
+  // 阶段 1（docs/pyrefly_pydantic_support_plan.md §3.1）撤销「推荐切 basedpyright」：
+  // Pydantic 栈不再产生任何引擎推荐提示
+  await expect(hintLine(page, "检测到 Pydantic 栈")).toHaveCount(0, { timeout: 8_000 });
+  await expect(page.locator("#output .out-line", { hasText: "basedpyright" })).toHaveCount(0);
+  // 引擎保持 pyrefly（不被静默切换——历史原则）
+  await expect(page.locator("#status-engine")).toContainText("pyrefly");
+  // 同一工作区：FastAPI 探针表提示照常（推荐撤销不影响框架探针）
+  await expect(hintLine(page, "检测到 FastAPI 项目（main.py）")).toBeVisible({ timeout: 15_000 });
 });
 
 // ---------- FW-2：探针表一键生成运行配置 ----------
@@ -110,8 +108,8 @@ test("FW-3 不再提示持久化：reload 后 FastAPI 提示不再出现", async
   await page.reload();
   await expect(page.locator("#status-git")).toContainText("main", { timeout: 20_000 });
   await expect(hintLine(page, "检测到 FastAPI 项目")).toHaveCount(0, { timeout: 15_000 });
-  // Pydantic 提示未关闭 → 仍出现
-  await expect(hintLine(page, "检测到 Pydantic 栈")).toBeVisible({ timeout: 15_000 });
+  // 阶段 1 撤销推荐：Pydantic 引擎提示本就不存在（与关闭开关无关）
+  await expect(hintLine(page, "检测到 Pydantic 栈")).toHaveCount(0, { timeout: 8_000 });
 });
 
 // ---------- FW-4：端点侧栏分组与跳转 ----------

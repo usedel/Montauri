@@ -6,7 +6,7 @@
 
 import type * as MonacoApi from "monaco-editor/esm/vs/editor/editor.api";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { app, $, $btn, outputEl, type Tab } from "./state";
 import { basename, codicon, emptyState, languageOf, gitBadgeClass, gitLineClass, joinPath, normalizePath, renderFileIcon, setBusy } from "./util";
 import { appendOutputLine } from "./output";
@@ -87,7 +87,10 @@ let gitRemoteBusy = false;
 /** P1-3：冲突 diff 编辑态（modified 侧内容变更监听器；有变更时显示「应用编辑结果」） */
 let conflictEditHandler: MonacoApi.IDisposable | null = null;
 
-const gitDiffEditorEl = $("git-diff-editor");
+// P2-6（2026-09-29 review）：git-diff-editor 不能用 lazyEl——它作为**参数**传给
+// Monaco createDiffEditor（Proxy 非 Node，DOM/组件库的 instanceof 检查会抛
+// TypeError，见 dialog.ts 同款踩坑注释）。改为 ensureDiffEditor 内现取真元素
+//（懒创建时机本就在首次查看 diff，测试环境不触发）。
 
 // ---------- Git 状态 ----------
 
@@ -664,9 +667,15 @@ function conflictMenu(f: GitStatusFile, anchor: MenuAnchor): void {
   );
 }
 
+/** 提交互斥标志（P2-4）：preCommitFormat 的 await（多文件 × ruff 子进程，可达数秒）
+ *  发生在 setBusy 之前——第二个 commitChanges 并发进入会读到旧 gitFiles 通过校验，
+ *  双 git_commit 并发触发后端 index 锁冲突。同步检查并置位（beginRunPreparing 同款）。 */
+let committing = false;
+
 /** 提交已暂存更改 */
 export async function commitChanges(amend = false): Promise<void> {
   if (!app.workspaceRoot || !gitRepoActive.value) return;
+  if (committing) return; // P2-4：连点/Ctrl+Enter 与按钮双入口的并发穿透
   const msgEl = $("git-commit-msg") as HTMLTextAreaElement;
   const errEl = $("git-commit-error");
   const message = msgEl.value.trim();
@@ -688,29 +697,35 @@ export async function commitChanges(amend = false): Promise<void> {
     return;
   }
   errEl.classList.add("hidden");
-  // P2-8：提交前检查——格式化暂存的干净 Python 文件（会话开关，默认开；可在提交下拉关闭）
-  if (preCommitFormatEnabled) await preCommitFormat();
-  // P0.5-B4：忙碌态防重入（提交/推送/拉取共用提交按钮互斥），完成或失败后恢复
-  const commitBtn = $btn("git-commit-btn");
-  setBusy(commitBtn, true, "提交中…");
-  appendOutputLine(outputEl, `> git commit${amend ? " --amend" : ""} -m "${message}"`, "cmd", gotoFromLink, "git");
+  // P2-4：校验通过后立即同步置位（早于任何 await，含 preCommitFormat）
+  committing = true;
   try {
-    const out = await invoke<string>("git_commit", { root: app.workspaceRoot, message, amend });
-    for (const line of out.split("\n")) appendOutputLine(outputEl, line, "stdout", gotoFromLink, "git");
-  } catch (e) {
-    appendOutputLine(outputEl, `${amend ? "修订" : "提交"}失败：${e}`, "stderr", gotoFromLink, "git");
-    toastFail(amend ? "修订提交" : "提交", e);
-    return;
+    // P2-8：提交前检查——格式化暂存的干净 Python 文件（会话开关，默认开；可在提交下拉关闭）
+    if (preCommitFormatEnabled) await preCommitFormat();
+    // P0.5-B4：忙碌态防重入（提交/推送/拉取共用提交按钮互斥），完成或失败后恢复
+    const commitBtn = $btn("git-commit-btn");
+    setBusy(commitBtn, true, "提交中…");
+    appendOutputLine(outputEl, `> git commit${amend ? " --amend" : ""} -m "${message}"`, "cmd", gotoFromLink, "git");
+    try {
+      const out = await invoke<string>("git_commit", { root: app.workspaceRoot, message, amend });
+      for (const line of out.split("\n")) appendOutputLine(outputEl, line, "stdout", gotoFromLink, "git");
+    } catch (e) {
+      appendOutputLine(outputEl, `${amend ? "修订" : "提交"}失败：${e}`, "stderr", gotoFromLink, "git");
+      toastFail(amend ? "修订提交" : "提交", e);
+      return;
+    } finally {
+      setBusy(commitBtn, false);
+    }
+    msgEl.value = "";
+    toast(amend ? `已修订提交：${message}` : `已提交：${message}`, "success");
+    // E2E 抓出的同款 bug：提交改变 HEAD 与暂存区，必须重查状态再渲染
+    //（此前只 renderGitPanel 读旧内存，面板残留已提交条目直至 watcher 事件链兜底）
+    await refreshGitStatus();
+    await refreshTreeWithExpandedState();
+    renderGitPanel();
   } finally {
-    setBusy(commitBtn, false);
+    committing = false; // P2-4：无论成败都释放（含 preCommitFormat 抛错路径）
   }
-  msgEl.value = "";
-  toast(amend ? `已修订提交：${message}` : `已提交：${message}`, "success");
-  // E2E 抓出的同款 bug：提交改变 HEAD 与暂存区，必须重查状态再渲染
-  //（此前只 renderGitPanel 读旧内存，面板残留已提交条目直至 watcher 事件链兜底）
-  await refreshGitStatus();
-  await refreshTreeWithExpandedState();
-  renderGitPanel();
 }
 
 /** 提交全部：先暂存所有更改再走提交（对标 VSCode Commit All） */
@@ -747,7 +762,7 @@ export function ensureDiffEditor(): MonacoApi.editor.IStandaloneDiffEditor {
     diffEditor.updateOptions({ cursorBlinking: blinking });
     return diffEditor;
   }
-  diffEditor = app.monaco.editor.createDiffEditor(gitDiffEditorEl, {
+  diffEditor = app.monaco.editor.createDiffEditor($("git-diff-editor"), {
     automaticLayout: true,
     theme: app.settings.theme,
     readOnly: true, // 默认只读；冲突模式由 enableConflictEditing 放开 modified 侧（P1-3）
@@ -837,11 +852,17 @@ async function showDiff(f: GitStatusFile, base: DiffBase = "auto"): Promise<void
   await showDiffImpl(f, base, true);
 }
 
+/** diff 主路径加载令牌（P2-5）：showDiffImpl / showConflictDiff / reopenDiff 共用。
+ *  连点 SCM 两个文件时，慢的 A 响应后到会把内容 setModel 进 B 的标签/hunk 上
+ *  （内容与标签错位）；await 后校验令牌，过期响应直接丢弃。 */
+let diffLoadToken = 0;
+
 /** diff 填充实现（skipActivate：tab 已激活的刷新路径不走 activateDiffTab——
  *  activateTab(diff) → refreshDiffOnActivate → showDiff → activateDiffTab →
  *  activateTab(diff) 的无限递归由此打断） */
 async function showDiffImpl(f: GitStatusFile, base: DiffBase, activate: boolean): Promise<void> {
   if (!app.workspaceRoot) return;
+  const token = ++diffLoadToken; // P2-5：请求令牌（进入即占位，慢响应到达时校验）
   diffFilePath = f.path;
   diffConflictPath = null;
   // 三态：auto = 按文件暂存态自动（staged→HEAD↔Index；否则 Index↔工作区）
@@ -866,6 +887,7 @@ async function showDiffImpl(f: GitStatusFile, base: DiffBase, activate: boolean)
         ignoreWhitespace: diffIgnoreWhitespace, // C4：透传给 Monaco 的 diff 计算
       },
     );
+    if (token !== diffLoadToken) return; // P2-5：期间已有新一轮加载（或换了文件），丢弃过期响应
     const d = ensureDiffEditor();
     releaseDiffModels();
     const lang = languageOf(f.path);
@@ -878,6 +900,7 @@ async function showDiffImpl(f: GitStatusFile, base: DiffBase, activate: boolean)
     // P1-1：拉取 hunk 列表（供「暂存当前块」按光标定位）
     await loadDiffHunks(f.path);
   } catch (e) {
+    if (token !== diffLoadToken) return; // P2-5：过期失败也不关新内容正在展示的 tab
     appendOutputLine(outputEl, `读取 diff 失败：${e}`, "stderr", gotoFromLink, "git");
     toastFail("读取 diff", e);
     closeDiffTabByPath(f.path);
@@ -1213,6 +1236,7 @@ export function cleanupDiffTabState(tab: Tab): void {
  *  第 2 步迁移：与普通 diff 同走编辑区 tab（conflict 元数据驱动按钮组与块级面板）。 */
 async function showConflictDiff(f: GitStatusFile): Promise<void> {
   if (!app.workspaceRoot) return;
+  const token = ++diffLoadToken; // P2-5：请求令牌（与 showDiffImpl 共用——连点切换时互斥）
   diffFilePath = f.path;
   diffConflictPath = f.path;
   const absPath = joinPath(app.workspaceRoot, f.path);
@@ -1226,6 +1250,7 @@ async function showConflictDiff(f: GitStatusFile): Promise<void> {
       invoke<{ base: string; current: string; incoming: string }>("git_conflict_versions", { root: app.workspaceRoot, path: f.path }),
       invoke<string>("read_file", { path: absPath }),
     ]);
+    if (token !== diffLoadToken) return; // P2-5：期间已切换到其他 diff，丢弃过期响应
     // 冲突块级合并状态（解析工作区文件里的冲突标记）
     mergeSegments = parseMergeSegments(worktree);
     mergeSelections = new Map();
@@ -1244,6 +1269,7 @@ async function showConflictDiff(f: GitStatusFile): Promise<void> {
     // 点「应用编辑结果」写回 + add；块级选择面板（#git-merge-blocks）继续可用
     enableConflictEditing(true, f.path);
   } catch (e) {
+    if (token !== diffLoadToken) return; // P2-5：过期失败不影响新内容展示
     appendOutputLine(outputEl, `读取冲突 diff 失败：${e}`, "stderr", gotoFromLink, "git");
     toastFail("读取冲突 diff", e);
     closeDiffTabByPath(f.path);
@@ -1393,7 +1419,7 @@ export async function gitRemoteOp(
   gitRemoteBusy = true;
   const label = `git ${op}`;
   showRemoteBusyBar(op, true);
-  const unlisten = await listen<{ op: string; data: string }>("git-op-stdout", (e) => {
+  const unlisten = await getCurrentWindow().listen<{ op: string; data: string }>("git-op-stdout", (e) => {
     // 流式进度（git 的 Enumerating/Counting/Writing objects 走 stderr）
     if (e.payload.op === op) appendOutputLine(outputEl, e.payload.data.replace(/\n$/, ""), "stdout", gotoFromLink, "git");
   });
@@ -3138,5 +3164,28 @@ export function resetGitState(): void {
   enableConflictEditing(false, null);
   gitDetailViewEl.textContent = "";
   gitDetailLabelEl.textContent = "—";
+  // P1-3（用户报告 2026-09-30）：关闭工作区后 #git-changes 残留旧更改列表——
+  // 本函数此前只清内存状态不重渲染，而 renderGitPanel 的既有触发点（侧栏 onShow /
+  // 刷新按钮 / fs-changed / git 写操作）在「工作区已关、用户停在 git 面板不动」时
+  // 全都不会发生。此处统一重渲染空态兜底：
+  //  - 调用时序（main.ts closeWorkspace）：resetWorkspaceUiState 先于 workspaceRoot=null，
+  //    故走「不是 Git 仓库」分支（gitRepoActive 已置 false）；切工作区路径同理，
+  //    后续 onShow/refreshTree 会用新数据再刷一遍。
+  renderGitPanel();
+  // 分支条同步复位（"—"）：refreshBranchPanel 无工作区早退分支即此效果，async 用 void 隔离
+  void refreshBranchPanel();
+  // 子 tab 复位到「更改」：若关闭时停在历史/贮藏页，三区互斥显隐会保持旧态——
+  // 重开工作区后 changes 仍 hidden，面板看似空白。复位即修复。
+  // 注意 setGitSubtab("changes") 不触发重渲染（仅 history/stash 分支才拉数据），零开销。
+  setGitSubtab("changes");
+  // 提交框草稿是工作区级的（草稿语义属会话快照，不走内存残留）：
+  // 关工作区后残留旧信息，且 lastPrefill 不清会导致下次单文件暂存时误判预填态。
+  const msgEl2 = $("git-commit-msg") as HTMLTextAreaElement;
+  if (msgEl2) {
+    msgEl2.value = "";
+    lastPrefill = "";
+  }
+  const commitErrEl = $("git-commit-error");
+  if (commitErrEl) commitErrEl.classList.add("hidden");
   updateGitStatusBar();
 }

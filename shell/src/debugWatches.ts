@@ -166,8 +166,12 @@ export async function refreshWatches(frameId: number | null): Promise<void> {
   }
 }
 
-/** 会话结束：清值（表达式保留，下次暂停重新求值） */
+/** 会话结束：清值（表达式保留，下次暂停重新求值）。
+ *  P3-4（2026-09-29 review）：同时作废在途刷新令牌——此前 clearWatchesValues 只重写
+ *  DOM，会话结束后仍在跑的 refreshWatches 循环会把行值改回「无法求值」，盖掉清场
+ *  写入的「—」；令牌 +1 让旧循环在下个检查点退出。 */
 export function clearWatchesValues(): void {
+  watchToken++;
   if (!listEl) return;
   for (const el of Array.from(listEl.querySelectorAll(".debug-watch-value"))) el.textContent = "—";
 }

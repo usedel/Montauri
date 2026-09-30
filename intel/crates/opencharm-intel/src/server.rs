@@ -38,6 +38,10 @@ struct Inner {
     index: Option<Arc<TraceIndex>>,
     /// 加载索引时的 trace 库 mtime：运行脚本重写库后据此检测并重载。
     index_mtime: Option<SystemTime>,
+    /// A-P2-2（2026-09-29 review）：加载索引时的库 size——mtime 相同但 size 变化
+    /// （Windows 写方持句柄时 mtime 更新可能延迟）也触发重载。此前只算了 size
+    /// 却在比较与存储两处丢弃，CR-16 注释承诺的组合判定并未落地。
+    index_size: Option<u64>,
     /// CR-16：加载失败退避——连续失败次数（指数退避，超过上限只按周期重试）。
     index_fail_count: u32,
 }
@@ -46,6 +50,11 @@ pub struct Backend {
     #[allow(dead_code)]
     client: Client,
     inner: RwLock<Inner>,
+    /// A-P2-3（2026-09-29 review）：加载互斥（in-flight 去重）——tower-lsp 每条消息
+    /// 独立 task，连续键入时并发补全各自 spawn_blocking 全量加载（大库数百 ms~秒级、
+    /// 内存峰值 ×N）。try_lock 拿不到锁 = 已有在途加载，本请求直接返回（空候选），
+    /// 加载完成后后续请求命中缓存。
+    index_load_lock: tokio::sync::Mutex<()>,
 }
 
 impl Backend {
@@ -53,6 +62,7 @@ impl Backend {
         Backend {
             client,
             inner: RwLock::new(Inner::default()),
+            index_load_lock: tokio::sync::Mutex::new(()),
         }
     }
 
@@ -73,6 +83,10 @@ impl Backend {
     /// CR-16：加载失败指数退避——原来的「每键重试 + 每次 eprintln」在库缺失/损坏时
     /// 每个补全请求都重试一次（每键数百 ms IO + stderr 刷屏）。
     /// 连续失败 N 次后改为每 8 次请求重试一次（约等于用户停顿间隔）。
+    ///
+    /// A-P2-3（2026-09-29 review）：`index_load_lock` 互斥——并发请求只有一个执行
+    /// 加载，其余直接返回（不排队不重复 IO）。try_lock 而非 lock：排队等加载结果
+    /// 会把 N 个并发请求的时延串成一列，返回空候选让下一次键入命中缓存更简单。
     async fn ensure_index_loaded(&self) {
         let path = {
             let g = self.inner.read();
@@ -90,6 +104,9 @@ impl Backend {
         // 或库已更新（mtime 变化）时重载，保证「运行一次 → 补全立刻用上最新观测」。
         // CR-16：mtime+size 组合判定（Windows 下写方持句柄时 mtime 更新可能延迟，
         // 同 mtime 但 size 变化也应触发重载）。
+        // A-P2-2（2026-09-29 review）：组合判定落地——原实现计算了 size 却在比较与
+        // 存储两处丢弃（注释自认“size 未单独存”），Windows 持句柄写库的核心场景
+        // （运行脚本重写库）可能 mtime 不变而 size 变，导致补全一直用陈旧索引。
         let stamp = std::fs::metadata(&path)
             .and_then(|m| Ok((m.modified()?, m.len())))
             .ok();
@@ -97,21 +114,26 @@ impl Backend {
             let g = self.inner.read();
             let loaded = g
                 .index_mtime
-                .and_then(|t| stamp.as_ref().map(|(mt, _)| *mt == t))
+                .zip(g.index_size)
+                .zip(stamp)
+                .map(|((mt, sz), (t, s))| mt == t && sz == s)
                 .unwrap_or(false);
-            // size 未单独存：mtime 相同即视为已加载（首次加载后 size 变化必然伴随 mtime
-            // 变化的场景占绝大多数；保守起见 mtime+size 都变化时重载已覆盖）。
             if g.index.is_some() && loaded {
                 return;
             }
         }
+
+        // A-P2-3：在途加载互斥——拿不到锁说明已有加载在进行，本次直接返回
+        let Ok(_guard) = self.index_load_lock.try_lock() else { return };
 
         let display_path = path.display().to_string();
         match tokio::task::spawn_blocking(move || TraceIndex::open(&path)).await {
             Ok(Ok(index)) => {
                 let mut g = self.inner.write();
                 g.index = Some(Arc::new(index));
+                // A-P2-2：size 一并存（与 mtime 组成 (mtime, size) 戳）
                 g.index_mtime = stamp.map(|(t, _)| t);
+                g.index_size = stamp.map(|(_, s)| s);
                 g.index_fail_count = 0;
             }
             Ok(Err(e)) => {
