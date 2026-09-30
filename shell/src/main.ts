@@ -28,7 +28,7 @@ import { initInlineSelectionMenu } from "./extensions/inlineMenu"; // P2：编�
 import { setPluginsTabHandlers, openGuide } from "./extensions/pluginsTab";
 import {
   openOnboardingGuide, wireWelcomeGuide, isWelcomeForced, setWelcomeOverlayRefresh, setWelcomeGuideHandlers,
-  renderQuickstartCards, renderTour, showWelcomeOverlay, dismissWelcomeOverlay,
+  renderQuickstartCards, renderTour, showWelcomeOverlay, dismissWelcomeOverlay, consumeWelcomeForce,
 } from "./welcomeGuide";
 import { formatPythonSource, optimizeImportsSource, registerRuffFormatter, setFormatErrorHandler } from "./format";
 import { runSearch, cancelSearch, resetSearch, setOpenMatchHandler, type SearchMatch, type SearchScope, type SearchScopeMode } from "./search";
@@ -911,6 +911,11 @@ function revealAfterOpen(path: string, revealLine?: number): void {
 }
 
 function activateTab(tab: Tab, opts?: { focusEditor?: boolean }): void {
+  // 帮助菜单「欢迎页」是纯显示层 force 覆盖（welcomeGuide.ts §6 决策 4）：一旦激活任何内容 tab
+  // （文件树打开文件 / 切标签 / 关标签后自动激活下一个），说明用户已回到内容——必须解除覆盖，
+  // 否则新打开的文件被欢迎页整层盖住看不见（严重可用性 bug）。置于最前，末尾的
+  // updateEditorOverlay 才会按真实态（有 activeTab）隐藏覆盖层。
+  consumeWelcomeForce();
   // 切标签记忆视图状态：离开前保存前一文件 tab 的光标/滚动，切回时恢复
   const prev = app.activeTab;
   if (prev && prev !== tab && prev.kind !== "diff" && app.editor.getModel() === prev.model) {

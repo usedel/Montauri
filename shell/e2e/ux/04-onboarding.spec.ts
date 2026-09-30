@@ -121,6 +121,26 @@ test.describe("OG-3：force-show 欢迎页（有工作区）", () => {
     await clickHelpMenu(page, "欢迎页");
     await expect(page.locator("#editor-overlay")).toBeHidden();
   });
+
+  test("OG-3b force 欢迎页下打开文件 → 覆盖层自动解除（文件不被挡住）", async ({ page }) => {
+    const repo = await makeGitRepo({
+      files: { "a.py": "print('a')\n", "b.py": "print('b')\n" },
+      commitMsg: "baseline",
+    });
+    await bootWorkspace(page, repo);
+    await page.locator("#tree .tree-item .name", { hasText: "a.py" }).first().dblclick();
+    await expect(page.locator("#editor-overlay")).toBeHidden();
+
+    // force-show 完整版欢迎页：整层盖在编辑器上（回归前提）
+    await clickHelpMenu(page, "欢迎页");
+    await expect(page.locator("#editor-overlay")).toBeVisible();
+
+    // 文件树打开另一个文件：激活内容即解除 force，新文件必须可见（曾整层被挡住）
+    await page.locator("#tree .tree-item .name", { hasText: "b.py" }).first().dblclick();
+    await expect(page.locator("#editor-overlay")).toBeHidden();
+    await expect(page.locator("#tabbar .tab.active .name", { hasText: "b.py" })).toBeVisible();
+    await expect(page.locator(".monaco-editor")).toBeVisible();
+  });
 });
 
 test.describe("OG-4：命令面板「新手指南」", () => {

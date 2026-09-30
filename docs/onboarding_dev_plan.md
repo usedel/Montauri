@@ -210,7 +210,7 @@ import guideRaw from "../../docs/onboarding_guide.md?raw";
 
 - `welcomeGuide.ts` 导出 `showWelcomeOverlay()` / `dismissWelcomeOverlay()`；
 - `updateEditorOverlay` 增加一个尊重位：forceWelcome 态下即使有 activeTab / workspaceRoot 也显示**完整版** overlay（actions + recents + quickstart 全显）——实现为模块内布尔 + 三态函数加一个前置分支（main.ts 改动 ~6 行：调用 `isWelcomeForced()`）；
-- 关闭途径：①再点帮助菜单「欢迎页」（toggle）②overlay 右上角关闭按钮（新增 `#ew-force-close`，仅 force 态显示）③用户点击任何动作按钮（打开文件夹 / 新建项目 / 最近工作区）后自动解除；
+- 关闭途径：①再点帮助菜单「欢迎页」（toggle）②overlay 右上角关闭按钮（新增 `#ew-force-close`，仅 force 态显示）③用户点击任何动作按钮（打开文件夹 / 新建项目 / 最近工作区）后自动解除 ④激活任何内容 tab（文件树打开文件 / 切标签 / 关标签后自动激活下一个）后自动解除——`activateTab` 首行 `consumeWelcomeForce()`（否则 force 态下新打开的文件被覆盖层整层挡住，e2e 回归 OG-3b）；
 - 帮助菜单加「欢迎页」项（help 分支，置于「新手指南」之后）；命令面板同步加 `welcome_page` 条目。
 
 ### 3.3 PR-S3（可选 P2）：裸 pip install → uv 建议 hint（半天）
