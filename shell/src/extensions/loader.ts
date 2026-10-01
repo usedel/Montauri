@@ -9,7 +9,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "../toast";
 import { errMsg } from "../util";
-import { t } from "../i18n"; // 第十五批 i18n：插件加载动态文案走语言包
+import { t, type TFuncKey } from "../i18n"; // 第十五批 i18n：插件加载动态文案走语言包
 import { localizeBackendError } from "../i18n/backendError";
 import { registerDevTool, unregisterDevTool } from "../devtools/registry";
 import type { DevTool, ToolInstance } from "../devtools/types";
@@ -328,7 +328,7 @@ export async function scanPlugins(): Promise<void> {
     if (!check.ok) {
       upsertRecord(pluginId, d.dir_path, {
         id: pluginId, name: pluginId, version: "?", source: "global", dir: d.dir_path,
-        manifest: null, error: `${t("ext.manifestCheckFailed")}\n${check.errors.join("\n")}`,
+        manifest: null, error: `${t("ext.manifestCheckFailed")}\n${check.errors.map((e) => t(e.key as TFuncKey, e.params)).join("\n")}`,
       });
       continue;
     }

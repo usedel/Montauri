@@ -110,8 +110,12 @@ export const main: Record<MainKey, string> = {
   "main.debug.start": "Debug startup",
   "main.debug.startError": "Debug startup error: {msg}",
   "main.debug.startFailed": "Debug startup failed: {msg}",
+  // ---- main.format ----
+  "main.format.emptyResult": "ruff returned an empty result",
+  "main.format.failed": "Format failed: {error}",
   // ---- main.imports ----
   "main.imports.done": "Imports optimized: {name}",
+  "main.imports.failed": "Optimize imports failed: {error}",
   "main.imports.pyOnly": "Optimize Imports only supports Python files (current: {name})",
   // ---- main.lsp ----
   "main.lsp.error": "LSP: error",

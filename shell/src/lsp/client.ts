@@ -10,6 +10,7 @@ import { app } from "../state";
 import * as dap from "../dap/client"; // B-8：暂停态 hover 求值（dap 不依赖 lsp，无环）
 import { depActionsForLine, latestDiff, toWorkspaceRelative } from "../depHealth";
 import { isSuppressedEngineAction } from "../quickFix";
+import { t } from "../i18n"; // i18n 复核修复：hover 调试段与 quickfix 标题走语言包
 import { libsHoverAt } from "../dslLens"; // 库支持 PR-2/PR-3（R-1）：hover 合并管线的自研追加段
 
 // Monaco 实例注入（配合 main.ts 动态加载；providers 注册前必须先注入）
@@ -783,7 +784,7 @@ export function registerLspHover(): MonacoApi.IDisposable {
             const r = await dap.dapEvaluate(word.word, dap.getActiveFrameId(), "hover");
             if (r.result) {
               const shown = r.result.length > 300 ? `${r.result.slice(0, 299)}…` : r.result;
-              const line = `**调试值** \`${shown}\``;
+              const line = `**${t("ide.debugValue")}** \`${shown}\``;
               value = value ? `${value}\n\n${line}` : line;
             }
           } catch {
@@ -1353,11 +1354,11 @@ function buildInstallActions(markers: MonacoApi.editor.IMarkerData[]): MonacoApi
     if (pkg && !byPkg.has(pkg)) byPkg.set(pkg, m);
   }
   return [...byPkg.entries()].map(([pkg, marker]) => ({
-    title: `安装 "${pkg}" 包`,
+    title: t("ide.installPkg", { pkg }),
     kind: "quickfix",
     isPreferred: true,
     diagnostics: [marker], // 关联具体诊断，灯泡 hover 与菜单分组更准确
-    command: { id: INSTALL_PACKAGE_COMMAND, title: `安装 ${pkg}`, arguments: [pkg] },
+    command: { id: INSTALL_PACKAGE_COMMAND, title: t("ide.installPkgShort", { pkg }), arguments: [pkg] },
   }));
 }
 

@@ -17,6 +17,7 @@ export const ide = {
   "ide.cd.title": "{label} ↔ 剪贴板",
   // ---- ide ----
   "ide.completionKeyword": "关键字",
+  "ide.debugValue": "调试值",
   // ---- ide.dsl ----
   "ide.dsl.hint": "提示：右键 → 「在正则测试器中打开」，或按 Ctrl+Alt+R 测试正则",
   "ide.dsl.needPyFormat": "格式串工具需要打开一个 Python 文件",
@@ -47,6 +48,8 @@ export const ide = {
   "ide.fw.missing": "尚未安装 {names}（可 uv add {first}）。",
   // ---- ide ----
   "ide.importAliasDetail": "import 别名",
+  "ide.installPkg": "安装 \"{pkg}\" 包",
+  "ide.installPkgShort": "安装 {pkg}",
   // ---- ide.json ----
   "ide.json.formatTitle": "格式化 JSON 字面量",
   "ide.json.minifyTitle": "压缩 JSON 字面量",
@@ -67,6 +70,8 @@ export const ide = {
   "ide.lens.testBoth": "🧪 测试（正则/格式串）",
   "ide.lens.testFormat": "🧪 测试格式串",
   "ide.lens.testRegex": "🧪 测试正则",
+  // ---- ide ----
+  "ide.menuLoadFailed": "（加载失败）",
   // ---- ide.mv ----
   "ide.mv.error": "错误",
   "ide.mv.none": "没有可跳转的诊断（error / warning）",

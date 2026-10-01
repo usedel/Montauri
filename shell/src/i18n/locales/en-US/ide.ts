@@ -18,6 +18,7 @@ export const ide: Record<IdeKey, string> = {
   "ide.cd.title": "{label} ↔ clipboard",
   // ---- ide ----
   "ide.completionKeyword": "keyword",
+  "ide.debugValue": "Debug value",
   // ---- ide.dsl ----
   "ide.dsl.hint": "Tip: right-click → \"Open in regex tester\", or press Ctrl+Alt+R to test regexes",
   "ide.dsl.needPyFormat": "The format-string tool needs an open Python file",
@@ -48,6 +49,8 @@ export const ide: Record<IdeKey, string> = {
   "ide.fw.missing": "{names} not installed yet (run uv add {first}).",
   // ---- ide ----
   "ide.importAliasDetail": "import alias",
+  "ide.installPkg": "Install package \"{pkg}\"",
+  "ide.installPkgShort": "Install {pkg}",
   // ---- ide.json ----
   "ide.json.formatTitle": "Format JSON literal",
   "ide.json.minifyTitle": "Minify JSON literal",
@@ -68,6 +71,8 @@ export const ide: Record<IdeKey, string> = {
   "ide.lens.testBoth": "🧪 Test (regex / format string)",
   "ide.lens.testFormat": "🧪 Test format string",
   "ide.lens.testRegex": "🧪 Test regex",
+  // ---- ide ----
+  "ide.menuLoadFailed": "(Failed to load)",
   // ---- ide.mv ----
   "ide.mv.error": "error",
   "ide.mv.none": "No diagnostics to jump to (error / warning)",

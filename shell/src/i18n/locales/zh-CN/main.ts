@@ -109,8 +109,12 @@ export const main = {
   "main.debug.start": "调试启动",
   "main.debug.startError": "调试启动异常: {msg}",
   "main.debug.startFailed": "调试启动失败: {msg}",
+  // ---- main.format ----
+  "main.format.emptyResult": "ruff 返回空结果",
+  "main.format.failed": "格式化失败：{error}",
   // ---- main.imports ----
   "main.imports.done": "已整理导入：{name}",
+  "main.imports.failed": "整理导入失败：{error}",
   "main.imports.pyOnly": "Optimize Imports 仅支持 Python 文件（当前：{name}）",
   // ---- main.lsp ----
   "main.lsp.error": "LSP: 错误",

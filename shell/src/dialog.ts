@@ -194,7 +194,7 @@ export function openChoice(opts: ChoiceOptions): Promise<ChoiceResult> {
     const okReal = document.getElementById("confirm-ok") as HTMLButtonElement;
     const cancelReal = document.getElementById("confirm-cancel") as HTMLButtonElement;
     okReal.textContent = opts.okLabel;
-    cancelReal.textContent = opts.cancelLabel ?? "取消";
+    cancelReal.textContent = opts.cancelLabel ?? t("common.cancel");
     applyKind(opts.kind ?? "primary");
 
     // 中性按钮：动态插入到 ok 按钮之前（对话框同时只会有一个实例，用后即删）

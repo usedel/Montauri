@@ -420,7 +420,7 @@ export const devtools = {
   "devtools.ts.tsPh": "如 1760985600",
   // ---- devtools.uni ----
   "devtools.uni.escape": "转义",
-  "devtools.uni.inputPh": "输入明文（转义）或 \\\\uXXXX 串（还原）…",
+  "devtools.uni.inputPh": "输入明文（转义）或 \\uXXXX 串（还原）…",
   "devtools.uni.unescape": "还原",
   // ---- devtools.urlcode ----
   "devtools.urlcode.inputPh": "输入文本（编码）或 %XX 串（解码）…",

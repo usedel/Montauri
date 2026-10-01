@@ -4,7 +4,7 @@
 
 import { lazyEl } from "./state";
 import { codicon } from "./util";
-import { onLocaleChange } from "./i18n";
+import { onLocaleChange, t } from "./i18n";
 import { moveMenuFocus, wireMenuKeyNav } from "./menuKeys"; // UI-30：与 menu.ts 共享同一套 APG 规则
 
 export interface MenuEntry {
@@ -225,7 +225,7 @@ async function openSubmenu(
     children = await resolve();
   } catch (e) {
     console.warn("读取子菜单失败", e);
-    children = [{ label: "（加载失败）" }];
+    children = [{ label: t("ide.menuLoadFailed") }];
   }
 
   // 异步期间可能已切到其它父项或菜单已关闭
