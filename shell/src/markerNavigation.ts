@@ -11,6 +11,7 @@
 
 import { app } from "./state";
 import { toast } from "./toast";
+import { t } from "./i18n"; // 第十三批 i18n：动态文案走语言包
 
 /** 导航序列项（纯数据，单测锁定语义） */
 export interface NavMarker {
@@ -70,7 +71,7 @@ function currentSequence(): NavMarker[] {
 export function gotoMarker(dir: 1 | -1): void {
   const seq = currentSequence();
   if (seq.length === 0) {
-    toast("没有可跳转的诊断（error / warning）", "info");
+    toast(t("ide.mv.none"), "info");
     return;
   }
 
@@ -84,9 +85,9 @@ export function gotoMarker(dir: 1 | -1): void {
   app.editor.revealLineNearTop(target.line);
   app.editor.setPosition({ lineNumber: target.line, column: target.column });
   app.editor.focus();
-  const kind = target.severity === app.monaco.MarkerSeverity.Error ? "错误" : "警告";
+  const kind = target.severity === app.monaco.MarkerSeverity.Error ? t("ide.mv.error") : t("ide.mv.warning");
   const brief = target.message.split("\n")[0].slice(0, 120);
-  toast(`${idx + 1}/${seq.length}${wrapped ? "（已回绕）" : ""} ${kind}：${brief}`, "info");
+  toast(t("ide.mv.progress", { idx: idx + 1, total: seq.length, wrapped: wrapped ? t("ide.mv.wrapped") : "", kind: kind, brief: brief }), "info");
 }
 
 // ---------- 保存 toast 的错误分类（2026-09-29 排查交付：pyrefly/basedpyright 实测口径） ----------
@@ -148,9 +149,9 @@ export function breakDownSaveErrors(
 /** 分类结果 → toast 文案（纯函数；「（已保存）」后缀由调用方拼接口径统一） */
 export function saveErrorToastMessage(fileName: string, b: SaveErrorBreakdown): string {
   const parts: string[] = [];
-  if (b.syntax > 0) parts.push(`${b.syntax} 处语法错误`);
-  if (b.other > 0) parts.push(`${b.other} 处类型/引用错误`);
-  return `${fileName}：${parts.join("，")}（已保存）`;
+  if (b.syntax > 0) parts.push(t("ide.mv.syntaxErrors", { count: b.syntax }));
+  if (b.other > 0) parts.push(t("ide.mv.otherErrors", { count: b.other }));
+  return t("ide.mv.savedStatus", { file: fileName, parts: parts.join("，") });
 }
 
 /** 跳到当前文件第一个 error marker（保存 toast「定位」动作；无 error 时静默） */

@@ -25,6 +25,7 @@ import {
   scanInjectLiterals,
   type InjectLiteral,
 } from "./libInject";
+import { t } from "./i18n"; // 第十三批 i18n：动态文案走语言包
 
 /** 规则的装饰类名（无装饰规则返回 undefined；调用侧已过滤） */
 function ruleDecorClass(id: InjectLiteral["rule"]): string | undefined {
@@ -61,14 +62,14 @@ export function openRegexTesterAtCursor(): void {
   const editor = app.editor;
   const model = editor.getModel();
   if (!model || model.getLanguageId() !== "python") {
-    toast("正则测试器需要打开一个 Python 文件", "info");
+    toast(t("ide.dsl.needPyRegex"), "info");
     return;
   }
   const pos = editor.getPosition();
   const text = model.getValue();
   const hits = scanRegexLiterals(text);
   if (hits.length === 0) {
-    toast("当前文件未识别到 re 正则字面量", "info");
+    toast(t("ide.dsl.noRegex"), "info");
     return;
   }
   const offset = model.getOffsetAt(pos ?? { lineNumber: 1, column: 1 });
@@ -94,14 +95,14 @@ export function openFormatTesterAtCursor(): void {
   const editor = app.editor;
   const model = editor.getModel();
   if (!model || model.getLanguageId() !== "python") {
-    toast("格式串工具需要打开一个 Python 文件", "info");
+    toast(t("ide.dsl.needPyFormat"), "info");
     return;
   }
   if (app.settings.libs_format === false) return;
   const text = model.getValue();
   const hits = scanFormatLiterals(text);
   if (hits.length === 0) {
-    toast("当前文件未识别到格式串字面量", "info");
+    toast(t("ide.dsl.noFormat"), "info");
     return;
   }
   const pos = editor.getPosition();
@@ -204,7 +205,7 @@ async function maybeShowRegexIntroToast(): Promise<void> {
   introChecked.add(root);
   try {
     if (await invoke<boolean>("is_framework_hint_disabled", { workspaceRoot: root, framework: INTRO_HINT_KEY })) return;
-    toast("提示：右键 → 「在正则测试器中打开」，或按 Ctrl+Alt+R 测试正则", "info");
+    toast(t("ide.dsl.hint"), "info");
     await invoke("set_framework_hint_disabled", { workspaceRoot: root, framework: INTRO_HINT_KEY, disabled: true });
   } catch {
     // 配置读写失败静默放弃：引导是锦上添花，不得打断编辑
@@ -330,7 +331,7 @@ export function initDslLens(editor: MonacoApi.editor.IStandaloneCodeEditor): Mon
         entries = (windowed.length ? windowed : entries).slice(0, LENS_MAX);
       }
       for (const [line, e] of entries) {
-        const title = e.regex && e.format ? "🧪 测试（正则/格式串）" : e.regex ? "🧪 测试正则" : "🧪 测试格式串";
+        const title = e.regex && e.format ? t("ide.lens.testBoth") : e.regex ? t("ide.lens.testRegex") : t("ide.lens.testFormat");
         lenses.push({
           range: { startLineNumber: line + 1, startColumn: 1, endLineNumber: line + 1, endColumn: 1 },
           command: toolCommandId
@@ -346,7 +347,7 @@ export function initDslLens(editor: MonacoApi.editor.IStandaloneCodeEditor): Mon
         if (count !== null && count > 0) {
           lenses.push({
             range: { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 },
-            command: { id: argsCommandId, title: `⚙ ${count} 个参数`, arguments: [model] },
+            command: { id: argsCommandId, title: t("ide.lens.argsCount", { count: count }), arguments: [model] },
           });
         }
       }
@@ -371,7 +372,7 @@ export function initDslLens(editor: MonacoApi.editor.IStandaloneCodeEditor): Mon
   store.add(
     editor.addAction({
       id: "opencharm.openRegexTester",
-      label: "在正则测试器中打开",
+      label: t("ide.lens.openRegex"),
       contextMenuGroupId: "navigation",
       contextMenuOrder: 1.8,
       precondition: "editorLangId == python",
@@ -383,7 +384,7 @@ export function initDslLens(editor: MonacoApi.editor.IStandaloneCodeEditor): Mon
   store.add(
     editor.addAction({
       id: "opencharm.openFormatTester",
-      label: "在格式串工具中打开",
+      label: t("ide.lens.openFormat"),
       contextMenuGroupId: "navigation",
       contextMenuOrder: 1.9,
       precondition: "editorLangId == python",

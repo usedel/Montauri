@@ -14,6 +14,9 @@ import { hideEl, motionDisabled, showEl } from "./anim";
 import { trapFocus } from "./focusTrap";
 import { toast } from "./toast";
 import { readClipboardText } from "./devtools/host";
+import { t } from "./i18n"; // 第十三批 i18n：动态文案走语言包
+import { localizeBackendError } from "./i18n/backendError";
+import { errMsg } from "./util";
 
 const modalEl = lazyEl("clipboard-diff-modal");
 const hostEl = lazyEl("clipboard-diff-host");
@@ -60,10 +63,10 @@ function fileLabel(path: string): string {
 export async function openClipboardDiff(text: string, label: string, langPath?: string): Promise<void> {
   const clip = await readClipboardText();
   if (!clip) {
-    toast("剪贴板为空或不可读", "info");
+    toast(t("ide.cd.clipboardEmpty"), "info");
     return;
   }
-  titleEl.textContent = `${label} ↔ 剪贴板`;
+  titleEl.textContent = t("ide.cd.title", { label: label });
   wireOnce();
   if (!diffEditor) {
     diffEditor = app.monaco.editor.createDiffEditor(hostEl, {
@@ -100,7 +103,7 @@ export async function diffEditorWithClipboard(): Promise<void> {
   const hasSel = !!sel && !sel.isEmpty();
   const text = hasSel ? model.getValueInRange(sel!) : model.getValue();
   const tabPath = app.activeTab && app.activeTab.kind !== "diff" ? app.activeTab.path : undefined;
-  const label = hasSel ? "选区" : (tabPath ? fileLabel(tabPath) : "当前文件");
+  const label = hasSel ? t("ide.cd.selection") : (tabPath ? fileLabel(tabPath) : t("ide.cd.currentFile"));
   await openClipboardDiff(text, label, tabPath);
 }
 
@@ -110,7 +113,7 @@ export async function diffFileWithClipboard(path: string): Promise<void> {
   try {
     content = await invoke<string>("read_file", { path });
   } catch (e) {
-    toast(`读取文件失败：${e instanceof Error ? e.message : String(e)}`, "error");
+    toast(t("ide.cd.readFailed", { error: localizeBackendError(errMsg(e instanceof Error ? e.message : String(e))) }), "error");
     return;
   }
   await openClipboardDiff(content, fileLabel(path), path);
@@ -120,7 +123,7 @@ export async function diffFileWithClipboard(path: string): Promise<void> {
 export function initClipboardDiffAction(editor: MonacoApi.editor.IStandaloneCodeEditor): MonacoApi.IDisposable {
   return editor.addAction({
     id: "opencharm.diffWithClipboard",
-    label: "与剪贴板对比",
+    label: t("ide.cd.actionLabel"),
     contextMenuGroupId: "9_cutcopypaste",
     contextMenuOrder: 1.5,
     run: () => void diffEditorWithClipboard(),

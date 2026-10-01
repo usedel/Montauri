@@ -16,6 +16,7 @@ import { app } from "./state";
 import { toast } from "./toast"; // D-4：noqa 动作反馈（G-3）
 import { withRuffHint } from "./ruffHints"; // PR-L：规则码中文速释（追加进 marker 消息，hover 原生渲染）
 import { capMarkersBySeverity } from "./lsp/client"; // Monaco 渲染上限分层截断（Error 优先）
+import { t } from "./i18n"; // 第十三批 i18n：动态文案走语言包
 
 /** 后端 fs_cmds::RuffDiagnostic 的镜像 */
 export interface RuffDiagnostic {
@@ -93,18 +94,18 @@ export async function addNoqaAtCursor(): Promise<void> {
   );
   // G-3：无诊断/非 ruff 诊断都显式说明，不做静默 no-op
   if (!hit) {
-    toast("光标处没有 ruff 诊断", "info");
+    toast(t("ide.ruff.noDiagnostic"), "info");
     return;
   }
   const code = hit.source && hit.source !== "ruff" ? hit.source : null;
   if (!code) {
-    toast("该诊断没有规则码，无法用 # noqa 忽略", "info");
+    toast(t("ide.ruff.noCode"), "info");
     return;
   }
   const lineNo = hit.startLineNumber;
   const next = buildNoqaLine(model.getLineContent(lineNo), code);
   if (next === null) {
-    toast(`该行已忽略 ${code}`, "info");
+    toast(t("ide.ruff.alreadyIgnored", { code: code }), "info");
     return;
   }
   ed.executeEdits("opencharm-noqa", [
@@ -113,7 +114,7 @@ export async function addNoqaAtCursor(): Promise<void> {
       text: next,
     },
   ]);
-  toast(`已添加 # noqa: ${code}`, "success");
+  toast(t("ide.ruff.added", { code: code }), "success");
   await lintActiveFile(); // 立即重查，波浪线即时消失
 }
 
@@ -121,7 +122,7 @@ export async function addNoqaAtCursor(): Promise<void> {
 export function initNoqaAction(editor: MonacoApi.editor.IStandaloneCodeEditor): MonacoApi.IDisposable {
   return editor.addAction({
     id: "opencharm.noqaRule",
-    label: "忽略此规则（行尾添加 # noqa）",
+    label: t("ide.ruff.actionLabel"),
     contextMenuGroupId: "1_modification",
     contextMenuOrder: 3,
     run: () => void addNoqaAtCursor(),

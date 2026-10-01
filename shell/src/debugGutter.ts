@@ -19,6 +19,7 @@ import { app, type MonacoModule } from "./state";
 import * as dap from "./dap/client";
 import type { BreakpointKind, BreakpointSpec, DapSourceBreakpoint } from "./dap/client";
 import { toastFail } from "./toast";
+import { t } from "./i18n"; // 第十三批 i18n：动态文案走语言包
 
 /** 断点表：文件路径 → 行号 → 高级属性（空对象 = 普通断点）。模块级持久（跨会话保留，D3 验收）。 */
 const breakpoints = new Map<string, Map<number, BreakpointSpec>>();
@@ -81,11 +82,11 @@ function persistBreakpoints(): void {
     // fire-and-forget：落盘失败只提示，绝不打断 gutter 点击（invoke 同步异常也不冒泡到交互路径）
     void Promise.resolve(invoke("set_breakpoints", { workspaceRoot: root, breakpoints: list })).catch((e) => {
       console.warn("[debugGutter] 断点落盘失败", e);
-      toastFail("保存断点", e);
+      toastFail(t("ide.bg.failSave"), e);
     });
   } catch (e) {
     console.warn("[debugGutter] 断点落盘失败", e);
-    toastFail("保存断点", e);
+    toastFail(t("ide.bg.failSave"), e);
   }
 }
 
@@ -113,7 +114,7 @@ export async function loadBreakpoints(): Promise<void> {
     onChange?.();
   } catch (e) {
     console.warn("[debugGutter] 读取断点失败", e);
-    toastFail("读取断点", e);
+    toastFail(t("ide.bg.failLoad"), e);
   }
 }
 
@@ -363,10 +364,10 @@ export function refreshDebugGutter(): void {
 /** 断点悬停文本（gutter hover）：条件 / 命中次数 / Logpoint 消息 */
 function breakpointHoverText(b: DapSourceBreakpoint): string {
   const parts: string[] = [];
-  if (b.condition) parts.push(`条件：${b.condition}`);
-  if (b.hitCondition) parts.push(`命中次数：${b.hitCondition}`);
-  if (b.logMessage) parts.push(`日志（不断下）：${b.logMessage}`);
-  if (parts.length === 0) return "断点";
+  if (b.condition) parts.push(t("ide.bg.tipCondition", { condition: b.condition }));
+  if (b.hitCondition) parts.push(t("ide.bg.tipHit", { hit: b.hitCondition }));
+  if (b.logMessage) parts.push(t("ide.bg.tipLog", { message: b.logMessage }));
+  if (parts.length === 0) return t("ide.bg.tipBreakpoint");
   return parts.join("\n\n");
 }
 
