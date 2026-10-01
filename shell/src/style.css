@@ -3235,7 +3235,61 @@ button:focus-visible,
 }
 
 /* ---------- 新建项目面板 ---------- */
-.new-project-card { min-width: 480px; }
+/* 迭代 6：加 tab 后内容变密——卡片加宽到 560px（settings/run-config 级别） */
+.new-project-card { min-width: 560px; max-width: 94vw; }
+
+.new-project-tabs {
+  display: flex;
+  gap: var(--space-4);
+  /* 横向 0：与 env-header 标题 / settings-body 内容共用卡片内边距对齐 */
+  padding: var(--space-2) 0 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+.new-project-tab {
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--fg-dim);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+}
+.new-project-tab:hover { color: var(--fg); }
+.new-project-tab.active {
+  color: var(--fg);
+  border-bottom-color: var(--accent);
+}
+/* tab 条与内容区之间的呼吸间距（settings-body 只管行间 gap） */
+.new-project-card .settings-body { margin-top: var(--space-5); }
+/* 迭代 6 回归修复：行被 local/clone 包裹层包住后，settings-body 的行间 gap 够不到行——
+   tab 内容区自身补同款纵向节奏（560px 卡片下 space-5 与改造前观感一致） */
+.new-project-tab-content { display: flex; flex-direction: column; gap: var(--space-5); }
+
+/* ---------- Clone tab（迭代 6） ---------- */
+/* 纵向节奏：.clone-form 包住了原本直接挂在 .settings-body 下的各行，行间 gap 丢失 → 此处补齐 */
+.clone-form { display: flex; flex-direction: column; gap: var(--space-4); }
+/* 行内布局：label 在上（覆盖 .settings-row 的 160px 标签列——克隆表单标签只有四字，
+   160px 会把输入框挤瘪），控件行在下 */
+.clone-url-row, .clone-target-row {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-2);
+}
+.clone-url-row label, .clone-target-row label { min-width: 0; }
+.clone-line { display: flex; gap: var(--space-2); align-items: center; }
+.clone-line input { flex: 1; min-width: 0; }
+.clone-presets { display: flex; gap: var(--space-1); flex: none; }
+.clone-preset { padding: var(--space-1) var(--space-2); }
+.clone-hint { font-size: var(--text-xs); color: var(--fg-dim); }
+.clone-option { display: flex; align-items: center; gap: var(--space-2); cursor: pointer; }
+.clone-option label, .clone-option span { min-width: 0; }
+#clone-submit { align-self: flex-start; }
+.clone-progress { margin-top: var(--space-2); }
+.clone-progress-bar { height: 4px; background: var(--border-soft); border-radius: var(--radius-sm); overflow: hidden; }
+.clone-progress-fill { height: 100%; background: var(--accent); width: 0%; transition: width 0.2s; }
+.clone-progress-text { font-size: var(--text-xs); color: var(--fg-dim); margin-top: var(--space-1); font-family: var(--font-mono); }
+.input-error { border-color: var(--danger) !important; }
 
 /* ---------- 运行配置管理器（PyCharm 式左列表 + 右编辑） ---------- */
 .run-config-card { width: 880px; max-width: 94vw; max-height: 82vh; display: flex; flex-direction: column; }

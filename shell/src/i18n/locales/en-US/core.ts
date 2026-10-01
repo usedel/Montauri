@@ -142,6 +142,7 @@ export const core: Record<CoreKey, string> = {
   "menu.file.openRecentFiles": "Open Recent Files",
   "menu.file.openWorkspace": "Open Workspace",
   "menu.file.openWorkspaceInNewWindow": "Open Workspace in New Window…",
+  "menu.file.cloneRepository": "Clone Repository…",
   "menu.file.preferences": "Preferences",
   "menu.file.recentWorkspaces": "Recent Workspaces",
   "menu.file.save": "Save",

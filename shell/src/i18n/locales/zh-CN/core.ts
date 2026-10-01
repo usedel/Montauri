@@ -141,6 +141,7 @@ export const core = {
   "menu.file.openRecentFiles": "打开最近的文件",
   "menu.file.openWorkspace": "打开工作区",
   "menu.file.openWorkspaceInNewWindow": "在新窗口打开工作区…",
+  "menu.file.cloneRepository": "从远端克隆…",
   "menu.file.preferences": "偏好设置",
   "menu.file.recentWorkspaces": "最近的工作区",
   "menu.file.save": "保存",

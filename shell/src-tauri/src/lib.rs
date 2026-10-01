@@ -296,6 +296,9 @@ pub fn run() {
             git_cmds::git_worktree_list,
             git_cmds::git_worktree_add,
             git_cmds::git_worktree_remove,
+            // Git Clone（迭代 6 · P3-1）
+            git_cmds::git_clone,
+            git_cmds::git_default_branch,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

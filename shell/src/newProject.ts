@@ -14,6 +14,7 @@ import { trapFocus } from "./focusTrap";
 import { openAlert } from "./dialog";
 import { toast, toastFail } from "./toast";
 import { refreshInterpreterStatus, type CreateVenvResult, type PythonVersionOption } from "./envPanel";
+import { resetCloneForm, cancelCloneInspect, ensureCloneTabRendered } from "./cloneRepository";
 
 interface CreateProjectResult {
   path: string;
@@ -96,8 +97,10 @@ function updateNewProjectPreview(): void {
   newProjectPreviewEl.textContent = t("newproject.previewPath", { target: target, suffix: suffix });
 }
 
-/** 打开新建项目面板（位置默认取最近工作区的父目录，便于就近创建） */
+/** 打开新建项目面板（位置默认取最近工作区的父目录，便于就近创建）。
+ *  迭代 6：默认显示「本地创建」tab。 */
 export async function openNewProjectPanel(): Promise<void> {
+  switchNewProjectTab("local");
   newProjectNameEl.value = "";
   newProjectEnvTypeEl.value = "venv";
   newProjectTypeEl.value = "script"; // F9：类型复位（与 venv 复位同口径——不残留上次选择）
@@ -124,6 +127,25 @@ function closeNewProjectPanel(): void {
   releaseNewProjectFocus?.();
   releaseNewProjectFocus = null;
   hideEl(newProjectModalEl);
+  resetCloneForm();
+}
+
+/** 切换新建项目面板 tab（local / clone）。 */
+function switchNewProjectTab(tab: "local" | "clone"): void {
+  document.querySelectorAll(".new-project-tab").forEach((btn) => {
+    const isActive = (btn as HTMLElement).dataset.tab === tab;
+    btn.classList.toggle("active", isActive);
+    (btn as HTMLButtonElement).ariaSelected = String(isActive);
+  });
+  const localContent = document.getElementById("new-project-local");
+  const cloneContent = document.getElementById("new-project-clone");
+  localContent?.classList.toggle("hidden", tab !== "local");
+  cloneContent?.classList.toggle("hidden", tab !== "clone");
+  // 迭代 6：clone tab 有自己的「克隆」提交按钮——隐藏 local 的「创建」，避免误点与视觉拥挤
+  document.getElementById("new-project-create")?.classList.toggle("hidden", tab === "clone");
+  // 迭代 6：clone tab 内容区为动态构建——切入时确保已渲染；切走时取消进行中的主分支预览
+  if (tab === "clone") ensureCloneTabRendered();
+  else cancelCloneInspect();
 }
 
 /** 根据环境类型显隐版本/位置行（仅 venv 需要） */
@@ -300,6 +322,13 @@ export function wireNewProject(deps: {
   });
   newProjectLocationEl.addEventListener("keydown", (e) => {
     if (e.key === "Enter") createProject();
+  });
+  // 迭代 6：tab 切换
+  document.querySelectorAll(".new-project-tab").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const tab = (btn as HTMLElement).dataset.tab as "local" | "clone";
+      if (tab) switchNewProjectTab(tab);
+    });
   });
   // tech-debt #18：含可编辑内容，点遮罩不关闭（仅 X / 取消 / Esc 关闭）
 }

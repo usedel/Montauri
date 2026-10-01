@@ -585,41 +585,49 @@
           <span class="spacer"></span>
           <button id="new-project-close" class="btn btn--ghost btn--icon"><i class="codicon codicon-close" aria-hidden="true"></i></button>
         </div>
+        <!-- 迭代 6：本地创建 / 从远端克隆 tab -->
+        <div class="new-project-tabs">
+          <button class="new-project-tab active" data-tab="local" data-i18n="newproject.tabLocal">本地创建</button>
+          <button class="new-project-tab" data-tab="clone" data-i18n="cloneRepository.tabRemote">从远端克隆</button>
+        </div>
         <div class="settings-body">
-          <div class="settings-row">
-            <label data-i18n="newProject.modalLabel" for="new-project-name">项目名称</label>
-            <input id="new-project-name" type="text" autocomplete="off" placeholder="my-project" spellcheck="false" />
+          <div id="new-project-local" class="new-project-tab-content">
+            <div class="settings-row">
+              <label data-i18n="newProject.modalLabel" for="new-project-name">项目名称</label>
+              <input id="new-project-name" type="text" autocomplete="off" placeholder="my-project" spellcheck="false" />
+            </div>
+            <div class="settings-row">
+              <label data-i18n="newProject.modalLabel2" for="new-project-location">位置</label>
+              <input id="new-project-location" type="text" autocomplete="off" placeholder="F:\path\to\parent" spellcheck="false" />
+              <button data-i18n="newProject.browse" id="new-project-browse" class="btn">浏览…</button>
+            </div>
+            <!-- F9：项目类型（script 默认 / fastapi 生成 FastAPI 模板 + 依赖注入） -->
+            <div class="settings-row">
+              <label data-i18n="newProject.modalLabel3" for="new-project-type">项目类型</label>
+              <select id="new-project-type">
+                <option data-i18n="newProject.type.script" value="script">Python 脚本</option>
+                <option data-i18n="newProject.type.fastapi" value="fastapi">FastAPI 服务</option>
+              </select>
+            </div>
+            <div class="settings-row">
+              <label data-i18n="newProject.modalLabel4" for="new-project-git">初始化 Git 仓库</label>
+              <input id="new-project-git" type="checkbox" checked />
+            </div>
+            <div class="settings-row">
+              <label data-i18n="newProject.modalLabel5" for="new-project-env-type">Python 环境</label>
+              <select id="new-project-env-type">
+                <option data-i18n="newProject.envType.venv" value="venv">venv（创建虚拟环境）</option>
+                <option data-i18n="newProject.envType.system" value="system">使用已安装的解释器</option>
+                <option data-i18n="newProject.envType.none" value="none">暂不设置（uv run）</option>
+              </select>
+            </div>
+            <div class="settings-row" id="new-project-version-row">
+              <label data-i18n="newProject.versionRowLabel" for="new-project-version">Python 版本</label>
+              <select id="new-project-version"></select>
+            </div>
+            <div id="new-project-preview" class="new-project-preview"></div>
           </div>
-          <div class="settings-row">
-            <label data-i18n="newProject.modalLabel2" for="new-project-location">位置</label>
-            <input id="new-project-location" type="text" autocomplete="off" placeholder="F:\path\to\parent" spellcheck="false" />
-            <button data-i18n="newProject.browse" id="new-project-browse" class="btn">浏览…</button>
-          </div>
-          <!-- F9：项目类型（script 默认 / fastapi 生成 FastAPI 模板 + 依赖注入） -->
-          <div class="settings-row">
-            <label data-i18n="newProject.modalLabel3" for="new-project-type">项目类型</label>
-            <select id="new-project-type">
-              <option data-i18n="newProject.type.script" value="script">Python 脚本</option>
-              <option data-i18n="newProject.type.fastapi" value="fastapi">FastAPI 服务</option>
-            </select>
-          </div>
-          <div class="settings-row">
-            <label data-i18n="newProject.modalLabel4" for="new-project-git">初始化 Git 仓库</label>
-            <input id="new-project-git" type="checkbox" checked />
-          </div>
-          <div class="settings-row">
-            <label data-i18n="newProject.modalLabel5" for="new-project-env-type">Python 环境</label>
-            <select id="new-project-env-type">
-              <option data-i18n="newProject.envType.venv" value="venv">venv（创建虚拟环境）</option>
-              <option data-i18n="newProject.envType.system" value="system">使用已安装的解释器</option>
-              <option data-i18n="newProject.envType.none" value="none">暂不设置（uv run）</option>
-            </select>
-          </div>
-          <div class="settings-row" id="new-project-version-row">
-            <label data-i18n="newProject.versionRowLabel" for="new-project-version">Python 版本</label>
-            <select id="new-project-version"></select>
-          </div>
-          <div id="new-project-preview" class="new-project-preview"></div>
+          <div id="new-project-clone" class="new-project-tab-content hidden"></div>
         </div>
         <div class="modal-actions">
           <button data-i18n="newProject.create" id="new-project-create" class="btn btn--primary">创建</button>

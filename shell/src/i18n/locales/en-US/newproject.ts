@@ -3,6 +3,7 @@ import type { NewprojectKey } from "../zh-CN/newproject";
 
 export const newproject: Record<NewprojectKey, string> = {
   // ---- newproject ----
+  "newproject.tabLocal": "Local Creation",
   "newproject.createFailed": "Creation failed: {error}",
   "newproject.creating": "Creating…",
   "newproject.creatingEnv": "Creating environment…",

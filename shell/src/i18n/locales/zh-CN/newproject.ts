@@ -2,6 +2,7 @@
 // 复数条目（含 {count}）自动展开 .one/.other 两份——中文两形同文。
 export const newproject = {
   // ---- newproject ----
+  "newproject.tabLocal": "本地创建",
   "newproject.createFailed": "创建失败：{error}",
   "newproject.creating": "创建中…",
   "newproject.creatingEnv": "创建环境…",

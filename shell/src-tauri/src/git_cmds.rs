@@ -1445,6 +1445,126 @@ pub async fn git_worktree_remove(root: String, path: String, force: bool) -> Res
     .await
 }
 
+// ---------- Clone（迭代 6 · P3-1） ----------
+
+/// scheme 白名单校验。
+fn validate_clone_url(url: &str) -> Result<(), String> {
+    let trimmed = url.trim();
+    if trimmed.is_empty() {
+        return Err("克隆 URL 不能为空".to_string());
+    }
+    let scheme = if let Some(pos) = trimmed.find("://") {
+        trimmed[..pos].to_lowercase()
+    } else if trimmed.starts_with("git@") {
+        "ssh".to_string()
+    } else {
+        return Err("URL 格式无效：缺少协议（如 https:// 或 git@）".to_string());
+    };
+    let allowed = ["https", "http", "ssh", "git", "file"];
+    if !allowed.contains(&scheme.as_str()) {
+        return Err(format!("不支持的 URL 协议：{scheme}"));
+    }
+    Ok(())
+}
+
+/// 目标路径安全校验：非空、不含 ..、必须是绝对路径。
+fn validate_clone_target(target: &str) -> Result<(), String> {
+    let t = target.trim();
+    if t.is_empty() {
+        return Err("目标路径不能为空".to_string());
+    }
+    let p = Path::new(t);
+    if p.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+        return Err("目标路径不得包含 ..".to_string());
+    }
+    if !p.is_absolute() {
+        return Err("目标路径必须是绝对路径".to_string());
+    }
+    Ok(())
+}
+
+/// 从绝对路径提取父目录（作为 git clone 的 cwd）和目标目录名。
+/// Windows 下把正斜杠替换为反斜杠，与 git_apply_hunk 同款经验。
+fn split_clone_target(target: &str) -> Result<(String, String), String> {
+    let normalized = if cfg!(windows) {
+        target.replace('/', "\\")
+    } else {
+        target.to_string()
+    };
+    let path = Path::new(&normalized);
+    let parent = path
+        .parent()
+        .and_then(|p| p.to_str())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| ".".to_string());
+    let dir_name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| "repo".to_string());
+    Ok((parent, dir_name))
+}
+
+/// 克隆远端仓库（迭代 6 · P3-1）。
+/// 流式 + 可取消（op key = "clone"），复用 exec_git_streaming。
+#[tauri::command]
+pub async fn git_clone(
+    app: AppHandle,
+    window: tauri::WebviewWindow,
+    url: String,
+    target_dir: String,
+    depth: Option<u32>,
+    branch: Option<String>,
+) -> Result<String, String> {
+    let wid = window.label().to_string();
+    spawn_blocking(move || {
+        let u = url.trim();
+        validate_clone_url(u)?;
+        let t = target_dir.trim();
+        validate_clone_target(t)?;
+        let (parent, dir_name) = split_clone_target(t)?;
+
+        let mut cmd = tool_command("git", ENV_GIT);
+        cmd.arg("clone").arg("--progress");
+        if let Some(d) = depth {
+            cmd.arg("--depth").arg(d.to_string());
+        }
+        if let Some(b) = branch.as_deref().filter(|s| !s.is_empty()) {
+            cmd.arg("--branch").arg(b);
+        }
+        cmd.arg(u).arg(&dir_name);
+        exec_git_streaming(&app, &parent, cmd, "clone", &wid)
+    })
+    .await
+}
+
+/// 查询远端仓库的默认分支（`git ls-remote --symref`）。
+/// 流式 + 可取消（op key = "clone-inspect"）。
+#[tauri::command]
+pub async fn git_default_branch(
+    app: AppHandle,
+    window: tauri::WebviewWindow,
+    url: String,
+) -> Result<String, String> {
+    let wid = window.label().to_string();
+    spawn_blocking(move || {
+        let u = url.trim();
+        validate_clone_url(u)?;
+        let mut cmd = tool_command("git", ENV_GIT);
+        cmd.arg("ls-remote").arg("--symref").arg(u).arg("HEAD");
+        let out = exec_git_streaming(&app, ".", cmd, "clone-inspect", &wid)?;
+        for line in out.lines() {
+            if let Some(rest) = line.strip_prefix("ref: refs/heads/") {
+                if let Some((branch, _)) = rest.split_once('\t') {
+                    return Ok(branch.to_string());
+                }
+            }
+        }
+        Ok("HEAD".to_string())
+    })
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1641,5 +1761,122 @@ filename a.py
 
         let _ = std::fs::remove_dir_all(&tmp);
         let _ = std::fs::remove_file(&secret);
+    }
+
+    // ---------- Clone 单元测试（迭代 6） ----------
+
+    #[test]
+    fn test_validate_clone_url() {
+        assert!(validate_clone_url("https://github.com/user/repo.git").is_ok());
+        assert!(validate_clone_url("http://example.com/repo").is_ok());
+        assert!(validate_clone_url("git@github.com:user/repo.git").is_ok());
+        assert!(validate_clone_url("ssh://git@host/repo").is_ok());
+        assert!(validate_clone_url("git://host/repo").is_ok());
+        assert!(validate_clone_url("file:///path/to/repo").is_ok());
+
+        assert!(validate_clone_url("").is_err());
+        assert!(validate_clone_url("   ").is_err());
+        assert!(validate_clone_url("ftp://host/repo").is_err());
+        assert!(validate_clone_url("javascript:alert(1)").is_err());
+        assert!(validate_clone_url("no-scheme").is_err());
+    }
+
+    #[test]
+    fn test_validate_clone_target() {
+        #[cfg(unix)]
+        assert!(validate_clone_target("/home/user/repo").is_ok());
+        #[cfg(windows)]
+        assert!(validate_clone_target("D:\\work\\repo").is_ok());
+
+        assert!(validate_clone_target("").is_err());
+        assert!(validate_clone_target("/path/with/../dotdot").is_err());
+        assert!(validate_clone_target("relative/path").is_err());
+    }
+
+    #[test]
+    fn test_split_clone_target() {
+        #[cfg(unix)]
+        {
+            let (parent, dir) = split_clone_target("/home/user/repo").unwrap();
+            assert_eq!(parent, "/home/user");
+            assert_eq!(dir, "repo");
+        }
+        #[cfg(windows)]
+        {
+            let (parent, dir) = split_clone_target("D:/work/repo").unwrap();
+            assert_eq!(parent, "D:\\work");
+            assert_eq!(dir, "repo");
+        }
+        // 带 .git 后缀保留原样
+        let (parent2, dir2) = split_clone_target("/home/user/repo.git").unwrap();
+        assert_eq!(dir2, "repo.git");
+    }
+
+    /// git_clone 端到端：本地 file:// 源仓库 → clone 到临时目录 → 验证文件存在。
+    /// 需环境已安装 git；无 git 时静默跳过。
+    #[test]
+    fn test_git_clone_roundtrip() {
+        let tmp = std::env::temp_dir().join("opencharm-git-clone-e2e");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        // 初始化源仓库
+        let source = tmp.join("source");
+        std::fs::create_dir_all(&source).unwrap();
+        let init = exec_git(source.to_str().unwrap(), {
+            let mut c = tool_command("git", ENV_GIT);
+            c.arg("init").arg("--quiet").arg("-b").arg("main");
+            c
+        });
+        if init.is_err() {
+            let _ = std::fs::remove_dir_all(&tmp);
+            return; // 环境无 git
+        }
+
+        std::fs::write(source.join("README.md"), "# Test\n").unwrap();
+        let mut add = tool_command("git", ENV_GIT);
+        add.arg("add").arg("README.md");
+        assert!(exec_git(source.to_str().unwrap(), add).is_ok());
+        let mut commit = tool_command("git", ENV_GIT);
+        commit.arg("commit").arg("-m").arg("init").arg("--no-gpg-sign");
+        assert!(exec_git(source.to_str().unwrap(), commit).is_ok());
+
+        // 验证 split_clone_target
+        let (parent, dir_name) = split_clone_target(
+            tmp.join("cloned").to_str().unwrap()
+        ).unwrap();
+        assert_eq!(dir_name, "cloned");
+
+        // 用 exec_git 直接模拟 clone（不经过 Tauri 命令包装，避免 AppHandle 依赖）
+        let mut cmd = tool_command("git", ENV_GIT);
+        cmd.arg("clone").arg("--progress");
+        let file_url = format!("file://{}", source.to_str().unwrap());
+        cmd.arg(&file_url).arg(&dir_name);
+        let result = exec_git(&parent, cmd);
+        assert!(result.is_ok(), "clone 失败：{:?}", result.err());
+
+        // 验证克隆产物
+        let cloned_readme = tmp.join("cloned").join("README.md");
+        assert!(cloned_readme.is_file(), "克隆后 README.md 应存在");
+        let content = std::fs::read_to_string(&cloned_readme).unwrap();
+        assert_eq!(content, "# Test\n");
+
+        // 验证默认分支解析（直接调用内部 parse 逻辑）
+        let mut ls = tool_command("git", ENV_GIT);
+        ls.arg("ls-remote").arg("--symref").arg(&file_url).arg("HEAD");
+        let ls_out = exec_git(".", ls).unwrap();
+        let mut found = false;
+        for line in ls_out.lines() {
+            if let Some(rest) = line.strip_prefix("ref: refs/heads/") {
+                if let Some((branch, _)) = rest.split_once('\t') {
+                    assert_eq!(branch, "main");
+                    found = true;
+                    break;
+                }
+            }
+        }
+        assert!(found, "应解析出默认分支 main");
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

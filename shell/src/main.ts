@@ -129,6 +129,7 @@ import {
   resetEnvPanelState, openEnvPanel, onEnvPanelOpened, refreshPackagesIfOpen, repaintPkgBadgesIfOpen,
 } from "./envPanel";
 import { openNewProjectPanel, wireNewProject } from "./newProject";
+import { openCloneTab, wireCloneRepository } from "./cloneRepository";
 import {
   handleTracebackLine, runOpenWorkspaceCheck, resetDepHealth, initDepHealth,
   setDepInstallHandler, wireDepHealthEvents,
@@ -1541,6 +1542,7 @@ function buildQuickOpenActions(): QuickOpenAction[] {
     { id: "onboarding_guide", label: t("main.cmd.guide"), run: () => void openOnboardingGuide() },
     { id: "welcome_page", label: t("main.cmd.welcome"), run: () => { if (isWelcomeForced()) dismissWelcomeOverlay(); else showWelcomeOverlay(); } },
     { id: "new_project", label: t("main.cmd.newProject"), run: () => openNewProjectPanel() },
+    { id: "git_clone", label: t("cloneRepository.cmdLabel"), run: () => openCloneTab() },
     { id: "git_panel", label: t("main.cmd.gitPanel"), run: () => setSidebarTab("git") },
     // P0-1：git 高频操作进命令面板（对标 VS Code Git: * 命令族）——
     // 此前仅 git_panel 一条，键盘流用户完全不可达（报告 D9）
@@ -1782,6 +1784,7 @@ function getMenuItems(menu: string): MenuEntry[] {
   switch (menu) {
     case "file": return [
       { label: t("menu.file.newProject"), action: () => openNewProjectPanel() },
+      { label: t("menu.file.cloneRepository"), action: () => openCloneTab() },
       // P1（UX 审查）：改走 createFileInteractive——目标目录跟随活动文件（原固定为工作区根），
       // 且键位标签与键位系统同源
       { label: t("menu.file.newFile"), shortcut: kb.bindingLabel("new_file") || undefined, action: () => void createFileInteractive() },
@@ -2780,6 +2783,7 @@ async function init(): Promise<void> {
 
   // 新建项目（文件菜单入口）——面板接线在 newProject.ts，openWorkspace / openFile 由本层注入
   wireNewProject({ openWorkspace, openFile });
+  wireCloneRepository({ openWorkspace, openFile, openPanel: openNewProjectPanel });
 
   // 运行配置面板（P0-C 配置列表编辑器；stdin 重定向 S1）——接线在 runConfigPanel.ts
   wireRunConfigPanel();

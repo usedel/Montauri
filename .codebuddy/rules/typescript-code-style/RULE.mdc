@@ -3,7 +3,7 @@ description: shell/src 前端 TypeScript 代码规范（Vite + Monaco + LSP 桥 
 globs: "**/*.ts"
 alwaysApply: false
 enabled: true
-updatedAt: 2026-09-11T18:40:00.000Z
+updatedAt: 2026-10-01T00:00:00.000Z
 provider:
 ---
 
@@ -161,6 +161,7 @@ provider:
 - **面板拖拽高度写自定义属性，禁写内联 `height`**：`#outline-section` 用 `--outline-h`/`--outline-max`、`#bottom` 用 `--bottom-h`——内联样式特异性最高，会压过样式表的折叠态（`.collapsed`），拖过一次就静默丧失折叠能力；`layout.test.ts` 已钉死该不变量。新增可折叠+可拖拽面板照此模式。
 - **表单 label 必须关联控件**：静态行 `for`/`id`；动态生成的行同样要 `label.htmlFor`；双控件行 `for` 指阅读顺序在前的控件、另一个补 `aria-label`；非 labelable 目标（radiogroup div）用 `aria-labelledby`；纯按钮/文本行的 label 只作视觉标题（例外已就地注释）。
 - **设置的运行时刷新三层接线**（UI-11/29 范式）：影响已存在实例的设置（主题/减少动画/字号字体族）须「实例构造时读取 + 实例级 `apply*()` 方法 + 域级 `refresh*()` 遍历」，并在 `saveSettingsPanel()` 保存路径挂一次 refresh——「恢复默认」直接给控件赋值、不派发 change 事件，即时生效监听器覆盖不到它。改字体度量后必须 refit（终端还要同步 PTY cols/rows）。
+- **flex 列容器的 `gap` 不跨包裹层**（迭代 6 新建项目面板踩坑）：`.settings-body` 等「靠 `gap` 撑纵向节奏」的面板，一旦给行套中间包裹层（分组 / tab 内容区，如 `.new-project-tab-content`），父级 gap 就够不到行——**行间距静默归零**。规矩：新包裹层必须自带同款 `flex-direction: column; gap: <与父级同值>`；同类布局改造（加 tab / 加分组 / 套卡片）后必须目测验收间距，E2E 功能断言测不出「拥挤」。同面板的多个 tab 内容区共用同一条间距规则，避免两套观感。
 
 ## 异步与竞态约定（2026-09-10 整改固化）
 

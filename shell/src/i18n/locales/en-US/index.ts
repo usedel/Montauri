@@ -4,6 +4,7 @@
 // 反向的「多译」不在此拦（各域文件自己的 Record<XxxKey, string> 已拦住），故新增域时
 // 两边 index.ts 要同步改。
 import type { TKey } from "../zh-CN";
+import { cloneRepository } from "./cloneRepository";
 import { core } from "./core";
 import { debug } from "./debug";
 import { dep } from "./dep";
@@ -25,4 +26,4 @@ import { storage } from "./storage";
 import { welcome } from "./welcome";
 import { workbench } from "./workbench";
 
-export const enUS: Record<TKey, string> = { ...core, ...git, ...debug, ...filetree, ...run, ...env, ...storage, ...dep, ...settings, ...newproject, ...welcome, ...search, ...workbench, ...editor, ...ide, ...lt, ...devtools, ...ext, ...endpoints, ...main };
+export const enUS: Record<TKey, string> = { ...core, ...git, ...debug, ...filetree, ...run, ...env, ...storage, ...dep, ...settings, ...newproject, ...welcome, ...search, ...workbench, ...editor, ...ide, ...lt, ...devtools, ...ext, ...endpoints, ...main, ...cloneRepository };

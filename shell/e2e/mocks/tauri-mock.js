@@ -713,7 +713,13 @@
     // 2) git_*：转发 Playwright 侧真实 git 仓库
     if (cmd.indexOf("git_") === 0) {
       var b = bridge();
-      if (b) return b("git", cmd, args);
+      if (b) {
+        // 迭代 6：clone 域命令附带测试预设（fail/delayMs/files/branch，页面侧 addInitScript 注入）
+        if (cmd === "git_clone" || cmd === "git_default_branch") {
+          args = Object.assign({}, args, { __preset: window.__E2E_CLONE_PRESET__ || null });
+        }
+        return b("git", cmd, args);
+      }
       console.warn("[tauri-mock] E2E_BRIDGE 未注入，git 命令 " + cmd + " 走空返回");
       return gitFallback(cmd);
     }

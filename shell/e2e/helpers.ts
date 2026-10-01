@@ -965,12 +965,85 @@ export async function equipPage(page: Page, repo: GitRepo, opts: { slowGitMs?: R
     return null;
   };
 
+  // ---------- 迭代 6：clone 域 mock（git_clone / git_default_branch / git_cancel_op["clone"]）----------
+  // 本机 file 协议被 EDR 拦截（git_push 同款结论）——clone 走「落盘模拟」：在目标目录
+  // 生成 README.md + main.py 并 git init + commit，产出与真实 clone 等价的磁盘结果；
+  // 进度行经 __TAURI_INTERNALS__.__emit 推 git-op-stdout 事件（前端流式消费用）。
+  // 行为注入：window.__E2E_CLONE_PRESET__（tauri-mock 附加进 args.__preset）：
+  //   fail: "notEmpty"|"auth"|"net" · delayMs（取消窗口）· files（落盘内容覆写）· branch。
+  type ClonePreset = { fail?: "notEmpty" | "auth" | "net"; delayMs?: number; files?: Record<string, string>; branch?: string };
+  let pendingCloneCancel: (() => void) | null = null;
+
+  const emitCloneProgress = (data: string): Promise<void> =>
+    page
+      .evaluate(([ev, payload]) => {
+        (window as unknown as { __TAURI_INTERNALS__?: { __emit?: (e: string, p: unknown) => void } })
+          .__TAURI_INTERNALS__?.__emit?.(ev, payload);
+      }, ["git-op-stdout", { op: "clone", data }] as const)
+      .then(() => undefined);
+
+  const runGitClone = async (a: Record<string, unknown>): Promise<string> => {
+    const preset = (a.__preset ?? null) as ClonePreset | null;
+    const target = resolve(String(a.targetDir ?? a.target_dir ?? ""));
+    const url = String(a.url ?? "");
+    const branch = a.branch ? String(a.branch) : null;
+    if (preset?.delayMs) await new Promise((r) => setTimeout(r, preset.delayMs));
+    const line = (data: string): Promise<void> => emitCloneProgress(data);
+    await line(`Cloning into '${basename(target)}'...`);
+    if (preset?.fail === "notEmpty")
+      throw new Error(`fatal: destination path '${target}' already exists and is not an empty directory.`);
+    if (preset?.fail === "auth") throw new Error(`fatal: Authentication failed for '${url}'`);
+    if (preset?.fail === "net")
+      throw new Error(`fatal: unable to access '${url}': Could not resolve host: github.com`);
+    // 成功：落盘模拟 clone 结果
+    mkdirSync(target, { recursive: true });
+    const files = preset?.files ?? { "README.md": "# cloned-repo\n\nE2E clone fixture\n", "main.py": "print('hello clone')\n" };
+    for (const [rel, content] of Object.entries(files)) {
+      const f = join(target, rel);
+      mkdirSync(dirname(f), { recursive: true });
+      writeFileSync(f, content, "utf8");
+    }
+    await line("remote: Enumerating objects: 12, done.");
+    await line("Receiving objects:  50% (6/12)");
+    await line("Receiving objects: 100% (12/12), done.");
+    const cfg = ["-c", "user.name=E2E Tester", "-c", "user.email=e2e@test.local", "-c", "core.autocrlf=false"];
+    await execFileAsync("git", [...cfg, "init", "--quiet", "-b", branch ?? "main"], { cwd: target }).catch(() => { /* 尽力而为 */ });
+    await execFileAsync("git", [...cfg, "add", "-A"], { cwd: target }).catch(() => { /* 尽力而为 */ });
+    await execFileAsync("git", [...cfg, "commit", "--quiet", "-m", "initial"], { cwd: target }).catch(() => { /* 尽力而为 */ });
+    await line(`Switched to a new branch '${branch ?? "main"}'`);
+    return `Cloning into '${basename(target)}'... done.`;
+  };
+
   await page.exposeFunction("__E2E_BRIDGE__", (channel: string, cmd: string, args: unknown) => {
     const relToAbs = (p: string): string => (p && !p.includes(":") && !p.startsWith("\\\\") ? join(repo.root, p) : p);
     let result: Promise<unknown>;
     if (channel === "git") {
       const delay = slowGitMs[cmd];
-      const run = () => dispatchGit(cmd, args as Record<string, unknown>, repo);
+      const run = (): Promise<unknown> => {
+        // 迭代 6：clone 域命令特判（Node 侧可取消的 pending clone / 分支预览静态返回）
+        if (cmd === "git_clone") {
+          return new Promise((res, rej) => {
+            let settled = false;
+            pendingCloneCancel = () => {
+              if (!settled) { settled = true; rej(new Error("已取消")); }
+            };
+            runGitClone(args as Record<string, unknown>).then(
+              (v) => { if (!settled) { settled = true; res(v); } },
+              (e) => { if (!settled) { settled = true; rej(e); } },
+            );
+          });
+        }
+        if (cmd === "git_cancel_op" && String((args as Record<string, unknown>).op ?? "") === "clone") {
+          pendingCloneCancel?.();
+          pendingCloneCancel = null;
+          return Promise.resolve(null);
+        }
+        if (cmd === "git_default_branch") {
+          const preset = ((args as Record<string, unknown>).__preset ?? null) as ClonePreset | null;
+          return Promise.resolve(preset?.branch ?? "main");
+        }
+        return dispatchGit(cmd, args as Record<string, unknown>, repo);
+      };
       result = delay ? (async () => { await new Promise((r) => setTimeout(r, delay)); return run(); })() : run();
     }
     else if (channel === "fs") result = dispatchFs(cmd, args as Record<string, unknown>, repo);
