@@ -2961,7 +2961,9 @@ button:focus-visible,
 .search-load-more:hover { text-decoration: underline; }
 
 /* ---------- 设置面板（P1 左右分栏） ---------- */
-.settings-card { width: 820px; max-width: 94vw; height: 560px; max-height: 82vh; display: flex; flex-direction: column; }
+/* UI-32：高度随分类自适应（此前固定 560px：终端只有 2 行却留半屏空白，编辑器 20+ 项又要滚动）；
+   上限仍受 82vh 约束，超出由 .settings-content 滚动。Live Templates 双栏页另有 --wide 固定高度。 */
+.settings-card { width: 820px; max-width: 94vw; height: auto; max-height: 82vh; display: flex; flex-direction: column; }
 /* Live Templates 分类需要双栏（列表+编辑器），进入时加宽加高 */
 .settings-card--wide { width: min(1160px, 96vw); height: min(780px, 88vh); }
 /* UI-31：头部与内容区之间补 1px 分隔线，明确「标题 / 表单」两个分区。
@@ -3287,25 +3289,15 @@ button:focus-visible,
    同属一张网格，列宽由全局统一决定（标签列取最长标签、控件列 1fr），输入框右边界即对齐。
    ⚠ 依赖 display:contents（行 div 仅作 JS 结构容器，无语义/无样式，故无 a11y 顾虑）。
    超长标签改换行（white-space:normal）而不是撑宽列——否则又回到挤窄控件的老问题。 */
-#settings-keybinding-rows {
-  display: grid;
-  /* --settings-label-w 定义在 .settings-row 上，容器取不到，故带 160px 兜底 */
-  grid-template-columns: minmax(var(--settings-label-w, 160px), 220px) minmax(0, 1fr);
-  align-items: center;
-  column-gap: var(--space-7);
-  row-gap: var(--space-4); /* 此前各行之间没有任何垂直间距 */
-}
-#settings-keybinding-rows .settings-row { display: contents; }
-#settings-keybinding-rows .settings-row label {
-  min-width: 0;
-  white-space: normal;
-  line-height: 1.35;
-}
-/* 键位串最长约 "Ctrl+Alt+Shift+Insert"，260px 足够；不随卡片变宽无限拉伸 */
-#settings-keybinding-rows .settings-row input[type="text"] { max-width: 260px; }
+/* UI-32：快捷键区从「一张共享网格 + 行 display:contents」改为「若干分组」容器——
+   60 项按功能切六组，每组自带小标题 + 两列网格（与其余分类同款 .settings-grid），
+   共享网格那套规则因此整体撤除。 */
+#settings-keybinding-rows { display: flex; flex-direction: column; gap: var(--space-9); }
 .settings-hint { font-size: var(--text-sm); color: var(--fg-dim); line-height: 1.6; }
 /* P1-F：运行配置面板字段级内联校验（红色小字，覆盖 .settings-hint 的中性色） */
 .settings-hint.run-config-field-error { color: var(--danger); }
+/* UI-32：键位冲突即时提示（同款红色小字，但它是整段结论、非字段级） */
+.settings-hint--error { color: var(--danger); }
 .settings-hint code {
   background: var(--bg);
   border: 1px solid var(--border);

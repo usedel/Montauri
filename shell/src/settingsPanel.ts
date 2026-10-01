@@ -10,11 +10,12 @@ import { renderEngineChip } from "./engineChip";
 import { repaintRunWidget } from "./runWidget";
 import * as ltUi from "./live-templates/ui/manager";
 import { KEYBINDING_META, chordFromEvent, modsFromEvent, validateKeybindingMap, applyEditorKeybindings } from "./keybindings";
+import { KEYBINDING_GROUP_ORDER, keybindingsOfGroup } from "./keybindingDefaults";
 import { refreshTerminalFonts, refreshTerminalMotion, refreshTerminalThemes, syncOutputLevelChips } from "./termUi";
 import { applyOutputLevelSetting } from "./output";
 import { applyReduceMotion, hideEl, motionDisabled, reduceMotionEnabled, showEl } from "./anim";
 import { trapFocus } from "./focusTrap";
-import { openAlert } from "./dialog";
+import { openAlert, openConfirm } from "./dialog";
 import { fuzzyScore } from "./quickOpen";
 import { toast, toastFail } from "./toast";
 import { loadStorageUsage, wireStoragePanel } from "./storagePanel";
@@ -122,6 +123,8 @@ const settingsSearchEl = lazyEl<HTMLInputElement>("settings-search");
 const settingsSearchEmptyEl = lazyEl("settings-search-empty");
 // UI-31：搜索框内的一键清除按钮（有输入时才出现）
 const settingsSearchClearEl = lazyEl<HTMLButtonElement>("settings-search-clear");
+// UI-32：键位冲突即时提示条（位于快捷键分类顶部）
+const settingsKbConflictEl = lazyEl("settings-kb-conflict");
 
 // ---------- E-1：设置搜索 ----------
 
@@ -434,30 +437,64 @@ export function applyModelIndent(settings: Settings): void {
 /** 快捷键输入框 id 规则 */
 const kbInputId = (id: string): string => `settings-kb-${id}`;
 
-/** 渲染快捷键分区的表单行（按 KEYBINDING_META 顺序，一次性构建） */
+/**
+ * 渲染快捷键分区（UI-32：按功能分组渲染）。
+ * 此前 60 项按单一列表平铺，找一项要滚很久；分组后每组一个小标题，组内仍保持出厂顺序。
+ * 分组容器复用 .settings-group：与其余分类同款观感，且自动成为搜索过滤的最小单位
+ * （组内无命中行则连标题一起隐藏，见 applySettingsFilter）。
+ */
 function renderKeybindingRows(): void {
   const container = $("settings-keybinding-rows");
   container.textContent = "";
-  for (const m of KEYBINDING_META) {
-    const row = document.createElement("div");
-    row.className = "settings-row";
-    const label = document.createElement("label");
-    label.textContent = m.label;
-    const input = document.createElement("input");
-    input.type = "text";
-    input.autocomplete = "off";
-    input.id = kbInputId(m.id);
-    input.placeholder = m.def;
-    input.spellcheck = false;
-    label.htmlFor = input.id; // 遗留修复：动态生成的行同样要 label↔控件关联（读屏聚焦输入框报得出动作名）
-    wireKeybindingCapture(input); // UX：改为「按键录入」，不必手写字面量
-    // UI-31：键位改 chip 胶囊外观（等宽 + 描边），只是多包一层装饰容器，录入器与 input 本身不动
-    const chip = document.createElement("span");
-    chip.className = "kb-chip";
-    chip.appendChild(input);
-    row.append(label, chip);
-    container.appendChild(row);
+  for (const g of KEYBINDING_GROUP_ORDER) {
+    const items = keybindingsOfGroup(g);
+    if (items.length === 0) continue;
+    const group = document.createElement("div");
+    group.className = "settings-group";
+    const title = document.createElement("h3");
+    title.className = "settings-group-title";
+    // 同时挂 data-i18n：语言切换时 applyDomI18n 会重刷静态骨架，与本处 t() 结果一致
+    title.dataset.i18n = `settings.kb.group.${g}`;
+    title.textContent = t(`settings.kb.group.${g}`);
+    const grid = document.createElement("div");
+    grid.className = "settings-grid";
+    for (const m of items) grid.appendChild(buildKeybindingRow(m));
+    group.append(title, grid);
+    container.appendChild(group);
   }
+}
+
+/** 单个键位行：label + chip 包裹的录入框 */
+function buildKeybindingRow(m: (typeof KEYBINDING_META)[number]): HTMLDivElement {
+  const row = document.createElement("div");
+  row.className = "settings-row";
+  const label = document.createElement("label");
+  label.textContent = m.label;
+  const input = document.createElement("input");
+  input.type = "text";
+  input.autocomplete = "off";
+  input.id = kbInputId(m.id);
+  input.placeholder = m.def;
+  input.spellcheck = false;
+  label.htmlFor = input.id; // 遗留修复：动态生成的行同样要 label↔控件关联（读屏聚焦输入框报得出动作名）
+  wireKeybindingCapture(input); // UX：改为「按键录入」，不必手写字面量
+  // UI-31：键位改 chip 胶囊外观（等宽 + 描边），只是多包一层装饰容器，录入器与 input 本身不动
+  const chip = document.createElement("span");
+  chip.className = "kb-chip";
+  chip.appendChild(input);
+  row.append(label, chip);
+  return row;
+}
+
+/**
+ * UI-32：键位冲突即时提示。
+ * 此前只在点「保存」时才弹 alert——录完一个撞车的键位毫无反馈，要等到保存被拒才知道。
+ * 现在每次改键就地校验，把冲突写进键位区顶部的提示条（不打断录入）。
+ */
+function refreshKeybindingConflict(): void {
+  const err = validateKeybindingMap(readKeybindingForm());
+  settingsKbConflictEl.textContent = err ?? "";
+  settingsKbConflictEl.classList.toggle("hidden", !err);
 }
 
 /** 修饰键的 keydown/keyup（用于「按住 Ctrl 还没按主键」的预览与回退） */
@@ -481,7 +518,11 @@ function wireKeybindingCapture(input: HTMLInputElement): void {
   input.readOnly = true;
   input.title = t("settings.keybindTip");
   const committed = (): string => input.dataset.kbCommitted ?? input.value;
-  const commit = (v: string): void => setKeybindingValue(input, v);
+  // UI-32：成键/解绑后立即就地校验冲突（此前要等点「保存」才弹窗）
+  const commit = (v: string): void => {
+    setKeybindingValue(input, v);
+    refreshKeybindingConflict();
+  };
   input.addEventListener("focus", () => input.classList.add("kb-capture"));
   input.addEventListener("blur", () => {
     input.classList.remove("kb-capture");
@@ -493,6 +534,7 @@ function wireKeybindingCapture(input: HTMLInputElement): void {
     e.stopPropagation(); // 不让 event 冒泡到 window 级快捷键分发（虽已按 INPUT 排除，仍显式隔离）
     if (e.key === "Escape") {
       input.value = committed();
+      refreshKeybindingConflict();
       return;
     }
     if (e.key === "Backspace" || e.key === "Delete") {
@@ -656,6 +698,7 @@ function fillForm(settings: Settings): void {
     // 经 setKeybindingValue：同步成键基线，否则录入器回退时会用上一次的旧基线
     if (input) setKeybindingValue(input, settings.keybindings[m.id] ?? "");
   }
+  refreshKeybindingConflict(); // UI-32：回填后立刻反映已有配置的冲突（含旧配置撞车）
 }
 
 /** UI-05：设置面板模态的焦点陷阱解除句柄 */
@@ -685,11 +728,23 @@ export function openSettingsPanel(category: SettingsCategory = "appearance"): vo
   releaseSettingsFocus = trapFocus(settingsModalEl);
 }
 
-/** 恢复默认：仅重置表单控件为出厂默认，待用户「保存」才持久化/应用（与「取消」语义对称） */
-function resetSettingsPanel(): void {
+/**
+ * 恢复默认：仅重置表单控件为出厂默认，待用户「保存」才持久化/应用（与「取消」语义对称）。
+ * UI-32：这是毁掉面板里全部改动的动作却无门槛——补一次确认 + 一条「已重置，待保存」的反馈，
+ * 让用户知道重置了什么、还需要点保存才落盘。
+ */
+async function resetSettingsPanel(): Promise<void> {
+  const ok = await openConfirm({
+    title: t("settings.reset"),
+    message: t("settings.resetConfirm"),
+    okLabel: t("settings.resetOk"),
+    kind: "danger",
+  });
+  if (!ok) return;
   fillForm(DEFAULT_SETTINGS);
   void refreshTerminalShellSelect(); // 重建下拉并回填 auto（DEFAULT 值）
   settingsReduceMotionEl.checked = false; // 出厂默认不减少动画
+  toast(t("settings.resetDone"), "success");
 }
 
 function closeSettingsPanel(): void {
@@ -699,13 +754,20 @@ function closeSettingsPanel(): void {
   hideEl(settingsModalEl);
 }
 
-async function saveSettingsPanel(): Promise<void> {
+/**
+ * 读表单 → 校验 → 套用到运行时 → 落盘。
+ * UI-32：抽出「套用」这一步供两个入口复用——
+ *  · 「保存」= 套用 + 关闭面板（既有行为，e2e 断言依赖它）
+ *  · 「应用」= 套用但留在面板里继续微调（此前想预览字号/主题只能先保存再重开）
+ * @returns 是否套用成功（校验不通过为 false）
+ */
+async function commitSettingsPanel(closeAfter: boolean): Promise<boolean> {
   // 快捷键先行校验（格式 / 冲突），不通过则整体不保存
   const keybindings = readKeybindingForm();
   const kbError = validateKeybindingMap(keybindings);
   if (kbError) {
     await openAlert({ message: kbError, kind: "danger" });
-    return;
+    return false;
   }
   const theme = getSelectedTheme(); // UI-26：原为 settingsThemeEl.value
   const fontSize = clampFontSize(Number(settingsFontEl.value), app.settings.font_size);
@@ -817,13 +879,13 @@ async function saveSettingsPanel(): Promise<void> {
   applyOutputLevelSetting(outputEl);
   syncOutputLevelChips();
   await saveSettings();
-  toast(t("settings.saved"), "success"); // tech-debt #19：即时操作结果统一轻提示
+  // tech-debt #19：即时操作结果统一轻提示；UI-32：「应用」与「保存」各说各的结果
+  toast(t(closeAfter ? "settings.saved" : "settings.applied"), "success");
   // D-4：严重度映射保存后立即重查当前文件（波浪线级别即时生效，无需等下次编辑）
   void lintActiveFile();
   // 阶段 4：Pydantic 诊断开关即时生效（开→立扫，关→清空）
   refreshPydanticDiagnostics();
-  closeSettingsPanel();
-
+  // UI-32：引擎切换与 intel 起停原本排在关闭面板之后，「应用」不关面板，故统一提到这里
   if (engineChanged) {
     renderEngineChip(); // 真值已写入 app.settings.lsp_engine，chip 从 settings 读取（不再写 DOM select）
     await sh().startLsp();
@@ -831,6 +893,18 @@ async function saveSettingsPanel(): Promise<void> {
     // 运行时智能层开关变化：只起停 intel，不重启静态引擎（P3-T09 一键关闭）
     await applyIntelToggle(runtimeIntelEnabled);
   }
+  if (closeAfter) closeSettingsPanel();
+  return true;
+}
+
+/** 「保存」= 套用 + 关闭面板 */
+async function saveSettingsPanel(): Promise<void> {
+  await commitSettingsPanel(true);
+}
+
+/** UI-32：「应用」= 套用但留在面板里（可继续微调再决定保存或放弃） */
+async function applySettingsPanel(): Promise<void> {
+  await commitSettingsPanel(false);
 }
 
 /** 一键开启/关闭运行时智能层（opencharm-intel），不影响静态引擎 */
@@ -916,6 +990,8 @@ export function wireSettingsPanel(): void {
   $btn("settings-close").addEventListener("click", closeSettingsPanel);
   $btn("settings-cancel").addEventListener("click", closeSettingsPanel);
   $btn("settings-save").addEventListener("click", () => saveSettingsPanel());
+  // UI-32：「应用」= 套用但不关闭（与「保存」共用 commitSettingsPanel）
+  $btn("settings-apply").addEventListener("click", () => applySettingsPanel());
   $btn("settings-reset").addEventListener("click", resetSettingsPanel);
   document.querySelectorAll<HTMLElement>(".settings-nav-item").forEach((b) => {
     b.addEventListener("click", () => {

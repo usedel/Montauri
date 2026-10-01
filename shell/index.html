@@ -972,6 +972,8 @@
               </div>
             </div>
             <div id="settings-section-keybindings" class="settings-section hidden" role="tabpanel">
+              <!-- UI-32：键位冲突即时提示（录入后立刻就地校验，不必等点保存被拒才知道撞车） -->
+              <div id="settings-kb-conflict" class="settings-hint settings-hint--error hidden" role="status"></div>
               <div id="settings-keybinding-rows"></div>
               <div data-i18n="settings.keybindings.sectionKeybindingsDiv" class="settings-hint">
                 点击输入框后<strong data-i18n="settings.keybindings.sectionKeybindingsStrong">直接按下要用的组合键</strong>即可录入（如按住 Ctrl 再按 0 得到
@@ -1266,6 +1268,8 @@
           <span class="spacer"></span>
           <button data-i18n="settings.save" id="settings-save" class="btn btn--primary">保存</button>
           <button data-i18n="settings.cancel" id="settings-cancel" class="btn">取消</button>
+          <!-- UI-32：「应用」= 立即套用但不关闭面板，可继续微调（Windows / PyCharm 惯例置于最后） -->
+          <button data-i18n="settings.apply" id="settings-apply" class="btn">应用</button>
         </div>
       </div>
     </div>

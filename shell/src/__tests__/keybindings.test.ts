@@ -11,6 +11,7 @@ import {
   parseKeyToken,
   validateKeybindingMap,
 } from "../keybindings";
+import { KEYBINDING_GROUP, KEYBINDING_GROUP_ORDER, keybindingsOfGroup } from "../keybindingDefaults";
 import { DEFAULT_SETTINGS } from "../state";
 
 describe("parseBinding 键位串解析", () => {
@@ -184,5 +185,24 @@ describe("bindingChord 键位分段（UI-25 欢迎页 <kbd> 渲染）", () => {
   it("非法串整串作一段返回：不猜拆法，也不丢信息", () => {
     expect(bindingChord("Ctrl+X+Y")).toEqual(["Ctrl+X+Y"]);
     expect(bindingChord("Win+D")).toEqual(["Win+D"]);
+  });
+});
+
+describe("UI-32 快捷键功能分组（设置面板按组渲染）", () => {
+  it("每个键位都归了组，且组别在渲染顺序内", () => {
+    for (const m of KEYBINDING_META) {
+      expect(KEYBINDING_GROUP[m.id], m.id).toBeTruthy();
+      expect(KEYBINDING_GROUP_ORDER).toContain(KEYBINDING_GROUP[m.id]);
+    }
+  });
+
+  it("按组取项不重不漏（漏项会让面板静默少渲染一个键位）", () => {
+    const seen: string[] = [];
+    for (const g of KEYBINDING_GROUP_ORDER) {
+      for (const m of keybindingsOfGroup(g)) seen.push(m.id);
+    }
+    expect(seen.length).toBe(KEYBINDING_META.length);
+    expect(new Set(seen).size).toBe(KEYBINDING_META.length);
+    expect([...seen].sort()).toEqual(KEYBINDING_META.map((m) => m.id).sort());
   });
 });

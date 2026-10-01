@@ -194,3 +194,87 @@ export const KEYBINDING_META: KeybindingMeta[] = [
   // 问题面板（PyCharm Problems View 同款 Alt+0；window 级——面板打开不依赖编辑器聚焦）
   { id: "open_problems", label: "打开问题面板", def: "Alt+0", scope: "window" },
 ];
+
+// ---------- UI-32：快捷键的功能分组（设置面板按组渲染）----------
+// 60 项平铺成一列时看不出层次，按功能切六组。分组不写进 KeybindingMeta 数组（那是出厂键位真源，
+// 改动面太大且会牵动 Rust 侧同步义务），改用独立映射表：Record<KeybindingId, …> 覆盖全集，
+// 新增键位若漏标分组会编译期报错，不存在「悄悄归到未分组」的情况。
+
+export type KeybindingGroup = "file" | "edit" | "navigate" | "run" | "debug" | "view";
+
+/** 分组顺序 = 面板里的渲染顺序 */
+export const KEYBINDING_GROUP_ORDER: KeybindingGroup[] = ["file", "edit", "navigate", "run", "debug", "view"];
+
+export const KEYBINDING_GROUP: Record<KeybindingId, KeybindingGroup> = {
+  // 文件
+  save: "file",
+  new_file: "file",
+  close_tab: "file",
+  reopen_tab: "file",
+  scratch_new: "file",
+  recent_files: "file",
+  // 编辑
+  duplicate_line: "edit",
+  comment_line: "edit",
+  comment_block: "edit",
+  template_palette: "edit",
+  surround: "edit",
+  optimize_imports: "edit",
+  smart_select_expand: "edit",
+  smart_select_shrink: "edit",
+  move_line_up: "edit",
+  move_line_down: "edit",
+  toggle_column_selection: "edit",
+  delete_line: "edit",
+  fold_all: "edit",
+  unfold_all: "edit",
+  jump_to_bracket: "edit",
+  trigger_suggest: "edit",
+  open_regex_tester: "edit",
+  // 导航与搜索
+  goto_definition: "navigate",
+  find_usages: "navigate",
+  rename_symbol: "navigate",
+  goto_file: "navigate",
+  goto_line: "navigate",
+  goto_symbol: "navigate",
+  nav_back: "navigate",
+  nav_forward: "navigate",
+  local_history: "navigate",
+  recent_edit_locations: "navigate",
+  global_search: "navigate",
+  bookmark_toggle: "navigate",
+  bookmark_list: "navigate",
+  goto_next_problem: "navigate",
+  goto_prev_problem: "navigate",
+  open_problems: "navigate",
+  // 运行
+  run_script: "run",
+  run_project: "run",
+  stop: "run",
+  run_selection: "run",
+  run_history: "run",
+  // 调试
+  debug: "debug",
+  debug_stop: "debug",
+  debug_step_over: "debug",
+  debug_step_into: "debug",
+  debug_step_out: "debug",
+  debug_evaluate: "debug",
+  debug_run_to_cursor: "debug",
+  // 视图与面板
+  next_tab: "view",
+  prev_tab: "view",
+  split_editor: "view",
+  toggle_sidebar: "view",
+  toggle_bottom: "view",
+  command_palette: "view",
+  open_devtools: "view",
+  open_settings: "view",
+  markdown_preview: "view",
+};
+
+/** 分组内按键位在 KEYBINDING_META 中的原始顺序取项（分组只归类、不改出厂顺序） */
+export function keybindingsOfGroup(group: KeybindingGroup): KeybindingMeta[] {
+  return KEYBINDING_META.filter((m) => KEYBINDING_GROUP[m.id] === group);
+}
