@@ -16,7 +16,9 @@ import {
   type PositionKind,
 } from "../schema";
 import type { ConfigLayer, EffectiveEntry, LiveTemplatesHandle } from "../index";
-import { codicon } from "../../util";
+import { codicon, errMsg } from "../../util";
+import { onLocaleChange, t } from "../../i18n"; // 第十四批 i18n：Live Templates 管理器动态文案走语言包
+import { localizeBackendError } from "../../i18n/backendError";
 
 export interface PanelHost {
   getHandle(): LiveTemplatesHandle | null;
@@ -39,17 +41,18 @@ interface PanelEls {
 }
 
 const ALL_SCOPES = ["python:module", "python:class", "python:function"] as const;
-const SCOPE_LABELS: Record<string, string> = {
-  "python:module": "模块",
-  "python:class": "类",
-  "python:function": "函数",
+// i18n：标签表为模块级缓存，语言切换时整体重建（refreshLabels，见本文件底部订阅）
+let SCOPE_LABELS: Record<string, string> = {
+  "python:module": t("lt.scope.module"),
+  "python:class": t("lt.scope.class"),
+  "python:function": t("lt.scope.function"),
 };
 // C-4 相位 B（修订稿 §6.2）：适用位置轴多选（容器 × 位置交叉，对齐 PyCharm Applicable Contexts）
 const ALL_POSITIONS: PositionKind[] = ["statement", "expression", "name"];
-const POSITION_LABELS: Record<PositionKind, string> = {
-  statement: "语句",
-  expression: "表达式",
-  name: "名字位",
+let POSITION_LABELS: Record<PositionKind, string> = {
+  statement: t("lt.scope.statement"),
+  expression: t("lt.scope.expression"),
+  name: t("lt.scope.name"),
 };
 const ABBR_RE = /^[A-Za-z0-9._-]+$/;
 const VAR_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -61,10 +64,10 @@ let els: PanelEls;
 /** 当前编辑中的模板标识 `${kind}:${abbreviation}`（null = 未打开编辑器；"normal:" = 新建） */
 let editingIdentity: string | null = null;
 
-const KIND_LABELS: Record<TemplateKind, string> = {
-  normal: "插入",
-  surround: "环绕",
-  postfix: "后缀",
+let KIND_LABELS: Record<TemplateKind, string> = {
+  normal: t("lt.kind.normal"),
+  surround: t("lt.kind.surround"),
+  postfix: t("lt.kind.postfix"),
 };
 
 const identityOf = (kind: TemplateKind, abbr: string): string => `${kind}:${abbr}`;
@@ -72,6 +75,15 @@ const identityOf = (kind: TemplateKind, abbr: string): string => `${kind}:${abbr
 // ---------- 入口 ----------
 
 export function wirePanel(h: PanelHost): void {
+  // 语言切换：重建标签缓存；面板打开中则重绘列表（编辑器区有用户输入，不整体重绘，
+  // 编辑区静态文案由 applyDomI18n 处理 index.html 静态部分，此处动态文案下次渲染生效）
+  onLocaleChange(() => {
+    SCOPE_LABELS = { "python:module": t("lt.scope.module"), "python:class": t("lt.scope.class"), "python:function": t("lt.scope.function") };
+    POSITION_LABELS = { statement: t("lt.scope.statement"), expression: t("lt.scope.expression"), name: t("lt.scope.name") };
+    KIND_LABELS = { normal: t("lt.kind.normal"), surround: t("lt.kind.surround"), postfix: t("lt.kind.postfix") };
+    renderList(); // 无 handle 时 renderList 自行早退
+  });
+
   host = h;
   els = {
     layer: $("lt-layer") as HTMLSelectElement,
@@ -140,7 +152,7 @@ function renderList(): void {
     const cb = document.createElement("input");
     cb.type = "checkbox";
     cb.checked = entry.enabled;
-    cb.title = entry.enabled ? "点击禁用" : "点击启用";
+    cb.title = entry.enabled ? t("lt.tipDisable") : t("lt.tipEnable");
     cb.addEventListener("click", (ev) => ev.stopPropagation());
     cb.addEventListener("change", () => void toggleEnabled(entry, cb.checked));
     row.appendChild(cb);
@@ -160,7 +172,7 @@ function renderList(): void {
     if (entry.origin !== "builtin") {
       const badge = document.createElement("span");
       badge.className = `lt-badge lt-origin-${entry.origin}`;
-      badge.textContent = entry.origin === "user" ? "用户" : "工作区";
+      badge.textContent = entry.origin === "user" ? t("lt.originUser") : t("lt.originWorkspace");
       row.appendChild(badge);
     }
     // 领域分组徽章（如「爬虫」）：仅在非默认组时展示，区分领域模板与通用内置
@@ -178,7 +190,8 @@ function renderList(): void {
     const posDiffers =
       entry.positions.length !== DEFAULT_POSITIONS.length ||
       entry.positions.some((p) => !DEFAULT_POSITIONS.includes(p));
-    desc.title = `${entry.description}\nscopes: ${entry.scopes.map((s) => SCOPE_LABELS[s] ?? s).join(", ") || "（已全部禁用）"}${
+    // 提示语含 \n 不走 apply_ts 映射（语言包转义链失真），按段取词
+    desc.title = `${entry.description}\nscopes: ${entry.scopes.map((s) => SCOPE_LABELS[s] ?? s).join(", ") || t("lt.scopesAllDisabled")}${
       posDiffers ? `\npositions: ${entry.positions.join(", ")}` : ""
     }`;
     row.appendChild(desc);
@@ -189,7 +202,7 @@ function renderList(): void {
   if (entries.length === 0) {
     const empty = document.createElement("div");
     empty.className = "lt-empty";
-    empty.textContent = "无匹配模板";
+    empty.textContent = t("lt.emptyList");
     els.list.appendChild(empty);
   }
   // 批量按钮随筛选结果联动：无结果时禁用
@@ -252,9 +265,9 @@ function rebuildGroupFilter(): void {
     o.textContent = label;
     sel.appendChild(o);
   };
-  mk("__all__", "全部分组");
+  mk("__all__", t("lt.groupAll"));
   for (const g of groupList) mk(g, g);
-  mk("__none__", "未分组");
+  mk("__none__", t("lt.groupNone"));
   const values = Array.from(sel.options).map((o) => o.value);
   sel.value = values.includes(current) ? current : "__all__";
 }
@@ -297,7 +310,7 @@ async function toggleEnabled(entry: EffectiveEntry, enabled: boolean): Promise<v
   const file = cloneFile(handle.getFile(layer)) ?? emptyFile();
   const outcome = applyEnabledToFile(file, entry, enabled, layer);
   if (outcome === "blocked") {
-    setStatus("该模板被其他层禁用，请切换到对应层操作", true);
+    setStatus(t("lt.blockedSingle"), true);
     renderList();
     return;
   }
@@ -307,9 +320,9 @@ async function toggleEnabled(entry: EffectiveEntry, enabled: boolean): Promise<v
   }
   try {
     await handle.saveFile(layer, file);
-    setStatus(enabled ? `已启用 ${entry.abbreviation}` : `已禁用 ${entry.abbreviation}`);
+    setStatus(enabled ? t("lt.enabled", { abbr: entry.abbreviation }) : t("lt.disabled", { abbr: entry.abbreviation }));
   } catch (e) {
-    setStatus(`保存失败：${e}`, true);
+    setStatus(t("lt.saveFailed", { error: localizeBackendError(errMsg(e)) }), true);
   }
   renderList();
 }
@@ -375,7 +388,7 @@ async function batchSetEnabled(enabled: boolean): Promise<void> {
   if (!handle) return;
   const entries = filteredEntries();
   if (entries.length === 0) {
-    setStatus("当前筛选结果为空，无可操作模板", true);
+    setStatus(t("lt.noFilteredTargets"), true);
     return;
   }
   const layer = currentLayer();
@@ -392,8 +405,8 @@ async function batchSetEnabled(enabled: boolean): Promise<void> {
   if (changed === 0) {
     setStatus(
       blocked > 0
-        ? `筛选内无可变更模板（${blocked} 个被其他层禁用，请切换层）`
-        : `筛选内模板均已处于${enabled ? "启用" : "禁用"}状态`,
+        ? t("lt.allBlocked", { blocked: blocked })
+        : t("lt.alreadyInState", { state: enabled ? t("lt.stateEnable") : t("lt.stateDisable") }),
       blocked > 0,
     );
     renderList();
@@ -401,12 +414,12 @@ async function batchSetEnabled(enabled: boolean): Promise<void> {
   }
   try {
     await handle.saveFile(layer, file);
-    let msg = `批量${enabled ? "启用" : "禁用"}完成：生效 ${changed} 个`;
-    if (noop > 0) msg += `，${noop} 个本就${enabled ? "启用" : "禁用"}`;
-    if (blocked > 0) msg += `，${blocked} 个被其他层禁用`;
+    let msg = t("lt.bulkDone", { action: enabled ? t("lt.stateEnable") : t("lt.stateDisable"), changed: changed });
+    if (noop > 0) msg += t("lt.bulkNoop", { noop: noop, action: enabled ? t("lt.stateEnable") : t("lt.stateDisable") });
+    if (blocked > 0) msg += t("lt.bulkBlocked", { blocked: blocked });
     setStatus(msg);
   } catch (e) {
-    setStatus(`保存失败：${e}`, true);
+    setStatus(t("lt.saveFailed", { error: localizeBackendError(errMsg(e)) }), true);
   }
   renderList();
 }
@@ -430,10 +443,10 @@ function beginGroupRename(): void {
   // 迁移到 .btn 体系后必须显式加类名（紧凑档，贴合工具栏行高）
   const ok = document.createElement("button");
   ok.className = "btn btn--sm";
-  ok.textContent = "确定";
+  ok.textContent = t("lt.ok");
   const cancel = document.createElement("button");
   cancel.className = "btn btn--sm";
-  cancel.textContent = "取消";
+  cancel.textContent = t("lt.cancel");
   wrap.append(inp, ok, cancel);
   btn.style.display = "none";
   btn.insertAdjacentElement("afterend", wrap);
@@ -451,7 +464,7 @@ function beginGroupRename(): void {
     const newName = inp.value.trim();
     finish();
     if (!newName) {
-      setStatus("分组名不能为空", true);
+      setStatus(t("lt.groupNameEmpty"), true);
       return;
     }
     if (newName === oldName) return;
@@ -479,7 +492,7 @@ async function renameGroup(oldName: string, newName: string): Promise<void> {
   const file = cloneFile(handle.getFile(layer)) ?? emptyFile();
   const entries = handle.listEffective().filter((e) => e.group === oldName);
   if (entries.length === 0) {
-    setStatus(`分组「${oldName}」下没有模板`, true);
+    setStatus(t("lt.groupEmpty", { name: oldName }), true);
     return;
   }
   let count = 0;
@@ -501,9 +514,9 @@ async function renameGroup(oldName: string, newName: string): Promise<void> {
   }
   try {
     await handle.saveFile(layer, file);
-    setStatus(`已将分组「${oldName}」重命名为「${newName}」（${count} 个模板）`);
+    setStatus(t("lt.groupRenamed", { old: oldName, new: newName, count: count }));
   } catch (e) {
-    setStatus(`保存失败：${e}`, true);
+    setStatus(t("lt.saveFailed", { error: localizeBackendError(errMsg(e)) }), true);
     return;
   }
   renderList();
@@ -521,7 +534,7 @@ function renderEmptyEditor(): void {
   els.editor.textContent = "";
   const hint = document.createElement("div");
   hint.className = "lt-empty";
-  hint.textContent = "从左侧选择模板编辑，或点击「新建模板」";
+  hint.textContent = t("lt.editorHint");
   els.editor.appendChild(hint);
 }
 
@@ -549,7 +562,7 @@ function openEditor(entry: EffectiveEntry | null): void {
   const kindRow = document.createElement("div");
   kindRow.className = "lt-field";
   const kindLabel = document.createElement("label");
-  kindLabel.textContent = "类型";
+  kindLabel.textContent = t("lt.fieldKind");
   const kindSel = document.createElement("select");
   kindSel.id = "lt-f-kind";
   kindLabel.htmlFor = kindSel.id; // 遗留修复：label↔控件关联
@@ -567,34 +580,34 @@ function openEditor(entry: EffectiveEntry | null): void {
     if (hint) {
       hint.textContent =
         kindSel.value === "surround"
-          ? "环绕模板：模板体须含 $SELECTION$（承载选中代码），经 Ctrl+Alt+T 调用"
+          ? t("lt.kindHintSurround")
           : kindSel.value === "postfix"
-            ? "后缀模板：`表达式.键` 触发，$EXPR$ 由表达式字面注入"
-            : "插入模板：缩写 + Tab 直接展开，或经补全弹窗插入";
+            ? t("lt.kindHintPostfix")
+            : t("lt.kindHintNormal");
     }
   });
   const kindHint = document.createElement("div");
   kindHint.className = "lt-hint";
   kindHint.id = "lt-kind-hint";
-  kindHint.textContent = "插入模板：缩写 + Tab 直接展开，或经补全弹窗插入";
+  kindHint.textContent = t("lt.kindHintNormal");
   kindRow.append(kindLabel, kindSel, kindHint);
   grid.appendChild(kindRow);
 
-  grid.appendChild(fieldRow("缩写", input("lt-f-abbr", base?.abbreviation ?? "", "如 logf")));
+  grid.appendChild(fieldRow(t("lt.fieldAbbr"), input("lt-f-abbr", base?.abbreviation ?? "", t("lt.abbrPlaceholder"))));
   // 直接持有引用：grid 尚未挂载到文档，getElementById 此时查不到
-  const postfixInput = input("lt-f-postfixkey", base?.postfixKey ?? "", "仅后缀模板：`.` 后的键，如 if");
-  grid.appendChild(fieldRow("后缀键", postfixInput));
+  const postfixInput = input("lt-f-postfixkey", base?.postfixKey ?? "", t("lt.postfixKeyPlaceholder"));
+  grid.appendChild(fieldRow(t("lt.fieldPostfixKey"), postfixInput));
   postfixInput.disabled = (base?.kind ?? "normal") !== "postfix";
-  grid.appendChild(fieldRow("描述", input("lt-f-desc", base?.description ?? "", "补全列表中的说明")));
+  grid.appendChild(fieldRow(t("lt.fieldDesc"), input("lt-f-desc", base?.description ?? "", t("lt.descPlaceholder"))));
   // 分组：选已有分组或输入新名称即新建；留空 = 未分组。
   // 用自绘下拉替代原生 <datalist>——WebView2 原生下拉为浅色且不可主题化，与深色 UI 冲突
-  const groupInput = input("lt-f-group", base?.group ?? "", "未分组；输入名称以新建分组");
+  const groupInput = input("lt-f-group", base?.group ?? "", t("lt.groupPlaceholder"));
   const groupWrap = document.createElement("div");
   groupWrap.className = "lt-group-wrap";
   const groupDrop = document.createElement("div");
   groupDrop.className = "lt-group-drop";
   groupWrap.append(groupInput, groupDrop);
-  grid.appendChild(fieldRow("分组", groupWrap));
+  grid.appendChild(fieldRow(t("lt.fieldGroup"), groupWrap));
   ed.appendChild(grid);
   wireGroupAutocomplete(groupInput, groupDrop);
 
@@ -603,7 +616,7 @@ function openEditor(entry: EffectiveEntry | null): void {
   inlineRow.className = "lt-inline";
   const scopeLabel = document.createElement("span");
   scopeLabel.className = "lt-inline-label";
-  scopeLabel.textContent = "作用域";
+  scopeLabel.textContent = t("lt.fieldScopes");
   inlineRow.appendChild(scopeLabel);
   const scopeBox = document.createElement("div");
   scopeBox.className = "lt-scope-box";
@@ -622,7 +635,7 @@ function openEditor(entry: EffectiveEntry | null): void {
   // 勾选基准 = 本层定义 > 生效定义 > 缺省（statement+expression，名字位默认不勾）
   const posLabel = document.createElement("span");
   posLabel.className = "lt-inline-label";
-  posLabel.textContent = "适用位置";
+  posLabel.textContent = t("lt.fieldPositions");
   inlineRow.appendChild(posLabel);
   const posBox = document.createElement("div");
   posBox.className = "lt-scope-box";
@@ -640,19 +653,19 @@ function openEditor(entry: EffectiveEntry | null): void {
   inlineRow.appendChild(posBox);
   const tabWrap = document.createElement("label");
   tabWrap.className = "lt-tab-opt";
-  tabWrap.title = "关闭后仅通过补全弹窗使用（关键字类缩写建议关闭）";
+  tabWrap.title = t("lt.tabExpandOffTip");
   const tabCb = document.createElement("input");
   tabCb.type = "checkbox";
   tabCb.id = "lt-f-tabexpand";
   tabCb.checked = base?.tabExpand ?? true;
-  tabWrap.append(tabCb, document.createTextNode("Tab 直接展开"));
+  tabWrap.append(tabCb, document.createTextNode(t("lt.tabExpandLabel")));
   inlineRow.appendChild(tabWrap);
   ed.appendChild(inlineRow);
 
-  ed.appendChild(fieldRow("模板体", textarea("lt-f-body", base?.body ?? "", "$VAR$ 变量 · $END$ 终点 · $$ 字面 $")));
+  ed.appendChild(fieldRow(t("lt.fieldBody"), textarea("lt-f-body", base?.body ?? "", t("lt.bodyPlaceholder"))));
   const bodyHint = document.createElement("div");
   bodyHint.className = "lt-hint";
-  bodyHint.textContent = "变量在下方声明；未声明的 $VAR$ 自动成为普通占位符";
+  bodyHint.textContent = t("lt.bodyHint");
   ed.appendChild(bodyHint);
 
   // 变量表
@@ -660,12 +673,11 @@ function openEditor(entry: EffectiveEntry | null): void {
   varsWrap.className = "lt-vars";
   const varsTitle = document.createElement("div");
   varsTitle.className = "lt-vars-title";
-  varsTitle.textContent = "变量（行序 = Tab 跳转序）";
+  varsTitle.textContent = t("lt.varsTitle");
   varsWrap.appendChild(varsTitle);
   const table = document.createElement("table");
   table.className = "lt-vars-table";
-  table.innerHTML =
-    "<thead><tr><th>名称</th><th>表达式</th><th>默认值</th><th title=\"求值成功即跳过\">跳过</th><th></th></tr></thead>";
+  table.innerHTML = t("lt.varsHeadHtml");
   const tbody = document.createElement("tbody");
   tbody.id = "lt-vars-body";
   table.appendChild(tbody);
@@ -674,7 +686,7 @@ function openEditor(entry: EffectiveEntry | null): void {
   // UI-08：中性档（原 .lt-mini-btn 把 danger hover 写死在基类，「添加」也泛红，此处顺带修正）；
   // 图标与文字间距由 .btn 的 gap 提供，不再靠前导空格
   addBtn.className = "btn btn--sm";
-  addBtn.append(codicon("add"), "添加变量");
+  addBtn.append(codicon("add"), t("lt.addVar"));
   addBtn.addEventListener("click", () => addVarRow());
   varsWrap.appendChild(addBtn);
   ed.appendChild(varsWrap);
@@ -691,33 +703,33 @@ function openEditor(entry: EffectiveEntry | null): void {
   const isBuiltin = entry?.origin === "builtin";
   // UI-08：底部操作按钮迁移到 .btn 体系——破坏性动作用描边形态（次要位置不宜整块实心红）
   const delBtn = document.createElement("button");
-  delBtn.textContent = "删除";
+  delBtn.textContent = t("lt.delete");
   delBtn.className = "btn btn--danger-outline";
   delBtn.disabled = !entry || isBuiltin;
   // UI-09 例外：保留原生 title。本按钮的提示主要就是「禁用原因」（内置模板不可删除 / 需先选中模板），
   // 而它在这些情况下恰恰是 disabled 的——Chromium 不向禁用表单控件派发鼠标事件，data-tip 会静默失效，
   // 等于把最该看到的提示弄丢。原生 title 由渲染层命中测试驱动，禁用态仍显示。resetBtn 同理。
   delBtn.title = isBuiltin
-    ? "内置模板不可删除，只能禁用"
+    ? t("lt.builtinNoDelete")
     : entry
-      ? `从该模板所属层删除「${entry.abbreviation}」`
-      : "选择模板后方可删除";
+      ? t("lt.deleteFromLayer", { abbr: entry.abbreviation })
+      : t("lt.selectToDelete");
   delBtn.addEventListener("click", () => {
     if (entry) void doDelete(entry);
   });
   const resetBtn = document.createElement("button");
   resetBtn.className = "btn";
-  resetBtn.textContent = "恢复内置";
-  resetBtn.title = "移除本层对该模板的覆盖/禁用";
+  resetBtn.textContent = t("lt.resetBuiltin");
+  resetBtn.title = t("lt.resetTip");
   resetBtn.disabled = !entry || !isBuiltin || !layerHasOverride;
   resetBtn.addEventListener("click", () => void doReset(entry?.kind ?? "normal", entry?.abbreviation ?? ""));
   const saveBtn = document.createElement("button");
   saveBtn.className = "btn btn--primary";
-  saveBtn.textContent = "保存模板";
+  saveBtn.textContent = t("lt.save");
   saveBtn.addEventListener("click", () => void doSave());
   const cancelBtn = document.createElement("button");
   cancelBtn.className = "btn";
-  cancelBtn.textContent = "取消";
+  cancelBtn.textContent = t("lt.cancel");
   cancelBtn.addEventListener("click", renderEmptyEditor);
 
   // 左：破坏性/还原操作；右：主流程操作，左右分组避免拥挤
@@ -792,13 +804,13 @@ function addVarRow(name = "", expression = "", defaultValue = "", skip = false):
       exprInput.title = "";
     } catch (e) {
       exprInput.classList.add("invalid");
-      exprInput.title = `表达式语法错误：${e instanceof Error ? e.message : String(e)}`;
+      exprInput.title = t("lt.exprError", { error: localizeBackendError(errMsg(e instanceof Error ? e.message : String(e))) });
     }
   });
   tdExpr.appendChild(exprInput);
 
   const tdDefault = document.createElement("td");
-  tdDefault.appendChild(input("", defaultValue, "求值失败时的值"));
+  tdDefault.appendChild(input("", defaultValue, t("lt.defaultPlaceholder")));
 
   const tdSkip = document.createElement("td");
   const skipCb = document.createElement("input");
@@ -814,8 +826,8 @@ function addVarRow(name = "", expression = "", defaultValue = "", skip = false):
   delBtn.appendChild(codicon("close"));
   // UI-09：纯图标按钮且从不 disabled → 迁 data-tip；内部 <i> 带 aria-hidden，
   // 可访问名称原先仅由 title 提供，故同步补 aria-label。
-  delBtn.dataset.tip = "删除变量";
-  delBtn.setAttribute("aria-label", "删除变量");
+  delBtn.dataset.tip = t("lt.deleteVar");
+  delBtn.setAttribute("aria-label", t("lt.deleteVar"));
   delBtn.addEventListener("click", () => tr.remove());
   tdDel.appendChild(delBtn);
 
@@ -828,21 +840,21 @@ function collectDraft(): TemplateDef | null {
   const kind = ($("lt-f-kind") as HTMLSelectElement).value as TemplateKind;
   const abbr = ($("lt-f-abbr") as HTMLInputElement).value.trim();
   if (!ABBR_RE.test(abbr)) {
-    setStatus("缩写非法：仅允许字母/数字/点/下划线/连字符", true);
+    setStatus(t("lt.invalidAbbr"), true);
     return null;
   }
   const postfixKey = ($("lt-f-postfixkey") as HTMLInputElement).value.trim();
   if (kind === "postfix" && !ABBR_RE.test(postfixKey)) {
-    setStatus("后缀模板需要合法后缀键（`.` 后的键）", true);
+    setStatus(t("lt.needPostfixKey"), true);
     return null;
   }
   const body = ($("lt-f-body") as HTMLTextAreaElement).value;
   if (!body.trim() || body === TOMBSTONE_BODY) {
-    setStatus("模板体不能为空", true);
+    setStatus(t("lt.bodyEmpty"), true);
     return null;
   }
   if (kind === "surround" && !body.includes("$SELECTION$")) {
-    setStatus("环绕模板的模板体必须包含 $SELECTION$", true);
+    setStatus(t("lt.surroundNeedsSelection"), true);
     return null;
   }
   // 作用域与适用位置共用 .lt-scope-opt 类，用 data-* 区分（相位 B：位置轴多选）
@@ -850,7 +862,7 @@ function collectDraft(): TemplateDef | null {
     (cb) => cb.dataset.scope ?? "",
   );
   if (scopes.length === 0) {
-    setStatus("至少选择一个作用域", true);
+    setStatus(t("lt.needScope"), true);
     return null;
   }
   const posSel = new Set(
@@ -860,7 +872,7 @@ function collectDraft(): TemplateDef | null {
   );
   const positions = ALL_POSITIONS.filter((p) => posSel.has(p));
   if (positions.length === 0) {
-    setStatus("至少选择一个适用位置", true);
+    setStatus(t("lt.needPosition"), true);
     return null;
   }
   // 与缺省一致时不写字段（配置精简；schema 语义 = 缺省 statement+expression）
@@ -878,11 +890,11 @@ function collectDraft(): TemplateDef | null {
     const skip = tr.querySelector<HTMLInputElement>(".lt-v-skip")?.checked ?? false;
     if (!name && !expression && !defaultValue) continue; // 空行跳过
     if (!VAR_NAME_RE.test(name)) {
-      setStatus(`变量名非法：${name || "（空）"}`, true);
+      setStatus(t("lt.invalidVarName", { name: name || t("lt.varNameEmpty") }), true);
       return null;
     }
     if (seen.has(name)) {
-      setStatus(`变量名重复：${name}`, true);
+      setStatus(t("lt.duplicateVarName", { name: name }), true);
       return null;
     }
     seen.add(name);
@@ -890,7 +902,7 @@ function collectDraft(): TemplateDef | null {
       try {
         parseExpression(expression);
       } catch (e) {
-        setStatus(`变量 ${name} 表达式错误：${e instanceof Error ? e.message : String(e)}`, true);
+        setStatus(t("lt.varExprError", { name: name, error: localizeBackendError(errMsg(e instanceof Error ? e.message : String(e))) }), true);
         return null;
       }
     }
@@ -949,11 +961,11 @@ async function doSave(): Promise<void> {
 
   try {
     await handle.saveFile(layer, file);
-    setStatus(`已保存 ${draft.abbreviation}（${layer === "user" ? "用户层" : "工作区层"}）`);
+    setStatus(t("lt.saved", { abbr: draft.abbreviation, layer: layer === "user" ? t("lt.layerUser") : t("lt.layerWorkspace") }));
     editingIdentity = identityOf(draft.kind, draft.abbreviation);
     renderList();
   } catch (e) {
-    setStatus(`保存失败：${e}`, true);
+    setStatus(t("lt.saveFailed", { error: localizeBackendError(errMsg(e)) }), true);
   }
 }
 
@@ -966,11 +978,11 @@ async function doReset(kind: TemplateKind, abbr: string): Promise<void> {
   file.templates = file.templates.filter((t) => !(t.abbreviation === abbr && t.kind === kind));
   try {
     await handle.saveFile(layer, file);
-    setStatus(`已恢复内置 ${abbr}`);
+    setStatus(t("lt.restored", { abbr: abbr }));
     renderEmptyEditor();
     renderList();
   } catch (e) {
-    setStatus(`保存失败：${e}`, true);
+    setStatus(t("lt.saveFailed", { error: localizeBackendError(errMsg(e)) }), true);
   }
 }
 
@@ -979,7 +991,7 @@ async function doDelete(entry: EffectiveEntry): Promise<void> {
   const handle = host.getHandle();
   if (!handle) return;
   if (entry.origin === "builtin") {
-    setStatus("内置模板不可删除，只能禁用", true);
+    setStatus(t("lt.builtinNoDelete"), true);
     return;
   }
   const layer = entry.origin as ConfigLayer; // 此时 origin ∈ { user, workspace }
@@ -990,16 +1002,16 @@ async function doDelete(entry: EffectiveEntry): Promise<void> {
     (t) => !(t.abbreviation === entry.abbreviation && t.kind === entry.kind),
   );
   if (file.templates.length === before) {
-    setStatus(`未找到可删除的模板 ${entry.abbreviation}`, true);
+    setStatus(t("lt.notFoundForDelete", { abbr: entry.abbreviation }), true);
     return;
   }
   try {
     await handle.saveFile(layer, file);
-    setStatus(`已删除 ${entry.abbreviation}（${layer === "user" ? "用户层" : "工作区层"}）`);
+    setStatus(t("lt.deleted", { abbr: entry.abbreviation, layer: layer === "user" ? t("lt.layerUser") : t("lt.layerWorkspace") }));
     renderEmptyEditor();
     renderList();
   } catch (e) {
-    setStatus(`删除失败：${e}`, true);
+    setStatus(t("lt.deleteFailed", { error: localizeBackendError(errMsg(e)) }), true);
   }
 }
 
@@ -1011,20 +1023,20 @@ async function doExport(): Promise<void> {
   const layer = currentLayer();
   const file = handle.getFile(layer);
   if (!file || file.templates.length === 0) {
-    setStatus("当前层没有可导出的模板", true);
+    setStatus(t("lt.nothingToExport"), true);
     return;
   }
   const target = await saveDialog({
-    title: "导出 Live Templates",
+    title: t("lt.exportTitle"),
     defaultPath: "opencharm-live-templates.json",
     filters: [{ name: "JSON", extensions: ["json"] }],
   });
   if (!target) return;
   try {
     await invoke("write_file", { path: target, content: JSON.stringify(file, null, 2) });
-    setStatus(`已导出到 ${target}`);
+    setStatus(t("lt.exportedTo", { path: target }));
   } catch (e) {
-    setStatus(`导出失败：${e}`, true);
+    setStatus(t("lt.exportFailed", { error: localizeBackendError(errMsg(e)) }), true);
   }
 }
 
@@ -1032,7 +1044,7 @@ async function doImport(): Promise<void> {
   const handle = host.getHandle();
   if (!handle) return;
   const picked = await openDialog({
-    title: "导入 Live Templates",
+    title: t("lt.importTitle"),
     multiple: false,
     filters: [{ name: "JSON", extensions: ["json"] }],
   });
@@ -1041,7 +1053,7 @@ async function doImport(): Promise<void> {
   try {
     raw = await invoke<string>("read_file", { path: picked });
   } catch (e) {
-    setStatus(`读取失败：${e}`, true);
+    setStatus(t("lt.readFailed", { error: localizeBackendError(errMsg(e)) }), true);
     return;
   }
 
@@ -1052,7 +1064,7 @@ async function doImport(): Promise<void> {
   if (raw.trim().startsWith("<")) {
     const result = parsePycharmXml(raw);
     if (!result || result.templates.length === 0) {
-      setStatus("导入失败：不是合法的 PyCharm Live Templates XML（或无可解析模板）", true);
+      setStatus(t("lt.importInvalidXml"), true);
       return;
     }
     templates = result.templates;
@@ -1062,17 +1074,17 @@ async function doImport(): Promise<void> {
           `[live-templates] PyCharm 导入：${d.abbreviation} 变量 ${d.variable} 表达式不支持，已降级为默认值：${d.expression}`,
         );
       }
-      note = `；${result.downgraded.length} 个表达式降级为默认值（详见控制台）`;
+      note = t("lt.importDowngraded", { count: result.downgraded.length });
     }
   } else {
     const parsed = parseTemplatesFile(raw);
     if (!parsed) {
-      setStatus("导入失败：文件不是合法的模板配置（Schema v2 / v1 / PyCharm XML）", true);
+      setStatus(t("lt.importInvalidConfig"), true);
       return;
     }
     templates = parsed.file.templates;
     ordering = parsed.file.ordering;
-    if (parsed.errors.length > 0) note = `；${parsed.errors.length} 条非法条目被跳过`;
+    if (parsed.errors.length > 0) note = t("lt.importSkipped", { count: parsed.errors.length });
   }
 
   const layer = currentLayer();
@@ -1098,10 +1110,10 @@ async function doImport(): Promise<void> {
 
   try {
     await handle.saveFile(layer, file);
-    setStatus(`导入完成：新增 ${added}，覆盖 ${replaced}${note}`);
+    setStatus(t("lt.importDone", { added: added, replaced: replaced, note: note }));
     renderList();
   } catch (e) {
-    setStatus(`导入保存失败：${e}`, true);
+    setStatus(t("lt.importSaveFailed", { error: localizeBackendError(errMsg(e)) }), true);
   }
 }
 

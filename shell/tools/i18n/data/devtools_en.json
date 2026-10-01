@@ -1,0 +1,9 @@
+{
+  "devtools.panel.loadFailed": "Tool failed to load",
+  "devtools.panel.noMatch": "No matching tools",
+  "devtools.panel.other": "Other",
+  "devtools.panel.recent": "Recently used",
+  "devtools.panel.retry": "Retry",
+  "devtools.panel.selectionNoMatch": "No matches among selection tools; showing all tools",
+  "devtools.panel.title": "Dev Tools"
+}

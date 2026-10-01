@@ -1,0 +1,9 @@
+{
+  "devtools.panel.loadFailed": "工具加载失败",
+  "devtools.panel.noMatch": "无匹配工具",
+  "devtools.panel.other": "其他",
+  "devtools.panel.recent": "最近使用",
+  "devtools.panel.retry": "重试",
+  "devtools.panel.selectionNoMatch": "选区变换工具中无匹配，已显示全部工具",
+  "devtools.panel.title": "开发工具"
+}

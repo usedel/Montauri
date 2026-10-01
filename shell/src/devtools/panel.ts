@@ -11,6 +11,7 @@ import { codicon } from "../util";
 import { fuzzyScore } from "../quickOpen"; // 复用 Search Everywhere 的模糊匹配
 import { getDevTool, listDevTools, onRegistryChanged } from "./registry";
 import { groupToolsByCategory, type DevTool, type ToolHost, type ToolInstance } from "./types";
+import { t } from "../i18n"; // 第十四批 i18n：开发工具面板动态文案走语言包
 // CR-26：模块顶层禁止立即解析 DOM（测试环境 happy-dom 无完整 DOM，import 即炸）——一律 lazyEl
 const panelEl = lazyEl("right-panel");
 const bodyEl = lazyEl("devtools-body");
@@ -71,7 +72,7 @@ function renderHeaderCurrent(): void {
   current.textContent = "";
   const tool = activeToolId ? getDevTool(activeToolId) : null;
   if (!tool) {
-    current.append("开发工具");
+    current.append(t("devtools.panel.title"));
   } else {
     current.appendChild(codicon(tool.icon));
     const label = document.createElement("span");
@@ -116,7 +117,7 @@ function renderPickerList(query: string): void {
   if (matched.length === 0) {
     const empty = document.createElement("div");
     empty.className = "picker-empty";
-    empty.textContent = "无匹配工具";
+    empty.textContent = t("devtools.panel.noMatch");
     listEl.appendChild(empty);
     return;
   }
@@ -124,7 +125,7 @@ function renderPickerList(query: string): void {
     // 回退提示行（列表顶部）：告知当前显示的是全部工具（非仅变换工具）
     const note = document.createElement("div");
     note.className = "picker-empty";
-    note.textContent = "选区变换工具中无匹配，已显示全部工具";
+    note.textContent = t("devtools.panel.selectionNoMatch");
     listEl.appendChild(note);
   }
 
@@ -145,7 +146,7 @@ function renderPickerList(query: string): void {
     const recent = loadRecent()
       .map((id) => byId.get(id))
       .filter((t): t is DevTool => !!t);
-    if (recent.length > 0) addGroup("最近使用", recent);
+    if (recent.length > 0) addGroup(t("devtools.panel.recent"), recent);
     for (const [cat, items] of groupToolsByCategory(matched)) addGroup(cat, items);
   } else {
     // 搜索态：不分组，保持匹配原序（插入序）
@@ -173,7 +174,7 @@ function renderPickerItem(tool: DevTool): HTMLElement {
   item.appendChild(main);
   const cat = document.createElement("span");
   cat.className = "picker-item-cat";
-  cat.textContent = tool.category?.trim() || "其他";
+  cat.textContent = tool.category?.trim() || t("devtools.panel.other");
   item.appendChild(cat);
   // 行为在渲染时刻定死（dataset）：inline 直执行；normal/回退态开面板——避免点击时
   // 读取模块级 pickerMode 与渲染态不一致（搜索回退后模式仍为 inline 但行为应为面板）
@@ -257,13 +258,13 @@ function renderMountErrorCard(toolId: string, err: unknown): HTMLElement {
   card.className = "tool-error-card";
   const title = document.createElement("div");
   title.className = "tool-error-title";
-  title.textContent = "工具加载失败";
+  title.textContent = t("devtools.panel.loadFailed");
   const msg = document.createElement("div");
   msg.className = "tool-error-msg";
   msg.textContent = err instanceof Error ? err.message : String(err);
   const retry = document.createElement("button");
   retry.className = "btn btn--sm";
-  retry.textContent = "重试";
+  retry.textContent = t("devtools.panel.retry");
   retry.addEventListener("click", () => {
     // 清该工具缓存后重新激活（走完整 mount 路径）
     const entry = cache.get(toolId);
