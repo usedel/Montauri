@@ -28,7 +28,7 @@ import { getSelectedTheme, setSelectedTheme, wireThemePicker } from "./themePick
 import { renderWelcomeShortcuts } from "./welcomeShortcuts";
 // 零引擎关键字补全开关（provider 只注册一次，此处只翻运行时真值）
 import { setKeywordCompletionEnabled } from "./completion/keywordCompletion";
-import { getLocale, setLocale } from "./i18n";
+import { getLocale, onLocaleChange, setLocale, t } from "./i18n"; // 第八批 i18n：设置域动态文案走语言包
 
 // ---------- 注入（main 的 init 中 setSettingsPanelHandlers） ----------
 // TD-13：解「settingsPanel.ts → main.ts」循环边——切换静态引擎后需重启 LSP，
@@ -130,47 +130,48 @@ const NON_ROW_SECTIONS = new Set(["settings-section-templates", "settings-sectio
  * 控件 id → 搜索关键词（G-7「可发现性税」：每个设置行的英文/别名关键词，集中一处，
  * 避免给 index.html 每行加 data-kw 的漂移风险）。匹配时拼进行搜索域。
  */
-const SETTINGS_ROW_KEYWORDS: Record<string, string> = {
-  "settings-theme-picker": "theme 主题 appearance",
-  "settings-font": "font size 字号",
-  "settings-font-family": "font family 字体",
-  "settings-font-family-preset": "font family 字体",
-  "settings-font-ligatures": "ligatures 连字",
-  "settings-reduce-motion": "motion animation 动画",
-  "settings-tab-size": "tab indent 缩进",
-  "settings-insert-spaces": "indent spaces 缩进空格",
-  "settings-word-wrap": "wrap 换行",
-  "settings-minimap": "minimap 小地图",
-  "settings-indent-guides": "indent guides 参考线",
-  "settings-bracket-colors": "bracket colorization 括号颜色",
-  "settings-debug-jmc": "debug just my code 调试步进",
-  "settings-autosave": "autosave 自动保存",
-  "settings-format-on-save": "format ruff 格式化",
-  "settings-optimize-imports-on-save": "imports isort 整理导入",
-  "settings-ruff-severity-e": "ruff severity pycodestyle E 风格 级别 诊断",
-  "settings-ruff-severity-w": "ruff severity pycodestyle W 警告 级别 诊断",
-  "settings-ruff-severity-f": "ruff severity pyflakes F 级别 诊断",
-  "settings-engine": "lsp engine pyrefly basedpyright 引擎",
-  "settings-probe": "probe profiling 探针",
-  "settings-intel": "intel runtime 运行时智能",
-  "settings-pypi-index": "pypi mirror pip 源",
-  "settings-pypi-index-preset": "pypi mirror pip 源",
-  "settings-terminal-cwd": "terminal cwd 终端目录",
-  "settings-terminal-shell": "terminal shell pwsh cmd powershell 终端",
-  "settings-log-enabled": "log logging 日志",
-  "settings-log-level": "log level 日志级别",
-  "settings-log-keep": "log rotate 日志轮转",
-  "settings-log-stdout": "log stdout 日志输出",
-  "settings-data-open": "data directory 数据目录",
-  "settings-log-open": "log directory 日志目录",
-  "storage-open": "storage 磁盘",
-  "storage-refresh": "storage usage 磁盘占用",
-  "storage-clean-webview": "cache webview 清理缓存",
-  "storage-clean-logs": "logs 清理日志",
-  "storage-uv-prune": "uv cache 缓存",
-  "storage-uv-clean": "uv cache 深度清理",
-  "storage-migrate-path": "migrate 迁移",
-  "storage-migrate": "migrate 迁移",
+// i18n：关键词表为模块级缓存，语言切换时整体重建（搜索在运行期读表，见 wireSettingsPanel 的订阅）
+let SETTINGS_ROW_KEYWORDS: Record<string, string> = {
+  "settings-theme-picker": t("settings.kw.themePicker"),
+  "settings-font": t("settings.kw.font"),
+  "settings-font-family": t("settings.kw.fontFamily"),
+  "settings-font-family-preset": t("settings.kw.fontFamily"),
+  "settings-font-ligatures": t("settings.kw.ligatures"),
+  "settings-reduce-motion": t("settings.kw.reduceMotion"),
+  "settings-tab-size": t("settings.kw.tabSize"),
+  "settings-insert-spaces": t("settings.kw.insertSpaces"),
+  "settings-word-wrap": t("settings.kw.wordWrap"),
+  "settings-minimap": t("settings.kw.minimap"),
+  "settings-indent-guides": t("settings.kw.indentGuides"),
+  "settings-bracket-colors": t("settings.kw.bracketColors"),
+  "settings-debug-jmc": t("settings.kw.debugJmc"),
+  "settings-autosave": t("settings.kw.autosave"),
+  "settings-format-on-save": t("settings.kw.formatOnSave"),
+  "settings-optimize-imports-on-save": t("settings.kw.optimizeImports"),
+  "settings-ruff-severity-e": t("settings.kw.ruffSeverityE"),
+  "settings-ruff-severity-w": t("settings.kw.ruffSeverityW"),
+  "settings-ruff-severity-f": t("settings.kw.ruffSeverityF"),
+  "settings-engine": t("settings.kw.engine"),
+  "settings-probe": t("settings.kw.probe"),
+  "settings-intel": t("settings.kw.intel"),
+  "settings-pypi-index": t("settings.kw.pypiIndex"),
+  "settings-pypi-index-preset": t("settings.kw.pypiIndex"),
+  "settings-terminal-cwd": t("settings.kw.terminalCwd"),
+  "settings-terminal-shell": t("settings.kw.terminalShell"),
+  "settings-log-enabled": t("settings.kw.logEnabled"),
+  "settings-log-level": t("settings.kw.logLevel"),
+  "settings-log-keep": t("settings.kw.logKeep"),
+  "settings-log-stdout": t("settings.kw.logStdout"),
+  "settings-data-open": t("settings.kw.dataOpen"),
+  "settings-log-open": t("settings.kw.logOpen"),
+  "storage-open": t("settings.kw.storageOpen"),
+  "storage-refresh": t("settings.kw.storageRefresh"),
+  "storage-clean-webview": t("settings.kw.cleanWebview"),
+  "storage-clean-logs": t("settings.kw.cleanLogs"),
+  "storage-uv-prune": t("settings.kw.uvPrune"),
+  "storage-uv-clean": t("settings.kw.uvClean"),
+  "storage-migrate-path": t("settings.kw.migrate"),
+  "storage-migrate": t("settings.kw.migrate"),
 };
 
 /** 行的搜索域：行文本 + 提示文本不在此（hint 归 section 层）+ 控件关键词 + data-kw */
@@ -284,7 +285,7 @@ export async function loadSettings(): Promise<void> {
   } catch (e) {
     console.warn("设置加载失败，使用默认", e);
     // UX P0-1：原先只 console，用户不知道自己在设置面板里的改动不会持久化
-    toast("设置加载失败，本次会话使用默认设置（改动可能无法保存）", "error");
+    toast(t("settings.loadFailedToast"), "error");
   }
   // 快捷键逐项兜底：旧配置 / 手改文件缺项时回落出厂默认（Rust 侧仅保证整表缺省）
   app.settings.keybindings = { ...DEFAULT_SETTINGS.keybindings, ...(app.settings.keybindings ?? {}) };
@@ -296,7 +297,7 @@ export async function saveSettings(): Promise<void> {
     await invoke("set_settings", { settings: app.settings });
   } catch (e) {
     console.warn("设置保存失败", e);
-    toastFail("保存设置", e);
+    toastFail(t("settings.failSave"), e);
   }
 }
 
@@ -314,7 +315,7 @@ function applyEditorFontVar(): void {
 /** 字号生效后的统一收口：状态栏文案 + CSS 变量镜像。
  *  init（main.ts 建完编辑器）、Ctrl+滚轮缩放、设置保存三条路径都只调本函数，故镜像放这里一处全覆盖。 */
 export function applyFontStatus(): void {
-  statusFontEl.textContent = `字号 ${app.settings.font_size}`;
+  statusFontEl.textContent = t("settings.statusFontSize", { size: app.settings.font_size });
   applyEditorFontVar();
 }
 
@@ -413,7 +414,7 @@ function setKeybindingValue(input: HTMLInputElement, v: string): void {
  */
 function wireKeybindingCapture(input: HTMLInputElement): void {
   input.readOnly = true;
-  input.title = "点击后直接按下要使用的组合键；Backspace 清除（留空 = 解绑）";
+  input.title = t("settings.keybindTip");
   const committed = (): string => input.dataset.kbCommitted ?? input.value;
   const commit = (v: string): void => setKeybindingValue(input, v);
   input.addEventListener("focus", () => input.classList.add("kb-capture"));
@@ -489,10 +490,10 @@ function previewFontFamily(): void {
 
 /** 终端 shell 别名 → 展示名（与 index.html 初始下拉、termUi 菜单文案保持一致） */
 const TERMINAL_SHELL_LABELS: Record<string, string> = {
-  auto: "自动（PowerShell 优先，回退 cmd）",
+  auto: t("settings.shellAuto"),
   pwsh: "PowerShell 7（pwsh）",
   powershell: "Windows PowerShell",
-  cmd: "命令提示符（cmd）",
+  cmd: t("settings.shellCmd"),
 };
 
 /** 按后端探测结果重建「终端 Shell」下拉（auto 恒保留，其余仅列出可用项）并回填当前值。
@@ -738,7 +739,7 @@ async function saveSettingsPanel(): Promise<void> {
   applyOutputLevelSetting(outputEl);
   syncOutputLevelChips();
   await saveSettings();
-  toast("设置已保存", "success"); // tech-debt #19：即时操作结果统一轻提示
+  toast(t("settings.saved"), "success"); // tech-debt #19：即时操作结果统一轻提示
   // D-4：严重度映射保存后立即重查当前文件（波浪线级别即时生效，无需等下次编辑）
   void lintActiveFile();
   // 阶段 4：Pydantic 诊断开关即时生效（开→立扫，关→清空）
@@ -763,7 +764,7 @@ async function applyIntelToggle(enabled: boolean): Promise<void> {
       await lsp.startIntel(app.workspaceRoot, rootUri);
       for (const t of app.tabs) lsp.didOpen(t.path, t.model);
     } catch (e) {
-      toastFail("启动运行时智能层", e);
+      toastFail(t("settings.failStartIntel"), e);
     }
   } else {
     await lsp.stopIntel();
@@ -774,6 +775,53 @@ async function applyIntelToggle(enabled: boolean): Promise<void> {
 
 /** 接线设置面板交互（菜单栏齿轮 + 分类导航 + 面板内按钮 + 遮罩点击关闭） */
 export function wireSettingsPanel(): void {
+  // 语言切换：重建搜索关键词缓存 + 刷新状态栏字号文案；面板主体在下次打开时以新语言填充
+  onLocaleChange(() => {
+    SETTINGS_ROW_KEYWORDS = {
+      "settings-theme-picker": t("settings.kw.themePicker"),
+      "settings-font": t("settings.kw.font"),
+      "settings-font-family": t("settings.kw.fontFamily"),
+      "settings-font-family-preset": t("settings.kw.fontFamily"),
+      "settings-font-ligatures": t("settings.kw.ligatures"),
+      "settings-reduce-motion": t("settings.kw.reduceMotion"),
+      "settings-tab-size": t("settings.kw.tabSize"),
+      "settings-insert-spaces": t("settings.kw.insertSpaces"),
+      "settings-word-wrap": t("settings.kw.wordWrap"),
+      "settings-minimap": t("settings.kw.minimap"),
+      "settings-indent-guides": t("settings.kw.indentGuides"),
+      "settings-bracket-colors": t("settings.kw.bracketColors"),
+      "settings-debug-jmc": t("settings.kw.debugJmc"),
+      "settings-autosave": t("settings.kw.autosave"),
+      "settings-format-on-save": t("settings.kw.formatOnSave"),
+      "settings-optimize-imports-on-save": t("settings.kw.optimizeImports"),
+      "settings-ruff-severity-e": t("settings.kw.ruffSeverityE"),
+      "settings-ruff-severity-w": t("settings.kw.ruffSeverityW"),
+      "settings-ruff-severity-f": t("settings.kw.ruffSeverityF"),
+      "settings-engine": t("settings.kw.engine"),
+      "settings-probe": t("settings.kw.probe"),
+      "settings-intel": t("settings.kw.intel"),
+      "settings-pypi-index": t("settings.kw.pypiIndex"),
+      "settings-pypi-index-preset": t("settings.kw.pypiIndex"),
+      "settings-terminal-cwd": t("settings.kw.terminalCwd"),
+      "settings-terminal-shell": t("settings.kw.terminalShell"),
+      "settings-log-enabled": t("settings.kw.logEnabled"),
+      "settings-log-level": t("settings.kw.logLevel"),
+      "settings-log-keep": t("settings.kw.logKeep"),
+      "settings-log-stdout": t("settings.kw.logStdout"),
+      "settings-data-open": t("settings.kw.dataOpen"),
+      "settings-log-open": t("settings.kw.logOpen"),
+      "storage-open": t("settings.kw.storageOpen"),
+      "storage-refresh": t("settings.kw.storageRefresh"),
+      "storage-clean-webview": t("settings.kw.cleanWebview"),
+      "storage-clean-logs": t("settings.kw.cleanLogs"),
+      "storage-uv-prune": t("settings.kw.uvPrune"),
+      "storage-uv-clean": t("settings.kw.uvClean"),
+      "storage-migrate-path": t("settings.kw.migrate"),
+      "storage-migrate": t("settings.kw.migrate"),
+    };
+    applyFontStatus();
+  });
+
   renderKeybindingRows(); // 快捷键分区行一次性构建（值由 fillForm 填充）
   wireThemePicker(); // UI-26：主题预览色卡（卡片构建 + radiogroup 键盘导航；值由 fillForm 填充）
   // UI-24：窄窗口断点下分类导航转横排，aria-orientation 随之同步（先跑一次覆盖「启动即窄窗口」）
@@ -840,11 +888,11 @@ export function wireSettingsPanel(): void {
   });
   // 日志：打开日志目录（系统资源管理器）
   settingsLogOpenEl.addEventListener("click", () => {
-    invoke("open_log_dir").catch((e) => toastFail("打开日志目录", e));
+    invoke("open_log_dir").catch((e) => toastFail(t("settings.failOpenLogDir"), e));
   });
   // 数据：打开数据根目录（系统资源管理器）
   settingsDataOpenEl.addEventListener("click", () => {
-    invoke("open_data_dir").catch((e) => toastFail("打开数据目录", e));
+    invoke("open_data_dir").catch((e) => toastFail(t("settings.failOpenDataDir"), e));
   });
   // 存储：占用可视化 / 清理 / 迁移（storagePanel.ts）
   wireStoragePanel();

@@ -11,6 +11,7 @@ import { env } from "./env";
 import { filetree } from "./filetree";
 import { git } from "./git";
 import { run } from "./run";
+import { settings } from "./settings";
 import { storage } from "./storage";
 
-export const enUS: Record<TKey, string> = { ...core, ...git, ...debug, ...filetree, ...run, ...env, ...storage, ...dep };
+export const enUS: Record<TKey, string> = { ...core, ...git, ...debug, ...filetree, ...run, ...env, ...storage, ...dep, ...settings };
