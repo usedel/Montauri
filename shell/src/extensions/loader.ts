@@ -8,6 +8,9 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "../toast";
+import { errMsg } from "../util";
+import { t } from "../i18n"; // 第十五批 i18n：插件加载动态文案走语言包
+import { localizeBackendError } from "../i18n/backendError";
 import { registerDevTool, unregisterDevTool } from "../devtools/registry";
 import type { DevTool, ToolInstance } from "../devtools/types";
 import { createPanelHost, clearPluginStorage, type FacadeDeps, type InlineHost, type PanelHost } from "./facade";
@@ -136,7 +139,7 @@ function registerPluginTool(rec: PluginRecord, tc: PluginToolContribution, mod: 
     id: gid,
     title: tc.title,
     description: tc.description ?? "",
-    category: tc.category?.trim() || "其他",
+    category: tc.category?.trim() || t("ext.categoryOther"),
     icon: tc.icon || "symbol-extension",
     inlineLabel: tc.inline?.label ?? null,
     mount(host): ToolInstance | void {
@@ -163,33 +166,34 @@ function mountInlineDebugBench(host: PanelHost, tc: PluginToolContribution, mod:
 
   const hint = document.createElement("div");
   hint.className = "tool-label";
-  hint.textContent = `「选区变换」工具（入口：命令面板搜「${tc.inline?.label ?? tc.title}」，或编辑器选中文本后触发）。以下是调试台：`;
+  hint.textContent = t("ext.inlineHint", { label: tc.inline?.label ?? tc.title });
 
-  const input = kit.textarea({ placeholder: "粘贴或输入测试文本…", flex: true });
-  const out = kit.output({ placeholder: "变换结果" });
+  const input = kit.textarea({ placeholder: t("ext.testPlaceholder"), flex: true });
+  const out = kit.output({ placeholder: t("ext.resultPlaceholder") });
   const errEl = kit.errorSlot();
 
   const run = async (): Promise<void> => {
     const text = input.value;
     if (!text) {
-      errEl.textContent = "请先输入测试文本";
+      errEl.textContent = t("ext.needInput");
       return;
     }
     try {
       const fn = mod[tc.inline?.handler ?? ""];
-      if (typeof fn !== "function") throw new Error(`handler "${tc.inline?.handler}" 未导出`);
+      // 含 \" 转义引号的文案不走 apply_ts 映射（语言包转义链失真），手工取词
+      if (typeof fn !== "function") throw new Error(t("ext.handlerNotExported", { handler: tc.inline?.handler ?? "" }));
       // 注意：调试台传的是 PanelHost（含 kit/root）——比 inline 真实环境更宽松，
       // handler 不应依赖这些额外能力（真实 inline 只有无 UI 的 BaseHost）
       const result = await (fn as (t: string, h: PanelHost) => unknown)(text, host);
-      if (typeof result !== "string") throw new Error("handler 未返回字符串");
+      if (typeof result !== "string") throw new Error(t("ext.handlerNotString"));
       out.set(result);
       errEl.textContent = "";
     } catch (e) {
-      errEl.textContent = `变换失败：${e instanceof Error ? e.message : String(e)}`;
+      errEl.textContent = t("ext.transformFailed", { error: localizeBackendError(errMsg(e instanceof Error ? e.message : String(e))) });
     }
   };
 
-  const runBtn = kit.primaryButton("运行", "play", () => void run());
+  const runBtn = kit.primaryButton(t("ext.run"), "play", () => void run());
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) void run();
   });
@@ -264,7 +268,7 @@ export function registerBuiltinPlugin(manifest: PluginManifest, modules: Record<
   };
   records.set(manifest.id, rec);
   if (disabledNow) {
-    log(rec, "已按停用清单跳过注册（用户此前停用了内置插件）");
+    log(rec, t("ext.skippedDisabled"));
     refreshUi?.();
     return;
   }
@@ -279,7 +283,7 @@ export function registerBuiltinPlugin(manifest: PluginManifest, modules: Record<
     loadedModules.set(gid, mod);
     registerPluginTool(rec, tc, mod);
   }
-  log(rec, `内置插件已注册：${rec.toolIds.length} 工具`);
+  log(rec, t("ext.builtinRegistered", { count: rec.toolIds.length }));
   refreshUi?.();
 }
 
@@ -315,7 +319,7 @@ export async function scanPlugins(): Promise<void> {
     } catch (e) {
       upsertRecord(pluginId, d.dir_path, {
         id: pluginId, name: pluginId, version: "?", source: "global", dir: d.dir_path,
-        manifest: null, error: `manifest 读取失败：${e instanceof Error ? e.message : String(e)}`,
+        manifest: null, error: t("ext.manifestReadFailed", { error: localizeBackendError(errMsg(e instanceof Error ? e.message : String(e))) }),
       });
       continue;
     }
@@ -324,7 +328,7 @@ export async function scanPlugins(): Promise<void> {
     if (!check.ok) {
       upsertRecord(pluginId, d.dir_path, {
         id: pluginId, name: pluginId, version: "?", source: "global", dir: d.dir_path,
-        manifest: null, error: `manifest 校验失败：\n${check.errors.join("\n")}`,
+        manifest: null, error: `${t("ext.manifestCheckFailed")}\n${check.errors.join("\n")}`,
       });
       continue;
     }
@@ -333,7 +337,7 @@ export async function scanPlugins(): Promise<void> {
     if (manifest.id !== pluginId) {
       upsertRecord(pluginId, d.dir_path, {
         id: pluginId, name: manifest.name, version: manifest.version, source: "global", dir: d.dir_path,
-        manifest, error: `manifest.id "${manifest.id}" 与目录名 "${pluginId}" 不一致（约定目录名 = id）`,
+        manifest, error: t("ext.idDirMismatch", { id: manifest.id, dir: pluginId }),
       });
       continue;
     }
@@ -341,7 +345,7 @@ export async function scanPlugins(): Promise<void> {
     if (!checkEnginesCompatible(manifest.engines.opencharm, APP_VERSION)) {
       upsertRecord(pluginId, d.dir_path, {
         id: pluginId, name: manifest.name, version: manifest.version, source: "global", dir: d.dir_path,
-        manifest, error: `引擎不兼容：要求 ${manifest.engines.opencharm}，当前 ${APP_VERSION}`,
+        manifest, error: t("ext.engineIncompatible", { required: manifest.engines.opencharm, current: APP_VERSION }),
       });
       continue;
     }
@@ -398,11 +402,11 @@ async function loadPluginTools(pluginId: string, dir: string, manifest: PluginMa
   const tools = manifest.contributes?.tools ?? [];
   const rec: PluginRecord = upsertRecord(pluginId, dir, { id: pluginId, name: manifest.name, version: manifest.version, source: "global", dir, manifest });
   if (rec.toolIds.length > 0) {
-    log(rec, "检测到既有注册，先注销再重载（热重载/重新扫描）");
+    log(rec, t("ext.reregistering"));
     unregisterPlugin(rec);
     reloadSeq++; // 热重载发生（状态不变也要让变更检测感知）
   }
-  log(rec, `加载 ${tools.length} 个工具…`);
+  log(rec, t("ext.loadingTools", { count: tools.length }));
 
   // 先全部 import 成功，再统一注册（半加载 = 部分工具可见但插件标 error，难以排查）
   const loaded: Array<{ tc: PluginToolContribution; mod: ToolModule }> = [];
@@ -410,11 +414,11 @@ async function loadPluginTools(pluginId: string, dir: string, manifest: PluginMa
     try {
       const mod = await importToolModule(dir, tc.entry, pluginId, tc.id);
       if (typeof mod.mount !== "function" && !tc.inline) {
-        throw new Error(`工具 "${tc.id}" 既无 mount() 导出也未声明 inline（至少实现其一）`);
+        throw new Error(t("ext.noMount", { id: tc.id }));
       }
       loaded.push({ tc, mod });
     } catch (e) {
-      const msg = `工具 "${tc.id}" 加载失败：${e instanceof Error ? e.message : String(e)}`;
+      const msg = t("ext.toolLoadFailed", { id: tc.id, error: e instanceof Error ? e.message : String(e) });
       rec.status = "error";
       rec.error = msg;
       log(rec, msg);
@@ -438,7 +442,7 @@ async function loadPluginTools(pluginId: string, dir: string, manifest: PluginMa
   }
   rec.status = "active";
   rec.error = undefined;
-  log(rec, `已加载：${loaded.map((x) => x.tc.title).join("、")}`);
+  log(rec, t("ext.loaded", { list: loaded.map((x) => x.tc.title).join("、") }));
 }
 
 /** 记录 upsert 简化：必要时新建记录，否则更新元数据 + 可选覆盖 status/error */
@@ -485,7 +489,7 @@ export function schedulePluginRescan(): void {
     void scanPlugins().then(() => {
       // 快照含 reloadSeq（loadPluginTools 每次实际重载 +1）——
       // 热重载同版本重载时 id/status/toolIds 均不变，但不提示会让用户以为没生效
-      if (pluginStateSnapshot() !== before) toast("插件已重新加载", "success");
+      if (pluginStateSnapshot() !== before) toast(t("ext.reloaded"), "success");
     });
   }, 400);
 }
@@ -513,7 +517,7 @@ export async function disablePlugin(pluginId: string): Promise<void> {
   unregisterPlugin(rec);
   rec.status = "disabled";
   rec.toolIds = [];
-  log(rec, "已停用");
+  log(rec, t("ext.statusDisabled"));
   clearPluginStorage(pluginId);
   refreshUi?.();
 }

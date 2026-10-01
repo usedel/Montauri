@@ -9,7 +9,9 @@ import { debug } from "./debug";
 import { dep } from "./dep";
 import { devtools } from "./devtools";
 import { editor } from "./editor";
+import { endpoints } from "./endpoints";
 import { env } from "./env";
+import { ext } from "./ext";
 import { filetree } from "./filetree";
 import { git } from "./git";
 import { ide } from "./ide";
@@ -22,4 +24,4 @@ import { storage } from "./storage";
 import { welcome } from "./welcome";
 import { workbench } from "./workbench";
 
-export const enUS: Record<TKey, string> = { ...core, ...git, ...debug, ...filetree, ...run, ...env, ...storage, ...dep, ...settings, ...newproject, ...welcome, ...search, ...workbench, ...editor, ...ide, ...lt, ...devtools };
+export const enUS: Record<TKey, string> = { ...core, ...git, ...debug, ...filetree, ...run, ...env, ...storage, ...dep, ...settings, ...newproject, ...welcome, ...search, ...workbench, ...editor, ...ide, ...lt, ...devtools, ...ext, ...endpoints };

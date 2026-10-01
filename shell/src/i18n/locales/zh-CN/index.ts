@@ -8,7 +8,9 @@ import { debug } from "./debug";
 import { dep } from "./dep";
 import { devtools } from "./devtools";
 import { editor } from "./editor";
+import { endpoints } from "./endpoints";
 import { env } from "./env";
+import { ext } from "./ext";
 import { filetree } from "./filetree";
 import { git } from "./git";
 import { ide } from "./ide";
@@ -22,7 +24,7 @@ import { welcome } from "./welcome";
 import { workbench } from "./workbench";
 
 /** 全量中文词条（真源）：英文包的 Record<TKey, string> 以它为基准做同构校验。 */
-export const zhCN = { ...core, ...git, ...debug, ...filetree, ...run, ...env, ...storage, ...dep, ...settings, ...newproject, ...welcome, ...search, ...workbench, ...editor, ...ide, ...lt, ...devtools };
+export const zhCN = { ...core, ...git, ...debug, ...filetree, ...run, ...env, ...storage, ...dep, ...settings, ...newproject, ...welcome, ...search, ...workbench, ...editor, ...ide, ...lt, ...devtools, ...ext, ...endpoints };
 
 /** 全部文案 key：en-US 的 `Record<TKey, string>` 与 `t()` 的入参类型都从这里派生。 */
 export type TKey = keyof typeof zhCN;

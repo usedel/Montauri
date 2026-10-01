@@ -8,7 +8,9 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { app, $ } from "./state";
-import { basename, codicon, emptyState } from "./util";
+import { basename, codicon, emptyState, errMsg } from "./util";
+import { t } from "./i18n"; // 第十五批 i18n：端点视图动态文案走语言包
+import { localizeBackendError } from "./i18n/backendError";
 import { fullEndpointUrl } from "./frameworks";
 import { lastServiceBaseUrl } from "./termUi";
 import { toast, toastFail } from "./toast";
@@ -73,12 +75,12 @@ export function initEndpointView(): void {
     b.addEventListener("click", onClick);
     return b;
   };
-  const refresh = mkBtn("ep-refresh", "重新扫描", "refresh", () => void refreshEndpoints());
+  const refresh = mkBtn("ep-refresh", t("endpoints.rescan"), "refresh", () => void refreshEndpoints());
   // F4：FastAPI 自带的 Swagger UI 与 OpenAPI 规范（服务运行后可用；无 base 提示先运行）
-  const docs = mkBtn("ep-open-docs", "打开 /docs（Swagger UI，需服务运行中）", "book", () =>
+  const docs = mkBtn("ep-open-docs", t("endpoints.openDocs"), "book", () =>
     void openServicePath("/docs"),
   );
-  const openapi = mkBtn("ep-open-openapi", "打开 /openapi.json（需服务运行中）", "json", () =>
+  const openapi = mkBtn("ep-open-openapi", t("endpoints.openOpenapi"), "json", () =>
     void openServicePath("/openapi.json"),
   );
   toolbar.append(summary, openapi, docs, refresh);
@@ -94,13 +96,13 @@ export function initEndpointView(): void {
 async function openServicePath(path: string): Promise<void> {
   const url = fullEndpointUrl(lastServiceBaseUrl(), path);
   if (!url) {
-    toast("服务未运行：先运行项目，待控制台出现就绪行后可用", "info");
+    toast(t("endpoints.serviceNotRunning"), "info");
     return;
   }
   try {
     await invoke("open_external", { url });
   } catch (e) {
-    toastFail("打开浏览器", e);
+    toastFail(t("endpoints.failOpenBrowser"), e);
   }
 }
 
@@ -120,7 +122,7 @@ export async function refreshEndpoints(): Promise<void> {
   }
   const token = ++epToken;
   loading = true;
-  if (summary) summary.textContent = "扫描中…";
+  if (summary) summary.textContent = t("endpoints.scanning");
   if (list) list.textContent = "";
   let got: EndpointMatch[];
   try {
@@ -129,7 +131,7 @@ export async function refreshEndpoints(): Promise<void> {
     if (token !== epToken) return;
     results = [];
     loading = false;
-    renderEndpointPanel(`扫描失败：${e}`);
+    renderEndpointPanel(t("endpoints.scanFailed", { error: localizeBackendError(errMsg(e)) }));
     return;
   }
   if (token !== epToken) return; // 已有更新一轮的扫描，丢弃旧结果
@@ -153,29 +155,29 @@ export function renderEndpointPanel(error?: string): void {
   if (!list) return;
 
   if (summary) {
-    if (error) summary.textContent = "扫描失败";
-    else if (loading) summary.textContent = "扫描中…";
-    else if (results.length === 0) summary.textContent = "0 项";
-    else summary.textContent = `${results.length} 项`;
+    if (error) summary.textContent = t("endpoints.scanFailedShort");
+    else if (loading) summary.textContent = t("endpoints.scanning");
+    else if (results.length === 0) summary.textContent = t("endpoints.zeroItems");
+    else summary.textContent = t("endpoints.countItems", { count: results.length });
   }
 
   list.textContent = "";
   if (error) {
-    list.appendChild(emptyState("globe", "扫描失败", error, true));
+    list.appendChild(emptyState("globe", t("endpoints.scanFailedShort"), error, true));
     return;
   }
   if (loading) {
-    list.appendChild(emptyState("loading", "扫描中…", "正在遍历工作区文件", true));
+    list.appendChild(emptyState("loading", t("endpoints.scanning"), t("endpoints.scanningHint"), true));
     return;
   }
   if (!app.workspaceRoot) {
-    list.appendChild(emptyState("globe", "未打开工作区", "打开后此处列出 FastAPI / Flask 端点", true));
+    list.appendChild(emptyState("globe", t("endpoints.noWorkspace"), t("endpoints.noWorkspaceHint"), true));
     return;
   }
   if (results.length === 0) {
     // S4 空态教学：补一句这面板属于谁（FastAPI / Flask 项目），非 Python Web 用户不困惑
     list.appendChild(
-      emptyState("globe", "没有端点", "暂无 @app.get / @router.get / @app.route 声明（FastAPI / Flask 项目）", true),
+      emptyState("globe", t("endpoints.none"), t("endpoints.noneHint"), true),
     );
     return;
   }
@@ -231,16 +233,16 @@ function buildEndpointRow(m: EndpointMatch): HTMLElement {
   open.className = "ep-action";
   open.setAttribute("role", "button");
   open.tabIndex = 0;
-  open.setAttribute("aria-label", "在浏览器打开");
-  open.dataset.tip = "在浏览器打开（需服务运行中）";
+  open.setAttribute("aria-label", t("endpoints.openAria"));
+  open.dataset.tip = t("endpoints.openTip");
   open.appendChild(codicon("globe"));
   const openUrl = (): void => {
     const url = endpointUrl(m.route);
     if (!url) {
-      toast("服务未运行：先运行项目，待控制台出现就绪行后可用", "info");
+      toast(t("endpoints.serviceNotRunning"), "info");
       return;
     }
-    void invoke("open_external", { url }).catch((e) => toastFail("打开浏览器", e));
+    void invoke("open_external", { url }).catch((e) => toastFail(t("endpoints.failOpenBrowser"), e));
   };
   open.addEventListener("click", (ev) => {
     ev.stopPropagation();
@@ -258,18 +260,18 @@ function buildEndpointRow(m: EndpointMatch): HTMLElement {
   copy.className = "ep-action";
   copy.setAttribute("role", "button");
   copy.tabIndex = 0;
-  copy.setAttribute("aria-label", "复制完整 URL");
-  copy.dataset.tip = "复制完整 URL";
+  copy.setAttribute("aria-label", t("endpoints.copyUrlAria"));
+  copy.dataset.tip = t("endpoints.copyUrlAria");
   copy.appendChild(codicon("copy"));
   const copyUrl = (): void => {
     const url = endpointUrl(m.route);
     if (!url) {
-      toast("服务未运行：无法拼出完整 URL（可先复制路由）", "info");
+      toast(t("endpoints.noUrlHint"), "info");
       return;
     }
     void invoke("copy_to_clipboard", { text: url })
-      .then(() => toast("已复制：" + url, "success"))
-      .catch((e) => toastFail("复制", e));
+      .then(() => toast(t("endpoints.copiedPrefix") + url, "success"))
+      .catch((e) => toastFail(t("endpoints.failCopy"), e));
   };
   copy.addEventListener("click", (ev) => {
     ev.stopPropagation();
