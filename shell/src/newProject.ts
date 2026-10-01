@@ -4,7 +4,9 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { $, $btn, lazyEl, outputEl } from "./state";
-import { joinPath, parentDirOf, setBusy } from "./util";
+import { joinPath, parentDirOf, setBusy, errMsg } from "./util";
+import { t } from "./i18n"; // 第九批 i18n：新建项目域动态文案走语言包
+import { localizeBackendError } from "./i18n/backendError";
 import { appendOutputLine } from "./output";
 import { gotoFromLink } from "./tracebackLink";
 import { hideEl, showEl } from "./anim";
@@ -61,8 +63,8 @@ export interface ProjectTypeMeta {
 }
 
 const PROJECT_TYPES: Record<"script" | "fastapi", { label: string; deps: string[] }> = {
-  script: { label: "Python 脚本", deps: [] },
-  fastapi: { label: "FastAPI 服务", deps: ["fastapi", "uvicorn"] },
+  script: { label: t("newproject.type.script"), deps: [] },
+  fastapi: { label: t("newproject.type.fastapi"), deps: ["fastapi", "uvicorn"] },
 };
 
 export function projectTypeMeta(type: string): ProjectTypeMeta {
@@ -90,8 +92,8 @@ function updateNewProjectPreview(): void {
   }
   const meta = projectTypeMeta(newProjectTypeEl.value);
   const suffix =
-    meta.type === "script" ? "" : `（${meta.label} 入口 main.py + ${meta.deps.join(" / ")} 依赖）`;
-  newProjectPreviewEl.textContent = `将创建于：${target}${suffix}`;
+    meta.type === "script" ? "" : t("newproject.previewSuffix", { label: meta.label, deps: meta.deps.join(" / ") });
+  newProjectPreviewEl.textContent = t("newproject.previewPath", { target: target, suffix: suffix });
 }
 
 /** 打开新建项目面板（位置默认取最近工作区的父目录，便于就近创建） */
@@ -135,7 +137,7 @@ async function populateNewProjectVersions(): Promise<void> {
   newProjectVersionEl.textContent = "";
   const loading = document.createElement("option");
   loading.value = "";
-  loading.textContent = "加载版本列表中…";
+  loading.textContent = t("newproject.loadingVersions");
   newProjectVersionEl.appendChild(loading);
   let versions: PythonVersionOption[] = [];
   try {
@@ -146,12 +148,12 @@ async function populateNewProjectVersions(): Promise<void> {
   newProjectVersionEl.textContent = "";
   const defOpt = document.createElement("option");
   defOpt.value = "";
-  defOpt.textContent = "（默认版本）";
+  defOpt.textContent = t("newproject.versions.default");
   newProjectVersionEl.appendChild(defOpt);
   for (const v of versions) {
     const opt = document.createElement("option");
     opt.value = v.spec;
-    opt.textContent = v.installed ? v.version : `${v.version}（需下载）`;
+    opt.textContent = v.installed ? v.version : t("newproject.versions.needDownload", { version: v.version });
     newProjectVersionEl.appendChild(opt);
   }
 }
@@ -167,7 +169,7 @@ async function createProject(): Promise<void> {
   const name = newProjectNameEl.value.trim();
   const parent = newProjectLocationEl.value.trim();
   if (!name || !parent) {
-    newProjectPreviewEl.textContent = "请填写项目名称和位置";
+    newProjectPreviewEl.textContent = t("newproject.needNameAndPath");
     return;
   }
   const wantGit = newProjectGitEl.checked;
@@ -175,7 +177,7 @@ async function createProject(): Promise<void> {
   const version = newProjectVersionEl.value; // venv 时为版本 spec，其余为空
   const meta = projectTypeMeta(newProjectTypeEl.value); // F9：项目类型
   const createBtn = $btn("new-project-create");
-  setBusy(createBtn, true, "创建中…");
+  setBusy(createBtn, true, t("newproject.creating"));
 
   let result: CreateProjectResult;
   try {
@@ -187,12 +189,12 @@ async function createProject(): Promise<void> {
       projectType: meta.type, // F9：script / fastapi
     });
   } catch (e) {
-    newProjectPreviewEl.textContent = `创建失败：${e}`;
+    newProjectPreviewEl.textContent = t("newproject.createFailed", { error: localizeBackendError(errMsg(e)) });
     setBusy(createBtn, false);
     return;
   }
   if (!result.git_ok) {
-    appendOutputLine(outputEl, `git init 失败（项目已创建）：${result.git_message}`, "stderr", gotoFromLink, "env");
+    appendOutputLine(outputEl, t("newproject.gitInitFailed", { message: result.git_message }), "stderr", gotoFromLink, "env");
     toastFail("git init", result.git_message);
   }
   // P2（建议 1）：回显 pyproject.toml 的生成路径（uv 脚手架 / 模板回退），让“裸目录 uv run 语义不明”可见地收敛
@@ -205,7 +207,7 @@ async function createProject(): Promise<void> {
   try {
     if (envType === "venv") {
       appendOutputLine(outputEl, `> uv venv .venv${version ? " --python " + version : ""}  (${result.path})`, "cmd", gotoFromLink, "env");
-      setBusy(createBtn, true, "创建环境…");
+      setBusy(createBtn, true, t("newproject.creatingEnv"));
       const r = await invoke<CreateVenvResult>("create_venv", { workspaceRoot: result.path, version });
       if (r.output) appendOutputLine(outputEl, r.output, "stdout", gotoFromLink, "env");
       if (r.python) await invoke("set_interpreter", { workspaceRoot: result.path, path: r.python }).catch(console.error);
@@ -213,23 +215,24 @@ async function createProject(): Promise<void> {
       const interp = await invoke<string | null>("pick_default_system_interpreter");
       if (interp) {
         await invoke("set_interpreter", { workspaceRoot: result.path, path: interp }).catch(console.error);
-        toast(`已选用系统解释器：${interp}`, "info");
+        toast(t("newproject.systemInterpreter", { interp: interp }), "info");
       } else {
         // P1（建议 4）：未检测到解释器时给出可执行引导（长指导走 openAlert 对话框，非输出面板 stderr）
         void openAlert({
-          title: "未检测到 Python 解释器",
+          title: t("newproject.noInterpTitle"),
           message:
-            "可任选其一：\n\n" +
-            "1) 用 uv 安装托管 Python（环境面板或终端执行：uv python install 3.13）\n" +
-            "2) 手动指定已安装的 python 可执行文件路径（环境面板 → 解释器）\n\n" +
-            "在完成前将使用 uv run 兜底运行（首次运行可能联网下载 Python）。",
-          okLabel: "知道了",
+            // 引导语多段拼装（含 \n\n 不走 apply_ts 映射，避免语言包转义链失真），按段取词
+            `${t("newproject.noInterpHead")}\n\n` +
+            `${t("newproject.noInterpStep1")}\n` +
+            `${t("newproject.noInterpStep2")}\n\n` +
+            t("newproject.noInterpFallback"),
+          okLabel: t("newproject.gotIt"),
         });
       }
     }
   } catch (e) {
-    appendOutputLine(outputEl, `环境配置失败：${e}`, "stderr", gotoFromLink, "env");
-    toastFail("环境配置", e);
+    appendOutputLine(outputEl, t("newproject.envSetupFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "env");
+    toastFail(t("newproject.failEnvSetup"), e);
   }
 
   // F9：依赖安装（best-effort，不阻断）——声明已由 create_project 写入 pyproject.toml，
@@ -238,7 +241,7 @@ async function createProject(): Promise<void> {
   // 成功不加 toast（流式输出 + 面板关闭即完成信号，与 script 路径的克制一致）。
   if (meta.deps.length > 0) {
     const spec = meta.deps.join(" ");
-    setBusy(createBtn, true, "安装依赖…");
+    setBusy(createBtn, true, t("newproject.installingDeps"));
     appendOutputLine(outputEl, `> uv add ${spec}  (${result.path})`, "cmd", gotoFromLink, "env");
     try {
       const code = await invoke<number>("pip_install", {
@@ -247,19 +250,19 @@ async function createProject(): Promise<void> {
         spec,
       });
       if (code !== 0) {
-        const msg = `依赖安装失败（exit ${code}），详见上方输出；声明已写入 pyproject.toml，可稍后运行项目由 uv 自动同步`;
+        const msg = t("newproject.depsExitFailed", { code: code });
         appendOutputLine(outputEl, msg, "stderr", gotoFromLink, "env");
-        toastFail("依赖安装", `exit ${code}（声明已写入，不阻断）`);
+        toastFail(t("newproject.failDeps"), t("newproject.depsExitNote", { code: code }));
       }
     } catch (e) {
       appendOutputLine(
         outputEl,
-        `依赖安装失败（声明已写入 pyproject.toml，不阻断）：${e}，可稍后运行项目由 uv 自动同步`,
+        t("newproject.depsFailedNonBlocking", { error: localizeBackendError(errMsg(e)) }),
         "stderr",
         gotoFromLink,
         "env",
       );
-      toastFail("依赖安装", e);
+      toastFail(t("newproject.failDeps"), e);
     }
   }
 

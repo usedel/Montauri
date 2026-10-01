@@ -10,8 +10,10 @@ import { dep } from "./dep";
 import { env } from "./env";
 import { filetree } from "./filetree";
 import { git } from "./git";
+import { newproject } from "./newproject";
 import { run } from "./run";
 import { settings } from "./settings";
 import { storage } from "./storage";
+import { welcome } from "./welcome";
 
-export const enUS: Record<TKey, string> = { ...core, ...git, ...debug, ...filetree, ...run, ...env, ...storage, ...dep, ...settings };
+export const enUS: Record<TKey, string> = { ...core, ...git, ...debug, ...filetree, ...run, ...env, ...storage, ...dep, ...settings, ...newproject, ...welcome };
