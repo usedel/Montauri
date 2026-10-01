@@ -90,32 +90,66 @@ def apply_file(path: Path, mapping: dict, ns: str, dry: bool) -> tuple[str, dict
     return src, dict(sorted(entries.items())), missed, hits  # type: ignore[return-value]
 
 
+def parse_args(argv: list[str]) -> tuple[list[Path], str, Path | None, bool, str]:
+    """解析多源文件参数；选项值不能被误识别成第二个源文件。"""
+    paths: list[Path] = []
+    ns = "app"
+    map_path: Path | None = None
+    out = "data/app_zh.json"
+    dry = False
+    i = 0
+    while i < len(argv):
+        arg = argv[i]
+        if arg == "--dry":
+            dry = True
+        elif arg == "--ns":
+            i += 1
+            ns = argv[i]
+        elif arg == "--map":
+            i += 1
+            map_path = Path(argv[i])
+        elif arg == "--out":
+            i += 1
+            out = argv[i]
+        elif not arg.startswith("-"):
+            paths.append(Path(arg))
+        i += 1
+    if out == "data/app_zh.json":
+        out = f"data/{ns}_zh.json"
+    return paths, ns, map_path, dry, out
+
+
 def main() -> int:
-    argv = sys.argv[1:]
-    positional = [a for a in argv if not a.startswith("-")]
-    if not positional:
+    paths, ns, map_path, dry, out = parse_args(sys.argv[1:])
+    if not paths:
         print(__doc__)
         return 2
-    src_path = Path(positional[0])
-    ns = argv[argv.index("--ns") + 1] if "--ns" in argv else "app"
-    map_path = Path(argv[argv.index("--map") + 1]) if "--map" in argv else None
-    dry = "--dry" in argv
-    out = argv[argv.index("--out") + 1] if "--out" in argv else f"data/{ns}_zh.json"
 
     mapping = json.loads(map_path.read_text(encoding="utf-8")) if map_path else {}
-    src, entries, missed, hits = apply_file(src_path, mapping, ns, dry)
+    all_entries: dict[str, str] = {}
+    all_missed: list[str] = []
+    total_hits = 0
+    results: list[tuple[Path, str]] = []
+    for src_path in paths:
+        src, entries, missed, hits = apply_file(src_path, mapping, ns, dry)
+        results.append((src_path, src))
+        all_entries.update(entries)
+        all_missed.extend(missed)
+        total_hits += hits
+        print(f"{src_path}: 命中 {hits} 处 → {len(entries)} 条词条")
 
-    print(f"命中 {hits} 处 → {len(entries)} 条词条")
-    uniq_missed = sorted(set(missed))
+    print(f"合计命中 {total_hits} 处 → {len(all_entries)} 条词条")
+    uniq_missed = sorted(set(all_missed))
     if uniq_missed:
         print(f"未命中 {len(uniq_missed)} 条模板（需补映射或本就不该翻）：")
         for t in uniq_missed:
             print(f"   - {t[:90]}")
     if not dry:
-        src_path.write_text(src, encoding="utf-8")
+        for src_path, src in results:
+            src_path.write_text(src, encoding="utf-8")
         out_path = Path(__file__).parent / out
-        out_path.write_text(json.dumps(entries, ensure_ascii=False, indent=2), encoding="utf-8")
-        print(f"→ 改写 {src_path}；词条 → {out_path}")
+        out_path.write_text(json.dumps(dict(sorted(all_entries.items())), ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"→ 改写 {len(results)} 个源文件；词条 → {out_path}")
     return 0
 
 

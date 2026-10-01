@@ -16,6 +16,7 @@ import { clearWatchesValues, initWatchesPanel, refreshWatches } from "./debugWat
 import { $ } from "./state";
 import { codicon, basename, emptyState, spinIcon } from "./util"; // UI-12：空态改用统一组件
 import { toastFail } from "./toast";
+import { onLocaleChange, t, type TFuncKey } from "./i18n";
 // UI-09：工具栏提示的快捷键副文本改为读键位系统（原先把 "(F5)" 等硬编码进提示文本，
 // 用户在设置里改键后提示就是错的）。keybindings 仅依赖 state，此处导入不成环。
 import { bindingLabel, type KeybindingId } from "./keybindings";
@@ -74,6 +75,8 @@ export function currentFrameId(): number | null {
 
 /** 记录「依赖清单命中 debugpy」的一次性提示是否已发（§3.5：输出面板一次性提示） */
 let depNoticeShown = false;
+/** 初始化只允许一次：语言切换只刷新已有 DOM，不能再次清空侧栏或重复接入 Watches。 */
+let debugViewInitialized = false;
 
 export function notifyDepFound(files: string[]): void {
   if (depNoticeShown || files.length === 0) return;
@@ -86,13 +89,13 @@ export function notifyDepFound(files: string[]): void {
 
 /** 工具栏提示元数据：base 文案 + 可选键位 id。
  *  「继续」复用键位 `debug`（其语义即「启动调试 / 继续」，与工具栏同一动作）；「暂停」无快捷键。 */
-const TOOLBAR_TIPS: Record<string, { tip: string; kbId: KeybindingId | null }> = {
-  "debug-continue": { tip: "继续", kbId: "debug" },
-  "debug-pause": { tip: "暂停", kbId: null },
-  "debug-step-over": { tip: "单步跳过", kbId: "debug_step_over" },
-  "debug-step-into": { tip: "单步进入", kbId: "debug_step_into" },
-  "debug-step-out": { tip: "单步退出", kbId: "debug_step_out" },
-  "debug-stop": { tip: "停止调试", kbId: "debug_stop" },
+const TOOLBAR_TIPS: Record<string, { key: TFuncKey; kbId: KeybindingId | null }> = {
+  "debug-continue": { key: "debug.toolbar.continue", kbId: "debug" },
+  "debug-pause": { key: "debug.toolbar.pause", kbId: null },
+  "debug-step-over": { key: "debug.toolbar.stepOver", kbId: "debug_step_over" },
+  "debug-step-into": { key: "debug.toolbar.stepInto", kbId: "debug_step_into" },
+  "debug-step-out": { key: "debug.toolbar.stepOut", kbId: "debug_step_out" },
+  "debug-stop": { key: "debug.toolbar.stop", kbId: "debug_stop" },
 };
 
 /** 写入 tooltip 文案 + kbd 副文本 + aria-label（每次渲染工具栏都刷新，故改键后下次渲染即生效） */
@@ -100,11 +103,12 @@ function applyToolbarTip(btn: HTMLElement, id: string): void {
   const meta = TOOLBAR_TIPS[id];
   if (!meta) return;
   const key = meta.kbId ? bindingLabel(meta.kbId) : "";
-  btn.dataset.tip = meta.tip;
+  const tip = t(meta.key);
+  btn.dataset.tip = tip;
   // 副文本为空时删除属性：tooltip.ts 以 `if (key)` 判断，残留空串会渲染出空 kbd 框
   if (key) btn.dataset.tipKey = key;
   else delete btn.dataset.tipKey;
-  btn.setAttribute("aria-label", key ? `${meta.tip} ${key}` : meta.tip);
+  btn.setAttribute("aria-label", key ? `${tip} ${key}` : tip);
 }
 
 function toolbarButton(id: string, icon: string, onClick: () => void): HTMLButtonElement {
@@ -129,6 +133,8 @@ function toolbarButton(id: string, icon: string, onClick: () => void): HTMLButto
 
 /** 初始化调试侧栏 DOM（init 时一次性构建；#view-debug 容器已在 index.html 声明） */
 export function initDebugView(): void {
+  if (debugViewInitialized) return;
+  debugViewInitialized = true;
   const root = $("view-debug");
   root.textContent = "";
 
@@ -150,13 +156,17 @@ export function initDebugView(): void {
   startingHint.id = "debug-starting-hint";
   startingHint.className = "debug-starting-hint hidden";
   startingHint.appendChild(spinIcon());
-  startingHint.appendChild(document.createTextNode("调试器启动中…（首次启动需加载 debugpy，请稍候）"));
+  const startingText = document.createElement("span");
+  startingText.id = "debug-starting-text";
+  startingText.textContent = t("debug.status.starting");
+  startingHint.appendChild(startingText);
   root.appendChild(startingHint);
 
   // 调用栈
   const stackHeader = document.createElement("div");
+  stackHeader.id = "debug-stack-header";
   stackHeader.className = "debug-section-header";
-  stackHeader.textContent = "调用栈";
+  stackHeader.textContent = t("debug.section.callStack");
   const stack = document.createElement("div");
   stack.id = "debug-stack";
   root.appendChild(stackHeader);
@@ -170,24 +180,27 @@ export function initDebugView(): void {
 
   // 变量（P2-11：树形展开——容器走 tree 语义，行 treeitem / 子级 group）
   const varsHeader = document.createElement("div");
+  varsHeader.id = "debug-vars-header";
   varsHeader.className = "debug-section-header";
-  varsHeader.textContent = "变量";
+  varsHeader.textContent = t("debug.section.variables");
   const vars = document.createElement("div");
   vars.id = "debug-vars";
   vars.setAttribute("role", "tree");
-  vars.setAttribute("aria-label", "变量");
+  vars.setAttribute("aria-label", t("debug.section.variables"));
   root.appendChild(varsHeader);
   root.appendChild(vars);
 
   // 断点列表
   const bpHeader = document.createElement("div");
+  bpHeader.id = "debug-breakpoints-header";
   bpHeader.className = "debug-section-header";
-  bpHeader.textContent = "断点";
+  bpHeader.textContent = t("debug.section.breakpoints");
   const bps = document.createElement("div");
   bps.id = "debug-breakpoints";
   root.appendChild(bpHeader);
   root.appendChild(bps);
 
+  onLocaleChange(refreshDebugViewI18n);
   renderDebugView();
 }
 
@@ -197,6 +210,44 @@ export function renderDebugView(): void {
   renderStack();
   renderVars();
   renderBreakpoints();
+}
+
+/** 语言切换刷新：只重绘可安全重建的面板，变量树保留已有值、展开状态和节点身份。 */
+function refreshDebugViewI18n(): void {
+  document.getElementById("debug-starting-text")!.textContent = t("debug.status.starting");
+  document.getElementById("debug-stack-header")!.textContent = t("debug.section.callStack");
+  document.getElementById("debug-vars-header")!.textContent = t("debug.section.variables");
+  document.getElementById("debug-breakpoints-header")!.textContent = t("debug.section.breakpoints");
+  document.getElementById("debug-vars")?.setAttribute("aria-label", t("debug.section.variables"));
+  renderToolbar();
+  renderStack();
+  renderBreakpoints();
+  if (dap.currentPhase() !== "stopped") renderVars();
+  else refreshVariableTreeI18n();
+}
+
+function refreshVariableTreeI18n(): void {
+  const vars = $soft("debug-vars");
+  if (!vars) return;
+  const empty = vars.querySelector<HTMLElement>(".empty-state");
+  if (empty) {
+    empty.querySelector<HTMLElement>(".empty-title")!.textContent = t("debug.variables.noLocals");
+    empty.querySelector<HTMLElement>(".empty-description")!.textContent = t("debug.variables.noLocalsHint");
+  }
+  for (const row of Array.from(vars.querySelectorAll<HTMLElement>("[data-debug-var-row]"))) {
+    const value = row.querySelector<HTMLElement>(".debug-var-value");
+    if (!value) continue;
+    const name = row.dataset.varName ?? "";
+    const current = row.dataset.varValue ?? value.title;
+    value.dataset.tip = t("debug.variable.editTip");
+    value.setAttribute("aria-label", t("debug.variable.editAria", { name, value: current }));
+  }
+  for (const el of Array.from(vars.querySelectorAll<HTMLElement>("[data-debug-var-empty]"))) {
+    const kind = el.dataset.debugVarEmpty;
+    if (kind === "depth") el.textContent = t("debug.variable.depthLimit", { depth: MAX_VAR_DEPTH });
+    else if (kind === "empty") el.textContent = t("debug.variable.empty");
+    else if (kind === "childrenFailed") el.textContent = t("debug.variable.childrenFailed");
+  }
 }
 
 function renderToolbar(): void {
@@ -240,18 +291,18 @@ function renderStack(): void {
     // 顺带修掉两个文案缺陷：① phase==="stopped" 但无栈帧时，原先塞的是 textContent="" 的空 div，
     // 用户看到彻底空白、无从判断是异常还是正常；② 「未在调试」原先不给任何下一步指引。
     if (phase === "stopped") {
-      el.appendChild(emptyState("debug-alt", "无调用栈信息", "调试适配器未返回栈帧", true));
+      el.appendChild(emptyState("debug-alt", t("debug.stack.noInfo"), t("debug.stack.noFramesHint"), true));
     } else if (phase === "idle") {
       // 快捷键读键位系统而非硬编码 F5（同 UI-09 对工具栏提示的处理），改键后文案不会失真
       const key = bindingLabel("debug");
       el.appendChild(emptyState(
         "debug-alt",
-        "未在调试",
-        key ? `按 ${key} 启动调试，命中断点后此处显示调用栈` : "启动调试并命中断点后，此处显示调用栈",
+        t("debug.stack.notDebugging"),
+        key ? t("debug.stack.notDebuggingHint", { shortcut: key }) : t("debug.stack.notDebuggingNoShortcut"),
         true,
       ));
     } else {
-      el.appendChild(emptyState("debug-alt", "运行中…", "命中断点后此处显示调用栈", true));
+      el.appendChild(emptyState("debug-alt", t("debug.stack.running"), t("debug.stack.runningHint"), true));
     }
     return;
   }
@@ -302,8 +353,8 @@ function renderVars(): void {
     // 改为明确说明变量的可见条件，与调用栈面板的空态语言保持一致。
     el.appendChild(emptyState(
       "debug-alt",
-      phase === "idle" ? "未在调试" : "运行中…",
-      "变量仅在命中断点暂停时可见",
+      phase === "idle" ? t("debug.stack.notDebugging") : t("debug.stack.running"),
+      t("debug.variables.notStopped"),
       true,
     ));
     return;
@@ -313,11 +364,11 @@ function renderVars(): void {
 /** 断点摘要文本（侧栏窄区显示，过长截短）：条件 / 命中次数 / 日志消息，按此优先级取一条 */
 function breakpointDetail(bp: DapSourceBreakpoint): string {
   const raw = bp.logMessage
-    ? `{日志} ${bp.logMessage}`
+    ? t("debug.breakpoint.logDetail", { message: bp.logMessage })
     : bp.condition
-      ? `{条件} ${bp.condition}`
+      ? t("debug.breakpoint.conditionDetail", { condition: bp.condition })
       : bp.hitCondition
-        ? `{命中} ${bp.hitCondition}`
+        ? t("debug.breakpoint.hitDetail", { condition: bp.hitCondition })
         : "";
   return raw.length > 40 ? `${raw.slice(0, 39)}…` : raw;
 }
@@ -330,12 +381,12 @@ function renderBreakpoints(): void {
   // B-2：异常断点开关（不依赖普通断点是否存在，常驻断点面板顶部）
   const excHeader = document.createElement("div");
   excHeader.className = "debug-section-header";
-  excHeader.textContent = "异常断点";
+  excHeader.textContent = t("debug.breakpoint.exceptionHeader");
   el.appendChild(excHeader);
   const filters = dap.getExceptionFilters();
   for (const opt of [
-    { id: "uncaught", label: "未捕获异常时暂停（推荐常开）" },
-    { id: "raised", label: "任何异常抛出时暂停（更吵）" },
+    { id: "uncaught", label: t("debug.breakpoint.uncaught") },
+    { id: "raised", label: t("debug.breakpoint.raised") },
   ]) {
     const row = document.createElement("div");
     row.className = "debug-exc-row";
@@ -352,7 +403,7 @@ function renderBreakpoints(): void {
         (e) => {
           // G-3：下发失败回滚勾选态并提示——否则 UI 已勾选、debugger 实际未生效
           chk.checked = !chk.checked;
-          toastFail("异常断点设置", e);
+          toastFail(t("debug.breakpoint.settingFailed"), e);
         },
       );
     });
@@ -365,7 +416,7 @@ function renderBreakpoints(): void {
 
   const bpHeader = document.createElement("div");
   bpHeader.className = "debug-section-header";
-  bpHeader.textContent = "断点";
+  bpHeader.textContent = t("debug.section.breakpoints");
   el.appendChild(bpHeader);
 
   const files = breakpointFiles();
@@ -373,7 +424,7 @@ function renderBreakpoints(): void {
   if (entries.length === 0) {
     // UI-12：改用统一 emptyState()。原文案把「标题 + 操作指引」挤在一行的括号里，
     // 拆成标题与说明两层后更易扫读；图标用 debug-breakpoint，与编辑器 gutter 里的断点图形呼应。
-    el.appendChild(emptyState("debug-breakpoint", "无断点", "点击编辑器行号左侧的空白处添加", true));
+    el.appendChild(emptyState("debug-breakpoint", t("debug.breakpoint.none"), t("debug.breakpoint.noneHint"), true));
     return;
   }
   for (const [path, bps] of entries) {
@@ -387,8 +438,8 @@ function renderBreakpoints(): void {
       const chk = document.createElement("input");
       chk.type = "checkbox";
       chk.checked = enabled;
-      chk.title = enabled ? "已启用（取消勾选即禁用）" : "已禁用（勾选即启用）";
-      chk.setAttribute("aria-label", `启用断点 ${basename(path)}:${line}`);
+      chk.title = enabled ? t("debug.breakpoint.enabled") : t("debug.breakpoint.disabled");
+      chk.setAttribute("aria-label", t("debug.breakpoint.enableAria", { file: basename(path), line: line }));
       chk.addEventListener("change", () => {
         setBreakpointEnabled(path, line, chk.checked);
         handlers?.refreshGutter();
@@ -401,7 +452,7 @@ function renderBreakpoints(): void {
       const label = document.createElement("span");
       label.className = "debug-bp-label";
       label.textContent = `${basename(path)}:${line}`;
-      // UI-16：可点击 span 补 button 语义 + 键盘激活（行文本 `文件:行号` 即可访问名称）
+      // UI-16：可点击 span 补 button 语义 + 键盘激活（行文本 t("debug.breakpoint.fileLineHint") 即可访问名称）
       label.setAttribute("role", "button");
       label.tabIndex = 0;
       label.addEventListener("click", () => handlers?.openFile(path, line));
@@ -426,10 +477,10 @@ function renderBreakpoints(): void {
       del.className = "debug-bp-del";
       // UI-09：同 .term-tab-close，span 结构下只统一视觉轨，role/键盘可达性归 UI-16
       // UI-16：已补齐——role=button + aria-label（icon-only，无文本可作名称）+ tabindex + Enter/Space
-      del.dataset.tip = "删除断点";
+      del.dataset.tip = t("debug.breakpoint.delete");
       del.appendChild(codicon("close"));
       del.setAttribute("role", "button");
-      del.setAttribute("aria-label", `删除断点 ${basename(path)}:${line}`);
+      del.setAttribute("aria-label", t("debug.breakpoint.deleteAria", { file: basename(path), line: line }));
       del.tabIndex = 0;
       const removeBp = (): void => {
         // 删除单行断点（removeBreakpoint 内部完成同步；其余行的高级属性不受影响）
@@ -548,7 +599,7 @@ async function refreshVariables(): Promise<void> {
     // 空局部帧（如停在函数首行、局部变量尚未赋值）也要给空态提示，而非留白——
     // 真机实测（CDP 验收 R-REAL）：pydevd 此时返回 {"variables":[]}，此前面板空白无任何解释。
     if (activeVars.length === 0) {
-      el.appendChild(emptyState("debug-alt", "无局部变量", "此帧尚未创建局部变量", true));
+      el.appendChild(emptyState("debug-alt", t("debug.variables.noLocals"), t("debug.variables.noLocalsHint"), true));
       return;
     }
     // P2-11（UX 审查）：树形渲染——variablesReference>0 的行可展开，懒加载子级（递归）
@@ -586,6 +637,9 @@ function renderVarRow(container: HTMLElement, v: DapVariable, parentRef: number,
   const expandable = v.variablesReference > 0;
   const row = document.createElement("div");
   row.className = "debug-var-row";
+  row.dataset.debugVarRow = "true";
+  row.dataset.varName = v.name;
+  row.dataset.varValue = v.value;
   row.style.paddingLeft = varPad(depth);
   if (expandable) {
     row.setAttribute("role", "treeitem");
@@ -611,9 +665,9 @@ function renderVarRow(container: HTMLElement, v: DapVariable, parentRef: number,
   value.title = v.value;
   // P2：Set Value——点击值即可改写（PyCharm 同款交互）。
   // 嵌套项的容器是父变量自身的 variablesReference（debugpy 的 setVariable 需要「容器 + 名字」）。
-  value.dataset.tip = "点击修改此变量的值";
+  value.dataset.tip = t("debug.variable.editTip");
   value.setAttribute("role", "button");
-  value.setAttribute("aria-label", `修改 ${v.name} 的值（当前：${v.value}）`);
+  value.setAttribute("aria-label", t("debug.variable.editAria", { name: v.name, value: v.value }));
   value.tabIndex = 0;
   const edit = (ev: Event): void => {
     ev.stopPropagation(); // 值点击 = 改值，不触发行的展开/折叠
@@ -690,8 +744,9 @@ async function loadChildren(group: HTMLElement, ref: number, depth: number, toke
   if (depth >= MAX_VAR_DEPTH) {
     const cap = document.createElement("div");
     cap.className = "debug-var-row debug-var-empty";
+    cap.dataset.debugVarEmpty = "depth";
     cap.style.paddingLeft = varPad(depth + 1);
-    cap.textContent = `（已展开到第 ${MAX_VAR_DEPTH} 层，折叠上级后可继续查看更深层级）`;
+    cap.textContent = t("debug.variable.depthLimit", { depth: MAX_VAR_DEPTH });
     group.appendChild(cap);
     return;
   }
@@ -702,8 +757,9 @@ async function loadChildren(group: HTMLElement, ref: number, depth: number, toke
     if (children.length === 0) {
       const empty = document.createElement("div");
       empty.className = "debug-var-row debug-var-empty";
+      empty.dataset.debugVarEmpty = "empty";
       empty.style.paddingLeft = varPad(depth + 1);
-      empty.textContent = "（空）";
+      empty.textContent = t("debug.variable.empty");
       group.appendChild(empty);
       return;
     }
@@ -714,8 +770,9 @@ async function loadChildren(group: HTMLElement, ref: number, depth: number, toke
     group.textContent = "";
     const row = document.createElement("div");
     row.className = "debug-var-row debug-var-empty";
+    row.dataset.debugVarEmpty = "childrenFailed";
     row.style.paddingLeft = varPad(depth + 1);
-    row.textContent = "（子变量加载失败，点击折叠后重试）";
+    row.textContent = t("debug.variable.childrenFailed");
     group.appendChild(row);
   }
 }
@@ -724,10 +781,10 @@ async function loadChildren(group: HTMLElement, ref: number, depth: number, toke
 async function setValue(name: string, current: string, parentRef: number): Promise<void> {
   if (dap.currentPhase() !== "stopped" || activeScopeRef === 0 || parentRef === 0) return;
   const next = await openPrompt({
-    title: `修改变量 ${name}`,
-    label: "新值（Python 表达式，在断点上下文中求值）",
+    title: t("debug.variable.editTitle", { name: name }),
+    label: t("debug.variable.editLabel"),
     value: current,
-    okLabel: "设置",
+    okLabel: t("debug.variable.set"),
   });
   if (next === null || next === current) return; // 取消 / 未改动
   try {
@@ -735,7 +792,7 @@ async function setValue(name: string, current: string, parentRef: number): Promi
     await refreshVariables(); // expandedRefs 保留：已展开的子树按新值重建
   } catch (e) {
     console.warn("[debugView] setVariable 失败:", e);
-    toastFail("修改变量", e);
+    toastFail(t("debug.variable.updateFailed"), e);
   }
 }
 
@@ -773,7 +830,7 @@ async function onContinue(): Promise<void> {
     await dap.dapContinue(activeThreadId);
   } catch (e) {
     console.warn("[debugView] continue 失败:", e);
-    toastFail("继续执行", e);
+    toastFail(t("debug.action.continue"), e);
   }
 }
 
@@ -782,7 +839,7 @@ async function onPause(): Promise<void> {
     await dap.request("pause", { threadId: activeThreadId });
   } catch (e) {
     console.warn("[debugView] pause 失败:", e);
-    toastFail("暂停", e);
+    toastFail(t("debug.toolbar.pause"), e);
   }
 }
 
@@ -793,6 +850,6 @@ async function onStep(kind: "next" | "stepIn" | "stepOut"): Promise<void> {
     else await dap.dapStepOut(activeThreadId);
   } catch (e) {
     console.warn(`[debugView] ${kind} 失败:`, e);
-    toastFail(kind === "next" ? "单步跳过" : kind === "stepIn" ? "单步进入" : "单步跳出", e);
+    toastFail(kind === "next" ? t("debug.toolbar.stepOver") : kind === "stepIn" ? t("debug.toolbar.stepInto") : t("debug.action.stepOut"), e);
   }
 }

@@ -5,6 +5,7 @@
 // 两边 index.ts 要同步改。
 import type { TKey } from "../zh-CN";
 import { core } from "./core";
+import { debug } from "./debug";
 import { git } from "./git";
 
-export const enUS: Record<TKey, string> = { ...core, ...git };
+export const enUS: Record<TKey, string> = { ...core, ...git, ...debug };

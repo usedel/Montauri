@@ -6,7 +6,8 @@
 // 原因：Chromium 不向禁用的表单控件派发鼠标事件，而自绘 tooltip 靠 document 级 mouseover
 // 委托命中 [data-tip] —— 一旦改回 disabled 属性，「未调试时整排灰按钮」的提示会静默失效，
 // 而那恰恰是最需要提示的场景。用 disabled 属性在功能上看不出任何异常，只有提示悄悄消失。
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { setLocale } from "../i18n";
 import type * as DebugViewModule from "../debugView";
 import { clearBreakpoints, getBreakpointLines, setBreakpointLines } from "../debugGutter";
 
@@ -120,6 +121,24 @@ describe("调试侧栏空态（UI-12：统一走 emptyState 组件）", () => {
 
   it("已废弃的 .debug-empty 不再出现（其 CSS 规则也已删除）", () => {
     expect(document.querySelector("#view-debug .debug-empty")).toBeNull();
+  });
+});
+
+describe("调试域语言切换", () => {
+  afterEach(() => setLocale("zh-CN"));
+
+  it("切换语言时就地刷新工具栏和空态，不重复初始化 DOM", () => {
+    const root = document.getElementById("view-debug")!;
+    const toolbar = document.getElementById("debug-toolbar")!;
+    dv.initDebugView();
+    expect(document.getElementById("debug-toolbar")).toBe(toolbar);
+    expect(root.querySelectorAll("#debug-toolbar")).toHaveLength(1);
+
+    setLocale("en-US");
+    expect(document.getElementById("debug-continue")?.dataset.tip).toBe("Continue");
+    expect(document.getElementById("debug-stack-header")?.textContent).toBe("Call Stack");
+    expect(document.querySelector("#debug-stack .empty-title")?.textContent).toBe("Not debugging");
+    expect(document.getElementById("debug-continue")).toBe(toolbar.firstElementChild);
   });
 });
 

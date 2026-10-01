@@ -48,6 +48,14 @@ describe("t() 取词与插值", () => {
     expect(t("git.discard.confirmMany", { count: 2 })).toBe("确定丢弃 2 个文件的更改吗？此操作不可撤销。");
   });
 
+  it("调试域词条和复数变体可用", () => {
+    expect(t("debug.toolbar.continue")).toBe("继续");
+    setLocale("en-US");
+    expect(t("debug.toolbar.continue")).toBe("Continue");
+    expect(t("debug.watch.limit", { count: 1 })).toContain("1 watch");
+    expect(t("debug.watch.limit", { count: 2 })).toContain("2 watches");
+  });
+
   it("未知 key 回落 key 本身（不返回 undefined / 空串）", () => {
     // 刻意绕过类型：模拟语言包尚未同步的中间态
     expect(t("no.such.key" as never)).toBe("no.such.key");
