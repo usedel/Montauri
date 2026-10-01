@@ -28,6 +28,7 @@ import { getSelectedTheme, setSelectedTheme, wireThemePicker } from "./themePick
 import { renderWelcomeShortcuts } from "./welcomeShortcuts";
 // 零引擎关键字补全开关（provider 只注册一次，此处只翻运行时真值）
 import { setKeywordCompletionEnabled } from "./completion/keywordCompletion";
+import { getLocale, setLocale } from "./i18n";
 
 // ---------- 注入（main 的 init 中 setSettingsPanelHandlers） ----------
 // TD-13：解「settingsPanel.ts → main.ts」循环边——切换静态引擎后需重启 LSP，
@@ -105,6 +106,8 @@ const settingsRuffSeverityFEl = lazyEl<HTMLSelectElement>("settings-ruff-severit
 const settingsTerminalCwdEl = lazyEl<HTMLSelectElement>("settings-terminal-cwd");
 const settingsTerminalShellEl = lazyEl<HTMLSelectElement>("settings-terminal-shell");
 const settingsReduceMotionEl = lazyEl<HTMLInputElement>("settings-reduce-motion");
+// i18n：语言下拉（值不来自 settings.locale——语言存 localStorage，见 i18n/index.ts 头注）
+const settingsLocaleEl = lazyEl<HTMLSelectElement>("settings-locale");
 const settingsFontFamilyPresetEl = lazyEl<HTMLSelectElement>("settings-font-family-preset");
 const settingsPypiIndexPresetEl = lazyEl<HTMLSelectElement>("settings-pypi-index-preset");
 const settingsPypiIndexEl = lazyEl<HTMLInputElement>("settings-pypi-index");
@@ -591,6 +594,8 @@ function onSettingsKeydown(e: KeyboardEvent): void {
 /** 打开设置面板（可指定初始分类；「视图 → Live Templates」快捷入口复用） */
 export function openSettingsPanel(category: SettingsCategory = "appearance"): void {
   clearSettingsSearch(); // E-1：每次打开重置搜索状态
+  // i18n：打开即回显当前语言（语言可能在别处被改过，下拉不能停留在上次打开时的值）
+  settingsLocaleEl.value = getLocale();
   fillForm(app.settings);
   void refreshTerminalShellSelect(); // 异步探测可用 shell，完成后重建下拉
   switchCategory(category);
@@ -774,6 +779,12 @@ export function wireSettingsPanel(): void {
   // UI-24：窄窗口断点下分类导航转横排，aria-orientation 随之同步（先跑一次覆盖「启动即窄窗口」）
   syncNavOrientation();
   window.matchMedia(NARROW_NAV_QUERY).addEventListener("change", syncNavOrientation);
+  // i18n：切换语言即时生效并持久化（不经过「保存」——语言不是 Settings 字段，见 index.html 对应注释）。
+  // setLocale 内部会重刷静态骨架并广播给订阅者重绘动态内容，这里无需再调 applyDomI18n。
+  settingsLocaleEl.addEventListener("change", () => {
+    const v = settingsLocaleEl.value;
+    if (v === "zh-CN" || v === "en-US") setLocale(v);
+  });
   $btn("btn-settings").addEventListener("click", () => openSettingsPanel());
   $btn("settings-close").addEventListener("click", closeSettingsPanel);
   $btn("settings-cancel").addEventListener("click", closeSettingsPanel);

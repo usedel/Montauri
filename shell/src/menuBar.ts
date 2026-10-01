@@ -4,6 +4,7 @@
 
 import { lazyEl } from "./state";
 import { codicon } from "./util";
+import { onLocaleChange } from "./i18n";
 import { moveMenuFocus, wireMenuKeyNav } from "./menuKeys"; // UI-30：与 menu.ts 共享同一套 APG 规则
 
 export interface MenuEntry {
@@ -384,6 +385,16 @@ export function wireMenuBar(getItems: (menu: string) => MenuEntry[]): void {
         showMenuDropdownFromBtn(btn);
       }
     });
+  });
+  // i18n：菜单项文案由 main 的 getMenuItems 经 t() 现算（数据不是常量表），切换语言后
+  // 展开中的下拉必须就地重绘，否则用户看到「外壳已切英文、菜单仍是中文」的半切换态。
+  // 这里刻意直接调 showMenuDropdown 而非 showMenuDropdownFromBtn——后者遇 activeMenuBtn === btn
+  // 会判为「点同一个按钮 = 关闭」，重绘会变成收起；先收子菜单避免残留旧语言的 flyout。
+  onLocaleChange(() => {
+    const btn = activeMenuBtn;
+    if (!btn) return;
+    hideSubmenu();
+    showMenuDropdown(btn, currentGetItems, btn.dataset.menu ?? "");
   });
   // MB-05：menubar 本体键盘漫游（APG menubar 模式）。←/→ 环绕、Home/End 首尾；
   // 焦点在下拉/子菜单内时不经过这里（那些容器有自己的 wireMenuKeyNav）。

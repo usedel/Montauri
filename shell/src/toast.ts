@@ -7,6 +7,8 @@
 
 import { motionDisabled } from "./anim";
 import { codicon, errMsg } from "./util";
+import { t } from "./i18n";
+import { localizeBackendError } from "./i18n/backendError";
 
 export type ToastKind = "info" | "success" | "error";
 
@@ -78,7 +80,7 @@ export function toast(message: string, kind: ToastKind = "info", opts: ToastOpti
 
   const close = document.createElement("button");
   close.className = "toast-close";
-  close.setAttribute("aria-label", "关闭通知");
+  close.setAttribute("aria-label", t("common.closeNotification"));
   close.appendChild(codicon("close"));
   close.addEventListener("click", dismiss);
   el.appendChild(close);
@@ -95,7 +97,10 @@ export function toast(message: string, kind: ToastKind = "info", opts: ToastOpti
   timer = window.setTimeout(dismiss, DURATION[kind]);
 }
 
-/** 失败 toast 的统一文案组装：`${action}失败：${原因}`（catch 分支统一走这里） */
+/** 失败 toast 的统一文案组装：`${action}失败：${原因}`（catch 分支统一走这里）。
+ *  语序随语言变（英文是 "X failed: reason"），故整句交给语言包，不在代码里拼 `失败` 二字。 */
 export function toastFail(action: string, e: unknown): void {
-  toast(`${action}失败：${errMsg(e)}`, "error");
+  // 后端错误消息（Rust 侧 `Err("中文…")`）在此统一过一道翻译层：英文界面下不会冒出中文错误。
+  // 详见 i18n/backendError.ts 头注（模板匹配 + 参数回填，非语言包词条）。
+  toast(t("toast.failSuffix", { action, reason: localizeBackendError(errMsg(e)) }), "error");
 }

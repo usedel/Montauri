@@ -74,6 +74,7 @@ import { cancelPendingSessionSave, restoreSession, scheduleSessionSave, saveSess
 import { wireResourcePanel } from "./resourcePanel"; // A-1 资源可观测
 import { basename, codicon, DisposableStore, emptyState, languageOf, normalizePath, parentDirOf, relativePathOrName, renderFileIcon, samePath, symbolIcon } from "./util";
 import { toast, toastFail } from "./toast";
+import { initI18n, t } from "./i18n"; // i18n 运行时：initI18n 首屏套用静态骨架，t 取动态文案
 import { restoreLayout, toggleSidebar, wireSplitters } from "./layout";
 import { motionDisabled, restoreReduceMotion } from "./anim";
 import { wireTooltip } from "./tooltip";
@@ -1779,113 +1780,113 @@ function buildRunMenuItems(): MenuItem[] {
 function getMenuItems(menu: string): MenuEntry[] {
   switch (menu) {
     case "file": return [
-      { label: "新建项目", action: () => openNewProjectPanel() },
+      { label: t("menu.file.newProject"), action: () => openNewProjectPanel() },
       // P1（UX 审查）：改走 createFileInteractive——目标目录跟随活动文件（原固定为工作区根），
       // 且键位标签与键位系统同源
-      { label: "新建文件", shortcut: kb.bindingLabel("new_file") || undefined, action: () => void createFileInteractive() },
-      { label: "新建文件夹", action: () => { if (app.workspaceRoot) void createDirAt(rootEntry()); } },
+      { label: t("menu.file.newFile"), shortcut: kb.bindingLabel("new_file") || undefined, action: () => void createFileInteractive() },
+      { label: t("menu.file.newFolder"), action: () => { if (app.workspaceRoot) void createDirAt(rootEntry()); } },
       { sep: true, label: "" },
-      { label: "打开工作区", shortcut: "Ctrl+K Ctrl+O", action: () => void openFolderFromToolbar() },
-      { label: "在新窗口打开工作区…", action: () => void openFolderInNewWindow() },
-      { label: "保存", shortcut: kb.bindingLabel("save") || undefined, action: () => void saveActive() },
+      { label: t("menu.file.openWorkspace"), shortcut: "Ctrl+K Ctrl+O", action: () => void openFolderFromToolbar() },
+      { label: t("menu.file.openWorkspaceInNewWindow"), action: () => void openFolderInNewWindow() },
+      { label: t("menu.file.save"), shortcut: kb.bindingLabel("save") || undefined, action: () => void saveActive() },
       { sep: true, label: "" },
       {
-        label: "最近的工作区",
+        label: t("menu.file.recentWorkspaces"),
         submenu: async () => {
           const recents = await getRecentWorkspaces();
-          if (recents.length === 0) return [{ label: "（暂无最近的工作区）" }];
+          if (recents.length === 0) return [{ label: t("menu.file.noRecentWorkspaces") }];
           const items: MenuEntry[] = recents.map((p) => ({
             label: basename(p),
             detail: p,
             action: () => openWorkspace(p).catch(console.error),
           }));
           items.push({ sep: true, label: "" });
-          items.push({ label: "清空最近的工作区", action: () => void clearRecentWorkspaces() });
+          items.push({ label: t("menu.file.clearRecentWorkspaces"), action: () => void clearRecentWorkspaces() });
           return items;
         },
       },
       // MB-12：「最近的文件」自「视图」迁入（与「最近的工作区」同区，属文件范畴）
-      { label: "打开最近的文件", shortcut: kb.bindingLabel("recent_files") || undefined, action: () => void openRecentFiles() },
+      { label: t("menu.file.openRecentFiles"), shortcut: kb.bindingLabel("recent_files") || undefined, action: () => void openRecentFiles() },
       { sep: true, label: "" },
-      { label: "关闭工作区", action: () => void closeWorkspace() },
+      { label: t("menu.file.closeWorkspace"), action: () => void closeWorkspace() },
       // MB-12：偏好设置归「文件」（VS Code File→Preferences / PyCharm File→Settings 同位），
       // 自「视图」迁入；Live Templates 本就是设置面板 templates 分类
       { sep: true, label: "" },
       {
-        label: "偏好设置",
+        label: t("menu.file.preferences"),
         submenu: () => [
-          { label: "设置", shortcut: kb.bindingLabel("open_settings") || undefined, action: () => openSettingsPanel() },
+          { label: t("menu.file.settings"), shortcut: kb.bindingLabel("open_settings") || undefined, action: () => openSettingsPanel() },
           { label: "Live Templates", action: () => openSettingsPanel("templates") },
         ],
       },
     ];
     case "edit": return [
-      { label: "撤销", shortcut: "Ctrl+Z", action: () => { app.editor.trigger("menu", "undo", null); } },
-      { label: "重做", shortcut: "Ctrl+Shift+Z", action: () => { app.editor.trigger("menu", "redo", null); } },
+      { label: t("menu.edit.undo"), shortcut: "Ctrl+Z", action: () => { app.editor.trigger("menu", "undo", null); } },
+      { label: t("menu.edit.redo"), shortcut: "Ctrl+Shift+Z", action: () => { app.editor.trigger("menu", "redo", null); } },
       { sep: true, label: "" },
       // MB-15：注释切换（Monaco 内建，PyCharm Ctrl+/ 同款高频项）
-      { label: "注释 / 取消注释", shortcut: "Ctrl+/", action: () => { app.editor.trigger("menu", "editor.action.commentLine", null); } },
+      { label: t("menu.edit.toggleComment"), shortcut: "Ctrl+/", action: () => { app.editor.trigger("menu", "editor.action.commentLine", null); } },
       { sep: true, label: "" },
-      { label: "查找", shortcut: "Ctrl+F", action: () => { app.editor.trigger("menu", "actions.find", null); } },
-      { label: "替换", shortcut: "Ctrl+H", action: () => { app.editor.trigger("menu", "editor.action.startFindReplaceAction", null); } },
+      { label: t("menu.edit.find"), shortcut: "Ctrl+F", action: () => { app.editor.trigger("menu", "actions.find", null); } },
+      { label: t("menu.edit.replace"), shortcut: "Ctrl+H", action: () => { app.editor.trigger("menu", "editor.action.startFindReplaceAction", null); } },
       // MB-15：全局搜索入口（复用 global_search 键位；搜索侧栏目前无替换 UI，「在文件中查找/替换」
       // 落地为切侧栏 + 聚焦，与 Ctrl+Shift+F 行为一致——侧栏补替换框属另一条独立需求）
-      { label: "在文件中查找", shortcut: kb.bindingLabel("global_search") || undefined, action: () => { setSidebarTab("search"); ($("search-input") as HTMLInputElement).focus(); } },
+      { label: t("menu.edit.findInFiles"), shortcut: kb.bindingLabel("global_search") || undefined, action: () => { setSidebarTab("search"); ($("search-input") as HTMLInputElement).focus(); } },
       { sep: true, label: "" },
-      { label: "格式化文档", shortcut: "Shift+Alt+F", action: () => { void app.editor.getAction("editor.action.formatDocument")?.run(); } },
+      { label: t("menu.edit.formatDocument"), shortcut: "Shift+Alt+F", action: () => { void app.editor.getAction("editor.action.formatDocument")?.run(); } },
       // P0：Optimize Imports（PyCharm「编辑 → Optimize Imports」同位置）
       {
-        label: "整理导入（Optimize Imports）",
+        label: t("menu.edit.optimizeImports"),
         shortcut: kb.bindingLabel("optimize_imports") || undefined,
         action: () => void optimizeImportsActive(),
       },
     ];
     case "view": return [
-      { label: "文件树", action: () => setSidebarTab("files") },
-      { label: "搜索", shortcut: kb.bindingLabel("global_search") || undefined, action: () => setSidebarTab("search") },
+      { label: t("menu.view.fileTree"), action: () => setSidebarTab("files") },
+      { label: t("menu.view.search"), shortcut: kb.bindingLabel("global_search") || undefined, action: () => setSidebarTab("search") },
       // P2：本地历史是工具窗入口，归属「视图」（MB-11 口径：布局开关 + 工具窗）
-      { label: "本地历史", shortcut: kb.bindingLabel("local_history") || undefined, action: () => void openLocalHistory() },
+      { label: t("menu.view.localHistory"), shortcut: kb.bindingLabel("local_history") || undefined, action: () => void openLocalHistory() },
       { sep: true, label: "" },
       // P2：书签 / 运行历史
-      { label: "书签列表", shortcut: kb.bindingLabel("bookmark_list") || undefined, action: () => void openBookmarks() },
+      { label: t("menu.view.bookmarkList"), shortcut: kb.bindingLabel("bookmark_list") || undefined, action: () => void openBookmarks() },
       { sep: true, label: "" },
-      { label: "Markdown 预览", shortcut: kb.bindingLabel("markdown_preview") || undefined, action: () => mdPreview.togglePreview() },
+      { label: t("menu.view.markdownPreview"), shortcut: kb.bindingLabel("markdown_preview") || undefined, action: () => mdPreview.togglePreview() },
       // P1（UX 审查）：面板开关 + 设置补键位标签，菜单与快捷键同源（改键后自动跟随）
-      { label: "切换侧栏", shortcut: kb.bindingLabel("toggle_sidebar") || undefined, action: () => toggleSidebar() },
-      { label: "切换底部面板", shortcut: kb.bindingLabel("toggle_bottom") || undefined, action: () => toggleBottomPanel() },
+      { label: t("menu.view.toggleSidebar"), shortcut: kb.bindingLabel("toggle_sidebar") || undefined, action: () => toggleSidebar() },
+      { label: t("menu.view.toggleBottomPanel"), shortcut: kb.bindingLabel("toggle_bottom") || undefined, action: () => toggleBottomPanel() },
       // 问题面板（PyCharm Problems View 同位，Alt+0）
-      { label: "问题面板", shortcut: kb.bindingLabel("open_problems") || undefined, action: () => openProblemsPanel() },
+      { label: t("menu.view.problemsPanel"), shortcut: kb.bindingLabel("open_problems") || undefined, action: () => openProblemsPanel() },
     ];
     // MB-11：前往（Go）——收编原「视图」的导航/跳转类命令（VS Code Go / PyCharm Navigate 同位）。
     // 口径：命令面板 / Search Everywhere 属「搜索式导航」，归此处而非 VS Code View 菜单
     case "go": return [
-      { label: "转到文件", shortcut: kb.bindingLabel("goto_file") || undefined, action: () => void openQuickOpen("files") },
+      { label: t("menu.go.gotoFile"), shortcut: kb.bindingLabel("goto_file") || undefined, action: () => void openQuickOpen("files") },
       // PR-G：文件内符号（PyCharm Navigate → File Structure 同位；与命令面板同走键位 handler）
-      { label: "转到文件内符号", shortcut: kb.bindingLabel("goto_symbol") || undefined, action: () => kb.triggerEditorKeybindingAction("goto_symbol") },
-      { label: "转到行 / 列", shortcut: kb.bindingLabel("goto_line") || undefined, action: () => void openQuickOpen("line") },
+      { label: t("menu.go.gotoSymbolInFile"), shortcut: kb.bindingLabel("goto_symbol") || undefined, action: () => kb.triggerEditorKeybindingAction("goto_symbol") },
+      { label: t("menu.go.gotoLine"), shortcut: kb.bindingLabel("goto_line") || undefined, action: () => void openQuickOpen("line") },
       { label: "Search Everywhere", shortcut: "Double Shift", action: () => void openQuickOpen("all") },
-      { label: "命令面板", shortcut: kb.bindingLabel("command_palette") || undefined, action: () => void openQuickOpen("commands") },
+      { label: t("menu.go.commandPalette"), shortcut: kb.bindingLabel("command_palette") || undefined, action: () => void openQuickOpen("commands") },
       { sep: true, label: "" },
-      { label: "后退", shortcut: kb.bindingLabel("nav_back") || undefined, action: () => void goBack() },
-      { label: "前进", shortcut: kb.bindingLabel("nav_forward") || undefined, action: () => void goForward() },
+      { label: t("menu.go.back"), shortcut: kb.bindingLabel("nav_back") || undefined, action: () => void goBack() },
+      { label: t("menu.go.forward"), shortcut: kb.bindingLabel("nav_forward") || undefined, action: () => void goForward() },
     ];
     // MB-10：运行——运行 + 调试合并为一级菜单（裁决 2026-09-21）。运行区 / 调试区 / 收尾三分区，
     // action 全部复用既有函数（与命令面板 / 标题栏图标同源）；单步三命令走命令面板同款动态导入
     case "run": return [
-      { label: "运行脚本", shortcut: kb.bindingLabel("run_script") || undefined, action: () => { if (app.activeTab) void runScript(app.activeTab.path); } },
-      { label: "运行项目", shortcut: kb.bindingLabel("run_project") || undefined, action: () => void runProject() },
-      { label: "运行配置…", action: () => openRunConfig() },
-      { label: "停止运行", shortcut: kb.bindingLabel("stop") || undefined, action: () => void stopRun() },
+      { label: t("menu.run.runScript"), shortcut: kb.bindingLabel("run_script") || undefined, action: () => { if (app.activeTab) void runScript(app.activeTab.path); } },
+      { label: t("menu.run.runProject"), shortcut: kb.bindingLabel("run_project") || undefined, action: () => void runProject() },
+      { label: t("menu.run.runConfig"), action: () => openRunConfig() },
+      { label: t("menu.run.stop"), shortcut: kb.bindingLabel("stop") || undefined, action: () => void stopRun() },
       { sep: true, label: "" },
-      { label: "启动调试 / 继续", shortcut: kb.bindingLabel("debug") || undefined, action: () => void runDebug() },
-      { label: "停止调试", shortcut: kb.bindingLabel("debug_stop") || undefined, action: () => void stopDebugSession() },
-      { label: "单步跳过", shortcut: kb.bindingLabel("debug_step_over") || undefined, action: () => void import("./dap/client").then((m) => m.dapNext(1)) },
-      { label: "单步进入", shortcut: kb.bindingLabel("debug_step_into") || undefined, action: () => void import("./dap/client").then((m) => m.dapStepIn(1)) },
-      { label: "单步退出", shortcut: kb.bindingLabel("debug_step_out") || undefined, action: () => void import("./dap/client").then((m) => m.dapStepOut(1)) },
-      { label: "运行到光标处", shortcut: kb.bindingLabel("debug_run_to_cursor") || undefined, action: () => void runToCursorAtCursor() },
-      { label: "求值表达式", shortcut: kb.bindingLabel("debug_evaluate") || undefined, action: () => void onEvaluateShortcut() },
+      { label: t("menu.run.startDebug"), shortcut: kb.bindingLabel("debug") || undefined, action: () => void runDebug() },
+      { label: t("menu.run.stopDebug"), shortcut: kb.bindingLabel("debug_stop") || undefined, action: () => void stopDebugSession() },
+      { label: t("menu.run.stepOver"), shortcut: kb.bindingLabel("debug_step_over") || undefined, action: () => void import("./dap/client").then((m) => m.dapNext(1)) },
+      { label: t("menu.run.stepInto"), shortcut: kb.bindingLabel("debug_step_into") || undefined, action: () => void import("./dap/client").then((m) => m.dapStepIn(1)) },
+      { label: t("menu.run.stepOut"), shortcut: kb.bindingLabel("debug_step_out") || undefined, action: () => void import("./dap/client").then((m) => m.dapStepOut(1)) },
+      { label: t("menu.run.runToCursor"), shortcut: kb.bindingLabel("debug_run_to_cursor") || undefined, action: () => void runToCursorAtCursor() },
+      { label: t("menu.run.evaluateExpression"), shortcut: kb.bindingLabel("debug_evaluate") || undefined, action: () => void onEvaluateShortcut() },
       { sep: true, label: "" },
-      { label: "运行历史", shortcut: kb.bindingLabel("run_history") || undefined, action: () => openRunHistory() },
+      { label: t("menu.run.runHistory"), shortcut: kb.bindingLabel("run_history") || undefined, action: () => openRunHistory() },
     ];
     // PR-1（plugin_system_design §9.8）：工具菜单按 category 分组 flyout 子菜单，
     // 渲染走 menuBar.ts 既有 submenu 机制（悬停延时展开 + →/← 键盘导航），此处只组装数据
@@ -1896,11 +1897,11 @@ function getMenuItems(menu: string): MenuEntry[] {
     // 收掉 MB-13「欢迎页一期不纳入」登记）。
     case "help": return [
       {
-        label: "新手指南",
+        label: t("menu.help.onboardingGuide"),
         action: () => void openOnboardingGuide(),
       },
       {
-        label: "欢迎页",
+        label: t("menu.help.welcomePage"),
         action: () => {
           // toggle（方案 §3.2c 关闭途径 ①）：force 态再点一次解除；否则置位显示完整版覆盖层
           if (isWelcomeForced()) dismissWelcomeOverlay();
@@ -1909,7 +1910,7 @@ function getMenuItems(menu: string): MenuEntry[] {
       },
       { sep: true, label: "" },
       {
-        label: "关于 OpenCharm",
+        label: t("menu.help.about"),
         action: () => {
           void getVersion()
             .then((v) => {
@@ -1923,44 +1924,44 @@ function getMenuItems(menu: string): MenuEntry[] {
         },
       },
       { sep: true, label: "" },
-      { label: "作者指南（插件开发）", action: () => void openGuide() },
+      { label: t("menu.help.authorGuide"), action: () => void openGuide() },
       { sep: true, label: "" },
-      { label: "打开日志目录", action: () => invoke("open_log_dir").catch((e) => toastFail("打开日志目录", e)) },
-      { label: "打开数据目录", action: () => invoke("open_data_dir").catch((e) => toastFail("打开数据目录", e)) },
+      { label: t("menu.help.openLogDir"), action: () => invoke("open_log_dir").catch((e) => toastFail("打开日志目录", e)) },
+      { label: t("menu.help.openDataDir"), action: () => invoke("open_data_dir").catch((e) => toastFail("打开数据目录", e)) },
     ];
     // P0-2：Git 一级菜单（报告 D10）——此前 git 操作只能从侧栏「更多操作」二级菜单触达
     case "git": return [
-      { label: "初始化仓库…", action: () => void gitInitRepo() },
+      { label: t("menu.git.initRepo"), action: () => void gitInitRepo() },
       { sep: true, label: "" },
-      { label: "暂存全部更改", action: () => void stageAllChanges() },
-      { label: "丢弃全部更改…", action: () => void discardAllChanges() },
+      { label: t("menu.git.stageAll"), action: () => void stageAllChanges() },
+      { label: t("menu.git.discardAll"), action: () => void discardAllChanges() },
       {
-        label: "提交…",
+        label: t("menu.git.commit"),
         action: () => { setSidebarTab("git"); ($("git-commit-msg") as HTMLTextAreaElement).focus(); },
       },
-      { label: "提交全部更改…", action: () => void commitAll() },
+      { label: t("menu.git.commitAll"), action: () => void commitAll() },
       { sep: true, label: "" },
       // MB-14：同步 / 贮藏归组子菜单（原 5 项平铺 → 2 个父项），视觉长度减半；action 原样迁移
       {
-        label: "同步",
+        label: t("menu.git.sync"),
         submenu: () => [
-          { label: "抓取（Fetch）", action: () => void gitRemoteOp("fetch") },
-          { label: "拉取（Pull）", action: () => void gitRemoteOp("pull") },
-          { label: "推送（Push）", action: () => void gitRemoteOp("push") },
+          { label: t("menu.git.fetch"), action: () => void gitRemoteOp("fetch") },
+          { label: t("menu.git.pull"), action: () => void gitRemoteOp("pull") },
+          { label: t("menu.git.push"), action: () => void gitRemoteOp("push") },
         ],
       },
       {
-        label: "贮藏",
+        label: t("menu.git.stash"),
         submenu: () => [
-          { label: "贮藏更改（Stash）", action: () => void gitStash() },
-          { label: "弹出贮藏（Stash Pop）", action: () => void gitStashPop() },
+          { label: t("menu.git.stashChanges"), action: () => void gitStash() },
+          { label: t("menu.git.stashPop"), action: () => void gitStashPop() },
         ],
       },
       { sep: true, label: "" },
-      { label: "切换 / 新建分支…", action: () => { setSidebarTab("git"); toggleBranchList(); } },
-      { label: "提交历史…", action: () => { setSidebarTab("git"); toggleHistory(); } },
+      { label: t("menu.git.switchBranch"), action: () => { setSidebarTab("git"); toggleBranchList(); } },
+      { label: t("menu.git.commitHistory"), action: () => { setSidebarTab("git"); toggleHistory(); } },
       { sep: true, label: "" },
-      { label: "打开 Git 面板", action: () => setSidebarTab("git") },
+      { label: t("menu.git.openGitPanel"), action: () => setSidebarTab("git") },
     ];
     default: return [];
   }
@@ -1978,6 +1979,10 @@ window.addEventListener("unhandledrejection", (e) => {
 // ---------- 初始化 ----------
 
 async function init(): Promise<void> {
+  // i18n 首屏：把语言包套到 index.html 的静态骨架（菜单条 / 设置面板 / 各模态的 data-i18n* 标记）。
+  // 必须早于首个 await——否则静态文案会先以 HTML 里的中文原值闪一帧再跳成用户语言。
+  // 放在这里而非模块顶层：套用需要 DOM 已就绪（顶层解析 DOM 违反本项目铁律）。
+  initI18n();
   // TD-14 / TD-13：功能域解环注入（须先于任何事件与运行调用）
   setTracebackOpenFile(openFile);
   setGitReloadHandler(reloadFileFromDisk);
