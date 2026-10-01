@@ -6,11 +6,15 @@
 //    同时让「词条集合对比」「漏译检查」退化为简单的 key 集合运算。
 // 2. **zh-CN 是唯一真源**：`TKey` 由 `keyof typeof zhCN` 派生，en-US 声明为 `Record<TKey, string>`，
 //    于是「漏译 / 多译 / 拼错 key」全部在 `tsc` 阶段炸掉，不依赖运行时兜底。
+//    语言包按**功能域**分文件（`locales/<id>/{core,git,…}.ts` + `index.ts` 聚合）：全量抽取后
+//    词条量在数千级，单文件无法维护；每个域文件的 en 侧各自对自己的域 Key 做 Record 约束。
 // 3. **默认语言 = zh-CN**：本项目 `__tests__` 里有大量以中文文案做断言的用例（菜单、设置、toast…），
 //    默认语言保持中文 = 存量断言零改动即可继续绿；英文由用户主动切换触发。这是本次改造
 //    「不破坏既有测试」的前提，改默认值前必须先改测试断言。
 // 4. **切换语言 ≠ 重渲染全部**：静态骨架由 `applyDomI18n()` 就地改写属性；动态内容（菜单项、文件树、
 //    面板）由各域模块订阅 `onLocaleChange` 自行重绘——运行时不持有任何模块的渲染句柄，避免反向依赖。
+// 5. **复数走 Intl，不走调用点**：带 `count` 的文案在语言包里提供 `<key>.one` / `<key>.other`，
+//    由 `Intl.PluralRules` 选形。单复数规则是语言属性，写进业务代码就等于把英文语法钉死在调用点。
 //
 // 存储：`localStorage`（与 anim.ts 的「减少动画」、layout.ts 的布局尺寸同策略），不走 `Settings`
 // ——语言是「本机的壳偏好」，与工作区无关，进 settings.json 会牵动 Rust `Settings` 结构的三处同步义务。
@@ -73,6 +77,19 @@ function persist(locale: Locale): void {
   }
 }
 
+/**
+ * 复数基键：语言包里只存 `xxx.one` / `xxx.other`，不存 `xxx`（存了就是永不被读取的死词条），
+ * 但调用点写的是 `t("xxx", { count })`——故用模板字面量类型从 `.one` 反推出合法基键。
+ * 这样既保持语言包干净，拼错 key 又依然在编译期被拦下。
+ */
+// 注意：必须经由泛型参数中转——直接写 `TKey extends ...` 时 TKey 是具体类型别名，
+// 条件类型不分发，整个联合会被当成一个整体判否，结果是 never。
+type PluralBaseOf<K> = K extends `${infer B}.one` ? B : never;
+type PluralBase = PluralBaseOf<TKey>;
+
+/** `t()` 接受的 key：普通词条 + 复数基键 */
+export type TFuncKey = TKey | PluralBase;
+
 /** 当前语言（惰性初始化：模块顶层不碰宿主环境，测试里 import 本模块不会因环境缺失而炸） */
 export function getLocale(): Locale {
   if (!current) current = readStored();
@@ -84,10 +101,47 @@ function interpolate(text: string, params: Record<string, string | number>): str
   return text.replace(/\{(\w+)\}/g, (m, k: string) => (k in params ? String(params[k]) : m));
 }
 
+/** PluralRules 按语言缓存：Intl 构造不算便宜，而语言只有两三种、切换极低频。 */
+const RULES = new Map<Locale, Intl.PluralRules>();
+
+function rulesFor(locale: Locale): Intl.PluralRules | null {
+  const hit = RULES.get(locale);
+  if (hit) return hit;
+  try {
+    const r = new Intl.PluralRules(locale);
+    RULES.set(locale, r);
+    return r;
+  } catch {
+    return null; // 宿主无完整 ICU：退回 other 形，不为此让整条提示挂掉
+  }
+}
+
+/**
+ * 复数选形：带 `count` 参数时，把 `key` 解析成 `<key>.one` / `<key>.other` 等变体。
+ *
+ * 为什么让 Intl 决定而不是在调用点写 `n === 1 ? … : …`：单复数规则是**语言属性**
+ * （en-US 有 one/other；zh-CN 只有 other；将来接 ar 会有 six 种形式），写进业务代码
+ * 等于把英文语法钉死在调用点，加一门语言要改遍所有调用点。
+ * 中文侧因此也要提供 `.one`（内容通常与 `.other` 相同）——TKey 由中文派生，两侧 key 集合
+ * 必须对称，否则英文的 `.one` 会变成编译期"多余属性"。
+ *
+ * 变体缺失时逐级回退：`<key>.<form>` → `<key>.other` → `<key>`。
+ */
+function pluralKey(key: TFuncKey, count: number): TKey {
+  const form = rulesFor(getLocale())?.select(count) ?? "other";
+  const pack = PACKS[getLocale()];
+  const byForm = `${key}.${form}`;
+  if (byForm in pack) return byForm as TKey;
+  const other = `${key}.other`;
+  return (other in pack ? other : key) as TKey;
+}
+
 /** 取词条：英文缺失回落中文，再缺回落 key 本身（宁可露 key 也不要空白 UI）。
- *  拼写错误的 key 由 `TKey` 类型在编译期拦下，运行时兜底只对付语言包尚未同步的中间态。 */
-export function t(key: TKey, params?: Record<string, string | number>): string {
-  const raw = PACKS[getLocale()][key] ?? zhCN[key] ?? key;
+ *  拼写错误的 key 由 `TKey` 类型在编译期拦下，运行时兜底只对付语言包尚未同步的中间态。
+ *  传 `{ count }` 时走复数选形（见 pluralKey）。 */
+export function t(key: TFuncKey, params?: Record<string, string | number>): string {
+  const k = params && typeof params.count === "number" ? pluralKey(key, params.count) : (key as TKey);
+  const raw = PACKS[getLocale()][k] ?? zhCN[k] ?? key;
   return params ? interpolate(raw, params) : raw;
 }
 

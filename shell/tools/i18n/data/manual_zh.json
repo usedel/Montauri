@@ -67,7 +67,10 @@
  "menu.git.switchBranch": "切换 / 新建分支…",
  "menu.git.commitHistory": "提交历史…",
  "menu.git.openGitPanel": "打开 Git 面板",
+ "common.cancel": "取消",
+ "common.close": "关闭",
  "common.closeNotification": "关闭通知",
+ "common.unknownError": "未知错误",
  "toast.failSuffix": "{action}失败：{reason}",
  "settings.appearance.locale": "语言",
  "settings.appearance.localeHint": "仅影响外壳界面文案，无需重启。"

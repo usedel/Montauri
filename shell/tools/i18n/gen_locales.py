@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
-"""生成 shell/src/i18n/locales/{zh-CN,en-US}.ts。
+"""生成 shell/src/i18n/locales/{zh-CN,en-US}/core.ts。
+
+本脚本负责 HTML + 壳层通用文案的 core 域；大型功能域（如 git）由 gen_domain.py 单独生成。
 
 输入：
 - data/html_dict.json   —— index.html 自动抽取的词条（由 extract_html.py 产出）
@@ -13,6 +15,8 @@ import json, os, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(HERE, "data")
 OUT = os.path.join(HERE, "..", "..", "src", "i18n", "locales")
+OUT_ZH = os.path.join(OUT, "zh-CN", "core.ts")
+OUT_EN = os.path.join(OUT, "en-US", "core.ts")
 
 
 def esc(s):
@@ -54,22 +58,23 @@ def main():
         sys.exit(1)
 
     zh_txt = emit(zh, [
-        "// 简体中文语言包（真源）：key 来自两处——index.html 的 data-i18n* 标记（由 tools/i18n/extract_html.py",
-        "// 自动抽取）与 TS 侧 t() 直接引用（登记在 tools/i18n/data/manual_zh.json）。",
-        "// 约定：新增文案先在此登记，再在 en-US.ts 补英文（缺 key / 多 key / 拼错都在 tsc 阶段报错）。",
-        "export const zhCN = {",
+        "// 简体中文语言包「core 域」（真源）：key 来自 index.html 的 data-i18n* 标记与壳层通用 t() 引用。",
+        "// 由 tools/i18n/gen_locales.py 生成；改动请回到 HTML / data/manual_zh.json，不要手改本文件。",
+        "export const core = {",
     ])
     en_txt = emit(en, [
-        "// English (US) 语言包：key 与 zh-CN 一一对应，由 Record<TKey, string> 在编译期强校验。",
-        'import type { TKey } from "./zh-CN";',
+        "// English (US) 语言包「core 域」：与 zh-CN/core.ts 一一对应，由 Record<CoreKey, string> 校验。",
+        'import type { CoreKey } from "../zh-CN/core";',
         "",
-        "export const enUS: Record<TKey, string> = {",
+        "export const core: Record<CoreKey, string> = {",
     ])
-    os.makedirs(OUT, exist_ok=True)
-    open(os.path.join(OUT, "zh-CN.ts"), "w", encoding="utf-8").write(
-        zh_txt + "\n/** 全部文案 key：en-US 的 Record<TKey, string> 与 t() 入参类型都从这里派生。 */\nexport type TKey = keyof typeof zhCN;\n")
-    open(os.path.join(OUT, "en-US.ts"), "w", encoding="utf-8").write(en_txt)
-    print(f"已生成 {len(zh)} 条 → src/i18n/locales/")
+    os.makedirs(os.path.dirname(OUT_ZH), exist_ok=True)
+    os.makedirs(os.path.dirname(OUT_EN), exist_ok=True)
+    open(OUT_ZH, "w", encoding="utf-8").write(
+        zh_txt + "\n/** 本域文案 key：en-US/core.ts 的 Record<CoreKey, string> 由它派生。 */\nexport type CoreKey = keyof typeof core;\n"
+    )
+    open(OUT_EN, "w", encoding="utf-8").write(en_txt)
+    print(f"已生成 core 域 {len(zh)} 条 → src/i18n/locales/{{zh-CN,en-US}}/core.ts")
 
 
 if __name__ == "__main__":

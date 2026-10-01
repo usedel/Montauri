@@ -1,7 +1,6 @@
-// 简体中文语言包（真源）：key 来自两处——index.html 的 data-i18n* 标记（由 tools/i18n/extract_html.py
-// 自动抽取）与 TS 侧 t() 直接引用（登记在 tools/i18n/data/manual_zh.json）。
-// 约定：新增文案先在此登记，再在 en-US.ts 补英文（缺 key / 多 key / 拼错都在 tsc 阶段报错）。
-export const zhCN = {
+// 简体中文语言包「core 域」（真源）：key 来自 index.html 的 data-i18n* 标记与壳层通用 t() 引用。
+// 由 tools/i18n/gen_locales.py 生成；改动请回到 HTML / data/manual_zh.json，不要手改本文件。
+export const core = {
   // ---- activity ----
   "activity.activityBar": "侧栏视图",
   "activity.tabDebug": "调试",
@@ -16,12 +15,15 @@ export const zhCN = {
   "clipboardDiff.clipboardDiffTitle": "与剪贴板对比",
   // ---- common ----
   "common.bottomSplitter": "拖动调整面板高度（双击重置）",
+  "common.cancel": "取消",
+  "common.close": "关闭",
   "common.closeNotification": "关闭通知",
   "common.devtoolsPickerList": "工具列表",
   "common.devtoolsPickerModeHint": "选区变换模式 — 选中即变换当前选区；清空选区后重新打开恢复全工具",
   "common.devtoolsPickerSearch": "搜索工具",
   "common.rightSplitter": "拖动调整面板宽度（双击重置）",
   "common.sidebarSplitter": "拖动调整侧栏宽度（双击重置）",
+  "common.unknownError": "未知错误",
   // ---- devtools ----
   "devtools.devtoolsClose": "收起面板",
   // ---- dialog ----
@@ -472,5 +474,5 @@ export const zhCN = {
   "window.winMin": "最小化",
 };
 
-/** 全部文案 key：en-US 的 Record<TKey, string> 与 t() 入参类型都从这里派生。 */
-export type TKey = keyof typeof zhCN;
+/** 本域文案 key：en-US/core.ts 的 Record<CoreKey, string> 由它派生。 */
+export type CoreKey = keyof typeof core;

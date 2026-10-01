@@ -40,6 +40,14 @@ describe("t() 取词与插值", () => {
     expect(t("toast.failSuffix", { action: "Save" })).toContain("{reason}");
   });
 
+  it("按语言选择复数变体，中文保持同文", () => {
+    setLocale("en-US");
+    expect(t("git.discard.confirmMany", { count: 1 })).toBe("Discard changes in 1 file? This cannot be undone.");
+    expect(t("git.discard.confirmMany", { count: 2 })).toBe("Discard changes in 2 files? This cannot be undone.");
+    setLocale("zh-CN");
+    expect(t("git.discard.confirmMany", { count: 2 })).toBe("确定丢弃 2 个文件的更改吗？此操作不可撤销。");
+  });
+
   it("未知 key 回落 key 本身（不返回 undefined / 空串）", () => {
     // 刻意绕过类型：模拟语言包尚未同步的中间态
     expect(t("no.such.key" as never)).toBe("no.such.key");

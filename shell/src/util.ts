@@ -1,6 +1,8 @@
 // 无状态纯工具函数：从 main.ts 拆出（消除「上帝文件」的第一步）。
 // 仅包含不依赖 DOM / 全局状态的路径、展示类纯函数，便于单测与复用。
 
+import { t } from "./i18n";
+
 /** CR-24：IDisposable 集中管理（范本 devtools/panel.ts / keybindings.ts 的推广）。
  * 应用/工作区生命周期内注册的 provider / command / 事件监听统一入 store，
  * 对应生命周期结束时 `dispose()` 一次清理，不再丢弃句柄。 */
@@ -297,11 +299,12 @@ export function gitLineClass(line: string): string {
   return "stdout";
 }
 
-/** 异常 → 可读文案（toast / 输出面板统一用；Tauri invoke 抛的多是 string） */
+/** 异常 → 可读文案（toast / 输出面板统一用；Tauri invoke 抛的多是 string）。
+ *  兜底串走语言包：异常为空时界面上不该在英文下冒出中文。 */
 export function errMsg(e: unknown): string {
   if (e instanceof Error) return e.message;
   const s = String(e).trim();
-  return s || "未知错误";
+  return s || t("common.unknownError");
 }
 
 // ---------- CR-27：跨域共享 UI 工具（原 main.ts/storagePanel.ts 两套 setBusy 收敛） ----------

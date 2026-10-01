@@ -1,7 +1,7 @@
-// English (US) 语言包：key 与 zh-CN 一一对应，由 Record<TKey, string> 在编译期强校验。
-import type { TKey } from "./zh-CN";
+// English (US) 语言包「core 域」：与 zh-CN/core.ts 一一对应，由 Record<CoreKey, string> 校验。
+import type { CoreKey } from "../zh-CN/core";
 
-export const enUS: Record<TKey, string> = {
+export const core: Record<CoreKey, string> = {
   // ---- activity ----
   "activity.activityBar": "Side Bar Views",
   "activity.tabDebug": "Debug",
@@ -16,12 +16,15 @@ export const enUS: Record<TKey, string> = {
   "clipboardDiff.clipboardDiffTitle": "Compare with Clipboard",
   // ---- common ----
   "common.bottomSplitter": "Drag to resize panel height (double-click to reset)",
+  "common.cancel": "Cancel",
+  "common.close": "Close",
   "common.closeNotification": "Close notification",
   "common.devtoolsPickerList": "Tool list",
   "common.devtoolsPickerModeHint": "Selection transform mode — selecting transforms the current selection; reopen after clearing the selection to restore all tools",
   "common.devtoolsPickerSearch": "Search tools",
   "common.rightSplitter": "Drag to resize panel (double-click to reset)",
   "common.sidebarSplitter": "Drag to resize sidebar (double-click to reset)",
+  "common.unknownError": "Unknown error",
   // ---- devtools ----
   "devtools.devtoolsClose": "Collapse Panel",
   // ---- dialog ----

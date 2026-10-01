@@ -8,7 +8,7 @@ import type * as MonacoApi from "monaco-editor/esm/vs/editor/editor.api";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { app, $, $btn, outputEl, type Tab } from "./state";
-import { basename, codicon, emptyState, languageOf, gitBadgeClass, gitLineClass, joinPath, normalizePath, renderFileIcon, setBusy } from "./util";
+import { basename, codicon, emptyState, errMsg, languageOf, gitBadgeClass, gitLineClass, joinPath, normalizePath, renderFileIcon, setBusy } from "./util";
 import { appendOutputLine } from "./output";
 import { refreshTreeWithExpandedState } from "./fileTree";
 import { setBottomTab } from "./termUi";
@@ -16,6 +16,8 @@ import { setSidebarTab } from "./views";
 import { motionDisabled } from "./anim"; // UI-11：diff 编辑器不走 buildEditorOptions，需单独接管光标闪烁
 import { gotoFromLink } from "./tracebackLink"; // TD-14：gotoFromLink 迁出 main，逐边解环（TD-13）
 import { toast, toastFail } from "./toast";
+import { onLocaleChange, t } from "./i18n";
+import { localizeBackendError } from "./i18n/backendError"; // 输出到面板的 Rust 错误原文是中文，英文界面下要过一层
 import { showMenu, type MenuAnchor, type MenuItem } from "./menu";
 import { openChoice, openConfirm, openPrompt } from "./dialog";
 import { buildMergedContent, parseMergeSegments, type MergeChoice, type MergeSegment } from "./gitMerge";
@@ -159,8 +161,8 @@ export function updateGitStatusBar(): void {
   if (gitRepoActive.value && currentBranch) {
     el.replaceChildren(codicon("git-branch"), ` ${currentBranch}`);
     el.classList.add("git-status-clickable");
-    el.dataset.tip = "当前分支（点击切换）";
-    el.setAttribute("aria-label", `当前分支 ${currentBranch}，点击切换`);
+    el.dataset.tip = t("git.branch.currentTip");
+    el.setAttribute("aria-label", t("git.branch.currentAria", { branch: currentBranch }));
     // 同步计数异步补充（ahead/behind）
     void updateSyncCount();
   } else {
@@ -185,8 +187,8 @@ async function updateSyncCount(): Promise<void> {
     if (s.behind > 0) parts.push(document.createTextNode(` ↓${s.behind}`));
     el.replaceChildren(...parts);
     el.dataset.tip = s.upstream
-      ? `当前分支（点击切换）· 上游 ${s.upstream} · ↑${s.ahead}待推 ↓${s.behind}待拉`
-      : "当前分支（点击切换）· 无上游分支";
+      ? t("git.branch.statusTip", { upstream: s.upstream, ahead: s.ahead, behind: s.behind })
+      : t("git.branch.statusNoUpstream");
   } catch { /* 无上游或查询失败：保持纯分支名 */ }
 }
 
@@ -240,25 +242,25 @@ export function renderGitPanel(): void {
   commitBtn.toggleAttribute("disabled", true);
   // 复核修正：空态早退路径重置按钮文本——否则「提交(3)」的旧计数会残留到下一次有暂存。
   // busy 态跳过（提交进行中 setBusy 已接管文本/禁用，重写会顶掉转圈提示）
-  if (!commitBtn.classList.contains("busy")) commitBtn.textContent = "提交";
+  if (!commitBtn.classList.contains("busy")) commitBtn.textContent = t("git.action.commit");
   if (!app.workspaceRoot) {
-    box.appendChild(emptyState("source-control", "尚未打开工作区", "打开后此处显示 Git 变更"));
+    box.appendChild(emptyState("source-control", t("git.panel.noWorkspace"), t("git.panel.noWorkspaceHint")));
     return;
   }
   if (!gitRepoActive.value) {
     // P0-7：非仓库空态提供「初始化仓库」按钮（此前仅文案提示，无入口）
-    const empty = emptyState("source-control", "不是 Git 仓库", "初始化仓库后启用源代码管理");
+    const empty = emptyState("source-control", t("git.panel.notRepo"), t("git.panel.notRepoHint"));
     const initBtn = document.createElement("button");
     initBtn.className = "btn btn--primary";
-    initBtn.textContent = "初始化 Git 仓库";
-    initBtn.dataset.tip = "在工作区根目录执行 git init";
+    initBtn.textContent = t("git.action.initRepo");
+    initBtn.dataset.tip = t("git.panel.initHint");
     initBtn.addEventListener("click", () => void gitInitRepo());
     empty.appendChild(initBtn);
     box.appendChild(empty);
     return;
   }
   if (gitFiles.length === 0) {
-    box.appendChild(emptyState("check", "无更改", "工作区干净"));
+    box.appendChild(emptyState("check", t("git.panel.noChanges"), t("git.panel.cleanHint")));
     return;
   }
 
@@ -267,10 +269,10 @@ export function renderGitPanel(): void {
 
   if (staged.length > 0) {
     box.appendChild(
-      gitSectionTitle(`已暂存（${staged.length}）`, {
+      gitSectionTitle(t("git.panel.stagedGroup", { n: staged.length }), {
         symbol: "−",
-        tip: "全部取消暂存",
-        ariaLabel: "全部取消暂存",
+        tip: t("git.action.unstageAll"),
+        ariaLabel: t("git.action.unstageAll"),
         action: () => void unstageFiles(staged.map((f) => f.path)),
       }),
     );
@@ -279,18 +281,18 @@ export function renderGitPanel(): void {
   if (unstaged.length > 0) {
     box.appendChild(
       // B 批（对齐 VS Code Changes 分组）：↩ 丢弃全部更改 + + 全部暂存 双动作
-      gitSectionTitle(`更改（${unstaged.length}）`, [
+      gitSectionTitle(t("git.panel.changesGroup", { n: unstaged.length }), [
         {
           symbol: "",
           icon: "discard", // 与行内「丢弃更改」同一图标（对标 VS Code 分组头 Discard All）
-          tip: "丢弃全部更改…",
-          ariaLabel: "丢弃全部更改",
+          tip: t("git.action.discardAllMenu"),
+          ariaLabel: t("git.action.discardAll"),
           action: () => void discardAllChanges(),
         },
         {
           symbol: "+",
-          tip: "全部暂存",
-          ariaLabel: "全部暂存更改",
+          tip: t("git.action.stageAll"),
+          ariaLabel: t("git.action.stageAllTip"),
           action: () => void stageFiles(unstaged.map((f) => f.path)),
         },
       ]),
@@ -301,7 +303,7 @@ export function renderGitPanel(): void {
   // B1：提交按钮显示暂存计数（对标 VS Code「提交(3)」/ PyCharm 选中计数）。
   // busy 态跳过文本更新（提交进行中 setBusy 已接管按钮，重写会顶掉转圈）
   if (!commitBtn.classList.contains("busy")) {
-    commitBtn.textContent = staged.length > 0 ? `提交(${staged.length})` : "提交";
+    commitBtn.textContent = staged.length > 0 ? t("git.panel.commitBtn", { n: staged.length }) : t("git.action.commit");
   }
   commitBtn.toggleAttribute("disabled", staged.length === 0);
   prefillCommitMessage(staged); // E-4：仅暂存单文件时预填文件名
@@ -322,11 +324,11 @@ export async function gitInitRepo(): Promise<void> {
     const out = await invoke<string>("git_init", { root: app.workspaceRoot });
     appendOutputLine(outputEl, out, "stdout", gotoFromLink, "git");
   } catch (e) {
-    appendOutputLine(outputEl, `git init 失败：${e}`, "stderr", gotoFromLink, "git");
-    toastFail("初始化仓库", e);
+    appendOutputLine(outputEl, t("git.out.initFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "git");
+    toastFail(t("git.action.init"), e);
     return;
   }
-  toast("已初始化 Git 仓库", "success");
+  toast(t("git.toast.initialized"), "success");
   await refreshGitStatus();
   await refreshBranchPanel();
   renderGitPanel();
@@ -339,7 +341,7 @@ export async function gitInitRepo(): Promise<void> {
 export async function discardAllChanges(): Promise<void> {
   const unstaged = gitFiles.filter((f) => !gitFileStaged(f));
   if (unstaged.length === 0) {
-    toast("没有可丢弃的更改", "info");
+    toast(t("git.toast.nothingToDiscard"), "info");
     return;
   }
   await discardFiles(unstaged);
@@ -349,7 +351,7 @@ export async function discardAllChanges(): Promise<void> {
 export async function stageAllChanges(): Promise<void> {
   const unstaged = gitFiles.filter((f) => !gitFileStaged(f));
   if (unstaged.length === 0) {
-    toast("没有未暂存的更改", "info");
+    toast(t("git.toast.nothingUnstaged"), "info");
     return;
   }
   await stageFiles(unstaged.map((f) => f.path));
@@ -362,7 +364,7 @@ export async function showDiffForPath(relPath: string): Promise<void> {
   const f = gitFiles.find((x) => x.path === relPath)
     ?? gitFiles.find((x) => normalizePath(x.path) === normalizePath(relPath));
   if (!f) {
-    toast(`「${relPath}」当前不在 Git 变更列表中`, "info");
+    toast(t("git.toast.notInChanges", { path: relPath }), "info");
     return;
   }
   if (f.code === "!") void showConflictDiff(f);
@@ -425,7 +427,7 @@ function renderScmItem(f: GitStatusFile, staged: boolean): HTMLElement {
   action.className = "scm-action";
   // UI-09：迁 data-tip。按钮文本是符号（! / − / +），当可访问名称毫无意义（读屏只会念符号），
   // 故一并补 aria-label 用语义文案覆盖——这是本次迁移中少数「顺手修好既有 a11y 缺陷」的地方。
-  const actionTip = f.code === "!" ? "解决冲突" : staged ? "取消暂存" : "暂存更改";
+  const actionTip = f.code === "!" ? t("git.action.resolveConflict") : staged ? t("git.action.unstage") : t("git.action.stage");
   action.dataset.tip = actionTip;
   action.setAttribute("aria-label", actionTip);
   if (f.code === "!") {
@@ -450,7 +452,7 @@ function renderScmItem(f: GitStatusFile, staged: boolean): HTMLElement {
   if (!staged && f.code !== "!") {
     const discard = document.createElement("button");
     discard.className = "scm-discard";
-    const tip = f.code === "?" ? "删除未跟踪文件" : "丢弃更改";
+    const tip = f.code === "?" ? t("git.discard.untrackedWarning") : t("git.action.discard");
     discard.dataset.tip = tip;
     discard.setAttribute("aria-label", tip);
     discard.appendChild(codicon("discard"));
@@ -465,8 +467,8 @@ export async function stageFiles(paths: string[]): Promise<void> {
   try {
     await invoke("git_stage", { root: app.workspaceRoot, paths });
   } catch (e) {
-    appendOutputLine(outputEl, `暂存失败：${e}`, "stderr", gotoFromLink, "git");
-    toastFail("暂存", e);
+    appendOutputLine(outputEl, t("git.out.stageFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "git");
+    toastFail(t("git.action.stageShort"), e);
     return;
   }
   // E2E 抓出的真 bug（迭代 0 复核漏网）：stage 后必须重查状态再渲染——
@@ -486,8 +488,8 @@ export async function unstageFiles(paths: string[]): Promise<void> {
   try {
     await invoke("git_unstage", { root: app.workspaceRoot, paths });
   } catch (e) {
-    appendOutputLine(outputEl, `取消暂存失败：${e}`, "stderr", gotoFromLink, "git");
-    toastFail("取消暂存", e);
+    appendOutputLine(outputEl, t("git.out.unstageFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "git");
+    toastFail(t("git.action.unstage"), e);
     return;
   }
   await refreshGitStatus();
@@ -502,15 +504,15 @@ async function discardFiles(files: GitStatusFile[]): Promise<void> {
   const untracked = files.filter((f) => f.code === "?");
   const tracked = files.filter((f) => f.code !== "?");
   const ok = await openConfirm({
-    title: "丢弃更改",
+    title: t("git.action.discard"),
     message:
       files.length === 1
         ? untracked.length
-          ? `「${files[0].path}」是未跟踪文件，丢弃将删除该文件。`
-          : `确定丢弃「${files[0].path}」未暂存的更改吗？此操作不可撤销。`
-        : `确定丢弃 ${files.length} 个文件的更改吗？此操作不可撤销。`,
-    okLabel: "丢弃",
-    cancelLabel: "取消",
+          ? t("git.discard.untrackedConfirm", { path: files[0].path })
+          : t("git.discard.confirmOne", { path: files[0].path })
+        : t("git.discard.confirmMany", { count: files.length }),
+    okLabel: t("git.action.discardShort"),
+    cancelLabel: t("common.cancel"),
     kind: "danger",
   });
   if (!ok) return;
@@ -521,7 +523,7 @@ async function discardFiles(files: GitStatusFile[]): Promise<void> {
     try {
       await editorBridge.saveTabsBeforeGit(tracked.map((f) => joinPath(root, f.path)));
     } catch (e) {
-      toastFail("保存修改（丢弃中止）", e);
+      toastFail(t("git.action.saveBeforeDiscard"), e);
       return;
     }
   }
@@ -533,11 +535,11 @@ async function discardFiles(files: GitStatusFile[]): Promise<void> {
       await invoke("git_clean", { root: app.workspaceRoot, paths: untracked.map((f) => f.path) });
     }
   } catch (e) {
-    appendOutputLine(outputEl, `丢弃更改失败：${e}`, "stderr", gotoFromLink, "git");
-    toastFail("丢弃更改", e);
+    appendOutputLine(outputEl, t("git.out.discardFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "git");
+    toastFail(t("git.action.discard"), e);
     return;
   }
-  toast(`已丢弃 ${files.length} 个文件的更改`, "success");
+  toast(t("git.toast.discarded", { count: files.length }), "success");
   // 丢弃会改写磁盘内容：已打开该文件的编辑器需从磁盘重载，否则留下旧内容（未跟踪文件已删除，不重载）
   // CR-28：git 返回的 f.path 是仓库相对路径，而 tab.path 是绝对路径，须 joinPath 转绝对路径再匹配
   for (const f of tracked) {
@@ -558,12 +560,12 @@ async function discardFiles(files: GitStatusFile[]): Promise<void> {
 /** 接受冲突文件的「当前」或「传入」版本（checkout 后 add，两步 = 解决该冲突）。返回是否已解决 */
 async function acceptConflict(side: "current" | "incoming", f: GitStatusFile): Promise<boolean> {
   if (!app.workspaceRoot) return false;
-  const label = side === "current" ? "当前更改" : "传入更改";
+  const label = side === "current" ? t("git.conflict.current") : t("git.conflict.incoming");
   const ok = await openConfirm({
-    title: "解决冲突",
-    message: `用「${label}」覆盖「${f.path}」的冲突吗？`,
-    okLabel: "接受",
-    cancelLabel: "取消",
+    title: t("git.action.resolveConflict"),
+    message: t("git.conflict.acceptConfirm", { side: label, path: f.path }),
+    okLabel: t("git.action.accept"),
+    cancelLabel: t("common.cancel"),
     kind: "primary",
   });
   if (!ok) return false;
@@ -573,11 +575,11 @@ async function acceptConflict(side: "current" | "incoming", f: GitStatusFile): P
       path: f.path,
     });
   } catch (e) {
-    appendOutputLine(outputEl, `接受${label}失败：${e}`, "stderr", gotoFromLink, "git");
-    toastFail("解决冲突", e);
+    appendOutputLine(outputEl, t("git.out.acceptFailed", { side: label, error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "git");
+    toastFail(t("git.action.resolveConflict"), e);
     return false;
   }
-  toast(`已接受${label}：${basename(f.path)}`, "success");
+  toast(t("git.toast.accepted", { side: label, file: basename(f.path) }), "success");
   await afterConflictResolve(f.path);
   return true;
 }
@@ -624,8 +626,8 @@ async function reloadTabsFromGitChange(): Promise<void> {
   if (skipped.length > 0) {
     toast(
       skipped.length === 1
-        ? `「${basename(skipped[0].path)}」有未保存修改，未从磁盘重载（其余 ${fileTabs.length - skipped.length} 个文件已刷新）`
-        : `${skipped.length} 个文件有未保存修改，未从磁盘重载（其余 ${fileTabs.length - skipped.length} 个文件已刷新）`,
+        ? t("git.toast.reloadSkippedOne", { file: basename(skipped[0].path), count: fileTabs.length - skipped.length })
+        : t("git.toast.reloadSkippedMany", { count: skipped.length, rest: fileTabs.length - skipped.length }),
       "info",
     );
   }
@@ -637,11 +639,11 @@ async function markResolved(path: string): Promise<void> {
   try {
     await invoke("git_stage", { root: app.workspaceRoot, paths: [path] });
   } catch (e) {
-    appendOutputLine(outputEl, `标记已解决失败：${e}`, "stderr", gotoFromLink, "git");
-    toastFail("标记已解决", e);
+    appendOutputLine(outputEl, t("git.out.markResolvedFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "git");
+    toastFail(t("git.action.markResolved"), e);
     return;
   }
-  toast(`已标记为已解决：${basename(path)}`, "success");
+  toast(t("git.toast.markResolved", { file: basename(path) }), "success");
   await refreshTreeWithExpandedState();
   renderGitPanel();
 }
@@ -657,11 +659,11 @@ function openConflictFile(f: GitStatusFile): void {
 function conflictMenu(f: GitStatusFile, anchor: MenuAnchor): void {
   showMenu(
     [
-      { label: "接受当前更改", detail: "保留工作分支版本", icon: "arrow-left", action: () => void acceptConflict("current", f) },
-      { label: "接受传入更改", detail: "采用合并进来的版本", icon: "arrow-right", action: () => void acceptConflict("incoming", f) },
-      { label: "标记为已解决", detail: "手动编辑后 git add", icon: "check", action: () => void markResolved(f.path) },
+      { label: t("git.conflict.acceptCurrent"), detail: t("git.conflict.acceptCurrentTip"), icon: "arrow-left", action: () => void acceptConflict("current", f) },
+      { label: t("git.conflict.acceptIncoming"), detail: t("git.conflict.acceptIncomingTip"), icon: "arrow-right", action: () => void acceptConflict("incoming", f) },
+      { label: t("git.conflict.markResolvedBtn"), detail: t("git.conflict.markResolvedTip"), icon: "check", action: () => void markResolved(f.path) },
       { sep: true },
-      { label: "打开文件手动解决", icon: "edit", action: () => openConflictFile(f) },
+      { label: t("git.conflict.openFile"), icon: "edit", action: () => openConflictFile(f) },
     ],
     anchor,
   );
@@ -681,7 +683,7 @@ export async function commitChanges(amend = false): Promise<void> {
   const message = msgEl.value.trim();
   // P1-F：空值就近内联提示（不再进输出面板 stderr）；输入即清除
   if (!message) {
-    errEl.textContent = "提交信息不能为空";
+    errEl.textContent = t("git.toast.emptyMessage");
     errEl.classList.remove("hidden");
     msgEl.focus();
     return;
@@ -691,7 +693,7 @@ export async function commitChanges(amend = false): Promise<void> {
   // 无暂存时会发出空提交请求，用户只看到一个莫名的 git 报错 toast。
   const hasStaged = gitFiles.some((f) => gitFileStaged(f));
   if (!hasStaged && !amend) {
-    errEl.textContent = "没有已暂存的更改——请先用 + 暂存要提交的文件";
+    errEl.textContent = t("git.toast.nothingStaged");
     errEl.classList.remove("hidden");
     msgEl.focus();
     return;
@@ -704,20 +706,20 @@ export async function commitChanges(amend = false): Promise<void> {
     if (preCommitFormatEnabled) await preCommitFormat();
     // P0.5-B4：忙碌态防重入（提交/推送/拉取共用提交按钮互斥），完成或失败后恢复
     const commitBtn = $btn("git-commit-btn");
-    setBusy(commitBtn, true, "提交中…");
+    setBusy(commitBtn, true, t("git.action.committing"));
     appendOutputLine(outputEl, `> git commit${amend ? " --amend" : ""} -m "${message}"`, "cmd", gotoFromLink, "git");
     try {
       const out = await invoke<string>("git_commit", { root: app.workspaceRoot, message, amend });
       for (const line of out.split("\n")) appendOutputLine(outputEl, line, "stdout", gotoFromLink, "git");
     } catch (e) {
-      appendOutputLine(outputEl, `${amend ? "修订" : "提交"}失败：${e}`, "stderr", gotoFromLink, "git");
-      toastFail(amend ? "修订提交" : "提交", e);
+      appendOutputLine(outputEl, t("git.out.commitFailed", { label: amend ? t("git.action.amendShort") : t("git.action.commit"), error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "git");
+      toastFail(amend ? t("git.action.amend") : t("git.action.commit"), e);
       return;
     } finally {
       setBusy(commitBtn, false);
     }
     msgEl.value = "";
-    toast(amend ? `已修订提交：${message}` : `已提交：${message}`, "success");
+    toast(amend ? t("git.toast.amended", { message: message }) : t("git.toast.committed", { message: message }), "success");
     // E2E 抓出的同款 bug：提交改变 HEAD 与暂存区，必须重查状态再渲染
     //（此前只 renderGitPanel 读旧内存，面板残留已提交条目直至 watcher 事件链兜底）
     await refreshGitStatus();
@@ -736,7 +738,7 @@ export async function commitAll(): Promise<void> {
   const msgEl = $("git-commit-msg") as HTMLTextAreaElement;
   if (!msgEl.value.trim()) {
     const errEl = $("git-commit-error");
-    errEl.textContent = "提交信息不能为空";
+    errEl.textContent = t("git.toast.emptyMessage");
     errEl.classList.remove("hidden");
     msgEl.focus();
     return;
@@ -807,12 +809,12 @@ async function applyConflictEdit(): Promise<void> {
   // 块级选择将一并失效（两条解决路径平行，避免用户误以为叠加生效）
   const pendingChoices = mergeSelections.size > 0 && mergeConflictCount > 0;
   const ok = await openConfirm({
-    title: "应用编辑结果",
+    title: t("git.conflict.applyEditTitle"),
     message: pendingChoices
-      ? `用编辑后的内容覆盖「${diffConflictPath}」并标记为已解决吗？\n注意：块级面板中已作的选择将不会生效（编辑结果整文件覆盖）。`
-      : `用编辑后的内容覆盖「${diffConflictPath}」并标记为已解决吗？`,
-    okLabel: "应用并解决",
-    cancelLabel: "取消",
+      ? t("git.conflict.applyEditConfirmLong", { path: diffConflictPath })
+      : t("git.conflict.applyEditConfirm", { path: diffConflictPath }),
+    okLabel: t("git.conflict.applyAndResolve"),
+    cancelLabel: t("common.cancel"),
     kind: "primary",
   });
   if (!ok) return;
@@ -820,11 +822,11 @@ async function applyConflictEdit(): Promise<void> {
     await invoke("write_file", { path: joinPath(root, diffConflictPath), content: diffModifiedModel.getValue() });
     await invoke("git_stage", { root, paths: [diffConflictPath] });
   } catch (e) {
-    appendOutputLine(outputEl, `应用编辑失败：${e}`, "stderr", gotoFromLink, "git");
-    toastFail("应用编辑", e);
+    appendOutputLine(outputEl, t("git.out.applyEditFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "git");
+    toastFail(t("git.action.applyEdit"), e);
     return;
   }
-  toast("已解决冲突（编辑结果）", "success");
+  toast(t("git.toast.conflictResolvedByEdit"), "success");
   enableConflictEditing(false, null);
   // 复核补充：块级选择状态一并复位（该文件已解决，遗留选择会污染下一个冲突文件的默认态）
   mergeSegments = [];
@@ -901,8 +903,8 @@ async function showDiffImpl(f: GitStatusFile, base: DiffBase, activate: boolean)
     await loadDiffHunks(f.path);
   } catch (e) {
     if (token !== diffLoadToken) return; // P2-5：过期失败也不关新内容正在展示的 tab
-    appendOutputLine(outputEl, `读取 diff 失败：${e}`, "stderr", gotoFromLink, "git");
-    toastFail("读取 diff", e);
+    appendOutputLine(outputEl, t("git.out.diffFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "git");
+    toastFail(t("git.action.readDiff"), e);
     closeDiffTabByPath(f.path);
   }
 }
@@ -994,8 +996,8 @@ export function refreshDiffOnActivate(tab: Tab): void {
 
 /** 三态基准标签 */
 function diffBaseLabel(staged: boolean, base: DiffBase): string {
-  if (base === "head") return "HEAD vs 工作区（总差异）";
-  return staged ? "HEAD vs 暂存区" : "暂存区 vs 工作区";
+  if (base === "head") return t("git.diff.baseAll");
+  return staged ? t("git.diff.baseHead") : t("git.diff.baseIndex");
 }
 
 /** 差异视图自动刷新（第 2 步迁移后按「活动 diff tab」驱动）：
@@ -1034,7 +1036,7 @@ function reopenDiffIfViewing(path: string): void {
   if (!normalizePath(path).endsWith(viewing) && !viewing.endsWith(normalizePath(path))) return;
   const f = gitFiles.find((x) => normalizePath(x.path) === viewing);
   if (!f) {
-    toast(`${diffFilePath} 已不在变更列表，关闭差异视图`, "info");
+    toast(t("git.toast.fileNotInChanges", { path: diffFilePath }), "info");
     closeDiffTabByPath(diffFilePath);
     return;
   }
@@ -1066,8 +1068,8 @@ function toggleDiffBaseButtons(f: GitStatusFile): void {
   // hunk 按钮语义标签跟随基准（index 侧 = 取消暂存）
   const stageBtn = $("git-diff-hunk-stage") as HTMLButtonElement;
   const isIndex = diffBase === "index";
-  stageBtn.textContent = isIndex ? "−块" : "+块";
-  stageBtn.dataset.tip = isIndex ? "取消暂存光标所在的变更块" : "暂存光标所在的变更块";
+  stageBtn.textContent = isIndex ? t("git.diff.unstageHunk") : t("git.diff.stageHunk");
+  stageBtn.dataset.tip = isIndex ? t("git.diff.unstageHunkTip") : t("git.diff.stageHunkTip");
 }
 
 // ---------- Hunk 级操作（迭代 2 · P1-1） ----------
@@ -1151,7 +1153,7 @@ async function applyCurrentHunk(mode: "stage" | "unstage" | "discard"): Promise<
   // untracked 前置引导：git diff HEAD 对未跟踪文件无输出，hunk 操作无从谈起
   const cur = gitFiles.find((x) => x.path === diffFilePath);
   if (cur && cur.code === "?") {
-    toast("「" + diffFilePath + "」是未跟踪文件（从未提交）——整文件暂存即可，无需按块操作", "info");
+    toast(t("git.hunk.untrackedGuide", { path: diffFilePath }), "info");
     return;
   }
   // 兜底：showDiff 的 loadDiffHunks 尚在途时 hunks 为空（点得快的竞态）——现查一次
@@ -1159,20 +1161,20 @@ async function applyCurrentHunk(mode: "stage" | "unstage" | "discard"): Promise<
   const idx = hunkIndexAtCursor();
   if (idx < 0) {
     if (diffHunks.length === 0) {
-      toast("当前基准下没有可按块操作的变更（如已全部暂存）——可切「总差异」基准查看", "info");
+      toast(t("git.hunk.noneInBase"), "info");
       return;
     }
-    toast("光标不在任何变更块内——请先把光标放到要操作的行", "info");
+    toast(t("git.hunk.cursorOutside"), "info");
     return;
   }
   const patch = sliceHunkPatch(idx);
   if (!patch) return;
   if (mode === "discard") {
     const ok = await openConfirm({
-      title: "丢弃该变更块",
-      message: `丢弃「${diffFilePath}」当前块的改动吗？此操作不可撤销。`,
-      okLabel: "丢弃",
-      cancelLabel: "取消",
+      title: t("git.hunk.discardMenu"),
+      message: t("git.hunk.discardConfirm", { path: diffFilePath }),
+      okLabel: t("git.action.discardShort"),
+      cancelLabel: t("common.cancel"),
       kind: "danger",
     });
     if (!ok) return;
@@ -1180,11 +1182,11 @@ async function applyCurrentHunk(mode: "stage" | "unstage" | "discard"): Promise<
   try {
     await invoke("git_apply_hunk", { root, path: diffFilePath, patch, mode });
   } catch (e) {
-    appendOutputLine(outputEl, `hunk 操作失败（${mode}）：${e}`, "stderr", gotoFromLink, "git");
-    toastFail(mode === "stage" ? "暂存变更块" : mode === "unstage" ? "取消暂存变更块" : "丢弃变更块", e);
+    appendOutputLine(outputEl, t("git.out.hunkFailed", { mode: mode, error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "git");
+    toastFail(mode === "stage" ? t("git.action.stageHunk") : mode === "unstage" ? t("git.action.unstageHunk") : t("git.action.discardHunk"), e);
     return;
   }
-  toast(mode === "stage" ? "已暂存当前变更块" : mode === "unstage" ? "已取消暂存当前变更块" : "已丢弃当前变更块", "success");
+  toast(mode === "stage" ? t("git.toast.hunkStaged") : mode === "unstage" ? t("git.toast.hunkUnstaged") : t("git.toast.hunkDiscarded"), "success");
   // 刷新：hunk 列表 + git 状态 + 面板 + gutter + 重载编辑器 + 按需重开 diff
   //（discard/unstage 直接改写工作区文件，已打开的编辑器必须跟上——用户实测报告）
   await refreshGitStatus();
@@ -1242,7 +1244,7 @@ async function showConflictDiff(f: GitStatusFile): Promise<void> {
   const absPath = joinPath(app.workspaceRoot, f.path);
   const tab = ensureDiffTab(f.path, { base: "auto", conflict: true });
   activateDiffTab(tab);
-  ($("git-diff-label") as HTMLElement).textContent = `${f.path}  ·  冲突（当前 ← 传入）`;
+  ($("git-diff-label") as HTMLElement).textContent = t("git.conflict.itemLabel", { path: f.path });
   toggleConflictDiffButtons(true);
   $("git-merge-blocks").classList.remove("hidden");
   try {
@@ -1263,15 +1265,15 @@ async function showConflictDiff(f: GitStatusFile): Promise<void> {
     diffOriginalModel = app.monaco.editor.createModel(v.current, lang);
     diffModifiedModel = app.monaco.editor.createModel(v.incoming, lang);
     d.setModel({ original: diffOriginalModel, modified: diffModifiedModel });
-    d.getOriginalEditor().updateOptions({ ariaLabel: "当前更改" });
-    d.getModifiedEditor().updateOptions({ ariaLabel: "传入更改" });
+    d.getOriginalEditor().updateOptions({ ariaLabel: t("git.conflict.current") });
+    d.getModifiedEditor().updateOptions({ ariaLabel: t("git.conflict.incoming") });
     // P1-3：冲突模式放开传入侧编辑——用户可直接改出第三种内容（current+incoming 的手工融合），
     // 点「应用编辑结果」写回 + add；块级选择面板（#git-merge-blocks）继续可用
     enableConflictEditing(true, f.path);
   } catch (e) {
     if (token !== diffLoadToken) return; // P2-5：过期失败不影响新内容展示
-    appendOutputLine(outputEl, `读取冲突 diff 失败：${e}`, "stderr", gotoFromLink, "git");
-    toastFail("读取冲突 diff", e);
+    appendOutputLine(outputEl, t("git.out.conflictDiffFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "git");
+    toastFail(t("git.action.readConflictDiff"), e);
     closeDiffTabByPath(f.path);
     toggleConflictDiffButtons(false);
     $("git-merge-blocks").classList.add("hidden");
@@ -1305,20 +1307,20 @@ function renderMergeBlocks(): void {
     el.className = "merge-block";
     const title = document.createElement("span");
     title.className = "merge-block-title";
-    title.textContent = `冲突 #${idx + 1}`;
+    title.textContent = t("git.conflict.blockTitle", { n: idx + 1 });
     el.appendChild(title);
-    el.appendChild(mergeChoiceBtn(idx, "current", "保留当前"));
-    el.appendChild(mergeChoiceBtn(idx, "incoming", "保留传入"));
-    el.appendChild(mergeChoiceBtn(idx, "both", "两者都留"));
+    el.appendChild(mergeChoiceBtn(idx, "current", t("git.conflict.keepCurrent")));
+    el.appendChild(mergeChoiceBtn(idx, "incoming", t("git.conflict.keepIncoming")));
+    el.appendChild(mergeChoiceBtn(idx, "both", t("git.conflict.keepBoth")));
     box.appendChild(el);
   }
   if (mergeConflictCount === 0) {
-    box.appendChild(emptyState("check", "无冲突块", "该文件没有可识别的冲突标记"));
+    box.appendChild(emptyState("check", t("git.conflict.none"), t("git.conflict.noneHint")));
     return;
   }
   const apply = document.createElement("button");
   apply.className = "btn btn--primary";
-  apply.textContent = "应用块级解决";
+  apply.textContent = t("git.conflict.applyBlock");
   apply.addEventListener("click", () => void applyMergeResolve());
   box.appendChild(apply);
 }
@@ -1347,18 +1349,18 @@ async function applyMergeResolve(): Promise<void> {
   // `<<<<<<<…=======…>>>>>>>` 三行结构；对重组结果再解析，仍有冲突块 = 有残留。
   const remaining = parseMergeSegments(content).filter((s) => s.kind === "conflict").length;
   if (remaining > 0) {
-    toast(`仍有 ${remaining} 处未处理的冲突标记`, "error");
+    toast(t("git.toast.remainingConflicts", { count: remaining }), "error");
     return;
   }
   try {
     await invoke("write_file", { path: joinPath(root, diffConflictPath), content });
     await invoke("git_stage", { root, paths: [diffConflictPath] });
   } catch (e) {
-    appendOutputLine(outputEl, `应用块级解决失败：${e}`, "stderr", gotoFromLink, "git");
-    toastFail("块级解决", e);
+    appendOutputLine(outputEl, t("git.out.blockResolveFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "git");
+    toastFail(t("git.action.blockResolve"), e);
     return;
   }
-  toast("已解决冲突", "success");
+  toast(t("git.toast.conflictResolved"), "success");
   enableConflictEditing(false, null); // 复核修正：块级解决后同样收回编辑态
   closeDiffPanel();
   await afterConflictResolve(diffConflictPath);
@@ -1372,8 +1374,8 @@ function diffToggleLayout(): void {
   diffEditor.updateOptions({ renderSideBySide: diffSideBySide });
   const btn = $btn("git-diff-layout");
   const icon = btn.querySelector("i");
-  btn.dataset.tip = diffSideBySide ? "切换为内联视图" : "切换为并排视图";
-  btn.setAttribute("aria-label", diffSideBySide ? "切换为内联视图" : "切换为并排视图");
+  btn.dataset.tip = diffSideBySide ? t("git.diff.inlineView") : t("git.diff.sideBySideView");
+  btn.setAttribute("aria-label", diffSideBySide ? t("git.diff.inlineView") : t("git.diff.sideBySideView"));
   if (icon) icon.className = `codicon codicon-${diffSideBySide ? "split-horizontal" : "split-vertical"}`;
 }
 
@@ -1435,8 +1437,8 @@ export async function gitRemoteOp(
     for (const line of out.split("\n")) if (line.trim()) appendOutputLine(outputEl, line, "stdout", gotoFromLink, "git");
   } catch (e) {
     const msg = String(e);
-    appendOutputLine(outputEl, `${label} 失败：${msg}`, "stderr", gotoFromLink, "git");
-    if (msg.includes("已取消")) toast(`${label} 已取消`, "info");
+    appendOutputLine(outputEl, t("git.out.remoteFailed", { label: label, error: localizeBackendError(errMsg(msg)) }), "stderr", gotoFromLink, "git");
+    if (msg.includes("已取消")) toast(t("git.toast.cancelled", { label: label }), "info");
     else toastFail(label, e);
   } finally {
     unlisten();
@@ -1463,10 +1465,10 @@ function showRemoteBusyBar(op: string, show: boolean): void {
   const spin = codicon("loading");
   spin.classList.add("codicon-modifier-spin");
   const text = document.createElement("span");
-  text.textContent = `git ${op} 进行中…`;
+  text.textContent = t("git.remote.running", { op: op });
   const cancel = document.createElement("button");
   cancel.className = "btn btn--sm";
-  cancel.textContent = "取消";
+  cancel.textContent = t("common.cancel");
   cancel.addEventListener("click", () => {
     void invoke("git_cancel_op", { op }).catch(() => { /* 无进行中操作时静默 */ });
   });
@@ -1488,10 +1490,10 @@ async function openRemoteManager(): Promise<void> {
   card.className = "modal-card";
   card.setAttribute("role", "dialog");
   card.setAttribute("aria-modal", "true");
-  card.setAttribute("aria-label", "远程仓库管理");
+  card.setAttribute("aria-label", t("git.remote.manageTitle"));
   const title = document.createElement("div");
   title.className = "modal-title";
-  title.textContent = "远程仓库";
+  title.textContent = t("git.remote.title");
   card.appendChild(title);
   const list = document.createElement("div");
   list.className = "git-remote-list";
@@ -1501,24 +1503,24 @@ async function openRemoteManager(): Promise<void> {
   addRow.className = "git-remote-add-row";
   const nameInput = document.createElement("input");
   nameInput.type = "text";
-  nameInput.placeholder = "名称（如 origin）";
+  nameInput.placeholder = t("git.remote.nameLabel");
   nameInput.autocomplete = "off";
   nameInput.spellcheck = false;
   const urlInput = document.createElement("input");
   urlInput.type = "text";
-  urlInput.placeholder = "URL（https://… 或 git@…）";
+  urlInput.placeholder = t("git.remote.urlLabel");
   urlInput.autocomplete = "off";
   urlInput.spellcheck = false;
   const addBtn = document.createElement("button");
   addBtn.className = "btn btn--primary";
-  addBtn.textContent = "添加";
+  addBtn.textContent = t("git.action.add");
   addRow.append(nameInput, urlInput, addBtn);
   card.appendChild(addRow);
   const closeRow = document.createElement("div");
   closeRow.className = "modal-actions";
   const closeBtn = document.createElement("button");
   closeBtn.className = "btn";
-  closeBtn.textContent = "关闭";
+  closeBtn.textContent = t("common.close");
   closeRow.appendChild(closeBtn);
   card.appendChild(closeRow);
   overlay.appendChild(card);
@@ -1531,11 +1533,11 @@ async function openRemoteManager(): Promise<void> {
     try {
       remotes = await invoke("git_remote_list", { root });
     } catch (e) {
-      list.appendChild(emptyState("error", "读取远程列表失败", String(e)));
+      list.appendChild(emptyState("error", t("git.remote.listFailed"), String(e)));
       return;
     }
     if (remotes.length === 0) {
-      list.appendChild(emptyState("cloud", "无远程仓库", "添加一个远程后即可推送/拉取"));
+      list.appendChild(emptyState("cloud", t("git.remote.none"), t("git.remote.noneHint")));
       return;
     }
     for (const r of remotes) {
@@ -1554,31 +1556,31 @@ async function openRemoteManager(): Promise<void> {
       // 推送到该远程（当前分支）
       const pushBtn = document.createElement("button");
       pushBtn.className = "btn btn--sm";
-      pushBtn.textContent = "推送到此";
-      pushBtn.dataset.tip = `推送当前分支到 ${r.name}`;
+      pushBtn.textContent = t("git.remote.pushHere");
+      pushBtn.dataset.tip = t("git.remote.pushHereTip", { name: r.name });
       pushBtn.addEventListener("click", () => {
         overlay.remove();
         void gitRemoteOp("push", { remote: r.name });
       });
       const rmBtn = document.createElement("button");
       rmBtn.className = "btn btn--sm btn--danger-outline";
-      rmBtn.textContent = "删除";
+      rmBtn.textContent = t("git.action.delete");
       rmBtn.addEventListener("click", async () => {
         const ok = await openConfirm({
-          title: "删除远程",
-          message: `移除远程「${r.name}」（${r.url}）吗？不影响远程仓库本身。`,
-          okLabel: "删除",
-          cancelLabel: "取消",
+          title: t("git.remote.deleteTitle"),
+          message: t("git.remote.removeConfirm", { name: r.name, url: r.url }),
+          okLabel: t("git.action.delete"),
+          cancelLabel: t("common.cancel"),
           kind: "danger",
         });
         if (!ok) return;
         try {
           await invoke("git_remote_remove", { root, name: r.name });
-          toast(`已移除远程 ${r.name}`, "success");
+          toast(t("git.toast.remoteRemoved", { name: r.name }), "success");
           await renderList();
           await refreshBranchPanel();
         } catch (e) {
-          toastFail("移除远程", e);
+          toastFail(t("git.action.removeRemote"), e);
         }
       });
       row.append(info, pushBtn, rmBtn);
@@ -1589,18 +1591,18 @@ async function openRemoteManager(): Promise<void> {
     const n = nameInput.value.trim();
     const u = urlInput.value.trim();
     if (!n || !u) {
-      toast("名称与 URL 均不能为空", "error");
+      toast(t("git.toast.remoteEmpty"), "error");
       return;
     }
     try {
       await invoke("git_remote_add", { root, name: n, url: u });
-      toast(`已添加远程 ${n}`, "success");
+      toast(t("git.toast.remoteAdded", { name: n }), "success");
       nameInput.value = "";
       urlInput.value = "";
       await renderList();
       await refreshBranchPanel();
     } catch (e) {
-      toastFail("添加远程", e);
+      toastFail(t("git.action.addRemote"), e);
     }
   });
   document.body.appendChild(overlay);
@@ -1612,18 +1614,18 @@ export async function gitStash(): Promise<void> {
   if (!app.workspaceRoot || !gitRepoActive.value) return;
   // openChoice 为 ok/neutral/cancel 三按钮模型：ok=含未跟踪 / neutral=仅已跟踪
   const mode = await openChoice({
-    title: "贮藏更改",
-    message: "把当前未提交更改存入 stash？",
-    okLabel: "含未跟踪文件（-u）",
-    neutralLabel: "仅已跟踪",
-    cancelLabel: "取消",
+    title: t("git.stash.title"),
+    message: t("git.stash.confirm"),
+    okLabel: t("git.stash.includeUntracked"),
+    neutralLabel: t("git.stash.trackedOnly"),
+    cancelLabel: t("common.cancel"),
     kind: "primary",
   });
   if (mode === "cancel") return;
   const message = await openPrompt({
-    title: "贮藏说明（可选）",
-    label: "给这批更改一个备注（留空用 git 默认消息）",
-    placeholder: "如：WIP 登录页重构",
+    title: t("git.stash.messageLabel"),
+    label: t("git.stash.messageHint"),
+    placeholder: t("git.stash.messagePlaceholder"),
   });
   if (message === null) return; // 取消输入 = 取消整个贮藏
   appendOutputLine(outputEl, `> git stash push${mode === "ok" ? " -u" : ""}${message.trim() ? ` -m "${message.trim()}"` : ""}`, "cmd", gotoFromLink, "git");
@@ -1634,9 +1636,9 @@ export async function gitStash(): Promise<void> {
       includeUntracked: mode === "ok",
     });
     for (const line of out.split("\n")) appendOutputLine(outputEl, line, "stdout", gotoFromLink, "git");
-    toast("已贮藏更改", "success");
+    toast(t("git.toast.stashed"), "success");
   } catch (e) {
-    appendOutputLine(outputEl, `stash 失败：${e}`, "stderr", gotoFromLink, "git");
+    appendOutputLine(outputEl, t("git.out.stashFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "git");
     toastFail("Stash", e);
   }
   await refreshGitStatus();
@@ -1655,7 +1657,7 @@ export async function gitStashPop(): Promise<void> {
     const out = await invoke<string>("git_stash_pop", { root: app.workspaceRoot });
     for (const line of out.split("\n")) appendOutputLine(outputEl, line, "stdout", gotoFromLink, "git");
   } catch (e) {
-    appendOutputLine(outputEl, `stash pop 失败：${e}`, "stderr", gotoFromLink, "git");
+    appendOutputLine(outputEl, t("git.out.stashPopFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "git");
     toastFail("Stash pop", e);
   }
   await refreshGitStatus();
@@ -1677,8 +1679,8 @@ async function stashPopAt(index: number): Promise<void> {
     const out = await invoke<string>("git_stash_pop_at", { root: app.workspaceRoot, index });
     for (const line of out.split("\n")) appendOutputLine(outputEl, line, "stdout", gotoFromLink, "git");
   } catch (e) {
-    appendOutputLine(outputEl, `stash pop 失败：${e}`, "stderr", gotoFromLink, "git");
-    toastFail("弹出贮藏", e);
+    appendOutputLine(outputEl, t("git.out.stashPopFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "git");
+    toastFail(t("git.action.stashPop"), e);
   }
   await refreshGitStatus();
   renderGitPanel();
@@ -1696,18 +1698,18 @@ async function renderStashPanel(): Promise<void> {
   const box = $("git-stash-panel");
   box.textContent = "";
   if (!app.workspaceRoot || !gitRepoActive.value) {
-    box.appendChild(emptyState("source-control", "不是 Git 仓库"));
+    box.appendChild(emptyState("source-control", t("git.panel.notRepo")));
     return;
   }
   let stashes: string[];
   try {
     stashes = await invoke<string[]>("git_stash_list", { root: app.workspaceRoot });
   } catch (e) {
-    box.appendChild(emptyState("error", "读取贮藏失败", String(e)));
+    box.appendChild(emptyState("error", t("git.stash.listFailed"), String(e)));
     return;
   }
   if (stashes.length === 0) {
-    box.appendChild(emptyState("save", "无贮藏", "git stash push 保存的更改会显示在这里"));
+    box.appendChild(emptyState("save", t("git.stash.none"), t("git.stash.noneHint")));
     return;
   }
   for (let i = 0; i < stashes.length; i++) {
@@ -1725,19 +1727,19 @@ function renderStashItem(raw: string, index: number): HTMLElement {
   label.title = raw;
   const show = document.createElement("button");
   show.className = "btn btn--sm btn--icon";
-  show.dataset.tip = "查看该贮藏的 diff";
-  show.setAttribute("aria-label", "查看贮藏 diff");
+  show.dataset.tip = t("git.stash.viewDiffTip");
+  show.setAttribute("aria-label", t("git.stash.viewDiff"));
   show.appendChild(codicon("diff"));
   show.addEventListener("click", () => void showStashDiff(index));
   const pop = document.createElement("button");
   pop.className = "btn btn--sm";
-  pop.textContent = "弹出";
-  pop.dataset.tip = "应用并弹出该贮藏";
+  pop.textContent = t("git.stash.popBtn");
+  pop.dataset.tip = t("git.stash.popTip");
   pop.addEventListener("click", () => void stashPopAt(index));
   const drop = document.createElement("button");
   drop.className = "btn btn--sm btn--danger-outline";
-  drop.textContent = "丢弃";
-  drop.dataset.tip = "丢弃该贮藏（不可恢复）";
+  drop.textContent = t("git.action.discardShort");
+  drop.dataset.tip = t("git.stash.dropTip");
   drop.addEventListener("click", () => void stashDropAt(index));
   el.append(label, show, pop, drop);
   return el;
@@ -1751,8 +1753,8 @@ async function showStashDiff(index: number): Promise<void> {
     const out = await invoke<string>("git_stash_show", { root: app.workspaceRoot, index });
     for (const line of out.split("\n")) appendDetailLine(line, gitLineClass(line));
   } catch (e) {
-    appendDetailLine(`读取 stash diff 失败：${e}`, "stderr");
-    toastFail("读取 stash diff", e);
+    appendDetailLine(t("git.out.stashDiffFailed", { error: localizeBackendError(errMsg(e)) }), "stderr");
+    toastFail(t("git.action.readStashDiff"), e);
   }
 }
 
@@ -1760,21 +1762,21 @@ async function showStashDiff(index: number): Promise<void> {
 async function stashDropAt(index: number): Promise<void> {
   if (!app.workspaceRoot || !gitRepoActive.value) return;
   const ok = await openConfirm({
-    title: "丢弃贮藏",
-    message: `确定丢弃 stash@{${index}} 吗？此操作不可撤销。`,
-    okLabel: "丢弃",
-    cancelLabel: "取消",
+    title: t("git.action.dropStash"),
+    message: t("git.stash.dropConfirm", { index: index }),
+    okLabel: t("git.action.discardShort"),
+    cancelLabel: t("common.cancel"),
     kind: "danger",
   });
   if (!ok) return;
   try {
     await invoke("git_stash_drop_at", { root: app.workspaceRoot, index });
   } catch (e) {
-    appendOutputLine(outputEl, `stash drop 失败：${e}`, "stderr", gotoFromLink, "git");
-    toastFail("丢弃贮藏", e);
+    appendOutputLine(outputEl, t("git.out.stashDropFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "git");
+    toastFail(t("git.action.dropStash"), e);
     return;
   }
-  toast("已丢弃贮藏", "success");
+  toast(t("git.toast.stashDropped"), "success");
   await renderStashPanel();
 }
 
@@ -1797,8 +1799,8 @@ export function renderGitDetailEmptyState(): void {
   gitDetailViewEl.appendChild(
     emptyState(
       "git-commit",
-      "暂无 Git 详情",
-      "从左侧源代码管理面板「历史」中点击某次提交查看详情（git show），或在「差异」视图点 Blame 追溯每行的修改者",
+      t("git.detail.none"),
+      t("git.detail.noneHint"),
     ),
   );
 }
@@ -1814,13 +1816,13 @@ function openGitDetailView(label: string, cmd: string): void {
 /** 查看指定提交详情（git show）——渲染进独立 Git 详情视图（P0：不再 clearOutput 输出面板） */
 async function showCommitDetail(hash: string): Promise<void> {
   if (!app.workspaceRoot) return;
-  openGitDetailView(`提交 ${hash.slice(0, 8)}`, `git show ${hash}`);
+  openGitDetailView(t("git.detail.commitTitle", { hash: hash.slice(0, 8) }), `git show ${hash}`);
   try {
     const out = await invoke<string>("git_show", { root: app.workspaceRoot, hash });
     for (const line of out.split("\n")) appendDetailLine(line, gitLineClass(line));
   } catch (e) {
-    appendDetailLine(`读取提交详情失败：${e}`, "stderr");
-    toastFail("读取提交详情", e);
+    appendDetailLine(t("git.out.commitDetailFailed", { error: localizeBackendError(errMsg(e)) }), "stderr");
+    toastFail(t("git.action.readCommitDetail"), e);
   }
 }
 
@@ -1831,7 +1833,7 @@ export async function showBlame(path: string): Promise<void> {
   if (!app.workspaceRoot) return;
   const st = gitFiles.find((x) => normalizePath(x.path) === normalizePath(path));
   if (st && st.code === "?") {
-    toast(`「${path}」是未跟踪文件（从未提交），没有提交历史可追溯`, "info");
+    toast(t("git.toast.untrackedNoHistory", { path: path }), "info");
     return;
   }
   openGitDetailView(`Blame · ${path}`, `git blame --line-porcelain -- ${path}`);
@@ -1857,7 +1859,7 @@ export async function showBlame(path: string): Promise<void> {
       const hash = document.createElement("button");
       hash.className = "git-blame-hash";
       hash.textContent = sameAsPrev ? "" : r.short_hash;
-      hash.title = `${r.summary}\n点击查看提交详情`;
+      hash.title = t("git.blame.summaryTip", { summary: r.summary });
       hash.addEventListener("click", () => void showCommitDetail(r.short_hash));
       const author = document.createElement("span");
       author.className = "git-blame-author";
@@ -1872,8 +1874,8 @@ export async function showBlame(path: string): Promise<void> {
       gitDetailViewEl.appendChild(row);
     }
   } catch (e) {
-    appendDetailLine(`读取 blame 失败：${e}`, "stderr");
-    toastFail("读取 blame", e);
+    appendDetailLine(t("git.out.blameFailed", { error: localizeBackendError(errMsg(e)) }), "stderr");
+    toastFail(t("git.action.readBlame"), e);
   }
 }
 
@@ -1883,11 +1885,11 @@ interface GitCommitInfo { hash: string; short_hash: string; author: string; date
  *  与 blame 同用 Git 详情视图（openGitDetailView 渲染任意行内容）。 */
 export async function showFileHistory(relPath: string): Promise<void> {
   if (!app.workspaceRoot) return;
-  openGitDetailView(`文件历史 · ${relPath}`, `git log --follow -- ${relPath}`);
+  openGitDetailView(t("git.history.fileTitle", { path: relPath }), `git log --follow -- ${relPath}`);
   try {
     const commits = await invoke<GitCommitInfo[]>("git_log_file", { root: app.workspaceRoot, path: relPath, count: 100 });
     if (commits.length === 0) {
-      appendDetailLine("该文件尚无提交历史", "hint");
+      appendDetailLine(t("git.history.fileNone"), "hint");
       return;
     }
     for (const c of commits) {
@@ -1896,7 +1898,7 @@ export async function showFileHistory(relPath: string): Promise<void> {
       const hash = document.createElement("button");
       hash.className = "git-blame-hash";
       hash.textContent = c.short_hash;
-      hash.title = `${c.subject}\n点击查看提交详情`;
+      hash.title = t("git.blame.summaryTip", { summary: c.subject });
       hash.addEventListener("click", () => void showCommitDetail(c.short_hash));
       const meta = document.createElement("span");
       meta.className = "git-file-history-meta";
@@ -1908,8 +1910,8 @@ export async function showFileHistory(relPath: string): Promise<void> {
       gitDetailViewEl.appendChild(row);
     }
   } catch (e) {
-    appendDetailLine(`读取文件历史失败：${e}`, "stderr");
-    toastFail("读取文件历史", e);
+    appendDetailLine(t("git.out.fileHistoryFailed", { error: localizeBackendError(errMsg(e)) }), "stderr");
+    toastFail(t("git.action.readFileHistory"), e);
   }
 }
 
@@ -1959,22 +1961,22 @@ async function renderHistory(): Promise<void> {
   box.textContent = "";
   const back = document.createElement("button");
   back.className = "git-history-back";
-  back.textContent = "← 返回更改列表";
+  back.textContent = t("git.history.back");
   back.addEventListener("click", () => toggleHistory());
   box.appendChild(back);
   if (!app.workspaceRoot || !gitRepoActive.value) {
-    box.appendChild(emptyState("source-control", "不是 Git 仓库"));
+    box.appendChild(emptyState("source-control", t("git.panel.notRepo")));
     return;
   }
   try {
     const commits = await invoke<GitCommitInfo[]>("git_log", { root: app.workspaceRoot, count: 50 });
     if (commits.length === 0) {
-      box.appendChild(emptyState("git-commit", "无提交历史"));
+      box.appendChild(emptyState("git-commit", t("git.history.none")));
       return;
     }
     for (const c of commits) box.appendChild(renderCommitItem(c));
   } catch (e) {
-    box.appendChild(emptyState("error", "读取历史失败", String(e)));
+    box.appendChild(emptyState("error", t("git.history.loadFailed"), String(e)));
   }
 }
 
@@ -1985,31 +1987,31 @@ function showCommitContextMenu(hash: string, subject: string, anchor: MenuAnchor
   showMenu(
     [
       {
-        label: "Cherry-pick 该提交",
-        detail: `${short} · 把该提交的改动应用到当前分支`,
+        label: t("git.history.cherryPick"),
+        detail: t("git.history.cherryPickTip", { hash: short }),
         icon: "copy",
         action: () => void cherryPickCommit(hash, subjectShort),
       },
       {
-        label: "Revert 该提交",
-        detail: "生成一个反向提交",
+        label: t("git.history.revert"),
+        detail: t("git.history.revertTip"),
         icon: "discard",
         action: () => void revertCommit(hash, subjectShort),
       },
       { sep: true },
       {
-        label: "在此提交上新建分支…",
+        label: t("git.history.branchFrom"),
         icon: "git-branch",
         action: () => void createBranchAt(hash),
       },
       {
-        label: "在此提交上新建标签…",
+        label: t("git.history.tagFrom"),
         icon: "tag",
         action: () => void createTagAt(hash),
       },
       { sep: true },
       {
-        label: "重置当前分支到此提交…",
+        label: t("git.history.resetTo"),
         detail: "git reset（soft / mixed / hard）",
         icon: "arrow-left",
         danger: true,
@@ -2017,7 +2019,7 @@ function showCommitContextMenu(hash: string, subject: string, anchor: MenuAnchor
       },
       { sep: true },
       {
-        label: "复制完整哈希",
+        label: t("git.history.copyHash"),
         icon: "copy",
         action: () => void invoke("copy_to_clipboard", { text: hash }),
       },
@@ -2034,9 +2036,9 @@ async function cherryPickCommit(hash: string, subject: string): Promise<void> {
   try {
     const out = await invoke<string>("git_cherry_pick", { root, hash, no_commit: false });
     for (const line of out.split("\n")) appendOutputLine(outputEl, line, "stdout", gotoFromLink, "git");
-    toast(`已 cherry-pick：${subject}`, "success");
+    toast(t("git.toast.cherryPicked", { subject: subject }), "success");
   } catch (e) {
-    appendOutputLine(outputEl, `cherry-pick 失败（冲突时可 --abort 放弃）：${e}`, "stderr", gotoFromLink, "git");
+    appendOutputLine(outputEl, t("git.out.cherryPickFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "git");
     toastFail("Cherry-pick", e);
   }
   await refreshAfterBranchChange();
@@ -2047,10 +2049,10 @@ async function revertCommit(hash: string, subject: string): Promise<void> {
   const root = app.workspaceRoot;
   if (!root) return;
   const ok = await openConfirm({
-    title: "Revert 提交",
-    message: `生成「${subject}」的反向提交吗？这会创建一个新提交（不改写历史）。`,
+    title: t("git.history.revertTitle"),
+    message: t("git.history.revertConfirm", { subject: subject }),
     okLabel: "Revert",
-    cancelLabel: "取消",
+    cancelLabel: t("common.cancel"),
     kind: "primary",
   });
   if (!ok) return;
@@ -2058,9 +2060,9 @@ async function revertCommit(hash: string, subject: string): Promise<void> {
   try {
     const out = await invoke<string>("git_revert", { root, hash });
     for (const line of out.split("\n")) appendOutputLine(outputEl, line, "stdout", gotoFromLink, "git");
-    toast(`已 revert：${subject}`, "success");
+    toast(t("git.toast.reverted", { subject: subject }), "success");
   } catch (e) {
-    appendOutputLine(outputEl, `revert 失败（冲突时可 --abort 放弃）：${e}`, "stderr", gotoFromLink, "git");
+    appendOutputLine(outputEl, t("git.out.revertFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "git");
     toastFail("Revert", e);
   }
   await refreshAfterBranchChange();
@@ -2071,8 +2073,8 @@ async function createBranchAt(hash: string): Promise<void> {
   const root = app.workspaceRoot;
   if (!root) return;
   const name = await openPrompt({
-    title: `在 ${hash.slice(0, 8)} 上新建分支`,
-    label: "分支名（只创建不切换）",
+    title: t("git.history.branchFromTitle", { hash: hash.slice(0, 8) }),
+    label: t("git.history.branchNameLabel"),
     placeholder: "feature/xxx",
   });
   if (name === null) return;
@@ -2084,9 +2086,9 @@ async function createBranchAt(hash: string): Promise<void> {
   try {
     // 复用 git_create_branch 不合适（它会 checkout -b）；直接走 branch <name> <hash>
     await invoke("git_create_branch_at", { root, name: name.trim(), hash });
-    toast(`已创建分支 ${name.trim()}（未切换）`, "success");
+    toast(t("git.toast.branchCreated", { name: name.trim() }), "success");
   } catch (e) {
-    toastFail("新建分支", e);
+    toastFail(t("git.action.createBranch"), e);
   }
   await refreshBranchPanel();
 }
@@ -2096,8 +2098,8 @@ async function createTagAt(hash: string): Promise<void> {
   const root = app.workspaceRoot;
   if (!root) return;
   const name = await openPrompt({
-    title: `在 ${hash.slice(0, 8)} 上新建标签`,
-    label: "标签名（如 v1.0.0）",
+    title: t("git.history.tagFromTitle", { hash: hash.slice(0, 8) }),
+    label: t("git.history.tagNameLabel"),
     placeholder: "v1.0.0",
   });
   if (name === null) return;
@@ -2105,7 +2107,7 @@ async function createTagAt(hash: string): Promise<void> {
     const out = await invoke<string>("git_create_tag", { root, name: name.trim(), hash });
     toast(out, "success");
   } catch (e) {
-    toastFail("新建标签", e);
+    toastFail(t("git.action.createTag"), e);
   }
 }
 
@@ -2114,25 +2116,25 @@ function resetToCommit(hash: string, subject: string, anchor: MenuAnchor): void 
   const run = (mode: "soft" | "mixed" | "hard"): void => {
     void doReset(hash, mode);
   };
-  const where = `目标：${subject}（${hash.slice(0, 8)}）`;
+  const where = t("git.reset.target", { subject: subject, hash: hash.slice(0, 8) });
   showMenu(
     [
       {
-        label: "Soft（软重置）",
-        detail: `${where} · 只移 HEAD，全部改动回到暂存区`,
+        label: t("git.reset.soft"),
+        detail: t("git.reset.softTip", { target: where }),
         icon: "arrow-left",
         action: () => run("soft"),
       },
       {
-        label: "Mixed（混合，git 默认）",
-        detail: `${where} · 移 HEAD + 重置暂存区，改动留在工作区`,
+        label: t("git.reset.mixed"),
+        detail: t("git.reset.mixedTip", { target: where }),
         icon: "arrow-left",
         action: () => run("mixed"),
       },
       { sep: true },
       {
-        label: "Hard（硬重置）⚠ 未提交更改将丢失",
-        detail: `${where} · HEAD / 暂存区 / 工作区全部重置`,
+        label: t("git.reset.hard"),
+        detail: t("git.reset.hardTip", { target: where }),
         icon: "discard",
         danger: true,
         action: () => run("hard"),
@@ -2148,10 +2150,10 @@ async function doReset(hash: string, mode: "soft" | "mixed" | "hard"): Promise<v
   if (!root) return;
   if (mode === "hard") {
     const sure = await openConfirm({
-      title: "硬重置确认",
-      message: "硬重置将丢弃所有未提交更改（不可撤销）。确定继续？",
-      okLabel: "硬重置",
-      cancelLabel: "取消",
+      title: t("git.reset.hardConfirmTitle"),
+      message: t("git.reset.hardConfirm"),
+      okLabel: t("git.reset.hardOk"),
+      cancelLabel: t("common.cancel"),
       kind: "danger",
     });
     if (!sure) return;
@@ -2160,10 +2162,10 @@ async function doReset(hash: string, mode: "soft" | "mixed" | "hard"): Promise<v
   try {
     const out = await invoke<string>("git_reset", { root, hash, mode });
     for (const line of out.split("\n")) appendOutputLine(outputEl, line, "stdout", gotoFromLink, "git");
-    toast(`已重置（--${mode}）到 ${hash.slice(0, 8)}`, "success");
+    toast(t("git.toast.reset", { mode: mode, hash: hash.slice(0, 8) }), "success");
   } catch (e) {
-    appendOutputLine(outputEl, `reset 失败：${e}`, "stderr", gotoFromLink, "git");
-    toastFail("重置", e);
+    appendOutputLine(outputEl, t("git.out.resetFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "git");
+    toastFail(t("git.action.reset"), e);
   }
   // hard 重置改写了磁盘内容：重载已打开的干净 tab（dirty 保护统一在
   // reloadTabsFromGitChange；refreshAfterBranchChange 内亦会重载，此处
@@ -2255,10 +2257,10 @@ async function appendTagSection(box: HTMLElement): Promise<void> {
     return; // 查询失败静默（老 git 无 --format 支持时不显示标签区）
   }
   if (tags.length === 0) return;
-  const t = document.createElement("div");
-  t.className = "git-branch-group-title";
-  t.textContent = `标签（${tags.length}）`;
-  box.appendChild(t);
+  const titleEl = document.createElement("div");
+  titleEl.className = "git-branch-group-title";
+  titleEl.textContent = t("git.branch.tagsGroup", { n: tags.length });
+  box.appendChild(titleEl);
   for (const tag of tags) {
     const item = document.createElement("div");
     item.className = "git-branch-item";
@@ -2266,7 +2268,7 @@ async function appendTagSection(box: HTMLElement): Promise<void> {
     name.className = "scm-name";
     name.textContent = tag.name;
     const tagIcon = codicon("tag");
-    tagIcon.dataset.tip = `指向 ${tag.short_hash}`;
+    tagIcon.dataset.tip = t("git.branch.tagPointsAt", { hash: tag.short_hash });
     // 点击 = 查看指向的提交详情
     item.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -2276,7 +2278,7 @@ async function appendTagSection(box: HTMLElement): Promise<void> {
       e.preventDefault();
       e.stopPropagation();
       showMenu([
-        { label: `检出 ${tag.name}（detached HEAD）`, icon: "tag", action: () => void checkoutBranch(tag.name) },
+        { label: t("git.branch.checkoutTag", { name: tag.name }), icon: "tag", action: () => void checkoutBranch(tag.name) },
       ], { x: e.clientX, y: e.clientY });
     });
     item.append(tagIcon, name);
@@ -2297,7 +2299,7 @@ function renderBranchList(): void {
   if (gitBranches.length === 0) {
     const empty = document.createElement("div");
     empty.className = "git-empty";
-    empty.textContent = "无分支";
+    empty.textContent = t("git.branch.noBranch");
     box.appendChild(empty);
   }
   // 迭代 3 · B8：本地 / 远程分组展示（远程点击 = 检出并自动建跟踪分支）
@@ -2305,10 +2307,10 @@ function renderBranchList(): void {
   const remotes = gitBranches.filter((b) => b.remote);
   const renderGroup = (title: string, items: typeof gitBranches): void => {
     if (items.length === 0) return;
-    const t = document.createElement("div");
-    t.className = "git-branch-group-title";
-    t.textContent = title;
-    box.appendChild(t);
+    const titleEl = document.createElement("div");
+    titleEl.className = "git-branch-group-title";
+    titleEl.textContent = title;
+    box.appendChild(titleEl);
     for (const b of items) {
       const item = document.createElement("div");
       item.className = "git-branch-item" + (b.current ? " current" : "");
@@ -2320,12 +2322,12 @@ function renderBranchList(): void {
       item.appendChild(name);
       if (b.current) {
         const mark = codicon("check");
-        mark.dataset.tip = "当前分支";
+        mark.dataset.tip = t("git.branch.currentGroup");
         item.appendChild(mark);
       } else if (b.remote) {
         const remoteIcon = codicon("cloud");
-        remoteIcon.dataset.tip = "远程分支（点击检出为本地分支并建立跟踪）";
-        remoteIcon.setAttribute("aria-label", "远程分支，点击检出为本地分支并建立跟踪");
+        remoteIcon.dataset.tip = t("git.branch.remoteGroup");
+        remoteIcon.setAttribute("aria-label", t("git.branch.remoteTip"));
         item.appendChild(remoteIcon);
       }
       // 迭代 3 · P1-5：分支右键菜单（合并到当前 / 变基到）
@@ -2337,25 +2339,25 @@ function renderBranchList(): void {
       box.appendChild(item);
     }
   };
-  renderGroup("本地分支", locals);
-  renderGroup("远程分支", remotes);
+  renderGroup(t("git.branch.localGroup"), locals);
+  renderGroup(t("git.branch.remoteGroupShort"), remotes);
   // 迭代 3 · P1-6：标签区（列出 + 点击查看指向的提交）
   void appendTagSection(box);
   const newToggle = document.createElement("button");
   newToggle.className = "git-branch-new-btn";
-  newToggle.textContent = "新建分支…";
+  newToggle.textContent = t("git.branch.newBranchMenu");
   const newBox = document.createElement("div");
   newBox.className = "git-branch-new hidden";
   const input = document.createElement("input");
   input.type = "text";
   input.autocomplete = "off";
-  input.placeholder = "新分支名…";
+  input.placeholder = t("git.branch.newBranchPlaceholder");
   input.spellcheck = false;
   const btn = document.createElement("button");
   // UI-08：原先靠 `.git-branch-new button` 后代选择器取样式，迁移到 .btn 体系后须显式加类名
   // （wireGitUI 的事件委托仍用 `.git-branch-new button` 命中，与类名无关，不受影响）
   btn.className = "btn btn--sm btn--primary";
-  btn.textContent = "新建";
+  btn.textContent = t("git.action.create");
   newBox.append(input, btn);
   // P1：新建分支输入框默认折叠，点「新建分支…」才展开（对标 VSCode 分支栏）
   newToggle.addEventListener("click", () => {
@@ -2385,30 +2387,30 @@ export async function checkoutBranch(name: string, opts?: { remote?: boolean; de
   const dirty = gitFiles.filter((f) => f.code !== "!");
   if (dirty.length > 0) {
     const choice = await openChoice({
-      title: "切换分支",
-      message: `当前有 ${dirty.length} 个未提交更改。切换分支可能失败或把这些更改带入目标分支。\n建议先贮藏（stash → checkout → 自动恢复）。`,
-      okLabel: "先贮藏再切换",
-      neutralLabel: "直接切换",
-      cancelLabel: "取消",
+      title: t("git.action.switchBranch"),
+      message: t("git.branch.dirtyConfirm", { count: dirty.length }),
+      okLabel: t("git.branch.stashFirst"),
+      neutralLabel: t("git.branch.switchDirect"),
+      cancelLabel: t("common.cancel"),
       kind: "primary",
     });
     if (choice === "cancel") return;
     if (choice === "ok") {
       try {
-        await invoke("git_stash_push", { root: app.workspaceRoot, message: `切换分支前自动贮藏（→ ${name}）`, includeUntracked: false });
+        await invoke("git_stash_push", { root: app.workspaceRoot, message: t("git.branch.autoStashing", { name: name }), includeUntracked: false });
       } catch (e) {
-        toastFail("自动贮藏", e);
+        toastFail(t("git.action.autoStash"), e);
         return;
       }
       if (await doCheckout(target, track)) {
         try {
           await invoke("git_stash_pop", { root: app.workspaceRoot });
-          toast("已切换分支并恢复贮藏的更改", "success");
+          toast(t("git.toast.switchedAndPopped"), "success");
           // pop 发生在 doCheckout 的刷新之后：贮藏的改动刚写回工作区，补一次重载
           await reloadTabsFromGitChange();
         } catch (e) {
-          appendOutputLine(outputEl, `恢复贮藏失败（stash 仍在列表中）：${e}`, "stderr", gotoFromLink, "git");
-          toastFail("恢复贮藏", e);
+          appendOutputLine(outputEl, t("git.out.stashPopRestoreFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "git");
+          toastFail(t("git.action.restoreStash"), e);
         }
       }
       return;
@@ -2429,12 +2431,12 @@ async function doCheckout(name: string, track = false): Promise<boolean> {
   try {
     await invoke("git_checkout", { root: app.workspaceRoot, branch: name, track });
   } catch (e) {
-    appendOutputLine(outputEl, `切换分支失败：${e}`, "stderr", gotoFromLink, "git");
-    toastFail("切换分支", e);
+    appendOutputLine(outputEl, t("git.out.switchFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "git");
+    toastFail(t("git.action.switchBranch"), e);
     return false;
   }
   if (track) {
-    toast(`已检出为本地分支 ${shortRemoteName(name)}，跟踪 ${name}`, "success");
+    toast(t("git.toast.checkedOut", { branch: shortRemoteName(name), remote: name }), "success");
   }
   closeBranchList();
   await refreshAfterBranchChange();
@@ -2444,11 +2446,11 @@ async function doCheckout(name: string, track = false): Promise<boolean> {
 /** 分支名合法性预校验（迭代 3 · C7：refs 规则前置，不再依赖 git 报错） */
 function validateBranchName(name: string): string | null {
   const n = name.trim();
-  if (!n) return "分支名不能为空";
-  if (n.startsWith("-") || n.startsWith("/")) return "分支名不能以 - 或 / 开头";
-  if (n.endsWith("-") || n.endsWith("/") || n.endsWith(".") || n.endsWith(".lock")) return "分支名不能以 - / . / .lock 结尾";
-  if (n.includes("..") || n.includes("//") || n.includes("@{")) return "分支名不能包含 .. / // / @{";
-  if (/[\\\s~^:?*\[\]]/.test(n)) return "分支名不能包含空格与 \\ ~ ^ : ? * [ ] 字符";
+  if (!n) return t("git.branch.nameEmpty");
+  if (n.startsWith("-") || n.startsWith("/")) return t("git.branch.nameStart");
+  if (n.endsWith("-") || n.endsWith("/") || n.endsWith(".") || n.endsWith(".lock")) return t("git.branch.nameEnd");
+  if (n.includes("..") || n.includes("//") || n.includes("@{")) return t("git.branch.nameSeq");
+  if (/[\\\s~^:?*\[\]]/.test(n)) return t("git.branch.nameChars");
   return null;
 }
 
@@ -2464,8 +2466,8 @@ async function createBranchAndSwitch(name: string): Promise<void> {
   try {
     await invoke("git_create_branch", { root: app.workspaceRoot, name: n });
   } catch (e) {
-    appendOutputLine(outputEl, `新建分支失败：${e}`, "stderr", gotoFromLink, "git");
-    toastFail("新建分支", e);
+    appendOutputLine(outputEl, t("git.out.createBranchFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "git");
+    toastFail(t("git.action.createBranch"), e);
     return;
   }
   closeBranchList();
@@ -2478,8 +2480,8 @@ function showBranchContextMenu(b: { name: string; current: boolean; remote: bool
   // B8 闭环：远程分支提供 detached 检出（与 tag 检出同款模式——明确告知后果）
   if (b.remote) {
     items.push({
-      label: `检出 ${b.name}（仅查看，detached HEAD）`,
-      detail: "不建本地分支；切走后此处的新提交不会被任何分支引用",
+      label: t("git.branch.checkoutDetached", { name: b.name }),
+      detail: t("git.branch.checkoutDetachedTip"),
       icon: "eye",
       action: () => void checkoutBranch(b.name, { remote: true, detachedOnly: true }),
     });
@@ -2487,27 +2489,27 @@ function showBranchContextMenu(b: { name: string; current: boolean; remote: bool
   }
   items.push(
     {
-      label: `合并「${b.name}」到当前分支`,
-      detail: "git merge（保留完整历史）",
+      label: t("git.branch.mergeTitle", { branch: b.name }),
+      detail: t("git.branch.mergeTip"),
       icon: "git-merge",
       action: () => void mergeBranch(b.name, { no_ff: false, squash: false }),
     },
     {
-      label: "合并（--no-ff，强制合并提交）",
-      detail: "即使可快进也生成 merge commit",
+      label: t("git.branch.mergeNoFf"),
+      detail: t("git.branch.mergeNoFfTip"),
       icon: "git-merge",
       action: () => void mergeBranch(b.name, { no_ff: true, squash: false }),
     },
     {
-      label: "合并（--squash，压平）",
-      detail: "该分支全部改动压成一个待提交",
+      label: t("git.branch.mergeSquash"),
+      detail: t("git.branch.mergeSquashTip"),
       icon: "git-merge",
       action: () => void mergeBranch(b.name, { no_ff: false, squash: true }),
     },
     { sep: true },
     {
-      label: `变基当前分支到「${b.name}」`,
-      detail: "git rebase（线性历史，重写未推送提交）",
+      label: t("git.branch.rebaseTitle", { branch: b.name }),
+      detail: t("git.branch.rebaseTip"),
       icon: "arrow-right",
       action: () => void rebaseOnto(b.name),
     },
@@ -2523,10 +2525,10 @@ async function mergeBranch(branch: string, opts: { no_ff: boolean; squash: boole
   try {
     const out = await invoke<string>("git_merge", { root, branch, no_ff: opts.no_ff, squash: opts.squash });
     for (const line of out.split("\n")) appendOutputLine(outputEl, line, "stdout", gotoFromLink, "git");
-    toast(`已合并 ${branch}`, "success");
+    toast(t("git.toast.merged", { branch: branch }), "success");
   } catch (e) {
-    appendOutputLine(outputEl, `合并失败（可 git merge --abort 放弃）：${e}`, "stderr", gotoFromLink, "git");
-    toastFail("合并", e);
+    appendOutputLine(outputEl, t("git.out.mergeFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "git");
+    toastFail(t("git.action.merge"), e);
   }
   await refreshAfterBranchChange();
   renderGitPanel();
@@ -2537,10 +2539,10 @@ async function rebaseOnto(branch: string): Promise<void> {
   const root = app.workspaceRoot;
   if (!root) return;
   const ok = await openConfirm({
-    title: "变基（rebase）",
-    message: `把当前分支变基到「${branch}」吗？未推送的提交将被重写（哈希变化）。`,
-    okLabel: "变基",
-    cancelLabel: "取消",
+    title: t("git.branch.rebaseConfirmTitle"),
+    message: t("git.branch.rebaseConfirm", { branch: branch }),
+    okLabel: t("git.action.rebase"),
+    cancelLabel: t("common.cancel"),
     kind: "primary",
   });
   if (!ok) return;
@@ -2548,10 +2550,10 @@ async function rebaseOnto(branch: string): Promise<void> {
   try {
     const out = await invoke<string>("git_rebase", { root, branch });
     for (const line of out.split("\n")) appendOutputLine(outputEl, line, "stdout", gotoFromLink, "git");
-    toast(`已变基到 ${branch}`, "success");
+    toast(t("git.toast.rebased", { branch: branch }), "success");
   } catch (e) {
-    appendOutputLine(outputEl, `变基冲突或失败（可 git rebase --abort 放弃）：${e}`, "stderr", gotoFromLink, "git");
-    toastFail("变基", e);
+    appendOutputLine(outputEl, t("git.out.rebaseFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "git");
+    toastFail(t("git.action.rebase"), e);
   }
   await refreshAfterBranchChange();
   renderGitPanel();
@@ -2581,10 +2583,10 @@ async function openWorktreeManager(): Promise<void> {
   card.className = "modal-card";
   card.setAttribute("role", "dialog");
   card.setAttribute("aria-modal", "true");
-  card.setAttribute("aria-label", "Worktree 管理");
+  card.setAttribute("aria-label", t("git.worktree.manageTitle"));
   const title = document.createElement("div");
   title.className = "modal-title";
-  title.textContent = "Worktree（多分支并行工作区）";
+  title.textContent = t("git.worktree.title");
   card.appendChild(title);
   const list = document.createElement("div");
   list.className = "git-remote-list"; // 复用远程面板样式
@@ -2594,24 +2596,24 @@ async function openWorktreeManager(): Promise<void> {
   addRow.className = "git-remote-add-row";
   const pathInput = document.createElement("input");
   pathInput.type = "text";
-  pathInput.placeholder = "路径（相对仓库根，如 ../myproj-feature）";
+  pathInput.placeholder = t("git.worktree.pathLabel");
   pathInput.autocomplete = "off";
   pathInput.spellcheck = false;
   const branchInput = document.createElement("input");
   branchInput.type = "text";
-  branchInput.placeholder = "分支名";
+  branchInput.placeholder = t("git.worktree.branchLabel");
   branchInput.autocomplete = "off";
   branchInput.spellcheck = false;
   const addBtn = document.createElement("button");
   addBtn.className = "btn btn--primary";
-  addBtn.textContent = "新建";
+  addBtn.textContent = t("git.action.create");
   addRow.append(pathInput, branchInput, addBtn);
   card.appendChild(addRow);
   const closeRow = document.createElement("div");
   closeRow.className = "modal-actions";
   const closeBtn = document.createElement("button");
   closeBtn.className = "btn";
-  closeBtn.textContent = "关闭";
+  closeBtn.textContent = t("common.close");
   closeRow.appendChild(closeBtn);
   card.appendChild(closeRow);
   overlay.appendChild(card);
@@ -2624,51 +2626,51 @@ async function openWorktreeManager(): Promise<void> {
     try {
       trees = await invoke("git_worktree_list", { root });
     } catch (e) {
-      list.appendChild(emptyState("error", "读取 worktree 失败", String(e)));
+      list.appendChild(emptyState("error", t("git.worktree.listFailed"), String(e)));
       return;
     }
-    for (const t of trees) {
+    for (const wt of trees) {
       const row = document.createElement("div");
       row.className = "git-remote-item";
       const info = document.createElement("div");
       info.className = "git-remote-info";
       const name = document.createElement("div");
       name.className = "git-remote-name";
-      name.textContent = `${t.main ? "主工作树" : "worktree"} · ${t.branch ?? "detached"}`;
+      name.textContent = t("git.worktree.itemLabel", { kind: wt.main ? t("git.worktree.main") : "worktree", branch: wt.branch ?? "detached" });
       const url = document.createElement("div");
       url.className = "git-remote-url";
-      url.textContent = t.path;
-      url.title = t.path;
+      url.textContent = wt.path;
+      url.title = wt.path;
       info.append(name, url);
       // 打开（切工作区）走「打开工作区」入口（openWorkspace 由 main 管理，这里给提示）
       const openBtn = document.createElement("button");
       openBtn.className = "btn btn--sm";
-      openBtn.textContent = "复制路径";
-      openBtn.dataset.tip = "复制该 worktree 路径，用 文件 → 打开工作区 切换";
+      openBtn.textContent = t("git.worktree.copyPath");
+      openBtn.dataset.tip = t("git.worktree.copyPathTip");
       openBtn.addEventListener("click", () => {
-        void invoke("copy_to_clipboard", { text: t.path });
-        toast("路径已复制——用「文件 → 打开工作区」切换到该 worktree", "info");
+        void invoke("copy_to_clipboard", { text: wt.path });
+        toast(t("git.toast.pathCopied"), "info");
       });
       row.append(info, openBtn);
-      if (!t.main) {
+      if (!wt.main) {
         const rmBtn = document.createElement("button");
         rmBtn.className = "btn btn--sm btn--danger-outline";
-        rmBtn.textContent = "移除…";
+        rmBtn.textContent = t("git.worktree.removeMenu");
         rmBtn.addEventListener("click", async () => {
           const ok = await openConfirm({
-            title: "移除 worktree",
-            message: `移除「${t.path}」吗？该目录的未提交更改将一并删除（不可撤销）。`,
-            okLabel: "移除",
-            cancelLabel: "取消",
+            title: t("git.worktree.removeTitle"),
+            message: t("git.worktree.removeConfirm", { path: wt.path }),
+            okLabel: t("git.worktree.removeOk"),
+            cancelLabel: t("common.cancel"),
             kind: "danger",
           });
           if (!ok) return;
           try {
-            await invoke("git_worktree_remove", { root, path: t.path, force: true });
-            toast("已移除 worktree", "success");
+            await invoke("git_worktree_remove", { root, path: wt.path, force: true });
+            toast(t("git.toast.worktreeRemoved"), "success");
             await renderList();
           } catch (e) {
-            toastFail("移除 worktree", e);
+            toastFail(t("git.worktree.removeTitle"), e);
           }
         });
         row.appendChild(rmBtn);
@@ -2680,17 +2682,17 @@ async function openWorktreeManager(): Promise<void> {
     const p = pathInput.value.trim();
     const b = branchInput.value.trim();
     if (!p) {
-      toast("路径不能为空", "error");
+      toast(t("git.toast.pathEmpty"), "error");
       return;
     }
     try {
       await invoke("git_worktree_add", { root, path: p, branch: b || "main", newBranch: b.length > 0 });
-      toast(`已创建 worktree：${p}`, "success");
+      toast(t("git.toast.worktreeCreated", { path: p }), "success");
       pathInput.value = "";
       branchInput.value = "";
       await renderList();
     } catch (e) {
-      toastFail("创建 worktree", e);
+      toastFail(t("git.action.createWorktree"), e);
     }
   });
   document.body.appendChild(overlay);
@@ -2743,14 +2745,14 @@ function renderCommitSuggest(): void {
   box.classList.remove("hidden");
   const label = document.createElement("span");
   label.className = "git-suggest-label";
-  label.textContent = "建议前缀：";
+  label.textContent = t("git.scm.prefixSuggest");
   box.appendChild(label);
   const mk = (type: string): void => {
     const chip = document.createElement("button");
     chip.className = "git-suggest-chip";
     const full = s.scope ? `${type}(${s.scope}): ` : `${type}: `;
     chip.textContent = full;
-    chip.dataset.tip = `点击填入「${full}」`;
+    chip.dataset.tip = t("git.scm.prefixFill", { prefix: full });
     chip.addEventListener("click", () => {
       const msgEl = $("git-commit-msg") as HTMLTextAreaElement;
       // 已有前缀则替换，否则前插
@@ -2790,7 +2792,7 @@ async function preCommitFormat(): Promise<void> {
       if (formatted !== null && formatted !== v.new) {
         await invoke("write_file", { path: joinPath(root, f.path), content: formatted });
         await invoke("git_stage", { root, paths: [f.path] });
-        appendOutputLine(outputEl, `[提交前检查] 已格式化暂存文件：${f.path}`, "hint", gotoFromLink, "git");
+        appendOutputLine(outputEl, t("git.out.preCommitFormatted", { path: f.path }), "hint", gotoFromLink, "git");
       }
     } catch { /* 单文件失败不阻断提交 */ }
   }
@@ -2810,24 +2812,24 @@ function renderScmBulkBar(): void {
   bar.id = "git-scm-bulk";
   bar.className = "git-scm-bulk";
   const info = document.createElement("span");
-  info.textContent = `已选 ${scmSelected.size} 项`;
+  info.textContent = t("git.scm.selected", { count: scmSelected.size });
   const stageBtn = document.createElement("button");
   stageBtn.className = "btn btn--sm";
-  stageBtn.textContent = "批量暂存";
+  stageBtn.textContent = t("git.scm.batchStage");
   stageBtn.addEventListener("click", () => {
     void stageFiles([...scmSelected]);
     clearScmSelection();
   });
   const unstageBtn = document.createElement("button");
   unstageBtn.className = "btn btn--sm";
-  unstageBtn.textContent = "批量取消暂存";
+  unstageBtn.textContent = t("git.scm.batchUnstage");
   unstageBtn.addEventListener("click", () => {
     void unstageFiles([...scmSelected]);
     clearScmSelection();
   });
   const discardBtn = document.createElement("button");
   discardBtn.className = "btn btn--sm btn--danger-outline";
-  discardBtn.textContent = "批量丢弃…";
+  discardBtn.textContent = t("git.scm.batchDiscard");
   discardBtn.addEventListener("click", () => {
     const files = gitFiles.filter((f) => scmSelected.has(f.path));
     void discardFiles(files);
@@ -2835,7 +2837,7 @@ function renderScmBulkBar(): void {
   });
   const clearBtn = document.createElement("button");
   clearBtn.className = "btn btn--sm btn--ghost";
-  clearBtn.textContent = "清除";
+  clearBtn.textContent = t("git.scm.clear");
   clearBtn.addEventListener("click", clearScmSelection);
   bar.append(info, stageBtn, unstageBtn, discardBtn, clearBtn);
   box.prepend(bar);
@@ -2871,6 +2873,15 @@ function handleScmSelect(e: MouseEvent, path: string): void {
 
 /** 接线 Git 全部 UI 交互（SCM 工具栏 / 历史 / diff / 提交 / 变更列表 / 分支条） */
 export function wireGitUI(): void {
+  // 动态 Git 文案不在静态 index.html 的 data-i18n 扫描范围内：语言切换时重绘当前面板，
+  // 否则用户会看到按钮已是英文、变更分组和分支列表仍是中文的「半切换」状态。
+  onLocaleChange(() => {
+    renderGitPanel();
+    updateGitStatusBar();
+    if (!$('git-branch-list').classList.contains("hidden")) renderBranchList();
+    if (gitDetailLabelEl.textContent === "—") renderGitDetailEmptyState();
+  });
+
   // SCM 工具栏（P0）：次要动作（远程 / stash / 历史）收进「更多操作」菜单，工具条只留刷新 + 更多。
   // 验收复核修正：刷新按钮此前只 refreshGitStatus 不重渲染——点完面板纹丝不动（真实 bug，
   // 用户须切一次 tab 才见新状态）。刷新 = 状态 + 面板 + 分支条（onShow 同款三连）。
@@ -2883,26 +2894,26 @@ export function wireGitUI(): void {
   $btn("git-btn-more").addEventListener("click", (e) => {
     showMenu(
       [
-        { label: "抓取（全部远程）", icon: "sync", action: () => void gitRemoteOp("fetch", { prune: false }) },
-        { label: "抓取并清理已删除远程分支", icon: "sync", detail: "fetch --all --prune", action: () => void gitRemoteOp("fetch", { prune: true }) },
-        { label: "拉取", icon: "arrow-down", action: () => void gitRemoteOp("pull") },
-        { label: "推送", icon: "arrow-up", action: () => void gitRemoteOp("push") },
+        { label: t("git.menu.fetch"), icon: "sync", action: () => void gitRemoteOp("fetch", { prune: false }) },
+        { label: t("git.menu.fetchPrune"), icon: "sync", detail: "fetch --all --prune", action: () => void gitRemoteOp("fetch", { prune: true }) },
+        { label: t("git.menu.pull"), icon: "arrow-down", action: () => void gitRemoteOp("pull") },
+        { label: t("git.menu.push"), icon: "arrow-up", action: () => void gitRemoteOp("push") },
         // 迭代 4 · P2-1：当前分支无上游时的「推送并建立上游」
         {
-          label: "推送当前分支到 origin（建立上游）",
+          label: t("git.menu.pushTip"),
           icon: "cloud-upload",
           detail: "push -u origin HEAD",
           action: () => void gitRemoteOp("push", { remote: "origin", branch: currentBranch ?? "" }),
         },
         { sep: true },
-        { label: "远程仓库…", icon: "cloud", detail: "添加 / 删除 / 推送到指定远程", action: () => void openRemoteManager() },
-        { label: "Worktree…", icon: "split-horizontal", detail: "多分支并行工作区（创建 / 移除）", action: () => void openWorktreeManager() },
+        { label: t("git.menu.remote"), icon: "cloud", detail: t("git.menu.remoteTip"), action: () => void openRemoteManager() },
+        { label: "Worktree…", icon: "split-horizontal", detail: t("git.menu.worktreeTip"), action: () => void openWorktreeManager() },
         { sep: true },
-        { label: "贮藏更改", icon: "save", action: () => void gitStash() },
-        { label: "弹出贮藏", action: () => void gitStashPop() },
-        { label: "贮藏列表…", icon: "list-flat", action: () => toggleStashPanel() },
+        { label: t("git.stash.title"), icon: "save", action: () => void gitStash() },
+        { label: t("git.action.stashPop"), action: () => void gitStashPop() },
+        { label: t("git.menu.stashList"), icon: "list-flat", action: () => toggleStashPanel() },
         { sep: true },
-        { label: "提交历史", icon: "history", action: () => toggleHistory() },
+        { label: t("git.menu.history"), icon: "history", action: () => toggleHistory() },
       ],
       e.currentTarget as HTMLElement,
     );
@@ -2989,16 +3000,16 @@ export function wireGitUI(): void {
   $btn("git-commit-more").addEventListener("click", (e) => {
     showMenu(
       [
-        { label: "提交全部", detail: "暂存并提交所有更改", action: () => void commitAll() },
-        { label: "提交 (Amend)", detail: "将更改并入上一次提交", action: () => void commitChanges(true) },
+        { label: t("git.menu.commitAll"), detail: t("git.menu.commitAllTip"), action: () => void commitAll() },
+        { label: t("git.menu.commitAmend"), detail: t("git.menu.commitAmendTip"), action: () => void commitChanges(true) },
         { sep: true },
         // 迭代 5 · P2-8：提交前格式化开关（会话级）
         {
-          label: preCommitFormatEnabled ? "✓ 提交前自动格式化（ruff）" : "提交前自动格式化（ruff）",
-          detail: "暂存的 Python 文件提交前跑 ruff format（仅工作区干净的文件）",
+          label: preCommitFormatEnabled ? t("git.menu.formatOn") : t("git.menu.formatOff"),
+          detail: t("git.menu.formatTip"),
           action: () => {
             preCommitFormatEnabled = !preCommitFormatEnabled;
-            toast(preCommitFormatEnabled ? "已开启提交前格式化" : "已关闭提交前格式化", "info");
+            toast(preCommitFormatEnabled ? t("git.toast.formatOn") : t("git.toast.formatOff"), "info");
           },
         },
       ],
@@ -3066,17 +3077,17 @@ export function wireGitUI(): void {
     }
     const items: MenuItem[] = [
       staged
-        ? { label: "取消暂存", icon: "remove", action: () => void unstageFiles([path]) }
-        : { label: "暂存更改", icon: "add", action: () => void stageFiles([path]) },
-      { label: "打开差异", icon: "diff", action: () => { if (f) void showDiff(f); } },
+        ? { label: t("git.action.unstage"), icon: "remove", action: () => void unstageFiles([path]) }
+        : { label: t("git.action.stage"), icon: "add", action: () => void stageFiles([path]) },
+      { label: t("git.menu.openDiff"), icon: "diff", action: () => { if (f) void showDiff(f); } },
       // P0.5-C1：补「打开文件」——此前 SCM 条目只能看 diff，想改源码必须去文件树找
-      { label: "打开文件", icon: "go-to-file", action: () => { if (f && openFileHandler && app.workspaceRoot) void openFileHandler(joinPath(app.workspaceRoot, f.path)); } },
+      { label: t("git.menu.openFile"), icon: "go-to-file", action: () => { if (f && openFileHandler && app.workspaceRoot) void openFileHandler(joinPath(app.workspaceRoot, f.path)); } },
     ];
     if (!staged && f) {
-      items.push({ label: "丢弃更改…", icon: "discard", danger: true, action: () => void discardFiles([f]) });
+      items.push({ label: t("git.menu.discard"), icon: "discard", danger: true, action: () => void discardFiles([f]) });
     }
     items.push({ sep: true });
-    items.push({ label: "复制路径", icon: "copy", action: () => void invoke("copy_to_clipboard", { text: path }) });
+    items.push({ label: t("git.worktree.copyPath"), icon: "copy", action: () => void invoke("copy_to_clipboard", { text: path }) });
     showMenu(items, { x: e.clientX, y: e.clientY });
   });
   // SCM 分支条：展开列表 / 切换分支 / 新建分支
@@ -3148,8 +3159,8 @@ export function resetGitState(): void {
   ($("git-diff-label") as HTMLElement).textContent = "—";
   // 复位 diff 工具栏按钮状态（布局 / 折叠 / 冲突接受）
   const layoutBtn = $("git-diff-layout");
-  layoutBtn.dataset.tip = "切换为内联视图";
-  layoutBtn.setAttribute("aria-label", "切换为内联视图");
+  layoutBtn.dataset.tip = t("git.diff.inlineView");
+  layoutBtn.setAttribute("aria-label", t("git.diff.inlineView"));
   const layoutIcon = layoutBtn.querySelector("i");
   if (layoutIcon) layoutIcon.className = "codicon codicon-split-horizontal";
   const collapseBtn = $("git-diff-collapse");
