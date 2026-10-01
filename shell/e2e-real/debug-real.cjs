@@ -32,19 +32,18 @@
  */
 'use strict';
 
-const { chromium } = require('@playwright/test');
-const { spawn, execSync } = require('child_process');
-const { mkdtempSync, mkdirSync, writeFileSync, existsSync, openSync } = require('fs');
-const http = require('http');
-const os = require('os');
 const path = require('path');
-const crypto = require('crypto');
+const {
+  runWithRealApp,
+  record,
+  sleep,
+  tail,
+  presetInterpreter,
+  countPythonProcs,
+  dismissBlockingModals,
+} = require('./lib/real-env.cjs');
 
-const CDP_PORT = Number(process.env.OC_CDP_PORT || 9223);
-const CDP_TIMEOUT_MS = Number(process.env.OC_CDP_TIMEOUT || 600) * 1000;
-const KEEP_APP = process.env.OC_KEEP_APP === '1';
 const REAL_PYTHON = process.env.OC_REAL_PYTHON || 'D:\\py\\python.exe';
-const DEV_URL_HOST = 'localhost:5173';
 
 const SCRIPT_PY = [
   'def compute(x):',
@@ -61,75 +60,6 @@ const SCRIPT_PY = [
   '    main()',
   '',
 ].join('\r\n');
-
-const results = [];
-function record(id, desc, ok, detail) {
-  results.push({ id, desc, ok, detail });
-  console.log(`${ok ? 'PASS' : 'FAIL'}  ${id}  ${desc}${detail ? '\n      -> ' + detail : ''}`);
-}
-
-function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
-
-function httpGet(url) {
-  return new Promise((resolve, reject) => {
-    const req = http.get(url, (res) => {
-      let body = '';
-      res.on('data', (c) => (body += c));
-      res.on('end', () => resolve({ status: res.statusCode, body }));
-    });
-    req.on('error', reject);
-    req.setTimeout(3000, () => { req.destroy(new Error('timeout')); });
-  });
-}
-
-function portInUse(port) {
-  return httpGet(`http://127.0.0.1:${port}/json/version`).then(() => true, () => false);
-}
-
-async function waitCdpReady(port, timeoutMs) {
-  const t0 = Date.now();
-  for (;;) {
-    try {
-      const r = await httpGet(`http://127.0.0.1:${port}/json/version`);
-      if (r.status === 200) return Date.now() - t0;
-    } catch { /* 未就绪继续等 */ }
-    if (Date.now() - t0 > timeoutMs) throw new Error(`CDP ${port} 在 ${timeoutMs / 1000}s 内未就绪（tauri dev 可能编译失败，见日志尾部）`);
-    await sleep(1500);
-  }
-}
-
-function countPythonProcs() {
-  try {
-    const out = execSync('tasklist /FO CSV /NH', { encoding: 'utf8' });
-    return out.split(/\r?\n/).filter((l) => /^"python(\w)?\.exe"/i.test(l.trim())).length;
-  } catch { return -1; }
-}
-
-/**
- * 工作区哈希：对齐 src-tauri/file_ops.rs::project_hash（= probe store.py::project_hash）：
- * sha1( lowercase( strip_verbatim( realpath(root).replace('/','\\') ) ) )[:12]。
- * realpath 变体与书写变体各写一份同内容配置，规避 canonicalize 差异。
- */
-function projectHash(root) {
-  const norm = (p) => {
-    let s = String(p).replace(/\//g, '\\');
-    while (s.startsWith('\\\\?\\')) s = s.slice(4);
-    return s.toLowerCase();
-  };
-  const variants = new Set([norm(root)]);
-  try { variants.add(norm(require('fs').realpathSync(root))); } catch { /* 目录未建时忽略 */ }
-  return [...variants].map((v) => crypto.createHash('sha1').update(v, 'utf8').digest('hex').slice(0, 12));
-}
-
-/** 预置工作区解释器（<data_root>/workspaces/<hash>.json，对齐 env_cmds::write_config 形态） */
-function presetInterpreter(dataRoot, workspace, interpreter) {
-  const dir = path.join(dataRoot, 'workspaces');
-  mkdirSync(dir, { recursive: true });
-  const payload = JSON.stringify({ interpreter });
-  for (const h of projectHash(workspace)) writeFileSync(path.join(dir, `${h}.json`), payload, 'utf8');
-}
-
-function tail(text, n) { return text.length <= n ? text : '...' + text.slice(-n); }
 
 async function stackText(page) {
   return page
@@ -168,18 +98,6 @@ async function waitFrameText(page, line, timeoutMs) {
   } catch (e) {
     const dump = await stackText(page);
     throw new Error(`${String(e).split('\n')[0]} | #debug-stack 实际内容: [${dump}]`);
-  }
-}
-
-async function dismissBlockingModals(page) {
-  // 首启「落位提示」等一次性弹窗（fresh 数据根会触发）：点掉所有可见 modal 按钮放行。
-  // 任意选择（默认位置 / 自定义取消）都不影响本次验收。
-  for (let i = 0; i < 6; i++) {
-    const btns = page.locator('.modal-card:visible .modal-actions button');
-    const n = await btns.count().catch(() => 0);
-    if (n === 0) return;
-    for (let j = 0; j < n; j++) await btns.nth(j).click({ force: true, timeout: 2000 }).catch(() => {});
-    await sleep(400);
   }
 }
 
@@ -311,107 +229,34 @@ async function runChecks(page) {
     `current-line 清除=${cleared} python 进程 ${pyBefore} -> ${pyAfter}${clearDetail ? '；' + clearDetail : ''}`);
 }
 
-(async () => {
-  // —— 预检 ——
-  if (await portInUse(5173)) {
-    console.error(`[预检失败] 5173 已被占用（可能已有 vite / tauri dev 在跑），请先停掉再运行本脚本。`);
-    process.exit(2);
-  }
-  if (await portInUse(CDP_PORT)) {
-    console.error(`[预检失败] CDP 端口 ${CDP_PORT} 已被占用（可能残留上一次会话）。`);
-    process.exit(2);
-  }
-  if (!existsSync(REAL_PYTHON)) {
-    console.error(`[预检失败] 解释器不存在: ${REAL_PYTHON}（调试 debuggee 需要真实 Python；用 OC_REAL_PYTHON 指定）`);
-    process.exit(2);
-  }
-
-  // —— 隔离环境：临时工作区 + 隔离数据根（Node 写文件天然无 BOM） ——
-  const tmp = mkdtempSync(path.join(os.tmpdir(), 'oc-debug-real-'));
-  const workspace = path.join(tmp, 'workspace');
-  const dataRoot = path.join(tmp, 'data-root');
-  mkdirSync(workspace, { recursive: true });
-  mkdirSync(path.join(dataRoot, 'config'), { recursive: true });
-  writeFileSync(path.join(workspace, 'script.py'), SCRIPT_PY, 'utf8');
-  // 预置工作区解释器（uv 兜底模式不支持调试，dap.rs fail fast）——
-  // 等价于启动后手动「状态栏 → 选择解释器」，让 debug_start 直接走真实 debugpy 链路。
-  presetInterpreter(dataRoot, workspace, REAL_PYTHON);
-  writeFileSync(
-    path.join(dataRoot, 'config', 'recent-workspaces.json'),
-    JSON.stringify([workspace]),
-    'utf8',
-  );
-  console.log(`[环境] 工作区: ${workspace}\n[环境] 数据根: ${dataRoot}\n[环境] CDP: http://127.0.0.1:${CDP_PORT}`);
-
-  // —— 启动 tauri dev（日志落盘，失败时打尾部） ——
-  const logPath = path.join(__dirname, '.tauri-dev.log');
-  const logFd = openSync(logPath, 'w');
-  console.log(`[启动] npm run tauri dev（日志: ${logPath}）…`);
-  const child = spawn('cmd.exe', ['/c', 'npm', 'run', 'tauri', 'dev'], {
-    cwd: path.join(__dirname, '..'),
-    windowsHide: true,
-    stdio: ['ignore', logFd, logFd],
-    env: {
-      ...process.env,
-      OPENCHARM_DATA_ROOT: dataRoot,
-      WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${CDP_PORT}`,
+runWithRealApp(
+  {
+    tmpPrefix: 'oc-debug-real-',
+    logName: '.tauri-dev.log',
+    summaryTitle: '真机 CDP 验收结果',
+    requirePaths: [
+      {
+        path: REAL_PYTHON,
+        message: '解释器不存在',
+        hint: '调试 debuggee 需要真实 Python；用 OC_REAL_PYTHON 指定',
+      },
+    ],
+    setupFixtures({ workspace, dataRoot }) {
+      const { mkdirSync, writeFileSync } = require('fs');
+      mkdirSync(workspace, { recursive: true });
+      writeFileSync(path.join(workspace, 'script.py'), SCRIPT_PY, 'utf8');
+      // 预置工作区解释器（uv 兜底模式不支持调试，dap.rs fail fast）——
+      // 等价于启动后手动「状态栏 → 选择解释器」，让 debug_start 直接走真实 debugpy 链路。
+      presetInterpreter(dataRoot, workspace, REAL_PYTHON);
+      writeFileSync(
+        path.join(dataRoot, 'config', 'recent-workspaces.json'),
+        JSON.stringify([workspace]),
+        'utf8',
+      );
+      console.log(`[环境] 工作区: ${workspace}`);
     },
-  });
-
-  let exitCode = 0;
-  let browser = null;
-  try {
-    const waited = await waitCdpReady(CDP_PORT, CDP_TIMEOUT_MS);
-    console.log(`[就绪] CDP 已监听（等待 ${Math.round(waited / 1000)}s），连接…`);
-    browser = await chromium.connectOverCDP(`http://127.0.0.1:${CDP_PORT}`);
-
-    const ctx = browser.contexts()[0];
-    let page = ctx.pages().find((p) => p.url().includes(DEV_URL_HOST)) || ctx.pages()[0];
-    if (!page) throw new Error('CDP 已连接但未找到应用页面（devUrl=' + DEV_URL_HOST + '）');
-    console.log(`[连接] 页面: ${page.url()}`);
-
-    const pageErrors = [];
-    const consoleWarns = [];
-    page.on('pageerror', (e) => pageErrors.push(String(e)));
-    page.on('console', (m) => {
-      if (m.type() === 'warning' || m.type() === 'error') consoleWarns.push(`[${m.type()}] ${m.text()}`);
-    });
-
-    await runChecks(page);
-
-    if (pageErrors.length) {
-      console.log(`\n[提示] 页面未捕获异常 ${pageErrors.length} 条（不计入失败，仅供排查）:`);
-      for (const e of pageErrors.slice(0, 5)) console.log('  - ' + e.split('\n')[0]);
-    }
-    if (consoleWarns.length) {
-      console.log(`\n[提示] console warning/error ${consoleWarns.length} 条（不计入失败，仅供排查）:`);
-      for (const e of consoleWarns.slice(0, 30)) console.log('  - ' + e.split('\n')[0]);
-    }
-  } catch (e) {
-    console.error(`\n[运行中断] ${e.message || e}`);
-    try {
-      const fs = require('fs');
-      const log = fs.readFileSync(logPath, 'utf8');
-      console.error('—— tauri dev 日志尾部 ——\n' + tail(log, 2000));
-    } catch { /* 日志可能尚未生成 */ }
-    exitCode = 1;
-  } finally {
-    if (browser) await browser.close().catch(() => {});
-    if (!KEEP_APP) {
-      console.log('\n[清理] taskkill 进程树…');
-      try { execSync(`taskkill /PID ${child.pid} /T /F`, { stdio: 'ignore' }); } catch { /* 已退出 */ }
-    } else {
-      console.log(`\n[保留] 应用未杀（OC_KEEP_APP=1），pid=${child.pid}；临时目录: ${tmp}`);
-    }
-  }
-
-  // —— 汇总 ——
-  console.log('\n========== 真机 CDP 验收结果 ==========');
-  for (const r of results) {
-    console.log(`${r.ok ? 'PASS' : 'FAIL'}  ${r.id}  ${r.desc}`);
-  }
-  const failed = results.filter((r) => !r.ok).length;
-  console.log(`--------------------------------------`);
-  console.log(`共 ${results.length} 项，失败 ${failed} 项${KEEP_APP ? '（应用保留运行中）' : ''}`);
-  process.exit(exitCode || (failed > 0 ? 1 : 0));
-})();
+  },
+  async (s) => {
+    await runChecks(s.page);
+  },
+);
