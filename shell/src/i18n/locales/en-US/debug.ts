@@ -34,6 +34,12 @@ export const debug: Record<DebugKey, string> = {
   "debug.console.promptLabel": "Evaluate in the breakpoint context (side effects are real)",
   "debug.console.promptPlaceholder": "e.g. len(items), user.name",
   "debug.console.title": "Debug Console",
+  // ---- debug.dap ----
+  "debug.dap.requestFailed": "DAP request failed: {command}",
+  "debug.dap.requestTimeout": "DAP request timed out ({seconds}s): {command}",
+  "debug.dap.sessionEnded": "Debug session has ended",
+  "debug.dap.waitEventTimeout": "Timed out waiting for the debugpy {event} event",
+  "debug.dap.waitInitializedTimeout": "Timed out waiting for the debugpy initialized event",
   // ---- debug.section ----
   "debug.section.breakpoints": "Breakpoints",
   "debug.section.callStack": "Call Stack",

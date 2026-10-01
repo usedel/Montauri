@@ -6,6 +6,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { app } from "../state"; // B-3：justMyCode 开关真值（state 零依赖，无环）
+import { t } from "../i18n"; // 第十六批 i18n：DAP 错误文案走语言包
 
 // ---------- 类型（DAP MVP 子集，§5.3） ----------
 
@@ -186,7 +187,7 @@ export function request(command: string, arguments_: unknown): Promise<any> {
   const id = nextRequestId++;
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
-      settlePending(id, (p) => p.reject(new Error(`DAP 请求超时（${DAP_REQUEST_TIMEOUT_MS / 1000}s）: ${command}`)));
+      settlePending(id, (p) => p.reject(new Error(t("debug.dap.requestTimeout", { seconds: DAP_REQUEST_TIMEOUT_MS / 1000, command }))));
     }, DAP_REQUEST_TIMEOUT_MS);
     pending.set(id, { resolve, reject, timer });
     invoke("dap_send_request", { id, method: command, params: arguments_ ?? {} }).catch((e) => {
@@ -231,7 +232,7 @@ export async function wireDapEvents(): Promise<void> {
       const reqId = msg.request_seq ?? -1;
       settlePending(reqId, (p) => {
         if (msg.success === false) {
-          p.reject(new Error(msg.message ?? `DAP 请求失败: ${msg.command ?? ""}`));
+          p.reject(new Error(msg.message ?? t("debug.dap.requestFailed", { command: msg.command ?? "" })));
         } else {
           p.resolve(msg.body);
         }
@@ -255,7 +256,7 @@ export async function wireDapEvents(): Promise<void> {
     if (typeof evSeq === "number") {
       if (sessionSeq === null || evSeq !== sessionSeq) return; // 旧会话迟到事件
     }
-    const err = new Error("调试会话已结束");
+    const err = new Error(t("debug.dap.sessionEnded"));
     for (const [, p] of pending) {
       clearTimeout(p.timer);
       p.reject(err);
@@ -349,7 +350,7 @@ function waitEvent(event: string, timeoutMs: number): Promise<any> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       eventHandlers.delete(event);
-      reject(new Error(`等待 debugpy ${event} 事件超时`));
+      reject(new Error(t("debug.dap.waitEventTimeout", { event })));
     }, timeoutMs);
     eventHandlers.set(event, (body: any) => {
       clearTimeout(timer);
@@ -364,7 +365,7 @@ function waitInitialized(): Promise<void> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       eventHandlers.delete("initialized");
-      reject(new Error("等待 debugpy initialized 事件超时"));
+      reject(new Error(t("debug.dap.waitInitializedTimeout")));
     }, 30_000);
     eventHandlers.set("initialized", () => {
       clearTimeout(timer);

@@ -11,6 +11,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { lazyEl } from "./state";
 import { showEl, hideEl } from "./anim";
 import { trapFocus } from "./focusTrap";
+import { t } from "./i18n"; // 第十六批 i18n：资源面板摘要走语言包
 
 export interface ProcInfo {
   pid: number;
@@ -59,7 +60,7 @@ function renderChip(st: ProcStats): void {
 
 function renderRows(st: ProcStats): void {
   const rows: ProcInfo[] = [st.shell, ...st.children];
-  summaryEl.textContent = `合计 ${st.totalMb.toFixed(1)} MB · 子进程 ${st.children.length} 个`;
+  summaryEl.textContent = t("ide.res.summary", { mb: st.totalMb.toFixed(1), count: st.children.length });
   rowsEl.textContent = "";
   for (const p of rows) {
     const tr = document.createElement("tr");

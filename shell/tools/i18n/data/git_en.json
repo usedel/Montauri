@@ -1,4 +1,10 @@
 {
+  "git.status.conflict": "conflict",
+  "git.status.deleted": "deleted",
+  "git.status.modified": "modified",
+  "git.status.renamed": "renamed",
+  "git.status.stagedAdded": "staged (added)",
+  "git.status.untracked": "untracked",
   "git.action.accept": "Accept",
   "git.action.add": "Add",
   "git.action.addRemote": "Add remote",

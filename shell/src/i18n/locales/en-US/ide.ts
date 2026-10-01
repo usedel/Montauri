@@ -16,12 +16,17 @@ export const ide: Record<IdeKey, string> = {
   "ide.cd.readFailed": "Reading the file failed: {error}",
   "ide.cd.selection": "Selection",
   "ide.cd.title": "{label} ↔ clipboard",
+  // ---- ide ----
+  "ide.completionKeyword": "keyword",
   // ---- ide.dsl ----
   "ide.dsl.hint": "Tip: right-click → \"Open in regex tester\", or press Ctrl+Alt+R to test regexes",
   "ide.dsl.needPyFormat": "The format-string tool needs an open Python file",
   "ide.dsl.needPyRegex": "The regex tester needs an open Python file",
   "ide.dsl.noFormat": "No format-string literal detected in the current file",
   "ide.dsl.noRegex": "No re regex literal detected in the current file",
+  // ---- ide.engine ----
+  "ide.engine.indexing": "{name} · indexing…",
+  "ide.engine.indexingTitle": "The static engine is indexing/querying in the background; reference and rename results may be incomplete",
   // ---- ide.fu ----
   "ide.fu.actionLabel": "Find references",
   "ide.fu.chipAll": "All",
@@ -38,6 +43,11 @@ export const ide: Record<IdeKey, string> = {
   "ide.fu.renameBtn": "Rename",
   "ide.fu.renameTip": "Rename this symbol and all of its references (Shift+F6)",
   "ide.fu.unstableRetry": "The index is still unstable; results may be incomplete — query again later",
+  // ---- ide.fw ----
+  "ide.fw.hint": "Detected a {framework} project ({file}).{miss}A run configuration can be generated in one click:",
+  "ide.fw.missing": "{names} not installed yet (run uv add {first}).",
+  // ---- ide ----
+  "ide.importAliasDetail": "import alias",
   // ---- ide.json ----
   "ide.json.formatTitle": "Format JSON literal",
   "ide.json.minifyTitle": "Minify JSON literal",
@@ -45,6 +55,11 @@ export const ide: Record<IdeKey, string> = {
   "ide.json.notInLiteral": "The cursor is not inside a json.loads literal",
   "ide.json.openJsonpath": "Open in the JSONPath extractor",
   "ide.json.parseFailed": "JSON parsing failed: {error}",
+  // ---- ide.kb ----
+  "ide.kb.columnSelectOff": "Column selection off",
+  "ide.kb.columnSelectOn": "Column selection on: drag will select a rectangle (press again to exit)",
+  "ide.kb.conflict": "Keybinding \"{label}\" conflicts with \"{dup}\" ({norm})",
+  "ide.kb.invalidFormat": "Keybinding \"{label}\" has invalid format: {raw}",
   // ---- ide.lens ----
   "ide.lens.argsCount.one": "⚙ {count} parameters",
   "ide.lens.argsCount.other": "⚙ {count} parameters",
@@ -64,6 +79,9 @@ export const ide: Record<IdeKey, string> = {
   "ide.mv.syntaxErrors.other": "{count} syntax errors",
   "ide.mv.warning": "warning",
   "ide.mv.wrapped": " (wrapped)",
+  // ---- ide.res ----
+  "ide.res.summary.one": "Total {mb} MB · {count} child processes",
+  "ide.res.summary.other": "Total {mb} MB · {count} child processes",
   // ---- ide.ruff ----
   "ide.ruff.actionLabel": "Ignore this rule (append # noqa at line end)",
   "ide.ruff.added": "Added # noqa: {code}",
@@ -83,4 +101,7 @@ export const ide: Record<IdeKey, string> = {
   "ide.term.shellAuto": "Auto (PowerShell first, falls back to cmd)",
   "ide.term.shellCmd": "Command Prompt (cmd)",
   "ide.term.stopTip": "Stop {label}",
+  // ---- ide.traceback ----
+  "ide.traceback.openAction": "Open traceback file",
+  "ide.traceback.openFailed": "Cannot open: {path}",
 };

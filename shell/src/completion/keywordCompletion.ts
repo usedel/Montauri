@@ -11,6 +11,7 @@
 
 import type * as MonacoApi from "monaco-editor/esm/vs/editor/editor.api";
 import { KEYWORDS, KEYWORD_LANGUAGES } from "./keywords.gen";
+import { t } from "../i18n"; // 第十六批 i18n：补全 detail 走语言包
 
 type Monaco = typeof MonacoApi;
 
@@ -58,7 +59,7 @@ export function keywordItems(languageId: string, range: KeywordRange): KeywordIt
       insertText: word,
       // 段内按数据顺序（字典序）升序，与 live-templates 的 `0xx` 段写法一致
       sortText: SORT_PREFIX + String(i).padStart(3, "0"),
-      detail: "关键字",
+      detail: t("ide.completionKeyword"),
       range,
     });
   }

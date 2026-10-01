@@ -273,11 +273,11 @@ export function samePath(a: string, b: string): boolean {
   return normalizePath(a) === normalizePath(b);
 }
 
-/** Git 状态码 → 可读描述 */
+/** Git 状态码 → 可读描述（i18n：渲染期取词，标签见 git 域 status.*） */
 export function gitStatusLabel(code: string): string {
   const map: Record<string, string> = {
-    M: "已修改", A: "已暂存（新增）", D: "已删除",
-    R: "已重命名", "?": "未跟踪", "!": "冲突",
+    M: t("git.status.modified"), A: t("git.status.stagedAdded"), D: t("git.status.deleted"),
+    R: t("git.status.renamed"), "?": t("git.status.untracked"), "!": t("git.status.conflict"),
   };
   return map[code] ?? code;
 }
@@ -317,7 +317,7 @@ export function spinIcon(): HTMLElement {
 }
 
 /** 按钮忙碌态：内联转圈 + 禁用，用于耗时动作（装包/卸载/升级/建环境/建项目/存储迁移） */
-export function setBusy(btn: HTMLButtonElement, busy: boolean, busyText = "处理中…"): void {
+export function setBusy(btn: HTMLButtonElement, busy: boolean, busyText = t("common.busy")): void {
   if (busy) {
     if (btn.dataset.label === undefined) btn.dataset.label = btn.textContent ?? "";
     btn.textContent = "";

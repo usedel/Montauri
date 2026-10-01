@@ -1,4 +1,10 @@
 {
+  "git.status.conflict": "冲突",
+  "git.status.deleted": "已删除",
+  "git.status.modified": "已修改",
+  "git.status.renamed": "已重命名",
+  "git.status.stagedAdded": "已暂存（新增）",
+  "git.status.untracked": "未跟踪",
   "git.action.accept": "接受",
   "git.action.add": "添加",
   "git.action.addRemote": "添加远程",

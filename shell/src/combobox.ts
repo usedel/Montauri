@@ -20,6 +20,7 @@
 // 本组件零业务依赖（只 import fuzzyScore），可被任意「输入即推荐」场景复用。
 
 import { fuzzyScore } from "./quickOpen";
+import { t } from "./i18n"; // 第十六批 i18n：组合框加载/空态走语言包
 
 /** 一条下拉候选 */
 export interface ComboboxItem {
@@ -122,7 +123,7 @@ export function createCombobox(
       ph.className = "oc-combo-item disabled";
       ph.setAttribute("role", "option");
       ph.setAttribute("aria-disabled", "true");
-      ph.textContent = "加载中…";
+      ph.textContent = t("common.loading");
       drop.appendChild(ph);
       drop.classList.add("open");
       input.setAttribute("aria-expanded", "true");
@@ -176,7 +177,7 @@ export function createCombobox(
       empty.className = "oc-combo-item disabled";
       empty.setAttribute("role", "option");
       empty.setAttribute("aria-disabled", "true");
-      empty.textContent = opts.emptyText ?? "无匹配项";
+      empty.textContent = opts.emptyText ?? t("common.noMatch");
       drop.appendChild(empty);
       drop.classList.add("open");
       input.setAttribute("aria-expanded", "true");

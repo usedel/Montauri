@@ -1,4 +1,5 @@
 {
+  "ext.applied": "已应用 {label}",
   "ext.authorGuide": "作者指南",
   "ext.builtinNoExport": "内置插件无需导出（随应用分发）",
   "ext.builtinRegistered": "内置插件已注册：{count} 工具",
@@ -33,6 +34,7 @@
   "ext.importSuccess": "插件导入成功",
   "ext.importTitle": "导入插件",
   "ext.importZipTitle": "导入插件（zip）",
+  "ext.inlineCommandLabel": "工具: {label}",
   "ext.inlineHint": "「选区变换」工具（入口：命令面板搜「{label}」，或编辑器选中文本后触发）。以下是调试台：",
   "ext.loaded": "已加载：{list}",
   "ext.loadingTools": "加载 {count} 个工具…",
@@ -56,6 +58,7 @@
   "ext.pluginPkgFilter": "插件包",
   "ext.reload": "重载",
   "ext.reloaded": "插件已重新加载",
+  "ext.replaceNoFile": "替换失败：无打开的文件",
   "ext.reregistering": "检测到既有注册，先注销再重载（热重载/重新扫描）",
   "ext.rescan": "重新扫描",
   "ext.resultPlaceholder": "变换结果",
@@ -63,6 +66,7 @@
   "ext.scaffoldCreated": "模板已创建——{next}",
   "ext.scaffoldTitle": "插件脚手架",
   "ext.scanDone": "插件扫描完成",
+  "ext.selectTextFirst": "请先选中文本",
   "ext.skippedDisabled": "已按停用清单跳过注册（用户此前停用了内置插件）",
   "ext.sourceBuiltin": "内置",
   "ext.sourceGlobal": "全局",
@@ -79,5 +83,8 @@
   "ext.tplPanel": "面板工具",
   "ext.tplPanelDesc": "带输入/输出界面的完整工具",
   "ext.transformFailed": "变换失败：{error}",
+  "ext.transformNotString": "变换失败：处理器未返回字符串",
+  "ext.transformSelectionMenu": "变换选区",
+  "ext.undo": "撤销",
   "ext.unknownDir": "(未知)"
 }

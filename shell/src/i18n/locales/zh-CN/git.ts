@@ -270,6 +270,13 @@ export const git = {
   "git.stash.trackedOnly": "仅已跟踪",
   "git.stash.viewDiff": "查看贮藏 diff",
   "git.stash.viewDiffTip": "查看该贮藏的 diff",
+  // ---- git.status ----
+  "git.status.conflict": "冲突",
+  "git.status.deleted": "已删除",
+  "git.status.modified": "已修改",
+  "git.status.renamed": "已重命名",
+  "git.status.stagedAdded": "已暂存（新增）",
+  "git.status.untracked": "未跟踪",
   // ---- git.toast ----
   "git.toast.accepted": "已接受{side}：{file}",
   "git.toast.amended": "已修订提交：{message}",

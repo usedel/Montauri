@@ -3,6 +3,7 @@ import type { ExtKey } from "../zh-CN/ext";
 
 export const ext: Record<ExtKey, string> = {
   // ---- ext ----
+  "ext.applied": "Applied {label}",
   "ext.authorGuide": "Author guide",
   "ext.builtinNoExport": "Built-in plugins need no export (distributed with the app)",
   // ---- ext.builtinRegistered ----
@@ -40,6 +41,7 @@ export const ext: Record<ExtKey, string> = {
   "ext.importSuccess": "Plugin imported",
   "ext.importTitle": "Import plugin",
   "ext.importZipTitle": "Import plugin (zip)",
+  "ext.inlineCommandLabel": "Tool: {label}",
   "ext.inlineHint": "An \"inline\" tool (entry: search \"{label}\" in the command palette, or trigger it with selected text in the editor). Debug console below:",
   "ext.loaded": "Loaded: {list}",
   // ---- ext.loadingTools ----
@@ -66,6 +68,7 @@ export const ext: Record<ExtKey, string> = {
   "ext.pluginPkgFilter": "Plugin package",
   "ext.reload": "Reload",
   "ext.reloaded": "Plugins reloaded",
+  "ext.replaceNoFile": "Replace failed: no open file",
   "ext.reregistering": "Existing registration found; unregistering before reload (hot reload / rescan)",
   "ext.rescan": "Rescan",
   "ext.resultPlaceholder": "Transform result",
@@ -73,6 +76,7 @@ export const ext: Record<ExtKey, string> = {
   "ext.scaffoldCreated": "Template created — {next}",
   "ext.scaffoldTitle": "Plugin scaffold",
   "ext.scanDone": "Plugin scan finished",
+  "ext.selectTextFirst": "Select some text first",
   "ext.skippedDisabled": "Registration skipped per the disabled list (you disabled this built-in plugin earlier)",
   "ext.sourceBuiltin": "built-in",
   "ext.sourceGlobal": "global",
@@ -92,5 +96,8 @@ export const ext: Record<ExtKey, string> = {
   "ext.tplPanel": "Panel tool",
   "ext.tplPanelDesc": "A full tool with input/output UI",
   "ext.transformFailed": "Transform failed: {error}",
+  "ext.transformNotString": "Transform failed: the handler did not return a string",
+  "ext.transformSelectionMenu": "Transform selection",
+  "ext.undo": "Undo",
   "ext.unknownDir": "(unknown)",
 };

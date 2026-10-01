@@ -33,6 +33,12 @@ export const debug = {
   "debug.console.promptLabel": "在断点处的上下文中求值（副作用会真实发生）",
   "debug.console.promptPlaceholder": "例如：len(items)、user.name",
   "debug.console.title": "调试控制台",
+  // ---- debug.dap ----
+  "debug.dap.requestFailed": "DAP 请求失败: {command}",
+  "debug.dap.requestTimeout": "DAP 请求超时（{seconds}s）: {command}",
+  "debug.dap.sessionEnded": "调试会话已结束",
+  "debug.dap.waitEventTimeout": "等待 debugpy {event} 事件超时",
+  "debug.dap.waitInitializedTimeout": "等待 debugpy initialized 事件超时",
   // ---- debug.section ----
   "debug.section.breakpoints": "断点",
   "debug.section.callStack": "调用栈",

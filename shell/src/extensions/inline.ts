@@ -5,6 +5,7 @@ import { toast } from "../toast";
 import { createInlineHost, type FacadeDeps, type InlineHost } from "./facade";
 import { getInlineHandler, type PluginRecord } from "./loader";
 import { pluginToolId } from "./manifest";
+import { t } from "../i18n"; // 第十六批 i18n：inline 变换提示走语言包
 
 /** inline 变换入口的描述（命令面板 / 右键菜单数据源） */
 export interface InlineEntry {
@@ -16,7 +17,7 @@ export interface InlineEntry {
 
 /** 命令面板条目名（§9.9 统一前缀） */
 export function inlineCommandLabel(entry: InlineEntry): string {
-  return `工具: ${entry.label}`;
+  return t("ext.inlineCommandLabel", { label: entry.label });
 }
 
 /** 扫描全部插件记录，收集可用的 inline 入口 */
@@ -54,7 +55,7 @@ export async function runInline(toolId: string): Promise<void> {
 
   const text = host.getSelectedText();
   if (text === null || text === "") {
-    toast("请先选中文本", "info");
+    toast(t("ext.selectTextFirst"), "info");
     return;
   }
 
@@ -62,21 +63,21 @@ export async function runInline(toolId: string): Promise<void> {
   try {
     result = await handler.run(text, host);
   } catch (e) {
-    toast(`变换失败：${e instanceof Error ? e.message : String(e)}`, "error");
+    toast(t("ext.transformFailed", { error: e instanceof Error ? e.message : String(e) }), "error");
     return; // 保留原文
   }
   if (typeof result !== "string") {
-    toast("变换失败：处理器未返回字符串", "error");
+    toast(t("ext.transformNotString"), "error");
     return;
   }
 
   const snapshot = text;
   if (!host.replaceSelection(result)) {
-    toast("替换失败：无打开的文件", "error");
+    toast(t("ext.replaceNoFile"), "error");
     return;
   }
-  toast(`已应用 ${handler.label}`, "success", {
-    actionLabel: "撤销",
+  toast(t("ext.applied", { label: handler.label }), "success", {
+    actionLabel: t("ext.undo"),
     onAction: () => {
       void host.replaceSelection(snapshot);
     },

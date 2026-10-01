@@ -271,6 +271,13 @@ export const git: Record<GitKey, string> = {
   "git.stash.trackedOnly": "Tracked only",
   "git.stash.viewDiff": "View stash diff",
   "git.stash.viewDiffTip": "View the diff of this stash",
+  // ---- git.status ----
+  "git.status.conflict": "conflict",
+  "git.status.deleted": "deleted",
+  "git.status.modified": "modified",
+  "git.status.renamed": "renamed",
+  "git.status.stagedAdded": "staged (added)",
+  "git.status.untracked": "untracked",
   // ---- git.toast ----
   "git.toast.accepted": "Accepted {side}: {file}",
   "git.toast.amended": "Amended commit: {message}",

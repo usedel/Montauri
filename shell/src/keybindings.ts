@@ -12,6 +12,7 @@ import type * as MonacoApi from "monaco-editor/esm/vs/editor/editor.api";
 import { app, type MonacoModule } from "./state";
 import { KEYBINDING_META, type KeybindingId } from "./keybindingDefaults";
 import { toast } from "./toast"; // P4（C-3）：列选择开关的可见反馈（G-3）
+import { t } from "./i18n"; // 第十六批 i18n：键位校验与列选择提示走语言包
 import { toggleSplit } from "./splitEditor"; // P4（C-4）：向右分屏（splitEditor 不反向依赖本模块，无环）
 import { gotoMarker } from "./markerNavigation"; // 诊断导航（F8 / Shift+F8；markerNavigation 不反向依赖本模块，无环）
 
@@ -139,11 +140,11 @@ export function validateKeybindingMap(map: Record<string, string>): string | nul
   for (const m of KEYBINDING_META) {
     const raw = (map[m.id] ?? "").trim();
     if (!raw) continue; // 空 = 解绑，合法
-    if (!parseBinding(raw)) return `快捷键「${m.label}」格式无效：${raw}`;
+    if (!parseBinding(raw)) return t("ide.kb.invalidFormat", { label: m.label, raw });
     const norm = normalizeBinding(raw);
-    if (!norm) return `快捷键「${m.label}」格式无效：${raw}`;
+    if (!norm) return t("ide.kb.invalidFormat", { label: m.label, raw });
     const dup = seen.get(norm);
-    if (dup) return `快捷键「${m.label}」与「${dup}」冲突（${norm}）`;
+    if (dup) return t("ide.kb.conflict", { label: m.label, dup, norm });
     seen.set(norm, m.label);
   }
   return null;
@@ -275,7 +276,7 @@ export function initKeybindingCommands(monaco: MonacoModule): void {
     const on = !ed.getOption(app.monaco.editor.EditorOption.columnSelection);
     ed.updateOptions({ columnSelection: on });
     // G-3：模式切换必须可见——否则用户忘记开过列选择，会把矩形选中当成 bug
-    toast(on ? "列选择模式已开启：鼠标拖拽将按矩形选择（再按退出）" : "列选择模式已关闭", on ? "success" : "info");
+    toast(on ? t("ide.kb.columnSelectOn") : t("ide.kb.columnSelectOff"), on ? "success" : "info");
   });
   // P4（C-4）：向右分屏（splitEditor.ts 钉住式双编辑器）
   setKeybindingHandler("split_editor", () => toggleSplit());
