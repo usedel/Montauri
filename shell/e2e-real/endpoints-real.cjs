@@ -22,67 +22,9 @@
  */
 'use strict';
 
-const { chromium } = require('@playwright/test');
-const { spawn, execSync } = require('child_process');
-const { mkdtempSync, mkdirSync, writeFileSync, existsSync, openSync } = require('fs');
-const http = require('http');
-const os = require('os');
-const path = require('path');
+const { runWithRealApp, record, dismissBlockingModals } = require('./lib/real-env.cjs');
 
-const CDP_PORT = Number(process.env.OC_CDP_PORT || 9223);
-const CDP_TIMEOUT_MS = Number(process.env.OC_CDP_TIMEOUT || 600) * 1000;
-const KEEP_APP = process.env.OC_KEEP_APP === '1';
 const WORKSPACE = process.env.OC_WORKSPACE || 'D:\\aipro\\cb_watcher\\backend';
-const DEV_URL_HOST = 'localhost:5173';
-
-const results = [];
-function record(id, desc, ok, detail) {
-  results.push({ id, desc, ok, detail });
-  console.log(`${ok ? 'PASS' : 'FAIL'}  ${id}  ${desc}${detail ? '\n      -> ' + detail : ''}`);
-}
-
-function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
-
-function httpGet(url) {
-  return new Promise((resolve, reject) => {
-    const req = http.get(url, (res) => {
-      let body = '';
-      res.on('data', (c) => (body += c));
-      res.on('end', () => resolve({ status: res.statusCode, body }));
-    });
-    req.on('error', reject);
-    req.setTimeout(3000, () => { req.destroy(new Error('timeout')); });
-  });
-}
-
-function portInUse(port) {
-  return httpGet(`http://127.0.0.1:${port}/json/version`).then(() => true, () => false);
-}
-
-async function waitCdpReady(port, timeoutMs) {
-  const t0 = Date.now();
-  for (;;) {
-    try {
-      const r = await httpGet(`http://127.0.0.1:${port}/json/version`);
-      if (r.status === 200) return Date.now() - t0;
-    } catch { /* 未就绪继续等 */ }
-    if (Date.now() - t0 > timeoutMs) throw new Error(`CDP ${port} 在 ${timeoutMs / 1000}s 内未就绪（tauri dev 可能编译失败，见日志尾部）`);
-    await sleep(1500);
-  }
-}
-
-function tail(text, n) { return text.length <= n ? text : '...' + text.slice(-n); }
-
-async function dismissBlockingModals(page) {
-  // 首启「落位提示」等一次性弹窗（fresh 数据根会触发）：点掉所有可见 modal 按钮放行。
-  for (let i = 0; i < 6; i++) {
-    const btns = page.locator('.modal-card:visible .modal-actions button');
-    const n = await btns.count().catch(() => 0);
-    if (n === 0) return;
-    for (let j = 0; j < n; j++) await btns.nth(j).click({ force: true, timeout: 2000 }).catch(() => {});
-    await sleep(400);
-  }
-}
 
 async function activeTabName(page) {
   return page.evaluate(() => document.querySelector('#tabbar .tab.active .name')?.textContent ?? null);
@@ -154,83 +96,28 @@ async function runChecks(page) {
   }
 }
 
-(async () => {
-  if (await portInUse(5173)) {
-    console.error(`[预检失败] 5173 已被占用（可能已有 vite / tauri dev 在跑），请先停掉再运行本脚本。`);
-    process.exit(2);
-  }
-  if (await portInUse(CDP_PORT)) {
-    console.error(`[预检失败] CDP 端口 ${CDP_PORT} 已被占用（可能残留上一次会话）。`);
-    process.exit(2);
-  }
-  if (!existsSync(WORKSPACE)) {
-    console.error(`[预检失败] 工作区不存在: ${WORKSPACE}（用 OC_WORKSPACE 指定）`);
-    process.exit(2);
-  }
-
-  // 隔离数据根：recent-workspaces 指向真实目标工作区；不预置解释器（端点扫描纯文件操作，
-  // 与解释器无关——顺带覆盖「未配解释器」的默认路径）
-  const tmp = mkdtempSync(path.join(os.tmpdir(), 'oc-endpoints-real-'));
-  const dataRoot = path.join(tmp, 'data-root');
-  mkdirSync(path.join(dataRoot, 'config'), { recursive: true });
-  writeFileSync(
-    path.join(dataRoot, 'config', 'recent-workspaces.json'),
-    JSON.stringify([WORKSPACE]),
-    'utf8',
-  );
-  console.log(`[环境] 工作区: ${WORKSPACE}\n[环境] 数据根: ${dataRoot}\n[环境] CDP: http://127.0.0.1:${CDP_PORT}`);
-
-  const logPath = path.join(__dirname, '.tauri-dev.log');
-  const logFd = openSync(logPath, 'w');
-  console.log(`[启动] npm run tauri dev（日志: ${logPath}）…`);
-  const child = spawn('cmd.exe', ['/c', 'npm', 'run', 'tauri', 'dev'], {
-    cwd: path.join(__dirname, '..'),
-    windowsHide: true,
-    stdio: ['ignore', logFd, logFd],
-    env: {
-      ...process.env,
-      OPENCHARM_DATA_ROOT: dataRoot,
-      WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${CDP_PORT}`,
+runWithRealApp(
+  {
+    tmpPrefix: 'oc-endpoints-real-',
+    logName: '.tauri-dev.log',
+    summaryTitle: '真机 CDP 验收结果',
+    requirePaths: [
+      { path: WORKSPACE, message: '工作区不存在', hint: '用 OC_WORKSPACE 指定' },
+    ],
+    setupFixtures({ dataRoot }) {
+      const { writeFileSync } = require('fs');
+      const path = require('path');
+      // 隔离数据根：recent-workspaces 指向真实目标工作区；不预置解释器（端点扫描纯文件操作，
+      // 与解释器无关——顺带覆盖「未配解释器」的默认路径）
+      writeFileSync(
+        path.join(dataRoot, 'config', 'recent-workspaces.json'),
+        JSON.stringify([WORKSPACE]),
+        'utf8',
+      );
+      console.log(`[环境] 工作区: ${WORKSPACE}`);
     },
-  });
-
-  let exitCode = 0;
-  let browser = null;
-  try {
-    const waited = await waitCdpReady(CDP_PORT, CDP_TIMEOUT_MS);
-    console.log(`[就绪] CDP 已监听（等待 ${Math.round(waited / 1000)}s），连接…`);
-    browser = await chromium.connectOverCDP(`http://127.0.0.1:${CDP_PORT}`);
-
-    const ctx = browser.contexts()[0];
-    const page = ctx.pages().find((p) => p.url().includes(DEV_URL_HOST)) || ctx.pages()[0];
-    if (!page) throw new Error('CDP 已连接但未找到应用页面（devUrl=' + DEV_URL_HOST + '）');
-    console.log(`[连接] 页面: ${page.url()}`);
-
-    await runChecks(page);
-  } catch (e) {
-    console.error(`\n[运行中断] ${e.message || e}`);
-    try {
-      const fs = require('fs');
-      const log = fs.readFileSync(logPath, 'utf8');
-      console.error('—— tauri dev 日志尾部 ——\n' + tail(log, 2000));
-    } catch { /* 日志可能尚未生成 */ }
-    exitCode = 1;
-  } finally {
-    if (browser) await browser.close().catch(() => {});
-    if (!KEEP_APP) {
-      console.log('\n[清理] taskkill 进程树…');
-      try { execSync(`taskkill /PID ${child.pid} /T /F`, { stdio: 'ignore' }); } catch { /* 已退出 */ }
-    } else {
-      console.log(`\n[保留] 应用未杀（OC_KEEP_APP=1），pid=${child.pid}；临时目录: ${tmp}`);
-    }
-  }
-
-  console.log('\n========== 真机 CDP 验收结果 ==========');
-  for (const r of results) {
-    console.log(`${r.ok ? 'PASS' : 'FAIL'}  ${r.id}  ${r.desc}`);
-  }
-  const failed = results.filter((r) => !r.ok).length;
-  console.log(`--------------------------------------`);
-  console.log(`共 ${results.length} 项，失败 ${failed} 项${KEEP_APP ? '（应用保留运行中）' : ''}`);
-  process.exit(exitCode || (failed > 0 ? 1 : 0));
-})();
+  },
+  async (s) => {
+    await runChecks(s.page);
+  },
+);

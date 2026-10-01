@@ -19,18 +19,19 @@
  */
 'use strict';
 
-const { chromium } = require('@playwright/test');
-const { spawn, execSync } = require('child_process');
-const { mkdtempSync, mkdirSync, writeFileSync, existsSync, openSync } = require('fs');
-const http = require('http');
-const os = require('os');
 const path = require('path');
-const crypto = require('crypto');
+const { writeFileSync, existsSync } = require('fs');
+const {
+  runWithRealApp,
+  record,
+  sleep,
+  DEV_URL_HOST,
+  presetInterpreter,
+  dismissBlockingModals,
+  attachDiagnostics,
+  allPages,
+} = require('./lib/real-env.cjs');
 
-const CDP_PORT = Number(process.env.OC_CDP_PORT || 9224);
-const CDP_TIMEOUT_MS = Number(process.env.OC_CDP_TIMEOUT || 600) * 1000;
-const KEEP_APP = process.env.OC_KEEP_APP === '1';
-const DEV_URL_HOST = 'localhost:5173';
 const REAL_PYTHON = process.env.OC_REAL_PYTHON || 'D:\\py\\python.exe';
 
 // 调试独立性的最小脚本：断点停在 :6（a = compute(10) 之前）即可判断「命中」，
@@ -51,73 +52,6 @@ const SCRIPT_PY = [
   '',
 ].join('\r\n');
 
-const results = [];
-function record(id, desc, ok, detail) {
-  results.push({ id, desc, ok, detail });
-  console.log(`${ok ? 'PASS' : 'FAIL'}  ${id}  ${desc}${detail ? '\n      -> ' + detail : ''}`);
-}
-
-function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
-
-function httpGet(url) {
-  return new Promise((resolve, reject) => {
-    const req = http.get(url, (res) => {
-      let body = '';
-      res.on('data', (c) => (body += c));
-      res.on('end', () => resolve({ status: res.statusCode, body }));
-    });
-    req.on('error', reject);
-    req.setTimeout(3000, () => { req.destroy(new Error('timeout')); });
-  });
-}
-
-function portInUse(port) {
-  return httpGet(`http://127.0.0.1:${port}/json/version`).then(() => true, () => false);
-}
-
-async function waitCdpReady(port, timeoutMs) {
-  const t0 = Date.now();
-  for (;;) {
-    try {
-      const r = await httpGet(`http://127.0.0.1:${port}/json/version`);
-      if (r.status === 200) return Date.now() - t0;
-    } catch { /* 未就绪继续等 */ }
-    if (Date.now() - t0 > timeoutMs) throw new Error(`CDP ${port} 在 ${timeoutMs / 1000}s 内未就绪（tauri dev 可能编译失败，见日志尾部）`);
-    await sleep(1500);
-  }
-}
-
-function tail(text, n) { return text.length <= n ? text : '...' + text.slice(-n); }
-
-/** 遍历所有 context 的所有 page（多窗口可能落在不同 WebView2 context） */
-function allPages(browser) {
-  const out = [];
-  for (const ctx of browser.contexts()) {
-    for (const p of ctx.pages()) out.push(p);
-  }
-  return out;
-}
-
-async function dismissBlockingModals(page) {
-  for (let i = 0; i < 8; i++) {
-    const btns = page.locator('.modal-card:visible .modal-actions button');
-    const n = await btns.count().catch(() => 0);
-    if (n === 0) return;
-    for (let j = 0; j < n; j++) await btns.nth(j).click({ force: true, timeout: 2000 }).catch(() => {});
-    await sleep(400);
-  }
-}
-
-/** 收集页面的未捕获异常 + console error/warning，供失败时诊断 */
-function attachDiagnostics(page, label) {
-  const logs = [];
-  page.on('pageerror', (e) => logs.push(`[pageerror] ${String(e)}`));
-  page.on('console', (m) => {
-    if (m.type() === 'error' || m.type() === 'warning') logs.push(`[${m.type()}] ${m.text()}`);
-  });
-  return logs;
-}
-
 async function treeNames(page) {
   return page.evaluate(() =>
     Array.from(document.querySelectorAll('#tree .tree-item .name'))
@@ -135,26 +69,6 @@ async function waitLspStatus(page, needle, timeoutMs) {
   );
 }
 
-/** 工作区哈希：对齐 src-tauri/file_ops.rs::project_hash（sha1[:12]） */
-function projectHash(root) {
-  const norm = (p) => {
-    let s = String(p).replace(/\//g, '\\');
-    while (s.startsWith('\\\\?\\')) s = s.slice(4);
-    return s.toLowerCase();
-  };
-  const variants = new Set([norm(root)]);
-  try { variants.add(norm(require('fs').realpathSync(root))); } catch { /* 目录未建时忽略 */ }
-  return [...variants].map((v) => crypto.createHash('sha1').update(v, 'utf8').digest('hex').slice(0, 12));
-}
-
-/** 预置工作区解释器（<data_root>/workspaces/<hash>.json，对齐 env_cmds 形态） */
-function presetInterpreter(dataRoot, workspace, interpreter) {
-  const dir = path.join(dataRoot, 'workspaces');
-  mkdirSync(dir, { recursive: true });
-  const payload = JSON.stringify({ interpreter });
-  for (const h of projectHash(workspace)) writeFileSync(path.join(dir, `${h}.json`), payload, 'utf8');
-}
-
 /** 读取当前窗口活动终端的 xterm 文本（压缩空白） */
 async function termText(page) {
   return page.evaluate(() => {
@@ -167,8 +81,8 @@ async function runChecks(browser) {
   // 主窗口 = 启动时已有的第一个页面
   let pages = allPages(browser);
   const main = pages.find((p) => p.url().includes(DEV_URL_HOST)) || pages[0];
-  const mainDiag = attachDiagnostics(main, 'main');
-  await dismissBlockingModals(main);
+  const mainDiag = attachDiagnostics(main);
+  await dismissBlockingModals(main, 8);
 
   // MC-REAL-1 主窗口恢复项目 A
   try {
@@ -223,8 +137,8 @@ async function runChecks(browser) {
     console.log(`\n[诊断] 主窗口 console/error：\n  ` + mainDiag.slice(0, 20).join('\n  ') || '（无）');
     return;
   }
-  const winBDiag = attachDiagnostics(winB, 'winB');
-  await dismissBlockingModals(winB);
+  const winBDiag = attachDiagnostics(winB);
+  await dismissBlockingModals(winB, 8);
 
   // MC-REAL-4 新窗口文件树渲染（= 前端 init 跑通，核心回归点）
   try {
@@ -265,9 +179,25 @@ async function runChecks(browser) {
   }
 
   // MC-REAL-WATCH-2 B 的文件监听独立（写 B 新文件 → B 树刷新）
+  // 时序坑（D-007，见 docs/e2e_divergence_ledger.md）：B 窗口「树/编辑器可用」早于
+  // 「watch_start 完成」（openWorkspace 中 startLsp 等链路排在 watcher 之前），首写可能
+  // 落在 watcher 就绪前——文件事件不补发，等待再久也不会出现。用「重触写」兜底：
+  // 未出现前周期性重写文件触发新变更事件，watcher 就绪后必被上报。
   try {
     writeFileSync(path.join(WS_B, 'b_after.py'), '# watcher B\nprint("new")\n', 'utf8');
-    await winB.locator('#tree .tree-item .name', { hasText: 'b_after.py' }).first().waitFor({ timeout: 30000 });
+    const deadline = Date.now() + 30000;
+    let seen = false;
+    while (Date.now() < deadline) {
+      try {
+        await winB.locator('#tree .tree-item .name', { hasText: 'b_after.py' }).first().waitFor({ timeout: 8000 });
+        seen = true;
+        break;
+      } catch {
+        if (Date.now() >= deadline) break;
+        writeFileSync(path.join(WS_B, 'b_after.py'), `# watcher B retrigger ${Date.now()}\n`, 'utf8');
+      }
+    }
+    if (!seen) throw new Error('b_after.py 30s 内未出现在 B 树（含 3 次重触写）');
     record('MC-REAL-WATCH-2', 'B 的文件监听独立（写 B 新文件 → B 树出现 b_after.py）', true);
   } catch (e) {
     record('MC-REAL-WATCH-2', 'B 的文件监听独立', false,
@@ -395,90 +325,45 @@ async function runChecks(browser) {
   }
 }
 
-// WS_B / WS_A 通过闭包注入（runChecks 内 main.evaluate / fs 写入使用）
+// WS_B / WS_A 由 setupFixtures 注入（runChecks 内 main.evaluate / fs 写入使用）
 let WS_B = '';
 let WS_A = '';
 
-(async () => {
-  if (await portInUse(5173)) {
-    console.error('[预检失败] 5173 已被占用，请先停掉现有 vite / tauri dev。');
-    process.exit(2);
-  }
-  if (await portInUse(CDP_PORT)) {
-    console.error(`[预检失败] CDP 端口 ${CDP_PORT} 已被占用（可能残留上次会话）。`);
-    process.exit(2);
-  }
-
-  // 隔离环境：两个临时项目 + 预置 recent（仅 A，主窗口启动恢复 A）
-  const tmp = mkdtempSync(path.join(os.tmpdir(), 'oc-multiwin-real-'));
-  const wsA = path.join(tmp, 'wsA');
-  const wsB = path.join(tmp, 'wsB');
-  const dataRoot = path.join(tmp, 'data-root');
-  mkdirSync(wsA, { recursive: true });
-  mkdirSync(wsB, { recursive: true });
-  mkdirSync(path.join(dataRoot, 'config'), { recursive: true });
-  writeFileSync(path.join(wsA, 'a_project.py'), '# project A\nprint("A")\n', 'utf8');
-  writeFileSync(path.join(wsB, 'b_project.py'), '# project B\nprint("B")\n', 'utf8');
-  // 调试独立性 fixture：两个项目各带 script.py（断点停 :6）；有真实解释器才预置（无则调试段 SKIP）
-  writeFileSync(path.join(wsA, 'script.py'), SCRIPT_PY, 'utf8');
-  writeFileSync(path.join(wsB, 'script.py'), SCRIPT_PY, 'utf8');
-  if (existsSync(REAL_PYTHON)) {
-    presetInterpreter(dataRoot, wsA, REAL_PYTHON);
-    presetInterpreter(dataRoot, wsB, REAL_PYTHON);
-  }
-  writeFileSync(
-    path.join(dataRoot, 'config', 'recent-workspaces.json'),
-    JSON.stringify([wsA]),
-    'utf8',
-  );
-  WS_A = wsA;
-  WS_B = wsB;
-  console.log(`[环境] A=${wsA}\n[环境] B=${wsB}\n[环境] 数据根=${dataRoot}\n[环境] CDP=http://127.0.0.1:${CDP_PORT}`);
-
-  const logPath = path.join(__dirname, '.tauri-dev-mw.log');
-  const logFd = openSync(logPath, 'w');
-  console.log(`[启动] npm run tauri dev（日志: ${logPath}）…`);
-  const child = spawn('cmd.exe', ['/c', 'npm', 'run', 'tauri', 'dev'], {
-    cwd: path.join(__dirname, '..'),
-    windowsHide: true,
-    stdio: ['ignore', logFd, logFd],
-    env: {
-      ...process.env,
-      OPENCHARM_DATA_ROOT: dataRoot,
-      WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${CDP_PORT}`,
+runWithRealApp(
+  {
+    // 多窗口默认用独立 CDP 端口，避免与 debug-real 的默认 9223 冲突
+    cdpPort: Number(process.env.OC_CDP_PORT || 9224),
+    tmpPrefix: 'oc-multiwin-real-',
+    logName: '.tauri-dev-mw.log',
+    summaryTitle: '多窗口真机 CDP 验收结果',
+    setupFixtures({ tmp, dataRoot }) {
+      const { mkdirSync } = require('fs');
+      // 隔离环境：两个临时项目 + 预置 recent（仅 A，主窗口启动恢复 A）
+      const wsA = path.join(tmp, 'wsA');
+      const wsB = path.join(tmp, 'wsB');
+      mkdirSync(wsA, { recursive: true });
+      mkdirSync(wsB, { recursive: true });
+      writeFileSync(path.join(wsA, 'a_project.py'), '# project A\nprint("A")\n', 'utf8');
+      writeFileSync(path.join(wsB, 'b_project.py'), '# project B\nprint("B")\n', 'utf8');
+      // 调试独立性 fixture：两个项目各带 script.py（断点停 :6）；有真实解释器才预置（无则调试段 SKIP）
+      writeFileSync(path.join(wsA, 'script.py'), SCRIPT_PY, 'utf8');
+      writeFileSync(path.join(wsB, 'script.py'), SCRIPT_PY, 'utf8');
+      if (existsSync(REAL_PYTHON)) {
+        presetInterpreter(dataRoot, wsA, REAL_PYTHON);
+        presetInterpreter(dataRoot, wsB, REAL_PYTHON);
+      }
+      writeFileSync(
+        path.join(dataRoot, 'config', 'recent-workspaces.json'),
+        JSON.stringify([wsA]),
+        'utf8',
+      );
+      WS_A = wsA;
+      WS_B = wsB;
+      console.log(`[环境] A=${wsA}\n[环境] B=${wsB}`);
+      return { wsA, wsB };
     },
-  });
-
-  let exitCode = 0;
-  let browser = null;
-  try {
-    const waited = await waitCdpReady(CDP_PORT, CDP_TIMEOUT_MS);
-    console.log(`[就绪] CDP 已监听（等待 ${Math.round(waited / 1000)}s），连接…`);
-    browser = await chromium.connectOverCDP(`http://127.0.0.1:${CDP_PORT}`);
-
-    await runChecks(browser);
-  } catch (e) {
-    console.error(`\n[运行中断] ${e.message || e}`);
-    try {
-      const fs = require('fs');
-      const log = fs.readFileSync(logPath, 'utf8');
-      console.error('—— tauri dev 日志尾部 ——\n' + tail(log, 2000));
-    } catch { /* 日志可能尚未生成 */ }
-    exitCode = 1;
-  } finally {
-    if (browser) await browser.close().catch(() => {});
-    if (!KEEP_APP) {
-      console.log('\n[清理] taskkill 进程树…');
-      try { execSync(`taskkill /PID ${child.pid} /T /F`, { stdio: 'ignore' }); } catch { /* 已退出 */ }
-    } else {
-      console.log(`\n[保留] 应用未杀（OC_KEEP_APP=1），pid=${child.pid}；临时目录: ${tmp}`);
-    }
-  }
-
-  console.log('\n========== 多窗口真机 CDP 验收结果 ==========');
-  for (const r of results) console.log(`${r.ok ? 'PASS' : 'FAIL'}  ${r.id}  ${r.desc}`);
-  const failed = results.filter((r) => !r.ok).length;
-  console.log('--------------------------------------');
-  console.log(`共 ${results.length} 项，失败 ${failed} 项${KEEP_APP ? '（应用保留运行中）' : ''}`);
-  process.exit(exitCode || (failed > 0 ? 1 : 0));
-})();
+  },
+  async (s) => {
+    await runChecks(s.browser);
+  },
+);
