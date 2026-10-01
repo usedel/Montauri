@@ -8,7 +8,9 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { app, $ } from "./state";
-import { basename, codicon, emptyState } from "./util";
+import { basename, codicon, emptyState, errMsg } from "./util";
+import { t } from "./i18n"; // 第十二批 i18n：TODO 视图动态文案走语言包
+import { localizeBackendError } from "./i18n/backendError";
 
 export interface TodoMatch {
   path: string;
@@ -60,8 +62,8 @@ export function initTodoView(): void {
   const refresh = document.createElement("button");
   refresh.id = "todo-refresh";
   refresh.className = "btn btn--ghost btn--icon";
-  refresh.dataset.tip = "重新扫描";
-  refresh.setAttribute("aria-label", "重新扫描");
+  refresh.dataset.tip = t("editor.todo.rescan");
+  refresh.setAttribute("aria-label", t("editor.todo.rescan"));
   refresh.appendChild(codicon("refresh"));
   refresh.addEventListener("click", () => void refreshTodos());
   toolbar.append(summary, refresh);
@@ -84,7 +86,7 @@ export async function refreshTodos(): Promise<void> {
   }
   const token = ++todoToken;
   loading = true;
-  if (summary) summary.textContent = "扫描中…";
+  if (summary) summary.textContent = t("editor.todo.scanning");
   if (list) list.textContent = "";
   let got: TodoMatch[];
   try {
@@ -93,7 +95,7 @@ export async function refreshTodos(): Promise<void> {
     if (token !== todoToken) return;
     results = [];
     loading = false;
-    renderTodoPanel(`扫描失败：${e}`);
+    renderTodoPanel(t("editor.todo.scanFailed", { error: localizeBackendError(errMsg(e)) }));
     return;
   }
   if (token !== todoToken) return; // 已有更新一轮的扫描，丢弃旧结果
@@ -117,30 +119,30 @@ export function renderTodoPanel(error?: string): void {
   if (!list) return;
 
   if (summary) {
-    if (error) summary.textContent = "扫描失败";
-    else if (loading) summary.textContent = "扫描中…";
-    else if (results.length === 0) summary.textContent = "0 项";
+    if (error) summary.textContent = t("editor.todo.scanFailedShort");
+    else if (loading) summary.textContent = t("editor.todo.scanning");
+    else if (results.length === 0) summary.textContent = t("editor.todo.zeroItems");
     else {
       const tags = new Set(results.map((m) => m.tag));
-      summary.textContent = `${results.length} 项 · ${[...tags].join(" / ")}`;
+      summary.textContent = t("editor.todo.summary", { count: results.length, tags: [...tags].join(" / ") });
     }
   }
 
   list.textContent = "";
   if (error) {
-    list.appendChild(emptyState("error", "扫描失败", error, true));
+    list.appendChild(emptyState("error", t("editor.todo.scanFailedShort"), error, true));
     return;
   }
   if (loading) {
-    list.appendChild(emptyState("loading", "扫描中…", "正在遍历工作区文件", true));
+    list.appendChild(emptyState("loading", t("editor.todo.scanning"), t("editor.todo.scanningHint"), true));
     return;
   }
   if (!app.workspaceRoot) {
-    list.appendChild(emptyState("checklist", "未打开工作区", "打开后此处列出 TODO / FIXME", true));
+    list.appendChild(emptyState("checklist", t("editor.todo.noWorkspace"), t("editor.todo.noWorkspaceHint"), true));
     return;
   }
   if (results.length === 0) {
-    list.appendChild(emptyState("checklist", "没有待办标记", "代码里暂无 TODO / FIXME / HACK / BUG / XXX", true));
+    list.appendChild(emptyState("checklist", t("editor.todo.none"), t("editor.todo.noneHint"), true));
     return;
   }
 

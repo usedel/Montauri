@@ -12,6 +12,7 @@
 import { app } from "./state";
 import { samePath } from "./util";
 import { toast } from "./toast";
+import { t } from "./i18n"; // 第十二批 i18n：导航历史动态文案走语言包
 
 export interface NavLocation {
   path: string;
@@ -87,7 +88,7 @@ export function canGoForward(): boolean {
 async function move(delta: number): Promise<boolean> {
   const next = index + delta;
   if (next < 0 || next >= history.length) {
-    toast(delta < 0 ? "没有更早的导航位置" : "已在最新的导航位置");
+    toast(delta < 0 ? t("editor.nav.oldest") : t("editor.nav.newest"));
     return false;
   }
   index = next;

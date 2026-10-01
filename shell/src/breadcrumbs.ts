@@ -11,6 +11,7 @@
 import * as lsp from "./lsp/client";
 import { app } from "./state";
 import { basename, codicon, symbolIcon } from "./util";
+import { t } from "./i18n"; // 第十二批 i18n：面包屑动态文案走语言包
 
 export interface BreadcrumbItem {
   name: string;
@@ -148,14 +149,15 @@ function crumb(text: string, icon: string, path: string, line: number, isFile: b
   b.type = "button";
   b.title = path;
   b.dataset.line = String(line);
-  b.setAttribute("aria-label", isFile ? `文件 ${text}` : `跳转到 ${text}（第 ${line} 行）`);
+  b.setAttribute("aria-label", isFile ? t("editor.crumb.file", { text: text }) : t("editor.crumb.jump", { text: text, line: line }));
   const i = document.createElement("span");
   i.className = "crumb-icon";
   i.appendChild(codicon(icon));
-  const t = document.createElement("span");
-  t.className = "crumb-text";
-  t.textContent = text;
-  b.append(i, t);
+  // 局部变量避开 t：t() 已是 i18n 取词函数（原变量名 t 与之撞名会遮蔽取词）
+  const span = document.createElement("span");
+  span.className = "crumb-text";
+  span.textContent = text;
+  b.append(i, span);
   b.addEventListener("click", () => handlers?.gotoLine(line));
   return b;
 }

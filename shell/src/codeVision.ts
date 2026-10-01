@@ -17,6 +17,7 @@ import {
   type LspReferenceLocation,
 } from "./lsp/client";
 import { relativePathOrName, DisposableStore } from "./util";
+import { t } from "./i18n"; // 第十二批 i18n：引用 CodeLens 动态文案走语言包
 import { findUsagesAtCursor, openRef, readRefLines } from "./findUsages";
 
 /** 出 lens 的符号种类：Class(5) / Method(6) / Function(12) */
@@ -91,13 +92,13 @@ async function showUsagesPopup(line: number, col: number): Promise<void> {
   host.className = "oc-cv-popup";
   const header = document.createElement("div");
   header.className = "oc-cv-popup-header";
-  header.textContent = symbolName ? `${symbolName} · ${refs.length} 处引用` : `${refs.length} 处引用`;
+  header.textContent = symbolName ? t("editor.vision.namedRefs", { name: symbolName, count: refs.length }) : t("editor.vision.refs", { count: refs.length });
   host.appendChild(header);
 
   if (refs.length === 0) {
     const empty = document.createElement("div");
     empty.className = "oc-cv-popup-empty";
-    empty.textContent = "该符号暂无引用";
+    empty.textContent = t("editor.vision.noRefs");
     host.appendChild(empty);
   } else {
     const list = document.createElement("div");
@@ -110,14 +111,14 @@ async function showUsagesPopup(line: number, col: number): Promise<void> {
     if (refs.length > shown.length) {
       const more = document.createElement("div");
       more.className = "oc-cv-popup-more-count";
-      more.textContent = `…其余 ${refs.length - shown.length} 处在「引用」面板查看`;
+      more.textContent = t("editor.vision.more", { count: refs.length - shown.length });
       list.appendChild(more);
     }
     host.appendChild(list);
     const footer = document.createElement("button");
     footer.type = "button";
     footer.className = "oc-cv-popup-footer";
-    footer.textContent = "在下方面板查看全部";
+    footer.textContent = t("editor.vision.viewAll");
     footer.addEventListener("click", () => {
       closePopup();
       ed.setPosition(pos);
@@ -240,7 +241,7 @@ export function initCodeVision(editor: MonacoApi.editor.IStandaloneCodeEditor): 
       if (commandId) {
         lens.command = {
           id: commandId,
-          title: count === 0 ? "无引用" : `${count} 处引用`,
+          title: count === 0 ? t("editor.vision.zeroTitle") : t("editor.vision.refs", { count: count }),
           arguments: [lens.range.startLineNumber, lens.range.startColumn],
         };
       }
