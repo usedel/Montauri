@@ -4,6 +4,8 @@
 // 控制台；本面板仅保留**非交互输出渲染**（appendOutputLine / URL / traceback 链接），
 // 承载调试输出（debug-stdout / debug-stderr 事件，§13.3）。
 
+import { t } from "./i18n"; // 第五批 i18n：输出护栏提示走语言包
+
 export interface OutputLink {
   path: string;
   line: number;
@@ -270,7 +272,7 @@ function renderOmittedRow(container: HTMLElement): void {
   const n = omittedCounts.get(container) ?? 0;
   if (n <= 0) return;
   const row = ensureOmittedRow(container);
-  row.textContent = `已省略前 ${n} 行（输出上限 ${maxOutputLines} 行）`;
+  row.textContent = t("run.out.omitted", { n: n, max: maxOutputLines });
   row.hidden = false;
 }
 

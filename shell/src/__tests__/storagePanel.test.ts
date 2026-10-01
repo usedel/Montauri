@@ -3,6 +3,7 @@
 // 恶意路径 / hash / 错误串不得经 innerHTML 逃逸出属性或注入脚本节点。
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import type * as StoragePanelModule from "../storagePanel";
+import { t } from "../i18n"; // 断言走 t(key)：默认中文等价于原文断言，切默认语言也不用改
 
 let sp: typeof StoragePanelModule;
 let usageEl: HTMLElement;
@@ -94,7 +95,7 @@ describe("CR-04 storagePanel 渲染安全（DOM API，无 innerHTML 注入）", 
 
     // ⑥ 尺寸徽章等正常渲染
     expect(usageEl.querySelector(".storage-size")?.textContent).toBe("12.1 KB");
-    expect(usageEl.querySelector(".storage-badge-ok")?.textContent).toBe("可再生");
+    expect(usageEl.querySelector(".storage-badge-ok")?.textContent).toBe(t("storage.tag.renewable"));
     expect(usageEl.querySelector(".storage-sep")?.textContent).toContain("uv");
   });
 

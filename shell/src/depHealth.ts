@@ -12,6 +12,9 @@ import { appendOutputLine } from "./output";
 import { gotoFromLink } from "./tracebackLink";
 import { openChoice, openConfirm } from "./dialog";
 import { toast, toastFail } from "./toast";
+import { onLocaleChange, t } from "./i18n"; // 第七批 i18n：依赖健康域动态文案走语言包
+import { errMsg } from "./util";
+import { localizeBackendError } from "./i18n/backendError";
 
 // ---------- 契约类型（§3.3，与 Rust DepDiff/DepStyle serde 序列化名一一对应） ----------
 
@@ -243,7 +246,7 @@ async function scanWithToken(workspaceRoot: string, token: number, scope?: DepSc
     return diff;
   } catch (e) {
     if (token === scanToken) {
-      appendOutputLine(outputEl, `依赖体检失败：${e}`, "stderr", gotoFromLink, "env");
+      appendOutputLine(outputEl, t("dep.checkFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "env");
       onScanComplete(null);
     }
     return null;
@@ -304,7 +307,7 @@ export function lazyMissingForFile(
 export function lazyHintLine(items: Array<{ name: string; line: number }>): string | null {
   if (items.length === 0) return null;
   const detail = items.map((m) => `${m.name} L${m.line}`).join("、");
-  return `检测到 ${items.length} 个惰性导入未安装（不阻塞运行，执行到对应代码时才会失败）：${detail}`;
+  return t("dep.lazyMissing", { count: items.length, detail: detail });
 }
 
 /** §5.4：uv run 兜底路径的隐式同步风险提示判据。「uv run 将按 lock 隐式同步环境，
@@ -316,13 +319,13 @@ export const E2_SEVERE_COUNT = 5;
 export function uvRunSyncRisk(diff: DepDiff | null): string | null {
   if (!diff) return null;
   const reasons: string[] = [];
-  if (diff.lockOutOfDate) reasons.push("uv.lock 已过期");
-  if (diff.requirementsUninstalled) reasons.push("requirements.txt 尚未安装");
+  if (diff.lockOutOfDate) reasons.push(t("dep.reason.lockOutdated"));
+  if (diff.requirementsUninstalled) reasons.push(t("dep.reason.reqUninstalled"));
   if (diff.declaredMissing.length >= E2_SEVERE_COUNT) {
-    reasons.push(`${diff.declaredMissing.length} 个已声明依赖未安装`);
+    reasons.push(t("dep.reason.declaredMissing", { count: diff.declaredMissing.length }));
   }
   if (reasons.length === 0) return null;
-  return `注意：uv run 将按声明隐式同步环境（${reasons.join("；")}）——可能自动安装缺失依赖或移除您手动安装但未声明的包。`;
+  return t("dep.uvRunSyncRisk", { reasons: reasons.join("；") });
 }
 
 // ---------- 打开工作区体检编排（§4.7，M1 形态） ----------
@@ -343,16 +346,16 @@ function styleLabel(style: DepStyleKind, externalManager: string | null): string
 /** 体检摘要行（M1：结果只进输出面板一行，无横幅无弹窗，§7 M1「先让数据跑起来」）。
  *  E 组计数 + 关键异常旗标 + 耗时——异常明细与修复入口是 M3 健康面板的事。 */
 export function summarizeDiff(d: DepDiff, elapsedMs: number): string {
-  const interp = d.interpreter ? "解释器 ✓" : "未选解释器（环境侧检测不可用）";
+  const interp = d.interpreter ? t("dep.summary.interpOk") : t("dep.summary.interpMissing");
   const flags: string[] = [];
-  if (d.lockOutOfDate) flags.push("uv.lock 过期");
-  if (d.requirementsUninstalled) flags.push("requirements 未安装");
+  if (d.lockOutOfDate) flags.push(t("dep.summary.flagLock"));
+  if (d.requirementsUninstalled) flags.push(t("dep.summary.flagReq"));
   const flagStr = flags.length > 0 ? ` · ${flags.join(" · ")}` : "";
   return (
-    `依赖体检：${styleLabel(d.style, d.externalManager)} · ${interp} · ` +
-    `E1 缺失 ${d.missingInEnv.length} / E2 声明缺装 ${d.declaredMissing.length}` +
-    (d.declaredMissingModules.length > 0 ? `（另有已声明未装 ${d.declaredMissingModules.length}）` : "") +
-    ` / E3 漂移 ${d.envDrift.length} / E4 未声明 ${d.undeclared.length}${flagStr} · 耗时 ${elapsedMs}ms`
+    t("dep.summary.head", { style: styleLabel(d.style, d.externalManager), interp: interp }) +
+    t("dep.summary.e1e2", { missing: d.missingInEnv.length, declared: d.declaredMissing.length }) +
+    (d.declaredMissingModules.length > 0 ? t("dep.summary.extra", { count: d.declaredMissingModules.length }) : "") +
+    t("dep.summary.tail", { drift: d.envDrift.length, undeclared: d.undeclared.length, flags: flagStr, elapsed: elapsedMs })
   );
 }
 
@@ -401,8 +404,8 @@ export async function runOpenWorkspaceCheck(workspaceRoot: string): Promise<void
       return;
     }
     // 全量体检失败：至少留下 L0 事实行（不静默失败——反馈技术债决议，memory 61552154）
-    const styleStr = styleInfo ? styleLabel(styleInfo.style, styleInfo.externalManager) : "未知";
-    appendOutputLine(outputEl, `依赖体检：${styleStr}（全量体检未完成，详见上方错误）`, "hint", gotoFromLink, "env");
+    const styleStr = styleInfo ? styleLabel(styleInfo.style, styleInfo.externalManager) : t("dep.style.unknown");
+    appendOutputLine(outputEl, t("dep.summary.incomplete", { style: styleStr }), "hint", gotoFromLink, "env");
   } catch (e) {
     console.warn("[depHealth] 工作区体检异常:", e);
   }
@@ -553,8 +556,8 @@ export function handleTracebackLine(line: string): boolean {
   const key = `${app.workspaceRoot ?? ""}|${module}`;
   if (modNotFoundHinted.has(key)) return true;
   modNotFoundHinted.add(key);
-  toast(`运行报错：缺少模块 "${module}"`, "error", {
-    actionLabel: "安装",
+  toast(t("dep.missingModuleToast", { module: module }), "error", {
+    actionLabel: t("dep.action.install"),
     onAction: () => void installMissingPkg(module),
   });
   return true;
@@ -589,7 +592,7 @@ function notifyIssuesOnce(root: string, diff: DepDiff): void {
   const key = `${root}|issues|${diff.style}|${n}|${diff.lockOutOfDate}|${diff.requirementsUninstalled}`;
   if (notifyDedup.has(key)) return;
   notifyDedup.add(key);
-  toast(`依赖体检发现 ${n} 项问题`, "info", { actionLabel: "查看", onAction: () => openHealthPanel() });
+  toast(t("dep.foundIssues", { count: n }), "info", { actionLabel: t("dep.action.view"), onAction: () => openHealthPanel() });
 }
 
 /** §5.5 步骤 2（v1.4 ⑥ 归属 M3）：环境信号重算后 envDrift 非空 → toast 一次 +「查看」。
@@ -599,8 +602,8 @@ export function notifyEnvDriftOnce(root: string, diff: DepDiff): void {
   const key = `${root}|drift|${diff.envDrift.length}`;
   if (notifyDedup.has(key)) return;
   notifyDedup.add(key);
-  toast(`检测到环境与声明不一致（${diff.envDrift.length} 个包未声明）`, "info", {
-    actionLabel: "查看",
+  toast(t("dep.envDriftToast", { count: diff.envDrift.length }), "info", {
+    actionLabel: t("dep.action.view"),
     onAction: () => openHealthPanel(),
   });
 }
@@ -660,7 +663,7 @@ export function previewFixCommand(plan: DepFixPlan): string {
   const head = tokens.slice(0, tokens.length - n).join(" ");
   const shown = tokens.slice(tokens.length - n, tokens.length - n + PREVIEW_MAX_DISTS).join(" ");
   const rest = n - PREVIEW_MAX_DISTS;
-  return `${head} ${shown} …（其余 ${rest} 个）`;
+  return t("dep.listMore", { head: head, shown: shown, rest: rest });
 }
 
 /** E3 漂移包 → uv add 的版本约束 spec：锁定已装版本（`dist==version`），避免 uv add 解析
@@ -689,8 +692,12 @@ export function chunkPlan(plan: DepFixPlan, size: number): DepFixPlan[] {
   return out;
 }
 
-/** dist=null 的降级提示（§3.3：反查不到发行版名是正常占比而非罕见兜底，按模块名安装须警示可能装错包） */
-export const NULL_DIST_WARNING = "部分模块未反查到发行版名，将按模块名安装——可能装错包，完成后请核对";
+/** dist=null 的降级提示（§3.3：反查不到发行版名是正常占比而非罕见兜底，按模块名安装须警示可能装错包）。
+ *  i18n：导出绑定（ES live binding）——语言切换时在此重新取词，全部使用方无需感知。 */
+export let NULL_DIST_WARNING = t("dep.warn.nullDist");
+onLocaleChange(() => {
+  NULL_DIST_WARNING = t("dep.warn.nullDist");
+});
 
 /** M4-4 dist 歧义选择器：同 module 多候选时弹 openChoice 选发行版。
  *  单候选/空候选直接返回（不弹窗）；两候选 = ok/neutral 双按钮（openChoice 形态上限）；
@@ -704,16 +711,17 @@ export async function resolveDistForInstall(
   if (cands.length === 0) return null;
   if (cands.length === 1) return cands[0];
   const extra = cands.length > 2
-    ? `\n\n其余候选（如需请手动安装）：${cands.slice(2).join("、")}`
+    ? `\n\n${t("dep.otherCands", { cands: cands.slice(2).join("、") })}`
     : "";
   const choice = await openChoice({
-    title: "选择要安装的发行版",
+    title: t("dep.dialog.distTitle"),
+    // 确认语多段拼装（含 \n\n 不走 apply_ts 映射，避免语言包转义链失真），按段取词
     message:
-      `模块 "${module}" 可由多个发行版提供（import 名 ≠ 包名的常见情形）：\n\n` +
+      `${t("dep.distPickHeader", { module })}\n\n` +
       cands.map((c, i) => `${i + 1}. ${c}`).join("\n") +
-      `${extra}\n\n默认安装首个候选；不确定时选默认。`,
-    okLabel: `安装 ${cands[0]}`,
-    neutralLabel: `安装 ${cands[1]}`,
+      `${extra}\n\n${t("dep.distPickTail")}`,
+    okLabel: t("dep.action.installDist", { dist: cands[0] }),
+    neutralLabel: t("dep.action.installDist", { dist: cands[1] }),
     kind: "primary",
   });
   if (choice === "ok") return cands[0];
@@ -757,7 +765,7 @@ export function depActionsForLine(diff: DepDiff | null, relPath: string, lineTex
       kind: "install",
       module,
       spec: miss.dist ?? module,
-      title: `安装 "${miss.dist ?? module}" 包`,
+      title: t("dep.dialog.installPkgTitle", { dist: miss.dist ?? module }),
       warning: miss.dist === null ? NULL_DIST_WARNING : undefined,
     });
   }
@@ -767,7 +775,7 @@ export function depActionsForLine(diff: DepDiff | null, relPath: string, lineTex
       kind: "declare",
       module,
       spec: undecl.dist ?? module,
-      title: `安装 "${undecl.dist ?? module}" 并加入 pyproject`,
+      title: t("dep.dialog.installDeclareTitle", { dist: undecl.dist ?? module }),
       warning: undecl.dist === null ? NULL_DIST_WARNING : undefined,
     });
   }
@@ -778,7 +786,7 @@ export function depActionsForLine(diff: DepDiff | null, relPath: string, lineTex
  *  （openChoice 单实例模态），多候选模块按首候选执行——须在确认弹窗明示，用户知情。 */
 function multiCandidateWarning(modules: string[]): string | undefined {
   if (modules.length === 0) return undefined;
-  return `部分模块有多个候选发行版（${modules.join("、")}），批量动作将安装各自的首个候选；如需另选，请用行级「安装」逐个选择`;
+  return t("dep.multiCandWarning", { modules: modules.join("、") });
 }
 
 /** 组级修复计划构建（§5.3 批量预览）：无内容 / 不可修（external 降级、非 pyproject 写声明）返回 null */
@@ -811,7 +819,7 @@ export function groupFixPlan(
         command: fixCommandPreview(diff, "sync", []),
         warning:
           diff.style === "pyproject"
-            ? "uv sync 将按 lock 移除环境中未声明的包（手动裸装的包会被卸载）"
+            ? t("dep.plan.syncRemoves")
             : undefined,
       };
     }
@@ -821,7 +829,7 @@ export function groupFixPlan(
       const dists = [...new Set(diff.envDrift.map((d) => driftSpec(d)))];
       // 锁定语义说明：仅当确有已装版本（dists 带 ==version）时提示；version 全空退化为裸 dist 时不误导
       const note = diff.envDrift.some((d) => d.version.trim())
-        ? "将按当前已安装版本锁定写入声明（dist==version）——后续 uv sync 不会自动升级这些包"
+        ? t("dep.plan.lockDeclare")
         : undefined;
       return { action: "declare", dists, command: fixCommandPreview(diff, "declare", dists), note };
     }
@@ -850,7 +858,7 @@ export function groupFixPlan(
             action: "migrate",
             dists: [],
             command: fixCommandPreview(diff, "migrate", []),
-            warning: "不改写原 requirements.txt；缺少 pyproject.toml 时会先生成最小模板（可回退）",
+            warning: t("dep.plan.migrateWarning"),
           }
         : null;
   }
@@ -874,23 +882,23 @@ export async function runDepFix(plans: DepFixPlan[], title: string): Promise<boo
   const root = app.workspaceRoot;
   if (!root || plans.length === 0) return false;
   if (fixInFlight) {
-    toast("另一个依赖修复动作正在执行，请等待完成", "info");
+    toast(t("dep.busyToast"), "info");
     return false;
   }
   // #1 分批：dist 列表型 plan 拆成多批，防一条 `uv add` 93 个包「全有或全无」
   const batched = plans.flatMap((p) => chunkPlan(p, DEP_FIX_BATCH_SIZE));
   const lines = batched.map((p) => `    ${previewFixCommand(p)}`).join("\n");
   // 分批后同 plan 的 warning/note 会随子批重复——去重，确认弹窗只呈现一次
-  const warns = [...new Set(batched.filter((p) => p.warning).map((p) => `注意：${p.warning}`))].join("\n");
+  const warns = [...new Set(batched.filter((p) => p.warning).map((p) => t("dep.warnPrefix", { warning: p.warning as string })))].join("\n");
   const notes = [...new Set(batched.filter((p) => p.note).map((p) => p.note as string))].join("\n");
   const proceed = await openConfirm({
     title,
     message:
-      `将执行以下命令：\n\n${lines}\n\n` +
+      `${t("dep.confirmCmds")}\n\n${lines}\n\n` +
       `${notes ? notes + "\n\n" : ""}${warns ? warns + "\n\n" : ""}` +
-      "需联网，耗时取决于网络；执行期间不提供取消，完成后按钮自动恢复。\n\n是否继续？",
-    okLabel: "执行",
-    cancelLabel: "取消",
+      `${t("dep.confirmNet")}\n\n${t("dep.confirmAsk")}`,
+    okLabel: t("dep.action.run"),
+    cancelLabel: t("dep.confirm.cancel"),
     kind: batched.some((p) => p.warning) ? "danger" : "primary",
   });
   if (!proceed) return false;
@@ -901,19 +909,19 @@ export async function runDepFix(plans: DepFixPlan[], title: string): Promise<boo
       appendOutputLine(outputEl, `> ${p.command}`, "cmd", gotoFromLink, "env");
       const code = await invoke<number>("dep_fix", { workspaceRoot: root, action: p.action, dists: p.dists });
       if (code !== 0) {
-        appendOutputLine(outputEl, `修复动作失败（exit ${code}），已停止后续动作；详见上方输出`, "stderr", gotoFromLink, "env");
-        toastFail("依赖修复", `命令失败（exit ${code}）`);
+        appendOutputLine(outputEl, t("dep.fixExitFailed", { code: code }), "stderr", gotoFromLink, "env");
+        toastFail(t("dep.fail.fix"), t("dep.cmdFailed", { code: code }));
         await settleAfterFix(root); // 半态环境由重算如实呈现（不掩盖，§5.6-5）
         return false;
       }
     }
     // §5.6-6：收尾原子执行——用户看到 toast 时诊断已刷新
     await settleAfterFix(root);
-    toast("依赖修复完成，诊断已刷新", "success");
+    toast(t("dep.fixDone"), "success");
     return true;
   } catch (e) {
-    appendOutputLine(outputEl, `依赖修复失败：${e}`, "stderr", gotoFromLink, "env");
-    toastFail("依赖修复", e);
+    appendOutputLine(outputEl, t("dep.fixFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "env");
+    toastFail(t("dep.fail.fix"), e);
     await settleAfterFix(root);
     return false;
   } finally {

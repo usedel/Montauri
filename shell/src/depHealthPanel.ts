@@ -12,6 +12,9 @@ import { appendOutputLine } from "./output";
 import { gotoFromLink } from "./tracebackLink";
 import { openAlert } from "./dialog";
 import { toast, toastFail } from "./toast";
+import { onLocaleChange, t } from "./i18n"; // 第七批 i18n：依赖健康面板动态文案走语言包
+import { errMsg } from "./util";
+import { localizeBackendError } from "./i18n/backendError";
 import { shortInterpreter } from "./envPanel";
 import {
   NULL_DIST_WARNING, depFixBusy, driftSpec, fixCommandPreview, groupFixPlan, issueCount,
@@ -64,21 +67,22 @@ let openPanel: () => void = () => {};
 let refreshPackages: () => void = () => {};
 let repaintPackages: () => void = () => {};
 
-const EDGE_TITLES: Record<EdgeId, string> = {
-  e1: "E1 缺失模块（代码 ⊄ 环境）",
-  e2: "E2 声明未安装（声明 ⊄ 环境）",
-  e3: "E3 装了未声明（环境 ⊄ 声明）",
-  e4: "E4 未声明依赖（代码 ⊄ 声明）",
-  e5: "E5 uv.lock 过期（声明内部）",
+// i18n：标签表为模块级缓存，语言切换时整体重建（使用方读属性发生在渲染期，见 onLocaleChange 刷新）
+let EDGE_TITLES: Record<EdgeId, string> = {
+  e1: t("dep.panel.edge.e1"),
+  e2: t("dep.panel.edge.e2"),
+  e3: t("dep.panel.edge.e3"),
+  e4: t("dep.panel.edge.e4"),
+  e5: t("dep.panel.edge.e5"),
 };
-const EDGE_LABELS: Record<string, string> = {
-  e1: "E1 缺失模块", e2: "E2 声明未安装", e3: "E3 装了未声明", e4: "E4 未声明依赖",
+let EDGE_LABELS: Record<string, string> = {
+  e1: t("dep.panel.label.e1"), e2: t("dep.panel.label.e2"), e3: t("dep.panel.label.e3"), e4: t("dep.panel.label.e4"),
 };
-const FIX_TITLES: Record<string, string> = {
-  e1: "安装缺失包", e2: "同步环境", e3: "写入漂移包到声明", e4: "补写声明",
-  e5: "刷新 uv.lock", migrate: "迁移到 pyproject",
+let FIX_TITLES: Record<string, string> = {
+  e1: t("dep.panel.fix.e1"), e2: t("dep.panel.fix.e2"), e3: t("dep.panel.fix.e3"), e4: t("dep.panel.fix.e4"),
+  e5: t("dep.panel.fix.e5"), migrate: t("dep.panel.fix.migrate"),
 };
-const NOT_READY_HINT = "尚未完成体检——点右上「刷新」重新体检（打开工作区后会自动后台体检）";
+let NOT_READY_HINT = t("dep.panel.notReady");
 
 // ---------- 初始化 / 复位 ----------
 
@@ -103,6 +107,16 @@ export function initDepHealthPanel(deps: {
   openPanel = deps.openEnvPanel;
   refreshPackages = deps.refreshPackagesIfOpen;
   repaintPackages = deps.repaintPackagesIfOpen;
+  // 语言切换：重建模块级标签缓存；健康横幅常驻（不随 env-modal 关闭隐藏）必须重绘，
+  // 打开中的面板明细一并重绘，未打开部分下次渲染自然用新语言
+  onLocaleChange(() => {
+    EDGE_TITLES = { e1: t("dep.panel.edge.e1"), e2: t("dep.panel.edge.e2"), e3: t("dep.panel.edge.e3"), e4: t("dep.panel.edge.e4"), e5: t("dep.panel.edge.e5") };
+    EDGE_LABELS = { e1: t("dep.panel.label.e1"), e2: t("dep.panel.label.e2"), e3: t("dep.panel.label.e3"), e4: t("dep.panel.label.e4") };
+    FIX_TITLES = { e1: t("dep.panel.fix.e1"), e2: t("dep.panel.fix.e2"), e3: t("dep.panel.fix.e3"), e4: t("dep.panel.fix.e4"), e5: t("dep.panel.fix.e5"), migrate: t("dep.panel.fix.migrate") };
+    NOT_READY_HINT = t("dep.panel.notReady");
+    void renderDepHealth();
+  });
+
   for (const [tab, btn] of Object.entries(tabBtns) as Array<[DepTab, HTMLButtonElement]>) {
     btn.addEventListener("click", () => void switchTab(tab));
   }
@@ -152,10 +166,10 @@ export function setHealthStatus(status: HealthStatus, issues = 0): void {
   statusEl.classList.toggle("issues", status === "issues");
   if (status === "scanning") {
     statusEl.appendChild(spinIcon());
-    statusEl.dataset.tip = "依赖体检中…";
+    statusEl.dataset.tip = t("dep.panel.statusScanning");
   } else if (status === "issues") {
     statusEl.appendChild(codicon("warning"));
-    statusEl.dataset.tip = `依赖体检：${issues} 项问题，点击查看`;
+    statusEl.dataset.tip = t("dep.panel.statusIssues", { issues: issues });
   }
 }
 
@@ -202,7 +216,7 @@ function syncTabButtons(): void {
 async function manualRefresh(): Promise<void> {
   const root = app.workspaceRoot;
   if (!root || depFixBusy()) return;
-  setBusy(refreshBtn, true, "体检中…");
+  setBusy(refreshBtn, true, t("dep.panel.refreshing"));
   setHealthStatus("scanning");
   await refreshStyleInfo();
   await runDepScan(root); // 落快照 → onScanComplete → handleScanComplete 重绘
@@ -229,15 +243,15 @@ function bannerFor(diff: DepDiff | null, styleInfo: DepStyleInfo | null): Banner
   // 优先级 1：external 边界横幅（§4.2.1——把沉默的失效变成有解释的边界，防「误判 bug」）
   if (style === "external") {
     return {
-      text: `检测到 ${mgr ?? "外部包管理器"} 管理的锁文件——OpenCharm 以 uv 管理依赖，本项目的声明层检测已降级（仅缺失 import 检测生效）。建议迁移到 uv。`,
-      buttons: [{ label: "了解迁移", run: () => showMigrationGuide() }],
+      text: t("dep.panel.externalLock", { mgr: mgr ?? t("dep.panel.externalMgr") }),
+      buttons: [{ label: t("dep.panel.act.migrateInfo"), run: () => showMigrationGuide() }],
     };
   }
   // 优先级 2：bare（原 env-pyproject-banner 并入此处，动作仍复用 init_pyproject）
   if (style === "bare") {
     return {
-      text: "无 pyproject.toml / requirements.txt，uv run 语义不明确；建议用 uv 声明依赖（可一键生成最小 pyproject）。",
-      buttons: [{ label: "生成 pyproject.toml", primary: true, run: (btn) => void generatePyproject(btn) }],
+      text: t("dep.panel.bareText"),
+      buttons: [{ label: t("dep.panel.act.genPyproject"), primary: true, run: (btn) => void generatePyproject(btn) }],
     };
   }
   // 优先级 3/4 需要全量 diff（L0 style 阶段无环境侧事实）
@@ -245,18 +259,18 @@ function bannerFor(diff: DepDiff | null, styleInfo: DepStyleInfo | null): Banner
   // 优先级 3：E2 非空（含 requirementsUninstalled 特例——用户反馈 1 的直接解）
   if (diff.requirementsUninstalled) {
     return {
-      text: `检测到 ${diff.requirementsFile ?? "requirements.txt"} 未安装（${diff.declaredMissing.length} 个已声明依赖缺失）。`,
+      text: t("dep.panel.e2Banner", { file: diff.requirementsFile ?? "requirements.txt", count: diff.declaredMissing.length }),
       buttons: [
-        { label: "安装缺失依赖", primary: true, fix: true, run: () => void fixGroup("e2") },
-        { label: "迁移到 pyproject", fix: true, run: () => void fixGroup("migrate") },
+        { label: t("dep.panel.act.installMissing"), primary: true, fix: true, run: () => void fixGroup("e2") },
+        { label: t("dep.panel.fix.migrate"), fix: true, run: () => void fixGroup("migrate") },
       ],
     };
   }
   if (diff.declaredMissing.length > 0) {
     return {
-      text: `${diff.declaredMissing.length} 个已声明依赖未安装。`,
+      text: t("dep.panel.e2Short", { count: diff.declaredMissing.length }),
       buttons: [{
-        label: diff.style === "pyproject" ? "同步环境" : "安装缺失依赖",
+        label: diff.style === "pyproject" ? t("dep.panel.fix.e2") : t("dep.panel.act.installMissing"),
         primary: true, fix: true, run: () => void fixGroup("e2"),
       }],
     };
@@ -265,11 +279,11 @@ function bannerFor(diff: DepDiff | null, styleInfo: DepStyleInfo | null): Banner
   if (diff.envDrift.length > 0) {
     const buttons: BannerButton[] = [];
     if (diff.style === "pyproject") {
-      buttons.push({ label: "写入 pyproject", primary: true, fix: true, run: () => void fixGroup("e3") });
+      buttons.push({ label: t("dep.panel.act.declarePyproject"), primary: true, fix: true, run: () => void fixGroup("e3") });
     }
-    buttons.push({ label: "查看", run: () => void showEdgeGroup("e3") });
+    buttons.push({ label: t("dep.action.view"), run: () => void showEdgeGroup("e3") });
     return {
-      text: `检测到 ${diff.envDrift.length} 个包已安装但未声明（pip 安装不写入声明属正常现象）。`,
+      text: t("dep.panel.e3Banner", { count: diff.envDrift.length }),
       buttons,
     };
   }
@@ -303,22 +317,22 @@ function renderHeader(): void {
   const styleInfo = latestStyleInfo();
   const style = diff?.style ?? styleInfo?.style ?? null;
   const mgr = diff?.externalManager ?? styleInfo?.externalManager ?? null;
-  styleBadgeEl.textContent = style ? (mgr ? `${style}·${mgr}` : style) : "未体检";
+  styleBadgeEl.textContent = style ? (mgr ? `${style}·${mgr}` : style) : t("dep.panel.notScanned");
   // §6.1 徽章交互：external → 边界说明与迁移建议；bare → 生成 pyproject 引导
   styleBadgeEl.classList.toggle("clickable", style === "external" || style === "bare");
   styleBadgeEl.dataset.tip =
-    style === "external" ? "声明层检测已降级——点击查看原因与迁移建议"
-    : style === "bare" ? "点击生成最小 pyproject.toml"
-    : "项目依赖声明方式（dep_style 判定）";
+    style === "external" ? t("dep.panel.badge.external")
+    : style === "bare" ? t("dep.panel.badge.bare")
+    : t("dep.panel.badge.default");
   styleBadgeEl.onclick = () => {
     if (style === "external") showMigrationGuide();
     else if (style === "bare") void generatePyproject(null);
   };
   // §3.3：interpreter=null 时 UI 须显式呈现「环境侧检测不可用」
   interpLabelEl.textContent = diff
-    ? diff.interpreter ? shortInterpreter(diff.interpreter) : "未选解释器（环境侧检测不可用）"
+    ? diff.interpreter ? shortInterpreter(diff.interpreter) : t("dep.summary.interpMissing")
     : "";
-  scannedAtEl.textContent = diff ? `上次扫描 ${new Date(diff.scannedAt).toLocaleTimeString()}` : "";
+  scannedAtEl.textContent = diff ? t("dep.panel.scannedAt", { time: new Date(diff.scannedAt).toLocaleTimeString() }) : "";
 }
 
 // ---------- 视图一：按断边（§6.1 默认视图） ----------
@@ -332,12 +346,12 @@ interface GroupMeta {
 
 function groupMeta(edge: EdgeId, diff: DepDiff): GroupMeta {
   const noInterp = diff.interpreter === null;
-  const noInterpNote = "未选择解释器——环境侧检测不可用（请在下方解释器列表选择后自动重检）";
+  const noInterpNote = t("dep.panel.noInterpNote");
   if (diff.style === "external" && edge !== "e1") {
     return {
       count: 0,
       degraded: true,
-      note: `已降级：声明层由 ${diff.externalManager ?? "外部工具"} 管理，OpenCharm 不解析其锁文件——仅 E1 缺失检测生效（点顶部 style 徽章看迁移建议）`,
+      note: t("dep.panel.e2DegradedNote", { mgr: diff.externalManager ?? t("dep.panel.externalTool") }),
     };
   }
   switch (edge) {
@@ -352,7 +366,7 @@ function groupMeta(edge: EdgeId, diff: DepDiff): GroupMeta {
     case "e4": {
       const note = diff.style === "pyproject"
         ? null
-        : `仅 pyproject 项目计算 E4（当前 style=${diff.style}${diff.style === "requirements" ? "，建议迁移到 pyproject 统一管理" : ""})`;
+        : t("dep.panel.e4Note", { style: diff.style, suffix: diff.style === "requirements" ? t("dep.panel.e4ReqSuffix") : "" });
       return { count: diff.undeclared.length, degraded: false, note };
     }
     case "e5":
@@ -370,7 +384,7 @@ function renderEdgeView(diff: DepDiff | null): void {
     const style = latestStyleInfo()?.style;
     contentEl.appendChild(hintEl(
       style === "bare"
-        ? "当前工作区没有 pyproject.toml / requirements.txt——打开含依赖声明的项目后自动体检"
+        ? t("dep.panel.noDeclaration")
         : NOT_READY_HINT,
     ));
     return;
@@ -382,11 +396,11 @@ function renderEdgeView(diff: DepDiff | null): void {
   if (diff.style === "requirements") {
     const plan = groupFixPlan(diff, "migrate");
     const { row, actions } = depRow([
-      nameSpan("迁移建议"),
-      detailSpan("uv add -r 把 requirements 写入 pyproject.toml 统一管理（只读原文件、不改写）"),
+      nameSpan(t("dep.panel.migrateTitle")),
+      detailSpan(t("dep.panel.migrateDetail")),
     ]);
     if (plan) {
-      actions.append(actionBtn("迁移到 pyproject", () => void runPlans([plan], FIX_TITLES.migrate), { fix: true }));
+      actions.append(actionBtn(t("dep.panel.fix.migrate"), () => void runPlans([plan], FIX_TITLES.migrate), { fix: true }));
     }
     const wrap = document.createElement("div");
     wrap.className = "dep-group";
@@ -412,7 +426,7 @@ function renderGroup(edge: EdgeId, diff: DepDiff): HTMLElement {
   title.textContent = EDGE_TITLES[edge];
   const count = document.createElement("span");
   count.className = "dep-group-count";
-  count.textContent = meta.degraded ? "已降级" : `${meta.count} 项`;
+  count.textContent = meta.degraded ? t("dep.panel.degradedTag") : t("dep.panel.countItems", { count: meta.count });
   head.append(caret, title, count);
   const spacer = document.createElement("span");
   spacer.className = "spacer";
@@ -423,7 +437,7 @@ function renderGroup(edge: EdgeId, diff: DepDiff): HTMLElement {
   if (plan && meta.count > 0) {
     // #6：E3 组头按钮文案与横幅/行级「写入 pyproject」对齐——消除「全部修复 vs 写入 pyproject
     // 是否不同操作」的困惑（其余断边仍用通用「全部修复」）
-    const fixLabel = edge === "e3" ? "全部写入" : "全部修复";
+    const fixLabel = edge === "e3" ? t("dep.panel.fixAllDeclare") : t("dep.panel.fixAll");
     head.appendChild(actionBtn(fixLabel, () => void runPlans([plan], FIX_TITLES[edge]), { fix: true, accent: true }));
   }
   head.addEventListener("click", (e) => {
@@ -438,7 +452,7 @@ function renderGroup(edge: EdgeId, diff: DepDiff): HTMLElement {
     if (!meta.degraded) {
       const rows = edgeRows(edge, diff);
       for (const r of rows) wrap.appendChild(r);
-      if (meta.count === 0 && !meta.note) wrap.appendChild(noteEl("✓ 无问题"));
+      if (meta.count === 0 && !meta.note) wrap.appendChild(noteEl(t("dep.panel.noIssues")));
     }
   }
   return wrap;
@@ -463,20 +477,20 @@ function edgeRows(edge: EdgeId, diff: DepDiff): HTMLElement[] {
           nameSpan(module),
           detailSpan(
             first.distCandidates.length > 1
-              ? `→ 候选发行版：${first.distCandidates.join(" / ")}（安装时选择）`
-              : first.dist ? `→ 安装 ${first.dist}` : "→ 按模块名安装（未反查到发行版名）",
+              ? t("dep.panel.candidates", { cands: first.distCandidates.join(" / ") })
+              : first.dist ? t("dep.panel.willInstall", { dist: first.dist }) : t("dep.panel.willInstallByModule"),
           ),
           fileLink(first.file, first.line),
-          ...(items.length > 1 ? [countTag(`${items.length} 个文件`)] : []),
+          ...(items.length > 1 ? [countTag(t("dep.panel.fileCount", { count: items.length }))] : []),
           ...(allLazy ? [lazyTag()] : []),
         ]);
         actions.append(
           actionBtn(
-            "安装",
+            t("dep.action.install"),
             () => void fixSingleWithCandidates("install", module, first.distCandidates, first.dist, FIX_TITLES.e1, first.dist === null ? NULL_DIST_WARNING : undefined),
             { fix: true, accent: true },
           ),
-          actionBtn("忽略", () => void ignoreEntry("e1", module)),
+          actionBtn(t("dep.panel.act.ignore"), () => void ignoreEntry("e1", module)),
         );
         rows.push(row);
         // 多文件明细（展开态视觉：缩进列出其余位点）
@@ -497,18 +511,18 @@ function edgeRows(edge: EdgeId, diff: DepDiff): HTMLElement[] {
         const spec = `${d.dist}${d.spec}`;
         const { row, actions } = depRow([
           nameSpan(d.dist),
-          detailSpan(d.spec ? `声明约束 ${d.spec}` : "（无版本约束）"),
+          detailSpan(d.spec ? t("dep.panel.declaredSpec", { spec: d.spec }) : t("dep.panel.noSpec")),
         ]);
         actions.append(
-          actionBtn("安装", () => void fixSingle("install", [spec], FIX_TITLES.e1), { fix: true, accent: true }),
-          actionBtn("忽略", () => void ignoreEntry("e2", d.dist)),
+          actionBtn(t("dep.action.install"), () => void fixSingle("install", [spec], FIX_TITLES.e1), { fix: true, accent: true }),
+          actionBtn(t("dep.panel.act.ignore"), () => void ignoreEntry("e2", d.dist)),
         );
         rows.push(row);
       }
       // 小节二（v1.7 A）：已声明未安装的代码引用——按模块聚合汇总（fika-admin pytest ×5
       // 降噪形态：已写入声明（extras/groups）但环境未装，E1 分流至此；一条含安装命令建议）
       if (diff.declaredMissingModules.length > 0) {
-        rows.push(noteEl("已声明未安装（代码引用）——模块已写入 pyproject 声明但环境未装此组："));
+        rows.push(noteEl(t("dep.panel.e2GroupHead")));
         const byGroup = new Map<string, typeof diff.declaredMissingModules>();
         for (const m of diff.declaredMissingModules) {
           const list = byGroup.get(m.group) ?? [];
@@ -520,13 +534,13 @@ function edgeRows(edge: EdgeId, diff: DepDiff): HTMLElement[] {
           const spec = mods.map((m) => m.dist).join(" ");
           const { row, actions } = depRow([
             nameSpan(mods.map((m) => m.module).join("、")),
-            detailSpan(`组 ${group} · ${mods.reduce((s, m) => s + m.files, 0)} 个文件引用`),
+            detailSpan(t("dep.panel.groupRef", { group: group, files: mods.reduce((s, m) => s + m.files, 0) })),
             fileLink(first.file, first.line),
             ...(first.lazy ? [lazyTag()] : []),
           ]);
           actions.append(
-            actionBtn("安装", () => void fixSingle("install", [spec], `安装 ${group} 组依赖`), { fix: true, accent: true }),
-            actionBtn("忽略", () => void ignoreEntry("e2", mods[0].module)),
+            actionBtn(t("dep.action.install"), () => void fixSingle("install", [spec], t("dep.panel.installGroup", { group: group })), { fix: true, accent: true }),
+            actionBtn(t("dep.panel.act.ignore"), () => void ignoreEntry("e2", mods[0].module)),
           );
           rows.push(row);
         }
@@ -535,13 +549,13 @@ function edgeRows(edge: EdgeId, diff: DepDiff): HTMLElement[] {
     }
     case "e3":
       return diff.envDrift.map((d) => {
-        const cells: Array<HTMLElement | string> = [nameSpan(d.dist), detailSpan(`已安装 ${d.version || "(版本未知)"}`)];
+        const cells: Array<HTMLElement | string> = [nameSpan(d.dist), detailSpan(t("dep.panel.installedVer", { version: d.version || t("dep.panel.versionUnknown") }))];
         const { row, actions } = depRow(cells);
         // 写声明仅 pyproject 可行；requirements/bare 的收敛路径是迁移（视图底部单独提供）
         if (diff.style === "pyproject") {
-          actions.append(actionBtn("写入 pyproject", () => void fixSingle("declare", [driftSpec(d)], FIX_TITLES.e3), { fix: true, accent: true }));
+          actions.append(actionBtn(t("dep.panel.act.declarePyproject"), () => void fixSingle("declare", [driftSpec(d)], FIX_TITLES.e3), { fix: true, accent: true }));
         }
-        actions.append(actionBtn("忽略", () => void ignoreEntry("e3", d.dist)));
+        actions.append(actionBtn(t("dep.panel.act.ignore"), () => void ignoreEntry("e3", d.dist)));
         return row;
       });
     case "e4":
@@ -550,18 +564,18 @@ function edgeRows(edge: EdgeId, diff: DepDiff): HTMLElement[] {
           nameSpan(u.module),
           detailSpan(
             u.distCandidates.length > 1
-              ? `已安装，候选发行版：${u.distCandidates.join(" / ")}（写入时选择）`
-              : u.dist ? `已安装（${u.dist}），未写入 pyproject` : "已安装，未反查到发行版名",
+              ? t("dep.panel.installedCandidates", { cands: u.distCandidates.join(" / ") })
+              : u.dist ? t("dep.panel.installedUndeclared", { dist: u.dist }) : t("dep.panel.installedNoDist"),
           ),
           fileLink(u.file, u.line),
         ]);
         actions.append(
           actionBtn(
-            "加入 pyproject",
+            t("dep.panel.act.declareOne"),
             () => void fixSingleWithCandidates("declare", u.module, u.distCandidates, u.dist, FIX_TITLES.e4, u.dist === null ? NULL_DIST_WARNING : undefined),
             { fix: true, accent: true },
           ),
-          actionBtn("忽略", () => void ignoreEntry("e4", u.module)),
+          actionBtn(t("dep.panel.act.ignore"), () => void ignoreEntry("e4", u.module)),
         );
         return row;
       });
@@ -569,10 +583,10 @@ function edgeRows(edge: EdgeId, diff: DepDiff): HTMLElement[] {
       if (!diff.lockOutOfDate) return [];
       {
         const { row, actions } = depRow([
-          nameSpan("uv.lock 与 pyproject.toml 不一致"),
-          detailSpan("uv lock --check 报告 needs to be updated"),
+          nameSpan(t("dep.panel.lockMismatch")),
+          detailSpan(t("dep.panel.lockCheckDetail")),
         ]);
-        actions.append(actionBtn("刷新锁", () => void fixGroup("e5"), { fix: true, accent: true }));
+        actions.append(actionBtn(t("dep.panel.act.refreshLock"), () => void fixGroup("e5"), { fix: true, accent: true }));
         return [row];
       }
   }
@@ -589,7 +603,7 @@ function renderFileView(diff: DepDiff | null): void {
     const style = latestStyleInfo()?.style;
     contentEl.appendChild(hintEl(
       style === "bare"
-        ? "当前工作区没有 pyproject.toml / requirements.txt——打开含依赖声明的项目后自动体检"
+        ? t("dep.panel.noDeclaration")
         : NOT_READY_HINT,
     ));
     return;
@@ -600,10 +614,10 @@ function renderFileView(diff: DepDiff | null): void {
     if (list) list.push(item);
     else byFile.set(file, [item]);
   };
-  for (const m of diff.missingInEnv) push(m.file, { line: m.line, module: m.module, label: "E1 缺失", dist: m.dist });
-  for (const u of diff.undeclared) push(u.file, { line: u.line, module: u.module, label: "E4 未声明", dist: u.dist });
+  for (const m of diff.missingInEnv) push(m.file, { line: m.line, module: m.module, label: t("dep.panel.file.e1"), dist: m.dist });
+  for (const u of diff.undeclared) push(u.file, { line: u.line, module: u.module, label: t("dep.panel.file.e4"), dist: u.dist });
   if (byFile.size === 0) {
-    contentEl.appendChild(hintEl("✓ 无文件级依赖问题（缺失 import / 未声明依赖）"));
+    contentEl.appendChild(hintEl(t("dep.panel.fileClean")));
     return;
   }
   const files = [...byFile.keys()].sort();
@@ -616,11 +630,11 @@ function renderFileView(diff: DepDiff | null): void {
     const title = document.createElement("span");
     title.className = "dep-group-title dep-link";
     title.textContent = file;
-    title.dataset.tip = "点击跳转到首个问题行";
+    title.dataset.tip = t("dep.panel.jumpFirstTip");
     title.addEventListener("click", () => gotoFromLink({ path: file, line: items[0]?.line ?? 1 }));
     const count = document.createElement("span");
     count.className = "dep-group-count";
-    count.textContent = `${items.length} 项`;
+    count.textContent = t("dep.panel.countItems", { count: items.length });
     head.append(title, count);
     wrap.appendChild(head);
     for (const it of items) {
@@ -630,7 +644,7 @@ function renderFileView(diff: DepDiff | null): void {
       ]);
       const link = document.createElement("span");
       link.className = "dep-link";
-      link.textContent = "跳转";
+      link.textContent = t("dep.panel.act.jump");
       link.addEventListener("click", () => gotoFromLink({ path: file, line: it.line }));
       row.insertBefore(link, row.querySelector(".spacer"));
       wrap.appendChild(row);
@@ -649,11 +663,11 @@ async function renderIgnoredView(): Promise<void> {
   try {
     list = await invoke<DepIgnoreEntry[]>("dep_ignore_list", { workspaceRoot: root });
   } catch (e) {
-    contentEl.appendChild(hintEl(`读取忽略清单失败：${e}`));
+    contentEl.appendChild(hintEl(t("dep.panel.ignoreReadFailed", { error: localizeBackendError(errMsg(e)) })));
     return;
   }
   if (list.length === 0) {
-    contentEl.appendChild(hintEl("无忽略项——在「按断边」视图的行级「忽略」可屏蔽特定包的检测"));
+    contentEl.appendChild(hintEl(t("dep.panel.noIgnored")));
     return;
   }
   const wrap = document.createElement("div");
@@ -663,7 +677,7 @@ async function renderIgnoredView(): Promise<void> {
       nameSpan(entry.key),
       detailSpan(EDGE_LABELS[entry.edge] ?? entry.edge),
     ]);
-    actions.append(actionBtn("恢复检测", () => void restoreIgnored(entry), { accent: true }));
+    actions.append(actionBtn(t("dep.panel.act.restore"), () => void restoreIgnored(entry), { accent: true }));
     wrap.appendChild(row);
   }
   contentEl.appendChild(wrap);
@@ -674,10 +688,10 @@ async function ignoreEntry(edge: string, key: string): Promise<void> {
   if (!root) return;
   try {
     await invoke("dep_ignore_add", { workspaceRoot: root, edge, key });
-    toast(`已忽略 ${key}（「已忽略」视图可恢复检测）`, "success");
+    toast(t("dep.panel.ignoredToast", { key: key }), "success");
     await rescanAndRender(root); // 后端过滤的新 diff 落快照；面板重绘后条目消失
   } catch (e) {
-    toastFail("忽略", e);
+    toastFail(t("dep.panel.act.ignore"), e);
   }
 }
 
@@ -686,10 +700,10 @@ async function restoreIgnored(entry: DepIgnoreEntry): Promise<void> {
   if (!root) return;
   try {
     await invoke("dep_ignore_remove", { workspaceRoot: root, edge: entry.edge, key: entry.key });
-    toast(`已恢复 ${entry.key} 的检测`, "success");
+    toast(t("dep.panel.restoredToast", { key: entry.key }), "success");
     await rescanAndRender(root);
   } catch (e) {
-    toastFail("恢复检测", e);
+    toastFail(t("dep.panel.act.restore"), e);
   }
 }
 
@@ -739,7 +753,7 @@ async function fixSingleWithCandidates(
 /** §5.6-3 防重入：执行期间面板 + 横幅的全部修复按钮同步禁用；成功后包列表联动刷新 */
 async function runPlans(plans: DepFixPlan[], title: string): Promise<void> {
   if (depFixBusy()) {
-    toast("另一个依赖修复动作正在执行，请等待完成", "info");
+    toast(t("dep.busyToast"), "info");
     return;
   }
   setFixButtonsDisabled(true);
@@ -761,15 +775,15 @@ function setFixButtonsDisabled(disabled: boolean): void {
 async function generatePyproject(btn: HTMLButtonElement | null): Promise<void> {
   const root = app.workspaceRoot;
   if (!root) return;
-  if (btn) setBusy(btn, true, "生成中…");
+  if (btn) setBusy(btn, true, t("dep.panel.generating"));
   try {
     await invoke<string>("init_pyproject", { workspaceRoot: root });
-    toast("pyproject.toml 已生成", "success");
+    toast(t("dep.panel.pyprojectGenerated"), "success");
     await refreshStyleInfo(); // style 徽章/横幅即时翻转（bare → pyproject），不必等全量扫描
     await runDepScan(root);
   } catch (e) {
-    appendOutputLine(outputEl, `生成 pyproject.toml 失败：${e}`, "stderr", gotoFromLink, "env");
-    toastFail("生成 pyproject.toml", e);
+    appendOutputLine(outputEl, t("dep.panel.genFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "env");
+    toastFail(t("dep.panel.act.genPyproject"), e);
   }
   if (btn) setBusy(btn, false);
   await renderDepHealth();
@@ -777,16 +791,17 @@ async function generatePyproject(btn: HTMLButtonElement | null): Promise<void> {
 
 /** external 边界说明 + uv 迁移建议（§4.2.1/§6.1 徽章点击展开） */
 function showMigrationGuide(): void {
-  const mgr = latestDiff()?.externalManager ?? latestStyleInfo()?.externalManager ?? "外部工具";
+  const mgr = latestDiff()?.externalManager ?? latestStyleInfo()?.externalManager ?? t("dep.panel.externalTool");
   void openAlert({
-    title: "声明层检测已降级 · 迁移到 uv",
+    title: t("dep.panel.migrateGuideTitle"),
+    // 迁移指南多段拼装（含 \n\n / \n 不走 apply_ts 映射，避免语言包转义链失真），按段取词
     message:
-      `OpenCharm 以 uv 管理依赖（一致性检测 / 一键修复）。当前项目检测到由 ${mgr} 管理，` +
-      "其锁文件格式不被解析——声明层检测（E2~E5）已主动禁用而非给出错误结果，仅环境可用性（E1 缺失 import）生效。\n\n" +
-      "迁移步骤（终端执行，OpenCharm 不代改声明文件）：\n" +
-      "1. 用原工具导出依赖清单（如 poetry export -f requirements.txt -o requirements.txt）\n" +
-      "2. 项目根执行 uv add -r requirements.txt（生成 pyproject.toml + uv.lock）\n" +
-      `3. 验证环境无误后删除旧锁文件（如 poetry.lock）——否则项目仍被识别为 ${mgr} 管理`,
+      t("dep.panel.guideHead", { mgr: mgr }) +
+      `${t("dep.panel.guideDisabled")}\n\n` +
+      `${t("dep.panel.guideSteps")}\n` +
+      `${t("dep.panel.guideStep1")}\n` +
+      `${t("dep.panel.guideStep2")}\n` +
+      t("dep.panel.guideStep3", { mgr: mgr }),
   });
 }
 
@@ -832,8 +847,8 @@ function detailSpan(text: string): HTMLElement {
 function lazyTag(): HTMLElement {
   const s = document.createElement("span");
   s.className = "dep-lazy-tag";
-  s.textContent = "惰性";
-  s.dataset.tip = "import 位于函数/方法体内——仅提示，不阻塞运行预检";
+  s.textContent = t("dep.panel.lazyTag");
+  s.dataset.tip = t("dep.panel.lazyTip");
   return s;
 }
 
@@ -849,7 +864,7 @@ function fileLink(file: string, line: number): HTMLElement {
   const a = document.createElement("span");
   a.className = "dep-link";
   a.textContent = `${file}:${line}`;
-  a.dataset.tip = "点击跳转";
+  a.dataset.tip = t("dep.panel.jumpTip");
   a.addEventListener("click", () => gotoFromLink({ path: file, line }));
   return a;
 }

@@ -3,6 +3,7 @@
 // 保留**非交互输出渲染**用例——输出面板承载调试输出（debug-stdout / debug-stderr，§13.3）。
 import { describe, expect, it, vi } from "vitest";
 import { appendOutputLine, TRACEBACK_RE } from "../output";
+import { t } from "../i18n"; // 断言走 t(key)：默认中文等价于原文断言，切默认语言也不用改
 
 describe("channel 过滤（P2：调试 / 环境 / Git 分组）", () => {
   it("未标注与 all 永远显示；切 debug 过滤后 env/git 行隐藏、debug/all 行可见", async () => {
@@ -77,7 +78,7 @@ describe("输出护栏（P0：环形缓冲 + 条件滚动跟随）", () => {
     expect(rows[0].textContent).toBe("行 3"); // 最旧的 0..2 被丢弃
     const omitted = container.querySelector(".out-omitted") as HTMLElement;
     expect(omitted.hidden).toBe(false);
-    expect(omitted.textContent).toContain("已省略前 3 行");
+    expect(omitted.textContent).toContain(t("run.out.omitted", { n: 3, max: 100 }));
     setMaxOutputLines(prev); // 复位，不污染后续用例
   });
 

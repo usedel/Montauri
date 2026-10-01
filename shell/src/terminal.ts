@@ -9,6 +9,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { app, DEFAULT_SETTINGS } from "./state";
 import { TRACEBACK_RE, URL_RE, URL_TRAILING_PUNCT, type OutputLink } from "./output";
 import { motionDisabled } from "./anim"; // UI-11：终端光标闪烁也归「减少动画」管（anim.ts 无依赖，导入不成环）
+import { t } from "./i18n"; // 第五批 i18n：终端内提示文案走语言包（ANSI 控制序列留在代码侧，不进词条）
+import { errMsg } from "./util";
+import { localizeBackendError } from "./i18n/backendError";
 
 /** 终端配色随外壳主题（D1 P-01：浅色主题下不再固定深色终端） */
 function xtermTheme(): ITheme {
@@ -189,7 +192,7 @@ export class IntegratedTerminal {
       });
     } catch (e) {
       this.started = false;
-      this.term.writeln(`\r\n\x1b[31m终端启动失败: ${e}\x1b[0m`);
+      this.term.writeln(`\r\n\x1b[31m${t("run.term.startFailed", { error: localizeBackendError(errMsg(e)) })}\x1b[0m`);
       return null;
     }
 
@@ -229,7 +232,7 @@ export class IntegratedTerminal {
     // 积压过大时只提示一次：让用户知道「输出被削峰」而非「程序卡了」
     if (this.pendingBytes >= THROTTLE_WARN_BYTES && !this.throttleNotified) {
       this.throttleNotified = true;
-      this.pendingChunks.push("\r\n\x1b[33m[输出过快，已限流显示]\x1b[0m\r\n");
+      this.pendingChunks.push(`\r\n\x1b[33m${t("run.term.throttled")}\x1b[0m\r\n`);
     }
     this.scheduleFlush();
   }
@@ -270,8 +273,8 @@ export class IntegratedTerminal {
       // 洪峰结束补一行收尾提示：洪峰中途那次提示会被后续输出冲出 scrollback（看不到），
       // 结束时没有后续输出，这一行才真正留得住。
       if (this.throttleNotified) {
-        const droppedNote = this.droppedBytes > 0 ? `，期间丢弃最旧输出 ${Math.round(this.droppedBytes / 1024)} KB` : "";
-        this.term.writeln(`\r\n\x1b[33m[输出洪峰已结束，期间已限流显示${droppedNote}]\x1b[0m\r\n`);
+        const droppedNote = this.droppedBytes > 0 ? t("run.term.droppedNote", { kb: Math.round(this.droppedBytes / 1024) }) : "";
+        this.term.writeln(`\r\n\x1b[33m${t("run.term.peakEnded", { note: droppedNote })}\x1b[0m\r\n`);
         this.throttleNotified = false; // 允许下次洪峰再提示
         this.droppedBytes = 0;
       }
@@ -305,7 +308,7 @@ export class IntegratedTerminal {
       const droppedKb = Math.max(1, Math.round(this.pendingBytes / 1024));
       this.pendingChunks = [];
       this.pendingBytes = 0;
-      this.term.write(`\r\n\x1b[33m[输出过多，已省略停止后剩余的 ${droppedKb} KB 输出]\x1b[0m\r\n`);
+      this.term.write(`\r\n\x1b[33m${t("run.term.stopDropped", { kb: droppedKb })}\x1b[0m\r\n`);
     }
     this.throttleNotified = false;
     this.droppedBytes = 0;
@@ -408,7 +411,7 @@ export class IntegratedTerminal {
       warnings = await invoke<string[]>("run_in_terminal", { id: this.id, cols, rows, path, workspaceRoot, kind, probe });
     } catch (e) {
       this.started = false;
-      this.term.writeln(`\r\n\x1b[31m在终端中运行失败: ${e}\x1b[0m`);
+      this.term.writeln(`\r\n\x1b[31m${t("run.term.runFailed", { error: localizeBackendError(errMsg(e)) })}\x1b[0m`);
       throw e;
     }
     // 面板刚切过来时尺寸可能未稳定，再同步一次
@@ -422,14 +425,14 @@ export class IntegratedTerminal {
     if (!this.started) return;
     this.started = false;
     this.drainPending(); // 先排空排队输出，再写提示行，时序才对
-    this.term.writeln("\r\n\x1b[90m[已停止]\x1b[0m");
+    this.term.writeln(`\r\n\x1b[90m${t("run.term.stopped")}\x1b[0m`);
   }
 
   /** （外部事件分发）term-exit → 提示退出 */
   handleExit(): void {
     this.started = false;
     this.drainPending(); // 同上：退出提示必须排在进程输出之后
-    this.term.writeln("\r\n\x1b[90m[进程已退出]\x1b[0m");
+    this.term.writeln(`\r\n\x1b[90m${t("run.term.exited")}\x1b[0m`);
     // 结论 5：写入完成后刷新可视区，让 link provider 立刻为已渲染的行提供 traceback 链接
     this.term.refresh(0, this.term.rows - 1);
     this.onExit?.();

@@ -14,7 +14,9 @@ import { appendOutputLine } from "./output";
 import { gotoFromLink } from "./tracebackLink";
 import { hideEl, showEl } from "./anim";
 import { trapFocus } from "./focusTrap";
-import { basename, relativePathRaw } from "./util";
+import { basename, errMsg, relativePathRaw } from "./util";
+import { onLocaleChange, t } from "./i18n"; // 第五批 i18n：运行配置面板动态文案走语言包
+import { localizeBackendError } from "./i18n/backendError";
 import { toast, toastFail } from "./toast";
 import { EMPTY_RUN_CONFIG, normalizeRunConfig, type EnvVar, type RunConfig, type RunEntry } from "./runState";
 import { createCombobox, type Combobox, type ComboboxItem } from "./combobox";
@@ -81,14 +83,14 @@ function renderSections(): void {
     li.setAttribute("aria-selected", "true");
     const name = document.createElement("span");
     name.className = "rcl-name";
-    name.textContent = scriptTargetPath ? basename(scriptTargetPath) : "（无活动 Python 文件）";
+    name.textContent = scriptTargetPath ? basename(scriptTargetPath) : t("run.cfg.noActivePy");
     li.appendChild(name);
     const tag = document.createElement("span");
     tag.className = "rcl-tag";
-    tag.textContent = "按文件";
+    tag.textContent = t("run.cfg.tagPerFile");
     li.appendChild(tag);
     runConfigListEl.appendChild(li);
-    runConfigContextEl.textContent = scriptTargetPath ?? "未打开 Python 文件";
+    runConfigContextEl.textContent = scriptTargetPath ?? t("run.cfg.noPyOpen");
   } else {
     const li = document.createElement("li");
     li.className = "run-config-list-item selected";
@@ -96,11 +98,11 @@ function renderSections(): void {
     li.setAttribute("aria-selected", "true");
     const name = document.createElement("span");
     name.className = "rcl-name";
-    name.textContent = "项目入口";
+    name.textContent = t("run.cfg.projectEntry");
     li.appendChild(name);
     const tag = document.createElement("span");
     tag.className = "rcl-tag";
-    tag.textContent = "每项目";
+    tag.textContent = t("run.cfg.tagPerProject");
     li.appendChild(tag);
     runConfigListEl.appendChild(li);
     runConfigContextEl.textContent = app.workspaceRoot ? basename(app.workspaceRoot) : "—";
@@ -135,16 +137,16 @@ function syncEntryTargetLabel(): void {
   const isModule = runConfigEntryKindEl.value === "module";
   if (section === "script") {
     // 脚本配置：入口恒为当前文件（§4.1「entry —（恒为文件本身）」），类型与目标均锁定
-    runConfigTargetLabelEl.textContent = "脚本（当前文件）";
-    runConfigTargetInputEl.placeholder = scriptTargetPath ?? "（无活动 Python 文件）";
+    runConfigTargetLabelEl.textContent = t("run.cfg.scriptCurrentFile");
+    runConfigTargetInputEl.placeholder = scriptTargetPath ?? t("run.cfg.noActivePy");
     runConfigTargetInputEl.disabled = true;
     runConfigTargetInputEl.value = scriptTargetPath ? basename(scriptTargetPath) : "";
     runConfigEntryKindEl.value = "script";
     runConfigEntryKindEl.disabled = true;
     targetCombo?.setEnabled(false); // 脚本入口恒为当前文件，无需补全
   } else {
-    runConfigTargetLabelEl.textContent = isModule ? "模块名 (Module name)" : "脚本路径 (Script path)";
-    runConfigTargetInputEl.placeholder = isModule ? "uvicorn" : "main.py（相对工作区根）";
+    runConfigTargetLabelEl.textContent = isModule ? t("run.cfg.moduleName") : t("run.cfg.scriptPath");
+    runConfigTargetInputEl.placeholder = isModule ? "uvicorn" : t("run.cfg.scriptPlaceholder");
     runConfigTargetInputEl.disabled = false;
     runConfigEntryKindEl.disabled = false;
     targetCombo?.setEnabled(!isModule); // 仅脚本入口需要文件补全；模块入口填模块名
@@ -167,17 +169,17 @@ let interpreterCombo: Combobox | null = null;
 /** 解释器候选：「跟随工作区解释器（清空）」+ list_pythons 检测项 */
 async function provideInterpreterCandidates(): Promise<ComboboxItem[]> {
   const out: ComboboxItem[] = [
-    { label: "跟随工作区解释器（清空）", value: "", detail: "留空 = 工作区解释器 / uv run" },
+    { label: t("run.cfg.followWorkspace"), value: "", detail: t("run.cfg.followWorkspaceDetail") },
   ];
   if (!app.workspaceRoot) return out;
   let pythons: PythonInfo[] = [];
   try {
     pythons = await invoke<PythonInfo[]>("list_pythons", { workspaceRoot: app.workspaceRoot });
   } catch (e) {
-    toastFail("读取解释器列表", e);
+    toastFail(t("run.cfg.failReadInterpreters"), e);
   }
   for (const p of pythons) {
-    const kind = p.kind === "workspace-venv" ? "工作区 .venv" : p.kind === "manual" ? "手动" : "系统";
+    const kind = p.kind === "workspace-venv" ? t("run.cfg.kindWorkspaceVenv") : p.kind === "manual" ? t("run.cfg.kindManual") : t("run.cfg.kindSystem");
     out.push({ label: `${kind}${p.version ? " " + p.version : ""}`, detail: p.path, value: p.path });
   }
   return out;
@@ -186,14 +188,14 @@ async function provideInterpreterCandidates(): Promise<ComboboxItem[]> {
 /** 工作目录候选：「${workspaceRoot}（工作区根）」+ list_workspace_dirs 子目录 */
 async function provideCwdCandidates(): Promise<ComboboxItem[]> {
   const out: ComboboxItem[] = [
-    { label: "${workspaceRoot}", detail: "工作区根", value: "${workspaceRoot}" },
+    { label: "${workspaceRoot}", detail: t("run.cfg.workspaceRoot"), value: "${workspaceRoot}" },
   ];
   if (!app.workspaceRoot) return out;
   let dirs: string[] = [];
   try {
     dirs = await invoke<string[]>("list_workspace_dirs", { root: app.workspaceRoot });
   } catch (e) {
-    toastFail("读取目录列表", e);
+    toastFail(t("run.cfg.failReadDirs"), e);
   }
   for (const d of dirs) {
     out.push({ label: d, detail: "${workspaceRoot}/" + d, value: "${workspaceRoot}/" + d });
@@ -208,7 +210,7 @@ async function provideScriptCandidates(): Promise<ComboboxItem[]> {
   try {
     files = await invoke<string[]>("list_workspace_files", { root: app.workspaceRoot });
   } catch (e) {
-    toastFail("读取文件列表", e);
+    toastFail(t("run.cfg.failReadFiles"), e);
   }
   const root = app.workspaceRoot;
   const out: ComboboxItem[] = [];
@@ -293,7 +295,7 @@ async function loadSection(sec: Section): Promise<void> {
  */
 export async function openRunConfig(path?: string, focusArgs?: boolean): Promise<void> {
   if (!app.workspaceRoot) {
-    toast("运行配置需先打开一个工作区", "info");
+    toast(t("run.cfg.needWorkspace"), "info");
     return;
   }
   scriptTargetPath = path && (path.endsWith(".py") || path.endsWith(".pyw")) ? path : (app.activeTab?.path ?? null);
@@ -366,16 +368,16 @@ async function saveRunConfig(): Promise<void> {
     ? (scriptTargetPath ?? "")
     : runConfigTargetInputEl.value.trim();
   if (section === "script" && !entryTarget) {
-    showFieldError("脚本配置需要一个活动 Python 文件（先打开 .py 文件再配置）");
+    showFieldError(t("run.cfg.needActivePy"));
     return;
   }
   if (section === "project" && entryKind === "module" && !entryTarget) {
-    showFieldError("模块入口需指定模块名（如 uvicorn）");
+    showFieldError(t("run.cfg.needModuleName"));
     runConfigTargetInputEl.focus();
     return;
   }
   if (section === "project" && entryKind === "script" && !entryTarget) {
-    showFieldError("脚本入口需指定脚本路径（相对工作区根）");
+    showFieldError(t("run.cfg.needScriptPath"));
     runConfigTargetInputEl.focus();
     return;
   }
@@ -392,27 +394,27 @@ async function saveRunConfig(): Promise<void> {
   };
 
   const saveBtn = $btn("run-config-save");
-  setBusy(saveBtn, true, "保存中…");
+  setBusy(saveBtn, true, t("run.cfg.saving"));
   try {
     if (section === "project") {
       // 项目配置：入口为空保存 = 移除（后端语义）；模块入口原样写入
       await invoke("set_project_run", { workspaceRoot: app.workspaceRoot, config });
       toast(
         entryTarget
-          ? `已保存项目运行配置：${entryKind === "module" ? `python -m ${entryTarget}` : entryTarget}`
-          : "已移除项目运行配置（入口为空）",
+          ? t("run.cfg.savedProject", { cmd: entryKind === "module" ? `python -m ${entryTarget}` : entryTarget })
+          : t("run.cfg.removedProject"),
         "success",
       );
     } else {
       // 脚本配置：以文件路径为键（entry.target 由后端按 run_config_key 解析覆盖）
       await invoke("set_run_config", { workspaceRoot: app.workspaceRoot, scriptPath: entryTarget, config });
-      toast(`已保存脚本运行配置：${basename(entryTarget)}`, "success");
+      toast(t("run.cfg.savedScript", { name: basename(entryTarget) }), "success");
     }
     setBusy(saveBtn, false);
   } catch (e) {
     setBusy(saveBtn, false);
-    toastFail("保存运行配置", e);
-    appendOutputLine(outputEl, `保存运行配置失败：${e}`, "stderr", gotoFromLink);
+    toastFail(t("run.cfg.failSave"), e);
+    appendOutputLine(outputEl, t("run.cfg.saveFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink);
   }
 }
 
@@ -420,6 +422,14 @@ async function saveRunConfig(): Promise<void> {
 
 /** 运行配置面板 DOM 接线（main 的 init 调用） */
 export function wireRunConfigPanel(): void {
+  // 语言切换时若面板打开则重绘分区指示与目标标签；输入区在下次 loadSection 时刷新
+  onLocaleChange(() => {
+    if (!runConfigModalEl.classList.contains("hidden")) {
+      renderSections();
+      syncEntryTargetLabel();
+    }
+  });
+
   $btn("run-config-close").addEventListener("click", closeRunConfig);
   $btn("run-config-cancel").addEventListener("click", closeRunConfig);
   $btn("run-config-save").addEventListener("click", () => void saveRunConfig());
@@ -435,16 +445,16 @@ export function wireRunConfigPanel(): void {
   // 三个组合框：解释器 / 工作目录 / 脚本路径（输入即推荐 + 末尾「浏览…」系统对话框兜底）
   interpreterCombo = createCombobox(runConfigInterpreterEl, runConfigInterpreterDropEl, {
     provide: provideInterpreterCandidates,
-    tail: () => [{ label: "浏览…选择解释器", action: () => void browseInterpreter() }],
+    tail: () => [{ label: t("run.cfg.browseInterpreter"), action: () => void browseInterpreter() }],
   });
   cwdCombo = createCombobox(runConfigCwdEl, runConfigCwdDropEl, {
     provide: provideCwdCandidates,
-    tail: () => [{ label: "浏览…选择目录", action: () => void browseCwd() }],
-    emptyText: "无匹配目录（可手填或浏览）",
+    tail: () => [{ label: t("run.cfg.browseDir"), action: () => void browseCwd() }],
+    emptyText: t("run.cfg.noDirMatch"),
   });
   targetCombo = createCombobox(runConfigTargetInputEl, runConfigTargetDropEl, {
     provide: provideScriptCandidates,
-    tail: () => [{ label: "浏览…选择文件", action: () => void browseTargetScript() }],
-    emptyText: "无匹配 .py 文件（可手填或浏览）",
+    tail: () => [{ label: t("run.cfg.browseFile"), action: () => void browseTargetScript() }],
+    emptyText: t("run.cfg.noPyMatch"),
   });
 }

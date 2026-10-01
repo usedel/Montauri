@@ -5,6 +5,7 @@
 // 所有状态变化点调用 renderRunWidget 重绘。本模块只更新按钮属性/类名，不重建按钮 DOM（T10）。
 
 import { lazyEl } from "./state";
+import { onLocaleChange, t } from "./i18n"; // 第五批 i18n：运行组控件 tip 走语言包
 
 export interface RunWidgetState {
   /** 是否打开了工作区（§18 裁决 7：无工作区一律禁用，含脚本运行） */
@@ -90,18 +91,18 @@ export function runWidgetHandlers(): RunWidgetHandlers | null {
 export function computeRunWidget(s: RunWidgetState): RunWidgetComputed {
   // ⏹：调试中路由 debug_stop（D4）；否则停最近启动且在跑的实例（§10）
   const stopTip = s.debugging
-    ? `停止调试`
+    ? t("run.widget.stopDebug")
     : s.stopTarget
-      ? `停止运行（${s.stopTarget}）`
-      : "没有正在运行";
+      ? t("run.widget.stopRun", { target: s.stopTarget })
+      : t("run.widget.notRunning");
   const stopState: RunButtonState = s.debugging || !!s.stopTarget
     ? { disabled: false, tip: stopTip, tipKey: s.debugging ? undefined : s.stopShortcut }
     : { disabled: true, tip: stopTip };
 
   // ⚙ 运行配置…：工作区级入口
   const configState: RunButtonState = s.canOpenConfig
-    ? { disabled: false, tip: "运行配置（脚本配置 / 项目配置）" }
-    : { disabled: true, tip: "需先打开工作区" };
+    ? { disabled: false, tip: t("run.widget.cfgTip") }
+    : { disabled: true, tip: t("run.widget.needWorkspace") };
 
   // ▶ 运行脚本（§7.3）：preparing spinner → 脚本运行置灰 → 调试拒绝 → 可用「运行 <文件名>」。
   // 置灰判定 = !canRunScript（文件前提不满足）**或 scriptDisabledReason 非空**（运行中 /
@@ -109,7 +110,7 @@ export function computeRunWidget(s: RunWidgetState): RunWidgetComputed {
   // 曾把 busy 置灰分支拆丢，导致脚本 running 时 ▶ 仍可点）
   let runScriptState: RunButtonState;
   if (s.scriptPreparing) {
-    runScriptState = { disabled: true, tip: "正在准备运行（保存 / 依赖预检）…", busy: true };
+    runScriptState = { disabled: true, tip: t("run.widget.preparingScript"), busy: true };
   } else if (!s.canRunScript || s.scriptDisabledReason) {
     runScriptState = { disabled: true, tip: s.scriptDisabledReason };
   } else {
@@ -120,11 +121,11 @@ export function computeRunWidget(s: RunWidgetState): RunWidgetComputed {
   // 无工作区置灰；入口探测不到不置灰（点击后提示配置）
   let runProjectState: RunButtonState;
   if (s.projectPreparing) {
-    runProjectState = { disabled: true, tip: "正在准备运行项目…", busy: true };
+    runProjectState = { disabled: true, tip: t("run.widget.preparingProject"), busy: true };
   } else if (!s.canRunProject) {
     runProjectState = { disabled: true, tip: s.projectDisabledReason };
   } else {
-    runProjectState = { disabled: false, tip: s.projectBusy ? "项目正在运行（点击选择：停止并重跑 / 新建实例）" : "", tipKey: s.runProjectShortcut };
+    runProjectState = { disabled: false, tip: s.projectBusy ? t("run.widget.projectRunningTip") : "", tipKey: s.runProjectShortcut };
   }
 
   return { runScript: runScriptState, runProject: runProjectState, stop: stopState, config: configState };
@@ -179,6 +180,9 @@ function nativeIconOf(icon: HTMLElement): string | null {
 /** 接线四控件（init 调用一次）。UX P0-3：控件不再用 disabled 属性（见 applyButton），
  *  故点击守卫移入回调——.is-disabled 时的点击一律忽略。 */
 export function wireRunWidget(): void {
+  // 语言切换时重绘四控件（tip/aria 文案在 computeRunWidget 里经 t() 现算，重算即可换语言）
+  onLocaleChange(() => repaintRunWidget());
+
   btnRunScript.addEventListener("click", () => {
     if (btnRunScript.classList.contains("is-disabled")) return;
     handlers?.runScript();

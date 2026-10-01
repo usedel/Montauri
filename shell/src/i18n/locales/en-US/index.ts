@@ -6,6 +6,11 @@
 import type { TKey } from "../zh-CN";
 import { core } from "./core";
 import { debug } from "./debug";
+import { dep } from "./dep";
+import { env } from "./env";
+import { filetree } from "./filetree";
 import { git } from "./git";
+import { run } from "./run";
+import { storage } from "./storage";
 
-export const enUS: Record<TKey, string> = { ...core, ...git, ...debug };
+export const enUS: Record<TKey, string> = { ...core, ...git, ...debug, ...filetree, ...run, ...env, ...storage, ...dep };
