@@ -45,4 +45,4 @@ vendor/
 ci/.cache/
 
 # 临时提交信息文件（提交辅助脚本用）
-.git-commit-msg.tmp
+.git-commit-msg.tmp"scripts/_tmp/"  
