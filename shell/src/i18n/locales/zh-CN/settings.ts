@@ -51,6 +51,9 @@ export const settings = {
   "settings.shellAuto": "自动（PowerShell 优先，回退 cmd）",
   "settings.shellCmd": "命令提示符（cmd）",
   "settings.statusFontSize": "字号 {size}",
+  // ---- settings.theme ----
+  "settings.theme.dark": "深色",
+  "settings.theme.light": "浅色",
 };
 
 /** 本域文案 key：en-US/settings.ts 的 Record<SettingsKey, string> 由它派生。 */

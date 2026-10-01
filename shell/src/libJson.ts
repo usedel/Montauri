@@ -2,6 +2,7 @@
 // 反转义为 JSON 文本并校验。纯文本/词法扫描，零子进程、零 DOM（对齐 libRegex 先例）。
 // v1 口径：只认 `json.loads(…)` 调用点的字符串字面量（变量/拼接不识别，与正则识别器同边界）。
 
+import { t } from "./i18n"; // 第十八批 i18n：库文案走语言包
 export interface JsonHit {
   /** 字面量起始偏移（含前缀引号，不含 r 前缀之前的部分） */
   start: number;
@@ -183,9 +184,9 @@ export function jsonHoverSummary(value: string): string | null {
     return Math.max(...children.map((c) => depth(c, d + 1)));
   };
   if (v !== null && typeof v === "object" && !Array.isArray(v)) {
-    return `**JSON** · object · ${Object.keys(v).length} 键 · ${depth(v, 0)} 层`;
+    return t("devtools.json.hoverObject", { keys: Object.keys(v).length, depth: depth(v, 0) });
   }
-  if (Array.isArray(v)) return `**JSON** · array · ${v.length} 项`;
+  if (Array.isArray(v)) return t("devtools.json.hoverArray", { count: v.length });
   if (v === null) return "**JSON** · null";
   return `**JSON** · ${typeof v}`;
 }

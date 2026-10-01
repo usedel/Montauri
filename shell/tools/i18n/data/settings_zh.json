@@ -45,5 +45,7 @@
   "settings.saved": "设置已保存",
   "settings.shellAuto": "自动（PowerShell 优先，回退 cmd）",
   "settings.shellCmd": "命令提示符（cmd）",
-  "settings.statusFontSize": "字号 {size}"
+  "settings.statusFontSize": "字号 {size}",
+  "settings.theme.dark": "深色",
+  "settings.theme.light": "浅色"
 }

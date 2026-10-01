@@ -16,6 +16,7 @@ import { filetree } from "./filetree";
 import { git } from "./git";
 import { ide } from "./ide";
 import { lt } from "./lt";
+import { main } from "./main";
 import { newproject } from "./newproject";
 import { run } from "./run";
 import { search } from "./search";
@@ -24,4 +25,4 @@ import { storage } from "./storage";
 import { welcome } from "./welcome";
 import { workbench } from "./workbench";
 
-export const enUS: Record<TKey, string> = { ...core, ...git, ...debug, ...filetree, ...run, ...env, ...storage, ...dep, ...settings, ...newproject, ...welcome, ...search, ...workbench, ...editor, ...ide, ...lt, ...devtools, ...ext, ...endpoints };
+export const enUS: Record<TKey, string> = { ...core, ...git, ...debug, ...filetree, ...run, ...env, ...storage, ...dep, ...settings, ...newproject, ...welcome, ...search, ...workbench, ...editor, ...ide, ...lt, ...devtools, ...ext, ...endpoints, ...main };

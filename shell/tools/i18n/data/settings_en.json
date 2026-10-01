@@ -26,8 +26,8 @@
   "settings.kw.migrate": "migrate migration",
   "settings.kw.minimap": "minimap",
   "settings.kw.optimizeImports": "imports isort organize",
-  "settings.kw.pypiIndex": "pypi mirror pip index",
   "settings.kw.probe": "probe profiling",
+  "settings.kw.pypiIndex": "pypi mirror pip index",
   "settings.kw.reduceMotion": "motion animation reduce",
   "settings.kw.ruffSeverityE": "ruff severity pycodestyle E style diagnostic",
   "settings.kw.ruffSeverityF": "ruff severity pyflakes F diagnostic",
@@ -45,5 +45,7 @@
   "settings.saved": "Settings saved",
   "settings.shellAuto": "Auto (PowerShell first, falls back to cmd)",
   "settings.shellCmd": "Command Prompt (cmd)",
-  "settings.statusFontSize": "Font size {size}"
+  "settings.statusFontSize": "Font size {size}",
+  "settings.theme.dark": "Dark",
+  "settings.theme.light": "Light"
 }

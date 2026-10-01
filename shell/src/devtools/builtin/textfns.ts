@@ -2,6 +2,7 @@
 // 进制转换 / HTML 实体 / Unicode⇄中文 / 大小写 / 字数统计 / 排序去重 / 颜色转换 / 密码生成 / 文本 Diff。
 // 全部零 DOM 依赖；数值与字符串边界行为由 __tests__/textfns.test.ts 钉死。
 
+import { t } from "../../i18n";
 // ---------- 进制转换 ----------
 
 /** 解析进制输入：支持 0x/0X 前缀十六进制、0b/0B 二进制、0o/0O 八进制、十进制与可选下划线分隔；
@@ -32,7 +33,7 @@ export function radixAllFormats(raw: string): { bin: string; oct: string; dec: s
 /** inline：选区数字 → 十六进制（保留 0x 前缀；非法输入抛错保留原文） */
 export function selectionToHex(text: string): string {
   const n = parseRadixInput(text);
-  if (n === null) throw new Error("选区不是有效的数字（支持 0x/0b/0o 前缀与十进制）");
+  if (n === null) throw new Error(t("devtools.textfns.badNumber"));
   return `0x${n.toString(16)}`;
 }
 
@@ -192,7 +193,7 @@ export function sortLines(text: string, mode: SortMode, opts?: { dedupe?: boolea
 
 /** crypto 无偏 [0, n) 随机整数（rejection sampling，消除模偏差） */
 export function secureRandomInt(n: number): number {
-  if (n <= 0 || !Number.isSafeInteger(n)) throw new Error(`secureRandomInt: n=${n} 非法`);
+  if (n <= 0 || !Number.isSafeInteger(n)) throw new Error(t("devtools.textfns.badRandom", { n: n }));
   const limit = Math.floor(0x100000000 / n) * n;
   const buf = new Uint32Array(1);
   let v = 0;
@@ -296,9 +297,9 @@ export function generatePassword(opts: PasswordOpts): string {
   ]
     .join("")
     .replace(opts.excludeSimilar ? sim : /$/g, "");
-  if (!pool) throw new Error("至少选择一类字符");
+  if (!pool) throw new Error(t("devtools.textfns.needCharset"));
   const len = Math.floor(opts.length);
-  if (len < 4 || len > 256) throw new Error("长度须在 4-256 之间");
+  if (len < 4 || len > 256) throw new Error(t("devtools.textfns.badLength"));
   // 各选中类各保证 1 个（排除相似后可能为空集则跳过该类保证）
   const groups = [opts.lower, opts.upper, opts.digits, opts.symbols].map((on, i) => {
     const set = [PASSWORD_SETS.lower, PASSWORD_SETS.upper, PASSWORD_SETS.digits, PASSWORD_SETS.symbols][i]!
@@ -332,7 +333,7 @@ export function diffLines(a: string, b: string): DiffLine[] {
   const A = a.replace(/\r\n/g, "\n").split("\n");
   const B = b.replace(/\r\n/g, "\n").split("\n");
   const n = A.length, m = B.length;
-  if (n * m > 25_000_000) throw new Error("文本过大（行列积超 2500 万）");
+  if (n * m > 25_000_000) throw new Error(t("devtools.textfns.tooLarge"));
   // dp[x][y] = A[x:] 与 B[y:] 的 LCS 长度（逆序填表）
   const dp: Int32Array[] = [];
   for (let x = 0; x <= n; x++) dp.push(new Int32Array(m + 1));

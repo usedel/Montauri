@@ -11,6 +11,7 @@ import { app } from "../state";
 import { motionDisabled } from "../anim"; // UI-11：只读预览的光标闪烁也随「减少动画」
 import { flashError, flashSuccess } from "./feedback";
 import type { MonacoModule, ToolHost } from "./types";
+import { t } from "../i18n";
 
 // ---------- 选项类型 ----------
 
@@ -282,30 +283,30 @@ export function createToolKit(host: ToolHost, monacoOverride?: MonacoModule): To
     },
 
     copyButton(getText: () => string): HTMLButtonElement {
-      const btn = baseButton("btn", "复制", "copy");
+      const btn = baseButton("btn", t("devtools.common.copy"), "copy");
       btn.addEventListener("click", () => {
         const text = getText();
         if (!text) {
-          flashError(btn, "无内容");
+          flashError(btn, t("devtools.common.noContent"));
           return;
         }
         void host.copyToClipboard(text).then((ok) => {
-          if (ok) flashSuccess(btn, "已复制");
-          else flashError(btn, "复制失败");
+          if (ok) flashSuccess(btn, t("devtools.common.copied"));
+          else flashError(btn, t("devtools.common.copyFailed"));
         });
       });
       return btn;
     },
 
     pasteButton(setText: (t: string) => void): HTMLButtonElement {
-      const btn = baseButton("btn", "粘贴", "clippy");
+      const btn = baseButton("btn", t("devtools.common.paste"), "clippy");
       btn.addEventListener("click", () => {
         void host.readClipboard().then((text) => {
           if (text !== null && text !== "") {
             setText(text);
-            flashSuccess(btn, "已粘贴");
+            flashSuccess(btn, t("devtools.common.pasted"));
           } else {
-            flashError(btn, "剪贴板为空");
+            flashError(btn, t("devtools.common.clipboardEmpty"));
           }
         });
       });
@@ -313,7 +314,7 @@ export function createToolKit(host: ToolHost, monacoOverride?: MonacoModule): To
     },
 
     clearButton(...targets: ClearTarget[]): HTMLButtonElement {
-      const btn = baseButton("btn", "清空", "clear-all");
+      const btn = baseButton("btn", t("devtools.common.clear"), "clear-all");
       btn.addEventListener("click", () => {
         for (const t of targets) {
           if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) t.value = "";

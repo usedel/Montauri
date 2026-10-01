@@ -3,6 +3,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import type * as MonacoApi from "monaco-editor/esm/vs/editor/editor.api";
+import { onLocaleChange } from "../i18n"; // 第十九批 i18n：语言切换重跑 rebuild（刷新内置模板描述）
 import { parseTemplatesFile, type TemplateDef, type TemplatesFile } from "./schema";
 import { TemplateRegistry, type EffectiveEntry, type TemplateLayer } from "./registry";
 import { registerTemplateCompletion, setForceShowAll } from "./completion";
@@ -199,6 +200,13 @@ export async function initLiveTemplates(
     registry.rebuild(userFile, workspaceFile);
   }
   await reload();
+
+  // 第十九批 i18n：BUILTIN_TEMPLATES 随语言重建（builtin.ts 模块级订阅先于此执行），
+  // registry 快照里是重建前的定义引用——重跑 rebuild 让 slots 拿到新语言描述。
+  // 管理面板列表重绘由 manager.ts 自己的 onLocaleChange 订阅负责（后注册、后执行）。
+  onLocaleChange(() => {
+    registry.rebuild(userFile, workspaceFile);
+  });
 
   async function saveFile(layer: ConfigLayer, file: TemplatesFile): Promise<void> {
     const content = JSON.stringify(file, null, 2);

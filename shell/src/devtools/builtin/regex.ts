@@ -16,6 +16,7 @@ import {
 import { replaceRegexLiteralInEditor } from "../../dslLens";
 import { takePendingRegexRequest, type RegexPanelRequest } from "../../libsBridge";
 import { openSettingsPanel } from "../../settingsPanel"; // §11.2 降级态：[设置解释器] 引导跳设置页
+import { t } from "../../i18n";
 
 /** 匹配表上限（§11.2：仅显示前 N 项 + 总数徽标） */
 const MATCH_CAP = 500;
@@ -70,7 +71,7 @@ export function mount(host: PanelHost): { dispose(): void } | void {
   flagsRow.className = "rx-flags";
   flagsRow.id = "rx-flags";
   flagsRow.setAttribute("role", "group");
-  flagsRow.setAttribute("aria-label", "正则 flags");
+  flagsRow.setAttribute("aria-label", t("devtools.rx.flagsAria"));
   const flagButtons = new Map<string, HTMLButtonElement>();
   for (const f of FLAG_DEFS) {
     const btn = document.createElement("button");
@@ -101,14 +102,14 @@ export function mount(host: PanelHost): { dispose(): void } | void {
   const rawHint = document.createElement("div");
   rawHint.className = "rx-raw-hint hidden";
   rawHint.id = "rx-raw-hint";
-  rawHint.textContent = '⚠ 源码中不是 raw 字符串：\\d 请写成 r"\\d"';
+  rawHint.textContent = t("devtools.rx.rawHint");
 
   // 视图互斥（匹配 / 替换 → radioGroup）
   const view = kit.radioGroup<"match" | "sub">({
-    label: "视图",
+    label: t("devtools.rx.view"),
     options: [
-      { value: "match", label: "匹配" },
-      { value: "sub", label: "替换" },
+      { value: "match", label: t("devtools.rx.match") },
+      { value: "sub", label: t("devtools.rx.sub") },
     ],
     value: "match",
     onChange: () => syncView(),
@@ -162,17 +163,17 @@ export function mount(host: PanelHost): { dispose(): void } | void {
   const guideRow = document.createElement("div");
   guideRow.className = "rx-guide hidden";
   guideRow.id = "rx-guide";
-  const interpBtn = kit.button("设置解释器", "gear", () => openSettingsPanel("python"));
+  const interpBtn = kit.button(t("devtools.rx.setInterpreter"), "gear", () => openSettingsPanel("python"));
   interpBtn.id = "rx-open-settings";
   guideRow.append(interpBtn);
 
   // 空态示例 chips（邮箱 / URL / 日期 / 数字 / HTML 标签）
   const examples: Array<[string, string, string]> = [
-    ["邮箱", "[\\w.+-]+@[\\w-]+\\.[\\w.]+", "alice@corp.com, bob@corp.com"],
+    [t("devtools.rx.exEmail"), "[\\w.+-]+@[\\w-]+\\.[\\w.]+", "alice@corp.com, bob@corp.com"],
     ["URL", "https?://[^\\s/]+(?:/[^\\s]*)?", "visit https://example.com/a?b=1 now"],
-    ["日期", "(\\d{4})-(\\d{2})-(\\d{2})", "due 2026-09-27 and 2027-01-01"],
-    ["数字", "-?\\d+\\.?\\d*", "x = -3.14, y = 42"],
-    ["HTML 标签", "<([a-z]+)[^>]*>(.*?)</\\1>", "<b>bold</b> and <i>italic</i>"],
+    [t("devtools.rx.exDate"), "(\\d{4})-(\\d{2})-(\\d{2})", "due 2026-09-27 and 2027-01-01"],
+    [t("devtools.rx.exNum"), "-?\\d+\\.?\\d*", "x = -3.14, y = 42"],
+    [t("devtools.rx.exHtml"), "<([a-z]+)[^>]*>(.*?)</\\1>", "<b>bold</b> and <i>italic</i>"],
   ];
   const chipsRow = document.createElement("div");
   chipsRow.className = "rx-chips";
@@ -182,7 +183,7 @@ export function mount(host: PanelHost): { dispose(): void } | void {
     chip.type = "button";
     chip.className = "btn rx-chip";
     chip.textContent = label;
-    chip.dataset.tip = `示例：${pattern}`;
+    chip.dataset.tip = t("devtools.rx.exampleTip", { pattern: pattern });
     chip.addEventListener("click", () => {
       patternEl.value = pattern;
       suppressTestInput = true;
@@ -198,22 +199,22 @@ export function mount(host: PanelHost): { dispose(): void } | void {
   // 底部三动作（§11.2 写回统一命名）
   const copyCodeBtn = kit.copyButton(() => formatRegexPython(patternEl.value, activeFlags()));
   copyCodeBtn.id = "rx-copy-code";
-  const insertBtn = kit.button("插入编辑器", "export", () => {
+  const insertBtn = kit.button(t("devtools.common.insertEditor"), "export", () => {
     const ok = host.insertToEditor(formatRegexPython(patternEl.value, activeFlags()));
-    if (ok) flashSuccess(insertBtn, "已插入");
-    else flashError(insertBtn, "无打开文件");
+    if (ok) flashSuccess(insertBtn, t("devtools.common.inserted"));
+    else flashError(insertBtn, t("devtools.common.noFileOpen"));
   });
   insertBtn.id = "rx-insert";
-  const replaceBtn = kit.button("替换字面量", "replace", () => {
+  const replaceBtn = kit.button(t("devtools.rx.replaceLiteral"), "replace", () => {
     if (!sourceInfo || patternEl.value === sourceInfo.pattern) return;
     const newSource = `r"${patternEl.value.replace(/"/g, '\\"')}"`;
     const ok = replaceRegexLiteralInEditor(sourceInfo.contentOffset, sourceInfo.source, newSource);
     if (!ok) {
-      flashError(replaceBtn, "替换失败");
+      flashError(replaceBtn, t("devtools.rx.replaceFailed"));
       return;
     }
     sourceInfo = { ...sourceInfo, source: newSource, pattern: patternEl.value };
-    flashSuccess(replaceBtn, "已替换");
+    flashSuccess(replaceBtn, t("devtools.rx.replaced"));
   });
   replaceBtn.id = "rx-replace";
 
@@ -271,7 +272,7 @@ export function mount(host: PanelHost): { dispose(): void } | void {
     patternEl.rows = flags.includes("X") ? 5 : 1;
     if (flags.includes("X") && !patternEl.value.includes("\n") && !patternEl.dataset.xHinted) {
       patternEl.dataset.xHinted = "1";
-      patternEl.dataset.tip = "re.X：忽略空白与 # 后注释";
+      patternEl.dataset.tip = t("devtools.rx.xHint");
     }
   }
 
@@ -285,10 +286,10 @@ export function mount(host: PanelHost): { dispose(): void } | void {
     const dirty = sourceInfo !== null && patternEl.value !== sourceInfo.pattern;
     replaceBtn.disabled = sourceInfo === null || dirty;
     replaceBtn.dataset.tip = sourceInfo === null
-      ? "内容不来自编辑器字面量"
+      ? t("devtools.rx.tipNotFromEditor")
       : dirty
-        ? "模式已被手工修改，写回可能覆盖你的改动"
-        : "把修改后的模式写回编辑器中的字面量";
+        ? t("devtools.rx.tipDirty")
+        : t("devtools.rx.tipWriteback");
   }
 
   // ---------- 求值（libEval 统一控制器：防抖 200ms / 四态 / force） ----------
@@ -357,7 +358,7 @@ export function mount(host: PanelHost): { dispose(): void } | void {
     table.textContent = "";
     const thead = document.createElement("thead");
     const hr = document.createElement("tr");
-    for (const h of ["#", "位置", "匹配", "分组"]) {
+    for (const h of ["#", t("devtools.rx.colPos"), t("devtools.rx.match"), t("devtools.rx.colGroups")]) {
       const th = document.createElement("th");
       th.textContent = h;
       hr.appendChild(th);
@@ -408,7 +409,7 @@ export function mount(host: PanelHost): { dispose(): void } | void {
 
     // 截断徽标（§11.9 截断文案模板）
     truncNote.classList.toggle("hidden", !data.truncated);
-    if (data.truncated) truncNote.textContent = `仅显示前 ${MATCH_CAP} 处（共 ${data.count}）`;
+    if (data.truncated) truncNote.textContent = t("devtools.rx.truncated", { cap: MATCH_CAP, total: data.count });
 
     // 替换结果
     subOut.textContent = data.sub ? data.sub.result : "";
@@ -458,7 +459,7 @@ export function mount(host: PanelHost): { dispose(): void } | void {
     chipsRow.classList.toggle("hidden", state !== "empty");
     if (state === "empty") {
       statusEl.classList.add("rx-status--idle");
-      statusEl.textContent = "输入正则模式开始测试（可点上方示例一键填充）";
+      statusEl.textContent = t("devtools.rx.empty");
       table.textContent = "";
       hitDecos?.clear();
       selDecos?.clear();
@@ -468,13 +469,13 @@ export function mount(host: PanelHost): { dispose(): void } | void {
     }
     if (state === "nomatch") {
       statusEl.classList.add("rx-status--idle");
-      statusEl.textContent = "无匹配（是否忘了 re.I？^$ 锚点？match 只从头匹配？）";
+      statusEl.textContent = t("devtools.rx.noMatch");
       setStale(false);
       return;
     }
     if (state === "evaluating") {
       statusEl.classList.add("rx-status--pending");
-      statusEl.textContent = "求值中…";
+      statusEl.textContent = t("devtools.common.evaluating");
       setStale(true); // 上次结果留在原地灰显，表格高度不抖动
     }
   }
@@ -518,7 +519,9 @@ export function mount(host: PanelHost): { dispose(): void } | void {
           selectedMatch = null;
         } else {
           statusEl.className = "rx-status rx-status--ok";
-          statusEl.textContent = `共 ${data.count} 处匹配${data.truncated ? `（仅显示前 ${MATCH_CAP}）` : ""}`;
+          statusEl.textContent =
+            t("devtools.rx.matchCount", { total: data.count }) +
+            (data.truncated ? t("devtools.rx.matchCapSuffix", { cap: MATCH_CAP }) : "");
         }
         caretClear();
         break;
@@ -526,20 +529,20 @@ export function mount(host: PanelHost): { dispose(): void } | void {
       case "err":
         setDegraded(false);
         statusEl.className = "rx-status rx-status--err";
-        statusEl.textContent = res.error ?? "模式无效";
+        statusEl.textContent = res.error ?? t("devtools.rx.invalidPattern");
         caretFromReError(res.error ?? "");
         break;
       case "timeout":
         setDegraded(false);
         statusEl.className = "rx-status rx-status--err";
-        statusEl.textContent = "求值超时（3s）：模式可能存在灾难性回溯，避免嵌套量词（如 (a+)+）";
+        statusEl.textContent = t("devtools.rx.timeout");
         break;
       case "noInterpreter":
         // 求值产出区置灰 + [设置解释器] 引导；模式解释（离线）仍可用
         setStale(false);
         setDegraded(true);
         statusEl.className = "rx-status rx-status--degraded";
-        statusEl.textContent = "未配置工作区解释器，无法验证匹配（模式解释仍可用）";
+        statusEl.textContent = t("devtools.rx.noInterpreter");
         break;
       case "pending":
         renderState("evaluating");
@@ -586,7 +589,7 @@ export function mount(host: PanelHost): { dispose(): void } | void {
       if (!text) return;
       e.preventDefault();
       void host.copyToClipboard(text).then((ok) =>
-        host.toast(ok ? "已复制当前匹配" : "复制失败", ok ? "ok" : "error"),
+        host.toast(ok ? t("devtools.rx.copiedMatch") : t("devtools.common.copyFailed"), ok ? "ok" : "error"),
       );
     }
   });
@@ -603,7 +606,7 @@ export function mount(host: PanelHost): { dispose(): void } | void {
   /** 带入编辑器上下文（lens / 右键 / 键位）；用户已手改过模式时不覆盖（§11.2 sourceDirty ②） */
   function applyRegexRequest(req: RegexPanelRequest): void {
     if (userEditedPattern) {
-      host.toast("编辑器正则已带入，但你的模式已手工修改，未覆盖", "info");
+      host.toast(t("devtools.rx.broughtKept"), "info");
       return;
     }
     sourceInfo = { contentOffset: req.contentOffset, source: req.source, pattern: req.pattern };

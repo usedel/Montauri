@@ -2,22 +2,23 @@
 
 import type { PanelHost } from "../../extensions/facade";
 import { sortLines, type SortMode } from "./textfns";
+import { t } from "../../i18n";
 
 export function mount(host: PanelHost): { dispose(): void } | void {
   const { kit } = host;
   host.root.textContent = "";
 
   const wrap = kit.body();
-  const input = kit.textarea({ placeholder: "每行一项…", flex: true });
+  const input = kit.textarea({ placeholder: t("devtools.sort.inputPh"), flex: true });
 
   // 模式（互斥单选组）
   const modeGroup = kit.radioGroup<SortMode>({
-    label: "排序模式",
+    label: t("devtools.sort.mode"),
     options: [
-      { value: "asc", label: "升序" },
-      { value: "desc", label: "降序" },
-      { value: "reverse", label: "倒置" },
-      { value: "shuffle", label: "洗牌" },
+      { value: "asc", label: t("devtools.sort.asc") },
+      { value: "desc", label: t("devtools.sort.desc") },
+      { value: "reverse", label: t("devtools.sort.reverse") },
+      { value: "shuffle", label: t("devtools.sort.shuffle") },
     ],
     value: "asc",
   });
@@ -34,9 +35,9 @@ export function mount(host: PanelHost): { dispose(): void } | void {
     });
     return btn;
   };
-  const dedupeBtn = mkToggle("去重", false);
-  const caseBtn = mkToggle("忽略大小写", false);
-  const emptyBtn = mkToggle("保留空行", true);
+  const dedupeBtn = mkToggle(t("devtools.sort.dedupe"), false);
+  const caseBtn = mkToggle(t("devtools.sort.ignoreCase"), false);
+  const emptyBtn = mkToggle(t("devtools.sort.keepEmpty"), true);
 
   const run = (): void => {
     const result = sortLines(input.value, modeGroup.get(), {
@@ -46,9 +47,9 @@ export function mount(host: PanelHost): { dispose(): void } | void {
     });
     out.set(result);
   };
-  const runBtn = kit.primaryButton("运行", "sort-precedence", run);
+  const runBtn = kit.primaryButton(t("devtools.sort.run"), "sort-precedence", run);
 
-  const out = kit.output({ language: "plaintext", placeholder: "结果将显示在这里" });
+  const out = kit.output({ language: "plaintext", placeholder: t("devtools.common.resultPlaceholder") });
   wrap.append(
     input,
     kit.toolbar(modeGroup.el, "spacer", dedupeBtn, caseBtn, emptyBtn),

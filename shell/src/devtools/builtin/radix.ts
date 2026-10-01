@@ -4,15 +4,16 @@
 import type { PanelHost } from "../../extensions/facade";
 import { flashError } from "../feedback";
 import { radixAllFormats } from "./textfns";
+import { t } from "../../i18n";
 
 export function mount(host: PanelHost): { dispose(): void } | void {
   const { kit } = host;
   host.root.textContent = "";
 
   const wrap = kit.body();
-  const input = kit.input({ placeholder: "如 255 / 0xff / 0b1010 / 0o17（下划线分隔可选）", onEnter: () => run() });
+  const input = kit.input({ placeholder: t("devtools.radix.inputPh"), onEnter: () => run() });
   input.classList.add("radix-input");
-  const runBtn = kit.primaryButton("转换", "symbol-numeric", () => run());
+  const runBtn = kit.primaryButton(t("devtools.common.convert"), "symbol-numeric", () => run());
   const errEl = kit.errorSlot();
 
   const mkRow = (label: string, prefix: string): { row: HTMLElement; out: HTMLInputElement } => {
@@ -28,17 +29,17 @@ export function mount(host: PanelHost): { dispose(): void } | void {
     pre.hidden = prefix === "";
     return { row: kit.row(lab, pre, out), out };
   };
-  const binRow = mkRow("二进制：", "0b");
-  const octRow = mkRow("八进制：", "0o");
-  const decRow = mkRow("十进制：", "");
-  const hexRow = mkRow("十六进制：", "0x");
+  const binRow = mkRow(t("devtools.radix.bin"), "0b");
+  const octRow = mkRow(t("devtools.radix.oct"), "0o");
+  const decRow = mkRow(t("devtools.radix.dec"), "");
+  const hexRow = mkRow(t("devtools.radix.hex"), "0x");
 
   const run = (): void => {
     const r = radixAllFormats(input.value);
     if (r === null) {
-      errEl.textContent = "无法识别的数字（支持 0x/0b/0o 前缀与十进制）";
+      errEl.textContent = t("devtools.radix.badNumber");
       binRow.out.value = octRow.out.value = decRow.out.value = hexRow.out.value = "";
-      flashError(runBtn, "失败");
+      flashError(runBtn, t("devtools.common.failed"));
       return;
     }
     errEl.textContent = "";

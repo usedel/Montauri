@@ -4,6 +4,7 @@
 // 边界（R-8 同哲学）：变量 / 表达式实参一律抛错（不臆测），不 import 用户模块。
 
 import { parsePyStringLiteral, unescapePythonString } from "../../libRegex";
+import { t } from "../../i18n";
 
 const CALL_RE = /\b(?:requests|httpx)\.(get|post|put|delete|patch|head|options)\s*\(/g;
 
@@ -15,7 +16,7 @@ function shellQuote(s: string): string {
 function scalarToString(v: unknown): string {
   if (typeof v === "string") return v;
   if (typeof v === "number" || typeof v === "boolean") return String(v);
-  throw new Error("query/headers 的值须为字符串或数字字面量");
+  throw new Error(t("devtools.p2c.scalarOnly"));
 }
 
 // ---------- Python 字面量解析（递归下降，只认字面量） ----------
@@ -59,7 +60,7 @@ class PyLiteralParser {
       this.i += num[0].length;
       return Number(num[0]);
     }
-    throw new Error(`第 ${this.i + 1} 列附近含非字面量（变量 / 表达式），无法静态解析`);
+    throw new Error(t("devtools.p2c.nonLiteral", { col: this.i + 1 }));
   }
 
   /** 跳过 `=`（kwarg 名与值之间）；名本身由调用方用正则取 */
@@ -85,7 +86,7 @@ class PyLiteralParser {
   expect(ch: string): void {
     this.ws();
     if (this.text[this.i] !== ch) {
-      throw new Error(`第 ${this.i + 1} 列应为 "${ch}"`);
+      throw new Error(t("devtools.p2c.expectChar", { col: this.i + 1, ch: ch }));
     }
     this.i++;
   }
@@ -100,7 +101,7 @@ class PyLiteralParser {
         return out;
       }
       const lit = parsePyStringLiteral(this.text, this.i);
-      if (!lit) throw new Error("dict 的键须为字符串字面量");
+      if (!lit) throw new Error(t("devtools.p2c.dictKey"));
       this.i = lit.end;
       const key = lit.isRaw ? lit.content : unescapePythonString(lit.content);
       this.expect(":");
@@ -112,7 +113,7 @@ class PyLiteralParser {
         this.i++;
         return out;
       } else {
-        throw new Error(`第 ${this.i + 1} 列应为 "," 或 "}"`);
+        throw new Error(t("devtools.p2c.expectDictSep", { col: this.i + 1 }));
       }
     }
   }
@@ -134,7 +135,7 @@ class PyLiteralParser {
         this.i++;
         return out;
       } else {
-        throw new Error(`第 ${this.i + 1} 列应为 "," 或 "]"`);
+        throw new Error(t("devtools.p2c.expectListSep", { col: this.i + 1 }));
       }
     }
   }
@@ -165,7 +166,7 @@ function skipToCloseParen(text: string, openIdx: number): number {
     }
     i++;
   }
-  throw new Error("括号未闭合，无法解析调用");
+  throw new Error(t("devtools.p2c.unclosed"));
 }
 
 interface ParsedCall {
@@ -196,30 +197,30 @@ function parseCall(text: string, openIdx: number, method: string): ParsedCall {
       switch (kw[1]) {
         case "params":
           if (v !== null && typeof v === "object" && !Array.isArray(v)) call.query = v as Record<string, unknown>;
-          else throw new Error("params 须为 dict 字面量");
+          else throw new Error(t("devtools.p2c.paramsDict"));
           break;
         case "headers":
           if (v !== null && typeof v === "object" && !Array.isArray(v)) call.headers = v as Record<string, unknown>;
-          else throw new Error("headers 须为 dict 字面量");
+          else throw new Error(t("devtools.p2c.headersDict"));
           break;
         case "json": call.json = v; break;
         case "data": call.data = v; break;
         case "cookies":
           if (v !== null && typeof v === "object" && !Array.isArray(v)) call.cookies = v as Record<string, unknown>;
-          else throw new Error("cookies 须为 dict 字面量");
+          else throw new Error(t("devtools.p2c.cookiesDict"));
           break;
         case "timeout":
           if (typeof v === "number") call.timeout = v;
-          else throw new Error("timeout 须为数字字面量");
+          else throw new Error(t("devtools.p2c.timeoutNum"));
           break;
-        default: throw new Error(`暂不支持的实参 "${kw[1]}"（仅 params/headers/json/data/cookies/timeout）`);
+        default: throw new Error(t("devtools.p2c.unsupportedKwarg", { name: kw[1] }));
       }
     } else {
       const v = p.value();
       if (positional === 0 && typeof v === "string") call.url = v;
       else if (positional === 1 && v !== null && typeof v === "object" && !Array.isArray(v)) {
         call.query = v as Record<string, unknown>; // requests.get(url, params) 位置形态
-      } else throw new Error("第 2 个位置实参之后不支持再传位置实参");
+      } else throw new Error(t("devtools.p2c.tooManyPositional"));
       positional++;
     }
     p.ws();
@@ -229,7 +230,7 @@ function parseCall(text: string, openIdx: number, method: string): ParsedCall {
     }
     break;
   }
-  if (!call.url) throw new Error("未识别到 URL 字面量实参");
+  if (!call.url) throw new Error(t("devtools.p2c.noUrlArg"));
   return call;
 }
 
@@ -268,7 +269,7 @@ function buildCurl(call: ParsedCall): string {
         parts.push("-d", shellQuote(`${k}=${scalarToString(v)}`));
       }
     } else {
-      throw new Error("data 须为字符串或 dict 字面量");
+      throw new Error(t("devtools.p2c.dataType"));
     }
   }
   if (call.timeout !== null) parts.push("--max-time", String(call.timeout));
@@ -285,6 +286,6 @@ export function pythonToCurl(code: string): string {
     lines.push(buildCurl(parseCall(code, openIdx, m[1])));
     CALL_RE.lastIndex = openIdx + 1;
   }
-  if (lines.length === 0) throw new Error("未识别到 requests / httpx 调用");
+  if (lines.length === 0) throw new Error(t("devtools.p2c.noCall"));
   return lines.join("\n\n");
 }

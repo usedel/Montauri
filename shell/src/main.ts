@@ -20,7 +20,7 @@ import { initLiveTemplates, type LiveTemplatesHandle } from "./live-templates";
 import * as ltUi from "./live-templates/ui/manager";
 import { registerKeywordCompletion, setKeywordCompletionEnabled } from "./completion/keywordCompletion"; // 零引擎关键字补全（无 LSP 引擎的语言）
 import { wireWordBasedSuggestions } from "./completion/wordBasedSuggestions"; // 文档词补全按语言开关
-import { initDevTools, openDevTools, openDevToolsPanel, listDevTools, groupToolsByCategory } from "./devtools";
+import { initDevTools, openDevTools, openDevToolsPanel, listDevTools, groupToolsByCategory, categoryLabel } from "./devtools";
 // PR-2：插件域（plugin_system_design §9）——加载器 / facade 依赖注入 / inline 管线
 import { initPluginLoader, scanPlugins, schedulePluginRescan, listPluginRecords, setAppVersion } from "./extensions/loader";
 import { initInlineRunner, listInlineEntries, runInline, inlineCommandLabel } from "./extensions/inline";
@@ -74,7 +74,7 @@ import { cancelPendingSessionSave, restoreSession, scheduleSessionSave, saveSess
 import { wireResourcePanel } from "./resourcePanel"; // A-1 资源可观测
 import { basename, codicon, DisposableStore, emptyState, languageOf, normalizePath, parentDirOf, relativePathOrName, renderFileIcon, samePath, symbolIcon } from "./util";
 import { toast, toastFail } from "./toast";
-import { initI18n, t } from "./i18n"; // i18n 运行时：initI18n 首屏套用静态骨架，t 取动态文案
+import { initI18n, onLocaleChange, t } from "./i18n"; // i18n 运行时：initI18n 首屏套用静态骨架，t 取动态文案
 import { restoreLayout, toggleSidebar, wireSplitters } from "./layout";
 import { motionDisabled, restoreReduceMotion } from "./anim";
 import { wireTooltip } from "./tooltip";
@@ -252,7 +252,7 @@ async function teardownCurrent(): Promise<boolean> {
   if (app.workspaceRoot) {
     // A-5：草稿会随会话快照保留（重开工作区自动恢复），故文案不再是「将丢失」——
     // 保留确认（用户仍应知道有未落盘的改动），但不再暗示数据会没。
-    if (app.tabs.some((t) => t.dirty) && !(await openConfirm({ message: "存在未保存的修改（将以草稿形式保留，重开工作区自动恢复），确认关闭工作区？", kind: "danger" }))) {
+    if (app.tabs.some((t) => t.dirty) && !(await openConfirm({ message: t("main.confirm.closeWorkspace"), kind: "danger" }))) {
       return false;
     }
     // v3.4 §15（M3-3.10）：切换/关闭工作区前停掉**全部**运行实例（脚本 + 所有项目实例）。
@@ -376,7 +376,7 @@ async function closeWorkspace(): Promise<void> {
     closeLocalHistory();       // 本地历史（针对当前文件，工作区关闭后无意义）
     app.workspaceRoot = null;
     resetTreeState();
-    $("tree-header-text").textContent = "文件"; // UI-13：与 index.html 的静态文案保持一致（分组标题统一中文）
+    $("tree-header-text").textContent = t("tree.treeHeaderText"); // UI-13：与 index.html 静态词条同 key（第二十批 i18n）
     statusFileEl.textContent = "";
     clearInterpreterStatus();
     // P1-3 补充：resetWorkspaceUiState 先于本行执行，其 renderGitPanel 走「不是 Git 仓库」
@@ -468,9 +468,9 @@ async function renderEditorWelcomeRecents(): Promise<void> {
     // 单条删除（× 按钮，hover 时显示）
     const remove = document.createElement("button");
     remove.className = "ew-recent-remove";
-    remove.dataset.tip = "从列表移除";
+    remove.dataset.tip = t("main.recent.remove");
     // 图标按钮：内部 <i> 带 aria-hidden，可访问名称原先仅由 title 提供，须同步补 aria-label
-    remove.setAttribute("aria-label", "从列表移除");
+    remove.setAttribute("aria-label", t("main.recent.remove"));
     remove.appendChild(codicon("close"));
     remove.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -497,7 +497,7 @@ async function clearRecentWorkspaces(): Promise<void> {
     await invoke("clear_recent_workspaces");
   } catch (e) {
     console.warn("清空最近工作区失败", e);
-    toastFail("清空最近工作区", e);
+    toastFail(t("main.recent.clear"), e);
   }
   void renderEditorWelcomeRecents();
 }
@@ -508,7 +508,7 @@ async function removeRecentWorkspace(path: string): Promise<void> {
     await invoke("remove_recent_workspace", { path });
   } catch (e) {
     console.warn("删除最近工作区失败", e);
-    toastFail("删除最近工作区", e);
+    toastFail(t("main.recent.removeOne"), e);
   }
   void renderEditorWelcomeRecents();
 }
@@ -542,7 +542,7 @@ async function openFolderFromToolbar(): Promise<void> {
 async function openFolderInNewWindow(): Promise<void> {
   const path = await invoke<string | null>("pick_folder");
   if (!path) return;
-  await invoke("open_workspace_window", { path }).catch((e) => toastFail("在新窗口打开工作区", e));
+  await invoke("open_workspace_window", { path }).catch((e) => toastFail(t("main.recent.openInNewWindow"), e));
 }
 
 async function loadTemplatesConfig(): Promise<void> {
@@ -568,7 +568,7 @@ async function copyTabPath(text: string): Promise<void> {
     await invoke("copy_to_clipboard", { text });
   } catch (e) {
     console.error("复制路径失败", e);
-    toastFail("复制路径", e);
+    toastFail(t("main.recent.copyPath"), e);
   }
 }
 
@@ -577,19 +577,19 @@ function showTabContextMenu(tab: Tab, x: number, y: number): void {
   activateTab(tab);
   const isPy = tab.path.endsWith(".py") || tab.path.endsWith(".pyw");
   const items: CtxItem[] = [
-    { label: "关闭", action: () => void closeTab(tab) },
-    { label: "关闭其他", action: () => void closeOthersExcept(tab) },
-    { label: "关闭右侧", action: () => void closeTabsRightOf(tab) },
-    { label: "关闭全部", action: () => void closeAllTabs() },
+    { label: t("main.tab.close"), action: () => void closeTab(tab) },
+    { label: t("main.tab.closeOthers"), action: () => void closeOthersExcept(tab) },
+    { label: t("main.tab.closeRight"), action: () => void closeTabsRightOf(tab) },
+    { label: t("main.tab.closeAll"), action: () => void closeAllTabs() },
     { sep: true },
     // 复制路径三件套（对齐 VSCode：Copy Name / Copy Relative Path / Copy Path）
-    { label: "复制文件名", action: () => void copyTabPath(basename(tab.path)) },
-    { label: "复制相对路径", action: () => void copyTabPath(relativePathOfTab(tab.path)) },
+    { label: t("main.tab.copyName"), action: () => void copyTabPath(basename(tab.path)) },
+    { label: t("main.tab.copyRelPath"), action: () => void copyTabPath(relativePathOfTab(tab.path)) },
     // PR-A（dx_features_backlog §6.1）：file:line 引用（相对工作区根，贴 issue/聊天可直点）
-    { label: "复制 file:line 引用", action: () => void copyTabPath(`${relativePathOfTab(tab.path)}:${app.editor.getPosition()?.lineNumber ?? 1}`) },
-    { label: "复制绝对路径", action: () => void copyTabPath(tab.path) },
-    { label: "在终端中打开", action: () => void openTerminalAt(parentDirOf(tab.path)) },
-    { label: "在资源管理器中显示", action: () => invoke("reveal_in_explorer", { path: tab.path }).catch(console.error) },
+    { label: t("main.tab.copyFileLine"), action: () => void copyTabPath(`${relativePathOfTab(tab.path)}:${app.editor.getPosition()?.lineNumber ?? 1}`) },
+    { label: t("main.tab.copyAbsPath"), action: () => void copyTabPath(tab.path) },
+    { label: t("main.tab.openInTerminal"), action: () => void openTerminalAt(parentDirOf(tab.path)) },
+    { label: t("main.tab.revealInExplorer"), action: () => invoke("reveal_in_explorer", { path: tab.path }).catch(console.error) },
   ];
   // P3（建议 2）：Python 脚本可编辑持久化运行配置（Parameters / 环境变量）
   // v3.4 §8（M3-3.4）：标签右键入口对齐四控件运行组——「运行脚本 / 运行项目 / 运行配置…」
@@ -598,9 +598,9 @@ function showTabContextMenu(tab: Tab, x: number, y: number): void {
     items.splice(
       5,
       0,
-      { label: "运行脚本", action: () => void runScript(tab.path) },
-      { label: "运行项目", action: () => void runProject() },
-      { label: "运行配置…", action: () => void openRunConfig(tab.path) },
+      { label: t("main.run.script"), action: () => void runScript(tab.path) },
+      { label: t("main.run.project"), action: () => void runProject() },
+      { label: t("main.run.config"), action: () => void openRunConfig(tab.path) },
       { sep: true },
     );
   }
@@ -610,7 +610,7 @@ function showTabContextMenu(tab: Tab, x: number, y: number): void {
     items.splice(
       5,
       0,
-      { label: open ? "关闭预览" : "打开预览", action: () => mdPreview.setPreviewOpen(!open) },
+      { label: open ? t("main.tab.previewClose") : t("main.tab.previewOpen"), action: () => mdPreview.setPreviewOpen(!open) },
       { sep: true },
     );
   }
@@ -619,7 +619,7 @@ function showTabContextMenu(tab: Tab, x: number, y: number): void {
 
 async function closeTabsQuiet(list: Tab[]): Promise<void> {
   if (list.length === 0) return;
-  if (list.some((t) => t.dirty) && !(await openConfirm({ message: "存在未保存的修改，确认关闭？", kind: "danger" }))) return;
+  if (list.some((t) => t.dirty) && !(await openConfirm({ message: t("main.confirm.closeTabs"), kind: "danger" }))) return;
   for (const t of [...list]) {
     closeTabSilent(t);
     if (t.kind !== "diff") recordClosedTab(t.path); // PR-A：批量关闭同样入重开栈（按关闭顺序栈顶=最后关闭）
@@ -781,7 +781,7 @@ async function refreshOutline(): Promise<void> {
   outlineOwnerTab = tab; // CR-20：记录本批符号所属 tab
   outlineEl.textContent = "";
   if (symbols.length === 0) {
-    outlineEl.appendChild(emptyState("symbol-misc", "无符号", undefined, true));
+    outlineEl.appendChild(emptyState("symbol-misc", t("main.outline.noSymbols"), undefined, true));
     return;
   }
   renderOutlineSymbols(outlineEl, symbols, 0);
@@ -862,7 +862,7 @@ async function doOpenFile(path: string, revealLine?: number, opts?: OpenFileOpti
       content = await invoke<string>("read_file", { path });
     } catch (e) {
       // 大文件守卫 / 目录 / 编码错误等：toast 呈现而非静默 unhandled rejection
-      toast(`打开文件失败：${String(e)}`, "error");
+      toast(t("main.openFile.failed", { msg: String(e) }), "error");
       return;
     }
     // CR-08：并发防线二——创建前再查既有 model 命中则复用（防其它入口已建）
@@ -973,7 +973,7 @@ async function closeTab(tab: Tab): Promise<void> {
   const idx = app.tabs.indexOf(tab);
   if (idx === -1) return;
   // diff tab 恒不 dirty（占位模型只读），无需确认直接关
-  if (tab.kind !== "diff" && tab.dirty && !(await openConfirm({ message: `${basename(tab.path)} 有未保存修改，确认关闭？`, kind: "danger" }))) return;
+  if (tab.kind !== "diff" && tab.dirty && !(await openConfirm({ message: t("main.confirm.closeDirty", { name: basename(tab.path) }), kind: "danger" }))) return;
   closeTabSilent(tab);
   if (tab.kind !== "diff") recordClosedTab(tab.path); // PR-A：用户主动关闭入重开栈（工作区切换的批量清理不入栈）
 }
@@ -1019,11 +1019,11 @@ export function renderTabs(): void {
     ? ((document.activeElement as HTMLElement | null)?.closest(".tab") as HTMLElement | null)?.dataset?.path ?? null
     : null;
   tabbarEl.textContent = "";
-  for (const t of app.tabs) {
-    const active = t === app.activeTab;
-    const isDiff = t.kind === "diff";
+  for (const tab of app.tabs) {
+    const active = tab === app.activeTab;
+    const isDiff = tab.kind === "diff";
     // diff tab 的显示名：剥 diff: 前缀（VS Code 同款「文件名 (Working Tree)」语义）
-    const displayName = isDiff ? `${basename(t.path.slice("diff:".length))} · 差异` : basename(t.path);
+    const displayName = isDiff ? t("main.tab.diffTitle", { name: basename(tab.path.slice("diff:".length)) }) : basename(tab.path);
     const el = document.createElement("div");
     el.className = `tab ${active ? "active" : ""}`;
     // UI-16：tabs 模式（#tabbar 的 role=tablist 在 index.html 静态声明）。
@@ -1032,45 +1032,45 @@ export function renderTabs(): void {
     el.setAttribute("role", "tab");
     el.setAttribute("aria-selected", String(active));
     el.tabIndex = active ? 0 : -1;
-    el.dataset.path = t.path;
+    el.dataset.path = tab.path;
     // 悬停显示完整路径（tooltip.ts 规则 4：纯路径披露用原生 title，不挂 data-tip；
     // tab 内部无 data-tip，不触发规则 5 的父子不同轨冲突）
-    el.title = t.path;
+    el.title = tab.path;
     // diff tab 用 diff 图标（与文件类型图标区分）；文件 tab 保持类型图标
-    el.appendChild(isDiff ? codicon("diff") : renderFileIcon(basename(t.path))); // D2 P-08：标签页文件类型图标
+    el.appendChild(isDiff ? codicon("diff") : renderFileIcon(basename(tab.path))); // D2 P-08：标签页文件类型图标
     const name = document.createElement("span");
     name.className = "name";
     name.textContent = displayName;
     const dirty = document.createElement("span");
     dirty.className = "dirty";
-    if (t.dirty) dirty.appendChild(codicon("circle-filled"));
-    // TD-14：runningPathsOf() 取运行中脚本路径集合，故 t.path 命中即为「该 tab 正在运行」
+    if (tab.dirty) dirty.appendChild(codicon("circle-filled"));
+    // TD-14：runningPathsOf() 取运行中脚本路径集合，故 tab.path 命中即为「该 tab 正在运行」
     //（v3.4 M3-3.3：多实例模型——脚本实例的 path 集合；项目实例无文件锚点不在此列）
     const runningScripts = runningPathsOf();
-    const isRunningHere = runningScripts.has(t.path);
+    const isRunningHere = runningScripts.has(tab.path);
     // UI-16：脏标记/运行指示的圆点是纯视觉装饰（aria-hidden），状态并入 tab 的可访问名称，
     // 读屏聚焦该 tab 时直接听到「已修改 / 运行中」（承接 UI-09 对 .tab-running 的遗留说明）
     const labelParts = [displayName];
-    if (t.dirty) labelParts.push("已修改");
-    if (isRunningHere) labelParts.push("运行中");
+    if (tab.dirty) labelParts.push(t("main.tab.modified"));
+    if (isRunningHere) labelParts.push(t("main.tab.running"));
     el.setAttribute("aria-label", labelParts.join("，"));
     // 被动运行指示（C3）：动作已集中到菜单栏运行组，tab 只显示状态（不可点，避免第二个动作入口）
     const close = document.createElement("span");
     close.className = "close";
     close.appendChild(codicon("close"));
     // UI-16：span 充当按钮 → 补 role/aria-label/tabindex + Enter/Space 键盘激活（第四批待办同款）
-    close.setAttribute("aria-label", `关闭 ${displayName}`);
+    close.setAttribute("aria-label", t("main.tab.closeAria", { name: displayName }));
     close.tabIndex = 0;
     close.addEventListener("keydown", (ev) => {
       ev.stopPropagation(); // 不冒泡到 tab 本体的 Enter/方向键处理
       if (ev.key === "Enter" || ev.key === " ") {
         ev.preventDefault();
-        void closeTab(t);
+        void closeTab(tab);
       }
     });
     close.addEventListener("click", (ev) => {
       ev.stopPropagation();
-      void closeTab(t);
+      void closeTab(tab);
     });
     if (isRunningHere) {
       const ind = document.createElement("span");
@@ -1085,7 +1085,7 @@ export function renderTabs(): void {
     } else {
       el.append(name, dirty, close);
     }
-    el.addEventListener("click", () => activateTab(t));
+    el.addEventListener("click", () => activateTab(tab));
     // 中键关闭（编辑器惯例）：mousedown 先拦掉 Chromium 的 autoscroll，auxclick 执行关闭
     el.addEventListener("mousedown", (ev) => {
       if (ev.button === 1) ev.preventDefault();
@@ -1094,12 +1094,12 @@ export function renderTabs(): void {
       if (ev.button !== 1) return;
       ev.preventDefault();
       ev.stopPropagation();
-      void closeTab(t); // dirty 时仍走 closeTab 的确认弹窗，与关闭按钮一致
+      void closeTab(tab); // dirty 时仍走 closeTab 的确认弹窗，与关闭按钮一致
     });
     el.addEventListener("keydown", (ev) => {
       if (ev.key === "Enter" || ev.key === " ") {
         ev.preventDefault();
-        activateTab(t, { focusEditor: false }); // 键盘激活：焦点留在 tabbar，方向键漫游继续
+        activateTab(tab, { focusEditor: false }); // 键盘激活：焦点留在 tabbar，方向键漫游继续
       } else if (ev.key === "ArrowRight" || ev.key === "ArrowLeft") {
         ev.preventDefault();
         const tabs = Array.from(tabbarEl.querySelectorAll<HTMLElement>(".tab"));
@@ -1111,7 +1111,7 @@ export function renderTabs(): void {
     el.addEventListener("contextmenu", (ev) => {
       ev.preventDefault();
       ev.stopPropagation();
-      showTabContextMenu(t, ev.clientX, ev.clientY);
+      showTabContextMenu(tab, ev.clientX, ev.clientY);
     });
     tabbarEl.appendChild(el);
   }
@@ -1134,14 +1134,14 @@ async function optimizeImportsActive(): Promise<void> {
   const tab = app.activeTab;
   if (!tab) return;
   if (!tab.path.endsWith(".py") && !tab.path.endsWith(".pyw")) {
-    toast(`Optimize Imports 仅支持 Python 文件（当前：${basename(tab.path)}）`, "info");
+    toast(t("main.imports.pyOnly", { name: basename(tab.path) }), "info");
     return;
   }
   const before = tab.model.getValue();
   const optimized = await optimizeImportsSource(tab.path, before);
   if (optimized === null || optimized === before) return; // 失败已由 format 域提示；无改动则不动模型
   tab.model.setValue(optimized); // 单次 setValue → Ctrl+Z 可整体撤销
-  toast(`已整理导入：${basename(tab.path)}`, "success");
+  toast(t("main.imports.done", { name: basename(tab.path) }), "success");
 }
 
 /**
@@ -1195,7 +1195,7 @@ async function saveTab(tab: Tab, opts?: SaveOptions): Promise<void> {
     if (errorMarkers.length > 0) {
       const breakdown = breakDownSaveErrors(errorMarkers, app.monaco.MarkerSeverity.Error);
       toast(saveErrorToastMessage(basename(tab.path), breakdown), "error", {
-        actionLabel: "定位",
+        actionLabel: t("main.save.locate"),
         onAction: () => revealFirstError(),
       });
     }
@@ -1228,7 +1228,7 @@ function scheduleAutosave(path: string): void {
     if (app.settings.autosave !== "delay") return;
     const tab = app.tabs.find((x) => x.path === path);
     // 失败 toast 兜底：autosave 静默失败比显式保存更危险（用户以为已落盘）
-    if (tab?.dirty) saveTab(tab, { runOnSaveActions: false }).catch((e) => toastFail("自动保存", e));
+    if (tab?.dirty) saveTab(tab, { runOnSaveActions: false }).catch((e) => toastFail(t("main.save.autosave"), e));
   }, app.settings.autosave_delay);
   editorTimers.autosave.set(path, timer);
 }
@@ -1277,17 +1277,17 @@ async function runDebug(): Promise<void> {
   if (!app.activeTab) return;
   const path = app.activeTab.path;
   if (!path.endsWith(".py") && !path.endsWith(".pyw")) {
-    toast(`不是 Python 文件：${basename(path)}`, "info");
+    toast(t("main.debug.notPython", { name: basename(path) }), "info");
     return;
   }
   // 调试态与运行态互斥（后端强制）：正在运行/准备时提示先停止
   if (isRunBusy()) {
-    toast("已有脚本在运行，请先停止再调试", "info");
+    toast(t("main.debug.runBusy"), "info");
     return;
   }
   const phase = dap.currentPhase();
   if (phase === "starting" || phase === "running" || phase === "stopped") {
-    toast("已有调试会话在运行，请先停止（Shift+F5）", "info");
+    toast(t("main.debug.sessionBusy"), "info");
     return;
   }
   // P1-13（2026-09-29 review）：phase 门控到 startDebug 内部才置 starting——prepareRun /
@@ -1304,8 +1304,8 @@ async function runDebug(): Promise<void> {
   try {
     await runDebugInner(path, () => { sessionEstablished = true; });
   } catch (e) {
-    appendOutputLine(outputEl, `调试启动异常: ${e}`, "stderr", gotoFromLink, "debug");
-    toastFail("调试启动", e);
+    appendOutputLine(outputEl, t("main.debug.startError", { msg: String(e) }), "stderr", gotoFromLink, "debug");
+    toastFail(t("main.debug.start"), e);
   } finally {
     if (!sessionEstablished) dap.resetDebugState();
   }
@@ -1327,10 +1327,10 @@ async function runDebugInner(path: string, onEstablished: () => void): Promise<v
     const rc = await invoke<Partial<RunConfig>>("get_run_config", { workspaceRoot: app.workspaceRoot, scriptPath: path })
       .catch(() => ({} as Partial<RunConfig>));
     const parts: string[] = [];
-    if (rc.args?.trim()) parts.push(`参数 ${rc.args.trim()}`);
-    if (rc.env?.length) parts.push(`环境变量 ${rc.env.length} 项`);
+    if (rc.args?.trim()) parts.push(t("main.debug.argsLine", { args: rc.args.trim() }));
+    if (rc.env?.length) parts.push(t("main.debug.envLine", { n: rc.env.length }));
     if (parts.length) {
-      appendOutputLine(outputEl, `调试复用运行配置：${parts.join("，")}`, "hint", gotoFromLink, "debug");
+      appendOutputLine(outputEl, t("main.debug.reuseConfig", { parts: parts.join("，") }), "hint", gotoFromLink, "debug");
     }
   }
 
@@ -1340,20 +1340,20 @@ async function runDebugInner(path: string, onEstablished: () => void): Promise<v
   try {
     detect = await invoke<DebugDetectResult>("debug_detect", { workspaceRoot: app.workspaceRoot });
   } catch (e) {
-    appendOutputLine(outputEl, `调试环境检测失败: ${e}`, "stderr", gotoFromLink, "debug");
-    toastFail("调试环境检测", e);
+    appendOutputLine(outputEl, t("main.debug.detectError", { msg: String(e) }), "stderr", gotoFromLink, "debug");
+    toastFail(t("main.debug.detect"), e);
     dap.resetDebugState(); // markStarting 早退复位（P1-13）
     return;
   }
   if (!detect.debugpyOk) {
     // E 类（长指导走 openAlert 对话框，非输出面板 stderr；附可复制命令）
     void openAlert({
-      title: "未找到自带 debugpy",
+      title: t("main.debug.noDebugpyTitle"),
       message:
-        "应用资源目录损坏，或开发环境未运行 tools/fetch-debugpy.ps1 拉取。\n\n" +
-        "请重新安装应用，或在仓库根目录执行：\n" +
+        t("main.debug.noDebugpyBody1") +
+        t("main.debug.noDebugpyBody2") +
         "powershell -ExecutionPolicy Bypass -File tools/fetch-debugpy.ps1",
-      okLabel: "知道了",
+      okLabel: t("main.debug.gotIt"),
     });
     dap.resetDebugState(); // markStarting 早退复位（P1-13）
     return;
@@ -1363,7 +1363,7 @@ async function runDebugInner(path: string, onEstablished: () => void): Promise<v
     notifyDepFound(detect.depFiles);
     appendOutputLine(
       outputEl,
-      `提示：${detect.depFiles.join("、")} 声明了 debugpy —— OpenCharm 调试使用自带副本，二者互不影响，可按需移除声明。`,
+      t("main.debug.depHint", { files: detect.depFiles.join("、") }),
       "hint",
       gotoFromLink,
     );
@@ -1374,8 +1374,8 @@ async function runDebugInner(path: string, onEstablished: () => void): Promise<v
     await dap.startDebug(path, app.workspaceRoot, pushAllBreakpoints);
     onEstablished(); // 握手成功：phase 归状态机接管，外层兜底从此不触发
   } catch (e) {
-    appendOutputLine(outputEl, `调试启动失败: ${e}`, "stderr", gotoFromLink, "debug");
-    toastFail("调试启动", e);
+    appendOutputLine(outputEl, t("main.debug.startFailed", { msg: String(e) }), "stderr", gotoFromLink, "debug");
+    toastFail(t("main.debug.start"), e);
     // P1-12（2026-09-29 review）：startDebug 中途失败（握手超时 / 断点异常 / debug_start
     // 后任一步失败）时，后端 DEBUG 槽仍持有 adapter——只复位前端 phase 会让下次启动被
     // 「已有调试会话在运行」永久卡住。先停后端会话再复位（stopDebug 对未启动场景幂等）。
@@ -1403,9 +1403,9 @@ async function newScratch(): Promise<void> {
   try {
     const path = await invoke<string>("create_scratch", { ext: ".py" });
     await openFile(path);
-    toast(`已新建草稿（不入库，可直接运行 / 调试）`, "success");
+    toast(t("main.scratch.created"), "success");
   } catch (e) {
-    toastFail("新建草稿", e);
+    toastFail(t("main.scratch.failAction"), e);
   }
 }
 
@@ -1416,7 +1416,7 @@ async function runToCursorAtCursor(): Promise<void> {
   const line = app.editor.getPosition()?.lineNumber;
   if (!line) return;
   if (dap.currentPhase() !== "stopped") {
-    toast("Run to Cursor 需要在调试暂停时使用（先运行到断点处）", "info");
+    toast(t("main.debug.runToCursorHint"), "info");
     return;
   }
   await runToCursorIn(tab.path, line);
@@ -1478,7 +1478,8 @@ function buildPluginFacadeDeps() {
 function buildToolsMenu(): MenuEntry[] {
   const groups = groupToolsByCategory(listDevTools());
   const entries: MenuEntry[] = groups.map(([cat, tools]) => ({
-    label: cat,
+    // 第十七批 i18n：预置分组展示名走语言包（标识串仍为中文原文，排序恒定）
+    label: categoryLabel(cat),
     submenu: () => tools.map((t) => ({
       label: t.title,
       detail: t.description,
@@ -1487,7 +1488,7 @@ function buildToolsMenu(): MenuEntry[] {
   }));
   // §9.8：尾部固定「插件管理…」入口（设置页插件 tab）
   if (groups.length > 0) entries.push({ label: "", sep: true });
-  entries.push({ label: "插件管理…", action: () => openSettingsPanel("plugins") });
+  entries.push({ label: t("main.cmd.plugins"), action: () => openSettingsPanel("plugins") });
   return entries;
 }
 
@@ -1499,80 +1500,80 @@ function buildToolsMenu(): MenuEntry[] {
  */
 function buildQuickOpenActions(): QuickOpenAction[] {
   return [
-    { id: "save", label: "保存", run: () => void saveActive() },
+    { id: "save", label: t("main.cmd.save"), run: () => void saveActive() },
     // v3.4 §8（M3-3.4）：命令面板对齐四控件运行组
-    { id: "run_script", label: "运行脚本", run: () => { if (app.activeTab) void runScript(app.activeTab.path); } },
-    { id: "run_project", label: "运行项目", run: () => void runProject() },
-    { id: "stop", label: "停止运行", run: () => void stopRun() },
-    { id: "debug", label: "启动调试 / 继续", run: () => void runDebug() },
-    { id: "debug_stop", label: "停止调试", run: () => void stopDebugSession() },
-    { id: "debug_evaluate", label: "求值表达式", run: () => void onEvaluateShortcut() },
-    { id: "debug_run_to_cursor", label: "运行到光标处", run: () => void runToCursorAtCursor() },
-    { id: "bookmark_toggle", label: "切换书签", run: () => void toggleBookmarkAtCursor() },
-    { id: "bookmark_list", label: "书签列表", run: () => void openBookmarks() },
-    { id: "scratch_new", label: "新建草稿文件", run: () => void newScratch() },
-    { id: "split_editor", label: "向右分屏", run: () => splitEditor.toggleSplit() }, // P4（C-4）
+    { id: "run_script", label: t("main.run.script"), run: () => { if (app.activeTab) void runScript(app.activeTab.path); } },
+    { id: "run_project", label: t("main.run.project"), run: () => void runProject() },
+    { id: "stop", label: t("main.run.stop"), run: () => void stopRun() },
+    { id: "debug", label: t("main.cmd.debugStart"), run: () => void runDebug() },
+    { id: "debug_stop", label: t("main.cmd.debugStop"), run: () => void stopDebugSession() },
+    { id: "debug_evaluate", label: t("main.cmd.evaluate"), run: () => void onEvaluateShortcut() },
+    { id: "debug_run_to_cursor", label: t("main.cmd.runToCursor"), run: () => void runToCursorAtCursor() },
+    { id: "bookmark_toggle", label: t("main.cmd.bookmarkToggle"), run: () => void toggleBookmarkAtCursor() },
+    { id: "bookmark_list", label: t("main.cmd.bookmarkList"), run: () => void openBookmarks() },
+    { id: "scratch_new", label: t("main.cmd.scratchNew"), run: () => void newScratch() },
+    { id: "split_editor", label: t("main.cmd.splitRight"), run: () => splitEditor.toggleSplit() }, // P4（C-4）
     // PR-A（dx_features_backlog §6.1）：键位补齐组的命令面板入口（id 对齐键位表，hint 自动跟随改键；
     // run 复用键位 handler——review 建议 5：与 keybindings.ts 的命令 id 手写两份会漂移）
-    { id: "delete_line", label: "删除行", run: () => kb.triggerEditorKeybindingAction("delete_line") },
-    { id: "fold_all", label: "折叠全部", run: () => kb.triggerEditorKeybindingAction("fold_all") },
-    { id: "unfold_all", label: "展开全部", run: () => kb.triggerEditorKeybindingAction("unfold_all") },
-    { id: "jump_to_bracket", label: "括号匹配跳转", run: () => kb.triggerEditorKeybindingAction("jump_to_bracket") },
-    { id: "reopen_tab", label: "重新打开关闭的标签", run: () => { if (!reopenClosedTab()) toast("没有可重新打开的标签", "info"); } },
-    { id: "recent_edit_locations", label: "上一个编辑位置", run: () => { if (!jumpToLastEdit()) toast("没有更早的编辑位置", "info"); } },
-    { id: "run_history", label: "运行历史", run: () => openRunHistory() },
-    { id: "goto_file", label: "转到文件", run: () => void openQuickOpen("files") },
-    { id: "goto_symbol", label: "转到文件内符号", run: () => kb.triggerEditorKeybindingAction("goto_symbol") },
+    { id: "delete_line", label: t("main.cmd.deleteLine"), run: () => kb.triggerEditorKeybindingAction("delete_line") },
+    { id: "fold_all", label: t("main.cmd.foldAll"), run: () => kb.triggerEditorKeybindingAction("fold_all") },
+    { id: "unfold_all", label: t("main.cmd.unfoldAll"), run: () => kb.triggerEditorKeybindingAction("unfold_all") },
+    { id: "jump_to_bracket", label: t("main.cmd.jumpBracket"), run: () => kb.triggerEditorKeybindingAction("jump_to_bracket") },
+    { id: "reopen_tab", label: t("main.cmd.reopenTab"), run: () => { if (!reopenClosedTab()) toast(t("main.cmd.reopenNone"), "info"); } },
+    { id: "recent_edit_locations", label: t("main.cmd.lastEdit"), run: () => { if (!jumpToLastEdit()) toast(t("main.cmd.noEarlierEdit"), "info"); } },
+    { id: "run_history", label: t("main.cmd.runHistory"), run: () => openRunHistory() },
+    { id: "goto_file", label: t("main.cmd.gotoFile"), run: () => void openQuickOpen("files") },
+    { id: "goto_symbol", label: t("main.cmd.gotoSymbol"), run: () => kb.triggerEditorKeybindingAction("goto_symbol") },
     // PR-J：触发补全建议备选键（Ctrl+Space 被中文 IME 吞键，人工验证；handler 在 keybindings.ts）
-    { id: "trigger_suggest", label: "触发补全建议", run: () => kb.triggerEditorKeybindingAction("trigger_suggest") },
-    { id: "goto_line", label: "转到行 / 列", run: () => void openQuickOpen("line") },
-    { id: "goto_definition", label: "跳转定义", run: () => void lsp.gotoDefinitionAtCursor(app.editor) },
-    { id: "global_search", label: "全局搜索", run: () => setSidebarTab("search") },
-    { id: "recent_files", label: "最近打开的文件", run: () => void openRecentFiles() },
-    { id: "optimize_imports", label: "整理导入（Optimize Imports）", run: () => void optimizeImportsActive() },
-    { id: "local_history", label: "本地历史", run: () => void openLocalHistory() },
-    { id: "template_palette", label: "Live Templates 面板", run: () => liveTemplatesHandle?.openPalette() },
-    { id: "surround", label: "环绕模板（需选区）", run: () => liveTemplatesHandle?.openSurround() },
-    { id: "markdown_preview", label: "Markdown 预览", run: () => mdPreview.togglePreview() },
-    { id: "format_document", label: "格式化文档", hint: "Shift+Alt+F", run: () => void app.editor.getAction("editor.action.formatDocument")?.run() },
-    { id: "open_settings", label: "打开设置", run: () => openSettingsPanel() },
+    { id: "trigger_suggest", label: t("main.cmd.triggerSuggest"), run: () => kb.triggerEditorKeybindingAction("trigger_suggest") },
+    { id: "goto_line", label: t("main.cmd.gotoLine"), run: () => void openQuickOpen("line") },
+    { id: "goto_definition", label: t("main.cmd.gotoDef"), run: () => void lsp.gotoDefinitionAtCursor(app.editor) },
+    { id: "global_search", label: t("main.cmd.globalSearch"), run: () => setSidebarTab("search") },
+    { id: "recent_files", label: t("main.cmd.recentFiles"), run: () => void openRecentFiles() },
+    { id: "optimize_imports", label: t("main.cmd.optimizeImports"), run: () => void optimizeImportsActive() },
+    { id: "local_history", label: t("main.cmd.localHistory"), run: () => void openLocalHistory() },
+    { id: "template_palette", label: t("main.cmd.ltPalette"), run: () => liveTemplatesHandle?.openPalette() },
+    { id: "surround", label: t("main.cmd.surround"), run: () => liveTemplatesHandle?.openSurround() },
+    { id: "markdown_preview", label: t("main.cmd.mdPreview"), run: () => mdPreview.togglePreview() },
+    { id: "format_document", label: t("main.cmd.formatDoc"), hint: "Shift+Alt+F", run: () => void app.editor.getAction("editor.action.formatDocument")?.run() },
+    { id: "open_settings", label: t("main.cmd.openSettings"), run: () => openSettingsPanel() },
     // PR-S1/S2（onboarding plan §3.1）：新手指南 + 欢迎页 force-show 进命令面板
-    { id: "onboarding_guide", label: "新手指南", run: () => void openOnboardingGuide() },
-    { id: "welcome_page", label: "欢迎页", run: () => { if (isWelcomeForced()) dismissWelcomeOverlay(); else showWelcomeOverlay(); } },
-    { id: "new_project", label: "新建项目", run: () => openNewProjectPanel() },
-    { id: "git_panel", label: "Git 面板", run: () => setSidebarTab("git") },
+    { id: "onboarding_guide", label: t("main.cmd.guide"), run: () => void openOnboardingGuide() },
+    { id: "welcome_page", label: t("main.cmd.welcome"), run: () => { if (isWelcomeForced()) dismissWelcomeOverlay(); else showWelcomeOverlay(); } },
+    { id: "new_project", label: t("main.cmd.newProject"), run: () => openNewProjectPanel() },
+    { id: "git_panel", label: t("main.cmd.gitPanel"), run: () => setSidebarTab("git") },
     // P0-1：git 高频操作进命令面板（对标 VS Code Git: * 命令族）——
     // 此前仅 git_panel 一条，键盘流用户完全不可达（报告 D9）
-    { id: "git_init", label: "Git: 初始化仓库", run: () => void gitInitRepo() },
-    { id: "git_stage_all", label: "Git: 暂存全部更改", run: () => void stageAllChanges() },
-    { id: "git_discard_all", label: "Git: 丢弃全部更改…", run: () => void discardAllChanges() },
-    { id: "git_commit", label: "Git: 提交", run: () => { setSidebarTab("git"); ($("git-commit-msg") as HTMLTextAreaElement).focus(); } },
-    { id: "git_commit_all", label: "Git: 提交全部更改", run: () => void commitAll() },
-    { id: "git_fetch", label: "Git: 抓取（Fetch）", run: () => void gitRemoteOp("fetch") },
-    { id: "git_pull", label: "Git: 拉取（Pull）", run: () => void gitRemoteOp("pull") },
-    { id: "git_push", label: "Git: 推送（Push）", run: () => void gitRemoteOp("push") },
-    { id: "git_stash", label: "Git: 贮藏更改（Stash）", run: () => void gitStash() },
-    { id: "git_stash_pop", label: "Git: 弹出贮藏（Stash Pop）", run: () => void gitStashPop() },
-    { id: "git_history", label: "Git: 提交历史", run: () => { setSidebarTab("git"); toggleHistory(); } },
-    { id: "git_branches", label: "Git: 切换分支", run: () => { setSidebarTab("git"); toggleBranchList(); } },
+    { id: "git_init", label: t("main.cmd.gitInit"), run: () => void gitInitRepo() },
+    { id: "git_stage_all", label: t("main.cmd.gitStageAll"), run: () => void stageAllChanges() },
+    { id: "git_discard_all", label: t("main.cmd.gitDiscardAll"), run: () => void discardAllChanges() },
+    { id: "git_commit", label: t("main.cmd.gitCommit"), run: () => { setSidebarTab("git"); ($("git-commit-msg") as HTMLTextAreaElement).focus(); } },
+    { id: "git_commit_all", label: t("main.cmd.gitCommitAll"), run: () => void commitAll() },
+    { id: "git_fetch", label: t("main.cmd.gitFetch"), run: () => void gitRemoteOp("fetch") },
+    { id: "git_pull", label: t("main.cmd.gitPull"), run: () => void gitRemoteOp("pull") },
+    { id: "git_push", label: t("main.cmd.gitPush"), run: () => void gitRemoteOp("push") },
+    { id: "git_stash", label: t("main.cmd.gitStash"), run: () => void gitStash() },
+    { id: "git_stash_pop", label: t("main.cmd.gitStashPop"), run: () => void gitStashPop() },
+    { id: "git_history", label: t("main.cmd.gitHistory"), run: () => { setSidebarTab("git"); toggleHistory(); } },
+    { id: "git_branches", label: t("main.cmd.gitBranches"), run: () => { setSidebarTab("git"); toggleBranchList(); } },
     // 迭代 3：高级工作流进命令面板（cherry-pick/reset 等历史操作走历史条目右键）
-    { id: "git_sync_status", label: "Git: 查看同步状态（↑待推 ↓待拉）", run: () => { setSidebarTab("git"); toast("同步状态已更新到状态栏", "info"); void refreshBranchPanel(); } },
-    { id: "todo_panel", label: "TODO 工具窗", run: () => setSidebarTab("todo") },
+    { id: "git_sync_status", label: t("main.cmd.gitSyncStatus"), run: () => { setSidebarTab("git"); toast(t("main.cmd.syncUpdated"), "info"); void refreshBranchPanel(); } },
+    { id: "todo_panel", label: t("main.cmd.todoPanel"), run: () => setSidebarTab("todo") },
     // PR-S2 巡礼（onboarding plan §3.2b）：open_devtools 此前只有键位（Ctrl+Shift+T）与
     // keybindings.ts 分发，命令面板查不到——巡礼「试一下」挂注册表 id，一并补上可发现性
-    { id: "open_devtools", label: "开发工具面板", run: () => openDevToolsPanel() },
+    { id: "open_devtools", label: t("main.cmd.devtools"), run: () => openDevToolsPanel() },
     // P1（UX 审查）：高频操作进命令面板（id 对齐键位表 → 提示自动跟随改键）
-    { id: "close_tab", label: "关闭标签", run: () => { if (app.activeTab) void closeTab(app.activeTab); } },
-    { id: "new_file", label: "新建文件", run: () => void createFileInteractive() },
-    { id: "toggle_sidebar", label: "切换侧栏", run: () => toggleSidebar() },
-    { id: "toggle_bottom", label: "切换底部面板", run: () => toggleBottomPanel() },
+    { id: "close_tab", label: t("main.cmd.closeTab"), run: () => { if (app.activeTab) void closeTab(app.activeTab); } },
+    { id: "new_file", label: t("main.cmd.newFile"), run: () => void createFileInteractive() },
+    { id: "toggle_sidebar", label: t("main.cmd.toggleSidebar"), run: () => toggleSidebar() },
+    { id: "toggle_bottom", label: t("main.cmd.toggleBottom"), run: () => toggleBottomPanel() },
     // 问题面板（PyCharm Problems View 同位；hint 跟随键位表改键，run 直接调域入口）
-    { id: "open_problems", label: "打开问题面板", run: () => openProblemsPanel() },
+    { id: "open_problems", label: t("main.cmd.problems"), run: () => openProblemsPanel() },
     // PR-1（plugin_system_design §9.9）：注册表中的工具统一以「工具: <title>」前缀进命令面板
-    ...listDevTools().map((t) => ({
-      id: `tool_${t.id}`,
-      label: `工具: ${t.title}`,
-      run: () => openDevTools(t.id),
+    ...listDevTools().map((tool) => ({
+      id: `tool_${tool.id}`,
+      label: t("main.cmd.toolPrefix", { title: tool.title }), // 参数名避开 t（i18n 取词函数，踩坑 ⑤）
+      run: () => openDevTools(tool.id),
     })),
     // PR-2：插件 inline 变换入口（§9.15：命令面板「工具: <inline.label>」）
     ...listInlineEntries(listPluginRecords(), true).map((e) => ({
@@ -1604,14 +1605,14 @@ async function showBreakpointMenu(path: string, line: number, x: number, y: numb
   showMenu(
     [
       {
-        label: has ? "编辑条件…" : "添加条件断点…",
+        label: has ? t("main.bp.editCondition") : t("main.bp.addCondition"),
         icon: "debug-breakpoint-conditional",
         // 条件为真才断下——爬虫循环「第 N 次迭代才断」场景刚需
-        detail: spec?.condition ? `当前：${spec.condition}` : undefined,
+        detail: spec?.condition ? t("main.bp.current", { value: spec.condition }) : undefined,
         action: () => {
           void openPrompt({
-            title: `断点条件 · ${basename(path)}:${line}`,
-            label: "Python 表达式，为真时才断下（如 i > 10）；留空清除条件。",
+            title: t("main.bp.conditionTitle", { name: basename(path), line: line }),
+            label: t("main.bp.conditionLabel"),
             value: spec?.condition ?? "",
             placeholder: "i > 10",
           }).then((v) => {
@@ -1621,13 +1622,13 @@ async function showBreakpointMenu(path: string, line: number, x: number, y: numb
         },
       },
       {
-        label: "设置命中次数…",
+        label: t("main.bp.hitCount"),
         icon: "debug-breakpoint-function",
-        detail: spec?.hitCondition ? `当前：${spec.hitCondition}` : undefined,
+        detail: spec?.hitCondition ? t("main.bp.current", { value: spec.hitCondition }) : undefined,
         action: () => {
           void openPrompt({
-            title: `命中次数 · ${basename(path)}:${line}`,
-            label: "数字（第 N 次命中时断下）或比较表达式（>3、%2==0）；留空清除。",
+            title: t("main.bp.hitTitle", { name: basename(path), line: line }),
+            label: t("main.bp.hitLabel"),
             value: spec?.hitCondition ?? "",
             placeholder: ">3",
           }).then((v) => {
@@ -1637,13 +1638,13 @@ async function showBreakpointMenu(path: string, line: number, x: number, y: numb
         },
       },
       {
-        label: has && spec?.logMessage ? "编辑日志消息…" : "设为日志点（不打断）…",
+        label: has && spec?.logMessage ? t("main.bp.editLog") : t("main.bp.setLogpoint"),
         icon: "debug-breakpoint-log",
-        detail: spec?.logMessage ? `当前：${spec.logMessage}` : undefined,
+        detail: spec?.logMessage ? t("main.bp.current", { value: spec.logMessage }) : undefined,
         action: () => {
           void openPrompt({
-            title: `日志点 · ${basename(path)}:${line}`,
-            label: "用 {表达式} 插值，如 i={i}；设置后该行不断下，只把结果打到调试输出。",
+            title: t("main.bp.logTitle", { name: basename(path), line: line }),
+            label: t("main.bp.logLabel"),
             value: spec?.logMessage ?? "",
             placeholder: "i={i}, url={url}",
           }).then((v) => {
@@ -1653,18 +1654,18 @@ async function showBreakpointMenu(path: string, line: number, x: number, y: numb
         },
       },
       {
-        label: "转为普通断点",
+        label: t("main.bp.toPlain"),
         icon: "debug-breakpoint",
         disabled: kind === "plain",
-        disabledReason: "当前已是普通断点",
+        disabledReason: t("main.bp.alreadyPlain"),
         action: () => apply(null),
       },
       {
         // B-6：启用/禁用（禁用 = 保留断点与全部属性，但不下发 debugger；gutter 灰点）
-        label: has && isBreakpointEnabled(spec) ? "禁用断点" : "启用断点",
+        label: has && isBreakpointEnabled(spec) ? t("main.bp.disable") : t("main.bp.enable"),
         icon: "eye-closed",
         disabled: !has,
-        disabledReason: "该行没有断点",
+        disabledReason: t("main.bp.noBpHere"),
         action: () => {
           setBreakpointEnabled(path, line, !isBreakpointEnabled(spec));
           refreshDebugGutter();
@@ -1673,7 +1674,7 @@ async function showBreakpointMenu(path: string, line: number, x: number, y: numb
       { sep: true },
       has
         ? {
-            label: "删除断点",
+            label: t("main.bp.remove"),
             icon: "trash",
             danger: true,
             action: () => {
@@ -1682,7 +1683,7 @@ async function showBreakpointMenu(path: string, line: number, x: number, y: numb
             },
           }
         : {
-            label: "在此添加断点",
+            label: t("main.bp.addHere"),
             icon: "debug-breakpoint",
             action: () => {
               toggleBreakpoint(path, line);
@@ -1705,7 +1706,7 @@ export async function startLsp(): Promise<void> {
   try {
     await lsp.startEngine(engine, rootUri, currentInterpreter, app.workspaceRoot ?? undefined);
   } catch (e) {
-    statusLspEl.textContent = `LSP 启动失败: ${e}`;
+    statusLspEl.textContent = t("main.lsp.startFailed", { msg: String(e) });
     return;
   }
   // 运行时引擎（opencharm-intel）：开关控制（P3-T09），失败静默降级（静态引擎照常工作）
@@ -1743,35 +1744,35 @@ function buildRunMenuItems(): MenuItem[] {
   const s = runWidgetState();
   return [
     {
-      label: "运行脚本",
+      label: t("main.run.script"),
       icon: "run",
       shortcut: kb.bindingLabel("run_script") || undefined,
       disabled: !s.canRunScript || s.scriptBusy,
-      disabledReason: s.scriptDisabledReason || "正在准备运行…",
+      disabledReason: s.scriptDisabledReason || t("main.run.preparingScript"),
       action: () => h?.runScript(),
     },
     {
-      label: "运行项目",
+      label: t("main.run.project"),
       icon: "run-all",
       shortcut: kb.bindingLabel("run_project") || undefined,
       disabled: !s.canRunProject || s.projectPreparing,
-      disabledReason: s.projectDisabledReason || "正在准备运行项目…",
+      disabledReason: s.projectDisabledReason || t("main.run.preparingProject"),
       action: () => h?.runProject(),
     },
     { sep: true },
     {
-      label: "停止运行",
+      label: t("main.run.stop"),
       icon: "debug-stop",
       shortcut: kb.bindingLabel("stop") || undefined,
       disabled: !s.debugging && !s.stopTarget,
-      disabledReason: "没有正在运行",
+      disabledReason: t("main.run.noneRunning"),
       action: () => h?.stop(),
     },
     {
-      label: "运行配置…",
+      label: t("main.run.config"),
       icon: "gear",
       disabled: !s.canOpenConfig,
-      disabledReason: "需先打开工作区",
+      disabledReason: t("main.run.needWorkspace"),
       action: () => h?.openRunConfig(),
     },
   ];
@@ -1915,19 +1916,19 @@ function getMenuItems(menu: string): MenuEntry[] {
           void getVersion()
             .then((v) => {
               void openAlert({
-                title: "关于 OpenCharm",
-                message: `OpenCharm ${v}\n轻量级 Python IDE（Tauri 2 + Monaco）\n静态语义：Pyrefly / basedpyright · 运行时：opencharm-probe + opencharm-intel`,
-                okLabel: "关闭",
+                title: t("main.about.title"),
+                message: t("main.about.body", { version: v }),
+                okLabel: t("main.tab.close"),
               });
             })
-            .catch((e) => toastFail("读取版本失败", e));
+            .catch((e) => toastFail(t("main.about.versionFail"), e));
         },
       },
       { sep: true, label: "" },
       { label: t("menu.help.authorGuide"), action: () => void openGuide() },
       { sep: true, label: "" },
-      { label: t("menu.help.openLogDir"), action: () => invoke("open_log_dir").catch((e) => toastFail("打开日志目录", e)) },
-      { label: t("menu.help.openDataDir"), action: () => invoke("open_data_dir").catch((e) => toastFail("打开数据目录", e)) },
+      { label: t("menu.help.openLogDir"), action: () => invoke("open_log_dir").catch((e) => toastFail(t("main.about.openLogDir"), e)) },
+      { label: t("menu.help.openDataDir"), action: () => invoke("open_data_dir").catch((e) => toastFail(t("main.about.openDataDir"), e)) },
     ];
     // P0-2：Git 一级菜单（报告 D10）——此前 git 操作只能从侧栏「更多操作」二级菜单触达
     case "git": return [
@@ -2093,7 +2094,7 @@ async function init(): Promise<void> {
     // 晚于删除落地即「复活」文件）。跳过；模态关闭后用户回到编辑器再自然触发。
     if (document.querySelector(".modal:not(.hidden)")) return;
     if (app.settings.autosave === "blur" && app.activeTab?.dirty) {
-      saveActive({ runOnSaveActions: false }).catch((e) => toastFail("自动保存", e));
+      saveActive({ runOnSaveActions: false }).catch((e) => toastFail(t("main.save.autosave"), e));
     }
   });
 
@@ -2130,6 +2131,8 @@ async function init(): Promise<void> {
     .then(() => scanPlugins())
     .then(() => registerQuickOpenActions(buildQuickOpenActions()))
     .catch((e) => console.warn("[extensions] 插件首扫失败", e));
+  // 第二十批 i18n：命令面板 label 是注册时快照——语言切换后整体重注册（registerQuickOpenActions 为替换语义）
+  onLocaleChange(() => registerQuickOpenActions(buildQuickOpenActions()));
   void invoke("watch_plugins_dir").catch(() => undefined); // 监听失败静默（设置页「重新扫描」兜底）
   await listen("plugins-dir-changed", () => schedulePluginRescan());
   // 模板入口快捷键（可配置，默认 Ctrl+J / Ctrl+Alt+T）
@@ -2258,8 +2261,8 @@ async function init(): Promise<void> {
       lsp.replayPersistentDiagnostics(setMarkers, app.tabs.map((t) => t.path));
     }
     const map: Record<lsp.EngineStatus, string> = {
-      off: "LSP: 未启动", starting: "LSP: 启动中…", ready: "LSP: 就绪",
-      error: "LSP: 错误", exited: "LSP: 已退出",
+      off: t("main.lsp.off"), starting: t("main.lsp.starting"), ready: t("main.lsp.ready"),
+      error: t("main.lsp.error"), exited: t("main.lsp.exited"),
     };
     // D3 P-09：状态点（灰未启动 / 黄启动中 / 绿就绪 / 红错误）
     const dotClass: Record<lsp.EngineStatus, string> = {
@@ -2328,11 +2331,11 @@ async function init(): Promise<void> {
     else if (id === "open_devtools") openDevToolsPanel();
     // PR-A（dx_features_backlog §6.1）：重开关闭的标签（Ctrl+Shift+Alt+T；Ctrl+Shift+T 已被 DevTools 占用）
     else if (id === "reopen_tab") {
-      if (!reopenClosedTab()) toast("没有可重新打开的标签", "info");
+      if (!reopenClosedTab()) toast(t("main.cmd.reopenNone"), "info");
     }
     // PR-D：最近编辑位置（Ctrl+Shift+Backspace，PyCharm Last Edit Location 同款）
     else if (id === "recent_edit_locations") {
-      if (!jumpToLastEdit()) toast("没有更早的编辑位置", "info");
+      if (!jumpToLastEdit()) toast(t("main.cmd.noEarlierEdit"), "info");
     }
   });
 
@@ -2495,7 +2498,7 @@ async function init(): Promise<void> {
       winMaxIcon?.classList.toggle("codicon-chrome-restore", max);
       // UI-09：与 index.html 的静态 data-tip 同轨。动态改写必须同时更新 aria-label——
       // 只改 tip 的话，最大化后读屏仍会报「最大化」，与已切换成还原态的图标不符。
-      const label = max ? "还原" : "最大化";
+      const label = max ? t("main.win.restore") : t("main.win.maximize");
       winMaxBtn.dataset.tip = label;
       winMaxBtn.setAttribute("aria-label", label);
     } catch { /* 忽略 */ }
@@ -2789,18 +2792,18 @@ async function init(): Promise<void> {
   setTerminalLinkHandler(gotoFromLink);
   // P2-L：终端里的 URL 可点开（uvicorn/FastAPI 等），与输出面板 URL / 自动开浏览器共用 open_external
   setTerminalUrlHandler((url) => {
-    invoke("open_external", { url }).catch((e) => toastFail("打开浏览器", e));
+    invoke("open_external", { url }).catch((e) => toastFail(t("main.url.openBrowser"), e));
   });
   // P2-L：输出中的 URL 可点开（invoke open_external 仅放行 http/https，后端二次校验）
   setOutputUrlHandler((url) => {
-    invoke("open_external", { url }).catch((e) => toastFail("打开浏览器", e));
+    invoke("open_external", { url }).catch((e) => toastFail(t("main.url.openBrowser"), e));
   });
   // 库支持 P1：`log_level_colors` 开关注入（research §11.9；output.ts 保持无 state 依赖可单测）
   setOutputLevelColorsEnabled(() => app.settings.log_level_colors !== false);
   // v3.4 §9（M3-3.9）：FastAPI 服务就绪（Uvicorn running on http://…）自动开浏览器
   // ——与输出面板 URL 点击共用同一 open_external 通道
   setExternalUrlOpener((url) => {
-    invoke("open_external", { url }).catch((e) => toastFail("打开浏览器", e));
+    invoke("open_external", { url }).catch((e) => toastFail(t("main.url.openBrowser"), e));
   });
 
   // 文件监听事件（增量刷新树）

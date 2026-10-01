@@ -4,6 +4,7 @@
 // 纯 TS、无 DOM 依赖（可单测；UI 态由面板按 EvalResult.state 渲染）。
 
 import { invoke } from "@tauri-apps/api/core";
+import { t } from "./i18n"; // 第十八批 i18n：库文案走语言包
 
 // ---------- 类型 ----------
 
@@ -54,9 +55,9 @@ const LRU_MAX = 100;
 /** invoke 拒绝错误 → 四态分流（Rust 错误码前缀：Timeout: / NoInterpreter: / ScriptError: / BadKind:） */
 export function classifyInvokeError(e: unknown): EvalResult<never> {
   const msg = typeof e === "string" ? e : e instanceof Error ? e.message : String(e);
-  if (msg.startsWith("Timeout:")) return { state: "timeout", error: msg.slice("Timeout:".length).trim() || "求值超时" };
+  if (msg.startsWith("Timeout:")) return { state: "timeout", error: msg.slice("Timeout:".length).trim() || t("devtools.eval.timeoutFallback") };
   if (msg.startsWith("NoInterpreter:")) {
-    return { state: "noInterpreter", error: msg.slice("NoInterpreter:".length).trim() || "未找到可用 Python 解释器" };
+    return { state: "noInterpreter", error: msg.slice("NoInterpreter:".length).trim() || t("devtools.eval.noInterpreterFallback") };
   }
   return { state: "err", error: msg };
 }
@@ -74,7 +75,7 @@ export async function evalKind<T = unknown>(
   try {
     payload = JSON.stringify(args ?? {});
   } catch (e) {
-    return { state: "err", error: `args 序列化失败：${String(e)}` };
+    return { state: "err", error: t("devtools.eval.argsSerializeFailed", { msg: String(e) }) };
   }
   try {
     const line = await invoke<string>("py_eval", {
@@ -84,7 +85,7 @@ export async function evalKind<T = unknown>(
     });
     const parsed = JSON.parse(line) as { ok: boolean; data?: T; error?: string };
     if (parsed.ok) return { state: "ok", data: parsed.data as T };
-    return { state: "err", error: parsed.error ?? "未知脚本错误" };
+    return { state: "err", error: parsed.error ?? t("devtools.eval.unknownScriptError") };
   } catch (e) {
     return classifyInvokeError(e);
   }
@@ -147,7 +148,7 @@ export function createEvalController<T = unknown>(
 
   async function run(args: unknown): Promise<EvalResult<T>> {
     const root = opts.workspaceRoot();
-    if (!root) return { state: "noInterpreter", error: "未打开工作区" };
+    if (!root) return { state: "noInterpreter", error: t("devtools.eval.noWorkspace") };
     const myToken = ++latestToken;
     state = "pending";
     const res = await evalKind<T>(kind, args, { workspaceRoot: root });

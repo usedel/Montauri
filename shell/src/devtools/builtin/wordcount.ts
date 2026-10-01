@@ -2,6 +2,7 @@
 
 import type { PanelHost } from "../../extensions/facade";
 import { textStats } from "./textfns";
+import { t } from "../../i18n";
 
 export function mount(host: PanelHost): { dispose(): void } | void {
   const { kit } = host;
@@ -9,7 +10,7 @@ export function mount(host: PanelHost): { dispose(): void } | void {
 
   const wrap = kit.body();
   const input = kit.textarea({
-    placeholder: "输入或粘贴文本，统计实时更新…",
+    placeholder: t("devtools.wc.inputPh"),
     flex: true,
     onInput: () => refresh(),
   });
@@ -23,11 +24,11 @@ export function mount(host: PanelHost): { dispose(): void } | void {
     out.classList.add("wc-out");
     return { row: kit.row(lab, out), out };
   };
-  const chars = mkStat("字符数（含空白）：");
-  const noSpace = mkStat("字符数（不含空白）：");
-  const words = mkStat("词数：");
-  const cjk = mkStat("CJK 字数：");
-  const lines = mkStat("行数：");
+  const chars = mkStat(t("devtools.wc.chars"));
+  const noSpace = mkStat(t("devtools.wc.charsNoSpace"));
+  const words = mkStat(t("devtools.wc.words"));
+  const cjk = mkStat(t("devtools.wc.cjk"));
+  const lines = mkStat(t("devtools.wc.lines"));
 
   const refresh = (): void => {
     const s = textStats(input.value);

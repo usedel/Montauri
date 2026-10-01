@@ -10,7 +10,7 @@ import { $, $btn, lazyEl } from "../state";
 import { codicon } from "../util";
 import { fuzzyScore } from "../quickOpen"; // 复用 Search Everywhere 的模糊匹配
 import { getDevTool, listDevTools, onRegistryChanged } from "./registry";
-import { groupToolsByCategory, type DevTool, type ToolHost, type ToolInstance } from "./types";
+import { categoryLabel, groupToolsByCategory, type DevTool, type ToolHost, type ToolInstance } from "./types";
 import { t } from "../i18n"; // 第十四批 i18n：开发工具面板动态文案走语言包
 // CR-26：模块顶层禁止立即解析 DOM（测试环境 happy-dom 无完整 DOM，import 即炸）——一律 lazyEl
 const panelEl = lazyEl("right-panel");
@@ -98,7 +98,7 @@ function renderPickerList(query: string): void {
   if (pickerMode === "inline") tools = tools.filter((t) => t.inlineLabel !== null);
   let matched = q
     ? tools.filter((t) => {
-        const hay = `${t.title} ${t.description} ${t.category}`;
+        const hay = `${t.title} ${t.description} ${categoryLabel(t.category)}`;
         return fuzzyScore(hay, q) !== null;
       })
     : tools;
@@ -108,7 +108,7 @@ function renderPickerList(query: string): void {
   let fallbackToNormal = false;
   if (pickerMode === "inline" && q && matched.length === 0) {
     matched = listDevTools().filter((t) => {
-      const hay = `${t.title} ${t.description} ${t.category}`;
+      const hay = `${t.title} ${t.description} ${categoryLabel(t.category)}`;
       return fuzzyScore(hay, q) !== null;
     });
     fallbackToNormal = matched.length > 0;
@@ -147,7 +147,7 @@ function renderPickerList(query: string): void {
       .map((id) => byId.get(id))
       .filter((t): t is DevTool => !!t);
     if (recent.length > 0) addGroup(t("devtools.panel.recent"), recent);
-    for (const [cat, items] of groupToolsByCategory(matched)) addGroup(cat, items);
+    for (const [cat, items] of groupToolsByCategory(matched)) addGroup(categoryLabel(cat), items);
   } else {
     // 搜索态：不分组，保持匹配原序（插入序）
     for (const t of matched) listEl.appendChild(renderPickerItem(t));
@@ -174,7 +174,7 @@ function renderPickerItem(tool: DevTool): HTMLElement {
   item.appendChild(main);
   const cat = document.createElement("span");
   cat.className = "picker-item-cat";
-  cat.textContent = tool.category?.trim() || t("devtools.panel.other");
+  cat.textContent = categoryLabel(tool.category?.trim() || "其他");
   item.appendChild(cat);
   // 行为在渲染时刻定死（dataset）：inline 直执行；normal/回退态开面板——避免点击时
   // 读取模块级 pickerMode 与渲染态不一致（搜索回退后模式仍为 inline 但行为应为面板）

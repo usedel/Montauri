@@ -52,4 +52,7 @@ export const settings: Record<SettingsKey, string> = {
   "settings.shellAuto": "Auto (PowerShell first, falls back to cmd)",
   "settings.shellCmd": "Command Prompt (cmd)",
   "settings.statusFontSize": "Font size {size}",
+  // ---- settings.theme ----
+  "settings.theme.dark": "Dark",
+  "settings.theme.light": "Light",
 };

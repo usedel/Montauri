@@ -14,13 +14,19 @@
 //    若改成即时预览，「取消」就无法回退，与设置面板其余控件的语义不一致。
 
 import { $ } from "./state";
+import { onLocaleChange, t } from "./i18n"; // i18n：主题名随语言重建（卡片文本就地更新，见底部订阅）
 import { codicon } from "./util";
 
-/** 可选主题：value 与 Monaco 主题名 / Settings.theme 一致；pv 对应 .theme-pv--{pv} 预览配色 */
-const THEMES = [
-  { value: "vs-dark", name: "深色", pv: "dark" },
-  { value: "vs", name: "浅色", pv: "light" },
-] as const;
+/** 可选主题：value 与 Monaco 主题名 / Settings.theme 一致；pv 对应 .theme-pv--{pv} 预览配色。
+ *  name 是展示文案——构建函数 + let + onLocaleChange 重建（⑧/⑮ 模式），语言切换后卡片名就地更新。 */
+function buildThemes(): Array<{ value: string; name: string; pv: string }> {
+  return [
+    { value: "vs-dark", name: t("settings.theme.dark"), pv: "dark" },
+    { value: "vs", name: t("settings.theme.light"), pv: "light" },
+  ];
+}
+
+let THEMES = buildThemes();
 
 /** 兜底主题（= state.ts DEFAULT_SETTINGS.theme）：无选中项或值不在候选内时使用 */
 const FALLBACK_THEME = "vs-dark";
@@ -86,23 +92,23 @@ function buildPreview(pv: string): HTMLElement {
 function renderPicker(): void {
   const root = $(PICKER_ID);
   root.textContent = "";
-  for (const t of THEMES) {
+  for (const th of THEMES) {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "theme-swatch";
-    btn.dataset.theme = t.value;
+    btn.dataset.theme = th.value;
     btn.setAttribute("role", "radio");
     btn.setAttribute("aria-checked", "false");
     btn.tabIndex = -1;
-    btn.appendChild(buildPreview(t.pv));
+    btn.appendChild(buildPreview(th.pv));
 
     const name = document.createElement("span");
     name.className = "theme-swatch-name";
     name.appendChild(codicon("check")); // 勾选态图标：CSS 按 aria-checked 切可见性（占位常驻，两卡等宽不跳动）
-    name.append(t.name);
+    name.append(th.name);
     btn.appendChild(name);
 
-    btn.addEventListener("click", () => setSelectedTheme(t.value));
+    btn.addEventListener("click", () => setSelectedTheme(th.value));
     root.appendChild(btn);
   }
   setSelectedTheme(FALLBACK_THEME); // 初始态：默认深色（打开面板时 fillForm 会写入真实值）
@@ -132,3 +138,20 @@ export function wireThemePicker(): void {
   renderPicker();
   wireKeyboard();
 }
+
+// 语言切换：重建 THEMES，并就地把已构建卡片的名称文本换新——
+// 不整卡重渲染（renderPicker 会把选中态重置为兜底值，覆盖 fillForm 写入的真实选中项），
+// 只换 .theme-swatch-name 里的文本节点，aria-checked / tabIndex 原样保留。
+onLocaleChange(() => {
+  THEMES = buildThemes();
+  const byValue = new Map(THEMES.map((th) => [th.value, th.name]));
+  for (const el of swatches()) {
+    const label = byValue.get(el.dataset.theme ?? "");
+    const nameEl = el.querySelector<HTMLElement>(".theme-swatch-name");
+    if (!label || !nameEl) continue;
+    const icon = nameEl.firstElementChild; // 勾选态 codicon 占位常驻，保留
+    nameEl.textContent = "";
+    if (icon) nameEl.appendChild(icon);
+    nameEl.append(label);
+  }
+});

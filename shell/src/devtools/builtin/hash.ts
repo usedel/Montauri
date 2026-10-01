@@ -3,6 +3,7 @@
 import type { PanelHost } from "../../extensions/facade";
 import { flashError } from "../feedback";
 import { md5Hex, sha256Hex } from "./pure";
+import { t } from "../../i18n";
 
 export function mount(host: PanelHost): { dispose(): void } | void {
   const { kit } = host;
@@ -10,12 +11,12 @@ export function mount(host: PanelHost): { dispose(): void } | void {
 
   let upper = false;
   const wrap = kit.body();
-  const input = kit.textarea({ placeholder: "输入文本…（SHA-256 为异步计算）", flex: true });
+  const input = kit.textarea({ placeholder: t("devtools.hash.inputPh"), flex: true });
   const errEl = kit.errorSlot();
 
   // 算法互斥选择：单选组（MD5 / SHA-256 二选一）
   const algoGroup = kit.radioGroup<"md5" | "sha256">({
-    label: "哈希算法",
+    label: t("devtools.hash.algo"),
     options: [
       { value: "md5", label: "MD5" },
       { value: "sha256", label: "SHA-256" },
@@ -24,9 +25,9 @@ export function mount(host: PanelHost): { dispose(): void } | void {
   });
 
   // 大小写：独立开关（非互斥，保持按钮 + aria-pressed）
-  const upperBtn = kit.button("大写");
-  upperBtn.dataset.tip = "切换输出大小写";
-  upperBtn.setAttribute("aria-label", "切换输出大小写");
+  const upperBtn = kit.button(t("devtools.common.uppercase"));
+  upperBtn.dataset.tip = t("devtools.hash.toggleCase");
+  upperBtn.setAttribute("aria-label", t("devtools.hash.toggleCase"));
   const toggleUpper = (): void => {
     upper = !upper;
     upperBtn.classList.toggle("active", upper);
@@ -34,11 +35,11 @@ export function mount(host: PanelHost): { dispose(): void } | void {
   };
   upperBtn.addEventListener("click", toggleUpper);
 
-  const runBtn = kit.primaryButton("计算", "play");
+  const runBtn = kit.primaryButton(t("devtools.hash.compute"), "play");
   const run = (): void => {
     const text = input.value;
     if (!text) {
-      errEl.textContent = "请先输入内容";
+      errEl.textContent = t("devtools.common.needInput");
       return;
     }
     try {
@@ -52,13 +53,13 @@ export function mount(host: PanelHost): { dispose(): void } | void {
             errEl.textContent = "";
           })
           .catch((e) => {
-            errEl.textContent = `SHA-256 计算失败：${String(e)}`;
-            flashError(runBtn, "失败");
+            errEl.textContent = t("devtools.hash.shaFailed", { msg: String(e) });
+            flashError(runBtn, t("devtools.common.failed"));
           });
       }
     } catch (e) {
-      errEl.textContent = `计算失败：${e instanceof Error ? e.message : String(e)}`;
-      flashError(runBtn, "失败");
+      errEl.textContent = t("devtools.hash.failed", { msg: e instanceof Error ? e.message : String(e) });
+      flashError(runBtn, t("devtools.common.failed"));
     }
   };
   runBtn.addEventListener("click", run);
@@ -68,7 +69,7 @@ export function mount(host: PanelHost): { dispose(): void } | void {
 
   const fmt = (h: string): string => (upper ? h.toUpperCase() : h);
 
-  const out = kit.output({ language: "plaintext", placeholder: "哈希值将显示在这里" });
+  const out = kit.output({ language: "plaintext", placeholder: t("devtools.hash.outPh") });
   wrap.append(
     input,
     kit.toolbar(algoGroup.el, upperBtn, runBtn, "spacer", kit.copyButton(() => out.get())),

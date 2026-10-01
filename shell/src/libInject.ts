@@ -9,6 +9,7 @@ import { app } from "./state";
 import { regexHoverMarkdown, scanRegexLiterals, staticDiagnostics, type RegexHit } from "./libRegex";
 import { formatDiagnostics, formatHoverMarkdown, scanFormatLiterals, type FormatHit } from "./libFormat";
 import { jsonHoverSummary, jsonParseError, scanJsonLiterals, type JsonHit } from "./libJson";
+import { t } from "./i18n"; // 第十八批 i18n：库文案走语言包
 
 export type InjectRuleId = "regex" | "format" | "json";
 
@@ -97,7 +98,7 @@ export const INJECT_RULES: readonly InjectRuleDef[] = [
       const h = data as JsonHit;
       const err = jsonParseError(h.value);
       if (!err) return [];
-      return [{ offset: h.contentStart, message: `JSON 解析失败：${err.message}`, isError: false, length: Math.min(80, Math.max(1, h.end - h.contentStart - 1)) }];
+      return [{ offset: h.contentStart, message: t("devtools.common.jsonParseFailed", { msg: err.message }), isError: false, length: Math.min(80, Math.max(1, h.end - h.contentStart - 1)) }];
     },
   },
 ];
