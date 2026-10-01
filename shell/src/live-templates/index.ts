@@ -204,7 +204,8 @@ export async function initLiveTemplates(
   // 第十九批 i18n：BUILTIN_TEMPLATES 随语言重建（builtin.ts 模块级订阅先于此执行），
   // registry 快照里是重建前的定义引用——重跑 rebuild 让 slots 拿到新语言描述。
   // 管理面板列表重绘由 manager.ts 自己的 onLocaleChange 订阅负责（后注册、后执行）。
-  onLocaleChange(() => {
+  // 退订句柄保存在 handle 上：dispose() 时注销，防止销毁后的 handle 在语言切换时仍被重建。
+  const offLocale = onLocaleChange(() => {
     registry.rebuild(userFile, workspaceFile);
   });
 
@@ -223,6 +224,7 @@ export async function initLiveTemplates(
   return {
     reload,
     dispose() {
+      offLocale();
       compStart.dispose();
       compEnd.dispose();
       completionDisposable.dispose();

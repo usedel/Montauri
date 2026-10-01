@@ -71,6 +71,12 @@ export const ide: Record<IdeKey, string> = {
   "ide.lens.testBoth": "🧪 Test (regex / format string)",
   "ide.lens.testFormat": "🧪 Test format string",
   "ide.lens.testRegex": "🧪 Test regex",
+  // ---- ide.lsp ----
+  "ide.lsp.intelClosed": "Runtime intelligence closed",
+  "ide.lsp.notReady": "LSP engine not ready",
+  "ide.lsp.processExited": "LSP process exited (code={code})",
+  "ide.lsp.requestTimeout": "LSP request timed out ({sec}s): {method}",
+  "ide.lsp.stopped": "LSP stopped",
   // ---- ide ----
   "ide.menuLoadFailed": "(Failed to load)",
   // ---- ide.mv ----

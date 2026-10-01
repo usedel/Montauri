@@ -1438,7 +1438,9 @@ export async function gitRemoteOp(
   } catch (e) {
     const msg = String(e);
     appendOutputLine(outputEl, t("git.out.remoteFailed", { label: label, error: localizeBackendError(errMsg(msg)) }), "stderr", gotoFromLink, "git");
-    if (msg.includes("已取消")) toast(t("git.toast.cancelled", { label: label }), "info");
+    // 取消语义走双语匹配：Rust 侧取消哨兵为「已取消」（git_cmds.rs），但错误串可能来自
+    // 未过 localize 的原始输出或英文工具链（cancelled/canceled），只匹配中文在英文环境会漏判
+    if (msg.includes("已取消") || /cancel/i.test(msg)) toast(t("git.toast.cancelled", { label: label }), "info");
     else toastFail(label, e);
   } finally {
     unlisten();

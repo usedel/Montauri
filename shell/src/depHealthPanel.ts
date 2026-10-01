@@ -99,11 +99,16 @@ export function expandDepDetail(): void {
   syncDepDetail();
 }
 
+/** 防重入守卫：本函数往单例 DOM 上挂事件监听与 onLocaleChange 订阅，重复 init 会叠加 */
+let panelInitialized = false;
+
 export function initDepHealthPanel(deps: {
   openEnvPanel: () => void;
   refreshPackagesIfOpen: () => void;
   repaintPackagesIfOpen: () => void;
 }): void {
+  if (panelInitialized) return;
+  panelInitialized = true;
   openPanel = deps.openEnvPanel;
   refreshPackages = deps.refreshPackagesIfOpen;
   repaintPackages = deps.repaintPackagesIfOpen;

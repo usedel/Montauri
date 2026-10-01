@@ -2,7 +2,8 @@
 //
 // 新增域的三步：① 建 `./<domain>.ts` 并 `export const <domain> = {}`；
 // ② 在此 import 并在 zhCN 里加一行展开；③ 在 ../../en-US/ 建同名文件并在其 index.ts 展开。
-// 展开顺序无关——各域 key 前缀互不相同，重叠会在 tsc 阶段因类型冲突暴露。
+// 展开顺序无关——各域 key 前缀互不相同是**约定**而非编译期保证（两个域若含同名 string key，
+// 后展开者静默覆盖前者）；跨域重复由 i18n.test.ts 的全表扫描单测兜底。
 import { core } from "./core";
 import { debug } from "./debug";
 import { dep } from "./dep";
@@ -26,6 +27,9 @@ import { workbench } from "./workbench";
 
 /** 全量中文词条（真源）：英文包的 Record<TKey, string> 以它为基准做同构校验。 */
 export const zhCN = { ...core, ...git, ...debug, ...filetree, ...run, ...env, ...storage, ...dep, ...settings, ...newproject, ...welcome, ...search, ...workbench, ...editor, ...ide, ...lt, ...devtools, ...ext, ...endpoints, ...main };
+
+/** 各域原始表（spread 前的独立视图）：spread 会把跨域同名 key 静默覆盖，单测扫这里才能发现重复。 */
+export const zhDomains: Record<string, Record<string, string>> = { core, git, debug, filetree, run, env, storage, dep, settings, newproject, welcome, search, workbench, editor, ide, lt, devtools, ext, endpoints, main };
 
 /** 全部文案 key：en-US 的 `Record<TKey, string>` 与 `t()` 的入参类型都从这里派生。 */
 export type TKey = keyof typeof zhCN;

@@ -125,7 +125,7 @@ export function requestEngine(engine: string, method: string, params: unknown): 
     // CR-11：引擎假死（丢帧/内部死锁）时 Promise 永不 settle，闭包与 pending 条目无界泄漏，
     // 补全 widget 永久转圈。超时 reject 兜底；响应到达时 settlePending 清定时器。
     const timer = setTimeout(() => {
-      settlePending(s, id, (p) => p.reject(new Error(`LSP 请求超时（${timeout / 1000}s）: ${method}`)));
+      settlePending(s, id, (p) => p.reject(new Error(t("ide.lsp.requestTimeout", { sec: timeout / 1000, method }))));
     }, timeout);
     s.pending.set(id, { resolve, reject, timer });
     invoke("lsp_send_request", { engine, id, method, params }).catch((e) => {
@@ -289,7 +289,7 @@ async function doEnsureListeners(): Promise<void> {
   unlistenExit = await getCurrentWindow().listen<{ engine?: string; code: number | null }>("lsp-exit", (e) => {
     const eng = e.payload?.engine ?? "static";
     const s = session(eng);
-    const err = new Error(`LSP 进程退出（code=${e.payload?.code}）`);
+    const err = new Error(t("ide.lsp.processExited", { code: String(e.payload?.code) }));
     for (const [, p] of s.pending) {
       clearTimeout(p.timer);
       p.reject(err);
@@ -426,7 +426,7 @@ export async function stopEngine(): Promise<void> {
   try {
     await invoke("lsp_stop", { engine: "*" });
   } catch { /* 未启动时忽略 */ }
-  const err = new Error("LSP 已停止");
+  const err = new Error(t("ide.lsp.stopped"));
   for (const [, s] of sessions) {
     for (const [, p] of s.pending) {
       clearTimeout(p.timer); // CR-11：清超时句柄
@@ -446,7 +446,7 @@ export async function stopIntel(): Promise<void> {
     await invoke("lsp_stop", { engine: "intel" });
   } catch { /* 未启动时忽略 */ }
   const s = session("intel");
-  const err = new Error("运行时智能已关闭");
+  const err = new Error(t("ide.lsp.intelClosed"));
   for (const [, p] of s.pending) {
     clearTimeout(p.timer); // CR-11
     p.reject(err);
@@ -1048,7 +1048,7 @@ export async function fetchRenameChanges(
   position: MonacoApi.Position,
   newName: string,
 ): Promise<RenameFileEdits[]> {
-  if (engineStatus !== "ready") throw new Error("LSP 引擎未就绪");
+  if (engineStatus !== "ready") throw new Error(t("ide.lsp.notReady"));
   await flushBeforeSemantic();
   const result = await request("textDocument/rename", {
     textDocument: { uri: pathToFileUri(currentPath(model)) },

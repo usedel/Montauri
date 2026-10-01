@@ -37,24 +37,35 @@ def emit(pairs, head):
 
 
 def main():
-    zh = json.load(open(os.path.join(DATA, "html_dict.json"), encoding="utf-8"))
-    zh.update(json.load(open(os.path.join(DATA, "manual_zh.json"), encoding="utf-8")))
-    en = {}
+    zh: dict = {}
+    en: dict = {}
+    dupes: list[str] = []
+
+    def merge(dst: dict, path: str) -> None:
+        for k, v in json.load(open(path, encoding="utf-8")).items():
+            if k in dst:
+                dupes.append(f"{k}（{os.path.basename(path)} 覆盖更早分片的值）")
+            dst[k] = v
+
+    merge(zh, os.path.join(DATA, "html_dict.json"))
+    merge(zh, os.path.join(DATA, "manual_zh.json"))
     for f in sorted(os.listdir(DATA)):
         if f.startswith("en_") and f.endswith(".json"):
-            en.update(json.load(open(os.path.join(DATA, f), encoding="utf-8")))
+            merge(en, os.path.join(DATA, f))
 
     missing = sorted(k for k in zh if k not in en)
     extra = sorted(k for k in en if k not in zh)
     empty = sorted(k for k, v in zh.items() if not v.strip()) + sorted(k for k, v in en.items() if not v.strip())
     print(f"zh: {len(zh)}  en: {len(en)}")
+    if dupes:
+        print(f"!! 重复 key {len(dupes)} 条（后者静默覆盖前者，必须消除）: {dupes[:10]}")
     if missing:
         print(f"!! 缺英文 {len(missing)} 条: {missing[:10]}")
     if extra:
         print(f"!! 多余英文 {len(extra)} 条: {extra[:10]}")
     if empty:
         print(f"!! 空文案: {empty[:10]}")
-    if missing or extra or empty:
+    if dupes or missing or extra or empty:
         sys.exit(1)
 
     zh_txt = emit(zh, [

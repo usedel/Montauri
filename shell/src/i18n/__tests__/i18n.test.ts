@@ -7,11 +7,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { applyDomI18n, getLocale, initI18n, onLocaleChange, setLocale, t } from "..";
 import { localizeBackendError } from "../backendError";
 import { enUS } from "../locales/en-US";
-import { zhCN } from "../locales/zh-CN";
+import { zhCN, zhDomains } from "../locales/zh-CN";
 
 describe("语言包完整性", () => {
   it("中英文 key 集合完全一致（编译期 Record<TKey,string> 之外的第二道锁）", () => {
     expect(Object.keys(enUS).sort()).toEqual(Object.keys(zhCN).sort());
+  });
+
+  it("各域 key 前缀互不相同（跨域重复会被 spread 静默覆盖，扫 spread 前的域表兜底）", () => {
+    const owner = new Map<string, string>();
+    for (const [domain, table] of Object.entries(zhDomains)) {
+      for (const k of Object.keys(table)) {
+        const prev = owner.get(k);
+        expect(prev ?? undefined, `key "${k}" 同时出现在 ${prev} 域与 ${domain} 域（后者覆盖前者）`).toBeUndefined();
+        owner.set(k, domain);
+      }
+    }
   });
 
   it("词条无空串占位（漏填会让 UI 出现空白按钮）", () => {
