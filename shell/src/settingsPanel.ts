@@ -120,6 +120,8 @@ const settingsDataOpenEl = lazyEl<HTMLButtonElement>("settings-data-open");
 // E-1（PyCharm 调研）：设置搜索
 const settingsSearchEl = lazyEl<HTMLInputElement>("settings-search");
 const settingsSearchEmptyEl = lazyEl("settings-search-empty");
+// UI-31：搜索框内的一键清除按钮（有输入时才出现）
+const settingsSearchClearEl = lazyEl<HTMLButtonElement>("settings-search-clear");
 
 // ---------- E-1：设置搜索 ----------
 
@@ -172,7 +174,18 @@ let SETTINGS_ROW_KEYWORDS: Record<string, string> = {
   "storage-uv-clean": t("settings.kw.uvClean"),
   "storage-migrate-path": t("settings.kw.migrate"),
   "storage-migrate": t("settings.kw.migrate"),
+  // UI-31：键位行纳入搜索（此前搜「保存」只命中保存分类，搜不到快捷键分类里的同名动作）
+  ...keybindingKeywords(),
 };
+
+/** 键位行的搜索域：动作名 + 出厂键位串（如 "Ctrl+S"），让键位可被名字或直接按键位串搜到。
+ *  ⚠ 内联 id 规则、不调 kbInputId：本函数在模块初始化期（SETTINGS_ROW_KEYWORDS 初值）就会执行，
+ *  而 kbInputId 是定义在后面的 const，此时仍在 TDZ——调用会直接 ReferenceError。 */
+function keybindingKeywords(): Record<string, string> {
+  const map: Record<string, string> = {};
+  for (const m of KEYBINDING_META) map[`settings-kb-${m.id}`] = `${m.label} ${m.def}`;
+  return map;
+}
 
 /** 行的搜索域：行文本 + 提示文本不在此（hint 归 section 层）+ 控件关键词 + data-kw */
 function settingsRowHaystack(row: HTMLElement): string {
@@ -188,20 +201,62 @@ function settingsRowHaystack(row: HTMLElement): string {
 /** 是否处于搜索态（E-1：空态恢复只在此为 true 时做一次，防止重复触发动态页渲染） */
 let searchActive = false;
 
+/** 搜索框清除按钮的显隐：有输入才出现（UI-31） */
+function syncSearchClearBtn(): void {
+  settingsSearchClearEl.classList.toggle("hidden", settingsSearchEl.value.length === 0);
+}
+
+/**
+ * UI-31：搜索态的「分类归属」与导航态同步。
+ * 此前搜索跨分类平铺命中行，却仍高亮着某个分类、也不说明这些行来自哪个分类——
+ * 导航态与内容不一致，看上去像切到了别的分类。
+ * 分类名直接取导航项文本（已 i18n、随语言切换更新），故不新增词条。
+ */
+function syncSearchCategoryLabels(searching: boolean): void {
+  for (const s of Array.from(document.querySelectorAll<HTMLElement>(".settings-section"))) {
+    const existing = s.querySelector<HTMLElement>(".settings-section-cat");
+    if (!searching) {
+      existing?.remove();
+      continue;
+    }
+    if (NON_ROW_SECTIONS.has(s.id)) continue; // 动态页不参与搜索，无需标签
+    const cat = s.id.replace("settings-section-", "");
+    const navItem = document.querySelector<HTMLElement>(`.settings-nav-item[data-cat="${cat}"]`);
+    const name = navItem?.textContent?.trim() ?? cat;
+    if (existing) {
+      existing.textContent = name;
+      continue;
+    }
+    const label = document.createElement("div");
+    label.className = "settings-section-cat";
+    label.textContent = name;
+    s.prepend(label);
+  }
+  // 导航态：搜索时不高亮任何分类（内容已跨分类）；退出搜索时还原到 currentCategory
+  document.querySelectorAll<HTMLElement>(".settings-nav-item").forEach((b) => {
+    const sel = !searching && b.dataset.cat === currentCategory;
+    b.classList.toggle("active", sel);
+    b.setAttribute("aria-selected", String(sel)); // UI-16：role=tab 的选中态与 .active 同源
+  });
+}
+
 /** 应用设置搜索过滤：query 非空时跨分类显示所有含匹配行的 section，隐藏不匹配的行 */
 function applySettingsFilter(rawQuery: string): void {
   const query = rawQuery.trim();
   const sections = Array.from(document.querySelectorAll<HTMLElement>(".settings-section"));
+  syncSearchClearBtn();
   if (!query) {
     if (!searchActive) return; // 本就是分类视图：无状态可恢复（多余 switchCategory 会双渲染插件/模板页）
     searchActive = false;
     settingsSearchEmptyEl.classList.add("hidden");
-    // 恢复：清掉行级 hidden，按当前分类还原 section 显隐。
+    // 恢复：清掉行级/组级 hidden，按当前分类还原 section 显隐。
     // 刻意不走 switchCategory——它对 plugins/templates 有渲染副作用，恢复显隐不该触发重渲染
     for (const s of sections) {
       s.classList.toggle("hidden", s.id !== `settings-section-${currentCategory}`);
       s.querySelectorAll<HTMLElement>(".settings-row").forEach((r) => r.classList.remove("hidden"));
+      s.querySelectorAll<HTMLElement>(".settings-group").forEach((g) => g.classList.remove("hidden"));
     }
+    syncSearchCategoryLabels(false);
     document.querySelector(".settings-card")?.classList.toggle("settings-card--wide", currentCategory === "templates");
     return;
   }
@@ -219,9 +274,15 @@ function applySettingsFilter(rawQuery: string): void {
       row.classList.toggle("hidden", !hit);
       if (hit) sectionMatches++;
     });
+    // UI-31：分组是过滤的最小单位——组内无命中行则整组连标题一起隐藏，否则会留下孤立的小标题
+    s.querySelectorAll<HTMLElement>(".settings-group").forEach((g) => {
+      const visibleRows = g.querySelectorAll<HTMLElement>(".settings-row:not(.hidden)").length;
+      g.classList.toggle("hidden", visibleRows === 0);
+    });
     s.classList.toggle("hidden", sectionMatches === 0);
     totalMatches += sectionMatches;
   }
+  syncSearchCategoryLabels(true);
   settingsSearchEmptyEl.classList.toggle("hidden", totalMatches > 0);
 }
 
@@ -390,7 +451,11 @@ function renderKeybindingRows(): void {
     input.spellcheck = false;
     label.htmlFor = input.id; // 遗留修复：动态生成的行同样要 label↔控件关联（读屏聚焦输入框报得出动作名）
     wireKeybindingCapture(input); // UX：改为「按键录入」，不必手写字面量
-    row.append(label, input);
+    // UI-31：键位改 chip 胶囊外观（等宽 + 描边），只是多包一层装饰容器，录入器与 input 本身不动
+    const chip = document.createElement("span");
+    chip.className = "kb-chip";
+    chip.appendChild(input);
+    row.append(label, chip);
     container.appendChild(row);
   }
 }
@@ -466,12 +531,24 @@ function clampFontSize(raw: number, fallback: number): number {
   return Math.max(8, Math.min(32, n));
 }
 
+/**
+ * UI-31：预设下拉 + 自定义输入的显隐联动——只有预设选「自定义…」时才展开输入框。
+ * 此前两个控件在行内对半分，选了预设仍留一个空输入框占位，且长值（字体栈 / 包源 URL）被挤成半截。
+ * @param focusCustom 用户刚切到「自定义…」时为 true，顺带把焦点交给输入框
+ */
+function syncPresetControls(preset: HTMLSelectElement, custom: HTMLInputElement, focusCustom = false): void {
+  const show = preset.value === "__custom__";
+  custom.classList.toggle("hidden", !show);
+  if (show && focusCustom) custom.focus();
+}
+
 /** 字体族下拉候选 ↔ 自定义输入框同步（D3 P-14：命中候选则选中，否则落「自定义…」） */
 function syncFontPreset(family: string): void {
   const hit = Array.from(settingsFontFamilyPresetEl.options).find(
     (o) => o.value === family && o.value !== "__custom__",
   );
   settingsFontFamilyPresetEl.value = hit ? hit.value : "__custom__";
+  syncPresetControls(settingsFontFamilyPresetEl, settingsFontFamilyEl);
 }
 
 /** PyPI 源下拉候选 ↔ 自定义输入框同步（命中候选则选中，否则落「自定义…」） */
@@ -480,6 +557,7 @@ function syncPypiIndexPreset(index: string): void {
     (o) => o.value === index && o.value !== "__custom__",
   );
   settingsPypiIndexPresetEl.value = hit ? hit.value : "__custom__";
+  syncPresetControls(settingsPypiIndexPresetEl, settingsPypiIndexEl);
 }
 
 /** 字体族实时预览（设置面板内即时生效；正式保存仍走「保存」按钮） */
@@ -818,6 +896,7 @@ export function wireSettingsPanel(): void {
       "storage-uv-clean": t("settings.kw.uvClean"),
       "storage-migrate-path": t("settings.kw.migrate"),
       "storage-migrate": t("settings.kw.migrate"),
+      ...keybindingKeywords(),
     };
     applyFontStatus();
   });
@@ -850,6 +929,12 @@ export function wireSettingsPanel(): void {
     clearTimeout(searchTimer);
     searchTimer = setTimeout(() => applySettingsFilter(settingsSearchEl.value), 150);
   });
+  // UI-31：一键清除——清空并立刻退出搜索态（不等防抖），焦点回到输入框
+  settingsSearchClearEl.addEventListener("click", () => {
+    settingsSearchEl.value = "";
+    applySettingsFilter("");
+    settingsSearchEl.focus();
+  });
   $("settings-search-goto-kb").addEventListener("click", () => {
     clearSettingsSearch();
     switchCategory("keybindings");
@@ -860,6 +945,7 @@ export function wireSettingsPanel(): void {
     if (settingsFontFamilyPresetEl.value !== "__custom__") {
       settingsFontFamilyEl.value = settingsFontFamilyPresetEl.value;
     }
+    syncPresetControls(settingsFontFamilyPresetEl, settingsFontFamilyEl, true);
     previewFontFamily();
   });
   settingsFontFamilyEl.addEventListener("input", () => {
@@ -872,6 +958,7 @@ export function wireSettingsPanel(): void {
       settingsPypiIndexEl.value = settingsPypiIndexPresetEl.value;
     }
     syncPypiIndexPreset(settingsPypiIndexEl.value);
+    syncPresetControls(settingsPypiIndexPresetEl, settingsPypiIndexEl, true);
   });
   settingsPypiIndexEl.addEventListener("input", () => {
     syncPypiIndexPreset(settingsPypiIndexEl.value.trim());

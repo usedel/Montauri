@@ -2964,7 +2964,17 @@ button:focus-visible,
 .settings-card { width: 820px; max-width: 94vw; height: 560px; max-height: 82vh; display: flex; flex-direction: column; }
 /* Live Templates 分类需要双栏（列表+编辑器），进入时加宽加高 */
 .settings-card--wide { width: min(1160px, 96vw); height: min(780px, 88vh); }
-.settings-layout { display: flex; flex: 1; min-height: 0; margin-top: var(--space-1); }
+/* UI-31：头部与内容区之间补 1px 分隔线，明确「标题 / 表单」两个分区。
+   .env-header 是六个模态共用类，故限定在 .settings-card 内覆盖，不影响其它模态。 */
+.settings-card .env-header {
+  margin-bottom: 0;
+  padding-bottom: var(--space-5);
+  border-bottom: 1px solid var(--border);
+}
+.settings-layout { display: flex; flex: 1; min-height: 0; margin-top: var(--space-5); }
+/* UI-31：右栏 = 搜索条 + 表单区。搜索条提到滚动容器之外（原在 .settings-content 内，
+   长分类一滚就看不见搜索框，改不了关键词），故拆出 .settings-main 作右栏容器。 */
+.settings-main { flex: 1; min-width: 0; display: flex; flex-direction: column; padding-left: var(--space-7); }
 .settings-nav {
   width: 170px;
   flex: none;
@@ -2975,16 +2985,23 @@ button:focus-visible,
   padding-right: var(--space-5);
 }
 .settings-nav-item {
+  /* UI-31：图标 + 文字横排（文字包在 <span data-i18n> 内，避免被整节点 textContent 替换抹掉图标） */
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
   text-align: left;
   background: transparent;
   border: none;
   color: var(--fg);
   font-size: var(--text-sm);
-  padding: var(--space-4) var(--space-6);
+  padding: var(--space-4) var(--space-5);
   border-radius: var(--radius-md);
   cursor: pointer;
   white-space: nowrap;
 }
+/* 图标静态取次要色、激活时取品牌色，避免十个图标抢文字的视觉重量 */
+.settings-nav-item .codicon { font-size: var(--text-md); color: var(--fg-dim); flex: none; }
+.settings-nav-item.active .codicon { color: var(--brand); }
 .settings-nav-item:hover { background: var(--hover); }
 /* D4：激活态改左侧品牌指示条 + 浅底（替代整块蓝底） */
 .settings-nav-item.active {
@@ -2993,7 +3010,7 @@ button:focus-visible,
   font-weight: 600;
   box-shadow: inset 2px 0 0 var(--brand);
 }
-.settings-content { flex: 1; min-width: 0; padding-left: var(--space-7); overflow: auto; display: flex; flex-direction: column; }
+.settings-content { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; padding-top: var(--space-5); }
 
 /* ---------- UI-24：极窄窗口下的设置面板 ----------
    导航列固定 170px（flex:none），在窄窗口下会吃掉卡片宽度的近三分之一：卡片是 width:820px +
@@ -3022,23 +3039,29 @@ button:focus-visible,
   .settings-nav-item { flex: none; padding: var(--space-2) var(--space-5); }
   /* 品牌指示条随排布方向换边：竖排 = 左侧 2px，横排 = 底部 2px */
   .settings-nav-item.active { box-shadow: inset 0 -2px 0 var(--brand); }
-  .settings-content { padding-left: 0; padding-top: var(--space-5); }
+  .settings-main { padding-left: 0; }
+  .settings-content { padding-top: var(--space-5); }
 }
 .settings-section { flex: none; display: flex; flex-direction: column; gap: var(--space-6); }
 
 /* ---------- E-1（PyCharm 调研）：设置搜索 ---------- */
-.settings-search-box { flex: none; margin-bottom: var(--space-6); }
+/* UI-31：搜索条常驻右栏顶部（不再随表单滚动），带放大镜图标与一键清除 */
+.settings-search-box { flex: none; position: relative; display: flex; align-items: center; margin-bottom: var(--space-3); }
+.settings-search-icon { position: absolute; left: var(--space-4); color: var(--fg-dim); font-size: var(--text-sm); pointer-events: none; }
 .settings-search-box input {
   width: 100%;
   box-sizing: border-box;
-  padding: var(--space-2) var(--space-4);
+  /* 左右各让出 28px：左放大镜、右清除按钮 */
+  padding: var(--space-2) var(--space-11) var(--space-2) var(--space-11);
   font-size: var(--text-sm);
   background: var(--bg);
   color: var(--fg);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
 }
-.settings-search-empty { flex: none; display: flex; align-items: center; gap: var(--space-4); color: var(--fg-dim); font-size: var(--text-sm); padding: var(--space-2) 0; }
+.settings-search-box input:focus-visible { outline: none; border-color: var(--accent); }
+.settings-search-clear { position: absolute; right: var(--space-1); }
+.settings-search-empty { flex: none; display: flex; align-items: center; gap: var(--space-4); color: var(--fg-dim); font-size: var(--text-sm); padding: var(--space-2) 0 var(--space-4); }
 /* PR-2：插件 tab（§9.14）——列表可滚（插件多时不撑爆卡片） */
 .settings-section-plugins { flex: 1; min-height: 0; overflow-y: auto; }
 .plugins-panel { display: flex; flex-direction: column; gap: var(--space-4); }
@@ -3117,13 +3140,147 @@ button:focus-visible,
 /* UI-08：迁移到 .btn 体系（.btn / .btn--primary）。原规则是为修「日志/存储页按钮退回浏览器
    默认外观」而补的（矮一截、系统灰底、字体不继承）——.btn 基类已含 font-family:inherit 与
    flex:none，该修复由体系天然承载，无需再按域重复一遍。 */
-.settings-row input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; }
+/* UI-31：复选框自绘。
+   只加 accent-color 不够——它只管「已勾选」的填充色，未勾选态仍是浏览器原生的白底方块，
+   深色主题下与同页 select / input / 按钮的描边体系割裂（截图实测）。改为 appearance:none
+   自绘：未勾选 = 描边空框，已勾选 = 品牌蓝底 + 白勾（勾用伪元素边框旋转而成，无需额外图标字体）。 */
+.settings-row input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  width: 15px;
+  height: 15px;
+  flex: none;
+  border: 1px solid var(--control-hover);
+  border-radius: var(--radius-xs);
+  background: var(--bg);
+  cursor: pointer;
+}
+.settings-row input[type="checkbox"]:hover { border-color: var(--accent); }
+.settings-row input[type="checkbox"]:checked { background: var(--accent); border-color: var(--accent); }
+.settings-row input[type="checkbox"]:checked::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 4px;
+  height: 8px;
+  border: solid var(--on-accent);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
 /* 快捷键「按键录入」框（settingsPanel.ts::wireKeybindingCapture）：聚焦后直接按组合键写入，
    不接收手输文本。品牌色描边 + 等宽字体提示「这是按键捕获区」，去掉文本光标避免误以为可编辑。 */
 .settings-row input[type="text"].kb-capture {
   border-color: var(--brand);
   font-family: var(--mono);
   cursor: default;
+}
+/* UI-31：键位改「chip 胶囊」外观（等宽 + 描边），录入器逻辑与 input 本身完全不动 */
+.kb-chip {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 260px;
+  padding: 0 var(--space-4);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.kb-chip input[type="text"] {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-2) 0;
+  background: transparent;
+  border: none;
+  font-family: var(--mono);
+  cursor: default;
+}
+/* 焦点由 chip 的描边表达（:focus-within），input 自身不再叠一层 outline */
+.kb-chip input[type="text"]:focus-visible { outline: none; }
+.kb-chip:focus-within { border-color: var(--brand); }
+
+/* ---------- UI-31：两列网格表单（对齐 / 分组 / 行内说明）----------
+   由来：.settings-row 是 flex 行，label 靠 min-width:160px 撑基线；遇到超长标签
+   （「新建 Python 文件自动插文件头模板」「调试只步进我的代码（跳过库代码）」）会被
+   flex:none 撑开、把右侧控件整体右推，各行控件左边界因此参差不齐。
+   快捷键分区早已用「一张共享网格 + 行 display:contents」修好（见 #settings-keybinding-rows），
+   这里把同一套方案推广到其余表单分类：每张 .settings-grid 内所有行共享列宽，标签列取
+   最长标签（上限 220px），超长标签换行而非撑宽列，控件列左边界全表对齐。
+   ⚠ 行内有 2 个及以上控件时（预设下拉 + 自定义输入、多个按钮）必须包一层
+   .settings-controls——否则第二个控件会占掉网格的下一格，把内容挤进隐式第三列。 */
+.settings-grid {
+  display: grid;
+  grid-template-columns: minmax(var(--settings-label-w, 160px), 220px) minmax(0, 1fr);
+  align-items: center;
+  column-gap: var(--space-7);
+  row-gap: var(--space-5);
+}
+.settings-grid > .settings-row { display: contents; }
+/* 行内跨两列的块（如存储页的磁盘占用明细）：整幅铺开，不受控件列宽度限制 */
+.settings-grid > .settings-grid-full,
+.settings-grid .settings-row > .settings-grid-full { grid-column: 1 / -1; }
+.settings-grid > .settings-row > label,
+.settings-grid > .settings-row > .settings-label-gap {
+  min-width: 0;
+  white-space: normal;
+  line-height: 1.35;
+}
+/* 带行内说明的行里，控件列是「控件 + 说明」两行高，标签按默认的居中会浮在两行之间、看着像错位；
+   改为与控件首行顶部对齐（:has 不支持时退回居中，属可接受降级）。 */
+.settings-grid > .settings-row:has(.settings-row-desc) > label,
+.settings-grid > .settings-row:has(.settings-row-desc) > .settings-label-gap { align-self: start; }
+/* 控件列定宽分档：数字框 96px（此前 flex:1 把两位数字撑满整行），复选框/下拉不拉伸；
+   文本输入（字体栈 / 包源 URL / 迁移路径）保持撑满以容纳长值。 */
+.settings-grid input[type="number"] { width: 96px; justify-self: start; }
+.settings-grid input[type="checkbox"] { justify-self: start; }
+/* 多控件行：子控件在控件列内横排，空间不足时换行 */
+.settings-controls { display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap; min-width: 0; }
+/* 网格项与纵向堆叠容器都会把 width:auto 的子元素 stretch 满宽——按钮（如「刷新」「开始迁移…」）
+   会被拉成一根整行横条。按钮一律按内容宽度靠左。 */
+.settings-grid .btn,
+.settings-field > .btn { justify-self: start; align-self: flex-start; }
+/* 行内说明：与它解释的控件同处控件列、纵向堆叠（desc 在控件正下方）。
+   ⚠ 不能把 desc 直接塞进 .settings-row：行是 display:contents，desc 会被当作第二个网格
+   单元格，而「显式定位项先于自动放置项落格」会让它抢走控件位、把复选框挤没（实测踩过）。
+   因此行内的「控件 + 说明」统一包一层 .settings-field 作为一个网格项。 */
+.settings-field { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.settings-row-desc { font-size: var(--text-xs); color: var(--fg-dim); line-height: 1.5; }
+/* 焦点反馈：设置面板的表单控件此前既不在全站 :focus-visible 名单内、也没有 :focus 规则，
+   键盘 Tab 到下拉 / 输入框 / 复选框时没有任何可见反馈。 */
+.settings-row select:focus-visible,
+.settings-row input:focus-visible { outline: 1px solid var(--focus-ring); outline-offset: 1px; }
+
+/* ---------- UI-31：分类内分组（编辑器 20+ 项复选框墙 → 四组小标题）---------- */
+.settings-group { display: flex; flex-direction: column; gap: var(--space-5); }
+.settings-group + .settings-group { margin-top: var(--space-9); }
+.settings-group-title {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  color: var(--fg-dim);
+  padding-top: var(--space-6);
+  border-top: 1px solid var(--border);
+}
+/* 首个分组上方就是搜索条，再画一条分隔线会显得悬空 */
+.settings-group:first-child .settings-group-title { padding-top: 0; border-top: none; }
+/* UI-31：底部操作条与滚动内容之间同样用 1px 分隔线收边（原为裸 margin） */
+.settings-card > .modal-actions {
+  margin-top: var(--space-5);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--border);
+}
+/* 搜索态下「命中行所属分类」小标签（跨分类平铺时说明这些行来自哪个分类）；
+   由 settingsPanel.ts 动态插入，非搜索态不出现。 */
+.settings-section-cat {
+  flex: none;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  color: var(--fg-dim);
+  padding-bottom: var(--space-2);
+  margin-bottom: var(--space-4);
+  border-bottom: 1px solid var(--border);
 }
 /* 快捷键分区：每行各自 flex 时，标签长短不一（"保存" ↔ "转到文件（Search Everywhere 文件模式）"）
    会把输入框挤成不同宽度。改「一个共享网格 + 行 display:contents」：所有行的标签列与控件列
