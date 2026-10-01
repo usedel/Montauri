@@ -16,6 +16,7 @@ import { basename, emptyState, relativePath } from "./util";
 import { bindingLabel } from "./keybindings";
 import { openConfirm } from "./dialog";
 import { toastFail } from "./toast";
+import { t } from "./i18n"; // 第十一批 i18n：书签动态文案走语言包
 
 export interface Bookmark {
   path: string;
@@ -56,7 +57,7 @@ export function refreshBookmarkGutter(): void {
       range: new monaco.Range(line, 1, line, 1),
       options: {
         glyphMarginClassName: "gutter-bookmark",
-        glyphMarginHoverMessage: { value: `书签（第 ${line} 行）` },
+        glyphMarginHoverMessage: { value: t("workbench.bookmarks.glyphTip", { line: line }) },
       },
     })),
   );
@@ -80,7 +81,7 @@ export async function loadBookmarks(): Promise<void> {
     items = await invoke<Bookmark[]>("get_bookmarks", { workspaceRoot: app.workspaceRoot });
   } catch (e) {
     console.warn("[bookmarks] 读取书签失败", e);
-    toastFail("读取书签", e);
+    toastFail(t("workbench.bookmarks.failRead"), e);
     items = [];
   }
 }
@@ -106,7 +107,7 @@ export async function toggleBookmarkAtCursor(): Promise<void> {
     });
   } catch (e) {
     console.warn("[bookmarks] 切换书签失败", e);
-    toastFail("切换书签", e);
+    toastFail(t("workbench.bookmarks.failToggle"), e);
     return;
   }
   refreshBookmarkGutter();
@@ -123,7 +124,7 @@ async function removeAt(path: string, line: number): Promise<void> {
     });
   } catch (e) {
     console.warn("[bookmarks] 删除书签失败", e);
-    toastFail("删除书签", e);
+    toastFail(t("workbench.bookmarks.failDelete"), e);
     return;
   }
   refreshBookmarkGutter();
@@ -136,7 +137,7 @@ async function clearAll(): Promise<void> {
     items = await invoke<Bookmark[]>("clear_bookmarks", { workspaceRoot: app.workspaceRoot });
   } catch (e) {
     console.warn("[bookmarks] 清空书签失败", e);
-    toastFail("清空书签", e);
+    toastFail(t("workbench.bookmarks.failClear"), e);
     return;
   }
   refreshBookmarkGutter();
@@ -147,8 +148,8 @@ async function clearAll(): Promise<void> {
 async function confirmClearAll(): Promise<void> {
   if (items.length === 0) return;
   const ok = await openConfirm({
-    message: `确认清空全部 ${items.length} 个书签？此操作不可恢复。`,
-    okLabel: "清空",
+    message: t("workbench.bookmarks.clearConfirm", { count: items.length }),
+    okLabel: t("workbench.common.clear"),
     kind: "danger",
   });
   if (ok) await clearAll();
@@ -179,23 +180,23 @@ export function initBookmarks(
   card.className = "modal-card bookmark-card";
   card.setAttribute("role", "dialog");
   card.setAttribute("aria-modal", "true");
-  card.setAttribute("aria-label", "书签");
+  card.setAttribute("aria-label", t("workbench.bookmarks.title"));
 
   const list = document.createElement("div");
   list.id = "bookmark-list";
   list.className = "bookmark-list";
   list.setAttribute("role", "listbox");
-  list.setAttribute("aria-label", "书签列表");
+  list.setAttribute("aria-label", t("workbench.bookmarks.listAria"));
 
   const footer = document.createElement("div");
   footer.className = "bookmark-footer";
   const hint = document.createElement("span");
   hint.className = "bookmark-hint";
-  hint.textContent = "Enter 跳转 · Delete 删除 · Esc 关闭";
+  hint.textContent = t("workbench.bookmarks.hint");
   const clear = document.createElement("button");
   clear.id = "bookmark-clear";
   clear.className = "btn btn--sm btn--danger-outline";
-  clear.textContent = "清空书签";
+  clear.textContent = t("workbench.bookmarks.failClear");
   clear.addEventListener("click", () => void confirmClearAll());
   footer.append(hint, clear);
 
@@ -277,8 +278,8 @@ function renderList(): void {
     list.appendChild(
       emptyState(
         "bookmark",
-        "暂无书签",
-        `在目标行按 ${bindingLabel("bookmark_toggle") || "书签键位（设置 → 快捷键）"} 添加书签，可疑行与待办行一眼找回`,
+        t("workbench.bookmarks.empty"),
+        t("workbench.bookmarks.emptyHint", { key: bindingLabel("bookmark_toggle") || t("workbench.bookmarks.noBinding") }),
       ),
     );
     return;

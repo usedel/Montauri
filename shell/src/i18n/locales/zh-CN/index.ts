@@ -15,9 +15,10 @@ import { search } from "./search";
 import { settings } from "./settings";
 import { storage } from "./storage";
 import { welcome } from "./welcome";
+import { workbench } from "./workbench";
 
 /** 全量中文词条（真源）：英文包的 Record<TKey, string> 以它为基准做同构校验。 */
-export const zhCN = { ...core, ...git, ...debug, ...filetree, ...run, ...env, ...storage, ...dep, ...settings, ...newproject, ...welcome, ...search };
+export const zhCN = { ...core, ...git, ...debug, ...filetree, ...run, ...env, ...storage, ...dep, ...settings, ...newproject, ...welcome, ...search, ...workbench };
 
 /** 全部文案 key：en-US 的 `Record<TKey, string>` 与 `t()` 的入参类型都从这里派生。 */
 export type TKey = keyof typeof zhCN;
