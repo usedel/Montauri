@@ -18,9 +18,12 @@ import {
   type ScriptParam,
 } from "./scriptArgs";
 import { toast } from "./toast";
+import { t } from "./i18n"; // 第五批 i18n：脚本参数表单动态文案走语言包
+import { errMsg } from "./util";
+import { localizeBackendError } from "./i18n/backendError";
 
 const container = $("run-config-args-form") as HTMLElement;
-const INTROSPECT_TIP = "将执行脚本顶层代码以获取默认值（有副作用）";
+// 内省按钮提示：渲染期经 t() 现算（不放模块级常量——语言切换后常量会过期）
 
 // ---------- 模块状态（面板每次打开重渲染） ----------
 let params: ScriptParam[] = [];
@@ -63,11 +66,11 @@ export async function renderScriptArgs(path: string | null, argsInput: HTMLInput
   params = toFormModel(data);
   container.classList.remove("hidden");
   if (failed) {
-    renderNote("⚠ 未能解析参数声明（可在下方直接输入命令行参数）", "rx-status--degraded");
+    renderNote(t("run.args.parseFailed"), "rx-status--degraded");
     return; // 三态 ③：退化纯输入框，不阻止运行
   }
   if (params.length === 0) {
-    renderNote("此脚本未声明命令行参数（可直接在下方输入）", "rx-status--idle");
+    renderNote(t("run.args.noParams"), "rx-status--idle");
     return; // 三态 ①：空态
   }
   renderRows(argsInput);
@@ -89,15 +92,15 @@ function renderRows(argsInput: HTMLInputElement, introspected = false): void {
   head.id = "ra-head";
   const info = document.createElement("span");
   info.className = "rx-flags-summary";
-  info.textContent = `由源码解析（${params.length} 项）${introspected ? " · 内省已合并默认值" : ""}`;
+  info.textContent = t("run.args.parsedFromSource", { count: params.length, suffix: introspected ? t("run.args.introspectMerged") : "" });
   head.appendChild(info);
   const introBtn = document.createElement("button");
   introBtn.type = "button";
   introBtn.className = "btn ra-introspect";
   introBtn.id = "ra-introspect";
-  introBtn.textContent = "内省";
-  introBtn.dataset.tip = INTROSPECT_TIP;
-  introBtn.setAttribute("aria-label", INTROSPECT_TIP);
+  introBtn.textContent = t("run.args.introspectBtn");
+  introBtn.dataset.tip = t("run.args.introspectTip");
+  introBtn.setAttribute("aria-label", t("run.args.introspectTip"));
   introBtn.addEventListener("click", () => void runIntrospect(argsInput));
   head.appendChild(introBtn);
   container.appendChild(head);
@@ -144,7 +147,7 @@ function renderRow(p: ScriptParam, argsInput: HTMLInputElement): HTMLElement {
     sel.className = "ra-select";
     const empty = document.createElement("option");
     empty.value = "";
-    empty.textContent = p.default != null ? String(p.default) : "（未选择）";
+    empty.textContent = p.default != null ? String(p.default) : t("run.args.notSelected");
     sel.appendChild(empty);
     for (const c of p.choices) {
       const opt = document.createElement("option");
@@ -164,7 +167,7 @@ function renderRow(p: ScriptParam, argsInput: HTMLInputElement): HTMLElement {
     ta.id = `ra-${p.name}`;
     ta.className = "ra-input ra-multi";
     ta.rows = 2;
-    ta.placeholder = p.default != null ? String(p.default) : "多个值用空格或逗号分隔";
+    ta.placeholder = p.default != null ? String(p.default) : t("run.args.multiPlaceholder");
     if (typeof cur === "string") ta.value = cur;
     ta.spellcheck = false;
     ta.autocomplete = "off";
@@ -195,7 +198,7 @@ function renderRow(p: ScriptParam, argsInput: HTMLInputElement): HTMLElement {
   const tag = document.createElement("span");
   tag.className = "rx-flags-summary";
   const nargsTag = p.nargs ? ` nargs=${p.nargs}` : "";
-  tag.textContent = p.type === "bool" ? "bool" : p.type + nargsTag + (p.required ? "  * 必填" : "");
+  tag.textContent = p.type === "bool" ? "bool" : p.type + nargsTag + (p.required ? t("run.args.requiredTag") : "");
   row.appendChild(tag);
   return row;
 }
@@ -221,7 +224,7 @@ function applyToArgs(argsInput: HTMLInputElement): void {
         req.className = "rx-status--err";
         head.appendChild(req);
       }
-      req.textContent = ` 缺少必填：${missing.join("、")}`;
+      req.textContent = t("run.args.missingInline", { names: missing.join("、") });
       req.classList.remove("hidden");
     } else if (req) {
       req.classList.add("hidden");
@@ -237,7 +240,7 @@ export function validateScriptArgs(): boolean {
   if (params.length === 0) return true;
   const missing = missingRequired(params, values);
   if (missing.length === 0) return true;
-  toast(`缺少必填参数：${missing.join("、")}`, "error");
+  toast(t("run.args.missingToast", { names: missing.join("、") }), "error");
   return false;
 }
 
@@ -248,7 +251,7 @@ async function onArgsEdited(argsInput: HTMLInputElement): Promise<void> {
   const syncNote = document.getElementById("ra-sync-note");
   if (r.inconsistent || r.values === null) {
     if (syncNote) {
-      syncNote.textContent = "⚠ 表单与命令行不一致，以命令行为准";
+      syncNote.textContent = t("run.args.inconsistent");
       syncNote.classList.remove("hidden");
     }
     return;
@@ -273,7 +276,7 @@ async function onArgsEdited(argsInput: HTMLInputElement): Promise<void> {
 async function runIntrospect(argsInput: HTMLInputElement): Promise<void> {
   if (!scriptPath || !app.workspaceRoot) return;
   const ok = await openConfirm({
-    message: "内省将执行该脚本的顶层代码以获取运行时默认值（可能有副作用），是否继续？",
+    message: t("run.args.introspectConfirm"),
     kind: "primary",
   });
   if (!ok) return;
@@ -282,7 +285,7 @@ async function runIntrospect(argsInput: HTMLInputElement): Promise<void> {
     const note = document.getElementById("ra-note") ?? document.createElement("div");
     note.id = "ra-note";
     note.className = "rx-status rx-status--err";
-    note.textContent = `内省失败：${res.error ?? "未知错误"}`;
+    note.textContent = t("run.args.introspectFailed", { error: localizeBackendError(errMsg(res.error ?? t("run.args.unknownError"))) });
     if (!note.parentElement) container.appendChild(note);
     return;
   }

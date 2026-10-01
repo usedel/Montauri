@@ -15,11 +15,14 @@ import { openAlert, openPrompt } from "./dialog";
 import * as dap from "./dap/client";
 import { currentFrameId } from "./debugView";
 import { app } from "./state";
+import { bindingLabel } from "./keybindings";
+import { onLocaleChange, t } from "./i18n";
 
 // ---------- DOM ----------
 
 let logEl: HTMLElement | null = null;
 let inputEl: HTMLInputElement | null = null;
+let initialized = false;
 
 /** 输入历史（↑↓ 翻阅；最新在尾部） */
 const history: string[] = [];
@@ -28,18 +31,21 @@ let histIdx = 0;
 
 /** 初始化：把控制台区挂到调试侧栏（#view-debug）末尾 */
 export function initDebugConsole(): void {
+  if (initialized) return;
   const host = document.getElementById("view-debug");
   if (!host) return;
+  initialized = true;
 
   const header = document.createElement("div");
+  header.id = "debug-console-header";
   header.className = "debug-section-header";
-  header.textContent = "调试控制台";
+  header.textContent = t("debug.console.title");
 
   const log = document.createElement("div");
   log.id = "debug-console-log";
   log.className = "debug-console-log";
   log.setAttribute("role", "log");
-  log.setAttribute("aria-label", "调试控制台输出");
+  log.setAttribute("aria-label", t("debug.console.outputAria"));
   log.setAttribute("aria-live", "polite");
 
   const row = document.createElement("div");
@@ -47,15 +53,15 @@ export function initDebugConsole(): void {
   const input = document.createElement("input");
   input.id = "debug-console-input";
   input.type = "text";
-  input.placeholder = "在断点处求值（Enter 执行，↑↓ 翻历史）";
+  input.placeholder = t("debug.console.inputPlaceholder");
   input.spellcheck = false;
   input.autocomplete = "off";
   input.disabled = true;
-  input.setAttribute("aria-label", "求值表达式");
+  input.setAttribute("aria-label", t("debug.console.inputAria"));
   const btn = document.createElement("button");
   btn.id = "debug-console-run";
   btn.className = "btn btn--sm";
-  btn.textContent = "求值";
+  btn.textContent = t("debug.console.evaluate");
   btn.disabled = true;
   row.append(input, btn);
 
@@ -91,6 +97,16 @@ export function initDebugConsole(): void {
   dap.onPhase(() => syncEnabled());
   // Logpoint / evaluate 的回显都走 output 事件；脚本 stdout 已由输出面板承载（不重复）
   dap.onEvent("output", (body) => void onOutput(body));
+  onLocaleChange(refreshDebugConsoleI18n);
+  syncEnabled();
+}
+
+function refreshDebugConsoleI18n(): void {
+  document.getElementById("debug-console-header")!.textContent = t("debug.console.title");
+  logEl?.setAttribute("aria-label", t("debug.console.outputAria"));
+  inputEl?.setAttribute("aria-label", t("debug.console.inputAria"));
+  const btn = document.getElementById("debug-console-run");
+  if (btn) btn.textContent = t("debug.console.evaluate");
   syncEnabled();
 }
 
@@ -100,8 +116,8 @@ function syncEnabled(): void {
   if (inputEl) {
     inputEl.disabled = !enabled;
     inputEl.placeholder = enabled
-      ? "在断点处求值（Enter 执行，↑↓ 翻历史）"
-      : "命中断点后可求值";
+      ? t("debug.console.inputPlaceholder")
+      : t("debug.console.availablePlaceholder");
   }
   const btn = document.getElementById("debug-console-run") as HTMLButtonElement | null;
   if (btn) {
@@ -159,7 +175,7 @@ async function submit(raw: string): Promise<void> {
 export async function evaluate(expr: string): Promise<void> {
   appendLine("input", expr);
   if (dap.currentPhase() !== "stopped") {
-    appendLine("error", "未命中断点，无法求值（先运行到断点处）");
+    appendLine("error", t("debug.console.notStopped"));
     return;
   }
   try {
@@ -178,11 +194,11 @@ export async function evaluate(expr: string): Promise<void> {
 export async function openEvaluatePrompt(): Promise<void> {
   const seed = selectedText();
   const expr = await openPrompt({
-    title: "求值表达式",
-    label: "在断点处的上下文中求值（副作用会真实发生）",
+    title: t("debug.console.inputAria"),
+    label: t("debug.console.promptLabel"),
     value: seed,
-    placeholder: "例如：len(items)、user.name",
-    okLabel: "求值",
+    placeholder: t("debug.console.promptPlaceholder"),
+    okLabel: t("debug.console.evaluate"),
   });
   if (expr === null || !expr.trim()) return; // 取消 / 空输入：不打扰用户
   await evaluate(expr.trim());
@@ -202,8 +218,9 @@ export function clearDebugConsole(): void {
 
 /** 非暂停态按下 Alt+F8 时的统一提示 */
 export async function notifyNotPaused(): Promise<void> {
+  const shortcut = bindingLabel("debug") || "F5";
   await openAlert({
-    title: "无法求值",
-    message: "求值表达式需要在命中断点暂停时进行。请先启动调试（F5）并运行到断点处。",
+    title: t("debug.common.evaluateFailed"),
+    message: t("debug.console.notPausedMessage", { shortcut }),
   });
 }

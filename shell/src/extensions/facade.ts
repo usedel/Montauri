@@ -8,6 +8,7 @@
 //   InlineHost 不含 root/kit/monaco。
 
 import { invoke } from "@tauri-apps/api/core";
+import { t } from "../i18n";
 import { toast } from "../toast";
 import { createToolKit } from "../devtools/kit";
 import type { MonacoModule, ToolHost } from "../devtools/types";
@@ -16,7 +17,7 @@ import type { PluginManifest } from "./manifest";
 /** 权限不足时抛出的错误类型（facade 内统一构造，调用方可 instanceof 识别） */
 export class PermissionDeniedError extends Error {
   constructor(perm: string, method: string) {
-    super(`权限不足：${method}() 需要声明 "${perm}" 权限`);
+    super(t("ext.permDenied", { perm, method }));
     this.name = "PermissionDeniedError";
   }
 }

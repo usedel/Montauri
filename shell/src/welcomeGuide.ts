@@ -16,8 +16,10 @@ import { invoke } from "@tauri-apps/api/core";
 import { bindingLabel, type KeybindingId } from "./keybindings";
 import { findQuickOpenAction } from "./quickOpen";
 import { $, $btn } from "./state";
-import { codicon } from "./util";
+import { codicon, errMsg } from "./util";
 import { toast } from "./toast";
+import { onLocaleChange, t } from "./i18n"; // 第九批 i18n：欢迎域动态文案走语言包
+import { localizeBackendError } from "./i18n/backendError";
 // 指南源（仓库 docs/，经 ?raw 打包进产物）：src/ → 仓库根是一级上溯
 import guideRaw from "../../docs/onboarding_guide.md?raw";
 
@@ -46,7 +48,7 @@ export async function openOnboardingGuide(): Promise<void> {
     const path = await writeDataDoc("onboarding_guide.md", guideRaw);
     await openGuideFile(path);
   } catch (e) {
-    toast(`打开新手指南失败：${e instanceof Error ? e.message : String(e)}`, "error");
+    toast(t("welcome.guide.openFailed", { error: localizeBackendError(errMsg(e instanceof Error ? e.message : String(e))) }), "error");
   }
 }
 
@@ -65,26 +67,30 @@ interface QuickstartStep {
   action?: () => void;
 }
 
-/** 三步卡步骤（v1.2 §3.2a：②③ 只做键位教学不代触发——运行/调试需要目标文件，空工作区点了没意义） */
-const QUICKSTART: QuickstartStep[] = [
+/** 三步卡步骤（v1.2 §3.2a：②③ 只做键位教学不代触发——运行/调试需要目标文件，空工作区点了没意义）。
+ *  i18n：构建函数 + let 缓存，语言切换时重建（见 wireWelcomeGuide 的订阅）。 */
+function buildQuickstart(): QuickstartStep[] { return [
   {
     icon: "add",
-    title: "新建项目",
-    desc: "选位置、Git 与 Python 版本，uv 环境一键就绪",
+    title: t("welcome.guide.qsNewProject"),
+    desc: t("welcome.guide.qsNewProjectDesc"),
   },
   {
     icon: "play",
-    title: "运行脚本",
-    desc: "打开 .py 文件后点击标题栏 ▶ 或行号旁小箭头",
+    title: t("welcome.guide.qsRunScript"),
+    desc: t("welcome.guide.qsRunScriptDesc"),
     kb: "run_script",
   },
   {
     icon: "debug-alt",
-    title: "启动调试",
-    desc: "行号旁单击下断点，断下后单步 / 查看变量",
+    title: t("welcome.guide.qsDebug"),
+    desc: t("welcome.guide.qsDebugDesc"),
     kb: "debug",
   },
 ];
+}
+let QUICKSTART = buildQuickstart();
+
 
 /** 渲染三步卡（幂等：全量重建）。调用点：wireWelcomeGuide 一次 + updateEditorOverlay（覆盖层显示时）。 */
 export function renderQuickstartCards(): void {
@@ -104,7 +110,7 @@ export function renderQuickstartCards(): void {
     head.append(badge, title);
     if (step.kb) {
       const kbd = document.createElement("kbd");
-      kbd.textContent = bindingLabel(step.kb) || "未绑定";
+      kbd.textContent = bindingLabel(step.kb) || t("welcome.guide.unbound");
       head.appendChild(kbd);
     }
     const desc = document.createElement("div");
@@ -129,14 +135,17 @@ export interface TourItem {
 
 /** 首批 6 条（v1.2 定稿，id/键位均已核实存在；数据卫生测试锁两侧存在性）。
  *  策展依据：不选运行/调试/git（三步卡已覆盖）· 不选设置类 · 选「打开即见内容、体验闭环最短」的。 */
-export const TOUR_ITEMS: TourItem[] = [
-  { quickOpenId: "open_devtools", keybindingId: "open_devtools", blurb: "工具箱：JSON 路径 / curl 转换 / 正则速测" },
-  { quickOpenId: "template_palette", keybindingId: "template_palette", blurb: "Live Templates：代码模板补全" },
-  { quickOpenId: "todo_panel", blurb: "TODO 视图：自动收集项目待办标记" },
-  { quickOpenId: "bookmark_list", keybindingId: "bookmark_list", blurb: "书签：标记并快速跳回重要位置" },
-  { quickOpenId: "run_history", keybindingId: "run_history", blurb: "运行历史：回看历次运行的完整输出" },
-  { quickOpenId: "local_history", keybindingId: "local_history", blurb: "本地历史：每次保存自动留快照可回滚" },
+function buildTourItems(): TourItem[] { return [
+  { quickOpenId: "open_devtools", keybindingId: "open_devtools", blurb: t("welcome.guide.devtools") },
+  { quickOpenId: "template_palette", keybindingId: "template_palette", blurb: t("welcome.guide.liveTemplates") },
+  { quickOpenId: "todo_panel", blurb: t("welcome.guide.todo") },
+  { quickOpenId: "bookmark_list", keybindingId: "bookmark_list", blurb: t("welcome.guide.bookmarks") },
+  { quickOpenId: "run_history", keybindingId: "run_history", blurb: t("welcome.guide.runHistory") },
+  { quickOpenId: "local_history", keybindingId: "local_history", blurb: t("welcome.guide.localHistory") },
 ];
+}
+/** i18n：导出绑定随语言切换重建（ES live binding，外部遍历方无需感知） */
+export let TOUR_ITEMS: TourItem[] = buildTourItems();
 
 /** 完成态 localStorage key（按条目持久化；key = quickOpenId） */
 const TOUR_KEY_PREFIX = "opencharm.tour.";
@@ -203,7 +212,7 @@ export function renderTour(): void {
   const body = $("ew-tour-body");
   const countEl = $("ew-tour-count");
   const done = tourDoneCount();
-  countEl.textContent = `${done}/${TOUR_ITEMS.length} 已体验`;
+  countEl.textContent = t("welcome.guide.progress", { done: done, total: TOUR_ITEMS.length });
 
   // 折叠态：整区收成一行（标题 + 计数 + 展开箭头），可重新展开（退场律）
   section.classList.toggle("collapsed", tourCollapsed);
@@ -227,11 +236,11 @@ export function renderTour(): void {
     if (!checked) {
       const tryBtn = document.createElement("button");
       tryBtn.className = "btn btn--sm";
-      tryBtn.textContent = "试一下";
+      tryBtn.textContent = t("welcome.guide.tryIt");
       tryBtn.addEventListener("click", () => {
         if (!runTourAction(item.quickOpenId)) {
           // 注册表条目消失（功能重构）：显式降级提示，不静默失效
-          toast("该功能已变更，条目稍后随版本更新", "info");
+          toast(t("welcome.guide.changedToast"), "info");
           return;
         }
         markTourDone(item.quickOpenId);
@@ -242,7 +251,7 @@ export function renderTour(): void {
 
     if (item.keybindingId) {
       const kbd = document.createElement("kbd");
-      kbd.textContent = bindingLabel(item.keybindingId) || "未绑定";
+      kbd.textContent = bindingLabel(item.keybindingId) || t("welcome.guide.unbound");
       row.appendChild(kbd);
     }
     body.appendChild(row);
@@ -255,7 +264,7 @@ export function renderTour(): void {
   const allDone = done === TOUR_ITEMS.length;
   const link = document.createElement("a");
   link.className = "ew-tour-fold";
-  link.textContent = allDone ? "全部完成，收起" : "不感兴趣，收起";
+  link.textContent = allDone ? t("welcome.guide.collapseDone") : t("welcome.guide.collapseDismiss");
   link.setAttribute("role", "button");
   link.tabIndex = 0;
   const fold = (): void => {
@@ -273,7 +282,7 @@ export function renderTour(): void {
   if (allDone) {
     const redo = document.createElement("a");
     redo.className = "ew-tour-fold";
-    redo.textContent = "重新体验";
+    redo.textContent = t("welcome.guide.redo");
     redo.setAttribute("role", "button");
     redo.tabIndex = 0;
     const reset = (): void => {
@@ -333,6 +342,14 @@ export function consumeWelcomeForce(): void {
 
 /** 欢迎页引导接线（main.ts init 调一次；§8 P3：事件绑定自包含，main 只加一行） */
 export function wireWelcomeGuide(): void {
+  // 语言切换：重建文案数组并重绘欢迎层内的动态区（元素缺失时跳过——覆盖层未挂载即无文本残留）
+  onLocaleChange(() => {
+    QUICKSTART = buildQuickstart();
+    TOUR_ITEMS = buildTourItems();
+    if (document.getElementById("ew-quickstart-steps")) renderQuickstartCards();
+    if (document.getElementById("ew-tour-section")) renderTour();
+  });
+
   // 指南链接（三步卡下方）
   $("ew-guide-link").addEventListener("click", () => void openOnboardingGuide());
 

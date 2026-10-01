@@ -7,6 +7,8 @@
 
 import type * as MonacoApi from "monaco-editor/esm/vs/editor/editor.api";
 import { invoke } from "@tauri-apps/api/core";
+import { t } from "./i18n"; // i18n 复核修复：错误提示走语言包
+import { errMsg } from "./util";
 
 interface FormatResult {
   formatted: string | null;
@@ -25,11 +27,11 @@ export async function formatPythonSource(path: string, content: string): Promise
   try {
     r = await invoke<FormatResult>("format_python", { path, content });
   } catch (e) {
-    onError?.(`格式化失败：${e}`);
+    onError?.(t("main.format.failed", { error: errMsg(e) }));
     return null;
   }
   if (r.formatted === null) {
-    onError?.(`格式化失败：${r.message || "ruff 返回空结果"}`);
+    onError?.(t("main.format.failed", { error: r.message || t("main.format.emptyResult") }));
     return null;
   }
   return r.formatted;
@@ -48,11 +50,11 @@ export async function optimizeImportsSource(path: string, content: string): Prom
   try {
     r = await invoke<FormatResult>("optimize_imports", { path, content });
   } catch (e) {
-    onError?.(`整理导入失败：${e}`);
+    onError?.(t("main.imports.failed", { error: errMsg(e) }));
     return null;
   }
   if (r.formatted === null) {
-    onError?.(`整理导入失败：${r.message || "ruff 返回空结果"}`);
+    onError?.(t("main.imports.failed", { error: r.message || t("main.format.emptyResult") }));
     return null;
   }
   return r.formatted;

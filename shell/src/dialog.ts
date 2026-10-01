@@ -6,6 +6,7 @@
 import { hideEl, showEl } from "./anim";
 import { trapFocus } from "./focusTrap";
 import { lazyEl } from "./state";
+import { t } from "./i18n"; // 第十六批 i18n：对话框默认按钮文案走语言包
 
 export type DialogKind = "danger" | "primary";
 
@@ -107,7 +108,7 @@ function openModal(opts: {
     }
     messageEl.textContent = opts.message;
     okBtn.textContent = opts.okLabel;
-    cancelBtn.textContent = opts.cancelLabel ?? "取消";
+    cancelBtn.textContent = opts.cancelLabel ?? t("common.cancel");
     cancelBtn.classList.toggle("hidden", !opts.withCancel);
     applyKind(opts.kind);
 
@@ -154,7 +155,7 @@ export function openConfirm(opts: ConfirmOptions): Promise<boolean> {
   return openModal({
     title: opts.title,
     message: opts.message,
-    okLabel: opts.okLabel ?? "确认",
+    okLabel: opts.okLabel ?? t("common.confirm"),
     cancelLabel: opts.cancelLabel,
     kind: opts.kind ?? "primary",
     withCancel: true,
@@ -193,7 +194,7 @@ export function openChoice(opts: ChoiceOptions): Promise<ChoiceResult> {
     const okReal = document.getElementById("confirm-ok") as HTMLButtonElement;
     const cancelReal = document.getElementById("confirm-cancel") as HTMLButtonElement;
     okReal.textContent = opts.okLabel;
-    cancelReal.textContent = opts.cancelLabel ?? "取消";
+    cancelReal.textContent = opts.cancelLabel ?? t("common.cancel");
     applyKind(opts.kind ?? "primary");
 
     // 中性按钮：动态插入到 ok 按钮之前（对话框同时只会有一个实例，用后即删）
@@ -249,7 +250,7 @@ export function openAlert(opts: AlertOptions): Promise<void> {
   return openModal({
     title: opts.title,
     message: opts.message,
-    okLabel: opts.okLabel ?? "知道了",
+    okLabel: opts.okLabel ?? t("common.gotIt"),
     kind: opts.kind ?? "primary",
     withCancel: false,
   }).then(() => undefined);
@@ -272,7 +273,7 @@ export function openPrompt(opts: PromptOptions): Promise<string | null> {
     promptLabelEl.classList.toggle("hidden", !opts.label);
     promptInputEl.value = opts.value ?? "";
     promptInputEl.placeholder = opts.placeholder ?? "";
-    promptOkBtn.textContent = opts.okLabel ?? "确定";
+    promptOkBtn.textContent = opts.okLabel ?? t("common.ok");
 
     showEl(promptModalEl);
     let releaseFocus: (() => void) | null = trapFocus(promptModalEl);

@@ -12,6 +12,10 @@
 //   Rust 侧用 `ignore` 的 overrides 在**走查期剪枝**（大仓省一次全仓遍历），
 //   这里只承担 scope 模式（当前文件 / 打开的标签）的少量路径过滤。
 
+import { errMsg } from "./util";
+import { t } from "./i18n"; // 第十批 i18n：筛选错误提示走语言包
+import { localizeBackendError } from "./i18n/backendError";
+
 /** 一次行内匹配：column 为 1 基字符列，length 为匹配长度（供结果高亮切片） */
 export interface LineHit {
   column: number;
@@ -28,7 +32,7 @@ export function buildLineMatcher(query: string, caseSensitive: boolean, useRegex
       re = new RegExp(query, caseSensitive ? "g" : "gi");
     } catch (e) {
       // 编译失败必须上报：静默退回子串匹配会让用户以为「正则没生效」（与 Rust 侧同一口径）
-      throw new Error(`正则表达式无效：${e instanceof Error ? e.message : String(e)}`);
+      throw new Error(t("search.filter.invalidRegex", { error: localizeBackendError(errMsg(e instanceof Error ? e.message : String(e))) }));
     }
     return (line: string): LineHit[] => {
       const hits: LineHit[] = [];
@@ -86,6 +90,6 @@ export function compileFileMask(
     const re = new RegExp(full);
     return { test: (relPath: string) => re.test(relPath.replace(/\\/g, "/")) };
   } catch (e) {
-    return { test: () => true, error: `文件掩码无效：${e instanceof Error ? e.message : String(e)}` };
+    return { test: () => true, error: t("search.filter.invalidMask", { error: localizeBackendError(errMsg(e instanceof Error ? e.message : String(e))) }) };
   }
 }

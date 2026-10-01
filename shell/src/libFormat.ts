@@ -3,6 +3,7 @@
 // 离线可用（分段与码表），预览真值走求值桥 format_preview（不做 JS 近似，口径统一 §5-降级）。
 
 import { buildCodeMask, parsePyStringLiteral, unescapePythonString, type PyStringLiteral } from "./libRegex";
+import { onLocaleChange, t } from "./i18n"; // 第十八批 i18n：码表随语言重建（let + 重建，见下）；分段/诊断/hover 文案调用点取词
 
 // ---------- 模式 ----------
 
@@ -20,81 +21,106 @@ export interface FormatToken {
 }
 
 // ---------- 码表 ----------
+//
+// i18n（第十八批）：码表值是渲染点（分段解释 / chips / hover）读的展示文案——
+// 构建函数 + let + onLocaleChange 重建（第七批 ⑧ 模式），读取方经 ES live binding 拿到当前语言值。
 
 /** strftime 指令表（值 = 人话说明） */
-export const STRFTIME_CODES: Record<string, string> = {
-  Y: "四位年份",
-  y: "两位年份",
-  m: "两位月份 (01-12)",
-  d: "两位日期 (01-31)",
-  H: "24 小时制小时 (00-23)",
-  I: "12 小时制小时 (01-12)",
-  M: "分钟 (00-59)",
-  S: "秒 (00-59)",
-  f: "微秒 (6 位)",
-  a: "星期缩写",
-  A: "星期全名",
-  b: "月份缩写",
-  B: "月份全名",
+function buildStrftimeCodes(): Record<string, string> {
+  return {
+  Y: t("devtools.fmt.code.Y"),
+  y: t("devtools.fmt.code.y"),
+  m: t("devtools.fmt.code.m"),
+  d: t("devtools.fmt.code.d"),
+  H: t("devtools.fmt.code.H"),
+  I: t("devtools.fmt.code.I"),
+  M: t("devtools.fmt.code.M"),
+  S: t("devtools.fmt.code.S"),
+  f: t("devtools.fmt.code.f"),
+  a: t("devtools.fmt.code.a"),
+  A: t("devtools.fmt.code.A"),
+  b: t("devtools.fmt.code.b"),
+  B: t("devtools.fmt.code.B"),
   p: "AM / PM",
-  j: "年内天数 (001-366)",
-  U: "周号（周日为一周开始）",
-  W: "周号（周一为一周开始）",
-  w: "星期数字 (0=周日)",
-  u: "ISO 星期 (1=周一)",
-  G: "ISO 周年份",
-  V: "ISO 周号",
-  z: "UTC 偏移 (+0800)",
-  Z: "时区名",
-  c: "完整日期时间",
-  x: "本地日期",
-  X: "本地时间",
-  "%": "字面量 %",
-};
+  j: t("devtools.fmt.code.j"),
+  U: t("devtools.fmt.code.U"),
+  W: t("devtools.fmt.code.W"),
+  w: t("devtools.fmt.code.w"),
+  u: t("devtools.fmt.code.u"),
+  G: t("devtools.fmt.code.G"),
+  V: t("devtools.fmt.code.V"),
+  z: t("devtools.fmt.code.z"),
+  Z: t("devtools.fmt.code.Z"),
+  c: t("devtools.fmt.code.c"),
+  x: t("devtools.fmt.code.x"),
+  X: t("devtools.fmt.code.X"),
+  "%": t("devtools.fmt.code.pct"),
+  };
+}
+
+export let STRFTIME_CODES: Record<string, string> = buildStrftimeCodes();
 
 /** 速查 chips 顺序（按使用频率，%Y %m %d %H %M %S 在前，§11.4） */
 export const STRFTIME_CHIP_ORDER = ["Y", "m", "d", "H", "M", "S", "y", "a", "b", "B", "p", "z", "j", "f", "A", "w", "%"];
 
 /** logging 记录字段表 */
-export const LOGGING_FIELDS: Record<string, string> = {
-  asctime: "时间（默认 2026-09-27 10:30:15,123）",
-  levelname: "级别名 (INFO / WARNING …)",
-  levelno: "级别数字",
-  name: "logger 名",
-  message: "日志消息",
-  module: "模块名 (不含 .py)",
-  filename: "文件名",
-  pathname: "文件完整路径",
-  lineno: "行号",
-  funcName: "函数名",
-  msecs: "毫秒部分",
-  thread: "线程 id",
-  threadName: "线程名",
-  process: "进程 id",
-  processName: "进程名",
-  created: "时间戳 (秒)",
-};
+function buildLoggingFields(): Record<string, string> {
+  return {
+  asctime: t("devtools.fmt.field.asctime"),
+  levelname: t("devtools.fmt.field.levelname"),
+  levelno: t("devtools.fmt.field.levelno"),
+  name: t("devtools.fmt.field.name"),
+  message: t("devtools.fmt.field.message"),
+  module: t("devtools.fmt.field.module"),
+  filename: t("devtools.fmt.field.filename"),
+  pathname: t("devtools.fmt.field.pathname"),
+  lineno: t("devtools.fmt.field.lineno"),
+  funcName: t("devtools.fmt.field.funcName"),
+  msecs: t("devtools.fmt.field.msecs"),
+  thread: t("devtools.fmt.field.thread"),
+  threadName: t("devtools.fmt.field.threadName"),
+  process: t("devtools.fmt.field.process"),
+  processName: t("devtools.fmt.field.processName"),
+  created: t("devtools.fmt.field.created"),
+  };
+}
+
+export let LOGGING_FIELDS: Record<string, string> = buildLoggingFields();
 
 /** logging 速查 chips（按频率，§11.4） */
 export const LOGGING_CHIP_ORDER = ["asctime", "levelname", "name", "message", "module", "lineno", "funcName", "pathname"];
 
 /** 格式规范类型字符表 */
-const FORMAT_TYPES: Record<string, string> = {
-  s: "字符串 (str)",
-  d: "十进制整数",
-  b: "二进制",
-  o: "八进制",
-  x: "十六进制小写",
-  X: "十六进制大写",
-  e: "科学计数 (小写 e)",
-  E: "科学计数 (大写 E)",
-  f: "定点小数",
-  F: "定点小数 (inf/nan 大写)",
-  g: "通用 (整数用 d，否则 e)",
-  G: "通用 (大写 E)",
-  n: "本地化数字",
-  "%": "百分比 (×100 后接 %)",
-};
+function buildFormatTypes(): Record<string, string> {
+  return {
+  s: t("devtools.fmt.type.s"),
+  d: t("devtools.fmt.type.d"),
+  b: t("devtools.fmt.type.b"),
+  o: t("devtools.fmt.type.o"),
+  x: t("devtools.fmt.type.x"),
+  X: t("devtools.fmt.type.X"),
+  e: t("devtools.fmt.type.e"),
+  E: t("devtools.fmt.type.E"),
+  f: t("devtools.fmt.type.f"),
+  F: t("devtools.fmt.type.F"),
+  g: t("devtools.fmt.type.g"),
+  G: t("devtools.fmt.type.G"),
+  n: t("devtools.fmt.type.n"),
+  "%": t("devtools.fmt.type.pct"),
+  };
+}
+
+let FORMAT_TYPES: Record<string, string> = buildFormatTypes();
+
+// 语言切换：整体重建各码表（本模块的展示文案全部经表读取，无其他模块级取词）
+onLocaleChange(() => {
+  STRFTIME_CODES = buildStrftimeCodes();
+  LOGGING_FIELDS = buildLoggingFields();
+  FORMAT_TYPES = buildFormatTypes();
+  MODE_LABEL = buildModeLabels();
+  SAMPLE_HINT = buildSampleHints();
+  COMMON_HINT = buildCommonHints();
+});
 
 /** 格式规范速查 chips（按频率） */
 export const FORMAT_CHIP_ORDER = [".2f", "d", "s", ">10", "^10", "<10", ",", ".0%", "+.1e", "08.3f"];
@@ -107,7 +133,7 @@ function tokenizeStrftime(fmt: string): FormatToken[] {
   let i = 0;
   let plainStart = 0;
   const flushPlain = (end: number): void => {
-    if (end > plainStart) tokens.push({ text: fmt.slice(plainStart, end), pos: plainStart, length: end - plainStart, desc: "字面量" });
+    if (end > plainStart) tokens.push({ text: fmt.slice(plainStart, end), pos: plainStart, length: end - plainStart, desc: t("devtools.lib.literal") });
   };
   while (i < fmt.length) {
     if (fmt[i] !== "%") {
@@ -117,13 +143,13 @@ function tokenizeStrftime(fmt: string): FormatToken[] {
     flushPlain(i);
     const next = fmt[i + 1];
     if (next === undefined) {
-      tokens.push({ text: "%", pos: i, length: 1, desc: "悬空 %（后面没有格式码）", unknown: true });
+      tokens.push({ text: "%", pos: i, length: 1, desc: t("devtools.fmt.danglingPct"), unknown: true });
       i++;
       plainStart = i;
       continue;
     }
     const desc = STRFTIME_CODES[next];
-    tokens.push({ text: fmt.slice(i, i + 2), pos: i, length: 2, desc: desc ?? `未知格式码 %${next}`, unknown: desc === undefined });
+    tokens.push({ text: fmt.slice(i, i + 2), pos: i, length: 2, desc: desc ?? t("devtools.fmt.unknownCode", { code: next }), unknown: desc === undefined });
     i += 2;
     plainStart = i;
   }
@@ -139,7 +165,7 @@ function tokenizeLogging(fmt: string): FormatToken[] {
   let plainStart = 0;
   for (const m of fmt.matchAll(re)) {
     const idx = m.index;
-    if (idx > plainStart) tokens.push({ text: fmt.slice(plainStart, idx), pos: plainStart, length: idx - plainStart, desc: "字面量" });
+    if (idx > plainStart) tokens.push({ text: fmt.slice(plainStart, idx), pos: plainStart, length: idx - plainStart, desc: t("devtools.lib.literal") });
     // 段内混入裸 % 字面量提示
     const field = m[1];
     const desc = LOGGING_FIELDS[field];
@@ -147,13 +173,13 @@ function tokenizeLogging(fmt: string): FormatToken[] {
       text: m[0],
       pos: idx,
       length: m[0].length,
-      desc: desc ?? `未知记录字段 "${field}"（logging 只认 LogRecord 已有字段）`,
+      desc: desc ?? t("devtools.fmt.unknownField", { field: field }),
       unknown: desc === undefined,
     });
     i = idx + m[0].length;
     plainStart = i;
   }
-  if (plainStart < fmt.length) tokens.push({ text: fmt.slice(plainStart), pos: plainStart, length: fmt.length - plainStart, desc: "字面量" });
+  if (plainStart < fmt.length) tokens.push({ text: fmt.slice(plainStart), pos: plainStart, length: fmt.length - plainStart, desc: t("devtools.lib.literal") });
   return tokens;
 }
 
@@ -167,7 +193,7 @@ function tokenizeFormat(fmt: string): FormatToken[] {
   const hasBraces = fmt.includes("{");
   let plainStart = 0;
   const flushPlain = (end: number): void => {
-    if (end > plainStart) tokens.push({ text: fmt.slice(plainStart, end), pos: plainStart, length: end - plainStart, desc: "字面量" });
+    if (end > plainStart) tokens.push({ text: fmt.slice(plainStart, end), pos: plainStart, length: end - plainStart, desc: t("devtools.lib.literal") });
   };
   // 纯 spec 输入（无 {}，如面板直接输入 ">10,.2f"）：整体按 spec 解析
   if (!hasBraces) {
@@ -176,7 +202,7 @@ function tokenizeFormat(fmt: string): FormatToken[] {
       text: fmt,
       pos: 0,
       length: fmt.length,
-      desc: parts.unknownType ? `未知格式类型 "${parts.type}"（常见：d f s e %）` : specPartsDesc(parts) || "默认格式",
+      desc: parts.unknownType ? t("devtools.fmt.unknownType", { type: parts.type ?? "" }) : specPartsDesc(parts) || t("devtools.fmt.defaultSpec"),
       unknown: parts.unknownType,
     });
     return tokens;
@@ -186,14 +212,14 @@ function tokenizeFormat(fmt: string): FormatToken[] {
     const c = fmt[i];
     if (c === "{" && fmt[i + 1] === "{") {
       flushPlain(i);
-      tokens.push({ text: "{{", pos: i, length: 2, desc: "字面量 {" });
+      tokens.push({ text: "{{", pos: i, length: 2, desc: t("devtools.lib.literalLBrace") });
       i += 2;
       plainStart = i;
       continue;
     }
     if (c === "}" && fmt[i + 1] === "}") {
       flushPlain(i);
-      tokens.push({ text: "}}", pos: i, length: 2, desc: "字面量 }" });
+      tokens.push({ text: "}}", pos: i, length: 2, desc: t("devtools.fmt.literalRBrace") });
       i += 2;
       plainStart = i;
       continue;
@@ -205,7 +231,7 @@ function tokenizeFormat(fmt: string): FormatToken[] {
     const close = fmt.indexOf("}", i);
     if (close < 0) {
       flushPlain(i);
-      tokens.push({ text: fmt.slice(i), pos: i, length: fmt.length - i, desc: "未闭合的 {", unknown: true });
+      tokens.push({ text: fmt.slice(i), pos: i, length: fmt.length - i, desc: t("devtools.fmt.unclosedBrace"), unknown: true });
       return tokens;
     }
     flushPlain(i);
@@ -215,14 +241,14 @@ function tokenizeFormat(fmt: string): FormatToken[] {
     const convMatch = /^[^!]*!([rsa])/.exec(field);
     const head: string[] = [];
     const name = colon >= 0 ? field.slice(1, colon) : field.slice(1, field.length - 1);
-    if (name) head.push(`字段 ${name}`);
-    if (convMatch) head.push(`转换 !${convMatch[1]}（${convMatch[1] === "r" ? "repr" : convMatch[1] === "s" ? "str" : "ascii"}）`);
+    if (name) head.push(t("devtools.fmt.fieldLabel", { name: name }));
+    if (convMatch) head.push(t("devtools.fmt.conv", { conv: convMatch[1], kind: convMatch[1] === "r" ? "repr" : convMatch[1] === "s" ? "str" : "ascii" }));
     const descParts: string[] = [];
     if (head.length) descParts.push(head.join(" · "));
     if (spec) {
       const parts = parseSpec(spec);
       if (parts.unknownType) {
-        tokens.push({ text: field, pos: i, length: field.length, desc: `未知格式类型 "${parts.type}"（常见：d f s e %）`, unknown: true });
+        tokens.push({ text: field, pos: i, length: field.length, desc: t("devtools.fmt.unknownType", { type: parts.type ?? "" }), unknown: true });
         i = close + 1;
         plainStart = i;
         continue;
@@ -230,9 +256,9 @@ function tokenizeFormat(fmt: string): FormatToken[] {
       const sub = specPartsDesc(parts);
       if (sub) descParts.push(sub);
     } else if (!name && !convMatch) {
-      descParts.push("自动编号占位（按参数顺序）");
+      descParts.push(t("devtools.fmt.autoNumber"));
     }
-    tokens.push({ text: field, pos: i, length: field.length, desc: descParts.join(" · ") || "占位符" });
+    tokens.push({ text: field, pos: i, length: field.length, desc: descParts.join(" · ") || t("devtools.fmt.placeholder") });
     i = close + 1;
     plainStart = i;
   }
@@ -242,13 +268,13 @@ function tokenizeFormat(fmt: string): FormatToken[] {
 
 function specPartsDesc(parts: ReturnType<typeof parseSpec>): string {
   const descs: string[] = [];
-  if (parts.align) descs.push(`对齐 ${parts.align}（填充 ${parts.fill ?? "空格"}）`);
-  if (parts.sign === "+") descs.push("强制符号 (+/-)");
-  if (parts.alt) descs.push("前缀形式 (0x / 0b)");
-  if (parts.zero) descs.push("前导 0 填充");
-  if (parts.width) descs.push(`宽度 ${parts.width}`);
-  if (parts.grouping) descs.push("千分位分隔");
-  if (parts.precision !== null) descs.push(`精度 ${parts.precision}`);
+  if (parts.align) descs.push(t("devtools.fmt.align", { align: parts.align, fill: parts.fill ?? t("devtools.fmt.fillSpace") }));
+  if (parts.sign === "+") descs.push(t("devtools.fmt.signPlus"));
+  if (parts.alt) descs.push(t("devtools.fmt.altForm"));
+  if (parts.zero) descs.push(t("devtools.fmt.zeroPad"));
+  if (parts.width) descs.push(t("devtools.fmt.width", { width: parts.width }));
+  if (parts.grouping) descs.push(t("devtools.fmt.grouping"));
+  if (parts.precision !== null) descs.push(t("devtools.fmt.precision", { prec: parts.precision }));
   if (parts.type) descs.push(FORMAT_TYPES[parts.type] ?? parts.type);
   return descs.join(" · ");
 }
@@ -331,8 +357,8 @@ export interface FormatDiag {
 /** 未知码 warning（strftime %Q / format {:q} / logging %(nope)s）；不臆测意图 */
 export function formatDiagnostics(mode: FormatMode, fmt: string): FormatDiag[] {
   return segmentFormat(mode, fmt)
-    .filter((t) => t.unknown)
-    .map((t) => ({ message: `未知格式码「${t.text}」：${t.desc}`, pos: t.pos, length: t.length }));
+    .filter((d) => d.unknown) // 参数名避开 t（i18n 取词函数，踩坑 ⑤）
+    .map((d) => ({ message: t("devtools.fmt.diagUnknown", { token: d.text, desc: d.desc }), pos: d.pos, length: d.length }));
 }
 
 // ---------- 离线示例（§11.4 hover「示例输出」；固定样本，真值以面板求值桥为准） ----------
@@ -535,18 +561,28 @@ function groupDigits(body: string): string {
 
 // ---------- hover markdown（§11.4：示例输出 + 分段说明） ----------
 
-const MODE_LABEL: Record<FormatMode, string> = { strftime: "日期 strftime", format: "格式规范", logging: "logging 格式" };
-const SAMPLE_HINT: Record<FormatMode, string> = {
-  strftime: "样本 2026-09-26 14:03:11",
-  format: "样本 1234.5678",
-  logging: "样本记录",
-};
+function buildModeLabels(): Record<FormatMode, string> {
+  return { strftime: t("devtools.fmt.modeStrftime"), format: t("devtools.fmt.modeSpec"), logging: t("devtools.fmt.modeLogging") };
+}
+let MODE_LABEL: Record<FormatMode, string> = buildModeLabels();
 
-const COMMON_HINT: Record<FormatMode, string> = {
-  strftime: "常见码：%Y 年 %m 月 %d 日 %H 时 %M 分 %S 秒",
-  format: "常见类型：d 整数 · f 定点 · s 字符串 · e 科学计数 · % 百分比",
-  logging: "常见字段：%(asctime)s %(levelname)s %(name)s %(message)s",
-};
+function buildSampleHints(): Record<FormatMode, string> {
+  return {
+  strftime: t("devtools.fmt.sampleTs"),
+  format: t("devtools.fmt.sampleNum"),
+  logging: t("devtools.fmt.sampleRec"),
+  };
+}
+let SAMPLE_HINT: Record<FormatMode, string> = buildSampleHints();
+
+function buildCommonHints(): Record<FormatMode, string> {
+  return {
+  strftime: t("devtools.fmt.hintStrftime"),
+  format: t("devtools.fmt.hintFormat"),
+  logging: t("devtools.fmt.hintLogging"),
+  };
+}
+let COMMON_HINT: Record<FormatMode, string> = buildCommonHints();
 
 /** hover 卡（R-1 结论：追加进 lsp/client.ts 合并管线）：§11.4 示例输出 + 分段说明 */
 export function formatHoverMarkdown(mode: FormatMode, fmt: string): string {
@@ -554,13 +590,13 @@ export function formatHoverMarkdown(mode: FormatMode, fmt: string): string {
   const lines: string[] = [];
   // 示例输出（离线、固定样本；未知码 / tz·locale 依赖码一律不给示例，I-3 不臆测）
   const sample = tokens.every((t) => !t.unknown) ? formatSample(mode, fmt) : null;
-  if (sample !== null) lines.push(`示例：\`${escapeMd(sample)}\`（${SAMPLE_HINT[mode]}）`);
+  if (sample !== null) lines.push(t("devtools.fmt.sampleLine", { sample: escapeMd(sample), hint: SAMPLE_HINT[mode] }));
   for (const t of tokens) lines.push(`\`${escapeMd(t.text)}\` — ${t.desc}`);
-  if (segmentFormat(mode, fmt).length > 20) lines.push("…（仅显示前 20 段）");
+  if (segmentFormat(mode, fmt).length > 20) lines.push(t("devtools.fmt.truncated20"));
   const hasUnknown = tokens.some((t) => t.unknown);
-  if (hasUnknown) lines.push(`⚠ 含未知格式码。${COMMON_HINT[mode]}`);
+  if (hasUnknown) lines.push(t("devtools.fmt.unknownWarn", { hint: COMMON_HINT[mode] }));
   lines.push("---");
-  lines.push("在格式串工具中打开：右键 →「在格式串工具中打开」/ 编辑器 lens");
+  lines.push(t("devtools.fmt.openTool"));
   return [`**Python ${MODE_LABEL[mode]}**`, ...lines].join("\n\n");
 }
 

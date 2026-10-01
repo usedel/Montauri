@@ -10,7 +10,9 @@ import { hideEl, showEl } from "./anim";
 import { trapFocus } from "./focusTrap";
 import { openAlert, openConfirm } from "./dialog";
 import { toastFail } from "./toast";
-import { setBusy } from "./util"; // CR-27：按钮忙碌态收敛到 util
+import { setBusy, errMsg } from "./util"; // CR-27：按钮忙碌态收敛到 util
+import { t } from "./i18n"; // 第六批 i18n：存储域动态文案走语言包
+import { localizeBackendError } from "./i18n/backendError";
 
 // ---------- 类型（对应 storage_cmds.rs 的 serde 结构） ----------
 
@@ -80,13 +82,13 @@ function renewableBadge(r: string): HTMLElement {
   const span = document.createElement("span");
   if (r === "yes") {
     span.className = "storage-badge storage-badge-ok";
-    span.textContent = "可再生";
+    span.textContent = t("storage.tag.renewable");
   } else if (r === "partial") {
     span.className = "storage-badge storage-badge-part";
-    span.textContent = "部分可再生";
+    span.textContent = t("storage.tag.partiallyRenewable");
   } else {
     span.className = "storage-badge";
-    span.textContent = "不可删";
+    span.textContent = t("storage.tag.nonDeletable");
   }
   return span;
 }
@@ -123,28 +125,28 @@ function renderUsage(u: StorageUsage): void {
       storageRow("storage-row", e.path, labelSpan(e.label), sizeText(e.size_bytes), renewableBadge(e.renewable)),
     );
     if (e.key === "traces" && u.traces.length > 0) {
-      for (const t of u.traces) {
+      for (const trace of u.traces) {
         const del = document.createElement("button");
         del.className = "btn btn--sm btn--danger-outline"; // UI-08：迁移到通用按钮体系
-        del.dataset.trace = t.hash;
-        del.textContent = "删除";
+        del.dataset.trace = trace.hash;
+        del.textContent = t("storage.action.delete");
         usageEl.appendChild(
-          storageRow("storage-row storage-row-sub", t.path, labelSpan(t.hash), sizeText(t.size_bytes), del),
+          storageRow("storage-row storage-row-sub", trace.path, labelSpan(trace.hash), sizeText(trace.size_bytes), del),
         );
       }
       const allDel = document.createElement("button");
       allDel.className = "btn btn--sm btn--danger-outline";
       allDel.dataset.trace = "__all__";
-      allDel.textContent = "全部清理";
+      allDel.textContent = t("storage.action.cleanAll");
       usageEl.appendChild(
-        storageRow("storage-row storage-row-sub", "", labelSpan("（全部 trace）"), allDel),
+        storageRow("storage-row storage-row-sub", "", labelSpan(t("storage.trace.allLabel")), allDel),
       );
     }
   }
   if (u.uv.length > 0) {
     const sep = document.createElement("div");
     sep.className = "storage-sep";
-    sep.textContent = "uv（用户自有位置，OpenCharm 不代管）";
+    sep.textContent = t("storage.uv.note");
     usageEl.appendChild(sep);
     for (const v of u.uv) {
       usageEl.appendChild(
@@ -159,7 +161,7 @@ export async function loadStorageUsage(): Promise<void> {
   usageEl.textContent = "";
   const row = document.createElement("div");
   row.className = "storage-row";
-  const loading = labelSpan("统计中…");
+  const loading = labelSpan(t("storage.state.measuring"));
   const icon = document.createElement("i");
   icon.className = "codicon codicon-loading codicon-modifier-spin";
   loading.prepend(icon);
@@ -170,7 +172,7 @@ export async function loadStorageUsage(): Promise<void> {
     renderUsage(u);
   } catch (e) {
     usageEl.textContent = "";
-    usageEl.appendChild(storageRow("storage-row", "", labelSpan(`占用统计失败：${String(e)}`)));
+    usageEl.appendChild(storageRow("storage-row", "", labelSpan(t("storage.usageFailed", { error: localizeBackendError(errMsg(String(e))) }))));
   }
 }
 
@@ -179,20 +181,20 @@ export async function loadStorageUsage(): Promise<void> {
 async function cleanTraces(hash: string, btn?: HTMLButtonElement): Promise<void> {
   const all = hash === "__all__";
   const ok = await openConfirm({
-    title: all ? "清理全部 trace 库" : "删除该 trace 库",
+    title: all ? t("storage.trace.cleanAllTitle") : t("storage.trace.cleanOneTitle"),
     message: all
-      ? "将删除所有项目的运行时类型采样库（重新运行脚本即可重新采样）。继续？"
-      : "将删除该项目的 trace 库（重新运行脚本即可重新采样）。继续？",
+      ? t("storage.trace.cleanAllMsg")
+      : t("storage.trace.cleanOneMsg"),
     kind: "danger",
-    okLabel: all ? "全部清理" : "删除",
+    okLabel: all ? t("storage.action.cleanAll") : t("storage.action.delete"),
   });
   if (!ok) return;
-  if (btn) setBusy(btn, true, "清理中…");
+  if (btn) setBusy(btn, true, t("storage.state.cleaning"));
   try {
     const freed = await invoke<number>("clean_traces", { hash: all ? null : hash });
-    await openAlert({ message: `已释放 ${formatBytes(freed)}。` });
+    await openAlert({ message: t("storage.freed", { size: formatBytes(freed) }) });
   } catch (e) {
-    await openAlert({ title: "清理失败", message: String(e), kind: "danger" });
+    await openAlert({ title: t("storage.cleanFailed"), message: String(e), kind: "danger" });
   } finally {
     if (btn) setBusy(btn, false);
   }
@@ -201,17 +203,17 @@ async function cleanTraces(hash: string, btn?: HTMLButtonElement): Promise<void>
 
 async function cleanWebview(btn: HTMLButtonElement): Promise<void> {
   const ok = await openConfirm({
-    title: "清理 WebView 缓存",
-    message: "将删除 WebView2 的缓存子目录（登录态等文件保留）。继续？",
+    title: t("storage.webview.title"),
+    message: t("storage.webview.msg"),
     kind: "danger",
   });
   if (!ok) return;
-  setBusy(btn, true, "清理中…");
+  setBusy(btn, true, t("storage.state.cleaning"));
   try {
     const freed = await invoke<number>("clean_webview_cache");
-    await openAlert({ message: `已释放 ${formatBytes(freed)}。` });
+    await openAlert({ message: t("storage.freed", { size: formatBytes(freed) }) });
   } catch (e) {
-    await openAlert({ title: "清理失败", message: String(e), kind: "danger" });
+    await openAlert({ title: t("storage.cleanFailed"), message: String(e), kind: "danger" });
   } finally {
     setBusy(btn, false);
   }
@@ -219,12 +221,12 @@ async function cleanWebview(btn: HTMLButtonElement): Promise<void> {
 }
 
 async function cleanLogs(btn: HTMLButtonElement): Promise<void> {
-  setBusy(btn, true, "清理中…");
+  setBusy(btn, true, t("storage.state.cleaning"));
   try {
     const freed = await invoke<number>("clean_log_rotation");
-    await openAlert({ message: `已释放 ${formatBytes(freed)}（当前日志文件保留）。` });
+    await openAlert({ message: t("storage.freedKeepLogs", { size: formatBytes(freed) }) });
   } catch (e) {
-    await openAlert({ title: "清理失败", message: String(e), kind: "danger" });
+    await openAlert({ title: t("storage.cleanFailed"), message: String(e), kind: "danger" });
   } finally {
     setBusy(btn, false);
   }
@@ -232,20 +234,20 @@ async function cleanLogs(btn: HTMLButtonElement): Promise<void> {
 
 async function uvClean(deep: boolean, btn: HTMLButtonElement): Promise<void> {
   const ok = await openConfirm({
-    title: deep ? "uv 缓存深度清理" : "uv 缓存清理",
+    title: deep ? t("storage.uv.deepTitle") : t("storage.uv.title"),
     message: deep
-      ? "将删除全部 uv 缓存（已装环境不受影响；之后重装包会重新下载落盘）。继续？"
-      : "将清理 uv 缓存中的无效/悬空条目。继续？",
+      ? t("storage.uv.deepMsg")
+      : t("storage.uv.msg"),
     kind: "danger",
-    okLabel: deep ? "深度清理" : "清理",
+    okLabel: deep ? t("storage.action.deepClean") : t("storage.action.clean"),
   });
   if (!ok) return;
-  setBusy(btn, true, deep ? "深度清理中…" : "清理中…");
+  setBusy(btn, true, deep ? t("storage.state.deepCleaning") : t("storage.state.cleaning"));
   try {
     const msg = await invoke<string>("uv_cache_clean", { deep });
-    await openAlert({ message: msg || "完成。" });
+    await openAlert({ message: msg || t("storage.done") });
   } catch (e) {
-    await openAlert({ title: "清理失败", message: String(e), kind: "danger" });
+    await openAlert({ title: t("storage.cleanFailed"), message: String(e), kind: "danger" });
   } finally {
     setBusy(btn, false);
   }
@@ -257,30 +259,31 @@ async function uvClean(deep: boolean, btn: HTMLButtonElement): Promise<void> {
 async function migrate(btn: HTMLButtonElement): Promise<void> {
   const target = migratePathEl.value.trim();
   if (!target) {
-    await openAlert({ title: "请填写目标目录", message: "例如 D:\\opencharm-data" });
+    await openAlert({ title: t("storage.needTargetDir"), message: t("storage.exampleDir") });
     return;
   }
   const ok = await openConfirm({
-    title: "迁移数据",
+    title: t("storage.migration.title"),
     message:
-      `将把当前数据根完整复制到 ${target}，并把数据根指针指向该目录。` +
-      `重启后生效，期间请勿关闭应用。继续？`,
-    okLabel: "开始迁移",
+      t("storage.migration.copyTo", { target: target }) +
+      t("storage.migration.restartNote"),
+    okLabel: t("storage.migration.start"),
   });
   if (!ok) return;
-  setBusy(btn, true, "迁移中…");
+  setBusy(btn, true, t("storage.state.migrating"));
   try {
     const r = await invoke<MigrateResult>("migrate_data_root", { target });
     setBusy(btn, false);
-    const skippedNote = r.skipped.length > 0 ? `\n\n有 ${r.skipped.length} 个被占用文件未复制（详见新目录 .migration-skipped.txt）。` : "";
+    // 确认语多段拼装（含 \n\n 不走 apply_ts 映射，避免语言包转义链失真），按段取词
+    const skippedNote = r.skipped.length > 0 ? `\n\n${t("storage.migration.skippedNote", { count: r.skipped.length })}` : "";
     const go = await openConfirm({
-      title: "迁移完成",
-      message: `数据已复制到 ${r.new_root}。${skippedNote}\n\n旧目录 ${r.old_root} 不会被自动删除，重启并确认无误后可手工删除。\n\n现在重启应用使新位置生效？`,
-      okLabel: "立即重启",
+      title: t("storage.migration.doneTitle"),
+      message: `${t("storage.migration.done", { root: r.new_root, note: skippedNote })}\n\n${t("storage.migration.oldDir", { root: r.old_root })}\n\n${t("storage.migration.askRestart")}`,
+      okLabel: t("storage.migration.restartNow"),
     });
     if (go) await invoke("restart_app");
   } catch (e) {
-    await openAlert({ title: "迁移失败", message: String(e), kind: "danger" });
+    await openAlert({ title: t("storage.migration.failed"), message: String(e), kind: "danger" });
   } finally {
     setBusy(btn, false);
   }
@@ -294,8 +297,8 @@ export async function checkFirstRunStorage(): Promise<void> {
     const st = await invoke<FirstRunStatus>("first_run_status");
     if (st.migration_pending) {
       await openAlert({
-        title: "检测到未完成的迁移",
-        message: `数据根 ${st.data_root} 存在迁移中断标记。可在「设置 → 存储」重新执行迁移，或删除该目录中的 .migration-in-progress 标记后忽略。`,
+        title: t("storage.migration.incompleteTitle"),
+        message: t("storage.migration.incompleteMsg", { root: st.data_root }),
       });
     }
     if (!st.should_prompt) return;
@@ -310,7 +313,7 @@ export async function checkFirstRunStorage(): Promise<void> {
 function wireOnboarding(): void {
   $btn("storage-ob-default").addEventListener("click", () => {
     invoke("ack_first_run")
-      .catch((e) => toastFail("保存首启设置", e))
+      .catch((e) => toastFail(t("storage.firstRun.saveFail"), e))
       .finally(() => closeOnboarding());
   });
   $btn("storage-ob-custom").addEventListener("click", async () => {
@@ -320,13 +323,13 @@ function wireOnboarding(): void {
       await invoke("set_data_root", { path: dir });
       closeOnboarding();
       const go = await openConfirm({
-        title: "数据位置已设置",
-        message: `数据根已指向 ${dir}。重启后生效（首启尚无数据，重启无损失）。现在重启？`,
-        okLabel: "立即重启",
+        title: t("storage.firstRun.setTitle"),
+        message: t("storage.firstRun.setMsg", { dir: dir }),
+        okLabel: t("storage.migration.restartNow"),
       });
       if (go) await invoke("restart_app");
     } catch (e) {
-      await openAlert({ title: "设置失败", message: String(e), kind: "danger" });
+      await openAlert({ title: t("storage.setFailed"), message: String(e), kind: "danger" });
     }
   });
 }
@@ -337,11 +340,11 @@ export function wireStoragePanel(): void {
   wireOnboarding();
   $btn("storage-refresh").addEventListener("click", (e) => {
     const btn = e.currentTarget as HTMLButtonElement;
-    setBusy(btn, true, "统计中…");
+    setBusy(btn, true, t("storage.state.measuring"));
     void loadStorageUsage().finally(() => setBusy(btn, false));
   });
   $btn("storage-open").addEventListener("click", () => {
-    invoke("open_data_dir").catch((e) => toastFail("打开数据目录", e));
+    invoke("open_data_dir").catch((e) => toastFail(t("storage.openDataDir"), e));
   });
   usageEl.addEventListener("click", (e) => {
     // UI-08：改按 [data-trace] 命中——按钮外观已由 .btn 体系承载，不再拿样式类名当事件钩子
@@ -361,7 +364,7 @@ export function wireStoragePanel(): void {
       const dir = await invoke<string | null>("pick_folder");
       if (dir) migratePathEl.value = dir;
     } catch (e) {
-      toastFail("选择目录", e);
+      toastFail(t("storage.pickDirFail"), e);
     }
   });
   $btn("storage-migrate").addEventListener("click", (e) =>

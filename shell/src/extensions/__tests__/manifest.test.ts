@@ -41,7 +41,7 @@ describe("validateManifest", () => {
   it("非法 JSON 返回单条错误", () => {
     const r = validateManifest("{oops");
     expect(r.ok).toBe(false);
-    expect(r.errors[0]).toContain("不是合法 JSON");
+    expect(r.errors[0]?.key).toBe("ext.mf.invalidJson");
   });
 
   it("根非对象拒绝", () => {
@@ -54,7 +54,7 @@ describe("validateManifest", () => {
     bad.schemaVersion = 2;
     const r = validateManifest(JSON.stringify(bad));
     expect(r.ok).toBe(false);
-    expect(r.errors.join()).toContain("schemaVersion");
+    expect(r.errors.map((e) => e.key).join()).toContain("ext.mf.schemaVersion");
   });
 
   it("id 非法（空白/路径分隔符）拒绝", () => {
@@ -63,7 +63,7 @@ describe("validateManifest", () => {
       bad.id = id;
       const r = validateManifest(JSON.stringify(bad));
       expect(r.ok).toBe(false);
-      expect(r.errors.join()).toContain("id");
+      expect(r.errors.map((e) => e.key).join()).toContain("ext.mf.badId");
     }
   });
 
@@ -73,7 +73,7 @@ describe("validateManifest", () => {
       bad.engines = { opencharm: spec };
       const r = validateManifest(JSON.stringify(bad));
       expect(r.ok).toBe(false);
-      expect(r.errors.join()).toContain("engines.opencharm");
+      expect(r.errors.map((e) => e.key).join()).toContain("ext.mf.engines");
     }
   });
 
@@ -82,7 +82,7 @@ describe("validateManifest", () => {
     bad.permissions = ["clipbord"];
     const r = validateManifest(JSON.stringify(bad));
     expect(r.ok).toBe(false);
-    expect(r.errors.join()).toContain("未知权限");
+    expect(r.errors.map((e) => e.key).join()).toContain("ext.mf.unknownPerm");
   });
 
   it("权限去重后通过", () => {

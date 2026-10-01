@@ -33,6 +33,7 @@
 | [`docs/dep_health_dev_plan.md`](docs/dep_health_dev_plan.md) | 依赖健康开发计划（已实施）：依赖风格/扫描/修复 + 忽略清单 |
 | [`docs/git_improvement_report.md`](docs/git_improvement_report.md) | Git 集成交付报告：远程/worktree/rebase/cherry-pick/stash/log/blame 等增强 |
 | [`docs/menubar_improvement_plan.md`](docs/menubar_improvement_plan.md) | 菜单栏改进计划 |
+| [`docs/i18n.md`](docs/i18n.md) | **国际化实施说明（zh-CN / en-US 双语，已交付）**：扁平 key 语言包、20 批动态文案抽取、三步新增文案流程与踩坑记录 |
 | [`docs/adr/`](docs/adr/) | 技术决策记录（ADR） |
 
 > 技术方案与开发计划冲突时，以开发计划为准并反馈修订。
@@ -108,4 +109,5 @@ powershell -File .\build-release.ps1
 - **调试功能（DAP / debugpy 最小闭环）已交付**：D1–D5 / Gate E 见 [`docs/debug_acceptance_record.md`](docs/debug_acceptance_record.md)；协议层与打包均已验证，部分 UI 交互项待人工抽查（清单见验收记录 §五）。
 - **运行功能迁移（M1–M4）已交付**：脚本/项目两种运行 + 统一 PTY 运行控制台 + 多实例并行 + 运行历史按实例归属；交互口径 [`docs/python_run_dev_plan.md`](docs/python_run_dev_plan.md) v3.4、验收记录 [`docs/run_acceptance_record.md`](docs/run_acceptance_record.md)。
 - **界面设计改进计划已收官**（十批，30/30 项 + 2 条遗留）：按钮体系 / scale token / Tooltip 双轨收敛 / ARIA 语义（tree·tabs·dialog·tooltip·menu）/ 浅色主题对比度达标 / 响应式下限 / 字号字体族全局跟随设置；沉淀的硬规则已固化到 `.codebuddy/rules/typescript-code-style`，逐批可见变化的人工抽查清单见计划文档 §7。
+- **国际化（zh-CN / en-US 双语）已交付**：index.html 静态骨架、Rust 错误提示与全部功能域动态文案均已纳管（20 批抽取，en/zh 词条编译期对齐 + 单测兜底）；设置 → 外观 → 语言即时切换，实施与新增文案流程见 [`docs/i18n.md`](docs/i18n.md)。
 - 现行方案：[`docs/python_ide_tech_plan_v3.md`](docs/python_ide_tech_plan_v3.md) · 现行计划：[`docs/python_ide_dev_plan_v2.md`](docs/python_ide_dev_plan_v2.md) · 技术债登记：[`docs/tech-debt.md`](docs/tech-debt.md)。

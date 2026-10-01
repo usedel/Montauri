@@ -5,20 +5,24 @@ import type { PanelHost } from "../../extensions/facade";
 import { flashError, flashSuccess } from "../feedback";
 import { buildJsonTree, toJsonPath, toPythonSubscript, tryParseJson, type JsonNode } from "../jsonpath/tree";
 import { takePendingJsonPathRequest } from "../../libsBridge"; // 库支持 P1 §7-3：编辑器右键带入
+import { t } from "../../i18n";
 
-const SAMPLE = JSON.stringify(
-  {
-    store: {
-      book: [
-        { title: "Python 爬虫实战", price: 59.0 },
-        { title: "深入浅出爬虫", price: 79.0 },
-      ],
-      bicycle: { color: "red", price: 299.0 },
+// 示例数据按需构建（踩坑 ④：模块级 const 词条会在语言切换后过期）
+function buildSample(): string {
+  return JSON.stringify(
+    {
+      store: {
+        book: [
+          { title: t("devtools.jp.sampleTitle1"), price: 59.0 },
+          { title: t("devtools.jp.sampleTitle2"), price: 79.0 },
+        ],
+        bicycle: { color: "red", price: 299.0 },
+      },
     },
-  },
-  null,
-  2,
-);
+    null,
+    2,
+  );
+}
 
 function scalarPreview(v: unknown): string {
   if (typeof v === "string") {
@@ -45,12 +49,12 @@ export function mount(host: PanelHost): { dispose(): void } | void {
   let selected: JsonNode | null = null;
 
   const wrap = kit.body();
-  const input = kit.textarea({ placeholder: "粘贴 JSON 文本…" });
+  const input = kit.textarea({ placeholder: t("devtools.common.pasteJsonPh") });
   const errEl = kit.errorSlot();
 
-  const parseBtn = kit.primaryButton("解析", "play");
-  const sampleBtn = kit.button("示例");
-  const clearBtn = kit.button("清空");
+  const parseBtn = kit.primaryButton(t("devtools.common.parse"), "play");
+  const sampleBtn = kit.button(t("devtools.jp.sampleBtn"));
+  const clearBtn = kit.button(t("devtools.common.clear"));
 
   // 路径区：只读输入框 + 复制按钮（首行）、格式切换（次行）
   const pathBox = document.createElement("div");
@@ -63,18 +67,18 @@ export function mount(host: PanelHost): { dispose(): void } | void {
   pathInput.readOnly = true;
   pathInput.spellcheck = false;
   pathInput.autocomplete = "off";
-  pathInput.placeholder = "点击树节点显示路径";
+  pathInput.placeholder = t("devtools.jp.pathPh");
   // UI-09 例外：未选中节点时按钮 disabled，data-tip 静默失效——保留原生 title
   const copyPathBtn = document.createElement("button");
   copyPathBtn.className = "btn btn--sm";
-  copyPathBtn.title = "复制路径";
+  copyPathBtn.title = t("devtools.jp.copyPath");
   copyPathBtn.appendChild(kit.icon("copy"));
-  copyPathBtn.append("路径");
+  copyPathBtn.append(t("devtools.jp.path"));
   const copyValueBtn = document.createElement("button");
   copyValueBtn.className = "btn btn--sm";
-  copyValueBtn.title = "复制值";
+  copyValueBtn.title = t("devtools.jp.copyValue");
   copyValueBtn.appendChild(kit.icon("copy"));
-  copyValueBtn.append("值");
+  copyValueBtn.append(t("devtools.jp.value"));
   pathRow.append(pathInput, copyPathBtn, copyValueBtn);
 
   const modeRow = document.createElement("div");
@@ -94,7 +98,7 @@ export function mount(host: PanelHost): { dispose(): void } | void {
   valueToggle.className = "jp-value-toggle";
   const valueCaret = kit.icon("chevron-down");
   valueToggle.appendChild(valueCaret);
-  valueToggle.append(" 值预览");
+  valueToggle.append(t("devtools.jp.valueToggle"));
   const valueBox = document.createElement("div");
   valueBox.className = "jp-value-box";
   const valueOut = kit.output({ language: "json" });
@@ -194,27 +198,27 @@ export function mount(host: PanelHost): { dispose(): void } | void {
   const parse = (): void => {
     const text = input.value.trim();
     if (!text) {
-      errEl.textContent = "请先粘贴 JSON 文本";
-      flashError(parseBtn, "未输入");
+      errEl.textContent = t("devtools.jp.needInput");
+      flashError(parseBtn, t("devtools.common.emptyInput"));
       return;
     }
     const r = tryParseJson(text);
     if (!r.ok) {
-      errEl.textContent = `JSON 解析失败：${r.error}`;
-      flashError(parseBtn, "解析失败");
+      errEl.textContent = t("devtools.common.jsonParseFailed", { msg: r.error });
+      flashError(parseBtn, t("devtools.jp.parseFailedFlash"));
       return;
     }
     selected = null;
     treeBox.textContent = "";
     treeBox.appendChild(renderNode(buildJsonTree(r.value)));
     errEl.textContent = "";
-    flashSuccess(parseBtn, "已解析");
+    flashSuccess(parseBtn, t("devtools.jp.parsed"));
     updatePathBar();
   };
 
   parseBtn.addEventListener("click", parse);
   sampleBtn.addEventListener("click", () => {
-    input.value = SAMPLE;
+    input.value = buildSample();
     parse();
   });
   clearBtn.addEventListener("click", () => {
@@ -232,15 +236,15 @@ export function mount(host: PanelHost): { dispose(): void } | void {
   copyPathBtn.addEventListener("click", () => {
     if (!pathInput.value) return;
     void host.copyToClipboard(pathInput.value).then((ok) => {
-      if (ok) flashSuccess(copyPathBtn, "已复制");
-      else flashError(copyPathBtn, "复制失败");
+      if (ok) flashSuccess(copyPathBtn, t("devtools.common.copied"));
+      else flashError(copyPathBtn, t("devtools.common.copyFailed"));
     });
   });
   copyValueBtn.addEventListener("click", () => {
     if (!selected) return;
     void host.copyToClipboard(valueText(selected)).then((ok) => {
-      if (ok) flashSuccess(copyValueBtn, "已复制");
-      else flashError(copyValueBtn, "复制失败");
+      if (ok) flashSuccess(copyValueBtn, t("devtools.common.copied"));
+      else flashError(copyValueBtn, t("devtools.common.copyFailed"));
     });
   });
 

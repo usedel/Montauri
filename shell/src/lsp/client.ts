@@ -10,6 +10,7 @@ import { app } from "../state";
 import * as dap from "../dap/client"; // B-8：暂停态 hover 求值（dap 不依赖 lsp，无环）
 import { depActionsForLine, latestDiff, toWorkspaceRelative } from "../depHealth";
 import { isSuppressedEngineAction } from "../quickFix";
+import { t } from "../i18n"; // i18n 复核修复：hover 调试段与 quickfix 标题走语言包
 import { libsHoverAt } from "../dslLens"; // 库支持 PR-2/PR-3（R-1）：hover 合并管线的自研追加段
 
 // Monaco 实例注入（配合 main.ts 动态加载；providers 注册前必须先注入）
@@ -124,7 +125,7 @@ export function requestEngine(engine: string, method: string, params: unknown): 
     // CR-11：引擎假死（丢帧/内部死锁）时 Promise 永不 settle，闭包与 pending 条目无界泄漏，
     // 补全 widget 永久转圈。超时 reject 兜底；响应到达时 settlePending 清定时器。
     const timer = setTimeout(() => {
-      settlePending(s, id, (p) => p.reject(new Error(`LSP 请求超时（${timeout / 1000}s）: ${method}`)));
+      settlePending(s, id, (p) => p.reject(new Error(t("ide.lsp.requestTimeout", { sec: timeout / 1000, method }))));
     }, timeout);
     s.pending.set(id, { resolve, reject, timer });
     invoke("lsp_send_request", { engine, id, method, params }).catch((e) => {
@@ -288,7 +289,7 @@ async function doEnsureListeners(): Promise<void> {
   unlistenExit = await getCurrentWindow().listen<{ engine?: string; code: number | null }>("lsp-exit", (e) => {
     const eng = e.payload?.engine ?? "static";
     const s = session(eng);
-    const err = new Error(`LSP 进程退出（code=${e.payload?.code}）`);
+    const err = new Error(t("ide.lsp.processExited", { code: String(e.payload?.code) }));
     for (const [, p] of s.pending) {
       clearTimeout(p.timer);
       p.reject(err);
@@ -425,7 +426,7 @@ export async function stopEngine(): Promise<void> {
   try {
     await invoke("lsp_stop", { engine: "*" });
   } catch { /* 未启动时忽略 */ }
-  const err = new Error("LSP 已停止");
+  const err = new Error(t("ide.lsp.stopped"));
   for (const [, s] of sessions) {
     for (const [, p] of s.pending) {
       clearTimeout(p.timer); // CR-11：清超时句柄
@@ -445,7 +446,7 @@ export async function stopIntel(): Promise<void> {
     await invoke("lsp_stop", { engine: "intel" });
   } catch { /* 未启动时忽略 */ }
   const s = session("intel");
-  const err = new Error("运行时智能已关闭");
+  const err = new Error(t("ide.lsp.intelClosed"));
   for (const [, p] of s.pending) {
     clearTimeout(p.timer); // CR-11
     p.reject(err);
@@ -783,7 +784,7 @@ export function registerLspHover(): MonacoApi.IDisposable {
             const r = await dap.dapEvaluate(word.word, dap.getActiveFrameId(), "hover");
             if (r.result) {
               const shown = r.result.length > 300 ? `${r.result.slice(0, 299)}…` : r.result;
-              const line = `**调试值** \`${shown}\``;
+              const line = `**${t("ide.debugValue")}** \`${shown}\``;
               value = value ? `${value}\n\n${line}` : line;
             }
           } catch {
@@ -1047,7 +1048,7 @@ export async function fetchRenameChanges(
   position: MonacoApi.Position,
   newName: string,
 ): Promise<RenameFileEdits[]> {
-  if (engineStatus !== "ready") throw new Error("LSP 引擎未就绪");
+  if (engineStatus !== "ready") throw new Error(t("ide.lsp.notReady"));
   await flushBeforeSemantic();
   const result = await request("textDocument/rename", {
     textDocument: { uri: pathToFileUri(currentPath(model)) },
@@ -1353,11 +1354,11 @@ function buildInstallActions(markers: MonacoApi.editor.IMarkerData[]): MonacoApi
     if (pkg && !byPkg.has(pkg)) byPkg.set(pkg, m);
   }
   return [...byPkg.entries()].map(([pkg, marker]) => ({
-    title: `安装 "${pkg}" 包`,
+    title: t("ide.installPkg", { pkg }),
     kind: "quickfix",
     isPreferred: true,
     diagnostics: [marker], // 关联具体诊断，灯泡 hover 与菜单分组更准确
-    command: { id: INSTALL_PACKAGE_COMMAND, title: `安装 ${pkg}`, arguments: [pkg] },
+    command: { id: INSTALL_PACKAGE_COMMAND, title: t("ide.installPkgShort", { pkg }), arguments: [pkg] },
   }));
 }
 

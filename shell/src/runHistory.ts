@@ -15,7 +15,9 @@ import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { hideEl, showEl } from "./anim";
 import { trapFocus } from "./focusTrap";
 import { app } from "./state";
-import { basename, emptyState, relativePath } from "./util";
+import { basename, emptyState, errMsg, relativePath } from "./util";
+import { onLocaleChange, t } from "./i18n"; // 第五批 i18n：运行历史域动态文案走语言包
+import { localizeBackendError } from "./i18n/backendError";
 
 export interface RunLine {
   cls: string;
@@ -201,15 +203,15 @@ export async function saveRunOutput(r: RunRecord): Promise<void> {
   const stamp = new Date(r.startedAt).toISOString().slice(0, 19).replace(/[:T]/g, "-");
   const path = await saveDialog({
     defaultPath: `${displayName(r)}-${stamp}.log`,
-    filters: [{ name: "运行输出", extensions: ["log", "txt"] }],
+    filters: [{ name: t("run.hist.filterName"), extensions: ["log", "txt"] }],
   });
   if (!path) return;
   const content = r.lines.map((l) => l.text).join("\n") + "\n";
   try {
     await invoke("write_file", { path, content });
-    handlers?.appendLine("hint", `已保存运行输出：${path}`);
+    handlers?.appendLine("hint", t("run.hist.savedOutput", { path: path }));
   } catch (e) {
-    handlers?.appendLine("stderr", `保存运行输出失败：${e}`);
+    handlers?.appendLine("stderr", t("run.hist.saveOutputFailed", { error: localizeBackendError(errMsg(e)) }));
   }
 }
 
@@ -229,10 +231,10 @@ function clockOf(ts: number): string {
 
 /** 状态摘要（退出码 / 行数 / 时长） */
 function summaryOf(r: RunRecord): string {
-  const dur = r.finishedAt ? `${((r.finishedAt - r.startedAt) / 1000).toFixed(1)}s` : "运行中…";
-  const code = r.exitKind === "stopped" ? "已停止" : r.exitKind === "canceled" ? "已取消" : r.code === null ? "—" : String(r.code);
-  const pin = r.pinned ? "已固定 · " : "";
-  return `${pin}${clockOf(r.startedAt)} · ${r.lines.length} 行 · ${dur} · 退出码 ${code}`;
+  const dur = r.finishedAt ? `${((r.finishedAt - r.startedAt) / 1000).toFixed(1)}s` : t("run.hist.running");
+  const code = r.exitKind === "stopped" ? t("run.hist.exitStopped") : r.exitKind === "canceled" ? t("run.hist.exitCanceled") : r.code === null ? "—" : String(r.code);
+  const pin = r.pinned ? t("run.hist.pinnedPrefix") : "";
+  return t("run.hist.summary", { pin: pin, clock: clockOf(r.startedAt), lines: r.lines.length, dur: dur, code: code });
 }
 
 export function initRunHistory(): void {
@@ -243,16 +245,21 @@ export function initRunHistory(): void {
   card.className = "modal-card run-history-card";
   card.setAttribute("role", "dialog");
   card.setAttribute("aria-modal", "true");
-  card.setAttribute("aria-label", "运行历史");
+  card.setAttribute("aria-label", t("run.hist.title"));
   const list = document.createElement("div");
   list.id = "run-history-list";
   list.className = "run-history-list";
   list.setAttribute("role", "listbox");
-  list.setAttribute("aria-label", "历史运行记录");
+  list.setAttribute("aria-label", t("run.hist.listAria"));
   card.appendChild(list);
   host.appendChild(card);
   modalEl = host;
   listEl = list;
+
+  // 语言切换时重绘当前面板（与 git.ts 同款约定）；面板未打开时下次打开自然用新语言
+  onLocaleChange(() => {
+    if (isRunHistoryOpen()) renderList();
+  });
 
   list.addEventListener("click", (e) => {
     const row = (e.target as HTMLElement).closest<HTMLElement>(".run-history-item");
@@ -308,7 +315,7 @@ function renderList(): void {
   list.textContent = "";
   const items = listRuns();
   if (items.length === 0) {
-    list.appendChild(emptyState("debug-alt", "暂无运行记录", "运行一次脚本后，这里会保留它的完整输出"));
+    list.appendChild(emptyState("debug-alt", t("run.hist.empty"), t("run.hist.emptyHint")));
     return;
   }
   items.forEach((r, i) => {
@@ -336,8 +343,8 @@ function renderList(): void {
     // Pin / 重跑 / 保存输出 / 删除（原 chip 条的三个动作 + P2-O 保存随 M4 收编进列表行）
     const pin = document.createElement("button");
     pin.className = `run-tab-btn run-tab-pin${r.pinned ? " pinned" : ""}`;
-    pin.setAttribute("aria-label", r.pinned ? "取消固定" : "固定该记录（不被淘汰）");
-    pin.dataset.tip = r.pinned ? "取消固定" : "固定（不被淘汰）";
+    pin.setAttribute("aria-label", r.pinned ? t("run.hist.unpin") : t("run.hist.pinAria"));
+    pin.dataset.tip = r.pinned ? t("run.hist.unpin") : t("run.hist.pin");
     pin.innerHTML = '<i class="codicon codicon-pin" aria-hidden="true"></i>';
     pin.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -347,8 +354,8 @@ function renderList(): void {
 
     const rerun = document.createElement("button");
     rerun.className = "run-tab-btn run-tab-rerun";
-    rerun.setAttribute("aria-label", "重新运行");
-    rerun.dataset.tip = "重新运行";
+    rerun.setAttribute("aria-label", t("run.hist.rerun"));
+    rerun.dataset.tip = t("run.hist.rerun");
     rerun.innerHTML = '<i class="codicon codicon-debug-restart" aria-hidden="true"></i>';
     rerun.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -359,8 +366,8 @@ function renderList(): void {
     // P2-O（M4 收口）：保存该条输出到文件（对标 PyCharm Save console output to file）
     const save = document.createElement("button");
     save.className = "run-tab-btn run-tab-save";
-    save.setAttribute("aria-label", "保存该记录的输出到文件");
-    save.dataset.tip = "保存输出到文件";
+    save.setAttribute("aria-label", t("run.hist.saveAria"));
+    save.dataset.tip = t("run.hist.save");
     save.innerHTML = '<i class="codicon codicon-save" aria-hidden="true"></i>';
     save.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -369,8 +376,8 @@ function renderList(): void {
 
     const close = document.createElement("button");
     close.className = "run-tab-btn run-tab-close";
-    close.setAttribute("aria-label", "移除该记录");
-    close.dataset.tip = "移除记录";
+    close.setAttribute("aria-label", t("run.hist.removeAria"));
+    close.dataset.tip = t("run.hist.remove");
     close.innerHTML = '<i class="codicon codicon-close" aria-hidden="true"></i>';
     close.addEventListener("click", (e) => {
       e.stopPropagation();

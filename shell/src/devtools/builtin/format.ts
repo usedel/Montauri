@@ -14,6 +14,7 @@ import {
   type FormatMode,
 } from "../../libFormat";
 import { takePendingFormatRequest } from "../../libsBridge";
+import { t } from "../../i18n";
 
 interface FormatEvalData {
   result: string;
@@ -31,10 +32,10 @@ export function mount(host: PanelHost): { dispose(): void } | void {
 
   // 三模式（互斥 → radioGroup，§11.4；初始模式由带入请求决定）
   const modeGroup = kit.radioGroup<FormatMode>({
-    label: "格式串模式",
+    label: t("devtools.fmt.mode"),
     options: [
-      { value: "strftime", label: "日期 strftime" },
-      { value: "format", label: "数字 format" },
+      { value: "strftime", label: t("devtools.fmt.modeStrftime") },
+      { value: "format", label: t("devtools.fmt.modeFormat") },
       { value: "logging", label: "logging" },
     ],
     value: initial?.mode ?? "strftime",
@@ -59,8 +60,8 @@ export function mount(host: PanelHost): { dispose(): void } | void {
   sampleRow.id = "fmt-sample-row";
   const sampleLabel = document.createElement("span");
   sampleLabel.className = "rx-flags-summary";
-  sampleLabel.textContent = "示例值";
-  const sampleEl = kit.input({ placeholder: '1234.5678 或 ["a", 1] 或 {"x": 1}', onInput: () => scheduleEval() });
+  sampleLabel.textContent = t("devtools.fmt.sampleLabel");
+  const sampleEl = kit.input({ placeholder: t("devtools.fmt.samplePh"), onInput: () => scheduleEval() });
   sampleEl.id = "fmt-sample";
   sampleRow.append(sampleLabel, sampleEl);
 
@@ -70,7 +71,7 @@ export function mount(host: PanelHost): { dispose(): void } | void {
   segRow.id = "fmt-segments";
 
   // 结果区（等宽 + 复制按钮就近，缺陷 #20 教训）
-  const out = kit.output({ language: "plaintext", placeholder: "预览结果", readOnly: true });
+  const out = kit.output({ language: "plaintext", placeholder: t("devtools.fmt.outPh"), readOnly: true });
   out.el.classList.add("fmt-out");
   out.el.id = "fmt-out";
 
@@ -223,7 +224,7 @@ export function mount(host: PanelHost): { dispose(): void } | void {
     statusEl.className = "rx-status";
     if (state === "empty") {
       statusEl.classList.add("rx-status--idle");
-      statusEl.textContent = "输入格式串开始预览（点击速查 chips 插入码位）";
+      statusEl.textContent = t("devtools.fmt.empty");
       return;
     }
     if (state === "ok") {
@@ -233,21 +234,21 @@ export function mount(host: PanelHost): { dispose(): void } | void {
     }
     if (state === "err") {
       statusEl.classList.add("rx-status--err");
-      statusEl.textContent = detail ?? "格式无效";
+      statusEl.textContent = detail ?? t("devtools.fmt.invalid");
       return;
     }
     if (state === "timeout") {
       statusEl.classList.add("rx-status--err");
-      statusEl.textContent = "求值超时（3s）：格式串过长或解释器无响应";
+      statusEl.textContent = t("devtools.fmt.timeout");
       return;
     }
     if (state === "degraded") {
       statusEl.classList.add("rx-status--degraded");
-      statusEl.textContent = "未配置工作区解释器，无法预览（速查表与分段解释仍可用）——可在状态栏选择解释器";
+      statusEl.textContent = t("devtools.fmt.noInterpreter");
       return;
     }
     statusEl.classList.add("rx-status--pending");
-    statusEl.textContent = "求值中…";
+    statusEl.textContent = t("devtools.common.evaluating");
   }
 
   // Ctrl+Enter 强制求值（§11.2）

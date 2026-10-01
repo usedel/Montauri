@@ -9,9 +9,11 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
-import { codicon } from "../util";
+import { codicon, errMsg } from "../util";
+import { localizeBackendError } from "../i18n/backendError";
 import { toast } from "../toast";
 import { openAlert } from "../dialog";
+import { t } from "../i18n"; // 第十五批 i18n：扩展面板动态文案走语言包
 import { disablePlugin, enablePlugin, listPluginRecords, reloadPlugin, scanPlugins, type PluginRecord } from "./loader";
 // 指南源（仓库 docs/，经 ?raw 打包进产物）：src/extensions/ → 仓库根是三级上溯
 import guideRaw from "../../../docs/devtools_plugin_guide.md?raw";
@@ -42,36 +44,36 @@ export async function renderPluginsTab(): Promise<void> {
   try {
     dirPath = await invoke<string>("get_plugins_dir");
   } catch {
-    dirPath = "(未知)";
+    dirPath = t("ext.unknownDir");
   }
   const dirRow = document.createElement("div");
   dirRow.className = "plugins-dir-row";
   const dirLabel = document.createElement("span");
   dirLabel.className = "plugins-dir-label";
-  dirLabel.textContent = `目录：${dirPath}`;
+  dirLabel.textContent = t("ext.dirLabel", { dir: dirPath });
   dirLabel.title = dirPath;
   const copyDirBtn = document.createElement("button");
   copyDirBtn.className = "btn btn--sm";
   copyDirBtn.appendChild(codicon("copy"));
-  copyDirBtn.append("复制路径");
+  copyDirBtn.append(t("ext.copyPath"));
   copyDirBtn.addEventListener("click", () => {
-    void invoke("copy_to_clipboard", { text: dirPath }).then(() => toast("路径已复制", "success"));
+    void invoke("copy_to_clipboard", { text: dirPath }).then(() => toast(t("ext.pathCopied"), "success"));
   });
   const openDirBtn = document.createElement("button");
   openDirBtn.className = "btn btn--sm";
   openDirBtn.appendChild(codicon("folder-opened"));
-  openDirBtn.append("打开目录");
+  openDirBtn.append(t("ext.openDir"));
   openDirBtn.addEventListener("click", () => {
-    void invoke("reveal_plugins_dir").catch((e) => toast(`打开目录失败：${e}`, "error"));
+    void invoke("reveal_plugins_dir").catch((e) => toast(t("ext.openDirFailed", { error: localizeBackendError(errMsg(e)) }), "error"));
   });
   const rescanBtn = document.createElement("button");
   rescanBtn.className = "btn btn--sm";
   rescanBtn.appendChild(codicon("refresh"));
-  rescanBtn.append("重新扫描");
+  rescanBtn.append(t("ext.rescan"));
   rescanBtn.addEventListener("click", () => {
     void scanPlugins().then(() => {
       renderPluginsTab();
-      toast("插件扫描完成", "success");
+      toast(t("ext.scanDone"), "success");
     });
   });
   dirRow.append(dirLabel, copyDirBtn, openDirBtn, rescanBtn);
@@ -83,17 +85,17 @@ export async function renderPluginsTab(): Promise<void> {
   const newBtn = document.createElement("button");
   newBtn.className = "btn btn--primary btn--sm";
   newBtn.appendChild(codicon("add"));
-  newBtn.append("新建插件…");
+  newBtn.append(t("ext.newPlugin"));
   newBtn.addEventListener("click", () => void showScaffoldDialog());
   const importBtn = document.createElement("button");
   importBtn.className = "btn btn--sm";
   importBtn.appendChild(codicon("cloud-download"));
-  importBtn.append("导入插件…");
+  importBtn.append(t("ext.importPluginMenu"));
   importBtn.addEventListener("click", () => void importPluginFromZip());
   const guideBtn = document.createElement("button");
   guideBtn.className = "btn btn--sm";
   guideBtn.appendChild(codicon("book"));
-  guideBtn.append("作者指南");
+  guideBtn.append(t("ext.authorGuide"));
   guideBtn.addEventListener("click", () => void openGuide());
   dxRow.append(newBtn, importBtn, guideBtn);
   root.appendChild(dxRow);
@@ -105,7 +107,7 @@ export async function renderPluginsTab(): Promise<void> {
   if (records.length === 0) {
     const empty = document.createElement("div");
     empty.className = "plugins-empty";
-    empty.textContent = "暂无插件。点击「新建插件…」用模板起步，或将含 opencharm.plugin.json 的插件目录放入上述目录后「重新扫描」。";
+    empty.textContent = t("ext.empty");
     list.appendChild(empty);
   } else {
     for (const rec of records) list.appendChild(renderPluginRow(rec));
@@ -120,47 +122,47 @@ export async function openGuide(): Promise<void> {
     const path = await writeDataDoc("devtools_plugin_guide.md", guideRaw);
     await openGuideFile(path);
   } catch (e) {
-    toast(`打开指南失败：${e instanceof Error ? e.message : String(e)}`, "error");
+    toast(t("ext.guideFailed", { error: localizeBackendError(errMsg(e instanceof Error ? e.message : String(e))) }), "error");
   }
 }
 
 /** 导入插件 zip（P2 分发）：选文件 → Rust 解包校验落盘 → 重扫 */
 async function importPluginFromZip(): Promise<void> {
   const picked = await openDialog({
-    title: "导入插件（zip）",
+    title: t("ext.importZipTitle"),
     multiple: false,
     directory: false,
-    filters: [{ name: "插件包", extensions: ["zip"] }],
+    filters: [{ name: t("ext.pluginPkgFilter"), extensions: ["zip"] }],
   });
   if (typeof picked !== "string" || !picked) return; // 取消
   try {
     await invoke<string>("import_plugin", { zipPath: picked });
     await scanPlugins();
     renderPluginsTab();
-    toast("插件导入成功", "success");
+    toast(t("ext.importSuccess"), "success");
   } catch (e) {
-    void openAlert({ title: "导入插件", message: `导入失败：${e instanceof Error ? e.message : String(e)}` });
+    void openAlert({ title: t("ext.importTitle"), message: t("ext.importFailed", { error: localizeBackendError(errMsg(e instanceof Error ? e.message : String(e))) }) });
   }
 }
 
 /** 导出插件为 zip（P2 分发）：行内「导出」按钮调用 */
 async function exportPluginZip(rec: PluginRecord): Promise<void> {
   if (rec.source !== "global") {
-    toast("内置插件无需导出（随应用分发）", "info");
+    toast(t("ext.builtinNoExport"), "info");
     return;
   }
   try {
     const defaultName = await invoke<string>("plugin_export_filename", { pluginDir: rec.dir });
     const target = await saveDialog({
-      title: "导出插件",
+      title: t("ext.exportTitle"),
       defaultPath: defaultName,
-      filters: [{ name: "插件包", extensions: ["zip"] }],
+      filters: [{ name: t("ext.pluginPkgFilter"), extensions: ["zip"] }],
     });
     if (typeof target !== "string" || !target) return; // 取消
     await invoke<string>("export_plugin", { pluginDir: rec.dir, savePath: target });
-    toast(`已导出到 ${target}`, "success");
+    toast(t("ext.exportedTo", { target: target }), "success");
   } catch (e) {
-    void openAlert({ title: "导出插件", message: `导出失败：${e instanceof Error ? e.message : String(e)}` });
+    void openAlert({ title: t("ext.exportTitle"), message: t("ext.exportFailed", { error: localizeBackendError(errMsg(e instanceof Error ? e.message : String(e))) }) });
   }
 }
 
@@ -174,11 +176,11 @@ async function showScaffoldDialog(): Promise<void> {
     renderPluginsTab();
     const next =
       form.template === "inline"
-        ? "命令面板搜「问候选区」试试；面板里也有调试台"
-        : "菜单「工具 → 文本」试试你的插件，改 hello.js 保存即热重载";
-    toast(`模板已创建——${next}`, "success");
+        ? t("ext.nextInline")
+        : t("ext.nextPanel");
+    toast(t("ext.scaffoldCreated", { next: next }), "success");
   } catch (e) {
-    void openAlert({ title: "插件脚手架", message: `创建失败：${e instanceof Error ? e.message : String(e)}` });
+    void openAlert({ title: t("ext.scaffoldTitle"), message: t("ext.createFailed", { error: localizeBackendError(errMsg(e instanceof Error ? e.message : String(e))) }) });
   }
 }
 
@@ -191,48 +193,48 @@ function promptScaffoldForm(): Promise<{ id: string; name: string; template: "pa
     card.className = "modal-card scaffold-card";
     card.setAttribute("role", "dialog");
     card.setAttribute("aria-modal", "true");
-    card.setAttribute("aria-label", "新建插件");
+    card.setAttribute("aria-label", t("ext.newCardAria"));
 
     const title = document.createElement("div");
     title.className = "scaffold-title";
-    title.textContent = "新建插件";
+    title.textContent = t("ext.newCardAria");
 
     const idLabel = document.createElement("label");
     idLabel.className = "scaffold-field-label";
     idLabel.htmlFor = "scaffold-id";
-    idLabel.textContent = "插件 id";
+    idLabel.textContent = t("ext.fieldId");
     const idInput = document.createElement("input");
     idInput.id = "scaffold-id";
     idInput.type = "text";
-    idInput.placeholder = "如 com.yourname.my-tools";
+    idInput.placeholder = t("ext.idPlaceholder");
     idInput.autocomplete = "off";
     idInput.spellcheck = false;
 
     const nameLabel = document.createElement("label");
     nameLabel.className = "scaffold-field-label";
     nameLabel.htmlFor = "scaffold-name";
-    nameLabel.textContent = "名称";
+    nameLabel.textContent = t("ext.fieldName");
     const nameInput = document.createElement("input");
     nameInput.id = "scaffold-name";
     nameInput.type = "text";
-    nameInput.placeholder = "显示在菜单与插件列表，如 我的工具集";
+    nameInput.placeholder = t("ext.namePlaceholder");
     nameInput.autocomplete = "off";
     nameInput.spellcheck = false;
 
     // 模板单选（kit.radioGroup 不依赖 host——纯 UI 积木，静态复用）
     const tplLabel = document.createElement("div");
     tplLabel.className = "scaffold-field-label";
-    tplLabel.textContent = "模板";
+    tplLabel.textContent = t("ext.fieldTpl");
     const tplGroup = createScaffoldTemplateGroup();
 
     const actions = document.createElement("div");
     actions.className = "modal-actions";
     const cancelBtn = document.createElement("button");
     cancelBtn.className = "btn";
-    cancelBtn.textContent = "取消";
+    cancelBtn.textContent = t("ext.cancel");
     const okBtn = document.createElement("button");
     okBtn.className = "btn btn--primary";
-    okBtn.textContent = "创建";
+    okBtn.textContent = t("ext.create");
     actions.append(cancelBtn, okBtn);
 
     card.append(title, idLabel, idInput, nameLabel, nameInput, tplLabel, tplGroup.el, actions);
@@ -245,7 +247,7 @@ function promptScaffoldForm(): Promise<{ id: string; name: string; template: "pa
       const id = idInput.value.trim();
       const name = nameInput.value.trim();
       if (!id || !name) {
-        toast("请填写插件 id 与名称", "info");
+        toast(t("ext.needIdAndName"), "info");
         return;
       }
       done({ id, name, template: tplGroup.get() });
@@ -269,14 +271,14 @@ function promptScaffoldForm(): Promise<{ id: string; name: string; template: "pa
 /** 模板单选组（内联 WAI-ARIA radiogroup——与 kit.radioGroup 同范式，此处无 host 故本地实现） */
 function createScaffoldTemplateGroup(): { el: HTMLElement; get(): "panel" | "inline" | "blank" } {
   const OPTIONS: Array<{ value: "panel" | "inline" | "blank"; label: string; desc: string }> = [
-    { value: "panel", label: "面板工具", desc: "带输入/输出界面的完整工具" },
-    { value: "inline", label: "选区变换", desc: "选中文本原地替换，无界面" },
-    { value: "blank", label: "空白", desc: "只有 manifest，从头写" },
+    { value: "panel", label: t("ext.tplPanel"), desc: t("ext.tplPanelDesc") },
+    { value: "inline", label: t("ext.tplInline"), desc: t("ext.tplInlineDesc") },
+    { value: "blank", label: t("ext.tplBlank"), desc: t("ext.tplBlankDesc") },
   ];
   const root = document.createElement("div");
   root.className = "tool-radiogroup scaffold-templates";
   root.setAttribute("role", "radiogroup");
-  root.setAttribute("aria-label", "模板");
+  root.setAttribute("aria-label", t("ext.fieldTpl"));
   let selected: "panel" | "inline" | "blank" = "panel";
   const radios = OPTIONS.map((o) => {
     const btn = document.createElement("button");
@@ -328,9 +330,9 @@ function renderPluginRow(rec: PluginRecord): HTMLElement {
   name.textContent = rec.name;
   const meta = document.createElement("span");
   meta.className = "plugin-meta";
-  const toolCount = rec.toolIds.length > 0 ? ` · ${rec.toolIds.length} 工具` : "";
-  const statusText = rec.status === "active" ? "已启用" : rec.status === "disabled" ? "已停用" : rec.status === "error" ? "加载失败" : "";
-  meta.textContent = `${rec.source === "builtin" ? "内置" : "全局"}${toolCount} · ${statusText}`;
+  const toolCount = rec.toolIds.length > 0 ? t("ext.toolCountSuffix", { count: rec.toolIds.length }) : "";
+  const statusText = rec.status === "active" ? t("ext.statusActive") : rec.status === "disabled" ? t("ext.statusDisabled") : rec.status === "error" ? t("ext.statusError") : "";
+  meta.textContent = t("ext.meta", { source: rec.source === "builtin" ? t("ext.sourceBuiltin") : t("ext.sourceGlobal"), tools: toolCount, status: statusText });
   head.append(caret, icon, name, meta);
   row.appendChild(head);
 
@@ -368,12 +370,12 @@ function renderPluginDetail(rec: PluginRecord): HTMLElement {
     return el;
   };
 
-  detail.append(line("版本", rec.version));
-  if (rec.manifest?.engines) detail.append(line("引擎要求", rec.manifest.engines.opencharm));
-  detail.append(line("权限", (rec.manifest?.permissions ?? []).join(", ") || "（默认：toast / log）"));
+  detail.append(line(t("ext.fieldVersion"), rec.version));
+  if (rec.manifest?.engines) detail.append(line(t("ext.fieldEngines"), rec.manifest.engines.opencharm));
+  detail.append(line(t("ext.fieldPermissions"), (rec.manifest?.permissions ?? []).join(", ") || t("ext.permDefault")));
 
   const toolTitles = (rec.manifest?.contributes?.tools ?? []).map((t) => t.title).join("、");
-  if (toolTitles) detail.append(line("工具", toolTitles));
+  if (toolTitles) detail.append(line(t("ext.fieldTools"), toolTitles));
   if (rec.error) {
     const err = document.createElement("div");
     err.className = "plugin-error-msg";
@@ -386,15 +388,15 @@ function renderPluginDetail(rec: PluginRecord): HTMLElement {
   actions.className = "plugin-actions";
   const reloadBtn = document.createElement("button");
   reloadBtn.className = "btn btn--sm";
-  reloadBtn.textContent = "重载";
+  reloadBtn.textContent = t("ext.reload");
   reloadBtn.addEventListener("click", () => void reloadPlugin(rec.id).then(() => renderPluginsTab()));
   const toggleBtn = document.createElement("button");
   toggleBtn.className = "btn btn--sm";
   if (rec.status === "disabled") {
-    toggleBtn.textContent = "启用";
+    toggleBtn.textContent = t("ext.enable");
     toggleBtn.addEventListener("click", () => void enablePlugin(rec.id).then(() => renderPluginsTab()));
   } else {
-    toggleBtn.textContent = "停用";
+    toggleBtn.textContent = t("ext.disable");
     toggleBtn.classList.add("btn--danger-outline");
     toggleBtn.addEventListener("click", () => void disablePlugin(rec.id).then(() => renderPluginsTab()));
   }
@@ -403,7 +405,7 @@ function renderPluginDetail(rec: PluginRecord): HTMLElement {
   if (rec.source === "global") {
     const exportBtn = document.createElement("button");
     exportBtn.className = "btn btn--sm";
-    exportBtn.textContent = "导出";
+    exportBtn.textContent = t("ext.export");
     exportBtn.addEventListener("click", () => void exportPluginZip(rec));
     actions.append(exportBtn);
   }
@@ -415,13 +417,13 @@ function renderPluginDetail(rec: PluginRecord): HTMLElement {
   const logTitle = document.createElement("div");
   logTitle.className = "plugin-logs-title";
   // v1.1（§9.14）：日志同时落盘（跨重启可查），面板只展示本会话内存环形
-  logTitle.textContent = "日志（本会话最近 50 条 · 跨重启记录落盘于 logs/plugins/<id>.log）";
+  logTitle.textContent = t("ext.logTitle");
   logBox.appendChild(logTitle);
   const lines = rec.logs.slice(-50);
   if (lines.length === 0) {
     const emptyLog = document.createElement("div");
     emptyLog.className = "plugin-log-line plugin-log-empty";
-    emptyLog.textContent = "（暂无日志——在插件代码里调 host.log(\"...\") 试试）";
+    emptyLog.textContent = t("ext.noLogHint");
     logBox.appendChild(emptyLog);
   } else {
     for (const { t, msg } of lines) {

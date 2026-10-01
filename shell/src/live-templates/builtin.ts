@@ -1,24 +1,28 @@
 // 内置模板库（方案 §11）+ 默认各 scope 排序
 // 约定：关键字类缩写（def/class/if/for/...）tabExpand=false，仅走补全弹窗，避免与正常编码冲突；
 //       非冲突缩写 tabExpand=true，支持「缩写+Tab」直接展开。
+// i18n（第十九批）：description / group 为展示文案（补全弹窗、管理面板、环绕/后缀选择器）——
+//       构建函数 + let + onLocaleChange 重建（⑧/⑮ 模式）；局部构建 helper 改名 tpl 避让 i18n t()。
 
+import { onLocaleChange, t } from "../i18n";
 import type { TemplateDef } from "./schema";
 
 const PY_ALL = ["python:module", "python:class", "python:function"];
 const PY_CLASS = ["python:class"];
 const PY_CLASS_FN = ["python:class", "python:function"];
 
-const t = (partial: Omit<TemplateDef, "kind" | "enabled"> & Partial<Pick<TemplateDef, "kind" | "enabled">>): TemplateDef => ({
+const tpl = (partial: Omit<TemplateDef, "kind" | "enabled"> & Partial<Pick<TemplateDef, "kind" | "enabled">>): TemplateDef => ({
   kind: "normal",
   enabled: true,
   ...partial,
 });
 
-export const BUILTIN_TEMPLATES: TemplateDef[] = [
-  t({
+function buildBuiltinTemplates(): TemplateDef[] {
+  return [
+  tpl({
     id: "builtin.main",
     abbreviation: "main",
-    description: "main 函数定义",
+    description: t("lt.tpl.main"),
     body: "def main($ARGS$):\n    $END$",
     // 模块层 + 语句位：定义入口函数；守卫改由 ifmain 承担（用户反馈 2026-08-26）
     scopes: ["python:module"],
@@ -26,7 +30,7 @@ export const BUILTIN_TEMPLATES: TemplateDef[] = [
     tabExpand: true,
     variables: [{ name: "ARGS" }],
   }),
-  t({
+  tpl({
     id: "builtin.ifmain",
     // 别名缩写：避开高频标识符 main 的快捷通道（产品裁决 2026-08-26 保留）
     abbreviation: "ifmain",
@@ -36,80 +40,80 @@ export const BUILTIN_TEMPLATES: TemplateDef[] = [
     positions: ["statement"],
     tabExpand: true,
   }),
-  t({
+  tpl({
     id: "builtin.def",
     abbreviation: "def",
-    description: "函数定义",
+    description: t("lt.tpl.def"),
     body: "def $NAME$($ARGS$):\n    $END$",
     scopes: PY_ALL,
     positions: ["statement"],
     tabExpand: false,
     variables: [{ name: "NAME", defaultValue: "name" }, { name: "ARGS" }],
   }),
-  t({
+  tpl({
     id: "builtin.class",
     abbreviation: "class",
-    description: "类定义（含 __init__）",
+    description: t("lt.tpl.class"),
     body: "class $NAME$:\n    def __init__(self$ARGS$):\n        $END$",
     scopes: ["python:module", "python:class"],
     positions: ["statement"],
     tabExpand: false,
     variables: [{ name: "NAME", defaultValue: "Name" }, { name: "ARGS", defaultValue: ", *args" }],
   }),
-  t({
+  tpl({
     id: "builtin.dataclass",
     abbreviation: "dataclass",
-    description: "@dataclass 类",
+    description: t("lt.tpl.dataclass"),
     body: "@dataclass\nclass $NAME$:\n    $END$",
     scopes: ["python:module", "python:class"],
     positions: ["statement"],
     tabExpand: true,
     variables: [{ name: "NAME", defaultValue: "Name" }],
   }),
-  t({
+  tpl({
     id: "builtin.if",
     abbreviation: "if",
-    description: "if 语句",
+    description: t("lt.tpl.if"),
     body: "if $COND$:\n    $END$",
     scopes: PY_ALL,
     positions: ["statement"],
     tabExpand: false,
     variables: [{ name: "COND", defaultValue: "condition" }],
   }),
-  t({
+  tpl({
     id: "builtin.ife",
     abbreviation: "ife",
-    description: "if / else 语句",
+    description: t("lt.tpl.ife"),
     body: "if $COND$:\n    $THEN$\nelse:\n    $END$",
     scopes: PY_ALL,
     positions: ["statement"],
     tabExpand: true,
     variables: [{ name: "COND", defaultValue: "condition" }, { name: "THEN", defaultValue: "pass" }],
   }),
-  t({
+  tpl({
     id: "builtin.for",
     abbreviation: "for",
-    description: "for 循环",
+    description: t("lt.tpl.for"),
     body: "for $ITEM$ in $ITERABLE$:\n    $END$",
     scopes: PY_ALL,
     positions: ["statement"],
     tabExpand: false,
     variables: [{ name: "ITEM", defaultValue: "item" }, { name: "ITERABLE", defaultValue: "items" }],
   }),
-  t({
+  tpl({
     id: "builtin.while",
     abbreviation: "while",
-    description: "while 循环",
+    description: t("lt.tpl.while"),
     body: "while $COND$:\n    $END$",
     scopes: PY_ALL,
     positions: ["statement"],
     tabExpand: false,
     variables: [{ name: "COND", defaultValue: "condition" }],
   }),
-  t({
+  tpl({
     id: "builtin.try",
     abbreviation: "try",
-    description: "try / except 块",
+    description: t("lt.tpl.try"),
     body: "try:\n    $BODY$\nexcept $EXC$ as $E$:\n    $END$",
     scopes: PY_ALL,
     positions: ["statement"],
@@ -124,34 +128,34 @@ export const BUILTIN_TEMPLATES: TemplateDef[] = [
       { name: "E", defaultValue: "e" },
     ],
   }),
-  t({
+  tpl({
     id: "builtin.with",
     abbreviation: "with",
-    description: "with 语句",
+    description: t("lt.tpl.with"),
     body: "with $EXPR$ as $ALIAS$:\n    $END$",
     scopes: PY_ALL,
     positions: ["statement"],
     tabExpand: false,
     variables: [{ name: "EXPR", defaultValue: 'open("file")' }, { name: "ALIAS", defaultValue: "f" }],
   }),
-  t({
+  tpl({
     id: "builtin.lambda",
     abbreviation: "lambda",
-    description: "lambda 表达式",
+    description: t("lt.tpl.lambda"),
     body: "lambda $ARGS$: $EXPR$",
     scopes: PY_ALL,
     tabExpand: false,
     variables: [{ name: "ARGS", defaultValue: "x" }, { name: "EXPR", defaultValue: "x" }],
   }),
-  t({
+  tpl({
     id: "builtin.print",
     abbreviation: "print",
-    description: "print 调用",
+    description: t("lt.tpl.print"),
     body: "print($END$)",
     scopes: PY_ALL,
     tabExpand: true,
   }),
-  t({
+  tpl({
     id: "builtin.super",
     abbreviation: "super",
     description: "super().__init__(...)",
@@ -159,17 +163,17 @@ export const BUILTIN_TEMPLATES: TemplateDef[] = [
     scopes: PY_CLASS_FN,
     tabExpand: true,
   }),
-  t({
+  tpl({
     id: "builtin.init",
     abbreviation: "init",
-    description: "__init__ 方法",
+    description: t("lt.tpl.init"),
     body: "def __init__(self$ARGS$):\n    $END$",
     scopes: PY_CLASS,
     positions: ["statement"],
     tabExpand: true,
     variables: [{ name: "ARGS" }],
   }),
-  t({
+  tpl({
     id: "builtin.prop",
     abbreviation: "prop",
     description: "@property getter",
@@ -179,20 +183,20 @@ export const BUILTIN_TEMPLATES: TemplateDef[] = [
     tabExpand: true,
     variables: [{ name: "NAME", defaultValue: "name" }],
   }),
-  t({
+  tpl({
     id: "builtin.iter",
     abbreviation: "iter",
-    description: "__iter__ / __next__ 对",
+    description: t("lt.tpl.iter"),
     body: "def __iter__(self):\n    $FIRST$\n\ndef __next__(self):\n    $END$",
     scopes: PY_CLASS,
     positions: ["statement"],
     tabExpand: true,
     variables: [{ name: "FIRST", defaultValue: "return self" }],
   }),
-  t({
+  tpl({
     id: "builtin.repr",
     abbreviation: "repr",
-    description: "__repr__ 方法",
+    description: t("lt.tpl.repr"),
     body: "def __repr__(self):\n    return $END$",
     scopes: PY_CLASS,
     positions: ["statement"],
@@ -201,10 +205,10 @@ export const BUILTIN_TEMPLATES: TemplateDef[] = [
   // P2（PyCharm 调研 E4）：docstring 三件套。
   // 关键点是 `allowInStrings: true`——docstring 本身就在字符串字面量里，
   // 而 tabExpand 默认**禁止**字符串内展开（tabExpand.ts:93），不显式开启等价于永远用不上。
-  t({
+  tpl({
     id: "builtin.doc",
     abbreviation: "doc",
-    description: "单行 docstring",
+    description: t("lt.tpl.doc"),
     body: '"""$DESC$$END$"""',
     scopes: PY_ALL,
     positions: ["statement"],
@@ -212,10 +216,10 @@ export const BUILTIN_TEMPLATES: TemplateDef[] = [
     allowInStrings: true,
     variables: [{ name: "DESC", defaultValue: "TODO" }],
   }),
-  t({
+  tpl({
     id: "builtin.docf",
     abbreviation: "docf",
-    description: "函数 docstring（Args / Returns）",
+    description: t("lt.tpl.docf"),
     body: '"""$DESC$\n\n    Args:\n        $ARG$: $ARGDESC$\n\n    Returns:\n        $END$\n    """',
     scopes: PY_CLASS_FN,
     positions: ["statement"],
@@ -224,13 +228,13 @@ export const BUILTIN_TEMPLATES: TemplateDef[] = [
     variables: [
       { name: "DESC", defaultValue: "TODO" },
       { name: "ARG", defaultValue: "name" },
-      { name: "ARGDESC", defaultValue: "说明" },
+      { name: "ARGDESC", defaultValue: t("lt.tpl.argDescDefault") },
     ],
   }),
-  t({
+  tpl({
     id: "builtin.docc",
     abbreviation: "docc",
-    description: "类 docstring（Attributes）",
+    description: t("lt.tpl.docc"),
     body: '"""$DESC$\n\n    Attributes:\n        $ATTR$: $END$\n    """',
     scopes: PY_CLASS,
     positions: ["statement"],
@@ -241,10 +245,10 @@ export const BUILTIN_TEMPLATES: TemplateDef[] = [
       { name: "ATTR", defaultValue: "name" },
     ],
   }),
-  t({
+  tpl({
     id: "builtin.header",
     abbreviation: "header",
-    description: "文件头（自动填文件名/作者/日期）",
+    description: t("lt.tpl.header"),
     body: "# -*- coding: utf-8 -*-\n# $FILE$ — $DESC$\n# Author: $USER$\n# Date: $DATE$\n$END$",
     scopes: ["python:module"],
     positions: ["statement"],
@@ -258,30 +262,30 @@ export const BUILTIN_TEMPLATES: TemplateDef[] = [
   }),
 
   // async 三件套（M4 内置库补齐）
-  t({
+  tpl({
     id: "builtin.adef",
     abbreviation: "adef",
-    description: "async 函数定义",
+    description: t("lt.tpl.adef"),
     body: "async def $NAME$($ARGS$):\n    $END$",
     scopes: PY_ALL,
     positions: ["statement"],
     tabExpand: true,
     variables: [{ name: "NAME", defaultValue: "name" }, { name: "ARGS" }],
   }),
-  t({
+  tpl({
     id: "builtin.afor",
     abbreviation: "afor",
-    description: "async for 循环",
+    description: t("lt.tpl.afor"),
     body: "async for $ITEM$ in $ITERABLE$:\n    $END$",
     scopes: PY_ALL,
     positions: ["statement"],
     tabExpand: true,
     variables: [{ name: "ITEM", defaultValue: "item" }, { name: "ITERABLE", defaultValue: "items" }],
   }),
-  t({
+  tpl({
     id: "builtin.awith",
     abbreviation: "awith",
-    description: "async with 语句",
+    description: t("lt.tpl.awith"),
     body: "async with $EXPR$ as $ALIAS$:\n    $END$",
     scopes: PY_ALL,
     positions: ["statement"],
@@ -291,11 +295,11 @@ export const BUILTIN_TEMPLATES: TemplateDef[] = [
 
   // ---------- 爬虫模板库（C 组：爬虫开发脚手架；均为语句位、可 Tab 展开） ----------
   // 请求（requests / httpx）
-  t({
+  tpl({
     id: "builtin.reqget",
-    group: "爬虫",
+    group: t("lt.group.crawler"),
     abbreviation: "reqget",
-    description: "requests.get 请求骨架（含 raise_for_status）",
+    description: t("lt.tpl.reqget"),
     body: "resp = requests.get($URL$, headers=$HEADERS$, timeout=$TIMEOUT$)\nresp.raise_for_status()\n$END$",
     scopes: PY_ALL,
     positions: ["statement"],
@@ -306,11 +310,11 @@ export const BUILTIN_TEMPLATES: TemplateDef[] = [
       { name: "TIMEOUT", defaultValue: "10" },
     ],
   }),
-  t({
+  tpl({
     id: "builtin.reqpost",
-    group: "爬虫",
+    group: t("lt.group.crawler"),
     abbreviation: "reqpost",
-    description: "requests.post 请求骨架（JSON 体）",
+    description: t("lt.tpl.reqpost"),
     body: "resp = requests.post($URL$, json=$PAYLOAD$, headers=$HEADERS$, timeout=$TIMEOUT$)\nresp.raise_for_status()\n$END$",
     scopes: PY_ALL,
     positions: ["statement"],
@@ -322,11 +326,11 @@ export const BUILTIN_TEMPLATES: TemplateDef[] = [
       { name: "TIMEOUT", defaultValue: "10" },
     ],
   }),
-  t({
+  tpl({
     id: "builtin.reqsess",
-    group: "爬虫",
+    group: t("lt.group.crawler"),
     abbreviation: "reqsess",
-    description: "requests.Session + Retry 适配器（需导入 HTTPAdapter/Retry）",
+    description: t("lt.tpl.reqsess"),
     body: 'session = requests.Session()\nretries = Retry(total=$TOTAL$, backoff_factor=$BACKOFF$, status_forcelist=[429, 500, 502, 503, 504])\nsession.mount("https://", HTTPAdapter(max_retries=retries))\nsession.mount("http://", HTTPAdapter(max_retries=retries))\nsession.headers.update($HEADERS$)\n$END$',
     scopes: PY_ALL,
     positions: ["statement"],
@@ -337,11 +341,11 @@ export const BUILTIN_TEMPLATES: TemplateDef[] = [
       { name: "HEADERS", defaultValue: "headers" },
     ],
   }),
-  t({
+  tpl({
     id: "builtin.hget",
-    group: "爬虫",
+    group: t("lt.group.crawler"),
     abbreviation: "hget",
-    description: "httpx.AsyncClient 异步 GET（async with）",
+    description: t("lt.tpl.hget"),
     body: "async with httpx.AsyncClient(headers=$HEADERS$, timeout=$TIMEOUT$) as client:\n    resp = await client.get($URL$)\n    resp.raise_for_status()\n    $END$",
     scopes: PY_ALL,
     positions: ["statement"],
@@ -353,11 +357,11 @@ export const BUILTIN_TEMPLATES: TemplateDef[] = [
     ],
   }),
   // 解析（bs4 / lxml / JSON）
-  t({
+  tpl({
     id: "builtin.bs4",
-    group: "爬虫",
+    group: t("lt.group.crawler"),
     abbreviation: "bs4",
-    description: "BeautifulSoup 解析骨架",
+    description: t("lt.tpl.bs4"),
     body: 'soup = BeautifulSoup($HTML$, "$PARSER$")\n$END$',
     scopes: PY_ALL,
     positions: ["statement"],
@@ -367,11 +371,11 @@ export const BUILTIN_TEMPLATES: TemplateDef[] = [
       { name: "PARSER", expression: 'enum("lxml", "html.parser")', defaultValue: "lxml" },
     ],
   }),
-  t({
+  tpl({
     id: "builtin.lxml",
-    group: "爬虫",
+    group: t("lt.group.crawler"),
     abbreviation: "lxml",
-    description: "lxml etree + xpath 解析骨架（需 from lxml import etree）",
+    description: t("lt.tpl.lxml"),
     body: "tree = etree.HTML($HTML$)\n$RESULT$ = tree.xpath($XPATH$)\n$END$",
     scopes: PY_ALL,
     positions: ["statement"],
@@ -382,11 +386,11 @@ export const BUILTIN_TEMPLATES: TemplateDef[] = [
       { name: "XPATH", defaultValue: '"//div"' },
     ],
   }),
-  t({
+  tpl({
     id: "builtin.css",
-    group: "爬虫",
+    group: t("lt.group.crawler"),
     abbreviation: "css",
-    description: "soup.select CSS 选择 + 遍历（$ITEMS$ 镜像）",
+    description: t("lt.tpl.css"),
     body: "$ITEMS$ = soup.select($SELECTOR$)\nfor $ITEM$ in $ITEMS$:\n    $END$",
     scopes: PY_ALL,
     positions: ["statement"],
@@ -397,11 +401,11 @@ export const BUILTIN_TEMPLATES: TemplateDef[] = [
       { name: "ITEM", defaultValue: "item" },
     ],
   }),
-  t({
+  tpl({
     id: "builtin.jsonld",
-    group: "爬虫",
+    group: t("lt.group.crawler"),
     abbreviation: "jsonld",
-    description: "resp.json() 加载 + 取字段",
+    description: t("lt.tpl.jsonld"),
     body: "data = $RESP$.json()\n$RESULT$ = data[$KEY$]\n$END$",
     scopes: PY_ALL,
     positions: ["statement"],
@@ -413,11 +417,11 @@ export const BUILTIN_TEMPLATES: TemplateDef[] = [
     ],
   }),
   // 翻页
-  t({
+  tpl({
     id: "builtin.page",
-    group: "爬虫",
+    group: t("lt.group.crawler"),
     abbreviation: "page",
-    description: "翻页 while 循环骨架（抓空即停）",
+    description: t("lt.tpl.page"),
     body: 'page = $START$\nwhile True:\n    resp = requests.get($URL$, params={"page": page}, timeout=$TIMEOUT$)\n    items = $PARSE$\n    if not items:\n        break\n    $END$\n    page += 1',
     scopes: PY_ALL,
     positions: ["statement"],
@@ -430,21 +434,21 @@ export const BUILTIN_TEMPLATES: TemplateDef[] = [
     ],
   }),
   // 反爬（UA / 代理 / 限速）
-  t({
+  tpl({
     id: "builtin.ua",
-    group: "爬虫",
+    group: t("lt.group.crawler"),
     abbreviation: "ua",
-    description: "UA 池 + 随机 User-Agent（需 import random）",
+    description: t("lt.tpl.ua"),
     body: 'USER_AGENTS = [\n    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",\n    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",\n]\nheaders = {"User-Agent": random.choice(USER_AGENTS)}\n$END$',
     scopes: PY_ALL,
     positions: ["statement"],
     tabExpand: true,
   }),
-  t({
+  tpl({
     id: "builtin.proxy",
-    group: "爬虫",
+    group: t("lt.group.crawler"),
     abbreviation: "proxy",
-    description: "requests 代理字典（http/https）",
+    description: t("lt.tpl.proxy"),
     body: 'proxies = {\n    "http": "$HTTP_PROXY$",\n    "https": "$HTTPS_PROXY$",\n}\n$END$',
     scopes: PY_ALL,
     positions: ["statement"],
@@ -454,11 +458,11 @@ export const BUILTIN_TEMPLATES: TemplateDef[] = [
       { name: "HTTPS_PROXY", defaultValue: "http://127.0.0.1:7890" },
     ],
   }),
-  t({
+  tpl({
     id: "builtin.rsleep",
-    group: "爬虫",
+    group: t("lt.group.crawler"),
     abbreviation: "rsleep",
-    description: "随机延时（礼貌抓取，需 import time/random）",
+    description: t("lt.tpl.rsleep"),
     body: "time.sleep(random.uniform($LO$, $HI$))\n$END$",
     scopes: PY_ALL,
     positions: ["statement"],
@@ -466,11 +470,11 @@ export const BUILTIN_TEMPLATES: TemplateDef[] = [
     variables: [{ name: "LO", defaultValue: "1" }, { name: "HI", defaultValue: "3" }],
   }),
   // 数据落地（CSV / JSON）
-  t({
+  tpl({
     id: "builtin.csvw",
-    group: "爬虫",
+    group: t("lt.group.crawler"),
     abbreviation: "csvw",
-    description: "csv.DictWriter 写文件（需 import csv）",
+    description: t("lt.tpl.csvw"),
     body: 'with open($PATH$, "w", newline="", encoding="utf-8") as f:\n    writer = csv.DictWriter(f, fieldnames=$FIELDS$)\n    writer.writeheader()\n    writer.writerows($ROWS$)\n$END$',
     scopes: PY_ALL,
     positions: ["statement"],
@@ -481,11 +485,11 @@ export const BUILTIN_TEMPLATES: TemplateDef[] = [
       { name: "ROWS", defaultValue: "rows" },
     ],
   }),
-  t({
+  tpl({
     id: "builtin.jsonw",
-    group: "爬虫",
+    group: t("lt.group.crawler"),
     abbreviation: "jsonw",
-    description: "json.dump 写文件（ensure_ascii=False，需 import json）",
+    description: t("lt.tpl.jsonw"),
     body: 'with open($PATH$, "w", encoding="utf-8") as f:\n    json.dump($DATA$, f, ensure_ascii=False, indent=2)\n$END$',
     scopes: PY_ALL,
     positions: ["statement"],
@@ -494,19 +498,19 @@ export const BUILTIN_TEMPLATES: TemplateDef[] = [
   }),
 
   // ---------- 环绕模板（M3，Ctrl+Alt+T；$SELECTION$ 承载选区） ----------
-  t({
+  tpl({
     id: "builtin.surround.q",
     abbreviation: "q",
-    description: "用双引号包裹",
+    description: t("lt.tpl.surroundQuote"),
     body: '"$SELECTION$"$END$',
     scopes: PY_ALL,
     kind: "surround",
     tabExpand: false,
   }),
-  t({
+  tpl({
     id: "builtin.surround.try",
     abbreviation: "try",
-    description: "包裹在 try / except 中",
+    description: t("lt.tpl.surroundTry"),
     body: "try:\n    $SELECTION$\nexcept $EXC$ as $E$:\n    $END$",
     scopes: PY_ALL,
     kind: "surround",
@@ -520,20 +524,20 @@ export const BUILTIN_TEMPLATES: TemplateDef[] = [
       { name: "E", defaultValue: "e" },
     ],
   }),
-  t({
+  tpl({
     id: "builtin.surround.if",
     abbreviation: "if",
-    description: "包裹在 if 中",
+    description: t("lt.tpl.surroundIf"),
     body: "if $COND$:\n    $SELECTION$\n$END$",
     scopes: PY_ALL,
     kind: "surround",
     tabExpand: false,
     variables: [{ name: "COND", defaultValue: "condition" }],
   }),
-  t({
+  tpl({
     id: "builtin.surround.with",
     abbreviation: "with",
-    description: "包裹在 with 中",
+    description: t("lt.tpl.surroundWith"),
     body: "with $EXPR$ as $ALIAS$:\n    $SELECTION$\n$END$",
     scopes: PY_ALL,
     kind: "surround",
@@ -542,30 +546,30 @@ export const BUILTIN_TEMPLATES: TemplateDef[] = [
   }),
 
   // ---------- 后缀模板（M3，`表达式.键` + 补全接受；$EXPR$ 由提取的表达式字面注入） ----------
-  t({
+  tpl({
     id: "builtin.postfix.if",
     abbreviation: "if",
-    description: "if 表达式:",
+    description: t("lt.tpl.postfixIf"),
     body: "if $EXPR$:\n    $END$",
     scopes: PY_ALL,
     kind: "postfix",
     postfixKey: "if",
     tabExpand: false,
   }),
-  t({
+  tpl({
     id: "builtin.postfix.else",
     abbreviation: "else",
-    description: "if not 表达式:",
+    description: t("lt.tpl.postfixElse"),
     body: "if not $EXPR$:\n    $END$",
     scopes: PY_ALL,
     kind: "postfix",
     postfixKey: "else",
     tabExpand: false,
   }),
-  t({
+  tpl({
     id: "builtin.postfix.for",
     abbreviation: "for",
-    description: "for 遍历表达式",
+    description: t("lt.tpl.postfixFor"),
     body: "for $ITEM$ in $EXPR$:\n    $END$",
     scopes: PY_ALL,
     kind: "postfix",
@@ -573,10 +577,10 @@ export const BUILTIN_TEMPLATES: TemplateDef[] = [
     tabExpand: false,
     variables: [{ name: "ITEM", defaultValue: "item" }],
   }),
-  t({
+  tpl({
     id: "builtin.postfix.try",
     abbreviation: "try",
-    description: "包裹在 try / except 中",
+    description: t("lt.tpl.surroundTry"),
     body: "try:\n    $EXPR$\nexcept $EXC$ as $E$:\n    $END$",
     scopes: PY_ALL,
     kind: "postfix",
@@ -591,67 +595,74 @@ export const BUILTIN_TEMPLATES: TemplateDef[] = [
       { name: "E", defaultValue: "e" },
     ],
   }),
-  t({
+  tpl({
     id: "builtin.postfix.not",
     abbreviation: "not",
-    description: "not 表达式",
+    description: t("lt.tpl.postfixNot"),
     body: "not $EXPR$$END$",
     scopes: PY_ALL,
     kind: "postfix",
     postfixKey: "not",
     tabExpand: false,
   }),
-  t({
+  tpl({
     id: "builtin.postfix.print",
     abbreviation: "print",
-    description: "print(表达式)",
+    description: t("lt.tpl.postfixPrint"),
     body: "print($EXPR$)$END$",
     scopes: PY_ALL,
     kind: "postfix",
     postfixKey: "print",
     tabExpand: false,
   }),
-  t({
+  tpl({
     id: "builtin.postfix.len",
     abbreviation: "len",
-    description: "len(表达式)",
+    description: t("lt.tpl.postfixLen"),
     body: "len($EXPR$)$END$",
     scopes: PY_ALL,
     kind: "postfix",
     postfixKey: "len",
     tabExpand: false,
   }),
-  t({
+  tpl({
     id: "builtin.postfix.return",
     abbreviation: "return",
-    description: "return 表达式",
+    description: t("lt.tpl.postfixReturn"),
     body: "return $EXPR$$END$",
     scopes: PY_ALL,
     kind: "postfix",
     postfixKey: "return",
     tabExpand: false,
   }),
-  t({
+  tpl({
     id: "builtin.postfix.str",
     abbreviation: "str",
-    description: "str(表达式)",
+    description: t("lt.tpl.postfixStr"),
     body: "str($EXPR$)$END$",
     scopes: PY_ALL,
     kind: "postfix",
     postfixKey: "str",
     tabExpand: false,
   }),
-  t({
+  tpl({
     id: "builtin.postfix.int",
     abbreviation: "int",
-    description: "int(表达式)",
+    description: t("lt.tpl.postfixInt"),
     body: "int($EXPR$)$END$",
     scopes: PY_ALL,
     kind: "postfix",
     postfixKey: "int",
     tabExpand: false,
   }),
-];
+  ];
+}
+
+export let BUILTIN_TEMPLATES: TemplateDef[] = buildBuiltinTemplates();
+
+onLocaleChange(() => {
+  BUILTIN_TEMPLATES = buildBuiltinTemplates(); // 语言切换：重建模板描述/group（⑧/⑮ 模式）
+});
 
 /** 默认各 scope 补全排序（下标 0 = preselect）；用户配置按 scope 键覆盖 */
 export const BUILTIN_ORDERING: Record<string, string[]> = {

@@ -26,6 +26,7 @@ import { isPydanticFieldDecl } from "./pydanticField";
 import { toast, toastFail } from "./toast";
 import { openConfirm } from "./dialog";
 import { setEngineBusy } from "./engineChip";
+import { t } from "./i18n"; // 第十二批 i18n：重命名动态文案走语言包
 
 // ---------- 就地改名 widget（editor content widget） ----------
 
@@ -94,10 +95,10 @@ function updateHint(): void {
   if (!countEl) return;
   const base =
     crossFileCount > 0
-      ? `本文件 ${localRefCount} 处 · 其他 ${crossFileCount} 个文件`
-      : `将更新本文件 ${localRefCount} 处`;
+      ? t("editor.rename.localAndCross", { local: localRefCount, cross: crossFileCount })
+      : t("editor.rename.localOnly", { local: localRefCount });
   // E-2：索引未稳定时显式告知（G-3 禁止静默不完整）
-  countEl.textContent = refsUnstable ? `${base} · 索引未稳定，结果可能不完整` : base;
+  countEl.textContent = refsUnstable ? t("editor.rename.unstableSuffix", { base: base }) : base;
 }
 
 function buildWidget(): void {
@@ -107,14 +108,14 @@ function buildWidget(): void {
   input.className = "oc-rename-input";
   input.spellcheck = false;
   input.autocomplete = "off";
-  input.setAttribute("aria-label", "输入新名称，Enter 确认，Esc 取消");
+  input.setAttribute("aria-label", t("editor.rename.inputAria"));
   const hint = document.createElement("div");
   hint.className = "oc-rename-hint";
   const count = document.createElement("span");
   count.className = "oc-rename-hint-count";
-  count.textContent = "计算引用中…";
+  count.textContent = t("editor.rename.counting");
   const keys = document.createElement("span");
-  keys.textContent = "Enter 确认 · Esc 取消";
+  keys.textContent = t("editor.rename.keysHint");
   hint.append(count, keys);
   host.append(input, hint);
   inputEl = input;
@@ -172,7 +173,7 @@ function warnPydanticFieldRename(model: MonacoApi.editor.ITextModel, range: Mona
     if (pydanticRenameWarned.has(key)) return;
     pydanticRenameWarned.add(key);
   }
-  toast("pyrefly 暂不传播 Pydantic 字段的构造调用处引用，重命名可能只改声明处", "info");
+  toast(t("editor.rename.pydanticToast"), "info");
 }
 
 /** 关闭工作区时清空会话去重（main 的 clearRunProfilesCache 调用点旁） */
@@ -185,12 +186,12 @@ async function startSession(): Promise<void> {
   const model = ed.getModel();
   const pos = ed.getPosition();
   if (!model || !pos) {
-    toast("请先定位到要重命名的符号上", "info");
+    toast(t("editor.rename.noSymbol"), "info");
     return;
   }
   const path = modelPath(model);
   if (!path) {
-    toast("请先定位到要重命名的符号上", "info");
+    toast(t("editor.rename.noSymbol"), "info");
     return;
   }
   let a = await fetchRenameAnchor(model, pos);
@@ -201,7 +202,7 @@ async function startSession(): Promise<void> {
     }
   }
   if (!a) {
-    toast("光标处不是可重命名的符号", "info");
+    toast(t("editor.rename.notRenamable"), "info");
     return;
   }
   // 阶段 2 · 显式化短板：pyrefly 不传播 Pydantic 字段构造调用处引用（F0 实测 references=0），
@@ -374,8 +375,8 @@ export function summarizeRenameTargets(
   const sorted = [...files].sort((a, b) => b.edits.length - a.edits.length);
   const lines = sorted
     .slice(0, maxFiles)
-    .map((f) => `· ${relativePathOrName(root, f.path)} × ${f.edits.length} 处`);
-  if (sorted.length > maxFiles) lines.push(`· …以及其他 ${sorted.length - maxFiles} 个文件`);
+    .map((f) => t("editor.rename.fileLine", { path: relativePathOrName(root, f.path), count: f.edits.length }));
+  if (sorted.length > maxFiles) lines.push(t("editor.rename.moreFiles", { count: sorted.length - maxFiles }));
   return { total, lines };
 }
 
@@ -388,7 +389,7 @@ async function confirmRename(): Promise<void> {
   if (!newName) return;
   if (!/^[A-Za-z_]\w*$/.test(newName)) {
     input.classList.add("is-invalid");
-    toast("名称需为合法 Python 标识符（字母 / 下划线开头）", "info");
+    toast(t("editor.rename.invalidName"), "info");
     return;
   }
   const currentName = model.getValueInRange(a);
@@ -421,14 +422,14 @@ async function confirmRename(): Promise<void> {
   try {
     files = await fetchRenameChanges(model, start, newName);
   } catch (e) {
-    toastFail("重命名", e);
+    toastFail(t("editor.rename.failAction"), e);
     return;
   }
   // 阶段 4 子项 2b：Pydantic 字段改名传播补充——pyrefly 对 BaseModel 字段 references=0
   // （只改声明处），此处用 AST 文本扫描补 `Model(field=` 调用点（engine 结果优先，去重合并）。
   files = await supplementPydanticCtorRefs(model, a, currentName, newName, files);
   if (files.length === 0) {
-    toast("引擎未返回任何改动", "info");
+    toast(t("editor.rename.noChanges"), "info");
     return;
   }
   // D-3：跨文件改动显式确认（影响面可见再落盘）；当前文件内改动保持 Enter 即应用（零摩擦）
@@ -436,11 +437,12 @@ async function confirmRename(): Promise<void> {
   if (crossFile) {
     const { total, lines } = summarizeRenameTargets(files, app.workspaceRoot);
     const ok = await openConfirm({
-      title: `跨文件重命名「${currentName}」→「${newName}」`,
-      message: `将修改 ${files.length} 个文件共 ${total} 处：\n${lines.join("\n")}${
-        refsUnstable ? "\n\n⚠ 工作区索引未稳定，结果可能不完整。" : ""
+      title: t("editor.rename.crossTitle", { from: currentName, to: newName }),
+      // 确认语多段拼装（跨行模板 + \n\n 不走 apply_ts 映射，避免语言包转义链失真），按段取词
+      message: `${t("editor.rename.crossSummary", { files: files.length, total: total })}\n${lines.join("\n")}${
+        refsUnstable ? `\n\n${t("editor.rename.unstableNote")}` : ""
       }`,
-      okLabel: "全部修改",
+      okLabel: t("editor.rename.okAll"),
       kind: "primary",
     });
     if (!ok) {
@@ -454,14 +456,14 @@ async function confirmRename(): Promise<void> {
   try {
     await applyRenameChanges(model, files);
     const total = files.reduce((n, f) => n + f.edits.length, 0);
-    toast(`已重命名「${currentName}」→「${newName}」：${files.length} 个文件 ${total} 处`, "success");
+    toast(t("editor.rename.done", { from: currentName, to: newName, files: files.length, total: total }), "success");
     if (refsUnstable) {
       // E-2：索引未稳定时落地的重命名可能漏改未打开文件——显式提醒复查（G-3）
-      toast("工作区索引未稳定，重命名可能漏改未打开的文件——建议稍后用 Alt+F7 复查引用", "info");
+      toast(t("editor.rename.unstableToast"), "info");
     }
     afterRename?.();
   } catch (e) {
-    toastFail("重命名", e);
+    toastFail(t("editor.rename.failAction"), e);
   }
 }
 
@@ -472,7 +474,7 @@ export function initRenameWidget(editor: MonacoApi.editor.IStandaloneCodeEditor)
   editor.addCommand(app.monaco.KeyCode.F2, () => void startRenameAtCursor());
   return editor.addAction({
     id: "opencharm.rename",
-    label: "重命名…",
+    label: t("editor.rename.paletteLabel"),
     contextMenuGroupId: "navigation",
     contextMenuOrder: 1.6,
     run: () => void startRenameAtCursor(),

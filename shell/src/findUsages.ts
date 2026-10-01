@@ -16,6 +16,9 @@ import { setEngineBusy } from "./engineChip";
 import { basename, emptyState } from "./util";
 import { toast } from "./toast";
 import { startRenameAtCursor } from "./renameWidget";
+import { t } from "./i18n"; // 第十三批 i18n：动态文案走语言包
+import { localizeBackendError } from "./i18n/backendError";
+import { errMsg } from "./util";
 
 /** 引用种类（启发式归类，对齐 PyCharm Find Usages 的核心分组） */
 type RefKind = "definition" | "import" | "call" | "reference";
@@ -68,10 +71,10 @@ function panelEl(): HTMLElement {
 
 const KIND_ORDER: RefKind[] = ["definition", "import", "call", "reference"];
 const KIND_LABEL: Record<RefKind, string> = {
-  definition: "定义",
-  import: "导入",
-  call: "调用",
-  reference: "引用",
+  definition: t("ide.fu.kindDefinition"),
+  import: t("ide.fu.kindImport"),
+  call: t("ide.fu.kindCall"),
+  reference: t("ide.fu.kindReference"),
 };
 
 /** 启发式分类：按行文本 + 符号后字符判定 usage kind */
@@ -156,8 +159,8 @@ function buildChip(kind: RefKind | "all", label: string, count: number, active: 
 function buildRenameButton(): HTMLElement {
   const b = document.createElement("button");
   b.className = "fu-chip fu-rename-btn";
-  b.textContent = "重命名";
-  b.title = "重命名此符号及其所有引用（Shift+F6）";
+  b.textContent = t("ide.fu.renameBtn");
+  b.title = t("ide.fu.renameTip");
   b.addEventListener("click", () => void renameSymbolAtCursor());
   return b;
 }
@@ -190,7 +193,7 @@ function buildResults(filter: RefKind | "all"): HTMLElement {
 function buildIntegrityHint(): HTMLElement {
   const el = document.createElement("div");
   el.className = "fu-integrity-hint";
-  el.textContent = "工作区索引可能尚未完成，结果可能不完整——可稍后重新查询";
+  el.textContent = t("ide.fu.indexIncomplete");
   return el;
 }
 
@@ -199,7 +202,7 @@ function render(): void {
   panel.textContent = "";
   const toolbar = document.createElement("div");
   toolbar.className = "find-usages-toolbar";
-  toolbar.appendChild(buildChip("all", "全部", lastItems.length, activeKind === "all"));
+  toolbar.appendChild(buildChip("all", t("ide.fu.chipAll"), lastItems.length, activeKind === "all"));
   for (const k of KIND_ORDER) {
     const n = lastItems.filter((i) => i.kind === k).length;
     if (n > 0) toolbar.appendChild(buildChip(k, KIND_LABEL[k], n, activeKind === k));
@@ -219,7 +222,7 @@ function render(): void {
 function renderEmpty(desc: string): void {
   const el = panelEl();
   el.textContent = "";
-  el.appendChild(emptyState("search", "无引用", desc));
+  el.appendChild(emptyState("search", t("ide.fu.emptyTitle"), desc));
 }
 
 /** 查询并渲染引用列表（Alt+F7 与重命名后刷新共用） */
@@ -230,7 +233,7 @@ export async function queryAndRender(model: MonacoApi.editor.ITextModel, positio
   if (getEngineStatus() !== "ready") {
     lastItems = [];
     activeKind = "all";
-    renderEmpty("静态引擎未就绪（可能正在启动），结果可能不完整——稍后重试");
+    renderEmpty(t("ide.fu.engineNotReady"));
     setBottomTab("findUsages");
     return;
   }
@@ -246,7 +249,7 @@ export async function queryAndRender(model: MonacoApi.editor.ITextModel, positio
       },
     });
   } catch (e) {
-    toast(`查找引用失败：${e instanceof Error ? e.message : e}`, "error");
+    toast(t("ide.fu.failed", { error: localizeBackendError(errMsg(e instanceof Error ? e.message : e)) }), "error");
     return;
   } finally {
     setEngineBusy(false);
@@ -254,7 +257,7 @@ export async function queryAndRender(model: MonacoApi.editor.ITextModel, positio
   if (refs.length === 0) {
     lastItems = [];
     activeKind = "all";
-    renderEmpty(lastStable ? "光标处符号未找到任何引用" : "索引未稳定，结果可能不完整——稍后重新查询");
+    renderEmpty(lastStable ? t("ide.fu.noRefs") : t("ide.fu.unstableRetry"));
     setBottomTab("findUsages");
     return;
   }
@@ -276,7 +279,7 @@ export async function findUsagesAtCursor(): Promise<void> {
   const model = editor.getModel();
   const pos = editor.getPosition();
   if (!model || !pos) {
-    toast("请先定位到要查找引用的符号上", "info");
+    toast(t("ide.fu.noSymbol"), "info");
     return;
   }
   await queryAndRender(model, pos);
@@ -331,7 +334,7 @@ export function installCtrlShiftDblclickUsages(
 export function initFindUsagesAction(editor: MonacoApi.editor.IStandaloneCodeEditor): MonacoApi.IDisposable {
   return editor.addAction({
     id: "opencharm.findUsages",
-    label: "查找引用",
+    label: t("ide.fu.actionLabel"),
     contextMenuGroupId: "navigation",
     contextMenuOrder: 1.7,
     run: () => void findUsagesAtCursor(),

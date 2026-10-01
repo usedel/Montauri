@@ -22,6 +22,7 @@ import * as lsp from "./lsp/client";
 import { onWorkspaceIndexReady, workspaceSymbolsSnapshot } from "./autoImport"; // PR-G2：工作区级符号
 import { app } from "./state";
 import { basename, codicon, emptyState, relativePath, renderFileIcon, symbolIcon } from "./util";
+import { t } from "./i18n"; // 第十批 i18n：快速打开域动态文案走语言包
 
 export type QuickOpenMode = "all" | "files" | "symbol" | "line" | "commands";
 
@@ -247,7 +248,7 @@ function buildItems(mode: QuickOpenMode, query: string): Item[] {
       out.push({
         kind: "action",
         title: a.label,
-        sub: "命令",
+        sub: t("search.qo.commandSub"),
         score: score + 10,
         icon: "chevron-right",
         hint: actionHint(a),
@@ -327,7 +328,7 @@ function buildItems(mode: QuickOpenMode, query: string): Item[] {
       out.push({
         kind: "action",
         title: a.label,
-        sub: "命令",
+        sub: t("search.qo.commandSub"),
         // 命令名通常整体匹配，给一点基础权重避免被文件路径淹没
         score: score + 10,
         icon: "chevron-right",
@@ -385,11 +386,11 @@ function rememberQuery(q: string): void {
 }
 
 const PLACEHOLDERS: Record<QuickOpenMode, string> = {
-  all: "搜索文件 / 符号 / 命令（支持 :行号）",
-  files: "搜索文件名（支持 :行号）",
-  symbol: "搜索符号（已打开文件 + 工作区，Enter 跳转）",
-  line: "行号 或 行:列，Enter 跳转，Esc 关闭",
-  commands: "输入命令名（Ctrl+Shift+P）",
+  all: t("search.qo.phAll"),
+  files: t("search.qo.phFiles"),
+  symbol: t("search.qo.phSymbol"),
+  line: t("search.qo.phLine"),
+  commands: t("search.qo.phCommands"),
 };
 
 /** 初始化弹窗 DOM（init 时调用一次；容器 #quick-open-modal 已在 index.html 声明） */
@@ -415,7 +416,7 @@ export function initQuickOpen(): void {
   list.id = "quick-open-list";
   list.className = "quick-open-list";
   list.setAttribute("role", "listbox");
-  list.setAttribute("aria-label", "搜索结果");
+  list.setAttribute("aria-label", t("search.qo.listAria"));
 
   card.append(input, list);
   host.appendChild(card);
@@ -592,10 +593,16 @@ function renderList(): void {
     list.appendChild(
       emptyState(
         "go-to-file",
-        parsed ? `跳转到第 ${parsed.line} 行${parsed.column > 1 ? ` 第 ${parsed.column} 列` : ""}` : "输入行号",
+        // 行/列两段手工取词（嵌套插值不走 apply_ts 映射，避免语言包转义链失真）
         parsed
-          ? `当前文件共 ${total} 行，Enter 跳转`
-          : `格式：行号 或 行号:列号（当前文件共 ${total} 行）`,
+          ? t("search.qo.gotoLine", {
+              line: parsed.line,
+              column: parsed.column > 1 ? t("search.qo.gotoColumn", { column: parsed.column }) : "",
+            })
+          : t("search.qo.linePrompt"),
+        parsed
+          ? t("search.qo.lineWithTotal", { total: total })
+          : t("search.qo.lineFormat", { total: total }),
         true,
       ),
     );
@@ -608,10 +615,10 @@ function renderList(): void {
     list.appendChild(
       emptyState(
         "search",
-        q ? "无匹配项" : "开始输入以搜索",
+        q ? t("search.qo.noMatches") : t("search.qo.startTyping"),
         app.workspaceRoot
-          ? (q ? "换个关键词，或用 :行号 直接定位" : "文件 / 符号 / 命令混搜，:行号 可直接定位")
-          : "打开工作区后可搜索其中的文件",
+          ? (q ? t("search.qo.noMatchHint") : t("search.qo.mixedHint"))
+          : t("search.qo.noWorkspaceHint"),
       ),
     );
     input.removeAttribute("aria-activedescendant");

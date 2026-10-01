@@ -24,6 +24,7 @@ import { onRegistryChanged } from "../devtools/registry";
 import { setInlineRunner } from "../devtools/panel";
 import { listInlineEntries, runInline } from "./inline";
 import { listPluginRecords } from "./loader";
+import { t } from "../i18n"; // 第十六批 i18n：右键菜单标题走语言包
 
 /** 右键「变换选区」子菜单 id（MenuId 实例须全局唯一，new 私有实例） */
 const TRANSFORM_SUBMENU = new MenuId("opencharm.editorContext.transformSelection");
@@ -42,7 +43,7 @@ export function initInlineSelectionMenu(): void {
   store.add(
     MenuRegistry.appendMenuItem(MenuId.EditorContext, {
       submenu: TRANSFORM_SUBMENU,
-      title: "变换选区",
+      title: t("ext.transformSelectionMenu"),
       group: "navigation",
       order: 1.95,
       when: ContextKeyExpr.deserialize("editorHasSelection"),

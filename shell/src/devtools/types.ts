@@ -7,6 +7,7 @@
 // 本文件类型是未来 manifest 投影的运行时形状，字段演进须与 docs/plugin_system_design.md §9 对齐。
 
 import type * as MonacoApi from "monaco-editor/esm/vs/editor/editor.api";
+import { t, type TFuncKey } from "../i18n"; // 第十七批 i18n：预置分组的展示名走语言包
 import type { ToolKit } from "./kit";
 
 export type MonacoModule = typeof MonacoApi;
@@ -66,6 +67,24 @@ export function categoryOrderKey(category: string): [number, string] {
   if (i === PRESET_CATEGORIES.length - 1) return [99, ""]; // 「其他」垫底
   if (i >= 0) return [i, ""];
   return [PRESET_CATEGORIES.length - 1, category]; // 自定义：在「文本」后、「其他」前
+}
+
+/** 预置分组的语言包 key（manifest.category 存中文原文作恒定标识，展示时经此翻译） */
+const CATEGORY_KEYS: Record<string, string> = {
+  编码: "devtools.cat.encoding",
+  哈希: "devtools.cat.hash",
+  格式化: "devtools.cat.format",
+  转换: "devtools.cat.convert",
+  生成: "devtools.cat.generate",
+  提取: "devtools.cat.extract",
+  文本: "devtools.cat.text",
+  其他: "devtools.cat.other",
+};
+
+/** 分组展示名：预置分组取当前语言词条；自定义分组（第三方 manifest 自带）原样返回 */
+export function categoryLabel(category: string): string {
+  const key = CATEGORY_KEYS[category] as TFuncKey | undefined;
+  return key ? t(key) : category;
 }
 
 /** 工具列表按（category 排序键, 注册序）分组：返回有序 [category, tools] 数组；空 category 归「其他」 */

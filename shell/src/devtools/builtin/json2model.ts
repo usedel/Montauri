@@ -4,19 +4,20 @@
 
 import type { PanelHost } from "../../extensions/facade";
 import { jsonToModelCode } from "./json2model.gen";
+import { t } from "../../i18n";
 
 export function mount(host: PanelHost): { dispose(): void } | void {
   const { kit } = host;
   host.root.textContent = "";
 
   const wrap = kit.body();
-  const input = kit.textarea({ placeholder: "粘贴 JSON（对象 / 数组均可）…", flex: true, rows: 8 });
-  const nameInput = kit.input({ placeholder: "根模型名（默认 Model）", onInput: run });
+  const input = kit.textarea({ placeholder: t("devtools.j2m.inputPh"), flex: true, rows: 8 });
+  const nameInput = kit.input({ placeholder: t("devtools.j2m.rootNamePh"), onInput: run });
   const errEl = kit.errorSlot();
-  const out = kit.output({ language: "python", placeholder: "生成的 Python 模型将显示在这里" });
+  const out = kit.output({ language: "python", placeholder: t("devtools.j2m.outPh") });
 
   const style = kit.radioGroup<"pydantic" | "dataclass" | "typeddict">({
-    label: "目标模型类型",
+    label: t("devtools.j2m.style"),
     options: [
       { value: "pydantic", label: "Pydantic" },
       { value: "dataclass", label: "dataclass" },
@@ -37,7 +38,7 @@ export function mount(host: PanelHost): { dispose(): void } | void {
       out.set(jsonToModelCode(text, { style: style.get(), rootName: nameInput.value }));
       errEl.textContent = "";
     } catch (e) {
-      errEl.textContent = `JSON 解析失败：${e instanceof Error ? e.message : String(e)}`;
+      errEl.textContent = t("devtools.common.jsonParseFailed", { msg: e instanceof Error ? e.message : String(e) });
     }
   }
 

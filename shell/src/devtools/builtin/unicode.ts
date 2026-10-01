@@ -4,20 +4,21 @@
 import type { PanelHost } from "../../extensions/facade";
 import { flashError } from "../feedback";
 import { unicodeEscape, unicodeUnescape } from "./textfns";
+import { t } from "../../i18n";
 
 export function mount(host: PanelHost): { dispose(): void } | void {
   const { kit } = host;
   host.root.textContent = "";
 
   const wrap = kit.body();
-  const input = kit.textarea({ placeholder: "输入明文（转义）或 \\uXXXX 串（还原）…", flex: true });
+  const input = kit.textarea({ placeholder: t("devtools.uni.inputPh"), flex: true });
   const errEl = kit.errorSlot();
 
   const dirGroup = kit.radioGroup<"escape" | "unescape">({
-    label: "转换方向",
+    label: t("devtools.common.direction"),
     options: [
-      { value: "escape", label: "转义" },
-      { value: "unescape", label: "还原" },
+      { value: "escape", label: t("devtools.uni.escape") },
+      { value: "unescape", label: t("devtools.uni.unescape") },
     ],
     value: "escape",
   });
@@ -25,24 +26,24 @@ export function mount(host: PanelHost): { dispose(): void } | void {
   const run = (): void => {
     const text = input.value;
     if (!text.trim()) {
-      errEl.textContent = "请先输入内容";
+      errEl.textContent = t("devtools.common.needInput");
       return;
     }
     try {
       out.set(dirGroup.get() === "escape" ? unicodeEscape(text) : unicodeUnescape(text));
       errEl.textContent = "";
     } catch (e) {
-      errEl.textContent = `转换失败：${e instanceof Error ? e.message : String(e)}`;
-      flashError(runBtn, "失败");
+      errEl.textContent = t("devtools.common.convertFailed", { msg: e instanceof Error ? e.message : String(e) });
+      flashError(runBtn, t("devtools.common.failed"));
     }
   };
 
-  const runBtn = kit.primaryButton("转换", "play", run);
+  const runBtn = kit.primaryButton(t("devtools.common.convert"), "play", run);
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) run();
   });
 
-  const out = kit.output({ language: "plaintext", placeholder: "结果将显示在这里" });
+  const out = kit.output({ language: "plaintext", placeholder: t("devtools.common.resultPlaceholder") });
   wrap.append(
     input,
     kit.toolbar(dirGroup.el, runBtn, "spacer", kit.copyButton(() => out.get())),

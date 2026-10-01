@@ -8,6 +8,7 @@ import { joinPath } from "./util";
 import { appendOutputLine, type OutputLink } from "./output";
 import { selectionMetaOf } from "./runState";
 import { toastFail } from "./toast";
+import { t } from "./i18n"; // 第十六批 i18n：traceback 打开失败文案走语言包
 
 type OpenFileFn = (path: string, revealLine?: number) => Promise<void>;
 
@@ -34,7 +35,7 @@ export function gotoFromLink(link: OutputLink): void {
   }
   if (!openFileFn) return; // init 前不可能有链接点击（未接线即无面板输出）
   openFileFn(path, line).catch((e) => {
-    appendOutputLine(outputEl, `无法打开: ${link.path}`, "stderr", gotoFromLink);
-    toastFail("打开 traceback 文件", e);
+    appendOutputLine(outputEl, t("ide.traceback.openFailed", { path: link.path }), "stderr", gotoFromLink);
+    toastFail(t("ide.traceback.openAction"), e);
   });
 }

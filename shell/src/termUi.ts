@@ -17,6 +17,7 @@ import { clearOutput, getOutputLevelCounts, refilterOutputChannel, refilterOutpu
 import { hasGitDetailContent, renderGitDetailEmptyState } from "./git";
 import { showMenu } from "./menu";
 import { sniffTerminalOutput, handleTracebackLine } from "./depHealth"; // M2 §4.4 嗅探 / M4-3 traceback 一键安装
+import { t } from "./i18n"; // 第十三批 i18n：动态文案走语言包
 
 // ---------- 域内状态 ----------
 
@@ -140,10 +141,10 @@ export function setBottomTab(tab: BottomTab): void {
 
 /** 新建终端可选的 shell（取值与设置面板 `terminal_shell` 一致） */
 const SHELL_OPTIONS: { value: string; label: string }[] = [
-  { value: "auto", label: "自动（PowerShell 优先，回退 cmd）" },
+  { value: "auto", label: t("ide.term.shellAuto") },
   { value: "pwsh", label: "PowerShell 7（pwsh）" },
   { value: "powershell", label: "Windows PowerShell" },
-  { value: "cmd", label: "命令提示符（cmd）" },
+  { value: "cmd", label: t("ide.term.shellCmd") },
 ];
 
 /** shell 短名（tab 标题用）；auto 不额外显示（实际 shell 由后端回退决定） */
@@ -222,7 +223,7 @@ async function createTerminal(cwd: string | null, shell?: string): Promise<TermS
 
   const session: TermSessionUI = {
     id,
-    label: `终端 ${termSeq}`,
+    label: t("ide.term.label", { n: termSeq }),
     venv: null,
     iterm,
     view,
@@ -388,8 +389,8 @@ function renderTerminalTabs(): void {
       stop.appendChild(codicon("debug-stop"));
       // UI-09：这两个是 <span> 而非 <button>（沿用既有结构，改成 button 需重置按钮默认样式）。
       // UI-16：已按第四批待办补齐 role/tabindex/键盘激活（见 makeSpanButton）。
-      stop.dataset.tip = `停止 ${s.label}`;
-      makeSpanButton(stop, `停止 ${s.label}`);
+      stop.dataset.tip = t("ide.term.stopTip", { label: s.label });
+      makeSpanButton(stop, t("ide.term.stopTip", { label: s.label }));
       stop.addEventListener("click", (ev) => {
         ev.stopPropagation();
         // §10：各运行 tab 独立停止——路由到 runFlow 的完整停止路径（进程 + 实例态收口）
@@ -402,8 +403,8 @@ function renderTerminalTabs(): void {
     const close = document.createElement("span");
     close.className = "term-tab-close";
     close.appendChild(codicon("close"));
-    close.dataset.tip = s.kind === "run" ? "关闭运行终端（先停止）" : "关闭终端";
-    makeSpanButton(close, s.kind === "run" ? "关闭运行终端（先停止）" : "关闭终端"); // UI-16
+    close.dataset.tip = s.kind === "run" ? t("ide.term.closeRunTip") : t("ide.term.closeTip");
+    makeSpanButton(close, s.kind === "run" ? t("ide.term.closeRunTip") : t("ide.term.closeTip")); // UI-16
     close.addEventListener("click", (ev) => {
       ev.stopPropagation();
       void closeTerminal(s.id);
@@ -424,9 +425,9 @@ function renderTerminalTabs(): void {
   const add = document.createElement("div");
   add.className = "term-tab-add";
   add.appendChild(codicon("add"));
-  add.dataset.tip = "新建终端";
+  add.dataset.tip = t("ide.term.newTip");
   // UI-16：非 tab 的动作按钮，不进 tablist 的漫游序列，但需键盘可达
-  makeSpanButton(add, "新建终端");
+  makeSpanButton(add, t("ide.term.newTip"));
   // UI-30：点击弹出 shell 选择菜单（menu.ts showMenu 以本元素为 anchor）——声明 haspopup，
   // aria-expanded 由 menu.ts 的触发元素跟踪统一切换（打开置 true、关闭复位 false）
   add.setAttribute("aria-haspopup", "menu");
@@ -467,8 +468,8 @@ function renderTerminalViews(): void {
     if (!termEmptyEl) {
       termEmptyEl = emptyState(
         "terminal",
-        "尚无终端",
-        "点击上方「＋」新建，或在文件树中右键「在终端中打开」",
+        t("ide.term.none"),
+        t("ide.term.noneHint"),
         true,
       );
       termEmptyEl.classList.add("term-empty");
@@ -552,8 +553,8 @@ export async function runScriptInTerminal(opts: RunTerminalOptions): Promise<voi
     const iterm = new IntegratedTerminal(id, view);
     iterm.setOnExit(() => renderTerminalTabs());
     const label = kind === "project"
-      ? (id === "run-term-project-1" ? "项目" : `项目 ${Number(id.slice("run-term-project-".length))}`)
-      : `运行 · ${basename(path)}`;
+      ? (id === "run-term-project-1" ? t("ide.term.project") : t("ide.term.projectN", { n: Number(id.slice("run-term-project-".length)) }))
+      : t("ide.term.runLabel", { name: basename(path) });
     s = { id, label, venv: null, iterm, view, kind: "run", runKind: kind, runActive: false, shell: "auto" };
     termSessions.push(s);
     if (id !== "run-term-script" && id.startsWith("run-term-project-")) {
@@ -567,7 +568,7 @@ export async function runScriptInTerminal(opts: RunTerminalOptions): Promise<voi
   s.runExit = opts.onExit;
   s.runOnData = opts.onData;
   if (isNewSession) s.canceled = false;
-  if (kind === "script") s.label = `运行 · ${basename(path)}`;
+  if (kind === "script") s.label = t("ide.term.runLabel", { name: basename(path) });
   activeTermId = s.id;
   // **先落好运行终端再切标签**：setBottomTab 会触发 ensureAnyTerminal，
   // 顺序反了它会先建一个交互 shell 并把激活态抢走（用户看到的是 shell 而不是运行输出）

@@ -13,6 +13,7 @@
 
 import { dapEvaluate } from "./dap/client";
 import { toast } from "./toast";
+import { onLocaleChange, t } from "./i18n";
 
 const STORE_KEY = "oc-debug-watches";
 const MAX_WATCHES = 20;
@@ -63,9 +64,10 @@ function renderRow(expr: string, value: string | null, failed: boolean): HTMLEle
   const del = document.createElement("span");
   del.className = "debug-watch-del";
   del.setAttribute("role", "button");
-  del.setAttribute("aria-label", `删除监视 ${expr}`);
+  del.dataset.watchExpr = expr;
+  del.setAttribute("aria-label", t("debug.watch.deleteAria", { expr: expr }));
   del.tabIndex = 0;
-  del.dataset.tip = "删除监视";
+  del.dataset.tip = t("debug.watch.delete");
   del.textContent = "×";
   const doRemove = (): void => {
     removeWatch(expr);
@@ -86,22 +88,22 @@ function render(): void {
   sectionEl.textContent = "";
   const title = document.createElement("div");
   title.className = "debug-section-header";
-  title.textContent = "监视（Watches）";
+  title.textContent = t("debug.watch.title");
   sectionEl.appendChild(title);
 
   const input = document.createElement("input");
   input.className = "debug-watch-input";
   input.type = "text";
-  input.placeholder = "输入表达式后回车添加（暂停时求值）";
+  input.placeholder = t("debug.watch.inputPlaceholder");
   input.spellcheck = false;
   input.autocomplete = "off";
-  input.setAttribute("aria-label", "添加监视表达式");
+  input.setAttribute("aria-label", t("debug.watch.inputAria"));
   input.addEventListener("keydown", (e) => {
     if (e.key !== "Enter") return;
     const v = input.value.trim();
     if (!v) return;
     if (!watches.includes(v) && watches.length >= MAX_WATCHES) {
-      toast(`监视表达式最多 ${MAX_WATCHES} 条，请先删除后再添加`, "info"); // G-3：拒绝要可见
+      toast(t("debug.watch.limit", { count: MAX_WATCHES }), "info"); // G-3：拒绝要可见
       return;
     }
     if (!watches.includes(v)) watches.push(v);
@@ -115,10 +117,31 @@ function render(): void {
   if (watches.length === 0) {
     const empty = document.createElement("div");
     empty.className = "debug-watch-empty";
-    empty.textContent = "调试暂停时自动求值（跨断点保留）";
+    empty.textContent = t("debug.watch.empty");
     listEl.appendChild(empty);
   } else {
     for (const expr of watches) listEl.appendChild(renderRow(expr, null, false));
+  }
+}
+
+/** 语言切换只更新现有节点的产品文案，不重置表达式/结果，也不重新触发 DAP 求值。 */
+function refreshWatchesI18n(): void {
+  if (!sectionEl || !listEl) return;
+  sectionEl.querySelector<HTMLElement>(".debug-section-header")!.textContent = t("debug.watch.title");
+  const input = sectionEl.querySelector<HTMLInputElement>(".debug-watch-input");
+  if (input) {
+    input.placeholder = t("debug.watch.inputPlaceholder");
+    input.setAttribute("aria-label", t("debug.watch.inputAria"));
+  }
+  const empty = listEl.querySelector<HTMLElement>(".debug-watch-empty");
+  if (empty) empty.textContent = t("debug.watch.empty");
+  for (const del of Array.from(listEl.querySelectorAll<HTMLElement>("[data-watch-expr]"))) {
+    const expr = del.dataset.watchExpr ?? "";
+    del.dataset.tip = t("debug.watch.delete");
+    del.setAttribute("aria-label", t("debug.watch.deleteAria", { expr }));
+  }
+  for (const value of Array.from(listEl.querySelectorAll<HTMLElement>(".debug-watch-value-failed"))) {
+    value.textContent = t("debug.common.evaluateFailed");
   }
 }
 
@@ -158,7 +181,7 @@ export async function refreshWatches(frameId: number | null): Promise<void> {
     } catch {
       if (token !== watchToken) return;
       if (valEl) {
-        valEl.textContent = "无法求值";
+        valEl.textContent = t("debug.common.evaluateFailed");
         valEl.title = "";
         valEl.classList.add("debug-watch-value-failed");
       }
@@ -178,10 +201,12 @@ export function clearWatchesValues(): void {
 
 /** 接线（debugView::initDebugView 调用一次）：注入面板宿主与取帧回调 */
 export function initWatchesPanel(host: HTMLElement, frameIdGetter: () => number | null): void {
+  if (sectionEl) return;
   sectionEl = host;
   getFrameId = frameIdGetter;
   listEl = document.createElement("div");
   listEl.id = "debug-watch-list";
   render();
   host.appendChild(listEl);
+  onLocaleChange(refreshWatchesI18n);
 }

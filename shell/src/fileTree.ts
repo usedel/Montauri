@@ -19,6 +19,7 @@ import { hideMenu, showMenu, type MenuItem } from "./menu";
 import { openLocalHistory } from "./localHistory"; // E-3：右键「本地历史」入口（localHistory 不反向依赖本模块，无环）
 import { diffFileWithClipboard } from "./clipboardDiff"; // C-5：右键「与剪贴板对比」（clipboardDiff 不依赖本模块，无环）
 import { headerTemplateApplies } from "./newFileTemplate"; // PR-K：新建 .py 文件头模板门控（零依赖纯函数）
+import { onLocaleChange, t } from "./i18n"; // 第四批 i18n：文件树域动态文案走语言包
 
 // ---------- 注入（main 的 init 中 setFileTreeHandlers） ----------
 // TD-13：解「fileTree.ts → main.ts」循环边——打开文件 / 重绘标签 / 静默关标签 / 插入文件头
@@ -167,7 +168,7 @@ async function buildDir(dir: string, container: HTMLElement, depth: number): Pro
     // 标 presentation 避免读屏把它当成结构节点（文本内容仍会被朗读）
     empty.setAttribute("role", "presentation");
     empty.style.paddingLeft = `${TREE_INDENT_BASE + depth * TREE_INDENT_STEP}px`;
-    empty.textContent = "（空）";
+    empty.textContent = t("filetree.tree.empty");
     container.appendChild(empty);
     return;
   }
@@ -350,7 +351,7 @@ function syncHiddenFilesBtn(): void {
   // 精简 DOM（如单测）环境下按钮可能不存在，此处按「无按钮则跳过」处理。
   const btn = document.getElementById("btn-tree-hidden");
   if (!btn) return;
-  const tip = showHiddenFiles ? "隐藏 dot 文件" : "显示 dot 文件";
+  const tip = showHiddenFiles ? t("filetree.btn.hideHidden") : t("filetree.btn.showHidden");
   btn.classList.toggle("active", showHiddenFiles);
   btn.dataset.tip = tip;
   // 图标按钮：内部 <i> 带 aria-hidden，可访问名称须由 aria-label 承担；
@@ -467,56 +468,56 @@ function showContextMenu(entry: Entry, x: number, y: number, opts?: { background
   const background = opts?.background ?? false;
   const multi = !background && selectedPaths.size > 1;
   const items: CtxItem[] = [
-    { label: "新建文件", action: () => createFileAt(entry) },
-    { label: "新建文件夹", action: () => createDirAt(entry) },
-    { label: "新建 Python 文件", action: () => void createPyFileAt(entry) },
-    { label: "新建 Python 包", action: () => void createPyPackageAt(entry) },
+    { label: t("filetree.menu.newFile"), action: () => createFileAt(entry) },
+    { label: t("filetree.menu.newFolder"), action: () => createDirAt(entry) },
+    { label: t("filetree.menu.newPyFile"), action: () => void createPyFileAt(entry) },
+    { label: t("filetree.menu.newPyPackage"), action: () => void createPyPackageAt(entry) },
     { sep: true },
   ];
   if (fileClipboard) {
-    items.push({ label: "粘贴", action: () => pasteEntry(entry) }, { sep: true });
+    items.push({ label: t("filetree.menu.paste"), action: () => pasteEntry(entry) }, { sep: true });
   }
   if (!background) {
     if (!multi) {
-      items.push({ label: "重命名", action: () => renameEntry(entry) });
+      items.push({ label: t("filetree.menu.rename"), action: () => renameEntry(entry) });
     }
     items.push(
-      { label: multi ? `删除 ${selectedPaths.size} 项` : "删除", danger: true, action: () => void deleteSelected() },
+      { label: multi ? t("filetree.menu.deleteMany", { count: selectedPaths.size }) : t("filetree.menu.delete"), danger: true, action: () => void deleteSelected() },
       { sep: true },
-      { label: multi ? `复制 ${selectedPaths.size} 项` : "复制", action: () => copySelected() },
-      { label: multi ? `剪切 ${selectedPaths.size} 项` : "剪切", action: () => cutSelected() },
+      { label: multi ? t("filetree.menu.copyMany", { count: selectedPaths.size }) : t("filetree.menu.copy"), action: () => copySelected() },
+      { label: multi ? t("filetree.menu.cutMany", { count: selectedPaths.size }) : t("filetree.menu.cut"), action: () => cutSelected() },
     );
   }
   // 复制路径三件套（对齐 VSCode：Copy Name / Copy Relative Path / Copy Path）；
   // 多选时复制全部选中项，每行一个
   const targets = contextPaths(entry);
   items.push(
-    { label: "复制文件名", action: () => void copyPaths("name", targets) },
-    { label: "复制相对路径", action: () => void copyPaths("relative", targets) },
-    { label: "复制绝对路径", action: () => void copyPaths("full", targets) },
+    { label: t("filetree.menu.copyName"), action: () => void copyPaths("name", targets) },
+    { label: t("filetree.menu.copyRelPath"), action: () => void copyPaths("relative", targets) },
+    { label: t("filetree.menu.copyAbsPath"), action: () => void copyPaths("full", targets) },
   );
   items.push(
     { sep: true },
-    { label: "在终端中打开", action: () => void openTerminalAt(entry.is_dir ? entry.path : parentDirOf(entry.path)) },
-    { label: "在资源管理器中显示", action: () => revealEntry(entry) },
+    { label: t("filetree.menu.openTerminal"), action: () => void openTerminalAt(entry.is_dir ? entry.path : parentDirOf(entry.path)) },
+    { label: t("filetree.menu.revealInExplorer"), action: () => revealEntry(entry) },
   );
   // E-3（PyCharm 调研）：本地历史入口下沉（Ctrl+Shift+H 已交付但不可发现——文件级历史对任意文件有意义）
   if (!entry.is_dir) {
-    items.push({ label: "本地历史", action: () => void openLocalHistory(entry.path) });
-    items.push({ label: "与剪贴板对比", action: () => void diffFileWithClipboard(entry.path) }); // C-5
+    items.push({ label: t("filetree.menu.localHistory"), action: () => void openLocalHistory(entry.path) });
+    items.push({ label: t("filetree.menu.diffClipboard"), action: () => void diffFileWithClipboard(entry.path) }); // C-5
   }
   // Markdown 预览（markdown preview dev plan §5-T4）：.md 文件右键「打开预览」= 打开 + 开启分栏
   if (!entry.is_dir && mdPreview.isMarkdownPath(entry.path)) {
     items.push(
       { sep: true },
-      { label: "打开预览", action: () => { mdPreview.setPreviewOpen(true); void fh().openFile(entry.path); } },
+      { label: t("filetree.menu.openPreview"), action: () => { mdPreview.setPreviewOpen(true); void fh().openFile(entry.path); } },
     );
   }
   // v3.4 §8（M3-3.4）：.py 文件右键「运行脚本」（顺带补上的可选入口）
   if (!entry.is_dir && (entry.path.endsWith(".py") || entry.path.endsWith(".pyw"))) {
     items.push(
       { sep: true },
-      { label: "运行脚本", action: () => handlers?.runScript(entry.path) },
+      { label: t("filetree.menu.runScript"), action: () => handlers?.runScript(entry.path) },
     );
   }
   // P0-3：Git 操作进文件树右键（对标 VS Code / PyCharm）——暂存 / 打开差异 / Blame。
@@ -532,18 +533,18 @@ function showContextMenu(entry: Entry, x: number, y: number, opts?: { background
       if (exact) {
         items.push(
           { sep: true },
-          { label: code === "?" ? "暂存新文件" : "暂存更改", action: () => void stageFiles([exact]) },
+          { label: code === "?" ? t("filetree.menu.stageNew") : t("filetree.menu.stageChanges"), action: () => void stageFiles([exact]) },
         );
         if (code !== "?") {
           items.push(
-            { label: "打开差异", action: () => void showDiffForPath(exact) },
-            { label: "Blame（逐行溯源）", action: () => void showBlame(exact) },
+            { label: t("filetree.menu.openDiff"), action: () => void showDiffForPath(exact) },
+            { label: t("filetree.menu.blame"), action: () => void showBlame(exact) },
           );
         }
       }
     }
     // E-4（PyCharm 调研）：Git 文件历史——对任何仓库内文件都有意义（含当前无改动的已跟踪文件）
-    items.push({ label: "Git 文件历史", action: () => void showFileHistory(relativePath(app.workspaceRoot!, entry.path)) });
+    items.push({ label: t("filetree.menu.gitFileHistory"), action: () => void showFileHistory(relativePath(app.workspaceRoot!, entry.path)) });
   }
 
   renderCtxMenu(items, x, y);
@@ -626,7 +627,7 @@ function inlineInput(container: HTMLElement, beforeEl: HTMLElement | null, initi
       row.remove();
       resolve(val);
     };
-    input.title = "Enter 确认 · Esc 取消";
+    input.title = t("filetree.inline.title");
     input.addEventListener("keydown", (e) => {
       e.stopPropagation(); // 防止触发树快捷键
       if (e.key === "Enter") finish(input.value.trim() || null);
@@ -697,7 +698,7 @@ export async function revealInTree(path: string, opts?: { switchView?: boolean }
 export async function revealActiveFile(): Promise<void> {
   const tab = app.activeTab;
   if (!tab) {
-    toast("没有活动文件可定位", "info");
+    toast(t("filetree.reveal.noActiveFile"), "info");
     return;
   }
   await revealInTree(tab.path);
@@ -722,7 +723,7 @@ function syncFollowBtn(): void {
   // 无按钮则跳过（精简 DOM 环境 / closeWorkspace 路径，同 syncHiddenFilesBtn 处理）
   const btn = document.getElementById("btn-tree-follow");
   if (!btn) return;
-  const tip = followActiveFile ? "切换文件时自动定位（已开）" : "切换文件时自动定位（已关）";
+  const tip = followActiveFile ? t("filetree.btn.followOn") : t("filetree.btn.followOff");
   btn.classList.toggle("active", followActiveFile);
   btn.dataset.tip = tip;
   btn.setAttribute("aria-label", tip);
@@ -761,7 +762,7 @@ export async function createFileAt(entry: Entry): Promise<void> {
     await invoke("create_file", { path: target });
   } catch (e) {
     console.error("新建文件失败", e);
-    toastFail("新建文件", e);
+    toastFail(t("filetree.menu.newFile"), e);
     return;
   }
   await reloadDir(base);
@@ -801,7 +802,7 @@ export async function createDirAt(entry: Entry): Promise<void> {
     await invoke("create_dir", { path: target });
   } catch (e) {
     console.error("新建文件夹失败", e);
-    toastFail("新建文件夹", e);
+    toastFail(t("filetree.menu.newFolder"), e);
     return;
   }
   await reloadDir(base);
@@ -818,7 +819,7 @@ export async function createPyFileAt(entry: Entry): Promise<void> {
     await invoke("create_file", { path: target });
   } catch (e) {
     console.error("新建 Python 文件失败", e);
-    toastFail("新建 Python 文件", e);
+    toastFail(t("filetree.menu.newPyFile"), e);
     return;
   }
   await reloadDir(base);
@@ -845,7 +846,7 @@ export async function createPyPackageAt(entry: Entry): Promise<void> {
     await invoke("create_py_package", { path: target });
   } catch (e) {
     console.error("新建 Python 包失败", e);
-    toastFail("新建 Python 包", e);
+    toastFail(t("filetree.menu.newPyPackage"), e);
     return;
   }
   await reloadDir(base);
@@ -868,7 +869,7 @@ async function renameEntry(entry: Entry): Promise<void> {
     await invoke("rename_path", { oldPath, newPath });
   } catch (e) {
     console.error("重命名失败", e);
-    toastFail("重命名", e);
+    toastFail(t("filetree.menu.rename"), e);
     return;
   }
   await handleRenameLinks(oldPath, newPath);
@@ -949,7 +950,7 @@ async function pasteEntry(entry: Entry): Promise<void> {
       else moves.push(src);
     }
     if (skipped.length > 0) {
-      toast(`目标目录已存在同名项，已跳过：${skipped.join("、")}（移动不支持覆盖）`);
+      toast(t("filetree.op.pasteSkipped", { names: skipped.join("、") }));
     }
     if (moves.length === 0) return; // 全部被跳过：剪贴板与 .cut 标记保持原状
   }
@@ -972,7 +973,7 @@ async function pasteEntry(entry: Entry): Promise<void> {
     }
   }
   // UX P0-1：部分失败要有汇总反馈（原先只 console.error，用户以为粘贴成功）
-  if (failed.length > 0) toast(`粘贴 ${failed.length} 项失败：${failed.join("、")}`, "error");
+  if (failed.length > 0) toast(t("filetree.op.pasteFailed", { count: failed.length, names: failed.join("、") }), "error");
 
   // 剪切完成后清除剪贴板和视觉标记
   if (mode === "cut") {
@@ -995,10 +996,11 @@ async function deleteSelected(): Promise<void> {
     (e) => !(app.workspaceRoot && samePath(e.path, app.workspaceRoot)),
   );
   if (entries.length === 0) return;
+  // 确认语两句手工拼装（不走 apply_ts 映射）：词条含 \n 会在语言包 JSON/TS 转义链路里失真成字面 "\n"
   const msg = entries.length === 1
-    ? `确认删除「${entries[0].path}」？\n删除后将移入系统回收站（可恢复）。`
-    : `确认删除 ${entries.length} 个选中项？\n删除后将移入系统回收站（可恢复）。`;
-  const ok = await openConfirm({ message: msg, okLabel: "删除", kind: "danger" });
+    ? `${t("filetree.delete.confirmOne", { path: entries[0].path })}\n${t("filetree.delete.recycleHint")}`
+    : `${t("filetree.delete.confirmMany", { count: entries.length })}\n${t("filetree.delete.recycleHint")}`;
+  const ok = await openConfirm({ message: msg, okLabel: t("filetree.menu.delete"), kind: "danger" });
   if (!ok) return;
 
   const affectedDirs = new Set<string>();
@@ -1022,7 +1024,7 @@ async function deleteSelected(): Promise<void> {
   selectedPaths.clear();
   selectedEntry = null;
   // UX P0-1：失败项要有可见反馈
-  if (failed.length > 0) toast(`删除 ${failed.length} 项失败：${failed.join("、")}`, "error");
+  if (failed.length > 0) toast(t("filetree.op.deleteFailed", { count: failed.length, names: failed.join("、") }), "error");
   for (const d of affectedDirs) {
     if (dirContainers.has(d)) await reloadDir(d);
   }
@@ -1046,7 +1048,7 @@ async function dropMoveFile(srcPath: string, targetDirPath: string): Promise<voi
   // 不能移动到自身或自身的子目录（UX P0-2：原先静默拒绝，用户不知道拖拽为什么没生效）
   if (srcPath === targetDirPath) return;
   if (targetDirPath.startsWith(srcPath + "\\") || targetDirPath.startsWith(srcPath + "/")) {
-    toast("不能把文件夹移动到它自己的子目录里");
+    toast(t("filetree.op.moveIntoSelf"));
     return;
   }
   const newName = basename(srcPath);
@@ -1054,14 +1056,14 @@ async function dropMoveFile(srcPath: string, targetDirPath: string): Promise<voi
   if (srcPath === dst) return;
   // UX P0-2：目标同名先拦截（移动不支持覆盖）
   if (await dirHasEntry(targetDirPath, newName)) {
-    toast(`目标目录已存在同名项「${newName}」，已取消移动（不支持覆盖）`);
+    toast(t("filetree.op.moveExists", { name: newName }));
     return;
   }
   try {
     await invoke("rename_path", { oldPath: srcPath, newPath: dst });
   } catch (e) {
     console.error("拖拽移动失败", e);
-    toastFail("拖拽移动", e);
+    toastFail(t("filetree.op.dropMove"), e);
     return;
   }
   await handleRenameLinks(srcPath, dst);
@@ -1088,7 +1090,7 @@ async function copyPaths(kind: "name" | "relative" | "full", paths: string[]): P
     await invoke("copy_to_clipboard", { text: texts.join("\n") });
   } catch (e) {
     console.error("复制路径失败", e);
-    toastFail("复制路径", e);
+    toastFail(t("filetree.op.copyPath"), e);
   }
 }
 
@@ -1098,7 +1100,7 @@ async function revealEntry(entry: Entry): Promise<void> {
     await invoke("reveal_in_explorer", { path: entry.path });
   } catch (e) {
     console.error("打开资源管理器失败", e);
-    toastFail("打开资源管理器", e);
+    toastFail(t("filetree.op.revealExplorer"), e);
   }
 }
 
@@ -1106,6 +1108,14 @@ async function revealEntry(entry: Entry): Promise<void> {
 
 /** 接线文件树全部交互：工具栏按钮 + 过滤框 + 树全局事件（原 init 内片段 + wireFileTreeEvents） */
 export function wireFileTree(): void {
+  // 语言切换时重绘本域持久文案（与 git.ts 同款约定）：
+  // 右键菜单/toast 是点击时经 t() 现算的，无需处理；持久的是按钮 tip/aria 与树内「（空）」占位。
+  onLocaleChange(() => {
+    syncHiddenFilesBtn();
+    syncFollowBtn();
+    if (app.workspaceRoot && !isTreeEmpty()) void refreshTreeWithExpandedState();
+  });
+
   // 文件树工具栏按钮（新建文件/文件夹放最左，对齐 VS Code explorer 工具栏的可见入口）
   $("btn-tree-new-file").addEventListener("click", () => void createFileInteractive());
   $("btn-tree-new-folder").addEventListener("click", () => void createDirInteractive());

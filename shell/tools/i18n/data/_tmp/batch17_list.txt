@@ -1,0 +1,296 @@
+唯一模板 295 → d:\aipro\opencharm\shell\tools\i18n\data\_tmp\batch17_templates.json
+ 14  builtin.ts                                       | 爬虫
+ 14  base64.ts,caseconvert.ts,curl2python.ts,htmlenti | 转换
+ 11  base64.ts,color.ts,hash.ts,htmlentity.ts,jsonfmt | 失败
+  7  index.ts,types.ts                                | 文本
+  7  base64.ts,caseconvert.ts,htmlentity.ts,jsonfmt.t | 结果将显示在这里
+  7  base64.ts,htmlentity.ts,index.ts,types.ts,urlcod | 编码
+  6  index.ts,password.ts,types.ts,uuid.ts            | 生成
+  6  base64.ts,curl2python.ts,hash.ts,htmlentity.ts,u | 请先输入内容
+  5  base64.ts,curl2python.ts,htmlentity.ts,unicode.t | 转换失败：§
+  5  base64.ts,curl2python.ts,htmlentity.ts,unicode.t | 转换方向
+  4  jsonpath.ts,kit.ts,regex.ts                      | 复制失败
+  3  json2model.ts,jsonfmt.ts,jsonpath.ts             | JSON 解析失败：§
+  3  jsonpath.ts,kit.ts                               | 已复制
+  3  curl2python.ts,regex.ts,uuid.ts                  | 已插入
+  3  curl2python.ts,regex.ts,uuid.ts                  | 插入编辑器
+  3  curl2python.ts,regex.ts,uuid.ts                  | 无打开文件
+  3  index.ts,jsonfmt.ts,types.ts                     | 格式化
+  3  base64.ts,htmlentity.ts,urlcode.ts               | 解码
+  2  types.ts                                         | 其他
+  2  hash.ts                                          | 切换输出大小写
+  2  builtin.ts                                       | 包裹在 try / except 中
+  2  regex.ts                                         | 匹配
+  2  index.ts,types.ts                                | 哈希
+  2  kit.ts,timestamp.ts                              | 复制
+  2  caseconvert.ts,hash.ts                           | 大写
+  2  index.ts,types.ts                                | 提取
+  2  curl2python.ts,uuid.ts                           | 插入到当前编辑器
+  2  curl2python.ts,kit.ts                            | 无内容
+  2  curl2python.ts,jsonpath.ts                       | 未输入
+  2  format.ts,regex.ts                               | 求值中…
+  2  jsonpath.ts,kit.ts                               | 清空
+  2  curl2python.ts,kit.ts                            | 粘贴
+  2  jsonfmt.ts,jsonpath.ts                           | 粘贴 JSON 文本…
+  2  curl2python.ts                                   | 粘贴 curl 命令（可从浏览器「复制为 cURL」）…
+  2  color.ts,jsonpath.ts                             | 解析
+  1  jsonpath.ts                                      |  值预览
+  1  curl2python.ts                                   | # 输入内容后点击「转换」
+  1  index.ts                                         | 0x/0b/0o/十进制互转（BigInt 精度无损）
+  1  format.ts                                        | 1234.5678 或 ["a", 1] 或 {"x": 1}
+  1  jsonfmt.ts                                       | 2 空格
+  1  jsonfmt.ts                                       | 4 空格
+  1  builtin.ts                                       | @dataclass 类
+  1  index.ts                                         | Base64 编码/解码
+  1  index.ts                                         | Base64 编码选区
+  1  builtin.ts                                       | BeautifulSoup 解析骨架
+  1  wordcount.ts                                     | CJK 字数：
+  1  color.ts                                         | HSL 逆推格式：h, s, l（如 210, 90, 55）
+  1  color.ts                                         | HSL 逆推（h,s,l）：
+  1  index.ts                                         | HTML 实体编码/解码
+  1  index.ts                                         | HTML 实体编码选区
+  1  regex.ts                                         | HTML 标签
+  1  index.ts                                         | Hex ⇄ RGB ⇄ HSL + ANSI 256 色号
+  1  index.ts                                         | JSON → Python 模型
+  1  index.ts                                         | JSON 树状浏览，点击节点复制其路径
+  1  index.ts                                         | JSON 美化/压缩
+  1  index.ts                                         | JSONPath 提取器
+  1  index.ts                                         | MD5 选区
+  1  jsonpath.ts                                      | Python 爬虫实战
+  1  hash.ts                                          | SHA-256 计算失败：§
+  1  builtin.ts                                       | UA 池 + 随机 User-Agent（需 import random）
+  1  index.ts                                         | URL 编码/解码
+  1  index.ts                                         | URL 编码选区
+  1  uuid.ts                                          | UUID 列表将显示在这里
+  1  index.ts                                         | UUID 生成
+  1  index.ts                                         | Unicode ⇄ 明文
+  1  index.ts                                         | Unicode 转义还原选区
+  1  index.ts                                         | Unix 时间戳 ⇄ 可读时间
+  1  panel.ts                                         | [devtools] dispose 异常（忽略）
+  1  host.ts                                          | [devtools] 复制失败
+  1  panel.ts                                         | [devtools] 工具 § dispose 异常（忽略）
+  1  panel.ts                                         | [devtools] 工具 § 挂载失败
+  1  registry.ts                                      | [devtools] 重复注册工具 id=§
+  1  index.ts                                         | \\uXXXX 转义串与明文互转（含代理对合并）
+  1  builtin.ts                                       | __init__ 方法
+  1  builtin.ts                                       | __iter__ / __next__ 对
+  1  builtin.ts                                       | __repr__ 方法
+  1  builtin.ts                                       | async for 循环
+  1  builtin.ts                                       | async with 语句
+  1  builtin.ts                                       | async 函数定义
+  1  python2curl.gen.ts                               | cookies 须为 dict 字面量
+  1  index.ts                                         | crypto 随机；四类字符集可组合
+  1  builtin.ts                                       | csv.DictWriter 写文件（需 import csv）
+  1  index.ts                                         | curl 命令与 requests / httpx 代码互转（双向）
+  1  python2curl.gen.ts                               | data 须为字符串或 dict 字面量
+  1  python2curl.gen.ts                               | dict 的键须为字符串字面量
+  1  index.ts                                         | encodeURIComponent / decodeURIComponent 互转
+  1  builtin.ts                                       | for 循环
+  1  builtin.ts                                       | for 遍历表达式
+  1  python2curl.gen.ts                               | headers 须为 dict 字面量
+  1  builtin.ts                                       | httpx.AsyncClient 异步 GET（async with）
+  1  builtin.ts                                       | if / else 语句
+  1  builtin.ts                                       | if not 表达式:
+  1  builtin.ts                                       | if 表达式:
+  1  builtin.ts                                       | if 语句
+  1  builtin.ts                                       | int(表达式)
+  1  builtin.ts                                       | json.dump 写文件（ensure_ascii=False，需 import json）
+  1  builtin.ts                                       | lambda 表达式
+  1  builtin.ts                                       | len(表达式)
+  1  builtin.ts                                       | lxml etree + xpath 解析骨架（需 from lxml import etree）
+  1  builtin.ts                                       | main 函数定义
+  1  builtin.ts                                       | not 表达式
+  1  python2curl.gen.ts                               | params 须为 dict 字面量
+  1  builtin.ts                                       | print 调用
+  1  builtin.ts                                       | print(表达式)
+  1  python2curl.gen.ts                               | query/headers 的值须为字符串或数字字面量
+  1  regex.ts                                         | re.X：忽略空白与 # 后注释
+  1  builtin.ts                                       | requests 代理字典（http/https）
+  1  builtin.ts                                       | requests.Session + Retry 适配器（需导入 HTTPAdapter/Retry）
+  1  builtin.ts                                       | requests.get 请求骨架（含 raise_for_status）
+  1  builtin.ts                                       | requests.post 请求骨架（JSON 体）
+  1  builtin.ts                                       | resp.json() 加载 + 取字段
+  1  builtin.ts                                       | return 表达式
+  1  textfns.ts                                       | secureRandomInt: n=§ 非法
+  1  builtin.ts                                       | soup.select CSS 选择 + 遍历（$ITEMS$ 镜像）
+  1  builtin.ts                                       | str(表达式)
+  1  index.ts                                         | strftime / 数字格式规范 / logging 格式串预览与速查
+  1  python2curl.gen.ts                               | timeout 须为数字字面量
+  1  builtin.ts                                       | try / except 块
+  1  builtin.ts                                       | while 循环
+  1  builtin.ts                                       | with 语句
+  1  pure.ts                                          | §-§-§ §:§:§ 周§
+  1  regex.ts                                         | ⚠ 源码中不是 raw 字符串：\\d 请写成 r"\\d"
+  1  pure.ts                                          | 一
+  1  pure.ts                                          | 三
+  1  index.ts                                         | 两栏对比，行级差异（+ 新增 / - 删除）
+  1  pure.ts                                          | 二
+  1  radix.ts                                         | 二进制：
+  1  pure.ts                                          | 五
+  1  regex.ts                                         | 仅显示前 § 处（共 §）
+  1  regex.ts                                         | 位置
+  1  sortlines.ts                                     | 保留空行
+  1  sortlines.ts                                     | 倒置
+  1  jsonpath.ts                                      | 值
+  1  radix.ts                                         | 八进制：
+  1  pure.ts                                          | 六
+  1  regex.ts                                         | 共 § 处匹配${data.truncated ? 
+  1  regex.ts                                         | 内容不来自编辑器字面量
+  1  index.ts                                         | 内置工具
+  1  builtin.ts                                       | 函数 docstring（Args / Returns）
+  1  builtin.ts                                       | 函数定义
+  1  regex.ts                                         | 分组
+  1  kit.ts                                           | 剪贴板为空
+  1  curl2python.ts                                   | 剪贴板为空或读取失败
+  1  builtin.ts                                       | 包裹在 if 中
+  1  builtin.ts                                       | 包裹在 with 中
+  1  radix.ts                                         | 十六进制：
+  1  radix.ts                                         | 十进制：
+  1  index.ts                                         | 升/降/倒置/洗牌 × 去重/忽略大小写/空行
+  1  sortlines.ts                                     | 升序
+  1  builtin.ts                                       | 单行 docstring
+  1  jsonfmt.ts                                       | 压缩
+  1  textdiff.ts                                      | 原文（A）…
+  1  sortlines.ts                                     | 去重
+  1  timestamp.ts                                     | 可读时间
+  1  index.ts                                         | 命名实体与数字实体互转
+  1  hash.ts                                          | 哈希值将显示在这里
+  1  hash.ts                                          | 哈希算法
+  1  pure.ts                                          | 四
+  1  jsonpath.ts                                      | 复制值
+  1  jsonpath.ts                                      | 复制路径
+  1  password.ts                                      | 大写 A-Z
+  1  index.ts                                         | 大小写/命名风格
+  1  timestamp.ts                                     | 如 1760985600
+  1  radix.ts                                         | 如 255 / 0xff / 0b1010 / 0o17（下划线分隔可选）
+  1  index.ts                                         | 字数统计
+  1  index.ts                                         | 字符 / 词 / CJK 字数 / 行数实时统计
+  1  wordcount.ts                                     | 字符数（不含空白）：
+  1  wordcount.ts                                     | 字符数（含空白）：
+  1  index.ts                                         | 密码生成
+  1  textdiff.ts                                      | 对比
+  1  caseconvert.ts                                   | 小写
+  1  password.ts                                      | 小写 a-z
+  1  textdiff.ts                                      | 差异将显示在这里（+ 新增 / - 删除）
+  1  regex.ts                                         | 已复制当前匹配
+  1  regex.ts                                         | 已替换
+  1  kit.ts                                           | 已粘贴
+  1  jsonpath.ts                                      | 已解析
+  1  curl2python.ts                                   | 已转换
+  1  timestamp.ts                                     | 当前 Unix 时间戳：
+  1  sortlines.ts                                     | 忽略大小写
+  1  regex.ts                                         | 把修改后的模式写回编辑器中的字面量
+  1  python2curl.gen.ts                               | 括号未闭合，无法解析调用
+  1  sortlines.ts                                     | 排序模式
+  1  password.ts                                      | 排除易混字符
+  1  textdiff.ts                                      | 改文（B）…
+  1  regex.ts                                         | 数字
+  1  password.ts                                      | 数字 0-9
+  1  format.ts                                        | 数字 format
+  1  index.ts                                         | 数字转十六进制
+  1  uuid.ts                                          | 数量（1-100）：
+  1  builtin.ts                                       | 文件头（自动填文件名/作者/日期）
+  1  index.ts                                         | 文本 Diff
+  1  index.ts                                         | 文本与 Base64 互转（UTF-8 安全）
+  1  textfns.ts                                       | 文本过大（行列积超 2500 万）
+  1  regex.ts                                         | 无匹配（是否忘了 re.I？^$ 锚点？match 只从头匹配？）
+  1  radix.ts                                         | 无法识别的数字（支持 0x/0b/0o 前缀与十进制）
+  1  timestamp.ts                                     | 无法识别的时间戳（应为 10 位秒或 13 位毫秒数字）
+  1  color.ts                                         | 无法识别的颜色（形如 #f80 / #ff8000 / #ff8000cc）
+  1  pure.ts                                          | 日
+  1  regex.ts                                         | 日期
+  1  format.ts                                        | 日期 strftime
+  1  index.ts                                         | 时间戳转可读时间
+  1  index.ts                                         | 时间戳转换
+  1  timestamp.ts                                     | 时间戳（秒/毫秒自动识别）：
+  1  python2curl.gen.ts                               | 暂不支持的实参 "§"（仅 params/headers/json/data/cookies/timeout）
+  1  regex.ts                                         | 替换
+  1  regex.ts                                         | 替换失败
+  1  regex.ts                                         | 替换字面量
+  1  curl2python.ts                                   | 未在命令中识别到 URL
+  1  python2curl.gen.ts                               | 未识别到 URL 字面量实参
+  1  python2curl.gen.ts                               | 未识别到 requests / httpx 调用
+  1  format.ts                                        | 未配置工作区解释器，无法预览（速查表与分段解释仍可用）——可在状态栏选择解释器
+  1  regex.ts                                         | 未配置工作区解释器，无法验证匹配（模式解释仍可用）
+  1  caseconvert.ts                                   | 标题
+  1  json2model.ts                                    | 根模型名（默认 Model）
+  1  format.ts                                        | 格式串模式
+  1  index.ts                                         | 格式串预览
+  1  index.ts                                         | 格式化（缩进可调）或压缩 JSON
+  1  format.ts                                        | 格式无效
+  1  regex.ts                                         | 模式已被手工修改，写回可能覆盖你的改动
+  1  regex.ts                                         | 模式无效
+  1  regex.ts                                         | 正则 flags
+  1  index.ts                                         | 正则测试器
+  1  sortlines.ts                                     | 每行一项…
+  1  format.ts                                        | 求值超时（3s）：格式串过长或解释器无响应
+  1  regex.ts                                         | 求值超时（3s）：模式可能存在灾难性回溯，避免嵌套量词（如 (a+)+）
+  1  sortlines.ts                                     | 洗牌
+  1  jsonpath.ts                                      | 深入浅出爬虫
+  1  password.ts                                      | 点击「生成」…
+  1  jsonpath.ts                                      | 点击树节点显示路径
+  1  index.ts                                         | 生成 v4 UUID（可批量）
+  1  json2model.ts                                    | 生成的 Python 模型将显示在这里
+  1  password.ts                                      | 生成的密码
+  1  builtin.ts                                       | 用双引号包裹
+  1  index.ts                                         | 由 JSON 生成 Pydantic / dataclass / TypedDict 模型类
+  1  json2model.ts                                    | 目标模型类型
+  1  index.ts                                         | 真实 re 引擎下验证正则：匹配 / 替换 / 分组 / flags
+  1  jsonpath.ts                                      | 示例
+  1  format.ts                                        | 示例值
+  1  regex.ts                                         | 示例：§
+  1  password.ts                                      | 符号 !@#
+  1  python2curl.gen.ts                               | 第 2 个位置实参之后不支持再传位置实参
+  1  python2curl.gen.ts                               | 第 § 列应为 "," 或 "]"
+  1  python2curl.gen.ts                               | 第 § 列应为 "," 或 "}"
+  1  python2curl.gen.ts                               | 第 § 列应为 "§"
+  1  python2curl.gen.ts                               | 第 § 列附近含非字面量（变量 / 表达式），无法静态解析
+  1  builtin.ts                                       | 类 docstring（Attributes）
+  1  builtin.ts                                       | 类定义（含 __init__）
+  1  json2model.ts                                    | 粘贴 JSON（对象 / 数组均可）…
+  1  curl2python.ts                                   | 粘贴 Python requests / httpx 代码…
+  1  regex.ts                                         | 编辑器正则已带入，但你的模式已手工修改，未覆盖
+  1  jsonfmt.ts                                       | 缩进宽度
+  1  builtin.ts                                       | 翻页 while 循环骨架（抓空即停）
+  1  textfns.ts                                       | 至少选择一类字符
+  1  index.ts                                         | 英文转大写
+  1  index.ts                                         | 行排序去重
+  1  wordcount.ts                                     | 行数：
+  1  builtin.ts                                       | 表达式.键
+  1  regex.ts                                         | 视图
+  1  jsonpath.ts                                      | 解析失败
+  1  hash.ts                                          | 计算
+  1  hash.ts                                          | 计算失败：§
+  1  index.ts                                         | 计算文本哈希（大写/小写可切）
+  1  regex.ts                                         | 设置解释器
+  1  curl2python.ts                                   | 识别失败
+  1  wordcount.ts                                     | 词数：
+  1  builtin.ts                                       | 说明
+  1  jsonfmt.ts                                       | 请先粘贴 JSON
+  1  jsonpath.ts                                      | 请先粘贴 JSON 文本
+  1  jsonpath.ts                                      | 路径
+  1  unicode.ts                                       | 转义
+  1  curl2python.ts                                   | 转换失败
+  1  caseconvert.ts                                   | 转换模式
+  1  wordcount.ts                                     | 输入或粘贴文本，统计实时更新…
+  1  caseconvert.ts                                   | 输入文本…
+  1  hash.ts                                          | 输入文本…（SHA-256 为异步计算）
+  1  urlcode.ts                                       | 输入文本（编码）或 %XX 串（解码）…
+  1  base64.ts                                        | 输入文本（编码）或 Base64（解码）…
+  1  htmlentity.ts                                    | 输入文本（编码）或 HTML 实体（解码）…
+  1  unicode.ts                                       | 输入明文（转义）或 \\uXXXX 串（还原）…
+  1  format.ts                                        | 输入格式串开始预览（点击速查 chips 插入码位）
+  1  regex.ts                                         | 输入正则模式开始测试（可点上方示例一键填充）
+  1  sortlines.ts                                     | 运行
+  1  unicode.ts                                       | 还原
+  1  index.ts                                         | 进制转换
+  1  textfns.ts                                       | 选区不是有效的数字（支持 0x/0b/0o 前缀与十进制）
+  1  timestamp.ts                                     | 选区不是有效的时间戳（10 位秒 / 13 位毫秒）
+  1  regex.ts                                         | 邮箱
+  1  textfns.ts                                       | 长度须在 4-256 之间
+  1  password.ts                                      | 长度（4-256）：
+  1  sortlines.ts                                     | 降序
+  1  builtin.ts                                       | 随机延时（礼貌抓取，需 import time/random）
+  1  format.ts                                        | 预览结果
+  1  index.ts                                         | 颜色转换
+  1  color.ts                                         | 颜色预览

@@ -1,0 +1,123 @@
+
+[1m[46m RUN [49m[22m [36mv3.2.7 [39m[90mD:/aipro/opencharm/shell[39m
+
+ [32m✓[39m src/__tests__/menu.test.ts [2m([22m[2m12 tests[22m[2m)[22m[33m 1185[2mms[22m[39m
+ [32m✓[39m src/__tests__/menuBar.test.ts [2m([22m[2m13 tests[22m[2m)[22m[33m 1227[2mms[22m[39m
+ [32m✓[39m src/__tests__/storagePanel.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 242[2mms[22m[39m
+ [32m✓[39m src/i18n/__tests__/i18n.test.ts [2m([22m[2m19 tests[22m[2m)[22m[32m 297[2mms[22m[39m
+ [32m✓[39m src/__tests__/depHealth.test.ts [2m([22m[2m61 tests[22m[2m)[22m[33m 1264[2mms[22m[39m
+   [33m[2m✓[22m[39m summarizeDiff（M1 输出面板摘要行）[2m > [22m正常形态：style + 解释器 + E 组计数 + 耗时 [33m 991[2mms[22m[39m
+ [32m✓[39m src/__tests__/debugConsole.test.ts [2m([22m[2m2 tests[22m[2m)[22m[33m 878[2mms[22m[39m
+ [32m✓[39m src/__tests__/debugView.test.ts [2m([22m[2m12 tests[22m[2m)[22m[33m 745[2mms[22m[39m
+ [32m✓[39m src/__tests__/gutterGlyphSize.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 203[2mms[22m[39m
+ [32m✓[39m src/__tests__/output.test.ts [2m([22m[2m14 tests[22m[2m)[22m[32m 169[2mms[22m[39m
+ [32m✓[39m src/__tests__/debugWatches.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 161[2mms[22m[39m
+ [32m✓[39m src/__tests__/layout.test.ts [2m([22m[2m14 tests[22m[2m)[22m[32m 97[2mms[22m[39m
+ [32m✓[39m src/__tests__/varTree.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 97[2mms[22m[39m
+ [32m✓[39m src/__tests__/depHealthPanel.test.ts [2m([22m[2m21 tests[22m[2m)[22m[33m 400[2mms[22m[39m
+ [32m✓[39m src/__tests__/welcomeShortcuts.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 140[2mms[22m[39m
+ [32m✓[39m src/__tests__/themePicker.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 96[2mms[22m[39m
+ [32m✓[39m src/__tests__/markdownPreview.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 104[2mms[22m[39m
+ [32m✓[39m src/__tests__/runWidgetDom.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 93[2mms[22m[39m
+ [32m✓[39m src/live-templates/__tests__/pycharmImport.test.ts [2m([22m[2m14 tests[22m[2m)[22m[32m 48[2mms[22m[39m
+ [32m✓[39m src/__tests__/problemsPanel.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 51[2mms[22m[39m
+ [32m✓[39m src/__tests__/quickOpenCloseFocus.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 56[2mms[22m[39m
+ [32m✓[39m src/__tests__/welcomeGuide.test.ts [2m([22m[2m17 tests[22m[2m)[22m[32m 92[2mms[22m[39m
+ [32m✓[39m src/__tests__/tooltip.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 50[2mms[22m[39m
+ [32m✓[39m src/devtools/__tests__/kit.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 54[2mms[22m[39m
+ [32m✓[39m src/__tests__/toast.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 53[2mms[22m[39m
+ [32m✓[39m src/__tests__/keybindings.test.ts [2m([22m[2m25 tests[22m[2m)[22m[32m 40[2mms[22m[39m
+ [32m✓[39m src/__tests__/navHistory.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 27[2mms[22m[39m
+ [32m✓[39m src/extensions/__tests__/facade.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 26[2mms[22m[39m
+ [32m✓[39m src/__tests__/breakpointPersist.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 20[2mms[22m[39m
+ [32m✓[39m src/__tests__/breadcrumbs.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 14[2mms[22m[39m
+ [32m✓[39m src/__tests__/markerNavigation.test.ts [2m([22m[2m15 tests[22m[2m)[22m[32m 24[2mms[22m[39m
+ [32m✓[39m src/__tests__/views.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 21[2mms[22m[39m
+ [32m✓[39m src/__tests__/pydanticRename.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 21[2mms[22m[39m
+ [32m✓[39m src/__tests__/gutterHover.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 16[2mms[22m[39m
+ [32m✓[39m src/__tests__/quickOpen.test.ts [2m([22m[2m16 tests[22m[2m)[22m[32m 19[2mms[22m[39m
+ [32m✓[39m src/__tests__/breakpoints.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 15[2mms[22m[39m
+ [32m✓[39m src/__tests__/renamePreview.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 17[2mms[22m[39m
+ [32m✓[39m src/__tests__/runWidget.test.ts [2m([22m[2m10 tests[22m[2m)[22m[32m 15[2mms[22m[39m
+ [32m✓[39m src/__tests__/editHistory.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 13[2mms[22m[39m
+ [32m✓[39m src/__tests__/debugGutterRunLine.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 13[2mms[22m[39m
+ [32m✓[39m src/__tests__/state.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 9[2mms[22m[39m
+ [32m✓[39m src/__tests__/runGutter.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+ [32m✓[39m src/__tests__/libEval.test.ts [2m([22m[2m12 tests[22m[2m)[22m[32m 50[2mms[22m[39m
+ [32m✓[39m src/devtools/__tests__/types.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 42[2mms[22m[39m
+ [32m✓[39m src/__tests__/keywordCompletion.test.ts [2m([22m[2m12 tests[22m[2m)[22m[32m 113[2mms[22m[39m
+ [32m✓[39m src/devtools/builtin/__tests__/textfns.test.ts [2m([22m[2m69 tests[22m[2m)[22m[32m 164[2mms[22m[39m
+ [32m✓[39m src/live-templates/__tests__/builtin.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 51[2mms[22m[39m
+ [32m✓[39m src/live-templates/__tests__/registry.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 49[2mms[22m[39m
+ [32m✓[39m src/__tests__/libRegex.test.ts [2m([22m[2m28 tests[22m[2m)[22m[32m 46[2mms[22m[39m
+ [32m✓[39m src/devtools/builtin/__tests__/pure.test.ts [2m([22m[2m21 tests[22m[2m)[22m[32m 75[2mms[22m[39m
+ [32m✓[39m src/__tests__/importAlias.test.ts [2m([22m[2m13 tests[22m[2m)[22m[32m 33[2mms[22m[39m
+ [32m✓[39m src/__tests__/autoImport.test.ts [2m([22m[2m12 tests[22m[2m)[22m[32m 57[2mms[22m[39m
+ [32m✓[39m src/__tests__/libFormat.test.ts [2m([22m[2m20 tests[22m[2m)[22m[32m 41[2mms[22m[39m
+ [32m✓[39m src/live-templates/__tests__/engine.test.ts [2m([22m[2m14 tests[22m[2m)[22m[32m 30[2mms[22m[39m
+ [32m✓[39m src/__tests__/runState.test.ts [2m([22m[2m11 tests[22m[2m)[22m[32m 25[2mms[22m[39m
+ [32m✓[39m src/__tests__/runHistory.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 22[2mms[22m[39m
+ [32m✓[39m src/live-templates/__tests__/schema.test.ts [2m([22m[2m10 tests[22m[2m)[22m[32m 23[2mms[22m[39m
+ [32m✓[39m src/extensions/__tests__/manifest.test.ts [2m([22m[2m14 tests[22m[2m)[22m[32m 20[2mms[22m[39m
+ [32m✓[39m src/__tests__/searchFilters.test.ts [2m([22m[2m14 tests[22m[2m)[22m[32m 29[2mms[22m[39m
+ [32m✓[39m src/__tests__/python2curlGen.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 20[2mms[22m[39m
+ [32m✓[39m src/__tests__/scriptArgs.test.ts [2m([22m[2m18 tests[22m[2m)[22m[32m 28[2mms[22m[39m
+ [32m✓[39m src/__tests__/ruffHints.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 22[2mms[22m[39m
+ [32m✓[39m src/__tests__/quickFix.test.ts [2m([22m[2m18 tests[22m[2m)[22m[32m 22[2mms[22m[39m
+ [32m✓[39m src/devtools/jsonpath/__tests__/tree.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 13[2mms[22m[39m
+ [32m✓[39m src/__tests__/json2modelGen.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 16[2mms[22m[39m
+ [32m✓[39m src/__tests__/libJson.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 22[2mms[22m[39m
+ [32m✓[39m src/live-templates/__tests__/compiler.test.ts [2m([22m[2m15 tests[22m[2m)[22m[32m 21[2mms[22m[39m
+ [32m✓[39m src/__tests__/gitMerge.test.ts [2m([22m[2m11 tests[22m[2m)[22m[32m 18[2mms[22m[39m
+ [32m✓[39m src/__tests__/tabReopen.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 14[2mms[22m[39m
+ [32m✓[39m src/devtools/curl2python/__tests__/parse.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 15[2mms[22m[39m
+ [32m✓[39m src/__tests__/util.test.ts [2m([22m[2m19 tests[22m[2m)[22m[32m 21[2mms[22m[39m
+ [32m✓[39m src/live-templates/__tests__/scope.test.ts [2m([22m[2m11 tests[22m[2m)[22m[32m 15[2mms[22m[39m
+ [32m✓[39m src/live-templates/__tests__/docstring.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 14[2mms[22m[39m
+ [32m✓[39m src/live-templates/__tests__/symbols.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 12[2mms[22m[39m
+ [32m✓[39m src/__tests__/editPoints.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 17[2mms[22m[39m
+ [32m✓[39m src/__tests__/browserKeys.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 15[2mms[22m[39m
+ [32m✓[39m src/__tests__/pasteJson.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 12[2mms[22m[39m
+ [32m✓[39m src/live-templates/__tests__/postfix.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 12[2mms[22m[39m
+ [32m✓[39m src/__tests__/saveCleanup.test.ts [2m([22m[2m10 tests[22m[2m)[22m[32m 12[2mms[22m[39m
+ [32m✓[39m src/__tests__/frameworks.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 12[2mms[22m[39m
+ [32m✓[39m src/__tests__/pydanticField.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 18[2mms[22m[39m
+ [32m✓[39m src/__tests__/curl2pythonGen.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+ [32m✓[39m src/live-templates/__tests__/surround.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 12[2mms[22m[39m
+ [32m✓[39m src/__tests__/wordBasedSuggestions.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+ [32m✓[39m src/__tests__/pyLiteral.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+ [32m✓[39m src/__tests__/stripAnsi.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 9[2mms[22m[39m
+ [32m✓[39m src/__tests__/newFileTemplate.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+ [32m✓[39m src/__tests__/newProjectType.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m87 passed[39m[22m[90m (87)[39m
+[2m      Tests [22m [1m[32m929 passed[39m[22m[90m (929)[39m
+[2m   Start at [22m 18:08:52
+[2m   Duration [22m 27.51s[2m (transform 9.03s, setup 0ms, collect 40.01s, tests 9.43s, environment 59.61s, prepare 24.84s)[22m
+
+[90mstderr[2m | src/__tests__/depHealth.test.ts[2m > [22m[2mM2 环境信号自愈序列（§5.5：快照对比 → 有差异才级联）[2m > [22m[2mdep_env_snapshot 失败 → 不级联（检测是顾问不是路障，§4.5 红线）
+[22m[39m[depHealth] 环境快照对比失败，跳过级联: Error: uv 缺失
+    at [90mD:\aipro\opencharm\shell\[39msrc\__tests__\depHealth.test.ts:424:45
+    at mockCall [90m(file:///D:/aipro/opencharm/shell/[39mnode_modules/[4m@vitest/spy[24m/dist/index.js:96:15[90m)[39m
+    at spy [90m(file:///D:/aipro/opencharm/shell/[39mnode_modules/[4mtinyspy[24m/dist/index.js:47:80[90m)[39m
+    at handleEnvSignal [90m(D:\aipro\opencharm\shell\[39msrc\depHealth.ts:460:18[90m)[39m
+    at [90mD:\aipro\opencharm\shell\[39msrc\depHealth.ts:443:10
+    at callTimer [90m(file:///D:/aipro/opencharm/shell/[39mnode_modules/[4mvitest[24m/dist/chunks/vi.bdSIJ99Y.js:2211:25[90m)[39m
+    at doTickInner [90m(file:///D:/aipro/opencharm/shell/[39mnode_modules/[4mvitest[24m/dist/chunks/vi.bdSIJ99Y.js:2814:30[90m)[39m
+    at doTick [90m(file:///D:/aipro/opencharm/shell/[39mnode_modules/[4mvitest[24m/dist/chunks/vi.bdSIJ99Y.js:2895:21[90m)[39m
+    at Immediate.<anonymous> [90m(file:///D:/aipro/opencharm/shell/[39mnode_modules/[4mvitest[24m/dist/chunks/vi.bdSIJ99Y.js:2915:30[90m)[39m
+[90m    at processImmediate (node:internal/timers:504:21)[39m
+
+[90mstderr[2m | src/extensions/__tests__/facade.test.ts[2m > [22m[2m权限门控[2m > [22m[2m未声明 clipboard → readClipboard 抛 PermissionDeniedError
+[22m[39m[extensions] 权限拒绝: readClipboard() 需要 "clipboard"（manifest 未声明）
+
+[90mstderr[2m | src/extensions/__tests__/facade.test.ts[2m > [22m[2m权限门控[2m > [22m[2m未声明 selection → getSelectedText 抛（已声明则放行）
+[22m[39m[extensions] 权限拒绝: getSelectedText() 需要 "selection"（manifest 未声明）
+
+[90mstderr[2m | src/extensions/__tests__/facade.test.ts[2m > [22m[2m权限门控[2m > [22m[2mstorage 未声明拒绝；已声明走插件命名空间
+[22m[39m[extensions] 权限拒绝: storage.get() 需要 "storage"（manifest 未声明）
+
+[90mstderr[2m | src/extensions/__tests__/facade.test.ts[2m > [22m[2m权限门控[2m > [22m[2mfs:read 未声明 → workspaceRoot / readFile 拒绝
+[22m[39m[extensions] 权限拒绝: workspaceRoot() 需要 "fs:read"（manifest 未声明）
+[extensions] 权限拒绝: readFile() 需要 "fs:read"（manifest 未声明）
+

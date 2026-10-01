@@ -5,6 +5,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import type * as RunWidgetModule from "../runWidget";
 import type { RunWidgetState } from "../runWidget";
+import { t } from "../i18n"; // 断言走 t(key)：默认中文等价于原文断言，切默认语言也不用改
 
 let rw: typeof RunWidgetModule;
 
@@ -71,7 +72,7 @@ describe("运行组禁用态（UX P0-3：.is-disabled + aria-disabled，保留 d
       expect(b.getAttribute("aria-disabled"), `${id} 应有 aria-disabled=true`).toBe("true");
       expect(b.dataset.tip, `${id} 应保留 tooltip 文案`).toBeTruthy();
     }
-    expect(document.getElementById("btn-run-script")!.dataset.tip).toBe("未打开工作区");
+    expect(document.getElementById("btn-run-script")!.dataset.tip).toBe(t("run.flow.noWorkspace"));
   });
 
   it("idle：▶ 脚本/▶ 项目/⚙ 清除禁用态，⏹ 仍禁用；aria-disabled 与类同源", () => {
@@ -84,7 +85,7 @@ describe("运行组禁用态（UX P0-3：.is-disabled + aria-disabled，保留 d
     const stop = document.getElementById("btn-stop") as HTMLButtonElement;
     expect(stop.classList.contains("is-disabled")).toBe(true);
     expect(stop.getAttribute("aria-disabled")).toBe("true");
-    expect(stop.dataset.tip).toBe("没有正在运行");
+    expect(stop.dataset.tip).toBe(t("run.widget.notRunning"));
   });
 });
 
@@ -124,6 +125,6 @@ describe("运行组图标不变量（busy 切换不得污染其它按钮）", ()
     expect(iconClass("btn-run-project")).toBe("codicon codicon-run-all");
     const b = document.getElementById("btn-run-project") as HTMLButtonElement;
     expect(b.classList.contains("is-disabled")).toBe(false);
-    expect(b.dataset.tip).toContain("项目正在运行");
+    expect(b.dataset.tip).toContain(t("run.widget.projectRunningTip"));
   });
 });

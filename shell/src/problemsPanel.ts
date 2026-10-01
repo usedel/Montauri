@@ -15,6 +15,7 @@
 import type * as MonacoApi from "monaco-editor/esm/vs/editor/editor.api";
 import { app, $ } from "./state";
 import { basename, emptyState } from "./util";
+import { t } from "./i18n"; // 第十一批 i18n：问题面板动态文案走语言包
 
 /** 单条问题（渲染数据） */
 interface ProblemItem {
@@ -140,14 +141,14 @@ export function renderProblemsChip(): void {
   if (errors > 0) parts.push(`✕ ${errors}`);
   if (warnings > 0) parts.push(`⚠ ${warnings}`);
   el.textContent = parts.join("  ");
-  el.setAttribute("data-tip", `当前文件：${errors} 错误 / ${warnings} 警告 · 点击查看问题面板（F8 逐个跳转）`);
+  el.setAttribute("data-tip", t("workbench.problems.statusTip", { errors: errors, warnings: warnings }));
 }
 
 /** 严重度徽标 */
 function severityBadge(severity: number): { cls: string; label: string } {
   return severity === app.monaco.MarkerSeverity.Error
-    ? { cls: "pb-sev-error", label: "错误" }
-    : { cls: "pb-sev-warning", label: "警告" };
+    ? { cls: "pb-sev-error", label: t("workbench.problems.sevError") }
+    : { cls: "pb-sev-warning", label: t("workbench.problems.sevWarning") };
 }
 
 /** 单条问题行 */
@@ -257,7 +258,7 @@ export function renderProblems(): void {
   // tab 徽标（错误数随 tab 常驻，问题面板的可见性入口之一）
   const tab = tabEl();
   const badge = errors > 0 ? ` (${errors})` : "";
-  const baseLabel = "问题";
+  const baseLabel = t("workbench.problems.baseLabel");
   tab.textContent = errors + warnings > 0 ? `${baseLabel}${badge}` : baseLabel;
 
   const panel = panelEl();
@@ -277,7 +278,7 @@ export function renderProblems(): void {
   if (items.length === 0) {
     // S4 空态教学（onboarding plan §3.4 缺口 1）：改用 emptyState 基建 + 下一步指引——
     // 诊断来自 ruff / 静态引擎 / 运行时 intel 三个桶，告诉用户「什么时候这里会有内容」。
-    panel.appendChild(emptyState("check-all", "没有发现问题", "运行 ruff / 引擎诊断后，问题会列在这里", true));
+    panel.appendChild(emptyState("check-all", t("workbench.problems.empty"), t("workbench.problems.emptyHint"), true));
     lastNonZeroScrollTop = 0;
     panel.dataset.rendered = "1";
     return;
@@ -286,9 +287,9 @@ export function renderProblems(): void {
   // 工具栏（过滤 chips）
   const toolbar = document.createElement("div");
   toolbar.className = "find-usages-toolbar";
-  toolbar.appendChild(buildFilterChip("all", "全部", items.length));
-  if (errors > 0) toolbar.appendChild(buildFilterChip("error", "错误", errors));
-  if (warnings > 0) toolbar.appendChild(buildFilterChip("warning", "警告", warnings));
+  toolbar.appendChild(buildFilterChip("all", t("workbench.problems.filterAll"), items.length));
+  if (errors > 0) toolbar.appendChild(buildFilterChip("error", t("workbench.problems.sevError"), errors));
+  if (warnings > 0) toolbar.appendChild(buildFilterChip("warning", t("workbench.problems.sevWarning"), warnings));
   panel.appendChild(toolbar);
 
   const filtered = activeFilter === "all"

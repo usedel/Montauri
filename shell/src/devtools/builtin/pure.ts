@@ -1,6 +1,7 @@
 // 内置工具的纯函数库（PR-3）：编解码 / 哈希 / 时间戳 / UUID。
 // 全部零 DOM 依赖，单测覆盖（__tests__/pure.test.ts）。
 
+import { t } from "../../i18n";
 // ---------- Base64 ----------
 
 /** UTF-8 安全的 Base64 编码（TextEncoder + btoa） */
@@ -90,16 +91,16 @@ export async function sha256Hex(input: string): Promise<string> {
 
 /** 秒/毫秒时间戳自动识别 → 本地可读时间（含星期）；非法返回 null */
 export function timestampToReadable(raw: string): string | null {
-  const t = raw.trim();
-  if (!/^\d{1,16}$/.test(t)) return null;
-  const n = Number(t);
+  const s = raw.trim();
+  if (!/^\d{1,16}$/.test(s)) return null;
+  const n = Number(s);
   // 10 位 = 秒；13 位 = 毫秒；其他位数按数量级猜（1e12 附近 = ms）
-  const ms = t.length === 10 ? n * 1000 : t.length === 13 ? n : n > 1e12 ? n : n * 1000;
+  const ms = s.length === 10 ? n * 1000 : s.length === 13 ? n : n > 1e12 ? n : n * 1000;
   const d = new Date(ms);
   if (Number.isNaN(d.getTime())) return null;
   const pad = (x: number): string => String(x).padStart(2, "0");
-  const week = ["日", "一", "二", "三", "四", "五", "六"][d.getDay()];
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())} 周${week}`;
+  const week = [t("devtools.pure.wdSun"), t("devtools.pure.wdMon"), t("devtools.pure.wdTue"), t("devtools.pure.wdWed"), t("devtools.pure.wdThu"), t("devtools.pure.wdFri"), t("devtools.pure.wdSat")][d.getDay()];
+  return t("devtools.pure.readable", { y: d.getFullYear(), mo: pad(d.getMonth() + 1), d: pad(d.getDate()), h: pad(d.getHours()), mi: pad(d.getMinutes()), s: pad(d.getSeconds()), w: week });
 }
 
 /** 当前时间的秒级时间戳 */

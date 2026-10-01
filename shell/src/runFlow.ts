@@ -10,7 +10,9 @@
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { app, outputEl, type SaveOptions, type Tab } from "./state";
-import { basename, joinPath, parentDirOf } from "./util";
+import { basename, errMsg, joinPath, parentDirOf } from "./util";
+import { t } from "./i18n"; // 第五批 i18n：运行链路域动态文案走语言包
+import { localizeBackendError } from "./i18n/backendError";
 import { appendOutputLine } from "./output";
 import { gotoFromLink } from "./tracebackLink";
 import { openChoice, openConfirm } from "./dialog";
@@ -124,16 +126,17 @@ function interpreterSource(): string {
  * 运行与调试（main 的 runDebug）共用，避免「预检只在某条路径生效」这类漂移（§13.1）。 */
 export async function prepareRun(path: string): Promise<RunPrep | null> {
   if (!path.endsWith(".py") && !path.endsWith(".pyw")) {
-    toast(`不是 Python 文件：${basename(path)}`, "info");
+    toast(t("run.flow.notPython", { name: basename(path) }), "info");
     return null;
   }
   // 运行前强制保存**所有**脏 tab（PyCharm 式「运行/调试前保存」，与 autosave 开关无关——
   // 显式触发运行即隐式表达持久化意图）。autosave 语义：只写内容，不跑 ruff isort/format。
   // 旧实现只存运行目标 tab，会漏掉「脚本 import 的兄弟模块」——import 的还是磁盘旧内容。
   // 单个文件写盘失败 toast 提示但不中止运行（运行用磁盘内容，失败文件保持 dirty 由用户处置）。
-  for (const t of app.tabs) {
-    if (t.dirty && t.kind !== "diff") {
-      await h().saveTab(t, { runOnSaveActions: false }).catch((e) => toastFail(`运行前保存 ${basename(t.path)}`, e));
+  for (const tab of app.tabs) {
+    if (tab.dirty && tab.kind !== "diff") {
+      // 循环变量避开 t：t() 已是 i18n 取词函数（原变量名 t 与之撞名会遮蔽取词）
+      await h().saveTab(tab, { runOnSaveActions: false }).catch((e) => toastFail(t("run.flow.saveBeforeRun", { name: basename(tab.path) }), e));
     }
   }
   // 运行前依赖预检（§5.4 升级：消费 dep diff 快照，检测真值唯一化 R1）：
@@ -166,11 +169,11 @@ export async function prepareRun(path: string): Promise<RunPrep | null> {
       }
     }
     if (missing.length > 0) {
-      const lines = missing.map((m) => `第 ${m.line} 行  ${m.stmt}`).join("\n");
+      const lines = missing.map((m) => t("run.flow.precheckLine", { line: m.line, stmt: m.stmt })).join("\n");
       const proceed = await openConfirm({
-        title: "运行前依赖预检",
-        message: `以下导入在当前解释器中未找到，运行可能出现 ImportError：\n\n${lines}\n\n仍要运行吗？`,
-        okLabel: "仍要运行", cancelLabel: "取消", kind: "danger",
+        title: t("run.flow.precheckTitle"),
+        message: `${t("run.flow.importsMissing", { lines })}\n\n${t("run.flow.confirmRun")}`,
+        okLabel: t("run.flow.runAnyway"), cancelLabel: t("run.flow.cancel"), kind: "danger",
       });
       if (!proceed) return null;
     }
@@ -247,7 +250,7 @@ function settleExited(id: string, reason: { kind: "code"; code: number } | { kin
 /** CR-05：清理选区运行临时文件与元信息（幂等；失败仅提示不阻断状态复位） */
 function cleanupSelectionRunMeta(meta: SelectionRunMeta): void {
   invoke("delete_file", { path: meta.tempPath }).catch((e) => {
-    appendOutputLine(outputEl, `清理选区临时文件失败（可手工删除）: ${meta.tempPath} — ${e}`, "hint", gotoFromLink);
+    appendOutputLine(outputEl, t("run.flow.cleanupFailed", { path: meta.tempPath, error: localizeBackendError(errMsg(e)) }), "hint", gotoFromLink);
   });
 }
 
@@ -289,20 +292,20 @@ export function runWidgetState(): RunWidgetState {
   const dbgPhase = dap.currentPhase();
   const debugging = dbgPhase === "starting" || dbgPhase === "running" || dbgPhase === "stopped";
   let scriptDisabledReason: string;
-  if (!hasWs) scriptDisabledReason = "未打开工作区";
-  else if (!tab) scriptDisabledReason = "没有打开的文件";
-  else if (!isPy) scriptDisabledReason = "当前文件不是 Python 文件";
-  else if (scriptBusy) scriptDisabledReason = "已有脚本在运行（先停止）";
+  if (!hasWs) scriptDisabledReason = t("run.flow.noWorkspace");
+  else if (!tab) scriptDisabledReason = t("run.flow.noFile");
+  else if (!isPy) scriptDisabledReason = t("run.flow.notPyFile");
+  else if (scriptBusy) scriptDisabledReason = t("run.flow.scriptBusy");
   else scriptDisabledReason = "";
   // 调试中拒绝脚本运行（§13.2 互斥收窄：调试 ↔ 脚本运行互斥，项目放行）
-  if (!scriptDisabledReason && debugging) scriptDisabledReason = "调试进行中，请先停止调试";
+  if (!scriptDisabledReason && debugging) scriptDisabledReason = t("run.flow.debugging");
   return {
     hasWs,
     canRunScript: hasWs && !!tab && isPy,
     scriptDisabledReason,
     // 项目运行只要求有工作区（入口探测不到时提示配置，不置灰，§7.3/§14）
     canRunProject: hasWs,
-    projectDisabledReason: hasWs ? "" : "未打开工作区",
+    projectDisabledReason: hasWs ? "" : t("run.flow.noWorkspace"),
     projectBusy,
     scriptBusy,
     // preparing 单独传递（spinner 只属于准备期；running 属于「可点弹二选一」）
@@ -403,7 +406,7 @@ export async function rerunRecord(r: RunRecord): Promise<void> {
     try {
       await h().openFile(r.path);
     } catch {
-      toast(`无法重新运行：${basename(r.path)}（文件可能已不存在）`, "error");
+      toast(t("run.flow.rerunMissing", { name: basename(r.path) }), "error");
       return;
     }
   }
@@ -436,7 +439,7 @@ async function launchScript(path: string, selection: SelectionRunMeta | null = n
     return;
   }
   const startedAt = Date.now();
-  const label = selection ? `运行 · 选区(${basename(selection.sourcePath)})` : `运行 · ${basename(path)}`;
+  const label = selection ? t("run.flow.labelSelection", { name: basename(selection.sourcePath) }) : t("run.flow.labelScript", { name: basename(path) });
   // 同槽复用：上次运行已退出（exited 驻留，tab 保留回看）→ 旧实例先移除再登记新实例
   const prev = findRunInstance("run-term-script");
   if (prev) removeRunInstance("run-term-script");
@@ -471,8 +474,8 @@ async function launchScript(path: string, selection: SelectionRunMeta | null = n
   } catch (e) {
     // preparing 期 tab 被关闭（canceled）→ 实例已移除，幂等收尾
     if (!findRunInstance("run-term-script")) return;
-    appendOutputLine(outputEl, `在终端中运行失败: ${e}`, "stderr", gotoFromLink);
-    toastFail("运行", e);
+    appendOutputLine(outputEl, t("run.flow.termRunFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink);
+    toastFail(t("run.flow.run"), e);
     removeRunInstance("run-term-script");
     h().renderTabs();
   }
@@ -484,11 +487,11 @@ export async function runScript(path?: string): Promise<void> {
   const target = path ?? app.activeTab?.path;
   if (!target) return;
   if (!app.workspaceRoot) {
-    toast("运行脚本需先打开一个工作区", "info");
+    toast(t("run.flow.needWorkspace"), "info");
     return;
   }
   if (!target.endsWith(".py") && !target.endsWith(".pyw")) {
-    toast(`不是 Python 文件：${basename(target)}`, "info");
+    toast(t("run.flow.notPython", { name: basename(target) }), "info");
     return;
   }
   await launchScript(target);
@@ -524,7 +527,7 @@ async function loadOrDetectProjectConfig(): Promise<RunConfig | null> {
   ).catch(() => null);
   if (detected) {
     // 被动发现型信息：持久 hint（可回看），非易逝 toast
-    appendOutputLine(outputEl, `已自动配置项目入口：${detected.summary}`, "hint", gotoFromLink);
+    appendOutputLine(outputEl, t("run.flow.entryDetected", { summary: detected.summary }), "hint", gotoFromLink);
     return normalizeRunConfig(detected.config);
   }
   return null;
@@ -563,8 +566,8 @@ async function launchProject(p: RunConfig, instanceId: string, label: string, st
     startRunRecord(instanceId, { kind: "project", path: `project:${p.entry.target}`, label, selection: null });
   } catch (e) {
     if (!findRunInstance(instanceId)) return; // preparing 期 tab 被关闭 → 幂等收尾
-    appendOutputLine(outputEl, `运行项目失败: ${e}`, "stderr", gotoFromLink);
-    toastFail("运行项目", e);
+    appendOutputLine(outputEl, t("run.flow.projectRunFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink);
+    toastFail(t("run.flow.runProject"), e);
     removeRunInstance(instanceId);
     h().renderTabs();
   }
@@ -580,10 +583,10 @@ export async function runProject(): Promise<void> {
   let slot: "main" | "new" = "main";
   if (projectRunActive()) {
     const choice = await openChoice({
-      title: "项目正在运行",
-      message: "项目已有运行实例。要停止全部实例并重跑，还是新建一个并行实例？",
-      okLabel: "停止并重跑",
-      neutralLabel: "新建实例（并行）",
+      title: t("run.flow.projectRunningTitle"),
+      message: t("run.flow.projectRunningMsg"),
+      okLabel: t("run.flow.stopAndRerun"),
+      neutralLabel: t("run.flow.newInstance"),
       kind: "primary",
     });
     if (choice === "cancel") return;
@@ -603,8 +606,8 @@ export async function runProject(): Promise<void> {
   }
   if (!p) {
     // G 类（toast + action）：一键直达配置面板，省掉「找菜单 → 切项目分区」两步
-    toast("项目未配置入口（模块名或入口脚本）", "info", {
-      actionLabel: "去配置",
+    toast(t("run.flow.noEntry"), "info", {
+      actionLabel: t("run.flow.goConfigure"),
       onAction: () => void openRunConfig(),
     });
     return;
@@ -621,9 +624,9 @@ export async function runProject(): Promise<void> {
 function allocateProjectSlot(slot: "main" | "new"): { instanceId: string; label: string } {
   if (slot === "new") {
     const n = nextProjectSeq();
-    return { instanceId: `run-term-project-${n}`, label: `项目 ${n}` };
+    return { instanceId: `run-term-project-${n}`, label: t("run.flow.projectN", { n: n }) };
   }
-  return { instanceId: "run-term-project-1", label: "项目" };
+  return { instanceId: "run-term-project-1", label: t("run.flow.project") };
 }
 
 /** 项目实例序号分配：从 2 起找**第一个空闲**序号（exited 驻留的槽也占用——tab 还在），
@@ -667,9 +670,9 @@ async function maybeSuggestFrameworkImpl(root: string): Promise<void> {
 
   const a = document.createElement("span");
   a.className = "out-link";
-  a.textContent = `生成「${frameworkLabel(hit)}」配置并运行`;
+  a.textContent = t("run.flow.genConfigAndRun", { framework: frameworkLabel(hit) });
   a.addEventListener("click", () => {
-    void createFrameworkProfile(hit).catch((e) => toastFail(`生成 ${frameworkLabel(hit)} 配置`, e));
+    void createFrameworkProfile(hit).catch((e) => toastFail(t("run.flow.genConfig", { framework: frameworkLabel(hit) }), e));
   });
   el.appendChild(document.createTextNode("　"));
   el.appendChild(a);
@@ -678,7 +681,7 @@ async function maybeSuggestFrameworkImpl(root: string): Promise<void> {
   // 落在提示行内而非设置面板——发现的入口与关闭的入口同一处，一次交互完成。
   const off = document.createElement("span");
   off.className = "out-link";
-  off.textContent = "不再提示";
+  off.textContent = t("run.flow.dontAskAgain");
   off.addEventListener("click", () => {
     void (async () => {
       try {
@@ -688,10 +691,10 @@ async function maybeSuggestFrameworkImpl(root: string): Promise<void> {
           disabled: true,
         });
         off.className = "";
-        off.textContent = "（已关闭本工作区提示）";
-        toast(`已关闭本工作区的 ${frameworkLabel(hit)} 提示`, "success");
+        off.textContent = t("run.flow.hintOff");
+        toast(t("run.flow.hintOffToast", { framework: frameworkLabel(hit) }), "success");
       } catch (e) {
-        toastFail("关闭提示", e);
+        toastFail(t("run.flow.disableHint"), e);
       }
     })();
   });
@@ -719,7 +722,7 @@ async function createFrameworkProfile(hit: FrameworkPreset): Promise<void> {
     cwd: hit.cwd,
   };
   await invoke("set_project_run", { workspaceRoot: root, config: profile });
-  toast(`已写入项目运行配置：${hit.summary}`, "success");
+  toast(t("run.flow.projectConfigWritten", { summary: hit.summary }), "success");
   await runProject();
 }
 
@@ -732,7 +735,7 @@ export async function runSelection(): Promise<void> {
   if (!app.activeTab || (scriptRunActive() && !isPreparing("script"))) return;
   const path = app.activeTab.path;
   if (!path.endsWith(".py") && !path.endsWith(".pyw")) {
-    toast(`不是 Python 文件：${basename(path)}`, "info");
+    toast(t("run.flow.notPython", { name: basename(path) }), "info");
     return;
   }
   const editor = app.editor;
@@ -754,7 +757,7 @@ export async function runSelection(): Promise<void> {
     code = model.getValueInRange(sel);
   }
   if (!code.trim()) {
-    toast("选区为空，无可运行代码", "info");
+    toast(t("run.flow.emptySelection"), "info");
     return;
   }
   // CR-07：准备期闸门——保存 / 写临时文件都是 await，期间连点不得并发进入
@@ -772,8 +775,8 @@ export async function runSelection(): Promise<void> {
     try {
       await invoke("write_file", { path: tempPath, content: code });
     } catch (e) {
-      appendOutputLine(outputEl, `写入选区临时文件失败: ${e}`, "stderr", gotoFromLink);
-      toastFail("写入选区临时文件", e);
+      appendOutputLine(outputEl, t("run.flow.writeTempFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink);
+      toastFail(t("run.flow.writeTemp"), e);
       return;
     }
 
@@ -782,14 +785,14 @@ export async function runSelection(): Promise<void> {
       // P2-3（2026-09-29 review）：临时文件必须清理——残留在源文件同目录会污染 git
       // 未跟踪列表 / depHealth 扫描 / quickOpen 清单。
       invoke("delete_file", { path: tempPath }).catch((e) => {
-        appendOutputLine(outputEl, `清理选区临时文件失败（可手工删除）: ${tempPath} — ${e}`, "hint", gotoFromLink);
+        appendOutputLine(outputEl, t("run.flow.cleanupFailed", { path: tempPath, error: localizeBackendError(errMsg(e)) }), "hint", gotoFromLink);
       });
       return;
     }
 
     // 选区运行用临时文件、**刻意不套运行配置**（含 args / env）：语义上是一次性片段。
     const startedAt = Date.now();
-    const label = `运行 · 选区(${basename(path)})`;
+    const label = t("run.flow.labelSelection", { name: basename(path) });
     const selMeta = { tempPath, sourcePath: path, startLine };
     // 同槽复用：上次运行已退出（exited 驻留）→ 旧实例先移除再登记新实例
     const prev = findRunInstance("run-term-script");
@@ -807,8 +810,8 @@ export async function runSelection(): Promise<void> {
       stopping: false,
     });
     h().renderTabs();
-    const rangeLabel = startLine === endLine ? `行 ${startLine}` : `行 ${startLine}-${endLine}`;
-    const echo = `> 运行选区  ${path}:${rangeLabel}`;
+    const rangeLabel = startLine === endLine ? t("run.flow.lineSingle", { start: startLine }) : t("run.flow.lineRange", { start: startLine, end: endLine });
+    const echo = t("run.flow.selEcho", { path: path, range: rangeLabel });
     try {
       // probe=false：选区是临时代码，不采样（避免污染项目 trace 库）
       await runScriptInTerminal({
@@ -823,11 +826,11 @@ export async function runSelection(): Promise<void> {
       if (!settleInstance("run-term-script", { label, path: tempPath, selection: selMeta, startedAt })) return;
       startRunRecord("run-term-script", { kind: "script", path: tempPath, label, selection: selMeta });
     } catch (e) {
-      appendOutputLine(outputEl, `运行失败: ${e}`, "stderr", gotoFromLink);
-      toastFail("运行", e);
+      appendOutputLine(outputEl, t("run.flow.runFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink);
+      toastFail(t("run.flow.run"), e);
       // P2-3：失败路径同样清选区临时文件（成功路径由 settleExited/runTabClosedHook 负责）
       invoke("delete_file", { path: tempPath }).catch((e2) => {
-        appendOutputLine(outputEl, `清理选区临时文件失败（可手工删除）: ${tempPath} — ${e2}`, "hint", gotoFromLink);
+        appendOutputLine(outputEl, t("run.flow.cleanupFailed", { path: tempPath, error: localizeBackendError(errMsg(e2)) }), "hint", gotoFromLink);
       });
       removeRunInstance("run-term-script");
       h().renderTabs();

@@ -9,6 +9,7 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { app, type Tab } from "./state";
 import { basename, joinPath, parentDirOf } from "./util";
+import { t } from "./i18n"; // 第十二批 i18n：Markdown 预览动态文案走语言包
 
 // ---------- 可开关状态（会话内，不持久化；分栏宽度才持久化，见 layout.ts） ----------
 
@@ -165,8 +166,8 @@ export function updatePreviewVisibility(): void {
     btn.classList.toggle("active", previewOpen);
     btn.setAttribute("aria-pressed", String(previewOpen));
     const chord = app.settings.keybindings.markdown_preview || "Ctrl+Shift+V";
-    btn.dataset.tip = previewOpen ? "关闭 Markdown 预览" : `打开 Markdown 预览（${chord}）`;
-    btn.setAttribute("aria-label", previewOpen ? "关闭 Markdown 预览" : "打开 Markdown 预览");
+    btn.dataset.tip = previewOpen ? t("editor.md.close") : t("editor.md.openWithKey", { key: chord });
+    btn.setAttribute("aria-label", previewOpen ? t("editor.md.close") : t("editor.md.open"));
   }
 
   // 导出按钮：活动 .md 即显示（导出不依赖预览是否开启）
@@ -251,7 +252,7 @@ function maybeShowPreviewHint(): void {
   if (!hint) return;
   const chord = app.settings.keybindings.markdown_preview || "Ctrl+Shift+V";
   const text = hint.querySelector("#md-preview-hint-text");
-  if (text) text.textContent = `按 ${chord} 或点击右上角图标打开 Markdown 预览`;
+  if (text) text.textContent = t("editor.md.hintWithKey", { key: chord });
   hint.classList.remove("hidden");
 }
 
@@ -338,7 +339,7 @@ export async function exportActiveMarkdown(): Promise<void> {
   const title = basename(tab.path).replace(/\.(md|markdown)$/i, "");
   const html = await buildExportHtml(tab.model.getValue(), parentDirOf(tab.path), title);
   const target = await save({
-    title: "导出 Markdown 为 HTML",
+    title: t("editor.md.exportTitle"),
     defaultPath: `${title}.html`,
     filters: [{ name: "HTML", extensions: ["html"] }],
   });

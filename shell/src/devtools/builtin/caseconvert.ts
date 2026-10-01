@@ -2,20 +2,21 @@
 
 import type { PanelHost } from "../../extensions/facade";
 import { transformCase, type CaseMode } from "./textfns";
+import { t } from "../../i18n";
 
 export function mount(host: PanelHost): { dispose(): void } | void {
   const { kit } = host;
   host.root.textContent = "";
 
   const wrap = kit.body();
-  const input = kit.textarea({ placeholder: "输入文本…", flex: true });
+  const input = kit.textarea({ placeholder: t("devtools.caseconvert.inputPh"), flex: true });
 
   const modeGroup = kit.radioGroup<CaseMode>({
-    label: "转换模式",
+    label: t("devtools.caseconvert.mode"),
     options: [
-      { value: "upper", label: "大写" },
-      { value: "lower", label: "小写" },
-      { value: "title", label: "标题" },
+      { value: "upper", label: t("devtools.common.uppercase") },
+      { value: "lower", label: t("devtools.caseconvert.lower") },
+      { value: "title", label: t("devtools.caseconvert.title") },
       { value: "snake", label: "snake_case" },
       { value: "camel", label: "camelCase" },
     ],
@@ -25,12 +26,12 @@ export function mount(host: PanelHost): { dispose(): void } | void {
   const run = (): void => {
     out.set(transformCase(input.value, modeGroup.get()));
   };
-  const runBtn = kit.primaryButton("转换", "case-sensitive", run);
+  const runBtn = kit.primaryButton(t("devtools.common.convert"), "case-sensitive", run);
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) run();
   });
 
-  const out = kit.output({ language: "plaintext", placeholder: "结果将显示在这里" });
+  const out = kit.output({ language: "plaintext", placeholder: t("devtools.common.resultPlaceholder") });
   wrap.append(
     input,
     kit.toolbar(modeGroup.el, runBtn, "spacer", kit.copyButton(() => out.get())),

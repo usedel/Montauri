@@ -10,6 +10,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import type * as MonacoApi from "monaco-editor/esm/vs/editor/editor.api";
+import { t } from "./i18n"; // 第十六批 i18n：补全 detail 走语言包
 
 type Monaco = typeof MonacoApi;
 
@@ -193,7 +194,7 @@ function item(label: string, filterText: string, insertText: string, doc: string
     insertText,
     filterText,
     sortText: "0z",
-    detail: "import 别名",
+    detail: t("ide.importAliasDetail"),
     documentation: doc,
   };
 }

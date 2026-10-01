@@ -29,11 +29,18 @@ export interface PluginToolContribution {
   inline?: { label: string; handler: string };
 }
 
-/** 校验结果：ok=false 时 errors 给出全部问题（逐条中文，可直接展示） */
+/** 结构化校验错误：key 指向 ext 域词条（ext.mf.*），params 为插值参数。
+ *  本模块保持零 i18n 依赖（纯函数可单测），展示层（loader）经 t(key, params) 转译。 */
+export interface ManifestIssue {
+  key: string;
+  params?: Record<string, string>;
+}
+
+/** 校验结果：ok=false 时 errors 给出全部问题（结构化，经展示层转译后可直接展示） */
 export interface ManifestCheck {
   ok: boolean;
   manifest: PluginManifest | null;
-  errors: string[];
+  errors: ManifestIssue[];
 }
 
 /** v1 已知权限集合；不在集合内的权限字符串视为笔误（拒绝，防「以为声明了其实拼错」） */
@@ -41,20 +48,20 @@ export const KNOWN_PERMISSIONS = ["clipboard", "selection", "fs:read", "storage"
 export type PluginPermission = (typeof KNOWN_PERMISSIONS)[number];
 
 /** 校验权限声明：未知权限 → 错误；重复 → 去重后通过 */
-function checkPermissions(perms: unknown, errors: string[]): string[] {
+function checkPermissions(perms: unknown, errors: ManifestIssue[]): string[] {
   if (perms === undefined) return [];
   if (!Array.isArray(perms)) {
-    errors.push("permissions 必须是字符串数组");
+    errors.push({ key: "ext.mf.permsNotArray" });
     return [];
   }
   const out: string[] = [];
   for (const p of perms) {
     if (typeof p !== "string") {
-      errors.push(`permissions 含非字符串项：${String(p)}`);
+      errors.push({ key: "ext.mf.permsItemNotString", params: { value: String(p) } });
       continue;
     }
     if (!(KNOWN_PERMISSIONS as readonly string[]).includes(p)) {
-      errors.push(`未知权限 "${p}"（已知：${KNOWN_PERMISSIONS.join(", ")}）`);
+      errors.push({ key: "ext.mf.unknownPerm", params: { perm: p, known: KNOWN_PERMISSIONS.join(", ") } });
       continue;
     }
     if (!out.includes(p)) out.push(p);
@@ -64,33 +71,34 @@ function checkPermissions(perms: unknown, errors: string[]): string[] {
 
 /** 校验并解析 manifest JSON 文本；失败返回逐条错误（不抛异常） */
 export function validateManifest(json: string): ManifestCheck {
-  const errors: string[] = [];
+  const errors: ManifestIssue[] = [];
   let raw: Record<string, unknown>;
   try {
     const parsed: unknown = JSON.parse(json);
     if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return { ok: false, manifest: null, errors: ["manifest 根必须是 JSON 对象"] };
+      return { ok: false, manifest: null, errors: [{ key: "ext.mf.rootNotObject" }] };
     }
     raw = parsed as Record<string, unknown>;
   } catch (e) {
-    return { ok: false, manifest: null, errors: [`manifest 不是合法 JSON：${e instanceof Error ? e.message : String(e)}`] };
+    const msg = e instanceof Error ? e.message : String(e);
+    return { ok: false, manifest: null, errors: [{ key: "ext.mf.invalidJson", params: { error: msg } }] };
   }
 
   // schemaVersion：v1 只认 1（数字）
   const sv = raw.schemaVersion;
   if (sv !== MANIFEST_SCHEMA_VERSION) {
-    errors.push(`schemaVersion 必须为 ${MANIFEST_SCHEMA_VERSION}（当前支持版本），实际为 ${String(sv)}`);
+    errors.push({ key: "ext.mf.schemaVersion", params: { expected: String(MANIFEST_SCHEMA_VERSION), actual: String(sv) } });
   }
 
   // id：反向域名风格（宽松：至少一段且无路径分隔符/空白）
   const id = raw.id;
   if (typeof id !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id)) {
-    errors.push(`id 必须是插件内唯一标识（字母数字开头的点分/连字符名），实际为 ${JSON.stringify(id)}`);
+    errors.push({ key: "ext.mf.badId", params: { actual: JSON.stringify(id) } });
   }
 
   // name / version
-  if (typeof raw.name !== "string" || raw.name.trim() === "") errors.push("name 不能为空");
-  if (typeof raw.version !== "string" || raw.version.trim() === "") errors.push("version 不能为空");
+  if (typeof raw.name !== "string" || raw.name.trim() === "") errors.push({ key: "ext.mf.nameEmpty" });
+  if (typeof raw.version !== "string" || raw.version.trim() === "") errors.push({ key: "ext.mf.versionEmpty" });
 
   // engines.opencharm：v1 仅支持 ">=X.Y.Z"
   const engines = raw.engines;
@@ -98,11 +106,11 @@ export function validateManifest(json: string): ManifestCheck {
     engines === null || typeof engines !== "object" || Array.isArray(engines) ||
     typeof (engines as Record<string, unknown>).opencharm !== "string"
   ) {
-    errors.push('engines.opencharm 必须是字符串（如 ">=0.5.0"）');
+    errors.push({ key: "ext.mf.enginesNotString" });
   } else {
     const spec = (engines as Record<string, string>).opencharm.trim();
     if (!/^>=\d+\.\d+\.\d+$/.test(spec)) {
-      errors.push(`engines.opencharm v1 仅支持 ">=X.Y.Z" 形式，实际为 "${spec}"`);
+      errors.push({ key: "ext.mf.enginesBadSpec", params: { spec } });
     }
   }
 
@@ -114,12 +122,12 @@ export function validateManifest(json: string): ManifestCheck {
   let tools: PluginToolContribution[] = [];
   if (contributes !== undefined) {
     if (contributes === null || typeof contributes !== "object" || Array.isArray(contributes)) {
-      errors.push("contributes 必须是对象");
+      errors.push({ key: "ext.mf.contributesNotObject" });
     } else {
       const t = (contributes as Record<string, unknown>).tools;
       if (t !== undefined) {
         if (!Array.isArray(t)) {
-          errors.push("contributes.tools 必须是数组");
+          errors.push({ key: "ext.mf.toolsNotArray" });
         } else {
           tools = t.map(checkToolContribution).filter((x): x is PluginToolContribution => x !== null);
         }
@@ -127,7 +135,7 @@ export function validateManifest(json: string): ManifestCheck {
     }
   }
   if (tools.length === 0 && errors.length === 0) {
-    errors.push("contributes.tools 为空——工具插件至少贡献一个工具");
+    errors.push({ key: "ext.mf.toolsEmpty" });
   }
 
   if (errors.length > 0) return { ok: false, manifest: null, errors };

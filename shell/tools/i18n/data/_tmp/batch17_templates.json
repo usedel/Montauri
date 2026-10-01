@@ -1,0 +1,958 @@
+{
+ "字面量": {
+  "count": 5,
+  "files": [
+   "libFormat.ts",
+   "libRegex.ts"
+  ]
+ },
+ "字符串开头锚点": {
+  "count": 2,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ "字符串末尾锚点": {
+  "count": 2,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ "字面量 {": {
+  "count": 2,
+  "files": [
+   "libFormat.ts",
+   "libRegex.ts"
+  ]
+ },
+ "未知格式类型 \"§\"（常见：d f s e %）": {
+  "count": 2,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "（懒惰）": {
+  "count": 2,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ "（贪婪）": {
+  "count": 2,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ " : \" 次\"}§": {
+  "count": 1,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ "**JSON** · array · § 项": {
+  "count": 1,
+  "files": [
+   "libJson.ts"
+  ]
+ },
+ "**JSON** · object · § 键 · § 层": {
+  "count": 1,
+  "files": [
+   "libJson.ts"
+  ]
+ },
+ "**Python 正则${hit.api ? ": {
+  "count": 1,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ ". 匹配换行符 (DOTALL)": {
+  "count": 1,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ ".strftime(<字面量>)": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ ".strptime(<…>, <字面量>)": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "0 或 1 次": {
+  "count": 1,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ "0 次或多次": {
+  "count": 1,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ "1 次或多次": {
+  "count": 1,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ "12 小时制小时 (01-12)": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "24 小时制小时 (00-23)": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "ISO 周号": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "ISO 周年份": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "ISO 星期 (1=周一)": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "JSON 解析失败：§": {
+  "count": 1,
+  "files": [
+   "libInject.ts"
+  ]
+ },
+ "UTC 偏移 (+0800)": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "[§-§] 字符区间倒置（起点码位大于终点）": {
+  "count": 1,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ "^ $ 匹配行首行尾 (MULTILINE)": {
+  "count": 1,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ "args 序列化失败：§": {
+  "count": 1,
+  "files": [
+   "libEval.ts"
+  ]
+ },
+ "array · 128 项": {
+  "count": 1,
+  "files": [
+   "libJson.ts"
+  ]
+ },
+ "format(x, <spec 字面量>)": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "json.loads(<字符串字面量>)": {
+  "count": 1,
+  "files": [
+   "libJson.ts"
+  ]
+ },
+ "logger 名": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "logging 格式": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "object · 14 键 · 3 层": {
+  "count": 1,
+  "files": [
+   "libJson.ts"
+  ]
+ },
+ "object · N 键 · D 层": {
+  "count": 1,
+  "files": [
+   "libInject.ts"
+  ]
+ },
+ "re.<api>(<首个字符串实参>, …)": {
+  "count": 1,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ "§§": {
+  "count": 1,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ "…（仅显示前 20 段）": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "…（仅显示前 24 段）": {
+  "count": 1,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ "⚠ 含未知格式码。§": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "⚠ 非 raw 字符串：建议写作 \\`r\"…\"\\`": {
+  "count": 1,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ "两位年份": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "两位日期 (01-31)": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "两位月份 (01-12)": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "二进制": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "仅 ASCII 匹配 (ASCII)": {
+  "count": 1,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ "任意字符（含换行，re.S）": {
+  "count": 1,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ "会变成控制字符（如 \\\\b → 退格），正则语义已丢失": {
+  "count": 1,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ "八进制": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "函数名": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "分组结束": {
+  "count": 1,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ "分钟 (00-59)": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "前导 0 填充": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "前瞻断言（不消耗字符）": {
+  "count": 1,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ "前缀形式 (0x / 0b)": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "十六进制大写": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "十六进制小写": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "十进制整数": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "千分位分隔": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "单词字符 (字母/数字/下划线)": {
+  "count": 1,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ "单词边界": {
+  "count": 1,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ "占位符": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "反向引用第 § 组": {
+  "count": 1,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ "反向引用（命名/编号）": {
+  "count": 1,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ "后顾断言（不消耗字符）": {
+  "count": 1,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ "周号（周一为一周开始）": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "周号（周日为一周开始）": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "命名组 \"§\" 重复定义（此前位于位置 §）": {
+  "count": 1,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ "命名组「§」开始（可用 \\\\g<§> 引用）": {
+  "count": 1,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ "命名组反向引用": {
+  "count": 1,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ "四位年份": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "在格式串工具中打开：右键 →「在格式串工具中打开」/ 编辑器 lens": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "在测试器中打开：右键 →「在正则测试器中打开」/ `Ctrl+Alt+R`": {
+  "count": 1,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ "多余的右括号 )": {
+  "count": 1,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ "字段 §": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "字符串 (str)": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "字符类 [ 未闭合": {
+  "count": 1,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ "字符类（匹配其中任一字符）": {
+  "count": 1,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ "字面量 %": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "字面量 }": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "完整日期时间": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "定点小数": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "定点小数 (inf/nan 大写)": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "宽度 §": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "对齐 §（填充 §）": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "常见字段：%(asctime)s %(levelname)s %(name)s %(message)s": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "常见码：%Y 年 %m 月 %d 日 %H 时 %M 分 %S 秒": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "常见类型：d 整数 · f 定点 · s 字符串 · e 科学计数 · % 百分比": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "年内天数 (001-366)": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "强制符号 (+/-)": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "当前靠 CPython 对未知转义的容错保留，正式写法应为 raw 串": {
+  "count": 1,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ "微秒 (6 位)": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "忽略大小写 (IGNORECASE)": {
+  "count": 1,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ "忽略空白与 # 注释 (VERBOSE)": {
+  "count": 1,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ "悬空 %（后面没有格式码）": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "悬空反斜杠": {
+  "count": 1,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ "或（左右任选一支）": {
+  "count": 1,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ "括号 ( 未闭合": {
+  "count": 1,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ "数字字符 (0-9)": {
+  "count": 1,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ "文件名": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "文件完整路径": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "日志消息": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "日期 strftime": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "时区名": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "时间戳 (秒)": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "时间（默认 2026-09-27 10:30:15,123）": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "星期全名": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "星期数字 (0=周日)": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "星期缩写": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "月份全名": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "月份缩写": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "未打开工作区": {
+  "count": 1,
+  "files": [
+   "libEval.ts"
+  ]
+ },
+ "未找到可用 Python 解释器": {
+  "count": 1,
+  "files": [
+   "libEval.ts"
+  ]
+ },
+ "未知格式码 %§": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "未知格式码「§」：§": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "未知脚本错误": {
+  "count": 1,
+  "files": [
+   "libEval.ts"
+  ]
+ },
+ "未知记录字段 \"§\"（logging 只认 LogRecord 已有字段）": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "未闭合的 {": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "本地化数字": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "本地日期": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "本地时间": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "样本 1234.5678": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "样本 2026-09-26 14:03:11": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "样本记录": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "格式规范": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "模块名 (不含 .py)": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "毫秒部分": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "求值超时": {
+  "count": 1,
+  "files": [
+   "libEval.ts"
+  ]
+ },
+ "百分比 (×100 后接 %)": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "示例：\\`§\\`（§）": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "科学计数 (大写 E)": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "科学计数 (小写 e)": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "秒 (00-59)": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "空格": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "空白字符": {
+  "count": 1,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ "第 § 组捕获开始": {
+  "count": 1,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ "精度 §": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "级别名 (INFO / WARNING …)": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "级别数字": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "线程 id": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "线程名": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "自动编号占位（按参数顺序）": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "行号": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "行尾锚点（re.M）": {
+  "count": 1,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ "行首锚点（re.M）": {
+  "count": 1,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ "转义字符 §": {
+  "count": 1,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ "转换 !§（§）": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "进程 id": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "进程名": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "通用 (大写 E)": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "通用 (整数用 d，否则 e)": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ },
+ "重复 §${m[2] ? ": {
+  "count": 1,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ "除换行外的任意字符": {
+  "count": 1,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ "非 raw 字符串中的 \\\\§：§。请写作 r\"…\"": {
+  "count": 1,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ "非单词字符": {
+  "count": 1,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ "非单词边界": {
+  "count": 1,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ "非捕获分组开始（不参与引用编号）": {
+  "count": 1,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ "非数字字符": {
+  "count": 1,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ "非空白字符": {
+  "count": 1,
+  "files": [
+   "libRegex.ts"
+  ]
+ },
+ "默认格式": {
+  "count": 1,
+  "files": [
+   "libFormat.ts"
+  ]
+ }
+}

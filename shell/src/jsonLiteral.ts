@@ -16,6 +16,9 @@ import { offsetToPosition } from "./libRegex";
 import { jsonParseError, pythonLiteralFor, type JsonHit } from "./libJson";
 import { scanInjectLiterals } from "./libInject";
 import { setPendingJsonPathRequest } from "./libsBridge";
+import { t } from "./i18n"; // 第十三批 i18n：动态文案走语言包
+import { localizeBackendError } from "./i18n/backendError";
+import { errMsg } from "./util";
 
 const MAX_SCAN_CHARS = 500_000; // 与 dslLens 同一预算
 const JSONPATH_TOOL_ID = "opencharm.builtin.jsonpath";
@@ -27,7 +30,7 @@ function hitAtCursor(): JsonHit | null {
   const editor = app.editor;
   const model = editor.getModel();
   if (!model || model.getLanguageId() !== "python") {
-    toast("JSON 工具需要打开一个 Python 文件", "info");
+    toast(t("ide.json.needPy"), "info");
     return null;
   }
   const offset = model.getOffsetAt(editor.getPosition() ?? { lineNumber: 1, column: 1 });
@@ -35,7 +38,7 @@ function hitAtCursor(): JsonHit | null {
     (l) => l.rule === "json" && offset > l.start && offset < l.end,
   );
   if (!hit) {
-    toast("光标不在 json.loads 字面量内", "info");
+    toast(t("ide.json.notInLiteral"), "info");
     return null;
   }
   return hit.data as JsonHit;
@@ -47,7 +50,7 @@ function rewriteLiteral(hit: JsonHit, indent: number): void {
   try {
     value = JSON.parse(hit.value);
   } catch (e) {
-    toast(`JSON 解析失败：${e instanceof Error ? e.message : String(e)}`, "error");
+    toast(t("ide.json.parseFailed", { error: localizeBackendError(errMsg(e instanceof Error ? e.message : String(e))) }), "error");
     return;
   }
   const model = app.editor.getModel();
@@ -66,7 +69,7 @@ function rewriteLiteral(hit: JsonHit, indent: number): void {
 function openInJsonPathPanel(hit: JsonHit): void {
   const err = jsonParseError(hit.value);
   if (err) {
-    toast(`JSON 解析失败：${err.message}`, "error");
+    toast(t("ide.json.parseFailed", { error: localizeBackendError(errMsg(err.message)) }), "error");
     return;
   }
   setPendingJsonPathRequest({ json: hit.value });
@@ -120,7 +123,7 @@ export function initJsonLiteral(editor: MonacoApi.editor.IStandaloneCodeEditor):
   store.add(
     editor.addAction({
       id: "opencharm.jsonFormat",
-      label: "格式化 JSON 字面量",
+      label: t("ide.json.formatTitle"),
       contextMenuGroupId: "navigation",
       contextMenuOrder: 1.85,
       run: () => {
@@ -132,7 +135,7 @@ export function initJsonLiteral(editor: MonacoApi.editor.IStandaloneCodeEditor):
   store.add(
     editor.addAction({
       id: "opencharm.jsonMinify",
-      label: "压缩 JSON 字面量",
+      label: t("ide.json.minifyTitle"),
       contextMenuGroupId: "navigation",
       contextMenuOrder: 1.86,
       run: () => {
@@ -144,7 +147,7 @@ export function initJsonLiteral(editor: MonacoApi.editor.IStandaloneCodeEditor):
   store.add(
     editor.addAction({
       id: "opencharm.jsonPathExtract",
-      label: "在 JSONPath 提取器中打开",
+      label: t("ide.json.openJsonpath"),
       contextMenuGroupId: "navigation",
       contextMenuOrder: 1.87,
       run: () => {

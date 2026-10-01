@@ -8,17 +8,18 @@ import { flashError, flashSuccess } from "../feedback";
 import { generatePython } from "../curl2python/gen";
 import { parseCurl } from "../curl2python/parse";
 import { pythonToCurl } from "./python2curl.gen";
+import { t } from "../../i18n";
 
 export function mount(host: PanelHost): { dispose(): void } | void {
   const { kit } = host;
   host.root.textContent = "";
 
   const wrap = kit.body();
-  const input = kit.textarea({ placeholder: "粘贴 curl 命令（可从浏览器「复制为 cURL」）…" });
+  const input = kit.textarea({ placeholder: t("devtools.c2p.curlPh") });
   const errEl = kit.errorSlot();
 
   const dir = kit.radioGroup<"c2p" | "p2c">({
-    label: "转换方向",
+    label: t("devtools.common.direction"),
     options: [
       { value: "c2p", label: "cURL → Python" },
       { value: "p2c", label: "Python → cURL" },
@@ -26,25 +27,25 @@ export function mount(host: PanelHost): { dispose(): void } | void {
     value: "c2p",
     onChange: (v) => {
       input.placeholder = v === "c2p"
-        ? "粘贴 curl 命令（可从浏览器「复制为 cURL」）…"
-        : "粘贴 Python requests / httpx 代码…";
+        ? t("devtools.c2p.curlPh")
+        : t("devtools.c2p.pyPh");
     },
   });
 
-  const convertBtn = kit.primaryButton("转换", "play");
+  const convertBtn = kit.primaryButton(t("devtools.common.convert"), "play");
   const convert = (): void => {
     const text = input.value.trim();
     if (!text) {
-      errEl.textContent = "请先输入内容";
-      flashError(convertBtn, "未输入");
+      errEl.textContent = t("devtools.common.needInput");
+      flashError(convertBtn, t("devtools.common.emptyInput"));
       return;
     }
     try {
       if (dir.get() === "c2p") {
         const cmd = parseCurl(text);
         if (!cmd.url) {
-          errEl.textContent = "未在命令中识别到 URL";
-          flashError(convertBtn, "识别失败");
+          errEl.textContent = t("devtools.c2p.noUrl");
+          flashError(convertBtn, t("devtools.c2p.recognizeFailed"));
           return;
         }
         out.set(generatePython(cmd));
@@ -52,10 +53,10 @@ export function mount(host: PanelHost): { dispose(): void } | void {
         out.set(pythonToCurl(text));
       }
       errEl.textContent = "";
-      flashSuccess(convertBtn, "已转换");
+      flashSuccess(convertBtn, t("devtools.c2p.converted"));
     } catch (e) {
-      errEl.textContent = `转换失败：${e instanceof Error ? e.message : String(e)}`;
-      flashError(convertBtn, "转换失败");
+      errEl.textContent = t("devtools.common.convertFailed", { msg: e instanceof Error ? e.message : String(e) });
+      flashError(convertBtn, t("devtools.c2p.convertFailedFlash"));
     }
   };
   convertBtn.addEventListener("click", convert);
@@ -64,26 +65,26 @@ export function mount(host: PanelHost): { dispose(): void } | void {
   });
 
   // 从剪贴板粘贴并立即转换
-  const pasteBtn = kit.button("粘贴", "clippy");
+  const pasteBtn = kit.button(t("devtools.common.paste"), "clippy");
   pasteBtn.addEventListener("click", () => {
     void host.readClipboard().then((text) => {
       if (text !== null && text !== "") {
         input.value = text;
         convert();
       } else {
-        errEl.textContent = "剪贴板为空或读取失败";
-        flashError(pasteBtn, "无内容");
+        errEl.textContent = t("devtools.c2p.clipboardFailed");
+        flashError(pasteBtn, t("devtools.common.noContent"));
       }
     });
   });
 
-  const out = kit.output({ language: "shell", placeholder: "# 输入内容后点击「转换」" });
-  const insertBtn = kit.button("插入编辑器", "export");
-  insertBtn.dataset.tip = "插入到当前编辑器";
+  const out = kit.output({ language: "shell", placeholder: t("devtools.c2p.outPh") });
+  const insertBtn = kit.button(t("devtools.common.insertEditor"), "export");
+  insertBtn.dataset.tip = t("devtools.common.insertEditorTip");
   insertBtn.addEventListener("click", () => {
     const ok = host.insertToEditor(out.get());
-    if (ok) flashSuccess(insertBtn, "已插入");
-    else flashError(insertBtn, "无打开文件");
+    if (ok) flashSuccess(insertBtn, t("devtools.common.inserted"));
+    else flashError(insertBtn, t("devtools.common.noFileOpen"));
   });
 
   wrap.append(

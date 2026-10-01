@@ -17,6 +17,7 @@ import { trapFocus } from "./focusTrap";
 import { app, $ } from "./state";
 import { basename, emptyState, languageOf, relativePath } from "./util";
 import { toastFail } from "./toast";
+import { onLocaleChange, t } from "./i18n"; // 第十一批 i18n：本地历史动态文案走语言包
 
 /** 后端 history.rs 的 HistoryEntry 镜像 */
 export interface HistoryEntry {
@@ -55,16 +56,17 @@ let sel = 0;
 /** 异步刷新令牌（照搬 search.ts：慢响应不得覆盖新结果） */
 let loadToken = 0;
 
-const KIND_LABEL: Record<string, string> = {
-  save: "保存",
-  manual: "手动标记",
-  restore: "回滚前",
+// i18n：标签表为模块级缓存，语言切换时重建（见 initLocalHistory 的订阅）
+let KIND_LABEL: Record<string, string> = {
+  save: t("workbench.history.tagSave"),
+  manual: t("workbench.history.tagManual"),
+  restore: t("workbench.history.tagRestore"),
 };
 
 /** 时间戳 → 可读文本（本地时区，补零对齐） */
 export function formatTs(ts: number): string {
   const d = new Date(ts);
-  if (Number.isNaN(d.getTime())) return "未知时间";
+  if (Number.isNaN(d.getTime())) return t("workbench.history.unknownTime");
   const p = (n: number): string => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
@@ -77,6 +79,12 @@ export function initLocalHistory(): void {
   titleEl = document.getElementById("history-title");
   listEl = document.getElementById("history-list");
   diffHostEl = document.getElementById("history-diff");
+
+  // 语言切换：重建标签缓存；面板打开中则重绘列表（未打开时下次打开自然用新语言）
+  onLocaleChange(() => {
+    KIND_LABEL = { save: t("workbench.history.tagSave"), manual: t("workbench.history.tagManual"), restore: t("workbench.history.tagRestore") };
+    if (isLocalHistoryOpen()) renderList();
+  });
 
   $("history-close").addEventListener("click", closeLocalHistory);
   $("history-refresh").addEventListener("click", () => void load());
@@ -108,7 +116,7 @@ export async function openLocalHistory(path?: string): Promise<void> {
   currentPath = path ?? app.activeTab?.path ?? null;
   if (!currentPath) {
     // 没有打开任何文件时静默返回会给「点了没反应」的错觉，明确说一句
-    await openAlert({ title: "本地历史", message: "请先打开一个文件，再查看它的本地历史。" });
+    await openAlert({ title: t("workbench.history.title"), message: t("workbench.history.needFile") });
     return;
   }
   if (titleEl) {
@@ -169,7 +177,7 @@ async function markCurrent(): Promise<void> {
     await load();
   } catch (e) {
     console.warn("[localHistory] 标记失败", e);
-    toastFail("标记快照", e);
+    toastFail(t("workbench.history.failMark"), e);
   }
 }
 
@@ -177,9 +185,10 @@ async function revertSelected(): Promise<void> {
   const entry = entries[sel];
   if (!entry || !app.workspaceRoot || !currentPath) return;
   const ok = await openConfirm({
-    title: "回滚到该版本",
-    message: `将把 ${basename(currentPath)} 的内容替换为 ${formatTs(entry.ts)} 的版本。\n当前内容会先存为一版「回滚前」快照，可再次回滚。`,
-    okLabel: "回滚",
+    title: t("workbench.history.restoreTitle"),
+    // 确认语两段拼装（含 \n 不走 apply_ts 映射，避免语言包转义链失真），按段取词
+    message: `${t("workbench.history.restoreConfirm", { name: basename(currentPath), time: formatTs(entry.ts) })}\n${t("workbench.history.restoreNote")}`,
+    okLabel: t("workbench.history.restoreOk"),
     kind: "danger",
   });
   if (!ok) return;
@@ -193,16 +202,16 @@ async function revertSelected(): Promise<void> {
     await load();
   } catch (e) {
     console.warn("[localHistory] 回滚失败", e);
-    toastFail("回滚历史版本", e);
+    toastFail(t("workbench.history.failRestore"), e);
   }
 }
 
 async function clearHistory(): Promise<void> {
   if (!app.workspaceRoot || !currentPath) return;
   const ok = await openConfirm({
-    title: "清空本地历史",
-    message: `将删除 ${basename(currentPath)} 的全部历史快照，且不可恢复。`,
-    okLabel: "清空",
+    title: t("workbench.history.clearTitle"),
+    message: t("workbench.history.clearMsg", { name: basename(currentPath) }),
+    okLabel: t("workbench.common.clear"),
     kind: "danger",
   });
   if (!ok) return;
@@ -213,7 +222,7 @@ async function clearHistory(): Promise<void> {
     await load();
   } catch (e) {
     console.warn("[localHistory] 清空历史失败", e);
-    toastFail("清空历史", e);
+    toastFail(t("workbench.history.failClear"), e);
   }
 }
 
@@ -227,8 +236,8 @@ function renderList(): void {
     el.appendChild(
       emptyState(
         "history",
-        "暂无历史",
-        app.workspaceRoot ? "保存文件后会自动留下快照，也可点「标记当前」手动留一版" : "打开工作区后可用",
+        t("workbench.history.empty"),
+        app.workspaceRoot ? t("workbench.history.emptyHint") : t("workbench.history.emptyNoWs"),
         true,
       ),
     );
@@ -287,7 +296,7 @@ async function renderDiff(): Promise<void> {
     releaseDiffModels();
     diffEditor?.setModel(null);
     host.textContent = "";
-    host.appendChild(emptyState("history", "未选择版本", "在左侧选一个快照查看差异", true));
+    host.appendChild(emptyState("history", t("workbench.history.noSelection"), t("workbench.history.noSelectionHint"), true));
     return;
   }
 
@@ -320,6 +329,6 @@ async function renderDiff(): Promise<void> {
   originalModel = app.monaco.editor.createModel(oldText, lang);
   modifiedModel = app.monaco.editor.createModel(newText, lang);
   diffEditor.setModel({ original: originalModel, modified: modifiedModel });
-  diffEditor.getOriginalEditor().updateOptions({ ariaLabel: `历史版本 ${formatTs(entry.ts)}` });
-  diffEditor.getModifiedEditor().updateOptions({ ariaLabel: "当前内容" });
+  diffEditor.getOriginalEditor().updateOptions({ ariaLabel: t("workbench.history.diffOriginal", { time: formatTs(entry.ts) }) });
+  diffEditor.getModifiedEditor().updateOptions({ ariaLabel: t("workbench.history.diffCurrent") });
 }

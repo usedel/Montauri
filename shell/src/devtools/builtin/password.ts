@@ -3,6 +3,7 @@
 import type { PanelHost } from "../../extensions/facade";
 import { flashError } from "../feedback";
 import { generatePassword } from "./textfns";
+import { t } from "../../i18n";
 
 export function mount(host: PanelHost): { dispose(): void } | void {
   const { kit } = host;
@@ -14,7 +15,7 @@ export function mount(host: PanelHost): { dispose(): void } | void {
   // 长度（数字输入）
   const lenLabel = document.createElement("span");
   lenLabel.className = "tool-label";
-  lenLabel.textContent = "长度（4-256）：";
+  lenLabel.textContent = t("devtools.pw.lenLabel");
   const lenInput = kit.input({ type: "number", placeholder: "16" });
   lenInput.classList.add("pw-len");
   lenInput.value = "16";
@@ -33,15 +34,15 @@ export function mount(host: PanelHost): { dispose(): void } | void {
     });
     return btn;
   };
-  const lowerBtn = mkToggle("小写 a-z", true);
-  const upperBtn = mkToggle("大写 A-Z", true);
-  const digitsBtn = mkToggle("数字 0-9", true);
-  const symbolsBtn = mkToggle("符号 !@#", false);
-  const similarBtn = mkToggle("排除易混字符", false);
+  const lowerBtn = mkToggle(t("devtools.pw.lower"), true);
+  const upperBtn = mkToggle(t("devtools.pw.upper"), true);
+  const digitsBtn = mkToggle(t("devtools.pw.digits"), true);
+  const symbolsBtn = mkToggle(t("devtools.pw.symbols"), false);
+  const similarBtn = mkToggle(t("devtools.pw.excludeSimilar"), false);
 
-  const out = kit.input({ readOnly: true, placeholder: "点击「生成」…" });
+  const out = kit.input({ readOnly: true, placeholder: t("devtools.pw.outPh") });
   out.classList.add("pw-out");
-  out.setAttribute("aria-label", "生成的密码");
+  out.setAttribute("aria-label", t("devtools.pw.outAria"));
 
   const gen = (): void => {
     try {
@@ -56,10 +57,10 @@ export function mount(host: PanelHost): { dispose(): void } | void {
       errEl.textContent = "";
     } catch (e) {
       errEl.textContent = e instanceof Error ? e.message : String(e);
-      flashError(genBtn, "失败");
+      flashError(genBtn, t("devtools.common.failed"));
     }
   };
-  const genBtn = kit.primaryButton("生成", "key", gen);
+  const genBtn = kit.primaryButton(t("devtools.common.generate"), "key", gen);
   lenInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") gen();
   });

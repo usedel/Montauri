@@ -3,7 +3,9 @@
 // 点击匹配 → 打开文件并定位行列。
 
 import { invoke } from "@tauri-apps/api/core";
-import { emptyState, relativePath } from "./util";
+import { emptyState, errMsg, relativePath } from "./util";
+import { t } from "./i18n"; // 第十批 i18n：搜索域动态文案走语言包
+import { localizeBackendError } from "./i18n/backendError";
 import { buildLineMatcher, compileFileMask, type LineMatcher } from "./searchFilters";
 
 export interface SearchMatch {
@@ -184,7 +186,7 @@ export async function runSearch(
   const token = ++searchToken;
   resultEl.textContent = "";
   if (!query.trim()) {
-    appendHint(resultEl, "输入关键词后回车搜索");
+    appendHint(resultEl, t("search.hint.enter"));
     return;
   }
   // PR-H：模式串与掩码先编译——非法输入把原因直接告诉用户，
@@ -201,7 +203,7 @@ export async function runSearch(
     appendHint(resultEl, mask.error);
     return;
   }
-  appendHint(resultEl, "搜索中…");
+  appendHint(resultEl, t("search.hint.searching"));
   let r: SearchResult;
   if (scope && scope.mode !== "workspace") {
     const local = await searchInFiles(matcher, root, scope.paths, token, mask?.test);
@@ -219,7 +221,7 @@ export async function runSearch(
     } catch (e) {
       if (token !== searchToken) return; // 过期请求，丢弃
       resultEl.textContent = "";
-      appendHint(resultEl, `搜索失败：${e}`);
+      appendHint(resultEl, t("search.hint.failed", { error: localizeBackendError(errMsg(e)) }));
       return;
     }
   }
@@ -227,7 +229,7 @@ export async function runSearch(
   resultEl.textContent = "";
   if (r.matches.length === 0) {
     // D4：统一空状态（图标 + 标题 + 说明）
-    resultEl.appendChild(emptyState("search", "无匹配结果", `已扫描 ${r.files_scanned} 个文件，换个关键词试试`));
+    resultEl.appendChild(emptyState("search", t("search.empty.title"), t("search.empty.scanned", { count: r.files_scanned })));
     return;
   }
   // 按文件分组（后端已按路径+行排序，分组保持有序）
@@ -242,8 +244,8 @@ export async function runSearch(
   const summary = document.createElement("div");
   summary.className = "search-summary";
   summary.textContent = `${totalMatches} 个匹配 · ${groups.size} 个文件（扫描 ${r.files_scanned}${
-    r.files_skipped ? `，跳过 ${r.files_skipped}：二进制 ${r.files_skipped_binary} / 超大 ${skippedLarge}` : ""
-  }）${r.truncated ? " · 结果过多已截断，请细化关键词" : ""}`;
+    r.files_skipped ? t("search.empty.skipped", { skipped: r.files_skipped, binary: r.files_skipped_binary, large: skippedLarge }) : ""
+  }）${r.truncated ? t("search.empty.truncated") : ""}`;
   resultEl.appendChild(summary);
 
   // 分批渲染：按文件顺序推进游标，单批最多 RENDER_BATCH 条匹配；
@@ -283,7 +285,7 @@ export async function runSearch(
       }
     }
     if (entryIdx < fileEntries.length) {
-      loadMoreBtn.textContent = `加载更多（已显示 ${rendered} / ${totalMatches}）`;
+      loadMoreBtn.textContent = t("search.loadMore", { shown: rendered, total: totalMatches });
       if (!loadMoreBtn.isConnected) resultEl.appendChild(loadMoreBtn);
     } else if (loadMoreBtn.isConnected) {
       loadMoreBtn.remove();

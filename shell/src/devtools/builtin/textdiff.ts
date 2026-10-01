@@ -3,14 +3,15 @@
 import type { PanelHost } from "../../extensions/facade";
 import { flashError } from "../feedback";
 import { diffLines, formatDiff } from "./textfns";
+import { t } from "../../i18n";
 
 export function mount(host: PanelHost): { dispose(): void } | void {
   const { kit } = host;
   host.root.textContent = "";
 
   const wrap = kit.body();
-  const aInput = kit.textarea({ placeholder: "原文（A）…" });
-  const bInput = kit.textarea({ placeholder: "改文（B）…" });
+  const aInput = kit.textarea({ placeholder: t("devtools.diff.aPh") });
+  const bInput = kit.textarea({ placeholder: t("devtools.diff.bPh") });
   const errEl = kit.errorSlot();
 
   const run = (): void => {
@@ -19,12 +20,12 @@ export function mount(host: PanelHost): { dispose(): void } | void {
       errEl.textContent = "";
     } catch (e) {
       errEl.textContent = e instanceof Error ? e.message : String(e);
-      flashError(runBtn, "失败");
+      flashError(runBtn, t("devtools.common.failed"));
     }
   };
-  const runBtn = kit.primaryButton("对比", "diff", run);
+  const runBtn = kit.primaryButton(t("devtools.diff.run"), "diff", run);
 
-  const out = kit.output({ language: "plaintext", placeholder: "差异将显示在这里（+ 新增 / - 删除）" });
+  const out = kit.output({ language: "plaintext", placeholder: t("devtools.diff.outPh") });
   wrap.append(
     kit.row(aInput, bInput),
     kit.toolbar(runBtn, "spacer", kit.copyButton(() => out.get())),

@@ -1,4 +1,7 @@
 // re 三件套纯函数层（库特别支持 PR-2，docs/python_library_support_dev_plan.md §4.1）。
+// i18n（第十八批）：诊断 / token 解释 / hover 文案在调用点取词；FLAG_DEFS 表随语言重建。
+
+import { onLocaleChange, t } from "./i18n";
 // 职责：识别 Python 源码中的正则字面量（re.<api> 首个字符串实参 + 同文件简单赋值）、
 // 解析 flags、逐 token 人话解释、纯静态诊断。**零子进程、离线可用**（对齐 fs_cmds::scan_endpoints 先例）。
 // 已知边界（§4.4）：多行拼接 / 变量引用（仅识别「赋值后又被 re 调用引用」的最简形态）、
@@ -530,7 +533,7 @@ export function staticDiagnostics(source: string, isRaw: boolean): RegexDiag[] {
         if (lo !== "\\" && lo !== "[" && lo !== "^" && hi !== "\\" && hi !== "]" && lo.codePointAt(0)! > hi.codePointAt(0)!) {
           diags.push({
             severity: "error",
-            message: `[${lo}-${hi}] 字符区间倒置（起点码位大于终点）`,
+            message: t("devtools.rx.intervalInvert", { lo: lo, hi: hi }),
             pos: i - 1,
             length: 3,
           });
@@ -549,7 +552,7 @@ export function staticDiagnostics(source: string, isRaw: boolean): RegexDiag[] {
       stack.push({ c, pos: i });
     } else if (c === ")") {
       if (stack.length === 0) {
-        diags.push({ severity: "error", message: "多余的右括号 )", pos: i, length: 1 });
+        diags.push({ severity: "error", message: t("devtools.rx.extraCloseParen"), pos: i, length: 1 });
       } else {
         stack.pop();
       }
@@ -557,10 +560,10 @@ export function staticDiagnostics(source: string, isRaw: boolean): RegexDiag[] {
     i++;
   }
   if (inClass) {
-    diags.push({ severity: "error", message: "字符类 [ 未闭合", pos: classStart, length: 1 });
+    diags.push({ severity: "error", message: t("devtools.rx.classUnclosed"), pos: classStart, length: 1 });
   }
   for (const open of stack) {
-    diags.push({ severity: "error", message: "括号 ( 未闭合", pos: open.pos, length: 1 });
+    diags.push({ severity: "error", message: t("devtools.rx.parenUnclosed"), pos: open.pos, length: 1 });
   }
 
   // 2. 重复命名组（Python re 直接抛 re.error）
@@ -570,7 +573,7 @@ export function staticDiagnostics(source: string, isRaw: boolean): RegexDiag[] {
     if (prev !== undefined) {
       diags.push({
         severity: "error",
-        message: `命名组 "${m[1]}" 重复定义（此前位于位置 ${prev}）`,
+        message: t("devtools.rx.dupNamedGroup", { name: m[1], pos: prev }),
         pos: m.index ?? 0,
         length: m[0].length,
       });
@@ -586,11 +589,11 @@ export function staticDiagnostics(source: string, isRaw: boolean): RegexDiag[] {
       const n = source[k + 1];
       if (n && RISKY_ESCAPES.includes(n)) {
         const detail = "bBfnrtva".includes(n)
-          ? "会变成控制字符（如 \\b → 退格），正则语义已丢失"
-          : "当前靠 CPython 对未知转义的容错保留，正式写法应为 raw 串";
+          ? t("devtools.rx.ctrlChar")
+          : t("devtools.rx.fallbackKept");
         diags.push({
           severity: "warning",
-          message: `非 raw 字符串中的 \\${n}：${detail}。请写作 r"…"`,
+          message: t("devtools.rx.nonRawWarn", { n: n, detail: detail }),
           pos: k,
           length: 2,
         });
@@ -626,53 +629,53 @@ export function tokenizePattern(pattern: string, flags: string[] = []): PatternT
     if (c === "\\") {
       const n = pattern[i + 1];
       if (n === undefined) {
-        tokens.push({ text: "\\", desc: "悬空反斜杠", kind: "escape" });
+        tokens.push({ text: "\\", desc: t("devtools.rx.danglingBackslash"), kind: "escape" });
         break;
       }
       if (/[0-9]/.test(n)) {
-        tokens.push({ text: pattern.slice(i, i + 2), desc: `反向引用第 ${n} 组`, kind: "ref" });
+        tokens.push({ text: pattern.slice(i, i + 2), desc: t("devtools.rx.backrefN", { n: n }), kind: "ref" });
         i += 2;
         continue;
       }
       if (n === "g") {
         const m = /^\\g(<\w+>|\d+)/.exec(pattern.slice(i));
-        const t = m ? m[0] : "\\g";
-        tokens.push({ text: t, desc: "反向引用（命名/编号）", kind: "ref" });
-        i += t.length;
+        const tok = m ? m[0] : "\\g"; // 命名避开 t（i18n 取词函数，踩坑 ⑤）
+        tokens.push({ text: tok, desc: t("devtools.rx.backref"), kind: "ref" });
+        i += tok.length;
         continue;
       }
       if (n === "A") {
-        tokens.push({ text: "\\A", desc: "字符串开头锚点", kind: "anchor" });
+        tokens.push({ text: "\\A", desc: t("devtools.rx.anchorStart"), kind: "anchor" });
         i += 2;
         continue;
       }
       if (n === "Z") {
-        tokens.push({ text: "\\Z", desc: "字符串末尾锚点", kind: "anchor" });
+        tokens.push({ text: "\\Z", desc: t("devtools.rx.anchorEnd"), kind: "anchor" });
         i += 2;
         continue;
       }
       if (n === "b") {
-        tokens.push({ text: "\\b", desc: "单词边界", kind: "anchor" });
+        tokens.push({ text: "\\b", desc: t("devtools.rx.wordBoundary"), kind: "anchor" });
         i += 2;
         continue;
       }
       if (n === "B") {
-        tokens.push({ text: "\\B", desc: "非单词边界", kind: "anchor" });
+        tokens.push({ text: "\\B", desc: t("devtools.rx.notWordBoundary"), kind: "anchor" });
         i += 2;
         continue;
       }
       if (n === "d" || n === "D") {
-        tokens.push({ text: pattern.slice(i, i + 2), desc: n === "d" ? "数字字符 (0-9)" : "非数字字符", kind: "class" });
+        tokens.push({ text: pattern.slice(i, i + 2), desc: n === "d" ? t("devtools.rx.digitClass") : t("devtools.rx.notDigitClass"), kind: "class" });
         i += 2;
         continue;
       }
       if (n === "w" || n === "W" || n === "s" || n === "S") {
-        const desc: Record<string, string> = { w: "单词字符 (字母/数字/下划线)", W: "非单词字符", s: "空白字符", S: "非空白字符" };
+        const desc: Record<string, string> = { w: t("devtools.rx.wordChars"), W: t("devtools.rx.notWordChars"), s: t("devtools.rx.spaceChars"), S: t("devtools.rx.notSpaceChars") };
         tokens.push({ text: pattern.slice(i, i + 2), desc: desc[n]!, kind: "class" });
         i += 2;
         continue;
       }
-      tokens.push({ text: pattern.slice(i, i + 2), desc: `转义字符 ${n}`, kind: "escape" });
+      tokens.push({ text: pattern.slice(i, i + 2), desc: t("devtools.rx.escapeChar", { ch: n }), kind: "escape" });
       i += 2;
       continue;
     }
@@ -680,39 +683,39 @@ export function tokenizePattern(pattern: string, flags: string[] = []): PatternT
       if (pattern.startsWith("(?P<", i)) {
         const end = pattern.indexOf(">", i);
         const name = end > 0 ? pattern.slice(i + 4, end) : "?";
-        tokens.push({ text: pattern.slice(i, (end < 0 ? pattern.length : end) + 1), desc: `命名组「${name}」开始（可用 \\g<${name}> 引用）`, kind: "named" });
+        tokens.push({ text: pattern.slice(i, (end < 0 ? pattern.length : end) + 1), desc: t("devtools.rx.namedGroup", { name: name, ref: name }), kind: "named" });
         unnamed++;
         i = (end < 0 ? pattern.length : end) + 1;
         continue;
       }
       if (pattern.startsWith("(?P=", i)) {
         const end = pattern.indexOf(")", i);
-        tokens.push({ text: pattern.slice(i, (end < 0 ? pattern.length : end) + 1), desc: "命名组反向引用", kind: "ref" });
+        tokens.push({ text: pattern.slice(i, (end < 0 ? pattern.length : end) + 1), desc: t("devtools.rx.namedBackref"), kind: "ref" });
         i = (end < 0 ? pattern.length : end) + 1;
         continue;
       }
       if (pattern.startsWith("(?:", i)) {
-        tokens.push({ text: "(?:", desc: "非捕获分组开始（不参与引用编号）", kind: "noncap" });
+        tokens.push({ text: "(?:", desc: t("devtools.rx.noncapGroup"), kind: "noncap" });
         i += 3;
         continue;
       }
       if (pattern.startsWith("(?=", i) || pattern.startsWith("(?!", i)) {
-        tokens.push({ text: pattern.slice(i, i + 3), desc: "前瞻断言（不消耗字符）", kind: "look" });
+        tokens.push({ text: pattern.slice(i, i + 3), desc: t("devtools.rx.lookahead"), kind: "look" });
         i += 3;
         continue;
       }
       if (pattern.startsWith("(?<=", i) || pattern.startsWith("(?<!", i)) {
-        tokens.push({ text: pattern.slice(i, i + 4), desc: "后顾断言（不消耗字符）", kind: "look" });
+        tokens.push({ text: pattern.slice(i, i + 4), desc: t("devtools.rx.lookbehind"), kind: "look" });
         i += 4;
         continue;
       }
       unnamed++;
-      tokens.push({ text: "(", desc: `第 ${unnamed} 组捕获开始`, kind: "group" });
+      tokens.push({ text: "(", desc: t("devtools.rx.groupStart", { n: unnamed }), kind: "group" });
       i++;
       continue;
     }
     if (c === ")") {
-      tokens.push({ text: ")", desc: "分组结束", kind: "group" });
+      tokens.push({ text: ")", desc: t("devtools.rx.groupEnd"), kind: "group" });
       i++;
       continue;
     }
@@ -726,7 +729,7 @@ export function tokenizePattern(pattern: string, flags: string[] = []): PatternT
         j++;
       }
       const end = j < pattern.length ? j + 1 : pattern.length;
-      tokens.push({ text: pattern.slice(i, end), desc: "字符类（匹配其中任一字符）", kind: "class" });
+      tokens.push({ text: pattern.slice(i, end), desc: t("devtools.rx.charClass"), kind: "class" });
       i = end;
       continue;
     }
@@ -734,38 +737,42 @@ export function tokenizePattern(pattern: string, flags: string[] = []): PatternT
       if (c === "{") {
         const m = /^\{(\d*)(,?)(\d*)\}/.exec(pattern.slice(i));
         if (!m) {
-          tokens.push({ text: "{", desc: "字面量 {", kind: "char" });
+          tokens.push({ text: "{", desc: t("devtools.lib.literalLBrace"), kind: "char" });
           i++;
           continue;
         }
         const lazy = pattern[i + m[0].length] === "?";
-        tokens.push({ text: pattern.slice(i, i + m[0].length + (lazy ? 1 : 0)), desc: `重复 ${m[1] || 0}${m[2] ? ` 到 ${m[3] || "∞"}` : " 次"}${lazy ? "（懒惰）" : "（贪婪）"}`, kind: "quant" });
+        // 嵌套模板手工拆段取词（第十八批踩坑 ⑥：嵌套反引号不走 apply_ts 映射）
+        const rep = m[2]
+          ? t("devtools.rx.quantRange", { from: m[1] || "0", to: m[3] || "∞" })
+          : t("devtools.rx.quantExact", { n: m[1] || "0" });
+        tokens.push({ text: pattern.slice(i, i + m[0].length + (lazy ? 1 : 0)), desc: `${rep}${lazy ? t("devtools.rx.quantLazy") : t("devtools.rx.quantGreedy")}`, kind: "quant" });
         i += m[0].length + (lazy ? 1 : 0);
         continue;
       }
       const lazy = pattern[i + 1] === "?";
-      const name = c === "*" ? "0 次或多次" : c === "+" ? "1 次或多次" : "0 或 1 次";
-      tokens.push({ text: pattern.slice(i, i + (lazy ? 2 : 1)), desc: `${name}${lazy ? "（懒惰）" : "（贪婪）"}`, kind: "quant" });
+      const name = c === "*" ? t("devtools.rx.quant0") : c === "+" ? t("devtools.rx.quant1") : t("devtools.rx.quant01");
+      tokens.push({ text: pattern.slice(i, i + (lazy ? 2 : 1)), desc: `${name}${lazy ? t("devtools.rx.quantLazy") : t("devtools.rx.quantGreedy")}`, kind: "quant" });
       i += lazy ? 2 : 1;
       continue;
     }
     if (c === "^") {
-      tokens.push({ text: "^", desc: multiline ? "行首锚点（re.M）" : "字符串开头锚点", kind: "anchor" });
+      tokens.push({ text: "^", desc: multiline ? t("devtools.rx.anchorLineStart") : t("devtools.rx.anchorStart"), kind: "anchor" });
       i++;
       continue;
     }
     if (c === "$") {
-      tokens.push({ text: "$", desc: multiline ? "行尾锚点（re.M）" : "字符串末尾锚点", kind: "anchor" });
+      tokens.push({ text: "$", desc: multiline ? t("devtools.rx.anchorLineEnd") : t("devtools.rx.anchorEnd"), kind: "anchor" });
       i++;
       continue;
     }
     if (c === ".") {
-      tokens.push({ text: ".", desc: dotall ? "任意字符（含换行，re.S）" : "除换行外的任意字符", kind: "any" });
+      tokens.push({ text: ".", desc: dotall ? t("devtools.rx.anyDotall") : t("devtools.rx.anyNoNl"), kind: "any" });
       i++;
       continue;
     }
     if (c === "|") {
-      tokens.push({ text: "|", desc: "或（左右任选一支）", kind: "alt" });
+      tokens.push({ text: "|", desc: t("devtools.rx.alt"), kind: "alt" });
       i++;
       continue;
     }
@@ -773,7 +780,7 @@ export function tokenizePattern(pattern: string, flags: string[] = []): PatternT
     let j = i;
     while (j < pattern.length && !"\\()[]{}*+?^$.|".includes(pattern[j]!)) j++;
     if (j === i) j++;
-    tokens.push({ text: pattern.slice(i, j), desc: "字面量", kind: "char" });
+    tokens.push({ text: pattern.slice(i, j), desc: t("devtools.lib.literal"), kind: "char" });
     i = j;
   }
   return tokens;
@@ -781,13 +788,17 @@ export function tokenizePattern(pattern: string, flags: string[] = []): PatternT
 
 /** hover 卡 markdown（§11.3.4：首行摘要 → 逐 token 解释 → 底行入口提示） */
 export function regexHoverMarkdown(hit: { api: string | null; pattern: string; flags: string[]; isRaw: boolean }): string {
-  const head = `**Python 正则${hit.api ? ` · re.${hit.api}` : ""}${hit.flags.length ? ` · flags: ${hit.flags.join(", ")}` : ""}**`;
+  // 嵌套模板手工拆段取词（第十八批踩坑 ⑥）：api/flags 后缀保持 markdown 形态，词条只管「Python 正则…**」框架
+  const head = t("devtools.rx.hoverHead", {
+    api: hit.api ? ` · re.${hit.api}` : "",
+    flags: hit.flags.length ? ` · flags: ${hit.flags.join(", ")}` : "",
+  });
   const tokens = tokenizePattern(hit.pattern, hit.flags).slice(0, 24);
   const lines = tokens.map((t) => `\`${escapeMarkdownCode(t.text)}\` — ${t.desc}`);
-  if (tokens.length >= 24) lines.push("…（仅显示前 24 段）");
-  if (!hit.isRaw) lines.push(`⚠ 非 raw 字符串：建议写作 \`r"…"\``);
+  if (tokens.length >= 24) lines.push(t("devtools.rx.truncated24"));
+  if (!hit.isRaw) lines.push(t("devtools.rx.nonRawHint"));
   lines.push("---");
-  lines.push("在测试器中打开：右键 →「在正则测试器中打开」/ `Ctrl+Alt+R`");
+  lines.push(t("devtools.rx.openTester"));
   return [head, ...lines].join("\n\n");
 }
 
@@ -820,10 +831,19 @@ function longFlagName(short: string): string {
 
 // ---------- flags 速查（面板 chip 用） ----------
 
-export const FLAG_DEFS: Array<{ key: string; desc: string }> = [
-  { key: "I", desc: "忽略大小写 (IGNORECASE)" },
-  { key: "M", desc: "^ $ 匹配行首行尾 (MULTILINE)" },
-  { key: "S", desc: ". 匹配换行符 (DOTALL)" },
-  { key: "X", desc: "忽略空白与 # 注释 (VERBOSE)" },
-  { key: "A", desc: "仅 ASCII 匹配 (ASCII)" },
-];
+// i18n（第十八批）：desc 是展示文案——构建函数 + let + onLocaleChange 重建（对齐 libFormat 码表模式）
+function buildFlagDefs(): Array<{ key: string; desc: string }> {
+  return [
+  { key: "I", desc: t("devtools.rx.flagI") },
+  { key: "M", desc: t("devtools.rx.flagM") },
+  { key: "S", desc: t("devtools.rx.flagS") },
+  { key: "X", desc: t("devtools.rx.flagX") },
+  { key: "A", desc: t("devtools.rx.flagA") },
+  ];
+}
+
+export let FLAG_DEFS: Array<{ key: string; desc: string }> = buildFlagDefs();
+
+onLocaleChange(() => {
+  FLAG_DEFS = buildFlagDefs();
+});

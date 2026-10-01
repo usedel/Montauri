@@ -6,6 +6,7 @@
 
 import { app, lazyEl } from "./state";
 import { showMenu } from "./menu";
+import { t } from "./i18n"; // 第十六批 i18n：引擎芯片动态文案走语言包
 
 export interface EngineChipHandlers {
   /** 重启静态引擎（main.ts 的 startLsp，现已改读 app.settings.lsp_engine） */
@@ -47,9 +48,9 @@ export function setEngineChipHandlers(h: EngineChipHandlers): void {
 export function renderEngineChip(): void {
   const name = app.settings.lsp_engine || "pyrefly";
   statusEngineEl.classList.toggle("busy", busyDepth > 0);
-  statusEngineEl.textContent = busyDepth > 0 ? `${name} · 索引中…` : name;
+  statusEngineEl.textContent = busyDepth > 0 ? t("ide.engine.indexing", { name }) : name;
   // 纯截断披露：chip 有 max-width + ellipsis，忙碌长文案可能被截断，title 补全量
-  statusEngineEl.title = busyDepth > 0 ? "静态引擎正在后台索引/查询，期间引用与重命名结果可能不完整" : "";
+  statusEngineEl.title = busyDepth > 0 ? t("ide.engine.indexingTitle") : "";
 }
 
 /** 切换引擎：同值跳过；否则写回 settings → 持久化 → 重绘 chip → 重启 LSP */

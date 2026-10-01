@@ -26,12 +26,14 @@ export function frameworkLabel(p: FrameworkPreset): string {
   return p.label || p.framework;
 }
 
-/** 输出面板提示行正文（不含可点击链接）：缺失依赖单独成句提示可安装 */
+/** 输出面板提示行正文（不含可点击链接）：缺失依赖单独成句提示可安装（i18n：渲染期取词） */
 export function frameworkHintText(p: FrameworkPreset): string {
   const miss =
-    p.missing.length > 0 ? `尚未安装 ${p.missing.join("、")}（可 uv add ${p.missing[0]}）。` : "";
-  return `检测到 ${frameworkLabel(p)} 项目（${p.file}）。${miss}可一键生成运行配置：`;
+    p.missing.length > 0 ? t("ide.fw.missing", { names: p.missing.join("、"), first: p.missing[0] }) : "";
+  return t("ide.fw.hint", { framework: frameworkLabel(p), file: p.file, miss });
 }
+
+import { t } from "./i18n"; // 第十六批 i18n：框架提示走语言包
 
 /** 项目运行配置是否已等于该预设（已配置则不提示——「不打扰」纪律，同 P0-E FastAPI 口径）。
  *  只比入口（kind + target）：args 允许用户在配置面板里自行加参数，不算「已改走别的入口」。 */

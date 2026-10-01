@@ -9,7 +9,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { app, $, $btn, lazyEl, outputEl } from "./state";
-import { basename, codicon, relativePathRaw, setBusy, spinIcon as utilSpinIcon, SNAKE_SVG } from "./util";
+import { basename, codicon, errMsg, relativePathRaw, setBusy, spinIcon as utilSpinIcon, SNAKE_SVG } from "./util";
+import { onLocaleChange, t } from "./i18n"; // 第六批 i18n：环境域动态文案走语言包
+import { localizeBackendError } from "./i18n/backendError";
 import { appendOutputLine } from "./output";
 import { gotoFromLink } from "./tracebackLink";
 import { openConfirm } from "./dialog";
@@ -115,8 +117,8 @@ export function shortInterpreter(p: string): string {
 
 function pythonLabel(p: PythonInfo): string {
   const ver = p.version ? ` ${p.version}` : "";
-  if (p.kind === "workspace-venv") return `工作区 .venv${ver}`;
-  if (p.kind === "manual") return `手动${ver}`;
+  if (p.kind === "workspace-venv") return t("env.kind.workspaceVenv", { ver: ver });
+  if (p.kind === "manual") return t("env.kind.manualVenv", { ver: ver });
   // 兜底：无版本号的系统 Python 也只放文件名（完整路径会顶爆原生 select 弹层宽度）；
   // 完整路径由右侧披露行展示
   return p.version || basename(p.path);
@@ -257,9 +259,9 @@ function optionPathHint(p: string): string {
 function syncInterpreterTrigger(): void {
   const sel = lastPythons.find((p) => p.path === currentInterpreter) ?? lastPythons.find((p) => p.is_selected);
   interpLabelEl.textContent = currentInterpreter
-    ? `${sel ? pythonLabel(sel) : "手动"} ${optionPathHint(currentInterpreter)}`
-    : "（默认）uv run";
-  interpTriggerEl.title = currentInterpreter ?? "未指定解释器——运行时以 uv run 兜底";
+    ? t("env.interp.label", { name: sel ? pythonLabel(sel) : t("env.kind.manualPlain"), hint: optionPathHint(currentInterpreter) })
+    : t("env.interp.defaultUvRun");
+  interpTriggerEl.title = currentInterpreter ?? t("env.interp.notSetHint");
 }
 
 async function renderEnvPanel(): Promise<void> {
@@ -300,7 +302,7 @@ async function selectInterpreter(path: string | null): Promise<void> {
   try {
     await invoke("set_interpreter", { workspaceRoot: app.workspaceRoot, path });
   } catch (e) {
-    toastFail("设置解释器", e);
+    toastFail(t("env.fail.setInterpreter"), e);
     void renderEnvPanel(); // 失败回滚下拉显示
     return;
   }
@@ -321,7 +323,7 @@ function interpItemEl(path: string, label: string, hint: string, selected: boole
   el.className = "interp-item";
   el.setAttribute("role", "option");
   el.setAttribute("aria-selected", String(selected));
-  el.title = path || "未指定解释器——运行时以 uv run 兜底";
+  el.title = path || t("env.interp.notSetHint");
   const check = document.createElement("span");
   check.className = "interp-item-check";
   if (selected) check.appendChild(codicon("check"));
@@ -352,11 +354,11 @@ function interpActionEl(icon: string, label: string, accent: boolean, run: () =>
 /** 渲染 popover：分组（工作区 / 系统·uv / 手动）+ 分隔 + 动作行。每次打开重建，选中态最新。 */
 function renderInterpPopover(): void {
   interpPopoverEl.textContent = "";
-  interpPopoverEl.appendChild(interpItemEl("", "（默认）uv run", "未指定解释器", !currentInterpreter));
+  interpPopoverEl.appendChild(interpItemEl("", t("env.interp.defaultUvRun"), t("env.interp.unspecified"), !currentInterpreter));
   const groups: Array<[string, string[]]> = [
-    ["工作区", ["workspace-venv"]],
-    ["系统 / uv", ["system"]],
-    ["手动", ["manual"]],
+    [t("env.group.workspace"), ["workspace-venv"]],
+    [t("env.group.systemUv"), ["system"]],
+    [t("env.kind.manualPlain"), ["manual"]],
   ];
   for (const [title, kinds] of groups) {
     const items = lastPythons.filter((p) => kinds.includes(p.kind));
@@ -377,11 +379,11 @@ function renderInterpPopover(): void {
   // 态A（无 .venv）高亮「创建」；态B（有 .venv）降级「重建」（点击走 danger 确认）
   interpPopoverEl.appendChild(interpActionEl(
     hasWorkspaceVenv ? "trash" : "add",
-    hasWorkspaceVenv ? "重建 .venv…" : "创建 .venv…",
+    hasWorkspaceVenv ? t("env.action.rebuildVenv") : t("env.action.createVenvMenu"),
     !hasWorkspaceVenv,
     () => void onCreateVenv(),
   ));
-  interpPopoverEl.appendChild(interpActionEl("folder-opened", "浏览解释器…", false, () => void browseInterpreter()));
+  interpPopoverEl.appendChild(interpActionEl("folder-opened", t("env.action.browseInterpreter"), false, () => void browseInterpreter()));
 }
 
 function popoverFocusables(): HTMLElement[] {
@@ -433,20 +435,20 @@ function onInterpKeydown(e: KeyboardEvent): void {
 
 async function browseInterpreter(): Promise<void> {
   const picked = await openDialog({
-    title: "选择 Python 解释器",
+    title: t("env.dialog.pickTitle"),
     multiple: false,
-    filters: [{ name: "Python 解释器", extensions: ["exe"] }],
+    filters: [{ name: t("env.dialog.pythonFilter"), extensions: ["exe"] }],
   });
   if (typeof picked !== "string" || !picked) return; // 取消
   let ver = "";
   try { ver = await invoke<string>("interpreter_version", { path: picked }); } catch { ver = ""; }
   if (!ver) {
-    toastFail("选择解释器", `"${basename(picked)}" 无法读取版本，可能不是有效的 Python 解释器`);
+    toastFail(t("env.fail.pick"), t("env.invalidInterpreter", { name: basename(picked) }));
     return;
   }
   await selectInterpreter(picked); // 复用收尾；以 manual 出现在下拉
   syncInterpreterTrigger();
-  toast(`已切换解释器：${basename(picked)} ${ver}`, "success");
+  toast(t("env.switched", { name: basename(picked), ver: ver }), "success");
 }
 
 // ---------- 创建 / 重建 .venv（#2 决策 2：版本选择收进创建流程；态B danger 确认） ----------
@@ -457,12 +459,13 @@ async function onCreateVenv(): Promise<void> {
   if (hasWorkspaceVenv) {
     const n = currentPackages.length;
     const ok = await openConfirm({
-      title: "重建 .venv",
+      title: t("env.dialog.rebuildTitle"),
       message:
-        `当前 .venv 已存在${n > 0 ? `，含 ${n} 个已安装包` : ""}。\n\n` +
-        "重建会清空现有环境、新建空环境，已装包需重新安装（uv venv 对已存在环境默认删除重建）。\n\n确认重建？",
-      okLabel: "重建",
-      cancelLabel: "取消",
+        // 确认语多段拼装（含 \n\n 不走 apply_ts 映射，避免语言包转义链失真），按段取词
+        `${t("env.rebuildExists", { note: n > 0 ? t("env.rebuildPkgNote", { count: n }) : "" })}\n\n` +
+        `${t("env.rebuildWarn")}\n\n${t("env.rebuildConfirm")}`,
+      okLabel: t("env.action.rebuild"),
+      cancelLabel: t("env.confirm.cancel"),
       kind: "danger",
     });
     if (!ok) return;
@@ -480,7 +483,7 @@ async function openVersionModal(): Promise<void> {
   if (versions.length === 0) {
     const empty = document.createElement("div");
     empty.className = "hint-text";
-    empty.textContent = "未检测到可用 Python 版本（请确认 uv 已安装）";
+    empty.textContent = t("env.versions.none");
     venvVersionListEl.appendChild(empty);
   }
   for (const v of versions) {
@@ -493,13 +496,13 @@ async function openVersionModal(): Promise<void> {
     spacer.className = "spacer";
     const tag = document.createElement("span");
     tag.className = "tag";
-    tag.textContent = v.installed ? "已安装" : "需下载";
+    tag.textContent = v.installed ? t("env.tag.installed") : t("env.tag.needDownload");
     item.append(name, spacer, tag);
     item.addEventListener("click", () => { closeVersionModal(); void createVenv(v.spec); });
     venvVersionListEl.appendChild(item);
   }
   if (hasWorkspaceVenv) {
-    venvVersionHintEl.textContent = `将清空现有 .venv${currentPackages.length > 0 ? `（含 ${currentPackages.length} 个已安装包）` : ""}并重建`;
+    venvVersionHintEl.textContent = t("env.rebuildHint", { note: currentPackages.length > 0 ? t("env.rebuildPkgNoteParen", { count: currentPackages.length }) : "" });
     venvVersionHintEl.classList.remove("hidden");
   } else {
     venvVersionHintEl.classList.add("hidden");
@@ -507,7 +510,7 @@ async function openVersionModal(): Promise<void> {
   showEl(venvVersionModalEl);
   document.addEventListener("keydown", onVersionKeydown);
   const items = Array.from(venvVersionListEl.querySelectorAll<HTMLElement>(".venv-version-item"));
-  const defIdx = Math.max(0, items.findIndex((el) => el.querySelector(".tag")?.textContent === "已安装"));
+  const defIdx = Math.max(0, items.findIndex((el) => el.querySelector(".tag")?.textContent === t("env.tag.installed")));
   items.forEach((el, i) => el.classList.toggle("active", i === defIdx));
   items[defIdx]?.scrollIntoView({ block: "nearest" });
   venvVersionListEl.dataset.active = String(defIdx);
@@ -547,12 +550,12 @@ function renderNoEnvBanner(): void {
     banner.className = "env-banner env-banner--warn";
     const text = document.createElement("span");
     text.className = "env-banner-text";
-    text.textContent = "未检测到 Python 环境——补全、跳转、运行与依赖管理都依赖环境（当前以 uv run 兜底，能力受限）。";
+    text.textContent = t("env.empty.noEnv");
     const actions = document.createElement("span");
     actions.className = "dep-banner-actions";
     const btn = document.createElement("button");
     btn.className = "btn btn--sm btn--primary";
-    btn.textContent = "创建 .venv";
+    btn.textContent = t("env.action.createVenvBtn");
     btn.addEventListener("click", () => void onCreateVenv());
     actions.appendChild(btn);
     banner.append(text, actions);
@@ -598,7 +601,7 @@ function renderPkgLines(): void {
   if (currentPackages.length === 0) {
     const empty = document.createElement("div");
     empty.className = "hint-text"; // UI-12：.env-empty 更名为中性的 .hint-text（样式不变）
-    empty.textContent = "（无已安装包）";
+    empty.textContent = t("env.pkgs.none");
     envPackagesEl.appendChild(empty);
     updatePkgToolbar();
     return;
@@ -606,7 +609,7 @@ function renderPkgLines(): void {
   if (shown.length === 0) {
     const empty = document.createElement("div");
     empty.className = "hint-text";
-    empty.textContent = "没有匹配的包";
+    empty.textContent = t("env.pkgs.noMatch");
     envPackagesEl.appendChild(empty);
     return;
   }
@@ -618,7 +621,7 @@ function renderPkgLines(): void {
     check.type = "checkbox";
     check.className = "pkg-check";
     check.checked = selectedPkgs.has(p.name);
-    check.title = "选择以卸载";
+    check.title = t("env.pkgs.selectToUninstall");
     check.addEventListener("change", () => {
       if (check.checked) selectedPkgs.add(p.name);
       else selectedPkgs.delete(p.name);
@@ -633,8 +636,8 @@ function renderPkgLines(): void {
     if (driftSet.has(normalizeDistName(p.name))) {
       const tag = document.createElement("span");
       tag.className = "pkg-drift-tag";
-      tag.textContent = "未声明";
-      tag.dataset.tip = "已安装但未写入 pyproject 声明（E3 漂移）——依赖健康区可一键写入";
+      tag.textContent = t("env.tag.notDeclared");
+      tag.dataset.tip = t("env.tag.driftTip");
       n.appendChild(tag);
     }
     const v = document.createElement("span");
@@ -650,8 +653,8 @@ function renderPkgLines(): void {
       const upBtn = document.createElement("button");
       upBtn.className = "codicon codicon-arrow-up pkg-upgrade";
       // UI-09：className 本身就是 codicon（无内部 <i>、无文本内容），可访问名称由 aria-label 承担
-      upBtn.dataset.tip = `升级 ${p.name}：${od.version} → ${od.latest_version}`;
-      upBtn.setAttribute("aria-label", `升级 ${p.name} 到 ${od.latest_version}`);
+      upBtn.dataset.tip = t("env.pkg.upgradeTip", { name: p.name, from: od.version, to: od.latest_version });
+      upBtn.setAttribute("aria-label", t("env.pkg.upgradeAria", { name: p.name, to: od.latest_version }));
       upBtn.addEventListener("click", () => { void upgradePackage(p.name); });
       line.append(upBtn);
     } else {
@@ -659,8 +662,8 @@ function renderPkgLines(): void {
     }
     const rmBtn = document.createElement("button");
     rmBtn.className = "codicon codicon-trash danger";
-    rmBtn.dataset.tip = `卸载 ${p.name}`;
-    rmBtn.setAttribute("aria-label", `卸载 ${p.name}`);
+    rmBtn.dataset.tip = t("env.pkg.uninstallTip", { name: p.name });
+    rmBtn.setAttribute("aria-label", t("env.pkg.uninstallTip", { name: p.name }));
     rmBtn.addEventListener("click", () => { void uninstallPackages([p.name]); });
     line.append(rmBtn);
 
@@ -675,7 +678,7 @@ async function renderPackages(): Promise<void> {
     envPackagesEl.textContent = "";
     const empty = document.createElement("div");
     empty.className = "hint-text"; // UI-12：.env-empty 更名为中性的 .hint-text（样式不变）
-    empty.textContent = "选择解释器后查看已安装包";
+    empty.textContent = t("env.pkgs.pickFirst");
     envPackagesEl.appendChild(empty);
     currentPackages = [];
     outdatedPackages.clear();
@@ -689,7 +692,7 @@ async function renderPackages(): Promise<void> {
   // 「B 的首帧沿用 A 的 Map」：切到 B 后第一次 renderPkgLines 若不清，同名包会被
   // 错标「有新版」且「升级全部」短暂可点
   outdatedPackages.clear();
-  renderPkgLoading("正在加载已安装包…");
+  renderPkgLoading(t("env.pkgs.loading"));
   // 先快速加载已装包并渲染：outdated 查询可能联网较慢，后台补齐不阻塞列表展示
   const pkgs = await invoke<PackageInfo[]>("list_packages", { interpreter: interp }).catch(() => [] as PackageInfo[]);
   if (token !== pkgToken || currentInterpreter !== interp) return; // 已切解释器，丢弃旧结果
@@ -710,21 +713,21 @@ async function createVenv(version: string): Promise<void> {
   // 问题1 友好交互：展开输出面板——uv 下载 Python / 创建环境的流式进度是唯一的进度反馈
   $("bottom").classList.remove("collapsed");
   if (version) {
-    appendOutputLine(outputEl, "若该 Python 版本尚未安装，uv 将联网下载（数十 MB，慢网可能数分钟），进度见下方…", "hint", gotoFromLink, "env");
+    appendOutputLine(outputEl, t("env.versions.downloadHint"), "hint", gotoFromLink, "env");
   }
   // busy 态落在解释器 trigger（禁用 + label 文案，不用 setBusy 以免替换 innerHTML 销毁 interpLabelEl 引用）
   interpTriggerEl.disabled = true;
-  interpLabelEl.textContent = "创建中…";
+  interpLabelEl.textContent = t("env.state.creating");
   try {
     const r = await invoke<CreateVenvResult>("create_venv", { workspaceRoot: app.workspaceRoot, version });
     // 输出已流式（pip-stdout/stderr）推送，r.output 恒空，无需再 append
     // 直接以创建出的解释器路径持久化选中（不依赖 .venv 自动检测）
     if (r.python) {
-      await invoke("set_interpreter", { workspaceRoot: app.workspaceRoot, path: r.python }).catch((e) => toastFail("设置解释器", e));
+      await invoke("set_interpreter", { workspaceRoot: app.workspaceRoot, path: r.python }).catch((e) => toastFail(t("env.fail.setInterpreter"), e));
     }
   } catch (e) {
-    appendOutputLine(outputEl, `创建环境失败：${e}`, "stderr", gotoFromLink, "env");
-    toastFail("创建 .venv", e);
+    appendOutputLine(outputEl, t("env.createFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "env");
+    toastFail(t("env.action.createVenvBtn"), e);
     interpTriggerEl.disabled = false;
     syncInterpreterTrigger();
     return;
@@ -734,7 +737,7 @@ async function createVenv(version: string): Promise<void> {
   await afterEnvChanged();
   await renderEnvPanel();
   interpTriggerEl.disabled = false;
-  toast("已创建 .venv 并设为当前解释器", "success"); // §5.2 即时反馈
+  toast(t("env.created"), "success"); // §5.2 即时反馈
 }
 
 async function installPackage(): Promise<void> {
@@ -742,25 +745,25 @@ async function installPackage(): Promise<void> {
   if (!spec) return;
   if (!currentInterpreter) {
     // 回车/点按钮无反馈会让用户困惑（此前静默 return）；轻提示指路而非打断
-    toastFail("安装包", "尚未选择解释器——请先在上方「环境」下拉中选择");
+    toastFail(t("env.fail.install"), t("env.noInterpreter"));
     return;
   }
   const btn = $btn("env-pkg-install");
   appendOutputLine(outputEl, `> uv pip install ${spec}  (${currentInterpreter})`, "cmd", gotoFromLink, "env");
-  setBusy(btn, true, "安装中…");
+  setBusy(btn, true, t("env.state.installing"));
   try {
     const code = await invoke<number>("pip_install", { workspaceRoot: app.workspaceRoot, interpreter: currentInterpreter, spec });
     if (code !== 0) {
-      appendOutputLine(outputEl, `安装失败（exit ${code}），详见上方输出`, "stderr", gotoFromLink, "env");
-      toastFail("安装包", `exit ${code}`);
+      appendOutputLine(outputEl, t("env.installExitFailed", { code: code }), "stderr", gotoFromLink, "env");
+      toastFail(t("env.fail.install"), `exit ${code}`);
     }
     // §4.6 引擎失效级联：装包改变环境层事实（失败 exit 也可能已装入部分包），
     // 重启刷新诊断 + 作废快照（防 30s 窗口内 prepareRun 复用装包前的缺失清单）
     await afterEnvChanged();
-    if (code === 0) toast(`已安装 ${spec}`, "success"); // §5.2 即时反馈（输出面板留详细记录）
+    if (code === 0) toast(t("env.installed", { spec: spec }), "success"); // §5.2 即时反馈（输出面板留详细记录）
   } catch (e) {
-    appendOutputLine(outputEl, `安装失败：${e}`, "stderr", gotoFromLink, "env");
-    toastFail("安装包", e);
+    appendOutputLine(outputEl, t("env.installFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "env");
+    toastFail(t("env.fail.install"), e);
   }
   envPkgInputEl.value = "";
   setBusy(btn, false);
@@ -772,24 +775,24 @@ async function uninstallPackages(names: string[]): Promise<void> {
   const list = names.filter(Boolean);
   if (list.length === 0 || !currentInterpreter) return;
   const proceed = await openConfirm({
-    title: "卸载包",
-    message: `卸载 ${list.length} 个包：${list.join("、")}？`,
-    okLabel: "卸载", cancelLabel: "取消", kind: "danger",
+    title: t("env.dialog.uninstallTitle"),
+    message: t("env.uninstallMsg", { count: list.length, names: list.join("、") }),
+    okLabel: t("env.action.uninstall"), cancelLabel: t("env.confirm.cancel"), kind: "danger",
   });
   if (!proceed) return;
   const btn = $btn("env-pkg-uninstall-selected");
   appendOutputLine(outputEl, `> uv pip uninstall ${list.join(" ")}  (${currentInterpreter})`, "cmd", gotoFromLink, "env");
-  setBusy(btn, true, "卸载中…");
+  setBusy(btn, true, t("env.state.uninstalling"));
   try {
     const out = await invoke<string>("pip_uninstall", { interpreter: currentInterpreter, name: list.join(" ") });
     if (out) appendOutputLine(outputEl, out, "stdout", gotoFromLink, "env");
     // §4.6 引擎失效级联（审计扩展，v1.3 记录）：卸包后诊断应新增 missing-import，
     // 同样必须重启 + 作废快照
     await afterEnvChanged();
-    toast(`已卸载 ${list.length} 个包`, "success"); // §5.2 即时反馈
+    toast(t("env.uninstalled", { count: list.length }), "success"); // §5.2 即时反馈
   } catch (e) {
-    appendOutputLine(outputEl, `卸载失败：${e}`, "stderr", gotoFromLink, "env");
-    toastFail("卸载包", e);
+    appendOutputLine(outputEl, t("env.uninstallFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "env");
+    toastFail(t("env.dialog.uninstallTitle"), e);
   }
   selectedPkgs.clear();
   setBusy(btn, false);
@@ -810,9 +813,9 @@ async function upgradeAllPackages(): Promise<void> {
   if (!currentInterpreter || outdatedPackages.size === 0) return;
   const names = [...outdatedPackages.keys()];
   const proceed = await openConfirm({
-    title: "升级包",
-    message: `升级 ${names.length} 个过时包？`,
-    okLabel: "升级", cancelLabel: "取消", kind: "primary",
+    title: t("env.dialog.upgradeTitle"),
+    message: t("env.upgradeMsg", { count: names.length }),
+    okLabel: t("env.action.upgrade"), cancelLabel: t("env.confirm.cancel"), kind: "primary",
   });
   if (!proceed) return;
   await upgradePackages(names);
@@ -823,19 +826,19 @@ async function upgradePackages(names: string[]): Promise<void> {
   if (list.length === 0 || !currentInterpreter) return;
   const btn = envPkgUpgradeAllBtn;
   appendOutputLine(outputEl, `> uv pip install --upgrade ${list.join(" ")}  (${currentInterpreter})`, "cmd", gotoFromLink, "env");
-  setBusy(btn, true, "升级中…");
+  setBusy(btn, true, t("env.state.upgrading"));
   try {
     const code = await invoke<number>("pip_upgrade", { interpreter: currentInterpreter, names: list });
     if (code !== 0) {
-      appendOutputLine(outputEl, `升级失败（exit ${code}），详见上方输出`, "stderr", gotoFromLink, "env");
-      toastFail("升级包", `exit ${code}`);
+      appendOutputLine(outputEl, t("env.upgradeExitFailed", { code: code }), "stderr", gotoFromLink, "env");
+      toastFail(t("env.dialog.upgradeTitle"), `exit ${code}`);
     }
     // §4.6 引擎失效级联：升级改变环境层事实（版本变化可能影响类型存根诊断），重启刷新 + 作废快照
     await afterEnvChanged();
-    if (code === 0) toast(`已升级 ${list.length} 个包`, "success"); // §5.2 即时反馈
+    if (code === 0) toast(t("env.upgraded", { count: list.length }), "success"); // §5.2 即时反馈
   } catch (e) {
-    appendOutputLine(outputEl, `升级失败：${e}`, "stderr", gotoFromLink, "env");
-    toastFail("升级包", e);
+    appendOutputLine(outputEl, t("env.upgradeFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "env");
+    toastFail(t("env.dialog.upgradeTitle"), e);
   }
   setBusy(btn, false);
   await renderPackages();
@@ -873,23 +876,23 @@ export async function installMissingPackage(pkg: string): Promise<void> {
         command: fixCommandPreview(diff, "install", [spec]),
         warning: hit && hit.dist === null ? NULL_DIST_WARNING : undefined,
       }],
-      "安装包",
+      t("env.fail.install"),
     );
     return;
   }
   // 降级路径：无 diff 快照（旧 pip_install 直连，确认 + 流式 + afterEnvChanged 收尾）
   if (!currentInterpreter) {
-    toast("尚未选择解释器，无法自动安装包（点状态栏解释器图标选择后再试）", "info");
+    toast(t("env.autoInstallNoInterpreter"), "info");
     return;
   }
   const proceed = await openConfirm({
-    title: "安装包",
-    message: `将安装 "${module}" 到当前解释器：\n${currentInterpreter}\n\n是否继续？`,
-    okLabel: "安装", cancelLabel: "取消", kind: "primary",
+    title: t("env.fail.install"),
+    message: `${t("env.installIntoPrefix", { module })}\n${currentInterpreter}\n\n${t("env.installConfirm")}`,
+    okLabel: t("env.action.install"), cancelLabel: t("env.confirm.cancel"), kind: "primary",
   });
   if (!proceed) {
     // 用户主动取消不是错误：info 语义（原 stderr 红色渲染属语义错位）
-    toast(`已取消安装 ${module}`, "info");
+    toast(t("env.installCanceled", { module: module }), "info");
     return;
   }
   appendOutputLine(outputEl, `> uv pip install ${module}  (${shortInterpreter(currentInterpreter)})`, "cmd", gotoFromLink, "env");
@@ -897,20 +900,20 @@ export async function installMissingPackage(pkg: string): Promise<void> {
     const code = await invoke<number>("pip_install", { workspaceRoot: app.workspaceRoot, interpreter: currentInterpreter, spec: module });
     if (code === 0) {
       // 先 toast（装包已成功，用户不该盯着空反馈等数秒级收尾）；收尾失败单独提示
-      toast(`已安装 ${module}（诊断刷新中…）`, "success");
+      toast(t("env.installedDiagnostics", { module: module }), "success");
       // 收尾（重算 diff + 重启引擎）失败不能落进下方 catch——那会误报「安装失败」，
       // 而包实际已装上；此处隔离为独立提示
       await afterEnvChanged().catch((e) => {
         console.warn("[env] 装包后刷新诊断失败:", e);
-        toastFail("刷新诊断", e);
+        toastFail(t("env.fail.refreshDiagnostics"), e);
       });
     } else {
-      appendOutputLine(outputEl, `安装失败（exit ${code}），详见上方输出`, "stderr", gotoFromLink, "env");
-      toastFail("安装包", `exit ${code}`);
+      appendOutputLine(outputEl, t("env.installExitFailed", { code: code }), "stderr", gotoFromLink, "env");
+      toastFail(t("env.fail.install"), `exit ${code}`);
     }
   } catch (e) {
-    appendOutputLine(outputEl, `安装失败：${e}`, "stderr", gotoFromLink, "env");
-    toastFail("安装包", e);
+    appendOutputLine(outputEl, t("env.installFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "env");
+    toastFail(t("env.fail.install"), e);
   }
 }
 
@@ -922,7 +925,7 @@ export async function declarePackage(spec: string): Promise<void> {
   if (!s || !app.workspaceRoot) return;
   const diff = latestDiff();
   const command = diff ? fixCommandPreview(diff, "declare", [s]) : `uv add ${s}`;
-  await runDepFix([{ action: "declare", dists: [s], command }], "加入 pyproject");
+  await runDepFix([{ action: "declare", dists: [s], command }], t("env.action.declare"));
 }
 
 // ---------- 首启引导 ----------
@@ -949,8 +952,8 @@ export async function maybePromptVenv(): Promise<void> {
     // 已在用 .venv，或显式选了 uv run（.venv 存在却为 null）→ 都尊重现状，不劝改
     if (currentInterpreter === venv.path || currentInterpreter === null) return;
     // 选了其它解释器（系统 python 等）→ 建议切到工作区 .venv（非破坏性，primary 确认）
-    if (await openConfirm({ message: "检测到工作区 .venv，是否设为当前解释器？", kind: "primary" })) {
-      await invoke("set_interpreter", { workspaceRoot: app.workspaceRoot, path: venv.path }).catch((e) => toastFail("设置解释器", e));
+    if (await openConfirm({ message: t("env.venvDetected"), kind: "primary" })) {
+      await invoke("set_interpreter", { workspaceRoot: app.workspaceRoot, path: venv.path }).catch((e) => toastFail(t("env.fail.setInterpreter"), e));
       await refreshInterpreterStatus();
     }
     return;
@@ -959,8 +962,8 @@ export async function maybePromptVenv(): Promise<void> {
   // 常驻横幅在面板内（renderNoEnvBanner）；toast 是面板未开时的触达渠道。
   if (!currentInterpreter && !noEnvPrompted.has(app.workspaceRoot)) {
     noEnvPrompted.add(app.workspaceRoot);
-    toast("未检测到 Python 环境，补全 / 运行 / 依赖管理受限", "info", {
-      actionLabel: "创建 .venv",
+    toast(t("env.noEnvToast"), "info", {
+      actionLabel: t("env.action.createVenvBtn"),
       onAction: () => void onCreateVenv(),
     });
   }
@@ -973,23 +976,23 @@ export async function maybePromptToolchain(): Promise<void> {
     const st = await toolchain.detectToolchain(engine);
     if (st.allOk) return;
     const missing: string[] = [];
-    if (!st.uv) missing.push("uv（Python 环境与运行）");
-    if (!st.engine.ok) missing.push(`${st.engine.name}（补全 / 跳转）`);
+    if (!st.uv) missing.push(t("env.tool.uv"));
+    if (!st.engine.ok) missing.push(t("env.tool.engine", { name: st.engine.name }));
     const proceed = await openConfirm({
-      title: "环境引导",
-      message: `检测到缺少以下工具：\n\n${missing.map((m) => `· ${m}`).join("\n")}\n\n补全、跳转与运行都需要它们。可一键下载安装到用户目录（不影响系统，需联网）。\n\n是否现在安装？`,
-      okLabel: "立即安装",
-      cancelLabel: "稍后",
+      title: t("env.dialog.bootstrapTitle"),
+      message: `${t("env.bootstrapMissing")}\n\n${missing.map((m) => t("env.bootstrapBullet", { tool: m })).join("\n")}\n\n${t("env.bootstrapWhy")}\n\n${t("env.bootstrapAsk")}`,
+      okLabel: t("env.action.installNow"),
+      cancelLabel: t("env.action.later"),
       kind: "primary",
     });
     if (!proceed) return;
     // 展开底部输出面板，展示安装进度
     $("bottom").classList.remove("collapsed");
-    appendOutputLine(outputEl, `> 工具链引导：安装 ${missing.join("、")}`, "cmd", gotoFromLink, "env");
+    appendOutputLine(outputEl, t("env.bootstrapEcho", { tools: missing.join("、") }), "cmd", gotoFromLink, "env");
     const ok = await toolchain.installToolchain(engine);
     appendOutputLine(
       outputEl,
-      ok ? "工具链就绪。" : "安装结束，但部分工具仍不可见，请重启 OpenCharm 后再试。",
+      ok ? t("env.bootstrapOk") : t("env.bootstrapPartial"),
       ok ? "stdout" : "stderr",
       gotoFromLink,
       "env",
@@ -1004,6 +1007,14 @@ export async function maybePromptToolchain(): Promise<void> {
 /** 环境面板 DOM 接线（main 的 init 调用）；restartEngine = startLsp（装完包重启引擎刷诊断） */
 export function initEnvPanel(deps: { restartEngine: () => Promise<void> }): void {
   restartEngine = deps.restartEngine;
+  // 语言切换时重绘持久文案：状态栏解释器 trigger（label/title 经 t() 现算）；
+  // 面板/解释器下拉打开中则整体重绘，未打开时下次打开自然用新语言
+  onLocaleChange(() => {
+    syncInterpreterTrigger();
+    if (!envModalEl.classList.contains("hidden")) void renderEnvPanel();
+    if (interpOpen) renderInterpPopover();
+  });
+
   // 环境面板（P25-T05）——状态栏解释器点击打开
   statusInterpreterEl.addEventListener("click", () => void openEnvPanel());
   // 状态栏芯片语义（第七批）：解释器芯片补了 role=button + tabindex，键盘 Enter/Space 亦可打开（对齐 engineChip）

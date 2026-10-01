@@ -15,6 +15,7 @@
 
 import { $ } from "./state";
 import { bindingChord, bindingLabel, type KeybindingId } from "./keybindings";
+import { onLocaleChange, t } from "./i18n"; // 第九批 i18n：欢迎域动态文案走语言包
 
 interface WelcomeShortcut {
   /** 说明文字（右侧灰字） */
@@ -30,32 +31,40 @@ interface WelcomeShortcut {
 
 /** P1（UX 审查）：由 6 行扩充到 13 行——键位系统里 30+ 项大多无处可发现，
  *  欢迎页是首屏唯一键位入口。仍保持「kb 优先 + fixed 兜底」两类结构。 */
-const SHORTCUTS: WelcomeShortcut[] = [
-  { label: "保存文件", kb: "save" },
-  { label: "全局搜索", kb: "global_search" },
+// i18n：构建函数 + let 缓存，语言切换时重建（见下方订阅）
+function buildShortcuts(): WelcomeShortcut[] { return [
+  { label: t("welcome.shortcuts.save"), kb: "save" },
+  { label: t("welcome.shortcuts.globalSearch"), kb: "global_search" },
   // v3.4 §17-7（M3-3.5）：run 拆为 run_script + run_project
-  { label: "运行脚本", kb: "run_script" },
-  { label: "运行项目", kb: "run_project" },
-  { label: "跳转到定义", kb: "goto_definition", fallback: "F12" },
-  { label: "查找引用", fixed: "Shift+F12" },
-  { label: "格式化文档", fixed: "Shift+Alt+F" },
-  { label: "启动调试", kb: "debug" },
-  { label: "关闭标签", kb: "close_tab" },
+  { label: t("welcome.guide.qsRunScript"), kb: "run_script" },
+  { label: t("welcome.shortcuts.runProject"), kb: "run_project" },
+  { label: t("welcome.shortcuts.gotoDefinition"), kb: "goto_definition", fallback: "F12" },
+  { label: t("welcome.shortcuts.findReferences"), fixed: "Shift+F12" },
+  { label: t("welcome.shortcuts.formatDocument"), fixed: "Shift+Alt+F" },
+  { label: t("welcome.guide.qsDebug"), kb: "debug" },
+  { label: t("welcome.shortcuts.closeTab"), kb: "close_tab" },
   // PR-A（dx_features_backlog §6.1）：键位补齐组的高频两项
-  { label: "删除行", kb: "delete_line" },
-  { label: "重新打开关闭的标签", kb: "reopen_tab" },
+  { label: t("welcome.shortcuts.deleteLine"), kb: "delete_line" },
+  { label: t("welcome.shortcuts.reopenTab"), kb: "reopen_tab" },
   // PR-D（dx_features_backlog §6.4）：最近编辑位置
-  { label: "上一个编辑位置", kb: "recent_edit_locations" },
-  { label: "新建文件", kb: "new_file" },
-  { label: "转到文件", kb: "goto_file" },
+  { label: t("welcome.shortcuts.recentEditLocations"), kb: "recent_edit_locations" },
+  { label: t("welcome.shortcuts.newFile"), kb: "new_file" },
+  { label: t("welcome.shortcuts.gotoFile"), kb: "goto_file" },
   // PR-G（dx_features_backlog §6.6）：文件内符号 Quick Pick
-  { label: "转到文件内符号", kb: "goto_symbol" },
+  { label: t("welcome.shortcuts.gotoSymbol"), kb: "goto_symbol" },
   // PR-J（dx_features_backlog §6.6）：触发补全建议备选键（Ctrl+Space 被中文 IME 吞键，人工验证）
-  { label: "触发补全建议", kb: "trigger_suggest" },
-  { label: "导航后退", kb: "nav_back" },
-  { label: "最近打开的文件", kb: "recent_files" },
-  { label: "打开设置", kb: "open_settings" },
+  { label: t("welcome.shortcuts.triggerSuggest"), kb: "trigger_suggest" },
+  { label: t("welcome.shortcuts.navBack"), kb: "nav_back" },
+  { label: t("welcome.shortcuts.recentFiles"), kb: "recent_files" },
+  { label: t("welcome.shortcuts.openSettings"), kb: "open_settings" },
 ];
+}
+let SHORTCUTS = buildShortcuts();
+// 语言切换：重建标签并重绘网格（元素缺失时跳过——欢迎层未挂载即无文本残留）
+onLocaleChange(() => {
+  SHORTCUTS = buildShortcuts();
+  if (document.getElementById("ew-shortcuts")) renderWelcomeShortcuts();
+});
 
 /** 该项当前应显示的键位串（空串 = 已解绑且无兜底） */
 function bindingOf(s: WelcomeShortcut): string {
@@ -77,7 +86,7 @@ export function renderWelcomeShortcuts(): void {
       // 解绑且无兜底：给明确占位。整行删掉会让用户以为「这个功能没了」，渲染空 kbd 框则是缺陷。
       const none = document.createElement("span");
       none.className = "ew-kbd-none";
-      none.textContent = "未绑定";
+      none.textContent = t("welcome.guide.unbound");
       row.appendChild(none);
     } else {
       for (const t of chord) {
