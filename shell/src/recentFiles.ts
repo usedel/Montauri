@@ -13,6 +13,7 @@ import { hideEl, showEl } from "./anim";
 import { trapFocus } from "./focusTrap";
 import { app } from "./state";
 import { basename, emptyState, renderFileIcon, relativePath } from "./util";
+import { t } from "./i18n"; // 第十批 i18n：最近文件域动态文案走语言包
 
 // ---------- handlers 注入（同 debugView 先例，避免反向依赖 main.ts） ----------
 
@@ -50,12 +51,12 @@ export function initRecentFiles(): void {
   card.className = "modal-card recent-card";
   card.setAttribute("role", "dialog");
   card.setAttribute("aria-modal", "true");
-  card.setAttribute("aria-label", "最近打开的文件");
+  card.setAttribute("aria-label", t("search.recent.title"));
 
   const input = document.createElement("input");
   input.id = "recent-input";
   input.type = "text";
-  input.placeholder = "过滤文件名，↑↓ 选择，Enter 打开，Esc 关闭";
+  input.placeholder = t("search.recent.ph");
   input.spellcheck = false;
   input.autocomplete = "off";
   // aria-activedescendant 由 renderList 维护（高亮项 id 指向，读屏跟随 ↑↓ 报出当前项）
@@ -65,7 +66,7 @@ export function initRecentFiles(): void {
   list.id = "recent-list";
   list.className = "recent-list";
   list.setAttribute("role", "listbox");
-  list.setAttribute("aria-label", "最近打开的文件");
+  list.setAttribute("aria-label", t("search.recent.title"));
 
   card.append(input, list);
   host.appendChild(card);
@@ -174,8 +175,8 @@ function renderList(): void {
     list.appendChild(
       emptyState(
         "history",
-        app.workspaceRoot ? "无匹配文件" : "未打开工作区",
-        app.workspaceRoot ? "换个关键词，或先打开几个文件" : "打开工作区后此处记录最近打开的文件",
+        app.workspaceRoot ? t("search.recent.noMatch") : t("search.recent.noWorkspace"),
+        app.workspaceRoot ? t("search.recent.noMatchHint") : t("search.recent.emptyHint"),
       ),
     );
     input.removeAttribute("aria-activedescendant");

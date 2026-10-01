@@ -12,8 +12,9 @@ import { filetree } from "./filetree";
 import { git } from "./git";
 import { newproject } from "./newproject";
 import { run } from "./run";
+import { search } from "./search";
 import { settings } from "./settings";
 import { storage } from "./storage";
 import { welcome } from "./welcome";
 
-export const enUS: Record<TKey, string> = { ...core, ...git, ...debug, ...filetree, ...run, ...env, ...storage, ...dep, ...settings, ...newproject, ...welcome };
+export const enUS: Record<TKey, string> = { ...core, ...git, ...debug, ...filetree, ...run, ...env, ...storage, ...dep, ...settings, ...newproject, ...welcome, ...search };
