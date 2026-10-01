@@ -23,6 +23,7 @@
 | [`docs/disk-space-plan.md`](docs/disk-space-plan.md) | 系统盘占用治理方案（已实施） |
 | [`docs/tech-debt.md`](docs/tech-debt.md) | 技术债登记（待处理 + 已归档） |
 | [`docs/ui_design_improvement_plan.md`](docs/ui_design_improvement_plan.md) | **界面设计改进计划 v2.1（已全部完成：30/30 项 + 2 条清单外遗留，共十批）**：UI 缺陷、设计系统一致性、ARIA 无障碍与响应式打磨；§7 有逐批进度记录与人工抽查清单 |
+| [`docs/ui_premium_design_report.md`](docs/ui_premium_design_report.md) | **视觉「高级感」诊断与改造方案 v1.0（待评审）**：品牌色系统一、五档表面阶梯与真实层级、字体替换、Monaco 主题同步；含实算对比度数据与四批落地路线图 |
 | [`docs/markdown_preview_dev_plan.md`](docs/markdown_preview_dev_plan.md) | Markdown 预览开发计划 v1.0（已实施）：编辑区分栏实时预览 + GFM / 图片 / 链接 |
 | [`docs/live_templates上下文轴修订稿.md`](docs/live_templates上下文轴修订稿.md) | Live Templates 上下文位置轴修订稿 v1.1（相位 A 已实现）：容器 × 位置 × 词法三维 |
 | [`docs/pycharm_feature_research_report.md`](docs/pycharm_feature_research_report.md) | PyCharm 功能调研报告 v1.1（调研，非排期依据） |
@@ -33,6 +34,8 @@
 | [`docs/dep_health_dev_plan.md`](docs/dep_health_dev_plan.md) | 依赖健康开发计划（已实施）：依赖风格/扫描/修复 + 忽略清单 |
 | [`docs/git_improvement_report.md`](docs/git_improvement_report.md) | Git 集成交付报告：远程/worktree/rebase/cherry-pick/stash/log/blame 等增强 |
 | [`docs/menubar_improvement_plan.md`](docs/menubar_improvement_plan.md) | 菜单栏改进计划 |
+| [`docs/toolbox_dev_plan.md`](docs/toolbox_dev_plan.md) | **工具箱开发计划 v1.0（待评审）**：SQLite 数据库工具 / HTTP Client / 结构化运行日志 / TODO 与 Markdown 增强，四项共 14 个 PR 的实施设计 |
+| [`docs/improvement_and_roadmap_report.md`](docs/improvement_and_roadmap_report.md) | **现状评估 · 改进建议与未来功能规划 v1.0（待评审）**：规模与质量底座实测、P0/P1/P2 改进清单、A–D 四类未来功能候选池与四阶段路线图 |
 | [`docs/i18n.md`](docs/i18n.md) | **国际化实施说明（zh-CN / en-US 双语，已交付）**：扁平 key 语言包、20 批动态文案抽取、三步新增文案流程与踩坑记录 |
 | [`docs/adr/`](docs/adr/) | 技术决策记录（ADR） |
 
