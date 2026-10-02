@@ -62,8 +62,25 @@ import "monaco-editor/esm/vs/basic-languages/xml/xml.contribution";
 // 其他语言
 import "monaco-editor/esm/vs/basic-languages/javascript/javascript.contribution";
 import "monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution";
-import "monaco-editor/esm/vs/basic-languages/python/python.contribution";
 import "monaco-editor/esm/vs/basic-languages/rust/rust.contribution";
+
+// --- Python 语法：静态引入（不走 contribution 的运行时动态 import） ---
+// python.contribution 经 registerLanguage 的 loader() 在**首次 tokenize 时**才
+// import("./python.js")——该动态 chunk 落在 Vite dep 预打包目录（deps/python-XXXX.js，
+// hash 由 esbuild 产出）。.vite 重新生成后 chunk 名漂移，而浏览器侧仍持旧 URL
+// （deps 目录响应带 immutable 缓存头）→ 请求落空、动态 import 失败被 Monarch 静默吞掉
+// → 「只有 py 没高亮、无任何报错」，删 .vite 临时恢复、重启后复发（实测报错：
+// The file does not exist at ".../deps/python-A5SEOAVQ.js?v=..."）。
+// Python 是本 IDE 主语言，语法定义（~20KB）静态打进主 chunk，运行时零动态加载，
+// 彻底绕开 dep 优化器。语言注册元数据镜像 python.contribution 的 registerLanguage 条目。
+import { conf as pythonConf, language as pythonLanguage } from "monaco-editor/esm/vs/basic-languages/python/python.js";
+
+editorApi.languages.register({
+  id: "python",
+  extensions: [".py", ".rpy", ".pyw", ".cpy", ".gyp", ".gypi"],
+  aliases: ["Python", "py"],
+  firstLine: "^#!/.*\\bpython[0-9.-]*\\b",
+});
 
 import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 
@@ -102,6 +119,10 @@ editorApi.languages.setMonarchTokensProvider("json", {
     ],
   },
 });
+
+// --- Python 语法绑定：语言已静态注册（见上方 import 处），conf + Monarch 立即绑定 ---
+editorApi.languages.setLanguageConfiguration("python", pythonConf);
+editorApi.languages.setMonarchTokensProvider("python", pythonLanguage);
 
 // --- Monaco 取消噪声全局静默（PR-D 实测踩坑，dx_features_backlog §6.4）---
 // wordHighlighter / stickyScroll 等贡献在 dispose 路径 Delayer.cancel() 会触发
