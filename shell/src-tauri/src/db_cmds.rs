@@ -723,6 +723,176 @@ pub fn db_cancel(id: String) -> Result<(), String> {
     Ok(())
 }
 
+// ---------- 表数据浏览（编辑器 Tab 化重设计 v1.4） ----------
+//
+// 表数据 Tab 不再让前端拼 `SELECT * FROM "t"` 发 db_query，而是收结构化的排序/筛选参数，
+// 拼装全部在后端完成：表名经 sqlite_master 白名单校验、排序列经 table_info 校验、
+// 筛选表达式只允许单个语句（防 `; DROP` 式拼接）。
+
+/// 筛选表达式归一：trim 后非空才生效；**多语句拒绝**（复用 split_statements 的引号/注释
+/// 语义——字符串里的分号不算分隔符，`name = 'a;b'` 依然合法）。
+pub(crate) fn sanitize_filter(filter: Option<&str>) -> Result<Option<String>, String> {
+    let f = match filter {
+        Some(f) => f.trim(),
+        None => return Ok(None),
+    };
+    if f.is_empty() {
+        return Ok(None);
+    }
+    if split_statements(f).len() > 1 {
+        return Err("DbSqlError:筛选条件只能写一个表达式（多余的分号请去掉）".to_string());
+    }
+    Ok(Some(f.to_string()))
+}
+
+/// 排序方向归一：`desc`（大小写不敏感）→ true（DESC），其余 → false（ASC）。纯函数，单测目标。
+pub(crate) fn sort_dir_desc(dir: Option<&str>) -> bool {
+    matches!(dir, Some(d) if d.eq_ignore_ascii_case("desc"))
+}
+
+/// 拼装表数据查询（纯函数，单测目标）。`where_clause` / `order_clause` 为空串时不拼；
+/// 调用方保证两者已过校验（where 是单语句、order 列名来自 table_info）。
+pub(crate) fn build_rows_sql(
+    name: &str,
+    where_clause: &str,
+    order_clause: &str,
+    limit: u32,
+    offset: u32,
+) -> String {
+    let limit = if limit == 0 { 200 } else { limit.min(HARD_MAX_ROWS as u32) };
+    format!(
+        "SELECT * FROM {}{}{} LIMIT {limit} OFFSET {offset}",
+        quote_ident(name),
+        where_clause,
+        order_clause,
+    )
+}
+
+/// 校验表/视图名：必须存在于 sqlite_master（table 或 view），防把任意 SQL 塞进表名位。
+/// 返回校验通过的名字（即入参，冗余返回方便链式使用）。
+fn ensure_table(conn: &Connection, name: &str) -> Result<(), String> {
+    let mut stmt = conn
+        .prepare("SELECT 1 FROM sqlite_master WHERE name = ?1 AND type IN ('table','view')")
+        .map_err(map_sql_err)?;
+    let found = stmt.exists([&name]).map_err(map_sql_err)?;
+    if found {
+        Ok(())
+    } else {
+        Err(format!("DbSqlError:表「{name}」不存在"))
+    }
+}
+
+/// 表数据浏览查询（读）：`SELECT * FROM "name" [WHERE (filter)] [ORDER BY "col" DIR]` + 分页。
+///
+/// - **只读路径**：不经过写判定（SELECT 固定），只读/可写连接均可调用；
+/// - 筛选为自由表达式（如 `status = 'paid' AND amount > 0`），由 WHERE (…) 包裹；
+/// - 排序列必须在目标对象的列清单里（table_info），否则拒绝——防注入；
+/// - 总数 `SELECT COUNT(*) FROM "name" [WHERE …]`，失败退化为本次行数（视图/复杂筛选兜底）。
+#[tauri::command]
+pub async fn db_rows(
+    id: String,
+    name: String,
+    sort: Option<String>,
+    dir: Option<String>,
+    filter: Option<String>,
+    limit: u32,
+    offset: u32,
+) -> Result<DbQueryResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        db_rows_impl(&id, &name, sort.as_deref(), dir.as_deref(), filter.as_deref(), limit, offset)
+    })
+    .await
+    .map_err(|e| format!("DbSqlError:任务执行异常：{e}"))?
+}
+
+fn db_rows_impl(
+    id: &str,
+    name: &str,
+    sort: Option<&str>,
+    dir: Option<&str>,
+    filter: Option<&str>,
+    limit: u32,
+    offset: u32,
+) -> Result<DbQueryResult, String> {
+    let started = Instant::now();
+    let op = get_op(id)?;
+    let filter = sanitize_filter(filter)?;
+    let where_clause = match &filter {
+        Some(f) => format!(" WHERE ({f})"),
+        None => String::new(),
+    };
+
+    let conn = unpoison(op.conn.lock());
+    ensure_table(&conn, name)?;
+
+    // 排序列校验：必须命中 table_info 的列名（ASCII 大小写不敏感，命中后用表内真名拼装）
+    let order_clause = match sort.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(col) => {
+            let columns = columns_of(&conn, name)?;
+            let hit = columns
+                .iter()
+                .find(|c| c.name.eq_ignore_ascii_case(col))
+                .map(|c| c.name.clone());
+            match hit {
+                Some(real) => format!(
+                    " ORDER BY {} {}",
+                    quote_ident(&real),
+                    if sort_dir_desc(dir) { "DESC" } else { "ASC" }
+                ),
+                None => return Err(format!("DbSqlError:排序列「{col}」不存在")),
+            }
+        }
+        None => String::new(),
+    };
+
+    let sql = build_rows_sql(name, &where_clause, &order_clause, limit, offset);
+    let mut stmt = conn.prepare(&sql).map_err(map_sql_err)?;
+    let columns: Vec<String> = stmt.column_names().into_iter().map(|s| s.to_string()).collect();
+    let ncols = columns.len();
+    let mut rows_iter = stmt.query([]).map_err(map_sql_err)?;
+    let mut rows: Vec<Vec<Option<String>>> = Vec::new();
+    let mut truncated = false;
+    while let Some(row) = rows_iter.next().map_err(map_sql_err)? {
+        let mut r = Vec::with_capacity(ncols);
+        for i in 0..ncols {
+            let v: Value = row.get(i).map_err(map_sql_err)?;
+            r.push(match v {
+                Value::Null => None,
+                Value::Integer(n) => Some(n.to_string()),
+                Value::Real(f) => Some(f.to_string()),
+                Value::Text(s) => Some(truncate_cell(&s, CELL_MAX_CHARS)),
+                Value::Blob(b) => Some(blob_label(b.len())),
+            });
+        }
+        rows.push(r);
+        if rows.len() >= HARD_MAX_ROWS {
+            truncated = true;
+            break;
+        }
+    }
+    drop(rows_iter);
+
+    // 总数：直查表/视图（不包子查询），失败退化为本次行数
+    let count_sql = format!(
+        "SELECT COUNT(*) FROM {}{where_clause}",
+        quote_ident(name)
+    );
+    let total = conn
+        .query_row(&count_sql, [], |r| r.get::<_, i64>(0))
+        .ok()
+        .unwrap_or(rows.len() as i64);
+
+    Ok(DbQueryResult {
+        columns,
+        rows,
+        total,
+        offset: offset as i64,
+        truncated,
+        elapsed_ms: started.elapsed().as_millis() as u64,
+        affected: None,
+    })
+}
+
 /// 取单个对象的建表/建索引语句
 #[tauri::command]
 pub async fn db_ddl(id: String, name: String) -> Result<String, String> {
@@ -1079,6 +1249,47 @@ mod tests {
         assert_eq!(blob_label(5 * 1024 * 1024), "<blob 5.0 MB>");
     }
 
+    // ---------- 表数据浏览（v1.4 Tab 化）：纯函数 ----------
+
+    #[test]
+    fn sanitize_filter_trims_and_rejects_multi_statement() {
+        assert_eq!(sanitize_filter(None).unwrap(), None);
+        assert_eq!(sanitize_filter(Some("   ")).unwrap(), None);
+        assert_eq!(sanitize_filter(Some(" status = 'paid' ")).unwrap(), Some("status = 'paid'".into()));
+        // 字符串里的分号不算语句分隔符（split_statements 语义），必须放行
+        assert_eq!(sanitize_filter(Some("name = 'a;b'")).unwrap(), Some("name = 'a;b'".into()));
+        // 真正的多语句拒绝
+        assert!(sanitize_filter(Some("1=1; DROP TABLE t")).is_err());
+        assert!(sanitize_filter(Some("1=1;")).is_ok(), "尾部单个分号是单语句");
+    }
+
+    #[test]
+    fn sort_dir_desc_is_explicit() {
+        assert!(!sort_dir_desc(None));
+        assert!(!sort_dir_desc(Some("asc")));
+        assert!(!sort_dir_desc(Some("junk")));
+        assert!(sort_dir_desc(Some("desc")));
+        assert!(sort_dir_desc(Some("DESC")));
+    }
+
+    #[test]
+    fn build_rows_sql_quotes_and_paginates() {
+        assert_eq!(
+            build_rows_sql("t", "", "", 200, 0),
+            "SELECT * FROM \"t\" LIMIT 200 OFFSET 0"
+        );
+        assert_eq!(
+            build_rows_sql("we\"ird", " WHERE (a > 1)", " ORDER BY \"a\" DESC", 0, 400),
+            "SELECT * FROM \"we\"\"ird\" WHERE (a > 1) ORDER BY \"a\" DESC LIMIT 200 OFFSET 400",
+            "limit=0 归一为 200"
+        );
+        assert_eq!(
+            build_rows_sql("t", "", "", 999_999, 0),
+            "SELECT * FROM \"t\" LIMIT 10000 OFFSET 0",
+            "limit 超过硬上限时夹到 HARD_MAX_ROWS"
+        );
+    }
+
     // ---------- PR-2：集成（真实 SQLite 文件） ----------
 
     /// 集成测试串行锁：所有集成用例都会读写**同一份全局连接列表**
@@ -1267,6 +1478,44 @@ mod tests {
         let conn = db_open(path, false).unwrap();
         let sql = db_ddl_impl(&conn.id, "t").unwrap();
         assert!(sql.contains("CREATE TABLE t"), "实际：{}", sql);
+        cleanup_conn(&conn.id, &d);
+    }
+
+    /// db_rows 集成：排序 / 筛选 / 分页 / 引号表名 / 非法列拒绝 / 表名白名单
+    #[test]
+    fn db_rows_sorts_filters_paginates() {
+        let _g = test_guard();
+        let (d, path) = seed_db("rows");
+        let conn = db_open(path, false).unwrap();
+
+        // 基线：无排序无筛选
+        let base = db_rows_impl(&conn.id, "t", None, None, None, 2, 0).unwrap();
+        assert_eq!(base.total, 3);
+        assert_eq!(base.rows.len(), 2);
+
+        // 排序：按 name DESC，翻页衔接
+        let desc = db_rows_impl(&conn.id, "t", Some("name"), Some("desc"), None, 2, 2).unwrap();
+        assert_eq!(desc.rows.len(), 1);
+        assert_eq!(desc.rows[0][1].as_deref(), Some("alice"));
+        let asc = db_rows_impl(&conn.id, "t", Some("NAME"), Some("ASC"), None, 10, 0).unwrap();
+        assert_eq!(asc.rows[0][1].as_deref(), Some("alice"), "列名大小写不敏感命中");
+
+        // 筛选：自由表达式 + 引号字符串里的分号
+        let filtered =
+            db_rows_impl(&conn.id, "t", None, None, Some("name = 'bo;b' OR name = 'bob'"), 10, 0).unwrap();
+        assert_eq!(filtered.total, 1);
+        assert_eq!(filtered.rows[0][1].as_deref(), Some("bob"));
+
+        // 排序 + 筛选组合
+        let combo = db_rows_impl(&conn.id, "t", Some("a"), Some("desc"), Some("a < 3"), 10, 0).unwrap();
+        assert_eq!(combo.rows[0][0].as_deref(), Some("2"));
+
+        // 非法排序列 / 不存在的表 / 多语句筛选 → 明确报错
+        assert!(db_rows_impl(&conn.id, "t", Some("nope"), None, None, 10, 0).is_err());
+        assert!(db_rows_impl(&conn.id, "sqlite_master", None, None, None, 10, 0).is_err());
+        assert!(db_rows_impl(&conn.id, "t", None, None, Some("1=1; DELETE FROM t"), 10, 0).is_err());
+        // 只读连接照样可查（读路径不走写判定）
+        assert_eq!(db_rows_impl(&conn.id, "v", None, None, None, 10, 0).unwrap().total, 3);
         cleanup_conn(&conn.id, &d);
     }
 

@@ -266,3 +266,5 @@ export function wireSplitters(): void {
     localStorage.removeItem(SPLIT_W_KEY);
   });
 }
+
+/** v1.4 Tab 化：宽屏态已退役（对象树列宽拖拽随 #db-wide-splitter 一并移除）。 */

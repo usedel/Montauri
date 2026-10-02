@@ -7,6 +7,9 @@
 // 双端同源约定（改前回文档 §4 / §5.4，Rust 侧同名实现见 db_cmds.rs）：
 // - 单元格文本已由 Rust 按 CELL_MAX_CHARS 个**字符**截断（不是字节——中文场景字节口径会多切）；
 // - BLOB 只回标签 `<blob N B>`，不回内容；NULL 回 null（不是空串）——两者必须能区分。
+//
+// v1.4 Tab 化重设计：结果网格现在渲染在编辑器区的数据库 Tab 里（宽度充足），
+// 窄栏裁列与宽屏态常量已随宽屏 hack 一并退役；表头支持点击排序、单元格支持右键菜单。
 
 import { t } from "./i18n";
 
@@ -89,8 +92,8 @@ export function pageOf(total: number, offset: number, pageSize: number): PageInf
  * 页码（**1 基**）→ 行偏移，`pageOf` 的逆运算：`pageOf(t, offsetOfPage(n, s), s).page === n`。
  *
  * 存在的意义是消灭「页码 / 行偏移」两套单位的混用入口——分页按钮的 ±1 算的是页码，
- * 而 `db_query` 收的是偏移，中间必须过这一道。曾经两者在同一处裸算（`gotoPage(page + 1)`
- * 里 `page` 其实是偏移），导致「下一页」原地不动（e2e DB-Q-1 抓到的真 bug）。
+ * 而 `db_query` / `db_rows` 收的是偏移，中间必须过这一道。曾经两者在同一处裸算
+ * （`gotoPage(page + 1)` 里 `page` 其实是偏移），导致「下一页」原地不动（e2e DB-Q-1 抓到的真 bug）。
  */
 export function offsetOfPage(pageNo: number, pageSize: number): number {
   const size = pageSize > 0 ? pageSize : 200;
@@ -98,23 +101,14 @@ export function offsetOfPage(pageNo: number, pageSize: number): number {
   return (safePage - 1) * size;
 }
 
-// ---------- 窄栏裁列（doc §3.1） ----------
-
-/** 行号列宽（px）——与 `.db-grid .db-rowno` 的 CSS 宽度保持一致 */
-const ROWNO_W = 48;
-/** 单列最小可用宽度（px）：再窄就挤成竖排文字，不如裁掉靠横向滚动看 */
-const MIN_COL_W = 110;
-/** 窄栏下限：再窄也保 3 列（否则只剩行号列，等于没渲染） */
-export const MIN_VISIBLE_COLS = 3;
-
-/** 按容器宽度算「值得渲染的列数」。容器宽 0（隐藏中）时返回下限 3，不返回 0。 */
-export function visibleColumnCount(containerWidth: number, totalCols: number): number {
-  if (totalCols <= 0) return 0;
-  const fit = Math.floor((containerWidth - ROWNO_W) / MIN_COL_W);
-  return Math.max(MIN_VISIBLE_COLS, Math.min(totalCols, fit));
+/** 表数据 Tab 的排序三态循环：无 → 升序 → 降序 → 无（纯函数，单测目标）。 */
+export function nextSort(cur: { col: string; desc: boolean } | null, col: string): { col: string; desc: boolean } | null {
+  if (!cur || cur.col !== col) return { col, desc: false };
+  if (!cur.desc) return { col, desc: true };
+  return null;
 }
 
-// ---------- CSV 导出 ----------
+// ---------- CSV / JSON 导出 ----------
 
 /** RFC 4180 单元格转义：含 `"` `,` CR LF 时整体加引号，内部 `"` 双写。NULL → 空字段。 */
 export function csvCell(v: string | null): string {
@@ -122,11 +116,20 @@ export function csvCell(v: string | null): string {
   return /[",\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
 }
 
-/** 结果 → CSV 文本（首行列名）。行上限由调用方控制（doc §3.5：导出前 10000 行）。 */
+/** 结果 → CSV 文本（首行列名）。行上限由调用方控制（导出前 10000 行）。 */
 export function toCsv(result: DbQueryResult): string {
   const lines = [result.columns.map(csvCell).join(",")];
   for (const row of result.rows) lines.push(row.map(csvCell).join(","));
   return lines.join("\r\n");
+}
+
+/** 单行 → JSON 对象文本（右键「复制为 JSON」用；NULL 显式保留 null）。 */
+export function rowToJson(columns: string[], row: (string | null)[]): string {
+  const obj: Record<string, string | null> = {};
+  columns.forEach((c, i) => {
+    obj[c] = row[i] ?? null;
+  });
+  return JSON.stringify(obj, null, 2);
 }
 
 // ---------- 状态条 ----------
@@ -138,12 +141,10 @@ export interface StatusInput {
   cancelling: boolean;
   /** 已本地化的整句错误（如 `查询失败：…`）；非空时优先显示 */
   error?: string;
-  /** 实际渲染的列数；与 result.columns.length 不同时追加「n/m 列」提示 */
-  shownCols?: number;
 }
 
 /**
- * 结果状态条文本（doc §3.5）：`已显示/总数 行 · 耗时 · 只读/可写`。
+ * 结果状态条文本：`已显示/总数 行 · 耗时 · 只读/可写`。
  * 优先级：错误 > 执行中/取消中 > 结果 > 空态。
  */
 export function statusText(s: StatusInput): string {
@@ -156,9 +157,6 @@ export function statusText(s: StatusInput): string {
   else parts.push(t("database.statusRows", { shown: r.rows.length, total: r.total }));
   if (r.elapsedMs > 0) parts.push(t("database.elapsed", { ms: r.elapsedMs }));
   parts.push(s.writable ? t("database.modeWrite") : t("database.modeRead"));
-  if (s.shownCols !== undefined && s.shownCols < r.columns.length) {
-    parts.push(t("database.statusCols", { shown: s.shownCols, total: r.columns.length }));
-  }
   if (r.truncated) parts.push(t("database.truncated", { n: r.rows.length }));
   return parts.join(" · ");
 }
@@ -175,10 +173,14 @@ export interface CellClickInfo {
 export interface GridOptions {
   /** 本页首行的绝对行号（= 查询的 offset） */
   offset: number;
-  /** 渲染的列数上限（窄栏裁列，见 visibleColumnCount）；缺省=全部 */
-  maxCols?: number;
-  /** 点击单元格（PR-4 的「单元格详情」用） */
+  /** 当前排序（仅用于表头箭头显示；实际排序由调用方发查询） */
+  sort?: { col: string; desc: boolean } | null;
+  /** 列头点击（表数据 Tab 的排序三态切换）；缺省 = 表头不可点 */
+  onHeaderClick?: (col: string) => void;
+  /** 点击单元格（单元格详情用） */
   onCellClick?: (info: CellClickInfo) => void;
+  /** 单元格右键（复制值 / 复制行为 JSON·CSV） */
+  onCellContext?: (info: CellClickInfo, ev: MouseEvent) => void;
 }
 
 /**
@@ -187,7 +189,7 @@ export interface GridOptions {
  */
 export function buildGridTable(result: DbQueryResult, opts: GridOptions): HTMLTableElement | null {
   if (result.rows.length === 0) return null;
-  const cols = result.columns.slice(0, Math.max(0, opts.maxCols ?? result.columns.length));
+  const cols = result.columns;
 
   const table = document.createElement("table");
   table.className = "db-grid";
@@ -202,8 +204,20 @@ export function buildGridTable(result: DbQueryResult, opts: GridOptions): HTMLTa
   for (const name of cols) {
     const th = document.createElement("th");
     th.scope = "col";
-    th.textContent = name;
     th.title = name;
+    const label = document.createElement("span");
+    label.className = "db-th-label";
+    label.textContent = name;
+    th.appendChild(label);
+    if (opts.onHeaderClick) {
+      th.classList.add("db-th-sortable");
+      if (opts.sort?.col === name) {
+        th.classList.add(opts.sort.desc ? "db-th-desc" : "db-th-asc");
+        th.setAttribute("aria-sort", opts.sort.desc ? "descending" : "ascending");
+        th.appendChild(codiconArrow(opts.sort.desc ? "arrow-down" : "arrow-up"));
+      }
+      th.addEventListener("click", () => opts.onHeaderClick?.(name));
+    }
     headRow.appendChild(th);
   }
   thead.appendChild(headRow);
@@ -225,6 +239,12 @@ export function buildGridTable(result: DbQueryResult, opts: GridOptions): HTMLTa
         td.classList.add("db-cell-clickable");
         td.addEventListener("click", () => opts.onCellClick?.({ column: cols[ci], row: opts.offset + i + 1, display: d }));
       }
+      if (opts.onCellContext) {
+        td.addEventListener("contextmenu", (ev) => {
+          ev.preventDefault();
+          opts.onCellContext?.({ column: cols[ci], row: opts.offset + i + 1, display: d }, ev);
+        });
+      }
       tr.appendChild(td);
     }
     tbody.appendChild(tr);
@@ -232,4 +252,12 @@ export function buildGridTable(result: DbQueryResult, opts: GridOptions): HTMLTa
 
   table.append(thead, tbody);
   return table;
+}
+
+/** 排序箭头（aria-hidden，排序态已由 aria-sort 表达） */
+function codiconArrow(name: string): HTMLElement {
+  const el = document.createElement("i");
+  el.className = `codicon codicon-${name} db-th-arrow`;
+  el.setAttribute("aria-hidden", "true");
+  return el;
 }

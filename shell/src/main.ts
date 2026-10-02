@@ -92,7 +92,8 @@ import {
 import { showMenu, type MenuItem } from "./menu";
 import { initTodoView, refreshTodos, resetTodoView, setTodoViewHandlers } from "./todoView"; // P0：TODO 工具窗
 import { initEndpointView, refreshEndpoints, resetEndpointView, setEndpointViewHandlers } from "./endpointView"; // F1：端点工具窗
-import { initDbView, onDbViewShow, resetDbView, restoreDbSections, setDbViewHandlers, addConnection, focusDbSql, refreshDbWorkspace } from "./sqliteView"; // B3：SQLite 数据库工具窗
+import { initDbView, onDbViewShow, resetDbView, refreshDbWorkspace, addConnection } from "./sqliteView"; // B3：SQLite 数据库侧栏（资源管理器）
+import { setDbTabHandlers, presentDbTab, cleanupDbTab, dismissDbHost, dbTabLabel, dbTabIcon, invalidateDbTokens, openQueryTabForActive } from "./sqliteTabs"; // B3：SQLite 编辑器 Tab（表数据 / SQL 查询）
 import { initDebugView, notifyDepFound, renderDebugView, runToCursor as runToCursorIn, setDebugViewHandlers, wireDebugViewEvents } from "./debugView";
 import { closeRecentFiles, initRecentFiles, openRecentFiles, setRecentFilesHandlers } from "./recentFiles"; // P0：最近打开的文件（Ctrl+E）
 // P1（PyCharm 调研）：Search Everywhere / 导航历史 / 本地历史 / 调试控制台
@@ -223,6 +224,7 @@ function resetWorkspaceUiState(): void {
   resetTodoView();              // P0：TODO 列表 + 作废在途扫描
   resetEndpointView();          // F1：端点列表 + 作废在途扫描
   resetDbView();                // B3：数据库连接态 / 对象树 / 结果 + 作废在途请求
+  invalidateDbTokens();         // B3 v1.4：db Tab 的在途查询响应一并作废
   resetNavHistory();            // P1：导航历史（跨工作区的历史没有意义）
   invalidateQuickOpenFiles();   // P1：工作区文件清单缓存随工作区失效
   resetBreadcrumbs();           // P2：面包屑（含符号缓存与防抖 timer）
@@ -923,6 +925,7 @@ function activateTab(tab: Tab, opts?: { focusEditor?: boolean }): void {
   // 否则新打开的文件被欢迎页整层盖住看不见（严重可用性 bug）。置于最前，末尾的
   // updateEditorOverlay 才会按真实态（有 activeTab）隐藏覆盖层。
   consumeWelcomeForce();
+  // v1.4 Tab 化：宽屏 hack 已退役，无需在此归位（历史见 sqlite_tool_dev_plan.md §16）
   // 切标签记忆视图状态：离开前保存前一文件 tab 的光标/滚动，切回时恢复
   const prev = app.activeTab;
   if (prev && prev !== tab && prev.kind !== "diff" && app.editor.getModel() === prev.model) {
@@ -934,6 +937,7 @@ function activateTab(tab: Tab, opts?: { focusEditor?: boolean }): void {
     // 第 2 步迁移：diff tab——主编辑器隐藏（宿主由 git.presentDiffHost 显示），
     // 模型不动（占位）、状态栏显示 diff: 前缀路径、编辑器专属装饰全部跳过
     app.editor.setModel(null);
+    dismissDbHost(); // v1.4：db Tab 宿主与 diff 宿主同为 #editor-row 浮层，互斥
     presentDiffHost(tab);
     splitEditor.setDiffActive(true); // C-4：diff 占满编辑区，分屏（若开着）一并隐藏
     renderTabs();
@@ -942,8 +946,21 @@ function activateTab(tab: Tab, opts?: { focusEditor?: boolean }): void {
     refreshDiffOnActivate(tab); // 后台期间文件可能已变：按需重拉（冲突 tab 保护跳过）
     return;
   }
-  // 文件 tab：从 diff tab 切回时恢复主编辑器
+  if (tab.kind === "db") {
+    // v1.4 Tab 化：数据库 Tab（表数据 / SQL 查询）——主编辑器隐藏，
+    // 宿主由 sqliteTabs.presentDbTab 显示并同步共享视图 DOM（结果缓存在 Tab 内，切换不重查）
+    app.editor.setModel(null);
+    presentDbTab(tab);
+    splitEditor.setDiffActive(true); // db Tab 占满编辑区，分屏（若开着）一并隐藏
+    renderTabs();
+    statusFileEl.textContent = "";
+    updateEditorOverlay(); // db Tab 也是「有活动内容」，欢迎页覆盖层必须隐藏
+    mdPreview.updatePreviewVisibility();
+    return;
+  }
+  // 文件 tab：从 diff/db tab 切回时恢复主编辑器
   dismissDiffHost();
+  dismissDbHost(); // v1.4：db Tab 宿主随切回文件隐藏（互斥，不动各 Tab 的 state）
   splitEditor.setDiffActive(false); // C-4：分屏若开着则恢复显示
   app.editor.setModel(tab.model);
   if (tab.viewState) app.editor.restoreViewState(tab.viewState);
@@ -978,10 +995,10 @@ function cycleTab(dir: 1 | -1): void {
 async function closeTab(tab: Tab): Promise<void> {
   const idx = app.tabs.indexOf(tab);
   if (idx === -1) return;
-  // diff tab 恒不 dirty（占位模型只读），无需确认直接关
-  if (tab.kind !== "diff" && tab.dirty && !(await openConfirm({ message: t("main.confirm.closeDirty", { name: basename(tab.path) }), kind: "danger" }))) return;
+  // diff/db tab 恒不 dirty（占位模型/只读视图），无需确认直接关
+  if (tab.kind !== "diff" && tab.kind !== "db" && tab.dirty && !(await openConfirm({ message: t("main.confirm.closeDirty", { name: basename(tab.path) }), kind: "danger" }))) return;
   closeTabSilent(tab);
-  if (tab.kind !== "diff") recordClosedTab(tab.path); // PR-A：用户主动关闭入重开栈（工作区切换的批量清理不入栈）
+  if (tab.kind !== "diff" && tab.kind !== "db") recordClosedTab(tab.path); // PR-A：用户主动关闭入重开栈（工作区切换的批量清理不入栈）
 }
 
 /** 关闭标签（不弹确认，用于工作区切换时的批量清理） */
@@ -992,6 +1009,10 @@ export function closeTabSilent(tab: Tab): void {
   if (tab.kind === "diff") {
     // diff tab：不走 LSP/诊断/标记链（path 是 diff: 虚拟路径）；域内清理统一入口
     cleanupDiffTabState(tab);
+  } else if (tab.kind === "db") {
+    // v1.4：db tab 不走 LSP/诊断/标记链（path 是 db-data:/db-query: 虚拟路径）；
+    // model（查询 Tab 的 SQL model / 占位模型）与状态表由域内统一清理
+    cleanupDbTab(tab);
   } else {
     editorTimers.clearAutosave(tab.path); // 在途 autosave 计时器随 tab 关闭作废（防 dispose 后写盘复活内容）
     lsp.didClose(tab.path);
@@ -1008,6 +1029,7 @@ export function closeTabSilent(tab: Tab): void {
       app.editor.setModel(null);
       statusFileEl.textContent = "";
       dismissDiffHost(); // 最后一个 diff tab 关闭（无下一个 tab）：宿主一并隐藏
+      dismissDbHost(); // v1.4：最后一个 db tab 关闭同理
       updateEditorOverlay();
     }
   }
@@ -1028,8 +1050,14 @@ export function renderTabs(): void {
   for (const tab of app.tabs) {
     const active = tab === app.activeTab;
     const isDiff = tab.kind === "diff";
+    const isDb = tab.kind === "db";
     // diff tab 的显示名：剥 diff: 前缀（VS Code 同款「文件名 (Working Tree)」语义）
-    const displayName = isDiff ? t("main.tab.diffTitle", { name: basename(tab.path.slice("diff:".length)) }) : basename(tab.path);
+    // db tab 的显示名由域内解析（`表名 · 库名` / `查询 N · 库名`），path 里是 connId 哈希
+    const displayName = isDiff
+      ? t("main.tab.diffTitle", { name: basename(tab.path.slice("diff:".length)) })
+      : isDb
+        ? dbTabLabel(tab)
+        : basename(tab.path);
     const el = document.createElement("div");
     el.className = `tab ${active ? "active" : ""}`;
     // UI-16：tabs 模式（#tabbar 的 role=tablist 在 index.html 静态声明）。
@@ -1041,9 +1069,10 @@ export function renderTabs(): void {
     el.dataset.path = tab.path;
     // 悬停显示完整路径（tooltip.ts 规则 4：纯路径披露用原生 title，不挂 data-tip；
     // tab 内部无 data-tip，不触发规则 5 的父子不同轨冲突）
-    el.title = tab.path;
-    // diff tab 用 diff 图标（与文件类型图标区分）；文件 tab 保持类型图标
-    el.appendChild(isDiff ? codicon("diff") : renderFileIcon(basename(tab.path))); // D2 P-08：标签页文件类型图标
+    // db tab 的 path 是 connId 哈希虚拟路径，对用户无意义——title 用显示名
+    el.title = isDb ? displayName : tab.path;
+    // diff/db tab 用专属图标（与文件类型图标区分）；文件 tab 保持类型图标
+    el.appendChild(isDiff ? codicon("diff") : isDb ? codicon(dbTabIcon(tab)) : renderFileIcon(basename(tab.path))); // D2 P-08：标签页文件类型图标
     const name = document.createElement("span");
     name.className = "name";
     name.textContent = displayName;
@@ -1566,9 +1595,9 @@ function buildQuickOpenActions(): QuickOpenAction[] {
     // 迭代 3：高级工作流进命令面板（cherry-pick/reset 等历史操作走历史条目右键）
     { id: "git_sync_status", label: t("main.cmd.gitSyncStatus"), run: () => { setSidebarTab("git"); toast(t("main.cmd.syncUpdated"), "info"); void refreshBranchPanel(); } },
     { id: "todo_panel", label: t("main.cmd.todoPanel"), run: () => setSidebarTab("todo") },
-    // B3：数据库工具窗（引擎在 Rust db_cmds.rs；视图在 sqliteView.ts）
+    // B3：数据库工具窗（引擎在 Rust db_cmds.rs；侧栏见 sqliteView.ts，Tab 见 sqliteTabs.ts）
     { id: "db_add_connection", label: t("database.cmdOpen"), run: () => { setSidebarTab("database"); void addConnection(); } },
-    { id: "db_new_query", label: t("database.cmdNewQuery"), run: () => { setSidebarTab("database"); focusDbSql(); } },
+    { id: "db_new_query", label: t("database.cmdNewQuery"), run: () => { setSidebarTab("database"); openQueryTabForActive(); } },
     // PR-S2 巡礼（onboarding plan §3.2b）：open_devtools 此前只有键位（Ctrl+Shift+T）与
     // keybindings.ts 分发，命令面板查不到——巡礼「试一下」挂注册表 id，一并补上可发现性
     { id: "open_devtools", label: t("main.cmd.devtools"), run: () => openDevToolsPanel() },
@@ -2487,10 +2516,9 @@ async function init(): Promise<void> {
   // F1：端点工具窗（渲染与动作见 endpointView.ts；扫描在 Rust fs_cmds::scan_endpoints）
   initEndpointView();
   setEndpointViewHandlers({ openFile: (path, line) => void openFile(path, line) });
-  // B3：数据库工具窗（渲染与编排见 sqliteView.ts；引擎在 Rust db_cmds.rs）
+  // B3：数据库工具窗（侧栏资源管理器见 sqliteView.ts；编辑器 Tab 见 sqliteTabs.ts；引擎在 Rust db_cmds.rs）
   initDbView();
-  restoreDbSections();
-  setDbViewHandlers({ buildOptions: () => buildEditorOptions(app.settings) });
+  setDbTabHandlers({ activateTab, buildOptions: () => buildEditorOptions(app.settings) });
   $("ew-open-folder").addEventListener("click", () => void openFolderFromToolbar());
   $("ew-new-project").addEventListener("click", () => openNewProjectPanel());
   $("ew-recent-clear").addEventListener("click", () => void clearRecentWorkspaces());
@@ -2706,7 +2734,7 @@ async function init(): Promise<void> {
     tabId: "tab-debug",
     onShow: () => renderDebugView(),
   });
-  // B3：数据库工具窗——同 TODO/端点：切到该视图才拉连接列表（不在启动路径上做 IO）
+  // B3：数据库侧栏——同 TODO/端点：切到该视图才拉连接列表（不在启动路径上做 IO）
   registerSidebarView({
     id: "database",
     rootId: "view-database",

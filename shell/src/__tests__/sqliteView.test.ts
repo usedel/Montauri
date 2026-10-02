@@ -1,10 +1,11 @@
 // @vitest-environment happy-dom
-// B3 SQLite 数据库工具窗：纯函数单测（docs/sqlite_tool_dev_plan.md §10）。
+// B3 SQLite 数据库工具：纯函数单测（docs/sqlite_tool_dev_plan.md §10）。
 //
-// 覆盖两块：
-// 1. sqliteGrid.ts —— 单元格格式化 / 分页换算 / 窄栏裁列 / CSV / 状态条 / 表格构建；
-// 2. sqliteView.ts 的纯逻辑 —— SQL 判定（Rust classify_sql 的前端镜像，含全部对抗样本）
-//    与语句切分（split_statements 镜像）。
+// v1.4 Tab 化重设计后覆盖三块：
+// 1. sqliteGrid.ts —— 单元格格式化 / 分页换算 / 排序三态 / CSV·JSON / 状态条 / 表格构建；
+// 2. sqliteSql.ts —— SQL 判定（Rust classify_sql 的前端镜像，含全部对抗样本）
+//    与语句切分（split_statements 镜像）；
+// 3. 宽屏态与窄栏裁列纯函数已随架构退役（编辑器区宽度充足，恒全列渲染）。
 //
 // 断言走 t(key)（默认中文等价于原文），切默认语言不用改断言——与 output.test.ts 同款纪律。
 
@@ -15,15 +16,15 @@ import {
   CELL_MAX_CHARS,
   csvCell,
   formatCell,
+  nextSort,
   offsetOfPage,
   pageOf,
+  rowToJson,
   statusText,
   toCsv,
-  visibleColumnCount,
-  MIN_VISIBLE_COLS,
   type DbQueryResult,
 } from "../sqliteGrid";
-import { classifySql, currentStatement, splitSqlStatements, statementSpans, stripSqlNoise, topLevelWords } from "../sqliteView";
+import { classifySql, currentStatement, splitSqlStatements, statementSpans, stripSqlNoise, topLevelWords } from "../sqliteSql";
 
 /** 造一个结果对象（只写用例关心的字段） */
 function res(partial: Partial<DbQueryResult> = {}): DbQueryResult {
@@ -116,22 +117,19 @@ describe("offsetOfPage：页码 ↔ 行偏移的互逆（DB-Q-1 回归）", () =
   });
 });
 
-describe("visibleColumnCount：窄侧栏裁列规则（doc §3.1）", () => {
-  it("宽度足够时返回全部列", () => {
-    expect(visibleColumnCount(1200, 5)).toBe(5);
+describe("nextSort：表数据排序三态循环（无 → 升序 → 降序 → 无）", () => {
+  it("换列一律回到升序", () => {
+    expect(nextSort(null, "a")).toEqual({ col: "a", desc: false });
+    expect(nextSort({ col: "b", desc: true }, "a")).toEqual({ col: "a", desc: false });
   });
 
-  it("再窄也保 3 列（否则只剩行号列，等于没渲染）", () => {
-    expect(visibleColumnCount(200, 12)).toBe(MIN_VISIBLE_COLS);
-    expect(visibleColumnCount(0, 12)).toBe(MIN_VISIBLE_COLS); // 隐藏中（clientWidth 0）
-  });
-
-  it("无列时返回 0（不造出「渲染 3 列」的假象）", () => {
-    expect(visibleColumnCount(1200, 0)).toBe(0);
+  it("同列循环：升序 → 降序 → 无", () => {
+    expect(nextSort({ col: "a", desc: false }, "a")).toEqual({ col: "a", desc: true });
+    expect(nextSort({ col: "a", desc: true }, "a")).toBeNull();
   });
 });
 
-describe("CSV 导出：RFC 4180 转义", () => {
+describe("CSV / JSON 导出", () => {
   it("含逗号 / 引号 / 换行的字段整体加引号且内部引号双写", () => {
     expect(csvCell("a,b")).toBe('"a,b"');
     expect(csvCell('say "hi"')).toBe('"say ""hi"""');
@@ -144,6 +142,10 @@ describe("CSV 导出：RFC 4180 转义", () => {
     const csv = toCsv(res({ columns: ["a", "b"], rows: [["1", null], ["x,y", "z"]] }));
     expect(csv).toBe('a,b\r\n1,\r\n"x,y",z');
   });
+
+  it("rowToJson 保留 null（显式）而非丢键", () => {
+    expect(rowToJson(["a", "b"], ["1", null])).toBe('{\n  "a": "1",\n  "b": null\n}');
+  });
 });
 
 describe("statusText：状态条优先级与内容", () => {
@@ -154,30 +156,17 @@ describe("statusText：状态条优先级与内容", () => {
     expect(statusText({ result: null, writable: false, querying: false, cancelling: false })).toBe(t("database.statusIdle"));
   });
 
-  it("读结果拼「已显示/总数 行 · 耗时 · 只读」；截断与裁列追加提示", () => {
+  it("读结果拼「已显示/总数 行 · 耗时 · 只读」；截断追加提示", () => {
     const s = statusText({
       result: res({ columns: ["id", "name", "note"], rows: [["1", "a", "b"]], total: 250, elapsedMs: 12, truncated: true }),
       writable: false,
       querying: false,
       cancelling: false,
-      shownCols: 2,
     });
     expect(s).toContain(t("database.statusRows", { shown: 1, total: 250 }));
     expect(s).toContain(t("database.elapsed", { ms: 12 }));
     expect(s).toContain(t("database.modeRead"));
-    expect(s).toContain(t("database.statusCols", { shown: 2, total: 3 }));
     expect(s).toContain(t("database.truncated", { n: 1 }));
-  });
-
-  it("列数未裁剪时不追加「n/m 列」（避免每行都挂一条无用提示）", () => {
-    const s = statusText({
-      result: res({ columns: ["id", "name"], rows: [["1", "a"]] }),
-      writable: false,
-      querying: false,
-      cancelling: false,
-      shownCols: 2,
-    });
-    expect(s).not.toContain(t("database.statusCols", { shown: 2, total: 2 }));
   });
 
   it("写语句显示影响行数并带复数变体（中文同文，英文按 Intl 选形）", () => {
@@ -217,12 +206,6 @@ describe("buildGridTable：网格 DOM", () => {
     expect(cells[2].getAttribute("title")).toBe("x");
   });
 
-  it("maxCols 裁列（窄栏）且不越界读行数组", () => {
-    const table = buildGridTable(res({ columns: ["a", "b", "c"], rows: [["1", "2", "3"]] }), { offset: 0, maxCols: 2 })!;
-    expect(table.querySelectorAll("thead th").length).toBe(3); // # + 2 列
-    expect(table.querySelectorAll("tbody td").length).toBe(3);
-  });
-
   it("点击单元格回调带列名与绝对行号（单元格详情用）", () => {
     let got: { column: string; row: number } | null = null;
     const table = buildGridTable(res({ rows: [["1", "a"]] }), {
@@ -233,6 +216,31 @@ describe("buildGridTable：网格 DOM", () => {
     })!;
     (table.querySelectorAll("tbody td")[2] as HTMLElement).click();
     expect(got).toEqual({ column: "name", row: 41 });
+  });
+
+  it("可排序列头：点击回调列名，排序态带箭头与 aria-sort", () => {
+    let clicked: string | null = null;
+    const table = buildGridTable(res(), {
+      offset: 0,
+      sort: { col: "name", desc: true },
+      onHeaderClick: (col) => {
+        clicked = col;
+      },
+    })!;
+    const ths = table.querySelectorAll("thead th");
+    (ths[2] as HTMLElement).click(); // name 列
+    expect(clicked).toBe("name");
+    const sorted = table.querySelector('th[aria-sort="descending"]');
+    expect(sorted).not.toBeNull();
+    expect(sorted!.textContent).toContain("name");
+    // 未排序列不带箭头
+    expect(ths[1].className).not.toContain("db-th-asc");
+    expect(ths[1].className).not.toContain("db-th-desc");
+  });
+
+  it("无 onHeaderClick 时表头不可点（查询 Tab 的任意结果集不排序）", () => {
+    const table = buildGridTable(res(), { offset: 0 })!;
+    expect(table.querySelector(".db-th-sortable")).toBeNull();
   });
 });
 

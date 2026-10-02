@@ -163,7 +163,8 @@
             <div id="view-todo" class="sidebar-view hidden" role="tabpanel" aria-labelledby="tab-todo"></div>
             <!-- 端点工具窗（F1）：内容由 endpointView.ts::initEndpointView 构建 -->
             <div id="view-endpoints" class="sidebar-view hidden" role="tabpanel" aria-labelledby="tab-endpoints"></div>
-            <!-- 数据库工具窗（B3）：内容由 sqliteView.ts::initDbView 构建 -->
+            <!-- 数据库工具窗（B3 v1.4 Tab 化）：侧栏只承载「资源管理器」（连接 + 对象树），
+                 数据面在编辑器区 #db-tab-panel（见 sqliteTabs.ts） -->
             <div id="view-database" class="sidebar-view hidden" role="tabpanel" aria-labelledby="tab-database"></div>
             <div id="view-git" class="sidebar-view hidden" role="tabpanel" aria-labelledby="tab-git">
               <div id="git-panel">
@@ -228,6 +229,11 @@
               </div>
               <div id="split-editor-host"></div>
             </div>
+            <!-- 数据库 Tab 宿主（B3 v1.4 Tab 化 · docs/sqlite_tool_dev_plan.md §17）：
+                 照 #git-diff-panel 范式——#editor-row 内与 #editor 互斥的浮层容器。
+                 内含两套视图（#db-data-view 表数据网格 / #db-query-view SQL 查询），
+                 多 Tab 共享同一份 DOM，内容由 sqliteTabs.ts 按 Tab 状态同步。 -->
+            <div id="db-tab-panel" class="hidden"></div>
             <!-- Git 差异视图宿主（第 2 步迁移：diff tab 激活时显示，与 #editor 互斥；
                  DOM 从底部面板整体迁入，Monaco diffEditor 单实例不重建。
                  布局改纵向：工具栏行（原 git-diff-header）+ 块级合并面板 + diff 编辑器 -->

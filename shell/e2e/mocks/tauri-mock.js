@@ -327,6 +327,42 @@
         affected: null,
       };
     }
+    if (cmd === "db_rows") {
+      // 表数据 Tab（v1.4 Tab 化）：记录结构化参数供断言；排序/筛选做形状级模拟
+      (window.__E2E_DB_ROWS__ = window.__E2E_DB_ROWS__ || []).push({
+        name: args.name,
+        sort: args.sort ?? null,
+        dir: args.dir ?? null,
+        filter: args.filter ?? null,
+        limit: args.limit,
+        offset: args.offset,
+      });
+      if (p.failQuery) throw new Error("DbSqlError:" + (p.failQuery === true ? 'near "SELEC": syntax error' : String(p.failQuery)));
+      var roff = Number(args.offset) || 0;
+      var rlim = Number(args.limit) || 200;
+      var rows = DB_ROWS.slice();
+      if (args.sort === "id") {
+        rows.sort(function (a, b) {
+          var d = Number(a[0]) - Number(b[0]);
+          return (args.dir === "desc" ? -1 : 1) * d;
+        });
+      }
+      if (args.filter) {
+        var mgt = /id\s*>\s*(\d+)/.exec(args.filter);
+        var meq = /name\s*=\s*'([^']*)'/.exec(args.filter);
+        if (mgt) rows = rows.filter(function (r) { return Number(r[0]) > Number(mgt[1]); });
+        else if (meq) rows = rows.filter(function (r) { return r[1] === meq[1]; });
+      }
+      return {
+        columns: ["id", "name", "note"],
+        rows: rows.slice(roff, roff + rlim),
+        total: rows.length,
+        offset: roff,
+        truncated: false,
+        elapsedMs: 3,
+        affected: null,
+      };
+    }
     if (cmd === "db_cancel") return null;
     if (cmd === "db_ddl") {
       if (p.ddl) return p.ddl;

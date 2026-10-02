@@ -20,8 +20,8 @@ export interface Tab {
   dirty: boolean;
   /** 切标签时的编辑器视图状态（光标/滚动/选区），activateTab 保存与恢复 */
   viewState?: MonacoApi.editor.ICodeEditorViewState;
-  /** tab 类型：普通文件（默认）| git diff 视图 */
-  kind?: "file" | "diff";
+  /** tab 类型：普通文件（默认）| git diff 视图 | 数据库视图（表数据 / SQL 查询） */
+  kind?: "file" | "diff" | "db";
   /** kind="diff" 时的元数据 */
   diff?: {
     /** 三态基准（auto/index/head），切 tab 恢复 */

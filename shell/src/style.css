@@ -2203,19 +2203,108 @@ button:focus-visible,
 }
 .ep-action:hover, .ep-action:focus-visible { color: var(--accent); }
 
-/* ---------- 数据库工具窗（B3 · sqliteView.ts / sqliteGrid.ts；docs/sqlite_tool_dev_plan.md §8） ----------
-   四段竖排：工具条（固定）→ 对象树（弹性，min 120px）→ SQL 编辑器（固定 140px）→ 结果（弹性）。
-   段头折叠沿用 UI-16 纪律：.collapsed 与 aria-expanded 由 sqliteView.ts 同源切换，样式只认类名。
+/* ---------- 数据库侧栏「资源管理器」（B3 v1.4 Tab 化 · sqliteView.ts；docs/sqlite_tool_dev_plan.md §17） ----------
+   侧栏只承载连接列表 + 对象树；数据面（网格 / SQL / 结果）在编辑器区 #db-tab-panel。
    配色一律走 token（--fg-dim / --bg-alt / --hover-subtle / --warn / --danger），深/浅双主题都过。 */
-/* 溢出收容（B3 修复，2026-10-02）：#sidebar 是 position:relative，其定位子树在「定位后代」阶段
-   绘制，晚于无定位节点；而 #bottom 同为定位且 DOM 在后 → 一旦本视图内容超出侧栏高度，溢出部分
-   会被 #bottom（#output 面板）整块盖住。表现是分页条/导出按钮「看得见却点不动」——Playwright
-   报 `<div id="output"> … intercepts pointer events`（e2e DB-Q-1/DB-Q-10 实测）。同 #git-panel
-   既有纪律（见其上注释）。
-   窗口高度不足时（720px 视口 → 侧栏可用高约 380px，容不下 树 120 + 编辑器 140 + 结果 160）
-   整窗纵向滚动，保证任一段与分页条始终可达——折叠段头是进一步腾空间的正规手段（§3.1）。 */
 #view-database { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; overflow-x: hidden; }
-.db-toolbar {
+.db-explorer-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+.db-explorer-title {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--fg-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.db-filter-box { flex: none; padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--border); }
+#db-filter-input {
+  width: 100%;
+  box-sizing: border-box;
+  font-size: var(--text-sm);
+  padding: 2px var(--space-2);
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--fg);
+}
+#db-filter-input:focus-visible { outline: 1px solid var(--focus-ring); outline-offset: -1px; }
+#db-tree { overflow: auto; flex: 1; min-height: 0; }
+.db-conn-node {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap; /* 对象列表独占换行到下一排：否则它是行内 flex 项，把行撑高、名字挤没（真机 bug） */
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+}
+.db-conn-node:hover { background: var(--hover-subtle); }
+.db-conn-node:focus-visible { outline: 1px solid var(--focus-ring); outline-offset: -1px; }
+.db-conn-node.active { background: var(--bg-alt); }
+.db-conn-arrow { flex: none; width: 16px; font-size: 12px; color: var(--fg-dim); }
+.db-conn-icon { flex: none; color: var(--fg-dim); }
+.db-tree-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: inherit; }
+.db-conn-lock { flex: none; }
+.db-conn-lock .codicon { font-size: 12px; }
+.db-conn-objects { display: block; flex-basis: 100%; } /* 占满一整排，缩进不与连接行同行 */
+.db-tree-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2) var(--space-1) var(--space-5);
+  font-size: var(--text-xs);
+  color: var(--fg-dim);
+  cursor: pointer;
+  user-select: none;
+  /* 不用 sticky：三组分组头共用同一滚动容器，top:0 会互相吸顶覆盖（「表」被「索引」盖住看似错位） */
+}
+.db-tree-group:hover { color: var(--fg); }
+.db-tree-item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2) var(--space-1) calc(var(--space-5) + 14px);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  flex-wrap: wrap;
+}
+.db-tree-item:hover { background: var(--hover-subtle); }
+.db-tree-item:focus-visible { outline: 1px solid var(--focus-ring); outline-offset: -1px; }
+.db-tree-count { color: var(--fg-dim); font-size: var(--text-xs); flex: none; }
+/* 列清单整行换行到下一排（flex-basis:100%），缩进与表名对齐 */
+.db-tree-cols { flex-basis: 100%; padding-left: var(--space-4); }
+.db-tree-col { display: flex; gap: var(--space-3); color: var(--fg-dim); font-size: var(--text-xs); }
+.db-tree-col-type { margin-left: auto; }
+
+/* ---------- 数据库编辑器 Tab 宿主（B3 v1.4 Tab 化 · sqliteTabs.ts） ----------
+   照 #git-diff-panel 范式：#editor-row 内 absolute 浮层，与 #editor 互斥显隐。
+   内部两套视图（#db-data-view / #db-query-view）各一份 DOM，多 Tab 共享，
+   切 Tab 时由 sqliteTabs 按 Tab 状态重渲染（结果缓存在 Tab 状态里）。 */
+#db-tab-panel {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  min-height: 0;
+  background: var(--bg);
+}
+#db-data-view, #db-query-view {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+.db-tab-toolbar {
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -2223,55 +2312,34 @@ button:focus-visible,
   border-bottom: 1px solid var(--border);
   flex: none;
 }
-/* min-width:0 必需：连接下拉要显示「文件名 · 父目录」，不设会被长路径撑破整行 */
-.db-conn-select { flex: 1; min-width: 0; }
-.db-write-banner {
-  flex: none;
-  padding: var(--space-1) var(--space-3);
-  font-size: var(--text-xs);
-  color: var(--warn, #cca700);
+.db-tab-title { font-weight: 600; flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#db-data-filter {
+  flex: 1;
+  min-width: 120px;
+  font-size: var(--text-sm);
+  font-family: var(--font-mono, monospace);
+  padding: 2px var(--space-2);
   background: var(--bg-alt);
-  border-bottom: 1px solid var(--border);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--fg);
 }
-.db-section { display: flex; flex-direction: column; min-height: 0; }
-.db-section-header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-1) var(--space-3);
-  font-size: var(--text-xs);
-  color: var(--fg-dim);
-  cursor: pointer;
-  flex: none;
-  user-select: none;
-}
-.db-section-header:hover { background: var(--hover-subtle); }
-.db-section-header:focus-visible { outline: 1px solid var(--focus-ring); outline-offset: -1px; }
-.db-section.collapsed > .db-section-body { display: none; }
-#db-tree-wrap { flex: 1 1 auto; min-height: 120px; }
-#db-tree { overflow: auto; flex: 1; min-height: 0; }
-#db-sql-wrap { flex: none; }
-/* Monaco 宿主：不能用 lazyEl Proxy 喂进去（automaticLayout 会把容器交给 ResizeObserver.observe，
-   Proxy 不是真实 Element 会被原生 API 拒——同 splitEditor.ts:23-25 的踩坑注释） */
-.db-sql-host { height: 140px; min-height: 80px; }
-/* min-height 与 #db-tree-wrap 一起构成「短窗口下限」：两者都设硬下限，空间不足时由
-   #view-database 外层滚动兜底，而不是把分页条挤出可视区（B3 修复）。 */
-.db-result-wrap { display: flex; flex-direction: column; min-height: 160px; flex: 1 1 auto; }
-.db-result-status {
+#db-data-filter:focus-visible { outline: 1px solid var(--focus-ring); outline-offset: -1px; }
+/* SQL 编辑器（查询视图上部）：真实 Element 宿主（Monaco automaticLayout 要求） */
+.db-query-editor-host { flex: 1 1 42%; min-height: 120px; border-bottom: 1px solid var(--border); }
+.db-tab-status {
   flex: none;
   padding: var(--space-1) var(--space-3);
   font-size: var(--text-xs);
   color: var(--fg-dim);
-  border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.db-result-status.is-error { color: var(--danger); }
-/* 结果网格：唯一「吃掉剩余高度」的弹性区，行内滚动（横向 + 纵向）。
-   min-height 84px ≈ 3 行，低于此结果区就只剩状态条与分页条了（外层滚动接管，见上）。 */
-.db-result-grid { overflow: auto; flex: 1 1 auto; min-height: 84px; }
+.db-tab-status.is-error { color: var(--danger); }
+/* 结果网格：唯一「吃掉剩余高度」的弹性区，行内滚动（横向 + 纵向） */
+.db-tab-grid { overflow: auto; flex: 1 1 auto; min-height: 84px; }
 /* 查询中保留上次结果并降透明度（与库支持求值桥的 is-stale 同款处理） */
 .db-stale { opacity: 0.55; }
 .db-grid {
@@ -2301,14 +2369,19 @@ button:focus-visible,
 .db-cell-empty { color: var(--fg-dim); }
 .db-cell-clickable { cursor: pointer; }
 .db-cell-clickable:hover { background: var(--hover-subtle); }
+/* 可排序列头（表数据 Tab）：hover 提示 + 排序箭头 */
+.db-th-sortable { cursor: pointer; user-select: none; }
+.db-th-sortable:hover { background: var(--hover-subtle); }
+.db-th-arrow { font-size: 11px; margin-left: 2px; }
 .db-pager {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-1) var(--space-3);
   flex: none;
+  border-top: 1px solid var(--border);
 }
-.db-pager #db-page-label { margin: 0 auto; color: var(--fg-dim); font-size: var(--text-xs); }
+.db-page-label { margin: 0 auto; color: var(--fg-dim); font-size: var(--text-xs); }
 .db-cell-detail {
   flex: none;
   border-top: 1px solid var(--border);
@@ -2324,34 +2397,6 @@ button:focus-visible,
   overflow: auto;
   margin-bottom: var(--space-2);
 }
-.db-tree-group {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-1) var(--space-3);
-  font-size: var(--text-xs);
-  color: var(--fg-dim);
-  position: sticky;
-  top: 0;
-  background: var(--bg-alt);
-}
-.db-tree-item {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-2);
-  padding: var(--space-1) var(--space-3) var(--space-1) var(--space-4);
-  font-size: var(--text-sm);
-  cursor: pointer;
-  flex-wrap: wrap;
-}
-.db-tree-item:hover { background: var(--hover-subtle); }
-.db-tree-item:focus-visible { outline: 1px solid var(--focus-ring); outline-offset: -1px; }
-.db-tree-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.db-tree-count { color: var(--fg-dim); font-size: var(--text-xs); flex: none; }
-/* 列清单整行换行到下一排（flex-basis:100%），缩进与表名对齐 */
-.db-tree-cols { flex-basis: 100%; padding-left: var(--space-5); }
-.db-tree-col { display: flex; gap: var(--space-3); color: var(--fg-dim); font-size: var(--text-xs); }
-.db-tree-col-type { margin-left: auto; }
 
 /* UI-08：对话框按钮迁移到 .btn 体系（.btn / .btn--primary / .btn--danger）。
    原 `.modal-actions button` 特异性 (0,1,1) 高于 .btn 的 (0,1,0)，故整块删除而非并存。

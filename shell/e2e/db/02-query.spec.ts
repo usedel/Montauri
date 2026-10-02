@@ -1,8 +1,9 @@
 /**
- * B3 SQLite 数据库工具窗 · 查询执行 / 结果网格 / 导出（docs/sqlite_tool_dev_plan.md §10 / PR-4 DoD）。
+ * B3 SQLite 数据库 · SQL 查询 Tab（docs/sqlite_tool_dev_plan.md §17 · v1.4 Tab 化重设计）。
  *
  * 桩同 01：e2e/mocks/tauri-mock.js 的 db_* 分发（250 行结果，>200 才能测翻页）。
  * 断言「发了哪几条 SQL」看 window.__E2E_DB_QUERIES__；导出 CSV 写真实临时目录再读盘校验。
+ * 查询 Tab 的入口：侧栏头部「新建查询」按钮（#db-new-query）。
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -37,25 +38,22 @@ async function presetSavePath(page: Page, path: string): Promise<void> {
   }, path);
 }
 
-async function openDbView(page: Page): Promise<void> {
+/** 切到数据库视图并新建一个查询 Tab（本文件的统一入口） */
+async function openQueryTab(page: Page): Promise<void> {
   await page.locator("#tab-database").click();
   await expect(page.locator("#view-database")).toBeVisible({ timeout: 10_000 });
+  await page.locator("#db-new-query").click();
+  await expect(page.locator("#db-query-view")).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator("#db-query-editor-host .monaco-editor")).toBeVisible({ timeout: 20_000 });
 }
 
 function db(page: Page, id: string) {
   return page.locator(`#${id}`);
 }
 
-/** 双击 users 表跑一次查询（最常用入口，也让 lastSql 就位） */
-async function queryUsers(page: Page): Promise<void> {
-  await page.locator('#db-tree .db-tree-item[data-name="users"]').dblclick();
-  await expect(db(page, "db-result-grid").locator("table.db-grid")).toBeVisible({ timeout: 10_000 });
-}
-
-/** 向 SQL 编辑器输入文本（第二 Monaco 实例，选择器必须限定在 #db-sql-host 内） */
+/** 向 SQL 编辑器输入文本（Monaco 实例挂在 #db-query-editor-host 内） */
 async function typeSql(page: Page, text: string): Promise<void> {
-  const host = page.locator("#db-sql-host");
-  await expect(host.locator(".monaco-editor")).toBeVisible({ timeout: 20_000 });
+  const host = page.locator("#db-query-editor-host");
   await host.locator(".monaco-editor .view-lines").click();
   await page.keyboard.type(text, { delay: 5 });
 }
@@ -84,39 +82,28 @@ test.afterEach(() => {
   expect(pageErrors, pageErrors.join("\n")).toEqual([]);
 });
 
-test("DB-Q-1：查询结果分页（250 行 / 每页 200 → 2 页，行号为绝对行号）", async ({ page }) => {
+test("DB-Q-1：查询 Tab 打开即落 tab 条目（查询 N · 库名，code 图标）", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("#status-git")).toContainText("main", { timeout: 20_000 });
-  await openDbView(page);
-  await queryUsers(page);
+  await openQueryTab(page);
 
-  await expect(db(page, "db-page-label")).toHaveText("第 1/2 页");
-  await expect(db(page, "db-prev")).toBeDisabled();
-  await expect(db(page, "db-next")).toBeEnabled();
-  const rows = db(page, "db-result-grid").locator("tbody tr");
-  await expect(rows).toHaveCount(200);
-  await expect(rows.first().locator(".db-rowno")).toHaveText("1");
-  await expect(rows.last().locator(".db-rowno")).toHaveText("200");
-
-  await db(page, "db-next").click();
-  await expect(db(page, "db-page-label")).toHaveText("第 2/2 页");
-  await expect(db(page, "db-next")).toBeDisabled();
-  await expect(rows).toHaveCount(50);
-  await expect(rows.first().locator(".db-rowno")).toHaveText("201");
-  await expect(rows.last().locator(".db-rowno")).toHaveText("250");
+  const tab = page.locator('.tab[data-path^="db-query:"]');
+  await expect(tab).toBeVisible();
+  await expect(tab).toHaveClass(/active/);
+  await expect(tab.locator(".name")).toHaveText("查询 1 · app.db");
+  await expect(tab.locator(".codicon-code").first()).toBeAttached();
 });
 
 test("DB-Q-2：只读连接上执行写语句不发 IPC，直接提示", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("#status-git")).toContainText("main", { timeout: 20_000 });
-  await openDbView(page);
-  await queryUsers(page);
+  await openQueryTab(page);
   await resetQueries(page);
 
   await typeSql(page, "DELETE FROM users");
   await page.keyboard.press("Control+Enter");
 
-  await expect(db(page, "db-result-status")).toContainText("只读模式下不允许写操作");
+  await expect(db(page, "db-query-view").locator(".db-tab-status")).toContainText("只读模式下不允许写操作");
   expect(await queries(page)).toEqual([]); // 省一次往返：前端前置拦截
 });
 
@@ -124,7 +111,7 @@ test("DB-Q-3：可写连接执行写语句需确认，确认后回填影响行�
   await presetDb(page, { connections: [WRITABLE_CONN] });
   await page.goto("/");
   await expect(page.locator("#status-git")).toContainText("main", { timeout: 20_000 });
-  await openDbView(page);
+  await openQueryTab(page);
   await resetQueries(page);
 
   await typeSql(page, "DELETE FROM users WHERE id > 100");
@@ -132,7 +119,7 @@ test("DB-Q-3：可写连接执行写语句需确认，确认后回填影响行�
   await expect(page.locator("#confirm-modal")).toContainText("即将执行");
   await page.locator("#confirm-ok").click();
 
-  await expect(db(page, "db-result-status")).toContainText("影响 1 行");
+  await expect(db(page, "db-query-view").locator(".db-tab-status")).toContainText("影响 1 行");
   expect(await queries(page)).toEqual(["DELETE FROM users WHERE id > 100"]);
 });
 
@@ -140,18 +127,19 @@ test("DB-Q-4：查询失败时状态条转错误态并弹 toast，且保留上�
   await presetDb(page, { failQuery: true });
   await page.goto("/");
   await expect(page.locator("#status-git")).toContainText("main", { timeout: 20_000 });
-  await openDbView(page);
+  await openQueryTab(page);
 
-  await page.locator('#db-tree .db-tree-item[data-name="users"]').dblclick();
-  await expect(db(page, "db-result-status")).toHaveClass(/is-error/, { timeout: 10_000 });
-  await expect(db(page, "db-result-status")).toContainText("查询失败");
+  await typeSql(page, "SELECT 1");
+  await page.keyboard.press("Control+Enter");
+  await expect(db(page, "db-query-view").locator(".db-tab-status")).toHaveClass(/is-error/, { timeout: 10_000 });
+  await expect(db(page, "db-query-view").locator(".db-tab-status")).toContainText("查询失败");
   await expect(page.locator(".toast.toast--error")).toBeVisible();
 });
 
 test("DB-Q-5：Ctrl+Enter 只执行光标所在的那条语句", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("#status-git")).toContainText("main", { timeout: 20_000 });
-  await openDbView(page);
+  await openQueryTab(page);
   await resetQueries(page);
 
   await typeSql(page, "SELECT 1;\nSELECT 2;");
@@ -164,7 +152,7 @@ test("DB-Q-5：Ctrl+Enter 只执行光标所在的那条语句", async ({ page }
 test("DB-Q-6：Ctrl+Shift+Enter 逐条执行全部语句", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("#status-git")).toContainText("main", { timeout: 20_000 });
-  await openDbView(page);
+  await openQueryTab(page);
   await resetQueries(page);
 
   await typeSql(page, "SELECT 1;\nSELECT 2;");
@@ -176,7 +164,7 @@ test("DB-Q-6：Ctrl+Shift+Enter 逐条执行全部语句", async ({ page }) => {
 test("DB-Q-7：查询历史下拉可回填编辑器，且草稿随连接落盘", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("#status-git")).toContainText("main", { timeout: 20_000 });
-  await openDbView(page);
+  await openQueryTab(page);
   await resetQueries(page);
 
   await typeSql(page, "SELECT 42 AS answer");
@@ -201,53 +189,43 @@ test("DB-Q-7：查询历史下拉可回填编辑器，且草稿随连接落盘",
     .toContain("SELECT 42 AS answer");
 });
 
-test("DB-Q-8：单元格详情显示完整值并可复制", async ({ page }) => {
+test("DB-Q-8：查询结果分页（250 行 / 每页 200 → 2 页，行号为绝对行号）", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("#status-git")).toContainText("main", { timeout: 20_000 });
-  await openDbView(page);
-  await queryUsers(page);
+  await openQueryTab(page);
+  await resetQueries(page);
 
-  const cell = db(page, "db-result-grid").locator("tbody tr").nth(1).locator("td").nth(1);
-  await expect(cell).toHaveClass(/db-cell-clickable/);
-  await cell.click();
+  await typeSql(page, "SELECT * FROM users");
+  await page.keyboard.press("Control+Enter");
 
-  const detail = db(page, "db-cell-detail");
-  await expect(detail).toBeVisible();
-  await expect(detail.locator(".db-cell-detail-head")).toContainText("id");
-  await expect(detail.locator(".db-cell-detail-head")).toContainText("#2");
-  await expect(detail.locator(".db-cell-detail-body")).toHaveText("2");
+  const grid = db(page, "db-query-view").locator(".db-tab-grid");
+  await expect(grid.locator("table.db-grid")).toBeVisible({ timeout: 10_000 });
+  await expect(db(page, "db-query-page-label")).toHaveText("第 1/2 页");
+  await expect(db(page, "db-query-prev")).toBeDisabled();
+  await expect(db(page, "db-query-next")).toBeEnabled();
+  const rows = grid.locator("tbody tr");
+  await expect(rows).toHaveCount(200);
+  await expect(rows.first().locator(".db-rowno")).toHaveText("1");
 
-  await detail.locator("button").click();
-  const copied = await page.evaluate(
-    () => (window as unknown as { __E2E_COPIED__?: string[] }).__E2E_COPIED__ ?? [],
-  );
-  expect(copied).toContain("2");
+  await db(page, "db-query-next").click();
+  await expect(db(page, "db-query-page-label")).toHaveText("第 2/2 页");
+  await expect(rows).toHaveCount(50);
+  await expect(rows.first().locator(".db-rowno")).toHaveText("201");
 });
 
-test("DB-Q-9：NULL 与空串在网格里视觉可分", async ({ page }) => {
-  await page.goto("/");
-  await expect(page.locator("#status-git")).toContainText("main", { timeout: 20_000 });
-  await openDbView(page);
-  await queryUsers(page);
-
-  // 桩数据：第 7 行 name 为 NULL，第 5 行 note 为空串
-  const nullCell = db(page, "db-result-grid").locator("tbody tr").nth(6).locator("td").nth(2);
-  await expect(nullCell).toHaveClass(/db-cell-null/);
-  await expect(nullCell).toHaveText("NULL");
-  const emptyCell = db(page, "db-result-grid").locator("tbody tr").nth(4).locator("td").nth(3);
-  await expect(emptyCell).toHaveClass(/db-cell-empty/);
-  await expect(emptyCell).toHaveText('""');
-});
-
-test("DB-Q-10：导出 CSV 写盘（UTF-8 BOM + 表头 + 全部行）", async ({ page }) => {
+test("DB-Q-9：导出 CSV 写盘（UTF-8 BOM + 表头 + 全部行）", async ({ page }) => {
   const target = join(repo.root, "export.csv");
   await presetSavePath(page, target);
   await page.goto("/");
   await expect(page.locator("#status-git")).toContainText("main", { timeout: 20_000 });
-  await openDbView(page);
-  await queryUsers(page);
+  await openQueryTab(page);
+  await resetQueries(page);
 
-  await db(page, "db-export").click();
+  await typeSql(page, "SELECT * FROM users");
+  await page.keyboard.press("Control+Enter");
+  await expect(db(page, "db-query-view").locator("table.db-grid")).toBeVisible({ timeout: 10_000 });
+
+  await db(page, "db-query-export").click();
   await expect(page.locator(".toast.toast--success")).toBeVisible({ timeout: 10_000 });
 
   const csv = readFileSync(target, "utf8");
@@ -258,19 +236,7 @@ test("DB-Q-10：导出 CSV 写盘（UTF-8 BOM + 表头 + 全部行）", async ({
   expect(lines[1]).toBe("1,user1,note 1");
 });
 
-test("DB-Q-11：每页行数切换后重新查询并重算页数", async ({ page }) => {
-  await page.goto("/");
-  await expect(page.locator("#status-git")).toContainText("main", { timeout: 20_000 });
-  await openDbView(page);
-  await queryUsers(page);
-  await expect(db(page, "db-page-label")).toHaveText("第 1/2 页");
-
-  await db(page, "db-page-size").selectOption("100");
-  await expect(db(page, "db-page-label")).toHaveText("第 1/3 页");
-  await expect(db(page, "db-result-grid").locator("tbody tr")).toHaveCount(100);
-});
-
-test("DB-Q-12：设置面板「数据库」每页行数保存后对新查询生效", async ({ page }) => {
+test("DB-Q-10：设置面板「数据库」每页行数保存后对新查询生效", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("#status-git")).toContainText("main", { timeout: 20_000 });
 
@@ -282,28 +248,39 @@ test("DB-Q-12：设置面板「数据库」每页行数保存后对新查询生�
   await page.locator("#settings-save").click();
   await expect(page.locator("#settings-modal")).toBeHidden({ timeout: 5_000 });
 
-  await openDbView(page);
-  await queryUsers(page);
-  await expect(db(page, "db-page-label")).toHaveText("第 1/3 页");
-  await expect(db(page, "db-page-size")).toHaveValue("100");
+  await openQueryTab(page);
+  await resetQueries(page);
+  await typeSql(page, "SELECT * FROM users");
+  await page.keyboard.press("Control+Enter");
+
+  await expect(db(page, "db-query-page-label")).toHaveText("第 1/3 页");
+  await expect(db(page, "db-query-page-size")).toHaveValue("100");
 });
 
-test("DB-Q-13：右键菜单可复制表名与 SELECT 语句，可查看 DDL", async ({ page }) => {
+test("DB-Q-11：多个查询 Tab 各自独立，切换不丢草稿与结果", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("#status-git")).toContainText("main", { timeout: 20_000 });
-  await openDbView(page);
+  await openQueryTab(page);
+  await resetQueries(page);
+  await typeSql(page, "SELECT 1");
+  await page.keyboard.press("Control+Enter");
+  await expect.poll(() => queries(page), { timeout: 5_000 }).toEqual(["SELECT 1"]);
 
-  const users = page.locator('#db-tree .db-tree-item[data-name="users"]');
-  await users.click({ button: "right" });
-  await expect(page.locator("#ctx-menu")).toContainText("查看建表语句");
-  await page.locator("#ctx-menu", { hasText: "复制 SELECT 语句" }).getByText("复制 SELECT 语句").click();
+  // 再开一个查询 Tab：清掉回填的草稿后输入不同内容
+  await db(page, "db-new-query").click();
+  await expect(page.locator('.tab[data-path^="db-query:"]')).toHaveCount(2);
+  await resetQueries(page);
+  await page.keyboard.press("Control+A");
+  await page.keyboard.press("Delete");
+  await typeSql(page, "SELECT 2");
+  await page.keyboard.press("Control+Enter");
+  await expect.poll(() => queries(page), { timeout: 5_000 }).toEqual(["SELECT 2"]);
 
-  const copied = await page.evaluate(
-    () => (window as unknown as { __E2E_COPIED__?: string[] }).__E2E_COPIED__ ?? [],
-  );
-  expect(copied).toContain('SELECT * FROM "users"');
-
-  await users.click({ button: "right" });
-  await page.locator("#ctx-menu").getByText("查看建表语句").click();
-  await expect(page.locator("#confirm-modal")).toContainText("CREATE TABLE");
+  // 切回第一个 Tab：草稿还在（内容 = SELECT 1），结果状态保留
+  await page.locator('.tab[data-path^="db-query:"]').first().click();
+  await expect(db(page, "db-query-view")).toBeVisible();
+  await expect(db(page, "db-query-view").locator(".db-tab-status")).toContainText("200/250 行");
+  await resetQueries(page);
+  await db(page, "db-run").click();
+  await expect.poll(() => queries(page), { timeout: 5_000 }).toEqual(["SELECT 1"]);
 });

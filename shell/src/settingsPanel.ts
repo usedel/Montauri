@@ -23,7 +23,7 @@ import { renderPluginsTab } from "./extensions/pluginsTab";
 import { lintActiveFile, normalizeSeverity } from "./ruffLint"; // D-4：映射保存后立即重查当前文件
 import { refreshPydanticDiagnostics } from "./pydanticDiagnostics"; // 阶段 4：开关保存后即时生效
 import { refreshSplitEditorOptions } from "./splitEditor"; // C-4：分屏编辑器参数同步（splitEditor 不 import 本模块，无环）
-import { refreshDbSqlOptions } from "./sqliteView"; // B3：数据库 SQL 编辑器参数同步（sqliteView 不 import 本模块，无环）
+import { refreshDbSqlOptions } from "./sqliteTabs"; // B3：数据库 SQL 编辑器参数同步（sqliteTabs 不 import 本模块，无环）
 // UI-26：主题选择改自绘预览色卡（原生 <option> 放不下色卡），值读写经 themePicker
 import { getSelectedTheme, setSelectedTheme, wireThemePicker } from "./themePicker";
 // UI-25：欢迎页快捷键网格跟随键位系统，改键保存后需刷新

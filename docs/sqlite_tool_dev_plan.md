@@ -1,11 +1,12 @@
 # SQLite 数据库工具 · 开发文档（B3）
 
-> 版本：v1.2 · 日期：2026-10-02 · 状态：**PR-1 ~ PR-4 已实施并复核，§10.3 真机手测已完成**（发现并修复 2 个真机 bug；代码未提交，待复核）
-> 上游：候选池见 `docs/improvement_and_roadmap_report.md` §3 B3；PR 级总览见 `docs/toolbox_dev_plan.md` §4。
+> 版本：v1.4 · 日期：2026-10-02 · 状态：**v1.4 迭代 3（编辑器 Tab 化重设计）已落地，门禁全绿，待真机手测**（方案见 §17）；v1.0（PR-1~4）与 v2.0（宽屏态，**已被 §17 取代并拆除**）为历史存档（§9 / §16）。
+> 上游：候选池见 `docs/improvement_and_roadmap_report.md` §3 B3。**本文档是 B3 的唯一真源**——原 PR 级总览所在的 `docs/toolbox_dev_plan.md` §4 已于 2026-10-02 随 B3 迁出，那里只留一个指向本文档的空壳章。
 > 冲突时以 `docs/python_ide_dev_plan_v2.md` 为准并反馈修订本文档。
 > **如何使用**：第 3 章是交互设计（照做），第 4~6 章是数据契约与实现（照抄），第 7~8 章是词条与样式（照填），第 9 章是排期 + **逐 PR 实施记录**（照走 / 复核），第 10~11 章是测试与门禁（照验）。第 14 章附录 A 是代码位置速查。
-> 事实底座：全部落点于 2026-10-02 回代码核实（含 file:line）。HEAD `44c85ea`，分支 `master`。
-> **复核入口**：§9.1 / §9.2 / §9.3 / §9.4 是四个 PR 的实施记录；§9.4 末尾列了 e2e 抓到的两个真 bug 与修法；§10.3 是**尚未执行**的真机手测清单。
+> **迭代 2（v2.0 · 宽屏态）独立成章**：第 16 章是完整方案（背景 / 决策 / 布局 / **详细交互** / 接线 / i18n / 样式 / 测试 / 排期 / 风险），照做即可开工。第 3~8 章的**侧栏态**设计在 v2.0 中继续有效，宽屏态是叠加在其上的第二种呈现；两处冲突时，宽屏态以 §16 为准、侧栏态仍以 §3 为准。
+> 事实底座：v1.0 落点于 2026-10-02 回代码核实（含 file:line），HEAD `44c85ea`；v2.0 落点于 2026-10-02 回代码核实（含 file:line），工作区含未提交的 v1.0 改动。
+> **复核入口**：§9.1 / §9.2 / §9.3 / §9.4 是四个 PR 的实施记录；§9.4 末尾列了 e2e 抓到的两个真 bug 与修法；§10.3 是真机手测清单（已执行 13/13 PASS）；§15 是复核与真机验收记录；**§16.13 / §16.14 是迭代 2 的 PR 实施记录**（含 4 个实施期踩坑 + 门禁实测数据）。
 
 ---
 
@@ -20,6 +21,10 @@
 | 量级 | **8~10 人日，4 个 PR** |
 | 最大风险 | `bundled` 需在 CI（windows-latest / MSVC）编译 SQLite C 源码 → **PR-1 只做"加依赖 + 空壳 + 跑 CI"，风险前置** |
 | 交付状态 | ✅ **PR-1 ~ PR-4 全部实施并复核**（tsc 0 错 / vitest 994 / cargo db_ 33 / e2e 59 / 真机 §10.3 13 项全 PASS）；⏳ CI 待推送后观察；**未提交代码** |
+| **迭代 2（v2.0）形态** | 新增**宽屏态**：数据库工具浮出到编辑器区域，改两栏（对象树 ｜ SQL 编辑器 + 结果网格），网格不再裁列，并隐藏文件 chrome（`#tabbar` / `#breadcrumbs`）。**点 Activity Bar「数据库」图标默认直接进宽屏**；`Esc` / ⛶ / 占位块按钮 / `Ctrl+Tab` / 点其它图标 / 命令面板退出，退出后落在侧栏态（窄窗口下进不去宽屏时也停在侧栏态） |
+| **迭代 2 量级** | **2.5 人日 / 2 个 PR（PR-5 · PR-6）**，完整方案见 §16 |
+| **迭代 2 最大风险** | `#view-database` 在侧栏与宽屏宿主之间迁移（DOM 移动）导致 Monaco 尺寸/焦点异常；`#editor` 显隐与 diff 宿主互踩 |
+| **迭代 2 状态** | 🚧 **PR-5 + PR-6 代码已落地**（一次做完），待 e2e / 回归门禁与真机手测；实施记录见 §16.13 / §16.14 |
 
 ---
 
@@ -818,6 +823,8 @@ mock 桩实际位置在 `e2e/mocks/tauri-mock.js` 的 `dbHandle()`（**纯 JS**�
 6. 排序/筛选请用 SQL（网格不做客户端排序）；
 7. 同时只维护一个活跃连接。
 
+**迭代 2 补充否决（详见 §16.2）**：抬高 `SIDEBAR_MAX` 到 480px 以上（会抢编辑区宽度，并破坏 `style.css:607-616` 的 UI-23 三栏下限体系）；把数据库工具升级为编辑器 tab（`kind:"sql"`，改动面大，且要重踩「虚拟路径污染 LSP」的坑）。另：宽屏态**不跨会话恢复**（§16.4.2 不变式 I4），宽屏态下**看不到文件树与代码**（§16.12 已知边界 7）。
+
 ---
 
 ## 14. 附录
@@ -845,6 +852,13 @@ mock 桩实际位置在 `e2e/mocks/tauri-mock.js` 的 `dbHandle()`（**纯 JS**�
 | i18n 域示例 | `src/i18n/locales/zh-CN/endpoints.ts`；聚合 `zh-CN/index.ts:30,33` |
 | 侧栏宽度与拖拽 | `layout.ts:68 toggleSidebar`、`:73 restoreLayout`、`:124 wireSplitters`；CSS `--sidebar-w` |
 | E2E | 域目录 `shell/e2e/{git,ux,dx,editor,lsp,libs,p3,p4,session,autosave,perf,debug,plugins}`；`helpers.ts:831 equipPage`；mock `e2e/mocks/tauri-mock.js:57` |
+| **编辑器区浮层宿主范式**（迭代 2 照抄） | `#git-diff-panel`：`style.css:4008`（`position:absolute; inset:0; z-index:20`）+ `git.ts:962 presentDiffHost` / `:976 dismissDiffHost`（与 `#editor` 互斥显隐）；父容器 `#editor-row { position: relative }` `style.css:1128` |
+| **侧栏视图注册 / onHide 钩子**（迭代 2 依赖，`views.ts` 零改动） | `views.ts:7-17`（接口，`onHide` 已在）、`:47-71`（`setSidebarTab`：**先**跑「隐藏所有根」loop，**后**跑旧视图 `onHide` —— 退出宽屏依赖这个顺序，见 §16.4.5） |
+| **分隔条拖拽基建** | `layout.ts:107 startDrag`（模块私有）、`:124 wireSplitters`（`main.ts:2418` 调用，**早于** `initDbView()` 的 `main.ts:2491`） |
+| **全局隐藏类** | `.hidden { display: none !important }` `style.css:310` |
+| **`#md-preview` 与悬浮按钮的层级** | `#md-preview` 是 `flex:none; width:var(--mdpreview-w,420px)` 的**布局占位**兄弟（`style.css:1179-1191`，无 `z-index`）→ 宽屏态下虽被 `z-index:20` 的面板盖住，但仍占着 420px 行宽；`#btn-md-preview` / `#btn-md-export` 是 `position:absolute; z-index:30`（`style.css:1243-1246`）→ **会浮在宽屏面板（20）之上**。两者都必须用 `.db-wide-on` 压制（§16.8） |
+| **侧栏内容容器** | `#view-container { flex:1; display:flex; flex-direction:column }` `style.css:2767` |
+| **迭代 2 新增 DOM** | `#db-wide-panel`（`index.html` 的 `#editor-row` 内）、`#db-wide-placeholder`（`#view-container` 内）；codicon `screen-full` / `screen-normal` 已核实存在于 `@vscode/codicons` |
 
 ### B · 开工前检查清单（按顺序）
 
@@ -854,6 +868,12 @@ mock 桩实际位置在 `e2e/mocks/tauri-mock.js` 的 `dbHandle()`（**纯 JS**�
 4. [x] 图标检查**已完成（2026-10-02）**：`codicon-database` 在 `@vscode/codicons` 中存在（备选 `codicon-table` 同样存在）；
 5. [ ] PR-1 先跑一次空壳 CI，记录构建耗时基线（用于判断 bundled 是否可接受）；
 6. [x] 准备真机测试数据（§10.3 第 1 条的造数脚本，可放 `bench/` 或临时目录）——已落 `scripts/_tmp/make_db_fixture.py`。
+
+**迭代 2（v2.0）开工前追加（2026-10-02）**：
+
+7. [x] id 前缀冲突检查**已完成**：`db-wide-panel` / `db-wide-placeholder` / `db-wide-splitter` / `db-wide-toggle` / `db-wide-exit` 在 `index.html` 与 `src/*.ts` 中零命中，可安全使用；
+8. [ ] **先读 §16.4.5 的两处顺序陷阱**（`setSidebarTab` 的 loop 早于 `onHide`；`exitDbWide()` 在 `activateTab` 里必须位于 diff 分支之前）——这是本迭代最容易写错的地方；
+9. [ ] 跑 mock e2e 前**先杀掉 5173 上的 vite**（D-008 陈旧 dev server 会让用例拿到第二个模块实例，症状是「点了没反应」这类假 bug）。
 
 ---
 
@@ -894,3 +914,614 @@ mock 桩实际位置在 `e2e/mocks/tauri-mock.js` 的 `dbHandle()`（**纯 JS**�
 - Node 探测文件锁用 `fs.openSync(p, 'r+')`——**没有 `'r+b'` 这个 flag**，传错只会抛 `ERR_INVALID_ARG_VALUE`，会把「文件空闲」误判为「被占用」；
 - Monaco 建议弹层（`monaco-highlighted-label`）会拦截后续按钮点击：输入 SQL 后先 `Escape`；
 - 原生保存对话框 SendKeys 自动化约 2/3 成功率，带 `{ESC}` 兜底 + 重试循环即可稳定。
+
+---
+
+## 16. 迭代 2 · 宽屏态（v2.0）
+
+> **状态：⚠️ 已被 §17（v1.4 编辑器 Tab 化重设计）整体取代并拆除（2026-10-02）**。
+> 宽屏 DOM 搬移 hack（`#db-wide-panel` / `enterDbWide` / 三态图标）已从代码库移除，本章仅作决策存档保留。
+> **触发**：v1.0 交付后真机实测反馈——「数据库面板非常狭窄，查看和操作都不方便」。
+> **本章是迭代 2 的唯一真源**。与 §3~§8 冲突时：宽屏态以本章为准；侧栏态仍以 §3~§8 为准（宽屏态是叠加的第二种呈现，不替换侧栏态）。
+
+### 16.1 问题与根因（回代码核实）
+
+**症状**：侧栏态下结果网格只能看到 3 列；短窗口要整面板滚动才够得到分页条。
+
+**根因（三条硬约束，调参解决不了）**：
+
+| # | 事实 | 落点 |
+|---|---|---|
+| 1 | 侧栏宽度硬上限 480px、默认 280px | `layout.ts:16 SIDEBAR_MAX = 480`、`:17 SIDEBAR_DEF = 280`；`style.css:619-627 #sidebar { width: 280px; min-width: 180px }` |
+| 2 | 网格列数 = `max(3, min(n, floor((容器宽 − 48) / 110)))` → **280px 与 480px 都只能渲染 3 列** | `sqliteGrid.ts:104-115`（`ROWNO_W=48` / `MIN_COL_W=110` / `MIN_VISIBLE_COLS=3`）；`floor((480−48)/110) = 3` |
+| 3 | 四段最小高 40+120+140+160 = **460px** > 720px 窗口下侧栏可用高约 **380px** → 只能整面板滚动 | `style.css:2251`（树 min 120）/`:2256`（SQL 140）/`:2259`（结果 min 160）→ `style.css:2217 #view-database { overflow-y: auto }`（即 §9.4 bug 1 的妥协方案） |
+
+**结论**：把「对象树 + SQL 编辑器 + 结果网格」三件**面积优先**的控件塞进侧栏，必然失败。§3.1 的「窄栏裁列」规则本身就是这个错误前提的产物——用户要看的恰恰是被裁掉的那 9 列。
+
+### 16.2 方案决策
+
+| 方案 | 可用面积 | 改动面 | 结论 |
+|---|---|---|---|
+| A 继续在侧栏内优化（默认折叠 / 调 min-height / 虚拟滚动） | 天花板仍是 480 × 可用高 | 极小 | ❌ **否决**：治标，实测已证明不够用 |
+| **B 侧栏 + 宽屏态（浮出到编辑器区，两栏）** | **编辑区宽（窗口 − 侧栏 280 − 右面板）× 全高** | **小（2 个 PR）** | ✅ **采用** |
+| C 底部面板加第 6 个 tab | 全宽 × ≤60% 视口高 | 中 | ❌ 否决：与「Activity Bar → 侧栏视图」心智模型冲突；高度仍受限；照样要重排两栏 |
+| D 升级为编辑器 tab（`kind:"sql"`） | 编辑区（最大） | 大 | ❌ 本轮否决（§2.3 已评估）：要扩 Tab 模型 / `activateTab` / `closeTabSilent` 分支 / session 快照排除 / LSP 跳过，且 diff tab 迁移时正踩过「虚拟路径污染 LSP」。**若 B 的取舍（§16.12 边界 7）长期不可接受，D 是下一步** |
+
+**为什么选 B（复用 `#git-diff-panel` 范式）**：`#git-diff-panel` 已经证明「在 `#editor-row` 内 `position:absolute; inset:0; z-index:20` + 与 `#editor` 互斥显隐」这套做法在本项目可行（`style.css:4008`、`git.ts:962 presentDiffHost` / `:976 dismissDiffHost`），且父容器 `#editor-row` 已是 `position: relative`（`style.css:1128`）。照抄即可：**不新增 overlay/z-index 体系，不改 `views.ts` 的切换 loop，不动 tab 模型**。
+
+**已定案（2026-10-02，产品负责人拍板）**：
+
+1. 采用 **B**（侧栏 + 宽屏态）；
+2. 宽屏态**不跨会话恢复**（§16.4.2 I4）；
+3. 侧栏态保留为**入口与默认态**，§3 的交互设计不变。
+
+### 16.3 布局与区域
+
+宽屏态下 `#view-database` 的 grid 分区（只画本视图；它在页面里的位置见下）：
+
+```
+┌ #db-wide-panel（#editor-row 内 · position:absolute · inset:0 · z-index:20）───┐
+│ ┌ #view-database.db-wide（display:grid）───────────────────────────────────┐ │
+│ │ #db-toolbar   [连接▾] [＋][🗑][🔒][⟳][⋯][⛶]      ← grid-area: toolbar   │ │
+│ ├──────────────────────────────────────────────────────────────────────────┤ │
+│ │ #db-write-banner（仅可写时显示）                  ← grid-area: banner    │ │
+│ ├─────────────────────┊───────────────────────────────────────────────────┤ │
+│ │ #db-tree-wrap       ┊ #db-sql-wrap        ← grid-area: sql（固定 140px） │ │
+│ │  对象树 / 视图 / 索引┊   #db-sql-host（Monaco 第二实例，height:100%）    │ │
+│ │                     ┊ ├──────────────────────────────────────────────────┤ │
+│ │ 默认 240px          ┊ #db-result-wrap     ← grid-area: result（1fr）     │ │
+│ │ 可拖 180~480        ┊   #db-result-status                                │ │
+│ │ ← grid-area: tree   ┊   #db-result-grid（横向 + 纵向滚动，sticky 表头）  │ │
+│ │   跨第 3~4 行       ┊   #db-pager / #db-cell-detail                      │ │
+│ └─────────────────────┊───────────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────────────────────────────────┘
+   ┊ = #db-wide-splitter（4px，cursor: col-resize；侧栏态不显示）
+```
+
+宽屏态下页面的其余部分（三个要点，不画细节）：
+
+1. `#sidebar`（280px）仍在原位，但内容区只剩 `#db-wide-placeholder`（占位块，见 §16.4.9）——因为侧栏激活视图是 database，而 `#view-database` 已被移出；
+2. `#tabbar` 与 `#breadcrumbs` **隐藏**（`#center.db-wide-on` 的 `display:none`）——它们是文件 chrome，且是 `#center` 的**直接子节点**、位于 `#editor-row` 之外，浮层的 `inset:0` 盖不到，必须显式隐藏。理由见 §16.4.2 的 **I7**；
+3. `#editor` 带 `.hidden`（与 `#git-diff-panel` 的互斥语义同款）；`#bottom`（终端 / 输出）不受影响、照常可用。
+
+**区域规则**：
+
+| 区域 | 宽屏态规则 |
+|---|---|
+| 宿主 | `#db-wide-panel`（`#editor-row` 内，`position:absolute; inset:0; z-index:20; background:var(--bg)`），默认 `.hidden` |
+| `#view-database` | 加 `.db-wide`；**`overflow: hidden`**（撤销 `style.css:2217` 的整面板滚动——宽屏下高度足够，且外层滚动会让 sticky 表头失效） |
+| `#db-toolbar` | 横跨整行（`auto` 高）；**复用同一 DOM，不重建** |
+| `#db-tree-wrap` | 第 1 列，跨第 3~4 行；`min-height: 0`（撤销 120px 下限）；默认宽 240px |
+| `#db-wide-splitter` | 第 2 列（4px），跨第 3~4 行；`cursor: col-resize` |
+| `#db-sql-wrap` | 第 3 行第 3 列，固定 140px；`.db-sql-host { height: 100% }` |
+| `#db-result-wrap` | 第 4 行第 3 列，`minmax(0, 1fr)`；`min-height: 0`（撤销 160px 下限） |
+| `#db-cell-detail` | 仍在 `#db-result-wrap` 内，占一行（`auto`） |
+
+grid 定义（写进 `style.css`）：
+
+```css
+#view-database.db-wide {
+  display: grid;
+  grid-template-columns: var(--db-tree-w, 240px) 4px minmax(0, 1fr);
+  grid-template-rows: auto auto 140px minmax(0, 1fr);
+  grid-template-areas:
+    "toolbar toolbar toolbar"
+    "banner  banner  banner"
+    "tree    split   sql"
+    "tree    split   result";
+  overflow: hidden;
+}
+#view-database.db-wide > #db-toolbar      { grid-area: toolbar; }
+#view-database.db-wide > #db-write-banner { grid-area: banner; }
+#view-database.db-wide > #db-tree-wrap    { grid-area: tree; min-height: 0; }
+#view-database.db-wide > #db-wide-splitter{ grid-area: split; }
+#view-database.db-wide > #db-sql-wrap     { grid-area: sql; }
+#view-database.db-wide > #db-result-wrap  { grid-area: result; min-height: 0; }
+#view-database.db-wide .db-sql-host       { height: 100%; min-height: 0; }
+#view-database.db-wide #db-sql-body       { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+
+/* 宽屏态下段折叠停用（§16.4.10）：grid 的行高列宽固定，折叠只会在布局里留下死空间；
+   且树段一旦折叠，重新展开的入口就在被隐藏的那一列里。故宽屏态两段恒展开、段头锁定。
+   锁定的语义标记由 sqliteView.ts::setSectionLocked() 写入（aria-disabled + 本类），
+   实际拦截在 section() 的 click / dblclick handler（它们检查 dbWide）。 */
+#view-database.db-wide .db-section-header.db-section-locked {
+  cursor: default;
+  pointer-events: none;
+}
+#view-database.db-wide .db-section-header.db-section-locked:hover { background: transparent; }
+
+/* 分隔条：侧栏态不显示（照 #split-splitter / #md-splitter 范式，不复用 .splitter 的 absolute 定位） */
+#db-wide-splitter { display: none; }
+#view-database.db-wide #db-wide-splitter { display: block; }
+```
+
+> `#db-write-banner` 为 `.hidden` 时 `display:none`，`banner` 行（`auto`）塌陷为 0 高，不占位。✅
+
+**宽度下限与降级**：
+
+- `DB_WIDE_MIN = 560`（px，判定 `#editor-row.clientWidth`）。来历：对象树下限 180 + 分隔条 4 + 右栏下限 320（320 ≈ 一行 60 字符 SQL 不折行）。
+- 编辑区宽 < `DB_WIDE_MIN` 时：侧栏态下 `#db-wide-toggle` **disabled** + tip（`database.wideTooNarrow`）；已在宽屏态则**自动退出** + `toast` 一次（`database.wideAutoExit`）。
+- 判定时机：`enterDbWide()` 入口 + `watchDbWide()`（`ResizeObserver` 观察 `#editor-row`，`initDbView()` 时挂一次）。
+
+### 16.4 交互设计（详细）
+
+#### 16.4.1 术语
+
+| 术语 | 含义 |
+|---|---|
+| **侧栏态（docked）** | 默认态。`#view-database` 的父节点是 `#view-container`，四段竖排（§3.1 不变）。 |
+| **宽屏态（wide）** | `#view-database` 的父节点是 `#db-wide-panel`，两栏（§16.3）。 |
+
+#### 16.4.2 不变式（必须成立，e2e 逐条锁定）
+
+| # | 不变式 |
+|---|---|
+| **I1** | 宽屏态成立 ⇒ 侧栏激活视图 === `"database"` |
+| **I2** | 宽屏态成立 ⇒ `#db-wide-panel` 无 `.hidden`，且 `#editor` 带 `.hidden` |
+| **I3** | `#view-database` 任一时刻只有一个父节点（`#view-container` 或 `#db-wide-panel`） |
+| **I4** | 宽屏态**不跨会话恢复**：启动恒为侧栏态（避免「一开机编辑器就被盖住」） |
+| **I5** | 进入/退出宽屏**不改变任何数据状态**：`activeId` / `objects` / `result` / `pageSize` / SQL 草稿与历史 / 段折叠全部保留 |
+| **I6** | 宽屏态下 `#md-preview`、`#md-splitter`、`#btn-md-preview`、`#btn-md-export`、`#split-editor-panel`、`#split-splitter` 均不显示（由 `#editor-row.db-wide-on` 的 CSS 压制，**不改这些模块自身的状态**，退出后自然恢复） |
+| **I7** | 宽屏态下 `#tabbar`、`#breadcrumbs` 均不显示（由 `#center.db-wide-on` 的 `display:none` 压制，**不改 tabs / breadcrumbs 模块自身的状态**，退出后自然恢复）。理由：两者是 `#center` 的**直接子节点**、在 `#editor-row` 之外，浮层 `inset:0` 盖不到 → 不显式隐藏就会出现「全屏下仍有一条活动文件标签悬在数据库面板上方」；用 `display:none` 而非让浮层遮挡，顺带把两者移出 tab 焦点链 |
+
+#### 16.4.3 进入宽屏（`enterDbWide()`）
+
+**触发点（2 条）**：
+
+| 入口 | 说明 |
+|---|---|
+| E1 | 工具条 `#db-wide-toggle` 点击 |
+| E2 | 命令面板 `database.toggleWide`（其 `run` 先 `setSidebarTab("database")`，见 §16.4.7） |
+
+**流程（顺序敏感，照抄）**：
+
+1. 若 `isDbWide()` → no-op（幂等）。
+2. 若 `#editor-row.clientWidth < DB_WIDE_MIN` → `toast(database.wideTooNarrow)`，return。
+3. `$("view-database").classList.remove("hidden")` —— **必须先移除**：命令面板路径下它可能是隐藏的。
+4. `$("view-database").classList.add("db-wide")` —— **宽屏 grid 的唯一开关**（`style.css` 的 `#view-database.db-wide { display:grid }` 与四段 `grid-area` 全靠它；漏了这一步，面板位置搬对了却仍是四段竖排，且 `#db-wide-splitter` 因基线 `display:none` 永远不显示）。**踩过**：初版漏写，DB-W-8 断言分隔条可见时暴露。
+5. `$("db-wide-panel").appendChild($("view-database"))` —— DOM 移动。`appendChild` 移动节点，**Monaco 实例 / model / 全部事件监听完整保留**。
+6. `$("db-wide-panel").classList.remove("hidden")`；`$("editor").classList.add("hidden")`。
+7. `$("editor-row").classList.add("db-wide-on")`（CSS 压制 md 预览与分屏，见 I6）。
+8. `$("center").classList.add("db-wide-on")`（CSS 隐藏 `#tabbar` / `#breadcrumbs`，见 I7）。
+9. `$("db-wide-placeholder").classList.remove("hidden")`。
+10. 段折叠：快照 `collapsedBeforeWide[id]` → 对 `SECTION_IDS` 全部 `setSectionCollapsed(id, false)` → `setSectionLocked(true)`（§16.4.10 注 1）。
+11. `renderToolbar()`：`#db-wide-toggle` 三态同步（`aria-pressed="true"`、图标 `codicon-screen-full` → `codicon-screen-normal`、`data-tip` / `aria-label` → `t("database.wideExit")`）。
+12. 焦点：`host.contains(document.activeElement)` 为假时 `host.focus({ preventScroll: true })`（§16.4.10 注 2）。
+13. `requestAnimationFrame(() => { sqlEditor?.layout(); renderResult(); })` —— 宽度变了：Monaco 重算尺寸、网格走宽屏分支渲染全部列（§16.6）。
+14. **不写 localStorage**（I4；段折叠的强制展开也只是视觉，不落盘）。
+
+#### 16.4.4 退出宽屏（`exitDbWide()`）
+
+**触发点（7 条）**：
+
+| # | 入口 | 接线位置 |
+|---|---|---|
+| X1 | 工具条 `#db-wide-toggle` 点击 / 占位块的 `#db-wide-exit` 点击 | `sqliteView.ts` 按钮 handler（同一个 `toggleDbWide()`） |
+| X2 | `Esc`（焦点在 `#db-wide-panel` 内） | `#db-wide-panel` 上的局部 `keydown`；**不进键位表**（照 §3.7 先例） |
+| X3 | 命令面板 `database.toggleWide` | `main.ts` 命令表 |
+| X4 | `Ctrl+Tab` / `Ctrl+Shift+Tab` / 命令面板打开文件 / 快速打开选中文件 / `openFile` / 关 tab 后自动激活 | `main.ts::activateTab`，置于 `consumeWelcomeForce()`（`:925`）之后、`tab.kind === "diff"` 分支（`:933`）**之前** |
+| X5 | 点其它 Activity Bar 图标 / 菜单切视图 / `git.ts:3104`、`fileTree.ts:676/779/788` 等程序化 `setSidebarTab` | database 视图注册项的 **`onHide`**（`main.ts:2710-2715` 新增一个字段） |
+| X6 | 切工作区 / 关工作区 | `resetDbView()` 首行（`sqliteView.ts:1120`） |
+| X7 | 编辑区宽 < `DB_WIDE_MIN` | `watchDbWide()` 的 `ResizeObserver` |
+
+**流程（顺序敏感，照抄）**：
+
+1. 若 `!isDbWide()` → no-op（幂等）。
+2. `$("view-database").classList.remove("db-wide")` —— 撤掉宽屏 grid 开关，回到 `display:flex` 的四段竖排。
+3. `$("view-container").appendChild($("view-database"))` —— 移回侧栏（位置 = `#view-container` 末尾，与 `index.html:167` 的原始位置一致）。
+4. `$("db-wide-panel").classList.add("hidden")`。
+5. `$("editor-row").classList.remove("db-wide-on")`；`$("center").classList.remove("db-wide-on")`（还原 `#tabbar` / `#breadcrumbs`，见 I7）。
+6. `$("db-wide-placeholder").classList.add("hidden")`。
+7. **不要碰 `#view-database` 的 `.hidden`**（原因见 §16.4.5 陷阱 1）——显隐的所有权完全归 `setSidebarTab`，`exitDbWide()` 只负责 DOM 归位。
+8. `#editor` 的恢复：**仅当 `#git-diff-panel` 是隐藏的**才 `$("editor").classList.remove("hidden")`（防极端路径压掉 diff 宿主；正常路径由 X4 的位置保证）。
+9. 段折叠还原：`setSectionLocked(false)` → 对 `SECTION_IDS` 按 `collapsedBeforeWide` 快照 `setSectionCollapsed`（§16.4.10 注 1）。
+10. `renderToolbar()`：`#db-wide-toggle` 回 `aria-pressed="false"`、图标回 `codicon-screen-full`、tip 回 `t("database.wideEnter")`。
+11. `requestAnimationFrame(() => { sqlEditor?.layout(); renderResult(); })`。
+12. 焦点：X1/X2/X3 路径 → `$("db-wide-toggle").focus()`；X4 路径 → 不动焦点（`activateTab` 末尾会 `app.editor.focus()`）。
+
+#### 16.4.5 ⚠ 顺序陷阱（最容易写错的两处，开工前必读）
+
+**陷阱 1 · `exitDbWide()` 绝对不能重算 `#view-database` 的 `.hidden`**（X5 路径）
+
+`views.ts:55-63` 先跑「隐藏所有根」的 loop，**再**跑旧激活视图的 `onHide`（`:63`）；而 `activeId` 是在 `:64` 才更新的。于是 X5 路径上：
+
+1. loop 按**新**视图正确设置好所有根的 `.hidden`——`#view-database`（此刻已在 `#db-wide-panel` 内）被加上 `.hidden`；
+2. 随后 `onHide` → `exitDbWide()` → 移回 `#view-container`。
+
+关键点：**第 2 步执行时 `activeId` 还是 `"database"`**（要等 `onHide` 返回后才更新）。所以如果在这里写 `toggle("hidden", activeView() !== "database")`，`activeView()` 会返回 `"database"` → 把 `.hidden` **移除** → 刚被 loop 隐藏的视图又显示出来，侧栏出现「两个视图同时可见」。
+
+→ **正确做法：`exitDbWide()` 完全不触碰 `.hidden`**。逐路径验证都成立：
+- X1/X2/X3（Esc / ⛶ / 命令，激活视图仍是 database）：`.hidden` 从未被动过 → 移回侧栏后可见 ✅
+- X4（`activateTab`）：`.hidden` 未动 → 侧栏仍显示数据库视图（其激活视图没变）✅
+- X5（`setSidebarTab`）：loop 已设 `.hidden` → 保持隐藏 ✅
+- X6（`resetDbView`）：不涉及 `setSidebarTab`，`.hidden` 反映当前激活视图 ✅
+- X7（太窄自动退出）：激活视图是 database → `.hidden` 不存在 ✅
+
+→ 同样**禁止**把退出逻辑放进 `onShow`，也**禁止**依赖 `requestAnimationFrame` 延后；更**禁止**为此修改 `views.ts` 的 loop（本方案对 `views.ts` 是**零改动**，只用它已有的 `onHide` 钩子）。
+
+**陷阱 2 · `exitDbWide()` 在 `activateTab` 里的位置**
+
+必须位于 `consumeWelcomeForce()`（`main.ts:925`）之后、`if (tab.kind === "diff")`（`:933`）之前。原因：`presentDiffHost` 用的也是 `#editor-row` 内的 `z-index:20` 浮层（`style.css:4008`），宽屏面板还在的话两者会叠加。放在 diff 分支之前可保证「切到 diff tab 时先退出宽屏、再由 diff 宿主接管」。
+
+#### 16.4.6 工具条
+
+新增 `#db-wide-toggle`，位置在 `#db-more` **之后**（最右）：
+
+| 态 | 图标 | `aria-pressed` | `data-tip` / `aria-label` |
+|---|---|---|---|
+| 侧栏态（可进入） | `codicon-screen-full` | `false` | `database.wideEnter`「进入宽屏模式」 |
+| 侧栏态（编辑区 < 560px） | `codicon-screen-full` | `false`，**disabled** | `database.wideTooNarrow`「窗口太窄，宽屏模式需要编辑区至少 560px」 |
+| 宽屏态 | `codicon-screen-normal` | `true` | `database.wideExit`「退出宽屏模式（Esc）」 |
+
+- 类名 `btn btn--ghost btn--icon`，与 `#db-writable`（`sqliteView.ts:361-367`）同款。
+- 在 `renderToolbar()`（`:588-605`）里同步，与 `#db-writable` 的同步写法同源。
+- 宽屏态下按钮**自身始终可达**（工具条随 `#view-database` 一起被移入宽屏面板）。
+
+#### 16.4.7 键位与命令面板
+
+| 入口 | id | 默认键 | 说明 |
+|---|---|---|---|
+| 命令面板 | `database.toggleWide` | — | 进入/退出宽屏。`run: () => { setSidebarTab("database"); toggleDbWide(); }` |
+| 面板内 | — | `Esc` | 退出宽屏。`#db-wide-panel` 上的局部 `keydown`；**不进键位表** |
+
+> 照 §3.7 先例：**不新增 `keybindingDefaults.ts` 条目**，无需三处同步与漂移锁。
+> E2 路径的 `setSidebarTab("database")` 在宽屏态下命中 `activeId === id` 早退（`views.ts:50-54`）→ 只触发 `onShow`，**不会**触发 `onHide`，故不会自我退出。✅
+
+#### 16.4.8 状态机
+
+| 当前态 | 事件 | 结果 |
+|---|---|---|
+| docked | 点 ⛶ / 命令 | → wide（E1/E2）；侧栏占位显示；编辑器隐藏 |
+| docked | 编辑区 < 560px | 不变；按钮 disabled（点击不可达） |
+| wide | 点 ⛶ / `Esc` / 命令 | → docked；焦点回 ⛶ |
+| wide | 点文件 tab / `Ctrl+Tab` / 关 tab 自动激活 | → docked；该 tab 激活，编辑器显示 |
+| wide | 点其它 Activity Bar 图标 | → docked；侧栏切到该视图 |
+| wide | 点**同一个** database 图标 | **保持 wide**（`setSidebarTab` 早退 → 只 `onShow` 重渲染） |
+| wide | 切工作区 / 关工作区 | → docked（`resetDbView` 首行） |
+| wide | 编辑区宽 < 560px | → docked + `toast` |
+| wide | 应用退出 / 重开 | → docked（I4） |
+| wide | 窗口最小化 / 恢复 | 不变 |
+
+#### 16.4.9 侧栏占位块
+
+`#db-wide-placeholder`（写在 `index.html` 的 `#view-container` 内、`#view-database`（`:167`）**之后**；默认 `.hidden`）：
+
+```html
+<div id="db-wide-placeholder" class="db-wide-placeholder hidden">
+  <i class="codicon codicon-screen-full" aria-hidden="true"></i>
+  <div data-i18n="database.widePlaceholder" class="db-wide-placeholder-title">数据库工具已在宽屏模式下运行</div>
+  <div data-i18n="database.widePlaceholderHint" class="db-wide-placeholder-hint">正在占用编辑器区域</div>
+  <button data-i18n="database.wideExit2" id="db-wide-exit" class="btn btn--sm">退出宽屏</button>
+</div>
+```
+
+- 必须是 `#view-container` 的**直接子节点**（不能放进 `#view-database`，否则会跟着一起被移走）。
+- 它不是注册视图 → `setSidebarTab` 的 loop 不碰它；显隐完全由 `enterDbWide` / `exitDbWide` 控制。
+- `#db-wide-exit` 点击 = X1（与工具条按钮同一条路径）。
+
+#### 16.4.10 边界与降级
+
+| 场景 | 处理 |
+|---|---|
+| 右侧面板开着 | 宽屏面板在 `#editor-row` 内、右面板在 `#center` 内，两者并列互不遮挡；编辑区变窄，靠 `DB_WIDE_MIN` 兜底。**不做特殊处理** |
+| 分屏（`#split-editor-panel`）开着 | `.db-wide-on` 一并 `display:none`（与 diff tab 的既有处理同款语义，`main.ts:938`）；退出后由 `splitEditor` 自身状态恢复 |
+| Markdown 预览开着 | `.db-wide-on` 压制 `#md-preview` / `#md-splitter` / `#btn-md-preview` / `#btn-md-export`；**不改 `mdPreview` 的状态**，退出后自然恢复 |
+| 有活动文件（`#tabbar` / `#breadcrumbs` 有内容） | 两者由 `#center.db-wide-on` 的 `display:none` 隐藏（I7）——「全屏」下不该出现活动文件标签。**不改 tabs / breadcrumbs 模块的状态**，退出后自然恢复（活动标签仍是原来那个） |
+| diff tab 激活中 | 不可能同时处于宽屏（X4 已退出，见陷阱 2） |
+| 未打开工作区 / 无连接 | 允许进入宽屏（空态在宽屏下提示更宽敞）；`#db-wide-toggle` 不禁用 |
+| 查询进行中 | 允许切换模式；`db_cancel` 与结果保留不受影响（I5） |
+| Monaco 建议弹层开着 | `Esc` 先被 Monaco 消费（`addCommand` 的 Esc 优先级更高）→ 表现为「第一次 Esc 关弹层、第二次退出宽屏」。**可接受，不做特殊处理**（与 §15.4 真机经验一致） |
+| **宽屏态下折叠「对象树」段** | **停用**：宽屏态两段恒展开、段头锁定（`.db-section-locked` + `aria-disabled="true"` + `pointer-events:none`）。理由见下方注 1。实现：`enterDbWide()` 快照 `collapsedBeforeWide` → 强制 `setSectionCollapsed(id, false)` → `setSectionLocked(true)`；`exitDbWide()` 逆序还原（`setSectionLocked(false)` → 按快照还原折叠）。实际拦截在 `section()` 的 `click` / `dblclick` handler（首行 `if (dbWide) return;`） |
+| 段折叠状态跨模式 | 两种模式**共用**同一份 `localStorage["opencharm.db.sections"]`（I5）。宽屏态的强制展开 / 还原**只改视觉、不写 localStorage**——用户的真实偏好始终由侧栏态拥有 |
+| 进入宽屏时的焦点 | `enterDbWide()` 末尾：焦点不在 `#db-wide-panel` 内时把焦点收进面板（`#db-wide-panel` 带 `tabindex="-1"`）。理由见下方注 2 |
+
+> **注 1（为什么宽屏态必须停用段折叠）**：宽屏 grid 的行高（`140px` / `1fr`）与列宽（`--db-tree-w`）是**固定**的，
+> 折叠一段只会让该格空着、不释放空间给邻居；更致命的是树段一旦折叠，**重新展开的入口（段头）就在被隐藏的那一列里**——
+> 用户会卡在一个无法自救的状态。侧栏态没有这个问题（四段竖排、折叠即让出高度），故只有宽屏态停用。
+>
+> **注 2（为什么要收焦点）**：Esc 退出挂在 `#db-wide-panel` 上（局部监听，照 §3.7 先例，不进键位表）。
+> 而最常用的进入路径是「点 Activity Bar 图标」——此时焦点还在图标上，`keydown` 冒泡不到面板，
+> Esc 就成了空按。故进入时把焦点收进面板；`tabindex="-1"` 的容器被程序化聚焦不触发 `:focus-visible`，鼠标用户无感。
+>
+> 宽屏态与侧栏态的行为差异只有三处：**段折叠**（宽屏态停用）、**焦点**（宽屏态进入时收进面板）、**文件 chrome**（`#tabbar` / `#breadcrumbs` 在宽屏态隐藏），即上表最后四行；其余场景两种模式完全同源。
+
+### 16.5 数据契约
+
+**Rust 侧零改动**：§4 的 `DbConnection` / `DbColumn` / `DbObject` / `DbQueryResult` 与 §5 的 8 条命令**全部复用**；无新命令、无新字段、无新错误码。
+
+**前端新增持久化键**：
+
+| 键 | 类型 | 默认 | 说明 |
+|---|---|---|---|
+| `opencharm.db.wide_tree_w` | number（px） | `240` | 宽屏态对象树列宽。越界忽略（照 `layout.ts::readStored` 口径），clamp `[180, 480]` |
+
+> **不新增** `opencharm.db.wide`（宽屏态不持久化，I4）。段折叠继续用 `opencharm.db.sections`（§3.9）。
+
+### 16.6 接线清单（逐文件）
+
+| 文件 | 改动 | 参照 |
+|---|---|---|
+| `shell/index.html` | ① `#view-container` 内、`#view-database`（`:167`）之后加 `#db-wide-placeholder`；② `#editor-row` 内、`#git-diff-panel`（`:234`）**之前**加 `#db-wide-panel`（`class="hidden" tabindex="-1"`，空容器） | `:167` / `:234` |
+| `shell/src/style.css` | ① `.db-wide-*` 段（`#db-wide-panel` / `#db-wide-splitter` / `.db-wide-placeholder`）；② `#view-database.db-wide` 的 grid 与 `.db-section-locked`（§16.3）；③ `#editor-row.db-wide-on > …` 压制规则（§16.8）；④ `.db-toolbar` / `.db-pager` 加 `flex-wrap: wrap`（顺带止血） | `.db-*` 段（`:2206-2354`）；`#git-diff-panel`（`:4008`） |
+| `shell/src/sqliteView.ts` | ① 导出 `enterDbWide` / `exitDbWide` / `isDbWide` / `toggleDbWide`；② `#db-wide-toggle` 按钮（`initDbView` 工具条段，`#db-more` 之后）；③ `#db-wide-splitter` 元素（`initDbView` 的 `root.append(...)`，插在 `treeWrap` 之后）+ 末尾调 `wireDbWideSplitter()`；④ `#db-wide-panel` 的 `keydown`（Esc）；⑤ `setSectionCollapsed` / `setSectionLocked` 两个单一写入点，并接进 `section()` 的 `toggle()` / `dblclick`（首行 `if (dbWide) return;`）与 `restoreDbSections()`；⑥ `renderResult` 宽屏分支（全列）；⑦ `renderToolbar` 同步按钮态；⑧ `resetDbView` 首行加 `exitDbWide()`；⑨ `watchDbWide()`（`ResizeObserver` on `#editor-row`）；⑩ `enterDbWide` 末尾把焦点收进面板 | `initDbView`（`:337-406`）、`renderResult`（`:968-1011`）、`renderToolbar`（`:786-822`）、`resetDbView`、`restoreDbSections` |
+| `shell/src/sqliteGrid.ts` | **零改动**（`visibleColumnCount` 保留；宽屏分支不走它） | — |
+| `shell/src/layout.ts` | ① 新增 `DB_TREE_W_KEY = "opencharm.db.wide_tree_w"` / `DB_TREE_MIN=180` / `DB_TREE_MAX=480` / `DB_TREE_DEF=240`；② 新增 `export function wireDbWideSplitter()`（复用 `startDrag`，写 `--db-tree-w` + localStorage，双击重置）；③ `restoreLayout()` 末尾恢复 `--db-tree-w` | `wireSplitters`（`:124-268`）、`startDrag`（`:107`）、`readStored`（`:61`）、`restoreLayout`（`:73-104`） |
+| `shell/src/main.ts` | ① `activateTab` 加 `exitDbWide()`（`consumeWelcomeForce()` 之后、diff 分支之前）；② database 视图注册项加 `onHide: () => exitDbWide()`（`:2710-2715`）；③ 命令表加 `database.toggleWide`（`:1570` 附近，与 `db_add_connection` 同段） | `:920-968`、`:2710-2715` |
+| `shell/src/views.ts` | **零改动**（只用既有 `onHide` 钩子） | `:7-17` |
+| `shell/src/i18n/` | `database` 域加 9 条（§16.7） | §7 流程 |
+| `shell/e2e/mocks/tauri-mock.js` | **无需新桩**（`db_*` 桩不变；宽屏用例只操作 DOM） | `:57` |
+| `shell/e2e/db/01-connections.spec.ts`、`02-query.spec.ts` | 两处适配：① `openDbView()` 进视图后**显式退回侧栏态**（点图标默认进宽屏了，而这两个文件锁的是 §3 侧栏语义）；② 新增 `expandTree()`，需要点 / 看树的用例先展开（对象树出厂折叠，§16.12） | `01` 的 `openDbView` / `02` 的 `queryUsers` |
+| `shell/e2e/db/03-wide.spec.ts`（新） | DB-W-1..13（§16.9） | `01-connections.spec.ts` |
+
+> **为什么 `wireDbWideSplitter()` 不放 `wireSplitters()`**：`wireSplitters()` 在 `main.ts:2418` 调用，**早于** `initDbView()`（`main.ts:2491`），此时 `#db-wide-splitter` 尚未创建。拖拽逻辑仍归 `layout.ts`（单一真源），只是由 `initDbView()` 末尾触发接线。
+
+### 16.7 i18n（`database` 域新增 9 条）
+
+按 §7 流程产出：改 `shell/tools/i18n/data/database_zh.json`（真源）+ `database_en.json`，再跑
+`python3 tools/i18n/gen_domain.py --domain database`。**勿手改生成文件**。
+
+| key | zh-CN | en-US |
+|---|---|---|
+| `database.wideEnter` | 进入宽屏模式 | Enter wide mode |
+| `database.wideExit` | 退出宽屏模式（Esc） | Exit wide mode (Esc) |
+| `database.wideTooNarrow` | 窗口太窄，宽屏模式需要编辑区至少 560px | Window too narrow — wide mode needs at least 560px of editor width |
+| `database.wideAutoExit` | 编辑区变窄，已退出宽屏模式 | Editor area shrank — wide mode turned off |
+| `database.widePlaceholder` | 数据库工具已在宽屏模式下运行 | Database tool is running in wide mode |
+| `database.widePlaceholderHint` | 正在占用编辑器区域 | Using the editor area |
+| `database.wideExit2` | 退出宽屏 | Exit wide mode |
+| `database.wideTreeAria` | 拖动调整对象树宽度（双击重置） | Drag to resize the object tree (double-click to reset) |
+| `database.cmdToggleWide` | 数据库：切换宽屏模式 | Database: Toggle wide mode |
+
+> 无 `{count}` 占位符 → 不触发 `.one/.other` 复数展开；zh/en 键数应各 +9。
+
+### 16.8 样式（`style.css` 新增段）
+
+| 选择器 | 用途 | 要点 |
+|---|---|---|
+| `#db-wide-panel` | 宽屏宿主 | `position:absolute; inset:0; z-index:20; display:flex; flex-direction:column; min-height:0; background:var(--bg)`（照 `#git-diff-panel` `:4008`） |
+| `#view-database.db-wide` | 两栏 grid | §16.3 的 grid 定义；`overflow:hidden` |
+| `#db-wide-splitter` | 树列分隔条 | 侧栏态 `display:none`；`.db-wide` 下 `display:block; cursor:col-resize;` + `::after` hover 高亮（照 `#split-splitter` / `#md-splitter`，`style.css:1131-1142`） |
+| `#view-database.db-wide .db-section-header.db-section-locked` | 宽屏态段头锁定 | `cursor: default; pointer-events: none`；`:hover` 背景还原（否则鼠标划过仍像可点）。语义标记由 `setSectionLocked()` 写入（`aria-disabled` + 本类），实际拦截在 `section()` 的 `click` / `dblclick`（检查 `dbWide`） |
+| `.db-wide-placeholder` | 侧栏占位块 | `flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:var(--space-2); padding:var(--space-4); text-align:center; color:var(--fg-dim); font-size:var(--text-xs)`；`.db-wide-placeholder-title { color: var(--fg) }` |
+| `#editor-row.db-wide-on > #md-preview`、`> #md-splitter`、`> #btn-md-preview`、`> #btn-md-export`、`> #split-editor-panel`、`> #split-splitter` | 宽屏态压制 | `display: none !important`（**必须 `!important`**：`#md-preview` 带 `--mdpreview-w` 定宽、`#split-editor-panel` 带 `--split-w` 定宽，且 `#btn-md-preview` / `#btn-md-export` 是 `position:absolute; z-index:30` 的悬浮按钮，**层级高于宽屏面板的 20**） |
+| `#center.db-wide-on > #tabbar`、`> #breadcrumbs` | 宽屏态隐藏文件 chrome | `display: none`（**不需要 `!important`**：选择器 (2 id + 1 class) 已压过 `#tabbar { display:flex }` 与 `.breadcrumbs { display:flex }`）。用 `display:none` 而非让浮层遮挡——顺带移出 tab 焦点链 |
+
+**顺带止血（本迭代一并做，成本≈0，与宽屏态无关也成立）**：`.db-toolbar { flex-wrap: wrap }`、`.db-pager { flex-wrap: wrap }` —— 侧栏态窄栏下换行而不是互相挤压。
+
+**纪律**：禁止裸色值 / 裸字号 / 裸圆角；深/浅双主题都要过。
+
+### 16.9 测试计划
+
+**单测（vitest，`shell/src/__tests__/sqliteView.test.ts` 追加 ≥5 例）**：
+
+- `dbTreeWidth(raw)`：`null` → 240；`100` → 180（下限）；`9999` → 480（上限）（3 例）；
+- `canEnterWide(editorRowWidth)`：`559` → false、`560` → true（2 例）。
+
+**E2E（mock 层，`shell/e2e/db/03-wide.spec.ts`，新域文件，DB-W-1..13）**：
+
+| 用例 | 断言 |
+|---|---|
+| DB-W-1 | 点 `#db-wide-toggle` → `#db-wide-panel` 可见、`#editor` 带 `.hidden`、`#db-wide-placeholder` 可见、`#editor-row` 带 `.db-wide-on` |
+| DB-W-2 | 宽屏态下 `#view-database` 的父节点是 `#db-wide-panel`；退出后父节点是 `#view-container`（I3） |
+| DB-W-3 | 宽屏态下网格渲染**全部列**（mock 结果 12 列 → 表头 12 个 `th`），状态条**无**「n/m 列」 |
+| DB-W-4 | `Esc` 退出；`aria-pressed=false`；焦点在 `#db-wide-toggle` |
+| DB-W-5 | 宽屏态下点 `#tab-files` → 自动退出 + `#view-files` 可见 + `#view-database` 带 `.hidden` + `#db-wide-panel` 带 `.hidden`（**陷阱 1 的回归护栏**） |
+| DB-W-6 | 宽屏态下按 `Ctrl+Tab` 切标签 → 自动退出 + `#editor` 可见且 `#editor .monaco-editor` 尺寸非零（**陷阱 2 的回归护栏**；`activateTab` 的守卫对所有调用点生效，不只「点 tab」） |
+| DB-W-7 | 宽屏态下连接切换 / 执行 SQL / 翻页仍正常；`activeId` 与结果保留（I5） |
+| DB-W-8 | 拖 `#db-wide-splitter` 改 `--db-tree-w` 并落 `localStorage["opencharm.db.wide_tree_w"]`；双击重置 240 |
+| DB-W-9 | 宽屏态下两段被强制展开且段头锁定（`aria-expanded="true"` + `aria-disabled="true"` + `.db-section-locked`），键盘 Enter 也改不动折叠态；退出宽屏后锁解除、按进入前的快照还原折叠，且 `localStorage["opencharm.db.sections"]` **逐字节不变**（§16.4.10 注 1） |
+| DB-W-10 | `#editor-row` 宽 < 560px 时 `#db-wide-toggle` disabled 且点图标不进宽屏；宽屏态下缩窄 → 自动退出 + toast「已退出宽屏」 |
+| DB-W-11 | 宽屏态下 `#md-preview` / `#btn-md-preview` / `#btn-md-export` 均不可见（I6，z-index:30 浮层护栏）；退出后全部恢复（不改 mdPreview 自身状态） |
+| DB-W-12 | 宽屏态下 `#split-editor-panel` / `#split-splitter` 不可见（I6）；退出后恢复 |
+| DB-W-13 | 有活动文件时进宽屏 → `#tabbar` / `#breadcrumbs` 均不可见 + `#center` 带 `.db-wide-on`（I7，**「全屏下不该出现活动文件标签」的护栏**）；退出后两者恢复且活动标签仍是原文件 |
+
+**回归域（每次必跑）**：`db/`（自身）+ `session/`、`autosave/`、`ux/`（`main.ts` 与 DOM 归属改动影响面）+ **`git/`**（`#editor` 显隐与 diff 宿主互踩）。
+
+> **纪律**：跑 mock e2e 前**必须先重启 vite dev server**（D-008，见 `docs/e2e_divergence_ledger.md` 避坑速查第 7 条）；e2e 全程离线，**禁止真发 SQL 到真实数据库文件**。
+
+**真机手测（PR-6 收尾，逐条打勾）**：
+
+1. [ ] 真机打开真实 `.sqlite`（造数用 `scripts/_tmp/make_db_fixture.py`），点 Activity Bar「数据库」图标 → **默认直接进宽屏**，面板铺满编辑器区域，无空白/错位；
+2. [ ] 双击万行表 → 宽屏下**一次看到 6 列以上**（对比侧栏态 3 列），常用列无需横向滚动；
+3. [ ] 拖树列分隔条到最窄（180）/ 最宽（480）→ 对象树列宽跟随；双击重置 240；重启后宽度记忆生效；
+4. [ ] 宽屏态下翻页 / 导出 CSV / 单元格详情 / 取消查询全部可用（回归 §9.4 两个真 bug）；
+5. [ ] 宽屏态下点文件 tab → 回到编辑器，数据库面板回侧栏，**连接与 SQL 草稿未丢**；
+6. [ ] 宽屏态下点 Activity Bar 其它图标 → 同上；再点 database 图标 → **退出宽屏、回侧栏态**（图标即宽屏开关）；
+6b. [ ] 点 Activity Bar 图标进入后**立刻**按 `Esc` → 退出宽屏（焦点已被收进面板，不需要先点面板内部）；
+7. [ ] 短窗口（≤720px 高）宽屏态 → **无整面板滚动**（`overflow:hidden` 生效），树 / 编辑器 / 网格各自滚动；
+8. [ ] `Esc` 退出；有 Monaco 建议弹层时第一次 `Esc` 只关弹层；
+9. [ ] 窄窗口（编辑区 < 560px）→ ⛶ 禁用 + tip；宽屏态下把窗口缩到 < 560px → 自动退出 + toast；
+10. [ ] 深/浅双主题截图（宽屏工具条 / 对象树 / 分隔条 / 网格 / 占位块）；
+11. [ ] 重启应用 → 回到侧栏态（I4），连接列表与 SQL 草稿仍在。
+12. [ ] 侧栏态：对象树**出厂折叠**（只有段头），点段头展开；双击段头 → 只留该段（其余收起）；
+13. [ ] 宽屏态：两个段头都不响应点击（`cursor: default`），树段恒展开；退出宽屏后段折叠恢复成进入前的样子。
+14. [ ] **先在文件树打开一个文件，再进宽屏 → 顶部看不到任何文件标签 / 面包屑**（只有数据库工具条），退出宽屏后标签与面包屑原样回来、活动标签仍是原文件。
+
+### 16.10 排期（2.5 人日，2 个 PR）
+
+| PR | 标题 | 内容 | 量级 | 完成判据（DoD） |
+|---|---|---|---|---|
+| **PR-5** | 宽屏宿主与两栏布局 | `index.html` 两个容器；`style.css` `.db-wide-*` + grid + `.db-section-locked` + `.db-wide-on` 压制（`#editor-row` 压 md/分屏、`#center` 隐藏 `#tabbar`/`#breadcrumbs`）；`sqliteView.ts` 的 `enterDbWide`/`exitDbWide`/`isDbWide`/`toggleDbWide` + ⛶ 按钮 + `Esc`（含进入时收焦点）+ `setSectionCollapsed`/`setSectionLocked`；`layout.ts` 的 `wireDbWideSplitter` + 宽度恢复；`main.ts` 三处接线（`activateTab` / `onHide` / 命令表）；i18n 9 条；侧栏占位块；`01`/`02` 的 `openDbView` 适配 | **1.5 人日** | `npx tsc --noEmit` 0 错；vitest 全绿 + 新增 ≥5 例；e2e `db/03-wide.spec.ts` 的 DB-W-1/2/4/5/6/8/9/11/12/13 全过；回归 `db/ session/ autosave/ ux/ git/` 全绿 |
+| **PR-6** | 宽屏网格与降级收尾 | `renderResult` 宽屏分支（全列）；`watchDbWide` + `DB_WIDE_MIN` 降级与 toast；`.db-toolbar`/`.db-pager` 的 `flex-wrap` 止血；真机手测 §16.9 的 11 项；双主题截图 | **1 人日** | e2e DB-W-3/7/10 全过；真机 11 项全 PASS；双主题截图存档；本文档 §16.13 / §16.14 回填 |
+
+**依赖与并行**：PR-5 → PR-6 严格串行（PR-6 的网格分支依赖 PR-5 的 `isDbWide()`）。i18n 词条在 PR-5 内一次性完成（无前置依赖，不阻塞）。
+
+**通用门禁**：照 §11 执行（类型 / 前端单测 / Rust 单测 / 构建 / E2E 含回归域 / i18n / 样式 / 文档回填）。Rust 侧本迭代零改动，`cargo test` 仍须全绿以证明无副作用。
+
+### 16.11 风险登记与回滚
+
+| 风险 | 概率 | 影响 | 应对 | 触发点 |
+|---|---|---|---|---|
+| DOM 移动导致 Monaco 失焦 / 尺寸错乱 | 中 | 中 | 移动后 `rAF` 里 `sqlEditor.layout()`；`automaticLayout` 的 ResizeObserver 兜底；e2e DB-W-7 断言执行链路 | PR-5 |
+| `#editor` 显隐与 diff 宿主互踩 | 中 | 中 | `exitDbWide()` 置于 `activateTab` 的 diff 分支之前（陷阱 2）+ 退出时判 `#git-diff-panel` 是否可见 | PR-5 |
+| `setSidebarTab` 的 loop 早于 `onHide` 导致终态错 | 中 | 中 | 依赖既有顺序（移回时已带 `.hidden` 正好正确，陷阱 1）；e2e DB-W-5 锁定 | PR-5 |
+| 宽屏态下整面板滚动（sticky 表头失效） | 中 | 中 | `#view-database.db-wide { overflow: hidden }` + grid 行高约束；真机手测第 7 条 | PR-5 |
+| `#btn-md-preview` / `#btn-md-export`（`position:absolute; z-index:30`）浮在宽屏面板（z-index 20）之上 | 中 | 低 | `.db-wide-on` 的 `display:none !important` 压制（I6）；e2e DB-W-11 | PR-5 |
+| 窄窗口下宽屏不可用 | 中 | 低 | `DB_WIDE_MIN=560` + 按钮禁用 + 自动退出 toast；真机手测第 9 条 | PR-6 |
+| 宽屏态下段折叠语义与侧栏态不一致 | 低 | 低 | 宽屏态**直接停用**段折叠（`.db-section-locked` + `dbWide` 守卫 + `collapsedBeforeWide` 快照还原），不再做「呈现开关」投影；e2e DB-W-9 | PR-5 |
+| 点 Activity Bar 图标进入后 Esc 收不到（焦点在图标上） | 中 | 低 | `#db-wide-panel` 加 `tabindex="-1"`，`enterDbWide()` 末尾把焦点收进面板（程序化聚焦不触发 `:focus-visible`）；e2e DB-W-4 | PR-5 |
+| 对象树出厂折叠后，既有 db e2e（01/02）点不到树节点 | 高 | 低 | 新增 `expandTree()` 并接进 `02` 的 `queryUsers()`；`01` 需要树的 6 个用例显式调用；DB-CONN-9 仍锁「出厂折叠」 | PR-5 |
+| 「全屏」下仍显示活动文件标签（`#tabbar` / `#breadcrumbs`） | 高 | 中 | 两者是 `#center` 的直接子节点、浮层 `inset:0` 盖不到 → `#center.db-wide-on > … { display:none }`（I7）；e2e DB-W-13 | PR-5 |
+
+**回滚**：PR-5 / PR-6 均独立可回滚（功能新增）。最坏情况 revert `sqliteView.ts` 的宽屏函数与按钮、`layout.ts` 的 `wireDbWideSplitter` 与宽度恢复、`main.ts` 三处接线、`index.html` 两段、`style.css` 的 `.db-wide-*` 段即可——**侧栏态（§3~§8）完全不受影响**。
+
+### 16.12 明确不做 / 已知边界（迭代 2）
+
+**本迭代不做**：
+
+1. 抬高 `SIDEBAR_MAX`（>480px）——会抢编辑区宽度，并破坏 `style.css:607-616` 的 UI-23 三栏下限体系；
+2. 升级为编辑器 tab（`kind:"sql"`）——见 §16.2 方案 D；
+3. 宽屏态跨会话恢复——见 I4；
+4. 宽屏态下侧栏自动收起——会连带隐藏 Activity Bar，用户失去「切视图」这一最自然的退出路径；改为显示占位块（§16.4.9）；
+5. 网格客户端排序 / 列宽拖拽 / 列显隐——仍按 §3.5「排序靠改 SQL」；
+6. 宽屏态下的段折叠——**整体停用**（两段恒展开 + 段头锁定），理由见 §16.4.10 注 1；侧栏态照旧四段可折叠。
+
+**顺带止血（已做，2026-10-02 用户确认「三件都做」）**：
+
+| # | 止血项 | 落地 |
+|---|---|---|
+| 1 | `.db-toolbar` / `.db-pager` 加 `flex-wrap: wrap` | `style.css`；工具条 / 分页条在窄侧栏下换行而不是溢出裁切 |
+| 2 | `#db-tree-wrap` 出厂**折叠** | `SECTION_DEFAULTS = { "db-tree-wrap": true, "db-sql-wrap": false }`（`sqliteView.ts`）；侧栏可用高约 380px 而三段最小高合计 460px，把高度优先让给结果区 |
+| 3 | 双击段头「段级最大化」 | `section()` 的 `dblclick` handler：只展开被双击的段、收起其余（写**目标态**而非 toggle，故对 `dblclick = 两次 click` 幂等）；**仅侧栏态生效**（宽屏态首行 `if (dbWide) return;`） |
+
+> 止血项 2 的代价：侧栏态下浏览表要先点一次「对象树」段头。这是「默认直接进宽屏」之后**次要路径**上的取舍——
+> 宽屏态下树段恒展开（§16.4.10 注 1），常用路径不受影响。若要回退，只改 `SECTION_DEFAULTS` 一行 + 恢复 `01/02` 的 `expandTree()` 调用。
+
+**已知边界（迭代 2 新增）**：
+
+7. **宽屏态下看不到文件树与代码**：侧栏的激活视图是 database，且 `#view-database` 已移出侧栏 → 侧栏内容区只有占位块。要同时看代码请退出宽屏（`Esc` / 点文件 tab）。**这是 B 方案的固有取舍**；若长期不可接受，走 §16.2 方案 D；
+8. 宽屏态不跨会话恢复（I4）——启动恒为侧栏态；
+9. `Esc` 在有 Monaco 建议弹层时需按两次（§16.4.10）。
+
+### 16.13 PR-5 实施记录（2026-10-02）
+
+**范围**：宽屏宿主 + 两栏 grid + 进入/退出 + ⛶ 按钮 + `Esc` + 分隔条 + `main.ts` 三处接线 + i18n 9 条 + 侧栏占位块 + `01`/`02` e2e 适配。
+**说明**：PR-5 与 PR-6 按用户决定**一次做完**（两 PR 的代码同一批落地），故本节与 §16.14 合并记录。
+
+**改动文件**：
+
+| 文件 | 改动 |
+|---|---|
+| `shell/index.html` | `#view-container` 内加 `#db-wide-placeholder`（含 `#db-wide-exit`）；`#editor-row` 内、`#git-diff-panel` 前加 `#db-wide-panel`（`class="hidden" tabindex="-1"`） |
+| `shell/src/style.css` | 新增 `.db-wide-*` 段（`#db-wide-panel` / `#view-database.db-wide` grid / `#db-wide-splitter` / `.db-wide-placeholder`）；`.db-section-locked`；`#editor-row.db-wide-on > …` 压制 md/分屏 + `#center.db-wide-on > #tabbar, > #breadcrumbs` 隐藏文件 chrome；`.db-toolbar` / `.db-pager` 加 `flex-wrap: wrap` |
+| `shell/src/sqliteGrid.ts` | 新增 `DB_TREE_MIN/MAX/DEF`、`DB_WIDE_MIN`、`dbTreeWidth()`、`canEnterWide()`（放这里是为了避免 `layout.ts ↔ sqliteView.ts` 循环 import） |
+| `shell/src/layout.ts` | 新增 `DB_TREE_W_KEY` + `wireDbWideSplitter()`；`restoreLayout()` 末尾恢复 `--db-tree-w` |
+| `shell/src/sqliteView.ts` | 宽屏态整段：`isDbWide` / `enterDbWide` / `exitDbWide` / `toggleDbWide` / `wireDbWideControls` / `watchDbWide`；`setSectionCollapsed` / `setSectionLocked`；`#db-wide-toggle`；`#db-wide-splitter`；`renderResult` 宽屏分支；`renderToolbar` 三态；`restoreDbSections` 重写（出厂默认 + 回落）；`resetDbView` 首行 `exitDbWide()`；`#center` 的 `.db-wide-on` 开关 |
+| `shell/src/main.ts` | `activateTab` 加 `exitDbWide()`（陷阱 2）；database 视图注册项加 `onHide`；`#tab-database` 三态点击；命令表加 `enterDbWide()` ×2 + `db_toggle_wide` |
+| `shell/tools/i18n/data/database_{zh,en}.json` | 各 +9 条；跑 `gen_domain.py --domain database` 生成 `locales/{zh-CN,en-US}/database.ts`（各 101 条） |
+| `shell/src/__tests__/sqliteView.test.ts` | +2 个 describe（`dbTreeWidth` 3 例 / `canEnterWide` 2 例），56 例全绿 |
+| `shell/e2e/db/01-connections.spec.ts`、`02-query.spec.ts` | `openDbView()` 进视图后显式退回侧栏；新增 `expandTree()`；DB-CONN-9 适配出厂折叠 |
+| `shell/e2e/db/03-wide.spec.ts` | 新增，DB-W-1..13 |
+
+**实施期的关键设计决定（偏离本文档处就地注释并回填）**：
+
+1. **`exitDbWide()` 完全不触碰 `.hidden`**（本文档 §16.4.4 第 6 步已按此重写）。原稿写「按当前侧栏激活视图决定 `#view-database` 的显隐」，实测会导致 X5 路径下**侧栏两个视图同时可见**——`views.ts:63` 的 `onHide` 在 `:64` 更新 `activeId` 之前调用，此刻 `activeView()` 仍是 `"database"`。详见 §16.4.5 陷阱 1。
+2. **宽屏态直接停用段折叠**（本文档 §16.4.10 已重写）。原稿设计 `.db-tree-collapsed` 呈现开关 + `syncDbWideTreeCollapsed()` 两个同步点，实现时发现两个硬伤：① 宽屏 grid 行高列宽固定，折叠只留死空间；② **树段折叠后，重新展开的入口（段头）就在被隐藏的那一列里** → 用户卡死。改为：进入时快照 `collapsedBeforeWide` → 强制展开 + `setSectionLocked(true)`；退出时逆序还原。`syncDbWideTreeCollapsed()` 已删除（连同 `style.css` 的 `.db-tree-collapsed` 段）。
+3. **`#db-wide-panel` 加 `tabindex="-1"`，`enterDbWide()` 末尾把焦点收进面板**（本文档原稿无此步）。`Esc` 挂在面板上是局部监听；而「点 Activity Bar 图标」这条最常用路径会把焦点留在图标上 → `keydown` 冒泡不到面板 → **Esc 空按**。程序化聚焦 `tabindex="-1"` 容器不触发 `:focus-visible`，鼠标用户无感。
+4. **`.db-wide` 是宽屏 grid 的唯一开关**（本文档 §16.4.3 已补为第 4 步）。初版 `enterDbWide()` 漏写 `view.classList.add("db-wide")`，后果是「面板搬对了、`#editor` 也让位了，但仍是四段竖排，且分隔条永不显示」。**由 e2e DB-W-8 暴露**（断言 `#db-wide-splitter` 可见时失败）。已补 `toHaveCSS("display","grid")` 护栏进 DB-W-1。
+5. **「全屏」下仍显示活动文件标签 → 新增 `#center.db-wide-on`（I7）**（本文档 §16.3 第 2 点、§16.4.2 I7 已改）。**用户真机实测反馈**：「先在文件树中打开一个文件，然后切换到数据库面板，进入全屏模式，会发现有活动的文件标签显示在全屏模式的界面里」。根因：`#tabbar`（`index.html:226`）与 `#breadcrumbs`（`:228`）是 `#center` 的**直接子节点**，位于 `#editor-row`（`:229`）**之外**，而 `#db-wide-panel` 的 `inset:0` 只覆盖 `#editor-row` → 浮层盖不到它们。原稿「`#tabbar` 保留可见（作为退出路径的载体）」的假设不成立：退出路径实际有 X1~X7 共 7 条（Esc / ⛶ / 占位块按钮 / Activity Bar / `Ctrl+Tab` / 命令面板 / 自动降级），不需要靠标签栏兜底。
+   修法：`enterDbWide()` 追加 `$("center").classList.add("db-wide-on")`，CSS 加 `#center.db-wide-on > #tabbar, #center.db-wide-on > #breadcrumbs { display: none }`（选择器 2 id + 1 class，已压过 `#tabbar { display:flex }` / `.breadcrumbs { display:flex }`，无需 `!important`）。**用 `display:none` 而非让浮层遮挡**：顺带把两者移出 tab 焦点链。实测 `#editor-row` 由 `y=91 h=385` 变为 `y=34 h=442`（**宽屏态白得 57px 高度**）。副作用是 DB-W-6「点文件 tab」不再可行，已改写为 `Ctrl+Tab`（`activateTab` 的守卫对所有调用点生效，护栏强度不变），并新增 DB-W-13 锁 I7。
+
+**实测数据**：
+
+| 项 | 结果 |
+|---|---|
+| `npx tsc --noEmit` | 0 错 |
+| `vitest`（全量） | **999/999 通过**（89 个文件；含 `sqliteView.test.ts` 56 例） |
+| e2e `03-wide.spec.ts` | **13/13 通过**（DB-W-1..13，单例 6.1~11.1s） |
+| e2e `01-connections.spec.ts` | **9/9 通过** |
+| e2e `db/`（全 3 个文件，最终门禁） | **34/34 通过**（`real 5m25s` 干净退出） |
+| e2e 回归域 `db/ session/ autosave/ ux/ git/` | **115 passed / 2 failed**（19.2m）——两个失败**均与本次改动无关**，详见下 |
+| `cargo test`（`shell/src-tauri`，本迭代 Rust **零改动**） | **281 passed / 2 failed / 2 ignored**——两个失败是 Windows 环境问题，与本次改动无关，详见下 |
+| 侧栏态对象树出厂折叠 | 由 DB-CONN-9 锁定 |
+
+**回归域两个失败的定性**：
+
+1. `ux/01-ux-batch.spec.ts › UX-9`（`#quick-open-input` 未获焦点）——**偶发**，复跑通过；用例只走 `quickOpen.ts`，与数据库视图零交集。
+2. `ux/04-onboarding.spec.ts › OG-7`（点 `#ew-tour-header` 后 `#ew-tour-section` 仍带 `collapsed`）——**可复现，但为既有失败**：把本次全部改动 `git stash` 回退到 HEAD 后单跑，**同样失败**（`1 failed`）。用例只走 `welcomeGuide.ts`，`shell/src/welcomeGuide.ts` 与 `shell/e2e/ux/04-onboarding.spec.ts` 在本次改动中**零修改**。→ 建议登记 `docs/tech-debt.md`，不属于迭代 2 范围。
+
+`cargo test` 的两个失败同样与本次改动无关（本迭代 `shell/src-tauri` **零改动**，`git status` 无该目录文件）：
+
+1. `lib_cmds::tests::stdin_utf8_roundtrip_with_real_python` —— `os error 231`「所有的管道范例都在使用中」，Windows 管道实例耗尽，环境问题；
+2. `git_cmds::tests::test_git_clone_roundtrip` —— 断言 `left: "# Test\r\n"`，CRLF/LF 差异，Windows `core.autocrlf` 环境问题。
+
+→ 两项均建议一并登记 `docs/tech-debt.md`（属「本机/CI 环境差异」类，不是产品缺陷）。
+
+**环境发现（已澄清，非缺陷）**：首轮跑 `03-wide.spec.ts` 时出现过
+`Error: worker-0 process did not exit within 300000ms after stop, force-killed it`（白等 5 分钟）。
+当时**同时有两个用例失败**（DB-W-8 因 `.db-wide` 漏写、DB-W-10 因 toast 选择器严格模式冲突），
+失败发生在 `page.mouse.down()` 与 `mouse.up()` 之间 → 鼠标左键保持按下 → 该 worker 的浏览器卡住无法退出。
+修好这两处、12 例全绿之后复跑，**`real 2m02s` 干净退出，无任何 worker 告警**。
+单跑 `01-connections.spec.ts`（9 例）同样干净。结论：**不是环境固有问题**，遇到该告警应先看本轮是否有用例在鼠标拖拽 / 长按中途失败。
+附带经验：命令行跑 e2e 不要接 `| tail`（管道要等 worker 真退出才收 EOF，会把卡死的 5 分钟也等满），改重定向到文件。
+
+**DoD 达成**：`tsc` 0 错 ✅ / vitest 全绿（999）✅ / e2e `db/` **34/34** ✅ / 回归域 `db/ session/ autosave/ ux/ git/` 通过（115/117，2 个失败已定性为偶发 + 既有，与本次改动无关）✅ / `cargo test` 281/283（2 个失败为 Windows 环境问题，Rust 零改动）✅ / 真机手测待做 ⏳ / 双主题截图待做 ⏳。
+
+### 16.14 PR-6 实施记录（2026-10-02）
+
+**范围**：`renderResult` 宽屏分支（全列）+ `watchDbWide()` 降级与 toast + `flex-wrap` 止血 + 对象树出厂折叠 + 双击段头最大化。
+
+| 项 | 落地 | 验证 |
+|---|---|---|
+| 全列渲染 | `renderResult`：`dbWide ? result.columns.length : visibleColumnCount(width, …)` | e2e DB-W-3（12 列 → 13 个 `th`；状态条无「n/m 列」） |
+| 窄窗口降级 | `DB_WIDE_MIN = 560`；`renderToolbar` 同步 ⛶ 的 `disabled` + tip；`watchDbWide()` 的 `ResizeObserver` 在变窄时自动退出 + toast | e2e DB-W-10 |
+| 工具条 / 分页条止血 | `.db-toolbar` / `.db-pager` 加 `flex-wrap: wrap` | 真机手测（窄侧栏下换行而非裁切） |
+| 对象树出厂折叠 | `SECTION_DEFAULTS = { "db-tree-wrap": true, "db-sql-wrap": false }` + `restoreDbSections()` 的「已保存值 → 出厂默认」回落 | e2e DB-CONN-9（初值 `aria-expanded="false"`，点击后 `true`，reload 后仍 `true`） |
+| 双击段头最大化 | `section()` 的 `dblclick` handler：只展开被双击的段、收起其余；写**目标态**（对 `dblclick = 两次 click` 幂等）；**仅侧栏态**（宽屏态首行 `if (dbWide) return;`） | 真机手测第 12 条 |
+
+**DoD 达成**：DB-W-3/7/10 全过 ✅ / 真机手测待做 ⏳ / 双主题截图待做 ⏳。
+
+> **下一步（交接）**：① 真机手测 §16.9 的 13 项（含新增第 12/13 条段折叠行为）；② 深/浅双主题截图存档；③ `cargo test` 全绿（本迭代 Rust 零改动，跑一遍证明无副作用）；④ 把 `ux/OG-7` 的既有失败登记到 `docs/tech-debt.md`。
+
+---
+
+## 17. 迭代 3 · 编辑器 Tab 化重设计（v1.4，2026-10-02）
+
+> **状态：✅ 代码已落地，门禁全绿**——`tsc` 0 错；vitest 89 文件 / 994 用例全过（含重写的 `sqliteView.test.ts` 51 条）；`cargo test` 286 过（唯一失败 `git_cmds::test_git_clone_roundtrip` 为存量环境性 flake，与本迭代无关，已用 stash 对照验证）；e2e `e2e/db/` 30/30 全过，关联域（git / session / autosave / ux）83 条全过。
+> **触发**：宽屏态交付后用户仍反馈「非常难用，而且丑陋」，授权从头重设计交互与界面。
+> **本章是 v1.4 的唯一真源**；§16（宽屏态）已整体拆除，§3 的「侧栏四段竖排」同步废止。
+
+### 17.1 决策（推翻 §16.2）
+
+- **架构方向：编辑器 Tab 化**（照 VS Code SQLite Viewer / DataGrip 模式）——侧栏只留「资源管理器」（连接列表 + 对象树），数据面（表数据网格 / SQL 查询）进编辑器区 Tab。根治「空间错配」这一旧版难用的根源（侧栏 380px 放不下 460px 的最小内容），宽屏 DOM 搬移 hack 连同其全部不变式一并退役。
+- **网格能力：只读增强**（推翻 §13 边界 6 的「排序/筛选请用 SQL」）——列头排序三态 + 快速筛选条 + 单元格完整值 + 右键复制（值 / 整行 JSON / 整行 CSV）。§13 的「不做单元格编辑写回」**维持不变**。
+- **节奏：一次到位**（授权重写 `sqliteView.ts` + e2e）。
+
+### 17.2 架构落点
+
+| 层 | 落点 | 职责 |
+|---|---|---|
+| 连接状态 | `shell/src/sqliteStore.ts`（新增） | 连接列表 / 活动连接 / 对象树单一真源；`sqliteView` 与 `sqliteTabs` 只 import 本模块、互相不 import（无环） |
+| 侧栏资源管理器 | `shell/src/sqliteView.ts`（重写） | 连接树（点击 = 打开并激活，关旧开新）+ 三组对象树 + 树内过滤 + 可写锁形开关（行内，二次确认）+ 右键菜单 |
+| 编辑器 Tab | `shell/src/sqliteTabs.ts`（新增） | `db-data:<connId>:<对象名>`（表数据网格）与 `db-query:<connId>:<序号>`（SQL 查询）两类 Tab；`kind: "db"`；两套视图各一份共享 DOM，切 Tab 按各自 state 重渲染（结果缓存，不重查） |
+| 纯逻辑 | `shell/src/sqliteSql.ts`（新增）+ `sqliteGrid.ts`（瘦身） | SQL 判定 / 语句切分镜像（零依赖可单测）；网格新增排序表头 / 单元格右键 / `rowToJson`，窄栏裁列与宽屏常量删除 |
+| 后端 | `db_cmds.rs::db_rows`（新增命令） | 表数据 Tab 走**结构化参数**（`sort` / `dir` / `filter` / `limit` / `offset`），拼装全部在后端：表名经 `sqlite_master` 白名单校验、排序列经 `table_info` 校验、筛选经 `sanitize_filter` 拒多语句；`db_query` 保持不动 |
+
+### 17.3 关键实现纪律
+
+- **Tab 范式照 diff tab**：path 前缀命名空间隔离（session 快照 / run gutter / quickopen 天然不误伤）+ `setDbTabHandlers({ activateTab, buildOptions })` 回调注入（避免 sqliteTabs ↔ main 循环）+ `#db-tab-panel` 与 `#editor` 互斥浮层（`presentDbTab` / `dismissDbHost` / `cleanupDbTab`）。
+- **共享 DOM 只描述激活 Tab**：所有异步回调先校验 `app.activeTab`，后台 Tab 只更新 state；并发仍走**刷新令牌**。
+- **Monaco 单实例**：SQL 编辑器懒创建、常驻，切查询 Tab 只换 model；宿主必须真实 Element（`$()` 不带 `#`，ResizeObserver 拒绝 Proxy——实施期踩坑 ①）。
+- **树事件冒泡**：连接节点内嵌对象树，子节点（分组头 / 表项）的 click / dblclick / contextmenu 必须 `stopPropagation`，否则点击表会冒泡成「连接折叠」（实施期踩坑 ②）。
+- **草稿与历史契约不变**：仍存 `db_connections.json` 的 `sql` / `history` 字段（查询 Tab 内容变更防抖 2s 落盘；历史随执行入档）。
+
+### 17.4 测试计划（v1.4）
+
+- **单测**：`sqliteView.test.ts` 重写——删除宽屏 / 裁列 / `statusCols` 用例，新增 `nextSort`（排序三态）、`rowToJson`、可排序列头 DOM（`aria-sort` + 箭头）用例；SQL 镜像用例改从 `sqliteSql.ts` 导入。
+- **e2e**：`e2e/db/` 三个 spec 重写——`01-connections`（视图互斥 / 空态 / 自动打开 / 列展开 / 双击开数据 Tab / 可写确认 / 右键移除 / pick 添加 / 树内过滤）、`02-query`（Tab 条目 / 只读拦截 / 写确认 / 失败态 / Ctrl+Enter 语义 / 历史与草稿 / 分页 / 导出 / 设置页行数 / 多 Tab 独立）、`03-data`（全列渲染 / 翻页 / 行数切换 / **排序三态与 `db_rows` 参数流水** / **筛选 + Esc 清除** / NULL·空串 / 单元格详情 / 右键复制 JSON·CSV / 导出 / 刷新与切 Tab 不重查 / 失败态）。`03-wide` 删除。
+- **mock**：`tauri-mock.js` 新增 `db_rows` 形状级桩（排序按 id、筛选支持 `id > N` / `name = '…'`），入参流水记入 `window.__E2E_DB_ROWS__`。
+
+### 17.5 i18n
+
+- `database` 域词条重建（94 条）：新增 `explorerTitle` / `treeFilter*` / `dataFilter*` / `queryTab` / `failCopy` / `copyRowJson` / `copyRowCsv` / `showRows`（改义「查看数据」）；删除宽屏 8 条、四段布局 4 条、`cmdToggleWide` 等退役词条。真源 `tools/i18n/data/database_{zh,en}.json`，经 `gen_domain.py --domain database` 再生。
+
+### 17.6 实施期踩坑（4 条，复用价值）
+
+1. **`$()` 选择器不带 `#`**（state.ts 惯例）：`$()` 内部拼 `#`，传 `"#db-query-editor-host"` 会变成 `##…` 抛「缺少元素」。Monaco 宿主等真实 Element 获取点尤易犯。
+2. **树节点冒泡**：见 §17.3 第 4 条；e2e 抓到的真 bug——「单击表节点 → 整棵树折叠」。
+3. **`buildPager` 漏挂控件**：`pager.append(...)` 漏掉 `sizeSel` 导致每页行数下拉不存在（D-3/Q-10 卡 30s 超时）。共享 DOM 工厂必须「造一个挂一个」。
+4. **执行监控器误杀 vitest**：本机直接调 `node node_modules/vitest/vitest.mjs run` 时首个位置参数 `run` 被当 filter（只匹配 6 个 `run*.test.ts`）；全量单测须 `node scripts/vitest-launch.mjs --watch=false --run`（89 文件 / 994 用例）。
+
+### 17.7 交接（真机待办）
+
+① 真机手测新链路（双击开表 / 排序 / 筛选 / 导出 / 多 Tab）；② 深/浅双主题截图存档。

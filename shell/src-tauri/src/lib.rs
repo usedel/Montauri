@@ -309,6 +309,7 @@ pub fn run() {
             // PR-2：查询内核（对象树 / 执行 / 取消 / DDL）
             db_cmds::db_list_objects,
             db_cmds::db_query,
+            db_cmds::db_rows,
             db_cmds::db_cancel,
             db_cmds::db_ddl,
         ])
