@@ -29,3 +29,6 @@ shell-words = "1.1"
 # P2 DX：插件包导出/导入（zip）。仅 deflate（默认压缩格式，Windows 资源管理器可直接解压）
 zip = { version = "2", default-features = false, features = ["deflate"] }
 sysinfo = "0.39.6"
+# B3（docs/sqlite_tool_dev_plan.md）：SQLite 数据库工具窗。bundled = 自带 SQLite C 源码（免系统库）；
+# 版本锁 0.32.1（离线缓存可用；升级须走 bench/CI 回归并同步 ci/versions.toml）。
+rusqlite = { version = "0.32.1", features = ["bundled"] }

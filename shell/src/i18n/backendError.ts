@@ -24,7 +24,14 @@ interface ErrPattern {
   en: string;
 }
 
-/** 由 tools/i18n_gen_backend.py 从 tools/backend_err.json 生成，勿手改（改 JSON 后重跑脚本）。 */
+/**
+ * 真源是 `tools/i18n/data/backend_err.json`（zh → en 映射表）；本数组是它的 TS 镜像。
+ * 新增后端文案的流程：① 把 zh/en 两条写进 JSON；② 在下面按同样顺序补一行；
+ * ③ 跑 `python3 tools/i18n/scan_rust.py` 验漂移锁（退出码 0 = Rust 侧与 JSON 一致）。
+ * 已知覆盖盲区：脚本只扫 `Err("…")` / `Err(format!("…"))` 形态，
+ * `.map_err(|e| format!("DbSqlError:任务执行异常：{e}"))` 这类闭包内文案扫不到——
+ * 因此**不要**把未登记的闭包文案写进 JSON（会被判为「已失效映射」）。
+ */
 const PATTERNS: ErrPattern[] = [
   { zh: "Content-Length 超上限（{len} > {MAX_DAP_FRAME_LEN}）", en: "Content-Length exceeds the limit ({len} > {MAX_DAP_FRAME_LEN})" },
   { zh: "已有调试会话在运行", en: "A debug session is already running" },
@@ -129,6 +136,18 @@ const PATTERNS: ErrPattern[] = [
   { zh: "未选择解释器且未找到 uv，无法在终端中运行（可在状态栏选择解释器，或先安装 uv）", en: "No interpreter selected and uv not found, cannot run in the terminal (select an interpreter in the status bar, or install uv first)" },
   { zh: "命令执行超时（{} 秒）", en: "Command timed out ({} seconds)" },
   { zh: "等待进程失败：{e}", en: "Failed to wait for the process: {e}" },
+  // B3（docs/sqlite_tool_dev_plan.md）SQLite 工具窗错误码：Db* 前缀是前后端约定的分类码，
+  // 英文模板保留前缀（前端按 `前缀:` 切分做 UI 分流，不依赖文案）。
+  { zh: "DbCancelled:查询已取消", en: "DbCancelled:Query cancelled" },
+  { zh: "DbReadOnly:只读模式下不允许写操作", en: "DbReadOnly:Write operations are not allowed in read-only mode" },
+  { zh: "DbSqlError:一次只能执行一条查询语句（多条写语句可一次性批处理）", en: "DbSqlError:Only one query statement can be run at a time (multiple write statements can be batched)" },
+  // git clone（迭代 6 · P3-1）历史遗漏：文案在 Rust 侧存在但一直未登记（英文界面会露中文）
+  { zh: "克隆 URL 不能为空", en: "Clone URL cannot be empty" },
+  { zh: "URL 格式无效：缺少协议（如 https:// 或 git@）", en: "Invalid URL format: missing scheme (e.g. https:// or git@)" },
+  { zh: "不支持的 URL 协议：{scheme}", en: "Unsupported URL scheme: {scheme}" },
+  { zh: "目标路径不能为空", en: "Target path cannot be empty" },
+  { zh: "目标路径不得包含 ..", en: "Target path must not contain .." },
+  { zh: "目标路径必须是绝对路径", en: "Target path must be an absolute path" },
 ];
 
 /** 已编译的匹配器：中文模板按占位切分后拼成 `^固定(.*?)固定$`，用于从已填充的整句里捞回参数。 */

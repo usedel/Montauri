@@ -115,6 +115,10 @@ export interface Settings {
   libs_json_inject: boolean;
   /** 输出面板日志级别着色与过滤（research §11.7，须与 Rust settings.rs 同步） */
   log_level_colors: boolean;
+  /** B3：SQLite 结果每页行数（100/200/500/1000；须与 Rust settings.rs 同步） */
+  db_page_size: number;
+  /** B3：写语句执行前是否弹确认框（默认开——写库不可撤销；须与 Rust settings.rs 同步） */
+  db_warn_on_write: boolean;
 }
 
 /** 从单一来源（keybindingDefaults.ts）派生出厂键位表，避免三处手写漂移（tech-debt #6） */
@@ -188,6 +192,10 @@ export const DEFAULT_SETTINGS: Settings = {
   // 库特别支持 P1（research §11.9，默认开，与 Rust Settings::default 同步）
   libs_json_inject: true,
   log_level_colors: true,
+  // B3（SQLite 数据库工具窗）：每页 200 行（与后端默认 limit 一致）；写前确认默认开
+  // （写库不可撤销，且「默认只读」是本功能的产品定位，须与 Rust Settings::default 保持同步）
+  db_page_size: 200,
+  db_warn_on_write: true,
 };
 
 export interface AppState {

@@ -34,6 +34,7 @@
 | [`docs/dep_health_dev_plan.md`](docs/dep_health_dev_plan.md) | 依赖健康开发计划（已实施）：依赖风格/扫描/修复 + 忽略清单 |
 | [`docs/git_improvement_report.md`](docs/git_improvement_report.md) | Git 集成交付报告：远程/worktree/rebase/cherry-pick/stash/log/blame 等增强 |
 | [`docs/menubar_improvement_plan.md`](docs/menubar_improvement_plan.md) | 菜单栏改进计划 |
+| [`docs/sqlite_tool_dev_plan.md`](docs/sqlite_tool_dev_plan.md) | **SQLite 数据库工具开发文档 v1.1（PR-1~4 已实施，待复核）**：侧栏「数据库」视图（连接 / 对象树 / SQL 编辑器 / 结果网格四段）、rusqlite 引擎 + 默认只读、Rust↔TS 数据契约、i18n 词条表、4 个 PR 排期与**逐 PR 实施记录**（§9.1~§9.4，含 e2e 抓到的两个真 bug 与修法） |
 | [`docs/toolbox_dev_plan.md`](docs/toolbox_dev_plan.md) | **工具箱开发计划 v1.0（待评审）**：SQLite 数据库工具 / HTTP Client / 结构化运行日志 / TODO 与 Markdown 增强，四项共 14 个 PR 的实施设计 |
 | [`docs/improvement_and_roadmap_report.md`](docs/improvement_and_roadmap_report.md) | **现状评估 · 改进建议与未来功能规划 v1.0（待评审）**：规模与质量底座实测、P0/P1/P2 改进清单、A–D 四类未来功能候选池与四阶段路线图 |
 | [`docs/i18n.md`](docs/i18n.md) | **国际化实施说明（zh-CN / en-US 双语，已交付）**：扁平 key 语言包、20 批动态文案抽取、三步新增文案流程与踩坑记录 |

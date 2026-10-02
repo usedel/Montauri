@@ -6,6 +6,7 @@
 import type { TKey } from "../zh-CN";
 import { cloneRepository } from "./cloneRepository";
 import { core } from "./core";
+import { database } from "./database";
 import { debug } from "./debug";
 import { dep } from "./dep";
 import { devtools } from "./devtools";
@@ -26,4 +27,4 @@ import { storage } from "./storage";
 import { welcome } from "./welcome";
 import { workbench } from "./workbench";
 
-export const enUS: Record<TKey, string> = { ...core, ...git, ...debug, ...filetree, ...run, ...env, ...storage, ...dep, ...settings, ...newproject, ...welcome, ...search, ...workbench, ...editor, ...ide, ...lt, ...devtools, ...ext, ...endpoints, ...main, ...cloneRepository };
+export const enUS: Record<TKey, string> = { ...core, ...git, ...debug, ...filetree, ...run, ...env, ...storage, ...dep, ...settings, ...newproject, ...welcome, ...search, ...workbench, ...editor, ...ide, ...lt, ...devtools, ...ext, ...endpoints, ...database, ...main, ...cloneRepository };

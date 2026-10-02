@@ -93,6 +93,8 @@
             <button data-i18n-aria="activity.tabEndpoints" data-i18n-tip="activity.tabEndpoints" id="tab-endpoints" class="activity-item" role="tab" aria-selected="false" aria-controls="view-endpoints" aria-label="端点" data-tip="端点（FastAPI / Flask 路由）"><i class="codicon codicon-globe" aria-hidden="true"></i></button>
             <button data-i18n-aria="activity.tabGit" data-i18n-tip="activity.tabGit" id="tab-git" class="activity-item" role="tab" aria-selected="false" aria-controls="view-git" aria-label="源代码管理" data-tip="源代码管理"><i class="codicon codicon-source-control" aria-hidden="true"></i></button>
             <button data-i18n-aria="activity.tabDebug" data-i18n-tip="activity.tabDebug" id="tab-debug" class="activity-item" role="tab" aria-selected="false" aria-controls="view-debug" aria-label="调试" data-tip="调试"><i class="codicon codicon-debug-alt" aria-hidden="true"></i></button>
+            <!-- B3：SQLite 数据库工具窗（docs/sqlite_tool_dev_plan.md §6.2） -->
+            <button data-i18n-aria="activity.tabDatabase" data-i18n-tip="activity.tabDatabase" id="tab-database" class="activity-item" role="tab" aria-selected="false" aria-controls="view-database" aria-label="数据库（SQLite）" data-tip="数据库（SQLite）"><i class="codicon codicon-database" aria-hidden="true"></i></button>
           </div>
           <div id="view-container">
             <!-- TD-001：每个视图单一根节点，切换只操作根（见 src/views.ts 注册表） -->
@@ -161,6 +163,8 @@
             <div id="view-todo" class="sidebar-view hidden" role="tabpanel" aria-labelledby="tab-todo"></div>
             <!-- 端点工具窗（F1）：内容由 endpointView.ts::initEndpointView 构建 -->
             <div id="view-endpoints" class="sidebar-view hidden" role="tabpanel" aria-labelledby="tab-endpoints"></div>
+            <!-- 数据库工具窗（B3）：内容由 sqliteView.ts::initDbView 构建 -->
+            <div id="view-database" class="sidebar-view hidden" role="tabpanel" aria-labelledby="tab-database"></div>
             <div id="view-git" class="sidebar-view hidden" role="tabpanel" aria-labelledby="tab-git">
               <div id="git-panel">
                 <div id="git-branch-bar">
@@ -765,6 +769,7 @@
             <button class="settings-nav-item" role="tab" aria-selected="false" aria-controls="settings-section-python" data-cat="python"><i class="codicon codicon-server-process" aria-hidden="true"></i><span data-i18n="settings.modalButton5">Python / 运行时</span></button>
             <button class="settings-nav-item" role="tab" aria-selected="false" aria-controls="settings-section-templates" data-cat="templates"><i class="codicon codicon-symbol-snippet" aria-hidden="true"></i><span>Live Templates</span></button>
             <button class="settings-nav-item" role="tab" aria-selected="false" aria-controls="settings-section-terminal" data-cat="terminal"><i class="codicon codicon-terminal" aria-hidden="true"></i><span data-i18n="settings.modalButton6">终端</span></button>
+            <button class="settings-nav-item" role="tab" aria-selected="false" aria-controls="settings-section-database" data-cat="database"><i class="codicon codicon-database" aria-hidden="true"></i><span data-i18n="settings.database.section">数据库</span></button>
             <button class="settings-nav-item" role="tab" aria-selected="false" aria-controls="settings-section-logging" data-cat="logging"><i class="codicon codicon-output" aria-hidden="true"></i><span data-i18n="settings.modalButton7">日志</span></button>
             <button class="settings-nav-item" role="tab" aria-selected="false" aria-controls="settings-section-storage" data-cat="storage"><i class="codicon codicon-database" aria-hidden="true"></i><span data-i18n="settings.modalButton8">存储</span></button>
             <button class="settings-nav-item" role="tab" aria-selected="false" aria-controls="settings-section-plugins" data-cat="plugins"><i class="codicon codicon-extensions" aria-hidden="true"></i><span data-i18n="settings.modalButton9">插件</span></button>
@@ -1144,6 +1149,26 @@
                     <option value="powershell">Windows PowerShell</option>
                     <option data-i18n="settings.terminal.terminalShell.cmd" value="cmd">命令提示符（cmd）</option>
                   </select>
+                </div>
+              </div>
+            </div>
+            <div id="settings-section-database" class="settings-section hidden" role="tabpanel">
+              <div class="settings-group">
+                <h3 data-i18n="settings.database.section" class="settings-group-title">数据库</h3>
+                <div class="settings-grid">
+                  <div class="settings-row">
+                    <label data-i18n="settings.database.pageSize" for="settings-db-page-size">结果每页行数</label>
+                    <select id="settings-db-page-size">
+                      <option value="100">100</option>
+                      <option value="200">200</option>
+                      <option value="500">500</option>
+                      <option value="1000">1000</option>
+                    </select>
+                  </div>
+                  <div class="settings-row">
+                    <label data-i18n="settings.database.warnWrite" for="settings-db-warn-on-write">写操作执行前确认</label>
+                    <input id="settings-db-warn-on-write" type="checkbox" autocomplete="off" />
+                  </div>
                 </div>
               </div>
             </div>

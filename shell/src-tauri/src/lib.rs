@@ -1,4 +1,5 @@
 mod dap;
+mod db_cmds;
 mod edit_history;
 mod env_cmds;
 mod file_ops;
@@ -299,6 +300,17 @@ pub fn run() {
             // Git Clone（迭代 6 · P3-1）
             git_cmds::git_clone,
             git_cmds::git_default_branch,
+            // B3（docs/sqlite_tool_dev_plan.md）：SQLite 数据库工具窗
+            // PR-1：连接骨架 + 列表持久化
+            db_cmds::db_open,
+            db_cmds::db_close,
+            db_cmds::db_connections_load,
+            db_cmds::db_connections_save,
+            // PR-2：查询内核（对象树 / 执行 / 取消 / DDL）
+            db_cmds::db_list_objects,
+            db_cmds::db_query,
+            db_cmds::db_cancel,
+            db_cmds::db_ddl,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -308,7 +320,7 @@ pub fn run() {
             if let tauri::RunEvent::Exit = event {
                 crate::logging::log_line(
                     crate::logging::Level::Info,
-                    "[exit] 清理子进程与监听：lsp / terminal / run / dap / watcher / git-net / plugins",
+                    "[exit] 清理子进程与监听：lsp / terminal / run / dap / watcher / git-net / plugins / db",
                 );
                 watcher::watch_stop_all_for_exit();
                 dap::debug_stop_for_exit();
@@ -316,6 +328,7 @@ pub fn run() {
                 lsp::lsp_stop_all_for_exit();
                 git_cmds::git_stop_net_ops_for_exit(); // P2-6：进行中的 push/pull/fetch 同步杀树
                 plugin_cmds::plugins_stop_watcher_for_exit(); // P2-6：插件目录 watcher
+                db_cmds::db_stop_for_exit(); // B3：SQLite 连接（句柄释放，防锁库）
             }
         });
 }

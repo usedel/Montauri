@@ -197,6 +197,10 @@ pub struct Settings {
     pub libs_json_inject: bool,
     /// 输出面板日志级别着色与过滤（research §11.9，须与前端同步）
     pub log_level_colors: bool,
+    /// B3：SQLite 结果每页行数（100/200/500/1000，须与前端同步）
+    pub db_page_size: u32,
+    /// B3：写语句执行前是否弹确认框（默认开；须与前端同步）
+    pub db_warn_on_write: bool,
 }
 
 impl Default for Settings {
@@ -255,6 +259,10 @@ impl Default for Settings {
             libs_argparse: true,
             libs_json_inject: true,
             log_level_colors: true,
+            // B3（SQLite 工具窗）：与前端 DEFAULT_SETTINGS.db_page_size 对齐；
+            // 写前确认默认开——写库不可撤销，且「默认只读」是本功能的产品定位
+            db_page_size: 200,
+            db_warn_on_write: true,
         }
     }
 }

@@ -101,5 +101,14 @@
   "项目配置选择了模块入口，但模块名为空": "The project configuration uses a module entry, but the module name is empty",
   "未选择解释器且未找到 uv，无法在终端中运行（可在状态栏选择解释器，或先安装 uv）": "No interpreter selected and uv not found, cannot run in the terminal (select an interpreter in the status bar, or install uv first)",
   "命令执行超时（{} 秒）": "Command timed out ({} seconds)",
-  "等待进程失败：{e}": "Failed to wait for the process: {e}"
+  "等待进程失败：{e}": "Failed to wait for the process: {e}",
+  "DbCancelled:查询已取消": "DbCancelled:Query cancelled",
+  "DbReadOnly:只读模式下不允许写操作": "DbReadOnly:Write operations are not allowed in read-only mode",
+  "DbSqlError:一次只能执行一条查询语句（多条写语句可一次性批处理）": "DbSqlError:Only one query statement can be run at a time (multiple write statements can be batched)",
+  "克隆 URL 不能为空": "Clone URL cannot be empty",
+  "URL 格式无效：缺少协议（如 https:// 或 git@）": "Invalid URL format: missing scheme (e.g. https:// or git@)",
+  "不支持的 URL 协议：{scheme}": "Unsupported URL scheme: {scheme}",
+  "目标路径不能为空": "Target path cannot be empty",
+  "目标路径不得包含 ..": "Target path must not contain ..",
+  "目标路径必须是绝对路径": "Target path must be an absolute path"
 }

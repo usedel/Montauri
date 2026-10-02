@@ -23,6 +23,7 @@ import { renderPluginsTab } from "./extensions/pluginsTab";
 import { lintActiveFile, normalizeSeverity } from "./ruffLint"; // D-4：映射保存后立即重查当前文件
 import { refreshPydanticDiagnostics } from "./pydanticDiagnostics"; // 阶段 4：开关保存后即时生效
 import { refreshSplitEditorOptions } from "./splitEditor"; // C-4：分屏编辑器参数同步（splitEditor 不 import 本模块，无环）
+import { refreshDbSqlOptions } from "./sqliteView"; // B3：数据库 SQL 编辑器参数同步（sqliteView 不 import 本模块，无环）
 // UI-26：主题选择改自绘预览色卡（原生 <option> 放不下色卡），值读写经 themePicker
 import { getSelectedTheme, setSelectedTheme, wireThemePicker } from "./themePicker";
 // UI-25：欢迎页快捷键网格跟随键位系统，改键保存后需刷新
@@ -51,8 +52,10 @@ function sh(): SettingsPanelHandlers {
   return handlers;
 }
 
-// ---------- 域内 DOM ----------
-// P2-6（2026-09-29 review）：顶层快照改惰性（铁律 1——此前模块加载期解析 60 个控件，
+/** B3：结果每页行数的候选档（与 index.html 的 select 选项一致；手改配置塞进非法值时回落 200） */
+const DB_PAGE_SIZES = [100, 200, 500, 1000];
+
+// ---------- 域内 DOM ----------// P2-6（2026-09-29 review）：顶层快照改惰性（铁律 1——此前模块加载期解析 60 个控件，
 // 精简 DOM 测试环境 import 即炸，设置域因此零单测）。用法均为 .value/.checked/
 // .classList 方法访问，Proxy 安全；作为参数传给 DOM/组件 API 的元素不可用 lazyEl。
 
@@ -92,6 +95,9 @@ const settingsLibsArgparseEl = lazyEl<HTMLInputElement>("settings-libs-argparse"
 // 库特别支持 P1：JSON 字面量注入 / 输出面板日志级别着色（research §11.9）
 const settingsLibsJsonInjectEl = lazyEl<HTMLInputElement>("settings-libs-json-inject");
 const settingsLogLevelColorsEl = lazyEl<HTMLInputElement>("settings-log-level-colors");
+// B3（SQLite 数据库工具窗）：结果每页行数 / 写前确认
+const settingsDbPageSizeEl = lazyEl<HTMLSelectElement>("settings-db-page-size");
+const settingsDbWarnOnWriteEl = lazyEl<HTMLInputElement>("settings-db-warn-on-write");
 // 阶段 4：Pydantic 构造校验诊断开关
 const settingsPydanticDiagnosticsEl = lazyEl<HTMLInputElement>("settings-pydantic-diagnostics");
 const settingsAutosaveEl = lazyEl<HTMLSelectElement>("settings-autosave");
@@ -670,6 +676,9 @@ function fillForm(settings: Settings): void {
   settingsLibsArgparseEl.checked = settings.libs_argparse !== false;
   settingsLibsJsonInjectEl.checked = settings.libs_json_inject !== false;
   settingsLogLevelColorsEl.checked = settings.log_level_colors !== false;
+  // B3：每页行数（旧配置缺字段兜底 200）；写前确认默认开（!== false 惯例）
+  settingsDbPageSizeEl.value = String(settings.db_page_size ?? 200);
+  settingsDbWarnOnWriteEl.checked = settings.db_warn_on_write !== false;
   // 阶段 4：Pydantic 诊断默认开（!== false 惯例）
   settingsPydanticDiagnosticsEl.checked = settings.pydantic_diagnostics !== false;
   settingsAutosaveEl.value = settings.autosave;
@@ -830,6 +839,11 @@ async function commitSettingsPanel(closeAfter: boolean): Promise<boolean> {
     libs_argparse: settingsLibsArgparseEl.checked, // 库支持 PR-4
     libs_json_inject: settingsLibsJsonInjectEl.checked, // 库支持 P1
     log_level_colors: settingsLogLevelColorsEl.checked, // 库支持 P1
+    // B3：数据库工具窗（page_size 只在候选档内取值，防手改配置塞进非法值）
+    db_page_size: DB_PAGE_SIZES.includes(Number(settingsDbPageSizeEl.value))
+      ? Number(settingsDbPageSizeEl.value)
+      : 200,
+    db_warn_on_write: settingsDbWarnOnWriteEl.checked,
     pydantic_diagnostics: settingsPydanticDiagnosticsEl.checked, // 阶段 4
     autosave,
     autosave_delay: app.settings.autosave_delay,
@@ -870,6 +884,7 @@ async function commitSettingsPanel(closeAfter: boolean): Promise<boolean> {
   applyFontStatus();
   applyEditorKeybindings(); // 编辑器级键位即时重建（window 级实时匹配无需处理）
   refreshSplitEditorOptions(); // C-4：分屏编辑器同源 options（字号/主题/连字等即时生效）
+  refreshDbSqlOptions(); // B3：数据库 SQL 编辑器同源 options（同上；sqliteView 不 import 本模块，无环）
   repaintRunWidget(); // 改键后运行组 tooltip 副文本跟随新键位（window 级键位变化不走 renderTabs）
   // UI-25：欢迎页快捷键网格同理——保存路径不经 updateEditorOverlay，不显式刷就会留着旧键位
   renderWelcomeShortcuts();

@@ -109,3 +109,6 @@
 4. 真机断点用 dev 钩子 `__OC_DEBUG_TEST__`，不做真机像素点击（真机 glyph 点击抖动 + D-006 同源问题，真实 gutter 点击在 mock 层 D-FUNC-1 覆盖）；
 5. 新真机脚本一律基于 `e2e-real/lib/real-env.cjs::runWithRealApp` 托管生命周期（预检 / 隔离数据根 / tauri dev 启停 / CDP 连接 / 进程树清理 / 汇总），禁止再复制粘贴这套样板；
 6. 断言「写文件 → 树刷新」类用例必须带**重触写兜底**（写后超时未出现则重写触发新变更事件）：watcher 只上报启动后的变更，且新窗口的 watcher 就绪晚于树可用（D-007）。
+7. **改动 `src/` 后、重跑 mock 层 e2e 前，先杀掉 5173 上的 vite 进程**（D-008）。原因：Vite 在模块被 HMR 失效后会把 `?t=<时间戳>` 烘进**已转换模块的 import 语句**；而用例里的 `page.evaluate(() => import("/src/x.ts"))` 是**裸 URL（无查询串）** → 浏览器视为另一条模块记录 → 拿到**第二个实例**。于是模块级状态（`welcomeGuide` 的 `tourCollapsed`、`quickOpen` 的会话状态…）与应用持有的那份分叉，症状是「点了没反应 / 输入框没聚焦」这类**看起来像产品 bug、实为测试环境**的失败。实测：UX-9（`quick-open-input` 未聚焦）与 OG-7（巡礼标题行点击不展开）在陈旧 dev server 上**稳定复现**，杀掉 vite 重启后**立即全过**。
+   `playwright.config.ts` 是 `reuseExistingServer: true`，**不会自动重启**旧实例，所以必须手动清：
+   `Get-NetTCPConnection -LocalPort 5173 -State Listen | % { Stop-Process -Id $_.OwningProcess -Force }`（Playwright 下次运行会自行拉起干净的 dev server）。

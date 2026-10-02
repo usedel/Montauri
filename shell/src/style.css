@@ -2203,6 +2203,156 @@ button:focus-visible,
 }
 .ep-action:hover, .ep-action:focus-visible { color: var(--accent); }
 
+/* ---------- 数据库工具窗（B3 · sqliteView.ts / sqliteGrid.ts；docs/sqlite_tool_dev_plan.md §8） ----------
+   四段竖排：工具条（固定）→ 对象树（弹性，min 120px）→ SQL 编辑器（固定 140px）→ 结果（弹性）。
+   段头折叠沿用 UI-16 纪律：.collapsed 与 aria-expanded 由 sqliteView.ts 同源切换，样式只认类名。
+   配色一律走 token（--fg-dim / --bg-alt / --hover-subtle / --warn / --danger），深/浅双主题都过。 */
+/* 溢出收容（B3 修复，2026-10-02）：#sidebar 是 position:relative，其定位子树在「定位后代」阶段
+   绘制，晚于无定位节点；而 #bottom 同为定位且 DOM 在后 → 一旦本视图内容超出侧栏高度，溢出部分
+   会被 #bottom（#output 面板）整块盖住。表现是分页条/导出按钮「看得见却点不动」——Playwright
+   报 `<div id="output"> … intercepts pointer events`（e2e DB-Q-1/DB-Q-10 实测）。同 #git-panel
+   既有纪律（见其上注释）。
+   窗口高度不足时（720px 视口 → 侧栏可用高约 380px，容不下 树 120 + 编辑器 140 + 结果 160）
+   整窗纵向滚动，保证任一段与分页条始终可达——折叠段头是进一步腾空间的正规手段（§3.1）。 */
+#view-database { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+.db-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+/* min-width:0 必需：连接下拉要显示「文件名 · 父目录」，不设会被长路径撑破整行 */
+.db-conn-select { flex: 1; min-width: 0; }
+.db-write-banner {
+  flex: none;
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--warn, #cca700);
+  background: var(--bg-alt);
+  border-bottom: 1px solid var(--border);
+}
+.db-section { display: flex; flex-direction: column; min-height: 0; }
+.db-section-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--fg-dim);
+  cursor: pointer;
+  flex: none;
+  user-select: none;
+}
+.db-section-header:hover { background: var(--hover-subtle); }
+.db-section-header:focus-visible { outline: 1px solid var(--focus-ring); outline-offset: -1px; }
+.db-section.collapsed > .db-section-body { display: none; }
+#db-tree-wrap { flex: 1 1 auto; min-height: 120px; }
+#db-tree { overflow: auto; flex: 1; min-height: 0; }
+#db-sql-wrap { flex: none; }
+/* Monaco 宿主：不能用 lazyEl Proxy 喂进去（automaticLayout 会把容器交给 ResizeObserver.observe，
+   Proxy 不是真实 Element 会被原生 API 拒——同 splitEditor.ts:23-25 的踩坑注释） */
+.db-sql-host { height: 140px; min-height: 80px; }
+/* min-height 与 #db-tree-wrap 一起构成「短窗口下限」：两者都设硬下限，空间不足时由
+   #view-database 外层滚动兜底，而不是把分页条挤出可视区（B3 修复）。 */
+.db-result-wrap { display: flex; flex-direction: column; min-height: 160px; flex: 1 1 auto; }
+.db-result-status {
+  flex: none;
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--fg-dim);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.db-result-status.is-error { color: var(--danger); }
+/* 结果网格：唯一「吃掉剩余高度」的弹性区，行内滚动（横向 + 纵向）。
+   min-height 84px ≈ 3 行，低于此结果区就只剩状态条与分页条了（外层滚动接管，见上）。 */
+.db-result-grid { overflow: auto; flex: 1 1 auto; min-height: 84px; }
+/* 查询中保留上次结果并降透明度（与库支持求值桥的 is-stale 同款处理） */
+.db-stale { opacity: 0.55; }
+.db-grid {
+  border-collapse: collapse;
+  font-family: var(--font-mono, monospace);
+  font-size: var(--text-sm);
+}
+.db-grid th,
+.db-grid td {
+  border-right: 1px solid var(--border-soft, var(--border));
+  border-bottom: 1px solid var(--border-soft, var(--border));
+  padding: 0 var(--space-2);
+  height: 26px;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+/* 列名 sticky + 行号列 sticky（横向滚动时行号不跟着走，便于对位） */
+.db-grid thead th { position: sticky; top: 0; z-index: 1; background: var(--bg-alt); font-weight: 600; }
+.db-grid .db-rowno { position: sticky; left: 0; z-index: 2; background: var(--bg-alt); color: var(--fg-dim); text-align: right; }
+.db-grid thead .db-rowno { z-index: 3; }
+.db-num { font-variant-numeric: tabular-nums; }
+.db-cell-null { color: var(--fg-dim); font-style: italic; }
+.db-cell-blob { color: var(--fg-dim); }
+.db-cell-empty { color: var(--fg-dim); }
+.db-cell-clickable { cursor: pointer; }
+.db-cell-clickable:hover { background: var(--hover-subtle); }
+.db-pager {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  flex: none;
+}
+.db-pager #db-page-label { margin: 0 auto; color: var(--fg-dim); font-size: var(--text-xs); }
+.db-cell-detail {
+  flex: none;
+  border-top: 1px solid var(--border);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+}
+.db-cell-detail-head { color: var(--fg-dim); font-size: var(--text-xs); margin-bottom: var(--space-1); }
+.db-cell-detail-body {
+  font-family: var(--font-mono, monospace);
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 30vh;
+  overflow: auto;
+  margin-bottom: var(--space-2);
+}
+.db-tree-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--fg-dim);
+  position: sticky;
+  top: 0;
+  background: var(--bg-alt);
+}
+.db-tree-item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3) var(--space-1) var(--space-4);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  flex-wrap: wrap;
+}
+.db-tree-item:hover { background: var(--hover-subtle); }
+.db-tree-item:focus-visible { outline: 1px solid var(--focus-ring); outline-offset: -1px; }
+.db-tree-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.db-tree-count { color: var(--fg-dim); font-size: var(--text-xs); flex: none; }
+/* 列清单整行换行到下一排（flex-basis:100%），缩进与表名对齐 */
+.db-tree-cols { flex-basis: 100%; padding-left: var(--space-5); }
+.db-tree-col { display: flex; gap: var(--space-3); color: var(--fg-dim); font-size: var(--text-xs); }
+.db-tree-col-type { margin-left: auto; }
+
 /* UI-08：对话框按钮迁移到 .btn 体系（.btn / .btn--primary / .btn--danger）。
    原 `.modal-actions button` 特异性 (0,1,1) 高于 .btn 的 (0,1,0)，故整块删除而非并存。
    注：#confirm-ok 的 primary/danger 形态由 dialog.ts::applyKind 动态切换类名。 */

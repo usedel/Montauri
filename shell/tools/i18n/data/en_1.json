@@ -23,6 +23,7 @@
   "activity.tabEndpoints": "Endpoints (FastAPI / Flask Routes)",
   "activity.tabGit": "Source Control",
   "activity.tabDebug": "Debug",
+  "activity.tabDatabase": "Database (SQLite)",
   "tree.treeHeaderText": "Files",
   "tree.treeNewFile": "New File",
   "tree.treeNewFolder": "New Folder",

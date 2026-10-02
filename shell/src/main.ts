@@ -92,6 +92,7 @@ import {
 import { showMenu, type MenuItem } from "./menu";
 import { initTodoView, refreshTodos, resetTodoView, setTodoViewHandlers } from "./todoView"; // P0：TODO 工具窗
 import { initEndpointView, refreshEndpoints, resetEndpointView, setEndpointViewHandlers } from "./endpointView"; // F1：端点工具窗
+import { initDbView, onDbViewShow, resetDbView, restoreDbSections, setDbViewHandlers, addConnection, focusDbSql, refreshDbWorkspace } from "./sqliteView"; // B3：SQLite 数据库工具窗
 import { initDebugView, notifyDepFound, renderDebugView, runToCursor as runToCursorIn, setDebugViewHandlers, wireDebugViewEvents } from "./debugView";
 import { closeRecentFiles, initRecentFiles, openRecentFiles, setRecentFilesHandlers } from "./recentFiles"; // P0：最近打开的文件（Ctrl+E）
 // P1（PyCharm 调研）：Search Everywhere / 导航历史 / 本地历史 / 调试控制台
@@ -221,6 +222,7 @@ function resetWorkspaceUiState(): void {
   resetFindUsages();            // 查找引用结果面板 + 行缓存
   resetTodoView();              // P0：TODO 列表 + 作废在途扫描
   resetEndpointView();          // F1：端点列表 + 作废在途扫描
+  resetDbView();                // B3：数据库连接态 / 对象树 / 结果 + 作废在途请求
   resetNavHistory();            // P1：导航历史（跨工作区的历史没有意义）
   invalidateQuickOpenFiles();   // P1：工作区文件清单缓存随工作区失效
   resetBreadcrumbs();           // P2：面包屑（含符号缓存与防抖 timer）
@@ -350,6 +352,9 @@ async function openWorkspace(root: string): Promise<void> {
       renderGitPanel();
       void refreshBranchPanel();
     }
+    // B3（§10.3-8b 真机发现）：数据库视图若在自动恢复工作区完成前初始化，会停在
+    // 「未打开工作区」空态且无 onShow 触发——工作区就绪后补一次状态刷新。
+    refreshDbWorkspace();
     updateEditorOverlay();
   } finally {
     wsSwitching = false;
@@ -1561,6 +1566,9 @@ function buildQuickOpenActions(): QuickOpenAction[] {
     // 迭代 3：高级工作流进命令面板（cherry-pick/reset 等历史操作走历史条目右键）
     { id: "git_sync_status", label: t("main.cmd.gitSyncStatus"), run: () => { setSidebarTab("git"); toast(t("main.cmd.syncUpdated"), "info"); void refreshBranchPanel(); } },
     { id: "todo_panel", label: t("main.cmd.todoPanel"), run: () => setSidebarTab("todo") },
+    // B3：数据库工具窗（引擎在 Rust db_cmds.rs；视图在 sqliteView.ts）
+    { id: "db_add_connection", label: t("database.cmdOpen"), run: () => { setSidebarTab("database"); void addConnection(); } },
+    { id: "db_new_query", label: t("database.cmdNewQuery"), run: () => { setSidebarTab("database"); focusDbSql(); } },
     // PR-S2 巡礼（onboarding plan §3.2b）：open_devtools 此前只有键位（Ctrl+Shift+T）与
     // keybindings.ts 分发，命令面板查不到——巡礼「试一下」挂注册表 id，一并补上可发现性
     { id: "open_devtools", label: t("main.cmd.devtools"), run: () => openDevToolsPanel() },
@@ -2479,6 +2487,10 @@ async function init(): Promise<void> {
   // F1：端点工具窗（渲染与动作见 endpointView.ts；扫描在 Rust fs_cmds::scan_endpoints）
   initEndpointView();
   setEndpointViewHandlers({ openFile: (path, line) => void openFile(path, line) });
+  // B3：数据库工具窗（渲染与编排见 sqliteView.ts；引擎在 Rust db_cmds.rs）
+  initDbView();
+  restoreDbSections();
+  setDbViewHandlers({ buildOptions: () => buildEditorOptions(app.settings) });
   $("ew-open-folder").addEventListener("click", () => void openFolderFromToolbar());
   $("ew-new-project").addEventListener("click", () => openNewProjectPanel());
   $("ew-recent-clear").addEventListener("click", () => void clearRecentWorkspaces());
@@ -2694,6 +2706,13 @@ async function init(): Promise<void> {
     tabId: "tab-debug",
     onShow: () => renderDebugView(),
   });
+  // B3：数据库工具窗——同 TODO/端点：切到该视图才拉连接列表（不在启动路径上做 IO）
+  registerSidebarView({
+    id: "database",
+    rootId: "view-database",
+    tabId: "tab-database",
+    onShow: () => void onDbViewShow(),
+  });
 
   // Activity Bar 图标（FILES / SEARCH / GIT / DEBUG）
   $("tab-files").addEventListener("click", () => setSidebarTab("files"));
@@ -2702,6 +2721,7 @@ async function init(): Promise<void> {
   $("tab-endpoints").addEventListener("click", () => setSidebarTab("endpoints"));
   $("tab-git").addEventListener("click", () => setSidebarTab("git"));
   $("tab-debug").addEventListener("click", () => setSidebarTab("debug"));
+  $("tab-database").addEventListener("click", () => setSidebarTab("database"));
   // 大纲折叠 / 展开（OUTLINE 并入文件视图，TD-001 附带考虑）
   // UI-16：disclosure 语义——aria-expanded 与 .collapsed 类同源切换（单一写入点），
   // 并给这个可点击 div 补键盘激活（role=button + tabindex 已在 index.html 静态声明）

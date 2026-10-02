@@ -202,6 +202,139 @@
     }
   }
 
+  // ============ B3 数据库工具窗桩（sqliteView.ts / db_cmds.rs）============
+  // 浏览器 E2E 里没有真实 SQLite（rusqlite 是 Rust 侧进程内库），这里做形状级替身：
+  //   - 命令返回严格对齐 db_cmds.rs 的 serde camelCase 形状，让前端渲染逻辑走真实分支；
+  //   - 默认样本 = 1 个连接 + 2 张表 1 个视图 1 个索引 + 250 行结果（>200 才能测翻页）；
+  //   - 测试经 window.__E2E_DB__ 预置覆写（见各 spec）：
+  //       { connections, objects, result, ddl, pick, failQuery, failOpen, writable }
+  //   - 写盘类命令把最后一次入参留在 window.__E2E_DB_SAVED__，供断言「草稿/历史是否落库」。
+
+  /** 默认连接（只读） */
+  var DB_CONN = {
+    id: "db-0000000000000001",
+    path: "C:\\e2e\\app.db",
+    name: "app.db",
+    writable: false,
+    sql: "",
+    history: [],
+  };
+
+  /** 默认对象树：表 2 / 视图 1 / 索引 1（含行数与列，覆盖树渲染的全部字段） */
+  var DB_OBJECTS = [
+    { name: "users", kind: "table", sql: 'CREATE TABLE "users" (id INTEGER PRIMARY KEY, name TEXT NOT NULL, note TEXT)',
+      rowCount: 250, columns: [
+        { name: "id", declType: "INTEGER", pk: true, notNull: false },
+        { name: "name", declType: "TEXT", pk: false, notNull: true },
+        { name: "note", declType: "TEXT", pk: false, notNull: false },
+      ] },
+    { name: "logs", kind: "table", sql: 'CREATE TABLE "logs" (ts TEXT, msg TEXT)',
+      rowCount: 12, columns: [
+        { name: "ts", declType: "TEXT", pk: false, notNull: false },
+        { name: "msg", declType: "TEXT", pk: false, notNull: false },
+      ] },
+    { name: "active_users", kind: "view", sql: 'CREATE VIEW "active_users" AS SELECT * FROM users WHERE id > 0',
+      rowCount: 250, columns: [{ name: "id", declType: "INTEGER", pk: false, notNull: false }] },
+    { name: "idx_users_name", kind: "index", sql: 'CREATE INDEX "idx_users_name" ON users(name)',
+      rowCount: null, columns: null },
+  ];
+
+  /** 默认结果：250 行（含 NULL 与空串，覆盖特殊单元格渲染） */
+  var DB_ROWS = [];
+  for (var dri = 1; dri <= 250; dri++) {
+    DB_ROWS.push([String(dri), dri % 7 === 0 ? null : "user" + dri, dri % 5 === 0 ? "" : "note " + dri]);
+  }
+
+  function dbPreset() {
+    return window.__E2E_DB__ || {};
+  }
+
+  function dbBasename(p) {
+    var s = String(p || "");
+    var i = Math.max(s.lastIndexOf("/"), s.lastIndexOf("\\"));
+    return i >= 0 ? s.slice(i + 1) : s;
+  }
+
+  // 内存连接列表：复刻 Rust 侧 db_connections.json 的读写语义——
+  // 首次 load 按预置初始化，之后 db_open（合并写入）/ db_connections_save（整表覆盖）都落在同一份上。
+  var dbSaved = null;
+  var dbAuto = null;
+
+  function dbList() {
+    if (dbSaved) return dbSaved;
+    if (!dbAuto) dbAuto = (dbPreset().connections || [DB_CONN]).slice();
+    return dbAuto;
+  }
+
+  function dbStore(list) {
+    if (dbSaved) dbSaved = list;
+    else dbAuto = list;
+  }
+
+  function dbHandle(cmd, args) {
+    var p = dbPreset();
+    if (cmd === "db_connections_load") return dbList();
+    if (cmd === "db_connections_save") {
+      window.__E2E_DB_SAVED__ = args && args.list;
+      dbSaved = (args && args.list) || [];
+      return null;
+    }
+    if (cmd === "db_open") {
+      if (p.failOpen) throw new Error("DbInvalidPath:" + (p.failOpen === true ? "ext:txt" : String(p.failOpen)));
+      var list = dbList();
+      var known = null;
+      for (var k = 0; k < list.length; k++) if (list[k].path === args.path) known = list[k];
+      var entry = {
+        id: known ? known.id : "db-" + (1000000000000000 + list.length),
+        path: args.path,
+        name: dbBasename(args.path),
+        writable: !!args.writable,
+        sql: (known && known.sql) || "",
+        history: (known && known.history) || [],
+      };
+      var out = list.slice();
+      var idx = -1;
+      for (var k2 = 0; k2 < out.length; k2++) if (out[k2].id === entry.id) idx = k2;
+      if (idx >= 0) out[idx] = entry;
+      else out.push(entry);
+      dbStore(out);
+      return entry;
+    }
+    if (cmd === "db_close") return null;
+    if (cmd === "db_list_objects") {
+      if (p.failList) throw new Error("DbSqlError:" + String(p.failList));
+      return p.objects || DB_OBJECTS;
+    }
+    if (cmd === "db_query") {
+      // 记录查询流水：断言「执行当前语句 / 执行全部」到底发了哪几条 SQL（只记 cmd 名不够）
+      (window.__E2E_DB_QUERIES__ = window.__E2E_DB_QUERIES__ || []).push(String(args.sql || ""));
+      if (p.failQuery) throw new Error("DbSqlError:" + (p.failQuery === true ? 'near "SELEC": syntax error' : String(p.failQuery)));
+      if (p.result) return p.result;
+      var sql = String(args.sql || "");
+      // 写语句：回空结果集 + affected（对齐 Rust 的写路径）
+      if (/^\s*(insert|update|delete|replace|create|drop|alter|pragma|vacuum|begin|commit|rollback)\b/i.test(sql)) {
+        return { columns: [], rows: [], total: 0, offset: 0, truncated: false, elapsedMs: 1, affected: 1 };
+      }
+      var off = Number(args.offset) || 0;
+      var lim = Number(args.limit) || 200;
+      return {
+        columns: ["id", "name", "note"],
+        rows: DB_ROWS.slice(off, off + lim),
+        total: DB_ROWS.length,
+        offset: off,
+        truncated: false,
+        elapsedMs: 3,
+        affected: null,
+      };
+    }
+    if (cmd === "db_cancel") return null;
+    if (cmd === "db_ddl") {
+      if (p.ddl) return p.ddl;
+      return 'CREATE TABLE "users" (\n  id INTEGER PRIMARY KEY,\n  name TEXT NOT NULL\n)';
+    }
+    return undefined;
+  }
+
   // ============ LSP mock（代码补全 / 跳转定义 / Hover）============
   // 静态引擎（pyrefly/basedpyright）在浏览器 E2E 里没有真实进程，这里做协议级替身：
   //   - lsp_send_request → 按 method 分发到下方语义函数，结果经 "lsp-message" 事件回灌 client 的 pending；
@@ -865,6 +998,16 @@
         if (sraw) return JSON.parse(sraw);
       } catch (e) {}
       return { tabs: [], active: null };
+    }
+    // 4.9) B3 数据库工具窗（sqliteView.ts ↔ db_cmds.rs）
+    if (cmd.indexOf("db_") === 0) {
+      var dbOut = dbHandle(cmd, args);
+      if (dbOut !== undefined) return dbOut;
+    }
+    // pick_file：默认返回 null（= 用户取消，与真实对话框一致）；预置 __E2E_DB__.pick 时回该路径
+    // （数据库「添加连接」的 e2e 用；runConfigPanel 等既有调用点不受影响）
+    if (cmd === "pick_file" && window.__E2E_DB__ && window.__E2E_DB__.pick !== undefined) {
+      return window.__E2E_DB__.pick;
     }
     // 5) 静态表
     var h = staticHandlers[cmd];

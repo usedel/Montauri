@@ -23,6 +23,7 @@
  "activity.tabEndpoints": "端点（FastAPI / Flask 路由）",
  "activity.tabGit": "源代码管理",
  "activity.tabDebug": "调试",
+ "activity.tabDatabase": "数据库（SQLite）",
  "tree.treeHeaderText": "文件",
  "tree.treeNewFile": "新建文件",
  "tree.treeNewFolder": "新建文件夹",
