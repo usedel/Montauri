@@ -17,7 +17,7 @@
 | 批次 | 六批：批 1（ADR + 交互色青绿统一 + 浅色 AA）→ 批 2a（表面阶梯 token）→ 批 2b（抬升面归属审计）→ 批 3（等宽字体随包）→ 批 4（Monaco 自定义主题，P1）→ 批 5（边框/曲线/圆角/材质） |
 | 落地方式 | **master 直提**（产品负责人 2026-10-03 拍板），不建分支、不推送远程 |
 | 验收方式 | **基线截图 + e2e computed-style 断言 + token 一致性单测 + `tools/ui/audit_tokens.py` 脚本门禁**；不接受纯人工抽查 |
-| 当前进度 | ✅ 批 1 + 2a + 2b + 3 已落地（批 3 门禁：audit 74 项 0 FAIL 0 WARN / tsc 0 错 / vitest 1026 / e2e-ui 53 用例 3.7min / 截图 8 张 + 字体实测全绿），⏳ 批 4（Monaco 主题，P1）待开工 |
+| 当前进度 | ✅ 批 1 + 2a + 2b + 3 + 4 已落地（批 4 门禁：audit 74 项 0 FAIL 0 WARN / tsc 0 错 / vitest 92 文件 1051 用例 / cargo settings 3 passed / e2e 新增 6 用例全绿 / e2e-ui 51 passed + 8 failed 经 stash 对照确认为存量 / 截图 8 张），⏳ 批 5（边框 / 曲线 / 圆角 / 材质）待开工 |
 
 ### 1.1 批次状态
 
@@ -27,7 +27,7 @@
 | 批 2a | 深浅两套表面阶梯 + `--bg-panel` 21 处拆分 + 三层同步义务 + `styleTokens.test.ts` | ✅ 已落地（2026-10-03，记录见 §7.2） |
 | 批 2b | 19 处 `--bg-alt` → S3 审计 + 派生交互 token 重算 + `--fg-dim` 246 处抬升面审计 + 浮层 `--elev` 归属 | ✅ 已落地（2026-10-03，记录见 §7.3） |
 | 批 3 | 等宽字体五处改动 + JetBrains Mono 随包（**落地路径已修订为 `public/fonts/` 入库**，见 §7.4.1） | ✅ 已落地（2026-10-03，记录见 §7.4） |
-| 批 4 | Monaco 自定义主题 `opencharm-dark/light` + `--syntax-*` 与 `rules` 同批 | ⏳ 待开工（§6.4） |
+| 批 4 | Monaco 自定义主题 `opencharm-dark/light` + `--syntax-*` 与 `rules` 同批 | ✅ 已落地（2026-10-03，记录见 §7.5） |
 | 批 5 | 边框纪律 / 动效曲线 / 圆角档位 / 材质细节 | ⏳ 待开工（§6.5） |
 
 ---
@@ -206,9 +206,11 @@ node scripts/ui-baseline.mjs --tag after-b1      # 改造后
 
 **五处改动**：`state.ts` `DEFAULT_FONT_FAMILY` / `settings.rs Settings::default` / `style.css --mono` / `index.html` 字体族 preset 首选项 / `loadSettings::migrateLegacyFontSettings`（仅在等于旧出厂串时替换）；外加 `font_ligatures` 出厂 `true`（前后端 + 两处测试同步）、`ensureEditorFontLoaded()`（建编辑器前等字体，带 1.5s 超时）、6 处 `--font-mono` 收口、`--font-ui` token 坐实。验收由 `ui-baseline.mjs --probe-fonts` + `e2e/editor/10-font-family.spec.ts` + `fontStack.test.ts`（四方一致 15 条）承担。
 
-### 6.4 批 4 —— Monaco 主题（方案 §5.4）
+### 6.4 批 4 —— Monaco 主题（方案 §5.4）✅ 已落地
 
-`shell/src/theme/tokens.ts` 单一真源 → `defineTheme` ×2（`opencharm-dark` / `opencharm-light`）→ 5 个接线点 → 2 个既有测试（`state.test.ts:22` / `themePicker.test.ts:14`）→ `loadSettings` 主题名迁移（`vs-dark` / `vs-light` → 新名）→ `--syntax-*` 与 `rules` 同批 → 四方一致单测。
+`shell/src/theme/tokens.ts` 单一真源 → `defineTheme` ×2（`opencharm-dark` / `opencharm-light`）→ 接线点 → 既有测试（`state.test.ts` / `themePicker.test.ts`）→ `loadSettings` 主题名迁移（`vs-dark` / `vs` → 新名）→ `--syntax-*` 与 `rules` 同批 → 四方一致单测。
+
+**落地时修订三处**（详见 §7.5）：① 色值真源仍是 `style.css`，`tokens.ts` **零色值**只有映射表（拍板）；② 存量浅色名是 `"vs"` 而非方案写的 `"vs-light"`，迁移表补第三个串；③ 接线点由 5 处增至 **7 处**（方案漏了 `applyShellTheme` 与 `terminal.ts` 两处 `=== "vs"` 判定）。
 
 ### 6.5 批 5 —— 边框 / 曲线 / 圆角 / 材质（方案 §5.5–§5.8）
 
@@ -428,4 +430,67 @@ Monaco 用 canvas `measureText` 测字符宽度并缓存（`CharConfig`），字
 > **其一：e2e 报「编辑器尚未初始化」不等于编辑器没创建。** 本批首次跑 e2e-ui 出现 8 项失败（E-BASIC-1..4 / S-1 / S-2 / UX-1 / UX-9），错误统一是 `app.editor` 抛「尚未初始化」。逐层排查（`initStep` 打点 → `editor.create` 返回值 → 模块实例比对）才定位到：那 8 个用例用 `await import("/src/state.ts")` 取 `app`，而**长时间运行的 vite dev 在我改动 `state.ts` 后重建了模块图**，页面拿到的是**另一份模块实例**（其 `_editor` 恒为 null）；`editor.create` 实际早已返回正常对象。杀掉 vite 进程后 e2e-ui 立刻 **51/51 全绿**。教训：① 诊断「实例未初始化」类问题必须先证伪「同一模块实例」这个前提（比对 `app.workspaceRoot` / `app.tabs` 这类被 init 填过的字段最快）；② e2e 断言应用内部状态时，**读 DOM 比读模块实例稳**（本批新增的字体 e2e 因此全部走 computed style）；③ 长时间运行的 vite dev 是 e2e 的隐性依赖源，**e2e 报出成片的编辑器类失败时，第一动作是重启 vite**。
 
 > **其二：`ui-baseline.mjs` 的探针模式不宜对「编辑器就绪」设门禁。** 该脚本的 `makeBridge` 只实现「UI 渲染必需」通道（没有 `lsp`），`init()` 会停在 `await startLsp()`，编辑器根本没到创建那一步——**与字体无关**。故 `--probe-fonts` 的门禁只覆盖字体项（可达性 / MIME / `fonts.check` / token），编辑器就绪降为提示；Monaco 侧证据由 e2e（编辑器就绪后可用）与截图承担。附带的 monaco 预热逻辑保留（冷启动时它确实要几十秒）。
+
+### 7.5 批 4（2026-10-03）—— Monaco 自定义主题
+
+改造前编辑器跑 Monaco 出厂 `vs-dark` / `vs`，与外壳 token 系统不同源——占屏 60–70% 的颜色全部来自出厂主题，是「拼装感」的最大来源。
+
+#### 7.5.1 真源形态修订：CSS 仍是唯一真源，`tokens.ts` 零色值
+
+方案 §5.4 写「`theme/tokens.ts` 是 CSS 与 Monaco 的**单一真源**」。但批 2a/2b 已把外壳 token 落在 `style.css`，并配了三层同步义务（`styleTokens.test.ts` 的断言、`index.html` 的 FOUC 内联兜底块、`index.html` 头部的同步项清单）。若再把色值抄一份进 TS，就出现**第二套真值**：改 style.css 不动 Monaco、改 TS 不动外壳，两套漂移后**任何静态门禁都发现不了**（两边的值都是合法颜色，`audit_tokens.py` 与单测都无从报警）。
+
+**拍板落地**：`shell/src/theme/tokens.ts` 只声明「Monaco 槽位 → CSS 变量」的映射表，色值在 `defineTheme` 时经 `getComputedStyle` 现读。由此得到一个额外收益：**深浅两套共用同一份映射**，差异全落在 CSS 的 `[data-theme="light"]` 覆盖层里——切主题只需切 `data-theme` 后重新注册，映射表永不重复。
+
+#### 7.5.2 方案与实际不符的三处
+
+| # | 方案原文 | 实际 | 处置 |
+|---|---|---|---|
+| 1 | 迁移 `vs-dark` / `vs-light` | 存量浅色值是 **`"vs"`**（`themePicker` 候选 / `applyShellTheme` / `terminal.ts` 三处都是它；`vs-light` 从未在本仓库出现） | 迁移表覆盖 `vs-dark` / `vs` / `vs-light` **三个串**。照抄方案会漏掉唯一那个真实存量值 |
+| 2 | 接线点 **5 处** | **7 处** | 方案把 `applyShellTheme` 归为「值域不变、无需改」，但它硬编码了 `theme === "vs"` 判定 data-theme；`terminal.ts:18` 同样。主题改名后这两处漏改 → 外壳浅色 / 终端深色的「半深半浅」界面，**不报任何错** |
+| 3 | `monaco.ts` 动作 =「遍历 `editorTheme` 调 `defineTheme`」 | 因真源形态修订，变为「读 CSS 变量 → 重注册 → `setTheme`」 | 由此引入**顺序约束**，见 §7.5.3 |
+
+#### 7.5.3 本批引入的新约束：注册顺序不可调换（方案未提）
+
+Monaco 主题的色值是**注册那一刻从 CSS 变量读到的快照**。故凡「先切 `data-theme` 再上编辑器」的路径都必须**重新注册**：
+
+- `settingsPanel` 保存路径原本是 `setTheme(theme)` 在前、`applyShellTheme(theme)` 在后。批 4 必须调换，否则编辑器会拿到**上一套主题的表面色**——症状是「切到浅色后编辑器背景仍是深灰」，且因为 token 色也恰好错成深色值，contrast 检查也发现不了。
+- `markdownPreview` 导出 HTML 需要临时切浅色再 colorize。恢复路径收在 `monaco.ts::withEditorTheme` 内部（`finally` 里 **data-theme 与 Monaco 主题成对恢复**——只恢复其一会让下一次注册读到错的快照）。
+
+#### 7.5.4 新增 token 1 个：`--editor-line-highlight`
+
+`editor.lineHighlightBackground` 需要**实色**（Monaco 直接拿它当背景填），而 `--indent-guide` 是半透明白（叠在画布上才成型）——套过去等于没画。取值锚定批 2a 阶梯：深 `#242429`（落在 S2 `#1f1f24` 与 S3 `#2a2a30` 之间，vs 画布 **1.13**，与 VS Code 原生当前行几乎同强度）；浅 `#f0f0f2`（白底 1.138）。刻意**不用** `--hover`（1.25）：整行底色比悬停行还重，层级反了。
+
+#### 7.5.5 语法色：var 转青绿、boolean 转紫（拍板）
+
+7 个 `--syntax-*` 里唯二偏蓝的两项与 Monaco `rules` 同批改，其余 5 个（string 橙 / number 绿 / null 灰 / object 黄 / array 橙）**本就不偏蓝，未动**——多色相是 token 区分度的功能需求，不连坐。
+
+| token | 旧值 | 新值（深 / 浅） | 对比度 |
+|---|---|---|---|
+| `--syntax-var` | `#9cdcfe` 浅蓝 / `#001080` 深蓝 | `#7ce3cd` 青绿（= `--brand-1`）/ `#0e7261`（= 浅色 `--accent`） | S2 **10.77** / 白底 **5.84** ✅ |
+| `--syntax-boolean` | `#569cd6` 蓝 / `#0000ff` 纯蓝 | `#c586c0` 紫（= `--meta`）/ `#a0519f`（= 浅色 `--meta`） | S2 **5.92** / 白底 **5.03** ✅ |
+
+> **语义扩展（Monarch 限制，必须知悉）**：本项目 Python 高亮走 Monarch，词法层把 `True`/`False`/`None` 与 `def`/`class`/`if`/`return` **统统归进 `keyword`**，无法再按语义细分（VS Code 靠 TextMate 的 `constant.language` 区分，而 basic-languages 不走那条路）。故 `--syntax-boolean` 的实际覆盖面是「关键字与常量」。染紫是一体色主题的通行做法（One Dark Pro 等），且与青绿的 `identifier` 色相分离，区分度不减。JSON 面板的 `.jp-value.jp-boolean`（手写 Monarch，`true`/`false` 单独成 token）仍只染布尔值，不受影响。
+
+#### 7.5.6 门禁
+
+| # | 门禁 | 结果 |
+|---|---|---|
+| 1 | `tools/ui/audit_tokens.py` | ✅ 74 项判定 · FAIL 0 · WARN 0 |
+| 2 | `npm run build`（tsc） | ✅ 0 错 |
+| 3 | vitest 全量 | ✅ **92 文件 / 1051 用例**（新增 `themeTokens.test.ts` 25 条） |
+| 4 | `cargo test settings` | ✅ 3 passed（默认主题 3 处断言同步） |
+| 5 | e2e `editor/11-monaco-theme.spec.ts` | ✅ **6/6**（表面 / gutter / 当前行 / 边框透明 / 选区 / 语法色 / 存量迁移） |
+| 6 | e2e-ui 视觉子集 | ✅ 51 passed；8 failed **经 stash 对照确认为存量**（见 §7.5.7 其三） |
+| 7 | 基线截图 | ✅ 8 张 → `%TEMP%\opencharm-ui-baseline\batch4\`（深浅编辑区青绿 identifier + 紫 keyword 区分清晰，当前行高亮与缩进线可见） |
+
+`themeTokens.test.ts` 的门禁项：迁移映射与幂等 / 未知值兜底 / 前后端出厂名一致（含跨语言断言 `settings.rs`）/ **接线点完整性**（7 个文件里不得残留 `"vs"` / `"vs-dark"` 字面量）/ **色值真源单一性**（映射表内联 hex 仅限 `lineHighlightBorder`）/ **映射引用的 CSS 变量在 `:root` 与浅色覆盖层下都存在**（防 `var()` 在 computed-value time 失效后颜色 unset 继承）/ 7 个语法色取值。
+
+#### 7.5.7 工具级教训三则
+
+> **其一：期望值自己算错时，会把「通过」读成「失败」。** e2e 首跑 `editor.background` 期望 `rgb(31,31,24)` 实收 `rgb(31,31,36)`——`#1f1f24` 的第三字节 `0x24` 是**十进制 36** 而非 24，我按十六进制直觉写下了 24。**这次「失败」恰恰是主题生效的证据**。教训：实测值与期望值不符时，先怀疑期望值，再怀疑实现；十六进制↔十进制互转的错误**不会**被任何类型检查或门禁拦住。
+
+> **其二：Monaco 主题槽位只能在带前缀的选择器上断言。** `currentLineHighlight.js` 的 `registerThemingParticipant` 只生成 `.monaco-editor .view-overlays .current-line { background-color: … }` 与 `.margin-view-overlays .current-line-margin {…}`。用无前缀的 `.monaco-editor .current-line` 会命中 **gutter 侧**那个元素，读到 `transparent`，误判成「主题没生效」。另：当前行高亮只在编辑器**有焦点**时渲染（`_shouldRenderInContent` 判 `focused`），断言前必须先点一下编辑器。正确写法见 `11-monaco-theme.spec.ts::T-B4-1`。
+
+> **其三：e2e-ui 那 8 条「编辑器尚未初始化」与本批无关——stash 对照是唯一可靠判据。** 本批首跑 e2e-ui 得 51 passed / 8 failed（E-BASIC-1..4 / S-1 / S-2 / UX-1 / UX-9），错误与 §7.4.8 记录的现象完全一致。`git stash push -- <15 个改动文件>` 后在**原始代码**上重跑同样 3 个 spec，**同样 8 条失败、同样症状**（含 UX-9 的 `toBeFocused` 失败）→ 判定为存量/环境（vite 模块图），非本批回归。教训：§7.4.8 说的「先重启 vite」是**止血**手段，而「是否回归」只能由 stash 对照回答；两者结论一致时也要以对照为准，因为重启 vite 顺带会掩盖真实回归。
+
 

@@ -134,4 +134,74 @@ window.addEventListener("unhandledrejection", (e) => {
   if (reason?.name === "Canceled" || reason?.message === "Canceled") e.preventDefault();
 });
 
+// --- 自定义主题 opencharm-dark / opencharm-light（ui_premium 批 4 · 设计报告 §5.4）---
+//
+// 改造前编辑器跑的是 Monaco 出厂 vs-dark / vs，与外壳 token 系统不同源——占屏 60–70% 的区域
+// 颜色全部来自出厂主题，是「拼装感」的最大来源。
+//
+// **色值不在本文件**：映射表在 theme/tokens.ts，实际颜色在这里从 CSS 变量现读。所以：
+//   ① 改 style.css 的 token 即改编辑器颜色，无需二次改动；
+//   ② 深浅两套共用同一份映射，差异全在 CSS 的 [data-theme="light"] 覆盖层。
+// 详见 theme/tokens.ts 头部「为什么本模块一个色值都没有」。
+import {
+  EDITOR_THEME_DARK,
+  EDITOR_THEME_LIGHT,
+  MONACO_COLOR_SLOTS,
+  MONACO_TOKEN_SLOTS,
+  THEME_BASES,
+  resolveEditorTheme,
+  shellThemeOf,
+} from "./theme/tokens";
+
+/** 读 CSS 变量当前值（trim：getPropertyValue 会带前导空白，不去会让 defineTheme 拿到非法颜色） */
+function cssVar(name: string): string {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+/** 注册两套自定义主题。**必须在目标 data-theme 已生效后调用**——色值是注册那一刻读到的快照。
+ *
+ *  故凡「先切 data-theme 再上编辑器」的路径（启动、设置保存、导出临时切换）都要重新注册，
+ *  这就是 applyEditorTheme 内部无条件重注册的原因。 */
+export function defineEditorThemes(): void {
+  for (const name of [EDITOR_THEME_DARK, EDITOR_THEME_LIGHT]) {
+    const colors: Record<string, string> = {};
+    for (const [slot, token] of Object.entries(MONACO_COLOR_SLOTS)) {
+      // 硬编码槽位（仅 lineHighlightBorder 的透明值）直接内联，其余现读 CSS 变量
+      const value = token.startsWith("#") ? token : cssVar(token);
+      if (value) colors[slot] = value;
+      else console.warn(`[theme] CSS 变量 ${token} 未定义，Monaco 槽位 ${slot} 回落 base 主题`);
+    }
+    const rules = Object.entries(MONACO_TOKEN_SLOTS)
+      .map(([token, cssName]) => ({ token, foreground: cssVar(cssName) }))
+      .filter((r) => r.foreground.length > 0);
+    editorApi.editor.defineTheme(name, { base: THEME_BASES[name], inherit: true, colors, rules });
+  }
+}
+
+/** 应用编辑器主题：重注册（读当前 CSS 变量快照）后切换。
+ *  旧出厂名（vs-dark / vs）由 resolveEditorTheme 归一，未知值兜底深色。 */
+export function applyEditorTheme(theme: string): void {
+  defineEditorThemes();
+  editorApi.editor.setTheme(resolveEditorTheme(theme));
+}
+
+/** 临时切到某主题执行 fn，**结束（含抛错）后恢复原主题与原 data-theme**。
+ *
+ *  现存唯一调用方是 markdownPreview 的导出 HTML：导出稿是自包含浅色文档，若用用户当前的深色
+ *  主题着色，代码块会变成深底色块嵌在白底文档里。但 setTheme 是**全局副作用**，一旦泄漏会静默
+ *  污染用户会话的着色——故恢复路径必须收在 finally 里，且 data-theme 与 Monaco 主题**成对恢复**
+ *  （只恢复其一会让下一次 defineEditorThemes 读到错的 CSS 变量快照）。
+ *  from 由调用方传入而非内部读取：Monaco 没有公开的 getTheme()，而调用方持有 app.settings.theme。 */
+export async function withEditorTheme<T>(to: string, from: string, fn: () => Promise<T>): Promise<T> {
+  const prevShell = document.documentElement.dataset.theme ?? "dark";
+  document.documentElement.dataset.theme = shellThemeOf(to);
+  applyEditorTheme(to);
+  try {
+    return await fn();
+  } finally {
+    document.documentElement.dataset.theme = prevShell;
+    applyEditorTheme(from);
+  }
+}
+
 export default editorApi;

@@ -8,6 +8,7 @@ import DOMPurify from "dompurify";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { app, type Tab } from "./state";
+import { EDITOR_THEME_LIGHT } from "./theme/tokens";
 import { basename, joinPath, parentDirOf } from "./util";
 import { t } from "./i18n"; // 第十二批 i18n：Markdown 预览动态文案走语言包
 
@@ -310,14 +311,11 @@ async function buildExportHtml(mdText: string, baseDir: string, title: string): 
   const clean = DOMPurify.sanitize(raw);
   const doc = new DOMParser().parseFromString(clean, "text/html");
   await inlineImagesBase64(doc, baseDir);
-  // 代码高亮：导出固定浅色，临时把 Monaco 主题切到 "vs" 再 colorize，完成后恢复
-  const origTheme = app.settings.theme;
-  app.monaco.editor.setTheme("vs");
-  try {
-    await highlightCodeBlocks(doc.body);
-  } finally {
-    app.monaco.editor.setTheme(origTheme);
-  }
+  // 代码高亮：导出稿是自包含浅色文档，故临时切到浅色主题再 colorize。
+  // 批 4：切的是 opencharm-light（自定义浅色主题）而非出厂 "vs"——否则导出文件里的代码块
+  // 配色与用户在编辑器里看到的不是同一套（方案 §5.4 连带项）。
+  // ⚠ 恢复路径收在 withEditorTheme 内部：setTheme 是全局副作用，泄漏会静默污染用户会话着色。
+  await app.withEditorTheme(EDITOR_THEME_LIGHT, app.settings.theme, () => highlightCodeBlocks(doc.body));
   return `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>

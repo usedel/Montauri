@@ -195,11 +195,16 @@ async function closeSettings(page) {
   await page.locator("#settings-modal").waitFor({ state: "hidden", timeout: 10_000 });
 }
 
+/** 编辑器主题名（批 4 起是自定义名 opencharm-*，与 src/theme/tokens.ts 常量一致）。
+ *  ⚠ 这里写死字面量而非 import TS：脚本是纯 Node 工具，不走 vite。漂移由
+ *  __tests__/themeTokens.test.ts 的「基线截图脚本的卡片选择器用新名」断言兜住。 */
+const EDITOR_THEME = { dark: "opencharm-dark", light: "opencharm-light" };
+
 /** 走真实链路切主题（设置 → 外观 → 色卡 → 保存），与 themePicker.ts 的 radiogroup 语义一致。
  *  仅作备用路径；主路径是每套主题一个独立页面 + __E2E_SETTINGS_PRESET__（见 main）。 */
 async function setTheme(page, theme) {
   await openSettings(page);
-  await page.locator(`.theme-swatch[data-theme="${theme === "dark" ? "vs-dark" : "vs"}"]`).click();
+  await page.locator(`.theme-swatch[data-theme="${EDITOR_THEME[theme]}"]`).click();
   await page.locator("#settings-save").click();
   await page.locator("#settings-modal").waitFor({ state: "hidden", timeout: 10_000 });
   await settle(page);
@@ -327,13 +332,13 @@ async function main() {
 
   /** 每套主题一个**独立页面**，主题经 __E2E_SETTINGS_PRESET__ 在启动时预置。
    *  不用「切色卡再保存」的原因：tauri-mock 的 get_settings 是静态值（save_settings 也不落盘），
-   *  应用中途任何一次重新读设置都会把 theme 打回 vs-dark —— 实测浅色轮第 2 张起 Monaco 就变回深色，
+   *  应用中途任何一次重新读设置都会把 theme 打回出厂深色 —— 实测浅色轮第 2 张起 Monaco 就变回深色，
    *  而 data-theme 仍留在 light（外壳浅、编辑器深），截图对比会失真。 */
   const newThemedPage = async (theme) => {
     const page = await browser.newPage({ viewport: VIEWPORT, deviceScaleFactor: 1 });
     await page.addInitScript((t) => {
       window.__E2E_SETTINGS_PRESET__ = { theme: t };
-    }, theme === "dark" ? "vs-dark" : "vs");
+    }, EDITOR_THEME[theme]);
     await page.addInitScript({ content: mockSrc });
     await page.exposeFunction("__E2E_BRIDGE__", makeBridge(repoRoot));
     // init 是一条长 await 链，任何一处抛错都会让编辑器永不创建（而症状只表现为

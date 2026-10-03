@@ -14,22 +14,25 @@
 //    若改成即时预览，「取消」就无法回退，与设置面板其余控件的语义不一致。
 
 import { $ } from "./state";
+import { EDITOR_THEME_DARK, EDITOR_THEME_LIGHT } from "./theme/tokens";
 import { onLocaleChange, t } from "./i18n"; // i18n：主题名随语言重建（卡片文本就地更新，见底部订阅）
 import { codicon } from "./util";
 
 /** 可选主题：value 与 Monaco 主题名 / Settings.theme 一致；pv 对应 .theme-pv--{pv} 预览配色。
- *  name 是展示文案——构建函数 + let + onLocaleChange 重建（⑧/⑮ 模式），语言切换后卡片名就地更新。 */
+ *  name 是展示文案——构建函数 + let + onLocaleChange 重建（⑧/⑮ 模式），语言切换后卡片名就地更新。
+ *  ⚠ 批 4 起 value 是自定义主题名（opencharm-*）而非 Monaco 出厂名，判定浅色一律走
+ *  shellThemeOf（theme/tokens.ts），不要在本文件里写 `=== "vs"` 字面量。 */
 function buildThemes(): Array<{ value: string; name: string; pv: string }> {
   return [
-    { value: "vs-dark", name: t("settings.theme.dark"), pv: "dark" },
-    { value: "vs", name: t("settings.theme.light"), pv: "light" },
+    { value: EDITOR_THEME_DARK, name: t("settings.theme.dark"), pv: "dark" },
+    { value: EDITOR_THEME_LIGHT, name: t("settings.theme.light"), pv: "light" },
   ];
 }
 
 let THEMES = buildThemes();
 
 /** 兜底主题（= state.ts DEFAULT_SETTINGS.theme）：无选中项或值不在候选内时使用 */
-const FALLBACK_THEME = "vs-dark";
+const FALLBACK_THEME = EDITOR_THEME_DARK;
 const PICKER_ID = "settings-theme-picker";
 
 /** 方向键 → 步进（radiogroup 模式：移动焦点即选中） */

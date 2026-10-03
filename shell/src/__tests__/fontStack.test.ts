@@ -17,6 +17,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_FONT_FAMILY, DEFAULT_SETTINGS, LEGACY_FONT_FAMILY, migrateLegacyFontSettings } from "../state";
+import { EDITOR_THEME_LIGHT } from "../theme/tokens";
 
 /** 读仓库内文件（vitest 的 cwd 通常是 shell/；兼容从仓库根 --root 启动） */
 function readRepoFile(rel: string): string {
@@ -184,9 +185,9 @@ describe("等宽字体四方一致 · 存量设置迁移", () => {
   });
 
   it("只碰 font_family，不动其他字段", () => {
-    const s = { font_family: LEGACY_FONT_FAMILY, font_size: 18, theme: "vs" };
+    const s = { font_family: LEGACY_FONT_FAMILY, font_size: 18, theme: EDITOR_THEME_LIGHT };
     const out = migrateLegacyFontSettings(s);
     expect(out.font_size).toBe(18);
-    expect(out.theme).toBe("vs");
+    expect(out.theme).toBe(EDITOR_THEME_LIGHT);
   });
 });

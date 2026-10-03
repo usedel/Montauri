@@ -12,10 +12,11 @@ import { motionDisabled } from "./anim"; // UI-11：终端光标闪烁也归「�
 import { t } from "./i18n"; // 第五批 i18n：终端内提示文案走语言包（ANSI 控制序列留在代码侧，不进词条）
 import { errMsg } from "./util";
 import { localizeBackendError } from "./i18n/backendError";
+import { shellThemeOf } from "./theme/tokens";
 
-/** 终端配色随外壳主题（D1 P-01：浅色主题下不再固定深色终端） */
+/** 终端配色随外壳主题（D1 P-01：浅色主题下不再固定深色终端；批 4 起判定走 shellThemeOf） */
 function xtermTheme(): ITheme {
-  if (app.settings.theme === "vs") {
+  if (shellThemeOf(app.settings.theme) === "light") {
     return { background: "#ececec", foreground: "#333333", cursor: "#333333", selectionBackground: "#add6ff" };
   }
   return { background: "#1b1b1b", foreground: "#d4d4d4", cursor: "#d4d4d4", selectionBackground: "#264f78" };

@@ -2077,7 +2077,12 @@ async function init(): Promise<void> {
   // 画的是出厂键位；loadSettings 完成后由 updateEditorOverlay 刷成真实值（多数用户二者相同）。
   renderWelcomeShortcuts();
   // Monaco 动态加载（首屏 UI 先渲染，编辑器包并行下载）
-  app.monaco = (await import("./monaco")).default;
+  const monacoModule = await import("./monaco");
+  app.monaco = monacoModule.default;
+  // 批 4：注入主题钩子（settingsPanel / markdownPreview 经 app 调，不静态 import 本模块——
+  // 那会把 ~3 MB 的 monaco-editor 拖进冷路径的按需加载链，抵消 monaco.ts 静态引入语言包的意义）。
+  app.applyEditorTheme = monacoModule.applyEditorTheme;
+  app.withEditorTheme = monacoModule.withEditorTheme;
   lsp.setMonaco(app.monaco);
   await loadSettings(); // 设置先于编辑器创建（字号/主题，P25-T08）
   // 批 3：等随包等宽字体真正就绪再建编辑器。Monaco 用 canvas measureText 测字符宽度并缓存
@@ -2085,7 +2090,7 @@ async function init(): Promise<void> {
   // font-display: swap 下浏览器先画回退字体再交换，不等就是这个窗口。
   // 实测本地 4 个 woff2 共 75 KB，load 约 8ms；函数内另有 1.5s 超时兜底，绝不把 init 拖死。
   await ensureEditorFontLoaded(app.settings);
-  app.monaco.editor.setTheme(app.settings.theme); // D1：启动即应用已存主题（外壳 data-theme 由 loadSettings 同步）
+  app.applyEditorTheme(app.settings.theme); // 批 4：重注册（读 loadSettings 已切好的 data-theme 快照）+ setTheme
   // 快捷键域：注册稳定命令 + 按设置建立键 → 命令映射（设置保存后可重建）
   kb.initKeybindingCommands(app.monaco);
   kb.applyEditorKeybindings();

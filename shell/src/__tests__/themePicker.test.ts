@@ -8,11 +8,14 @@
 //    漫游 tabindex（选中项 0、其余 -1，组内只占一个 tab stop）；
 // 3) 键盘 ←→↑↓ 移动即选中（radio 模式），Home/End 跳首尾；
 // 4) 未知主题值（手改配置）回落深色，不留「无选中项」的悬空态。
+// ⚠ 批 4：主题值从 Monaco 出厂名（vs-dark / vs）换成自定义名（opencharm-*），
+//    本文件的 DARK/LIGHT 改为引用 theme/tokens.ts 的常量——再手写字面量就多一处会漂的副本。
 import { beforeEach, describe, expect, it } from "vitest";
 import { getSelectedTheme, setSelectedTheme, wireThemePicker } from "../themePicker";
+import { EDITOR_THEME_DARK, EDITOR_THEME_LIGHT } from "../theme/tokens";
 
-const DARK = "vs-dark";
-const LIGHT = "vs";
+const DARK = EDITOR_THEME_DARK;
+const LIGHT = EDITOR_THEME_LIGHT;
 
 function swatches(): HTMLElement[] {
   return Array.from(document.querySelectorAll<HTMLElement>(".theme-swatch"));

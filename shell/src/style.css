@@ -138,6 +138,13 @@
   --scrollbar-thumb-hover: rgba(255, 255, 255, 0.22);
   --indent-guide: rgba(255, 255, 255, 0.06);
   --overlay: rgba(0, 0, 0, 0.45);
+  /* ---------- 编辑器内部层次（批 4 新增）----------
+     Monaco 的当前行高亮需要一个实色 token：--indent-guide 是半透明白（叠在画布上才成型），
+     而 editor.lineHighlightBackground 会被 Monaco 直接当实色填，套 rgba 会得到一条几乎看不见的线。
+     取值锚定批 2a 的表面阶梯：#242429 落在 S2(#1f1f24) 与 S3(#2a2a30) 之间，vs 画布 1.13——
+     与 VS Code 原生当前行（#282828 on #1e1e1e）几乎同强度，不抢视线又不消失。
+     与 --hover（1.25）刻意区分：整行底色用 --hover 会比悬停行还重，层级反了。 */
+  --editor-line-highlight: #242429;
   /* ---------- 投影双轨（ui_premium §5.2.6）----------
      深色 UI 的核心难题是纯黑投影落在深底上几乎不可见（rgba(0,0,0,.5) 打在 #1e1e1e 上增量极小）。
      业界通行解法是「投影 + 顶边高光」双轨：真正让深色下这块浮起来的是那条 inset 高光。
@@ -157,16 +164,23 @@
   --diff-hunk: #2aa88f;
   --diff-add: #6a9955;
 
-  /* ---------- 语法色（UI-15）----------
-     深色值沿用 VS Code Dark+ 的标准 token 色，与 Monaco 编辑器内的 Python 高亮同源，
+  /* ---------- 语法色（UI-15 · 批 4 调整 var/boolean）----------
+     深色值原沿用 VS Code Dark+ 的标准 token 色，与 Monaco 编辑器内的 Python 高亮同源，
      使调试变量面板 / JSONPath 查看器的着色与编辑器视觉一致。
-     此前这些色值硬编码在各条规则里，浅色主题覆盖层完全没有对应项，
-     切到浅色后 #9cdcfe 之类为深底设计的浅色文字在白底上只剩 1.49:1（远低于 AA 4.5:1）。
-     浅色主题取值见下方 [data-theme="light"] 块，均经 WCAG 相对亮度公式核算。 */
-  --syntax-var: #9cdcfe;     /* 变量名 / JSON 键 */
+     批 4（ui_premium §5.4）把编辑器切到自定义主题后，两处偏蓝的取值必须与 Monaco rules 同批改，
+     否则「外壳已青绿、编辑器仍蓝紫」——恰是本项目要消除的拼装感：
+       · --syntax-var      #9cdcfe（浅蓝）→ #7ce3cd（= --brand-1，代码区最高频 token 给最亮档）
+       · --syntax-boolean  #569cd6（蓝）  → #c586c0（= --meta 紫轴）
+     ⚠ 语义扩展（Monarch 限制）：本项目 Python 高亮走 Monarch，词法层把 True/False/None 与
+       def/class/if/return 统统归进 `keyword`，**无法再按语义细分**（VS Code 靠 TextMate 的
+       constant.language 区分）。故 --syntax-boolean 的实际覆盖面是「关键字与常量」，
+       染紫是一体色主题（One Dark Pro 等）的通行做法。JSON 面板的 .jp-value.jp-boolean
+       （手写 Monarch）仍只染 true/false，不受影响。
+     其余 5 个（string 橙 / number 绿 / null 灰 / object 黄 / array 橙）本就不偏蓝，未动。 */
+  --syntax-var: #7ce3cd;     /* 变量名 / JSON 键 / @装饰器（青绿亮档） */
   --syntax-string: #ce9178;
   --syntax-number: #b5cea8;
-  --syntax-boolean: #569cd6;
+  --syntax-boolean: #c586c0; /* 关键字与常量（Monarch 合流，见上方语义扩展说明） */
   --syntax-null: #808080;
   --syntax-object: #e8c07d;  /* JSON 类型徽标：对象 */
   --syntax-array: #d19a66;   /* JSON 类型徽标：数组 */
@@ -369,6 +383,9 @@ html[data-reduce-motion] .codicon-modifier-spin { animation: none; }
   --scrollbar-thumb-hover: rgba(0, 0, 0, 0.32);
   --indent-guide: rgba(0, 0, 0, 0.08);
   --overlay: rgba(0, 0, 0, 0.18);   /* 遮罩不必这么重：浮层改走 --elev-3 + hairline 后 0.25 过重 */
+  /* 编辑器当前行（批 4 新增，与深色侧同批）：浅色下必须给足可见度，--hover(#f0f0f2) 是白底上
+     唯一既可见又不过重的档（1.138）。--surface-3(#f7f7f8) 只有 1.045，等于没画。 */
+  --editor-line-highlight: #f0f0f2;
   /* 浅色投影：去掉 inset 高光（白底上无意义，反而显脏），只留投影并降不透明度 */
   --elev-1: 0 1px 2px rgba(0, 0, 0, 0.06);
   --elev-2: 0 4px 12px rgba(0, 0, 0, 0.10);
@@ -416,10 +433,10 @@ html[data-reduce-motion] .codicon-modifier-spin { animation: none; }
      两处偏离 Light+ 原值，均因其不满足 AA 4.5:1：
        · number 的 Light+ 原值 #098658 仅 3.90:1 → 加深到 #0a6e46（5.34:1）
        · null 原硬编码 #808080 仅 3.95:1 → #666666（4.86:1） */
-  --syntax-var: #001080;     /* 12.83:1 */
+  --syntax-var: #0e7261;     /* 批 4：替掉蓝色 #001080(12.83) → 青绿 = --accent，白底 5.84 ✅ */
   --syntax-string: #a31515;  /* 6.64:1 */
   --syntax-number: #0a6e46;  /* 5.34:1 */
-  --syntax-boolean: #0000ff; /* 7.27:1 */
+  --syntax-boolean: #a0519f; /* 批 4：替掉 #0000ff(7.27) → 紫 = --meta，白底 5.03 ✅ */
   --syntax-null: #666666;    /* 4.86:1 */
   --syntax-object: #795e26;  /* 5.16:1 */
   --syntax-array: #9a4d00;   /* 5.17:1 */

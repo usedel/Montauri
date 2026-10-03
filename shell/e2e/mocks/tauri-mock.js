@@ -30,7 +30,9 @@
   window.__TAURI_MOCK_INVOKE_LOG__ = invokeLog;
 
   var SETTINGS = {
-    theme: "vs-dark",
+    // 批 4：自定义主题名（须与 src/theme/tokens.ts 的 EDITOR_THEME_DARK 一致，
+    // 由 __tests__/themeTokens.test.ts 的「e2e mock 默认主题」断言钉死）。
+    theme: "opencharm-dark",
     font_size: 14,
     font_family: "",
     font_ligatures: true,

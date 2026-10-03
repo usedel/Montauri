@@ -4,6 +4,7 @@
 
 import type * as MonacoApi from "monaco-editor/esm/vs/editor/editor.api";
 import { KEYBINDING_META } from "./keybindingDefaults";
+import { EDITOR_THEME_DARK, resolveEditorTheme } from "./theme/tokens";
 
 export type MonacoModule = typeof MonacoApi;
 
@@ -144,8 +145,7 @@ export const LEGACY_FONT_FAMILY = 'Consolas, "Cascadia Code", "JetBrains Mono", 
  *
  *  为什么必须做：老用户的 `settings.json` 里 `font_family` 已固化为**旧出厂串**，不迁移的话
  *  随包的 JetBrains Mono 对他们 100% 无效（CSS 的 `--mono` 只管外壳，编辑器字体不读 CSS，
- *  走 `settings.font_family` → `buildEditorOptions` 注入 Monaco）。这与批 4 的
- *  `vs-dark` → `opencharm-dark` 主题名迁移完全同构。
+ *  走 `settings.font_family` → `buildEditorOptions` 注入 Monaco）。
  *
  *  口径：**仅当等于旧出厂串时替换**，用户自定义过的一律保留、绝不覆盖。
  *  只改内存不落盘——用户下次点「保存」时自然写回，且每次启动重跑是幂等的。
@@ -158,9 +158,27 @@ export function migrateLegacyFontSettings<T extends { font_family: string }>(set
   return settings;
 }
 
+/** 存量设置迁移：主题名（ui_premium 批 4 · §5.4 连带项 2）。
+ *
+ *  为什么必须做：老用户 `settings.json` 里存的是出厂串（深 `vs-dark` / 浅 `vs`）。批 4 把编辑器
+ *  切到自定义主题 `opencharm-dark` / `opencharm-light`，而 **Monaco 对未注册的主题名不报错、
+ *  静默回落到出厂 vs-dark**——不迁移的症状是「用户升级后编辑器悄悄变回原厂主题且无任何提示」，
+ *  这是最难排查的一类静默回归。
+ *
+ *  与 migrateLegacyFontSettings 的口径差异（有意）：这里对**未知值也兜底**到深色出厂主题。
+ *  字体栈不能这样——写错的字体名应当原样保留让用户自己看到「字体没生效」；而主题名是一个
+ *  二值枚举，不存在「用户自选了第三套主题」的场景（themePicker 只有两个候选），故兜底更安全。
+ *  纯数据规则（无 DOM），单测见 __tests__/themeTokens.test.ts。 */
+export function migrateLegacyThemeSettings<T extends { theme: string }>(settings: T): T {
+  settings.theme = resolveEditorTheme(settings.theme);
+  return settings;
+}
+
 /** Settings 出厂默认值（「恢复默认」与 app.settings 初始值共用；须与 Rust Settings::default 保持一致） */
 export const DEFAULT_SETTINGS: Settings = {
-  theme: "vs-dark",
+  // 批 4：编辑器从出厂 vs-dark 切到自定义主题 opencharm-dark（色值真源仍是 style.css 的 token，
+  // 见 theme/tokens.ts）。存量 `vs-dark` / `vs` 由 migrateLegacyThemeSettings 迁移。
+  theme: EDITOR_THEME_DARK,
   font_size: 14,
   font_family: DEFAULT_FONT_FAMILY,
   // 批 3 起默认开：JetBrains Mono 的编程连字（=> != >= 合成单符）是它相对 Consolas 的
@@ -245,6 +263,15 @@ export interface AppState {
   pendingChanges: Map<string, MonacoApi.editor.IModelContentChange[]>;
   /** 全局设置 */
   settings: Settings;
+  /** 批 4：应用编辑器主题（重注册 CSS 变量快照 + setTheme）。
+   *
+   *  经 app 注入而不是让 settingsPanel / markdownPreview 直接 import monaco.ts：后者静态引入
+   *  整个 monaco-editor（~3 MB 主 chunk），会让「设置面板」这类冷路径平白付掉按需加载的代价。
+   *  约定同 monaco / editor——init 动态加载后赋值，此前访问抛错而非静默 undefined。 */
+  applyEditorTheme: (theme: string) => void;
+  /** 批 4：临时切主题执行 fn 并在 finally 恢复（现仅 markdownPreview 导出 HTML 用）。
+   *  同样经 app 注入而非 import monaco.ts——理由同 applyEditorTheme。 */
+  withEditorTheme: <T>(to: string, from: string, fn: () => Promise<T>) => Promise<T>;
 }
 
 // CR-26：私有存储 + getter 抛错——原 `null as unknown as T` 双重断言把「初始化前访问」
@@ -253,6 +280,8 @@ export interface AppState {
 // - init 前访问立即抛出带上下文的清晰错误。
 let _monaco: MonacoModule | null = null;
 let _editor: MonacoApi.editor.IStandaloneCodeEditor | null = null;
+let _applyEditorTheme: ((theme: string) => void) | null = null;
+let _withEditorTheme: (<T>(to: string, from: string, fn: () => Promise<T>) => Promise<T>) | null = null;
 
 export const app: AppState = {
   get monaco(): MonacoModule {
@@ -268,6 +297,24 @@ export const app: AppState = {
   },
   set editor(e: MonacoApi.editor.IStandaloneCodeEditor) {
     _editor = e;
+  },
+  get applyEditorTheme(): (theme: string) => void {
+    if (_applyEditorTheme === null) {
+      throw new Error("[OpenCharm] applyEditorTheme 尚未注入（init 加载 monaco.ts 后赋值）");
+    }
+    return _applyEditorTheme;
+  },
+  set applyEditorTheme(fn: (theme: string) => void) {
+    _applyEditorTheme = fn;
+  },
+  get withEditorTheme(): <T>(to: string, from: string, fn: () => Promise<T>) => Promise<T> {
+    if (_withEditorTheme === null) {
+      throw new Error("[OpenCharm] withEditorTheme 尚未注入（init 加载 monaco.ts 后赋值）");
+    }
+    return _withEditorTheme;
+  },
+  set withEditorTheme(fn: <T>(to: string, from: string, fn: () => Promise<T>) => Promise<T>) {
+    _withEditorTheme = fn;
   },
   workspaceRoot: null,
   tabs: [],

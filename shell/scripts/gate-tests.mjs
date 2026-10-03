@@ -38,6 +38,7 @@ const UI_KEY_SPECS = [
   "e2e/git/22-close-workspace-stale-list.spec.ts", // 底部面板 tab（输出/终端/引用/问题）+ 状态栏
   "e2e/editor/03-editor-basics.spec.ts",     // 缩进参考线 / 当前行 / 标签页
   "e2e/editor/10-font-family.spec.ts",       // 批 3：随包等宽字体在 Monaco 内实际生效（不只 CSS 声明）
+  "e2e/editor/11-monaco-theme.spec.ts",      // 批 4：Monaco 自定义主题（表面/选区/语法色取自 CSS token + 存量主题名迁移）
   "e2e/debug/01-functional.spec.ts",         // gutter 断点圆点 + 当前执行行高亮
   "e2e/p3/01-discoverability.spec.ts",       // 设置面板（分类 / 搜索 / 控件态）
   "e2e/session/01-restore.spec.ts",          // 布局与工作区恢复

@@ -4,7 +4,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import type * as MonacoApi from "monaco-editor/esm/vs/editor/editor.api";
-import { app, $, $btn, DEFAULT_SETTINGS, lazyEl, migrateLegacyFontSettings, outputEl, type Settings } from "./state";
+import { app, $, $btn, DEFAULT_SETTINGS, lazyEl, migrateLegacyFontSettings, migrateLegacyThemeSettings, outputEl, type Settings } from "./state";
 import * as lsp from "./lsp/client";
 import { renderEngineChip } from "./engineChip";
 import { repaintRunWidget } from "./runWidget";
@@ -13,6 +13,7 @@ import { KEYBINDING_META, chordFromEvent, modsFromEvent, validateKeybindingMap, 
 import { KEYBINDING_GROUP_ORDER, keybindingsOfGroup } from "./keybindingDefaults";
 import { refreshTerminalFonts, refreshTerminalMotion, refreshTerminalThemes, syncOutputLevelChips } from "./termUi";
 import { applyOutputLevelSetting } from "./output";
+import { shellThemeOf } from "./theme/tokens";
 import { applyReduceMotion, hideEl, motionDisabled, reduceMotionEnabled, showEl } from "./anim";
 import { trapFocus } from "./focusTrap";
 import { openAlert, openConfirm } from "./dialog";
@@ -343,10 +344,12 @@ function syncNavOrientation(): void {
 
 // ---------- 加载 / 保存 ----------
 
-/** 外壳主题联动（D1 P-01）：Monaco 主题值驱动 html[data-theme]，
- *  style.css 的 [data-theme="light"] 覆盖层负责外壳配色（"vs" = 浅色，其余按深色）。 */
+/** 外壳主题联动（D1 P-01 · 批 4 改判定）：Monaco 主题值驱动 html[data-theme]，
+ *  style.css 的 [data-theme="light"] 覆盖层负责外壳配色。
+ *  ⚠ 浅色判定走 shellThemeOf（theme/tokens.ts 单一真源）——批 4 前这里是 `=== "vs"` 字面量，
+ *  改主题名后若漏改，外壳会与编辑器/终端**半深半浅**且不报任何错。 */
 export function applyShellTheme(theme: string): void {
-  document.documentElement.dataset.theme = theme === "vs" ? "light" : "dark";
+  document.documentElement.dataset.theme = shellThemeOf(theme);
 }
 
 export async function loadSettings(): Promise<void> {
@@ -360,6 +363,7 @@ export async function loadSettings(): Promise<void> {
   // 快捷键逐项兜底：旧配置 / 手改文件缺项时回落出厂默认（Rust 侧仅保证整表缺省）
   app.settings.keybindings = { ...DEFAULT_SETTINGS.keybindings, ...(app.settings.keybindings ?? {}) };
   migrateLegacyFontSettings(app.settings);
+  migrateLegacyThemeSettings(app.settings);
   applyShellTheme(app.settings.theme);
 }
 
@@ -896,8 +900,13 @@ async function commitSettingsPanel(closeAfter: boolean): Promise<boolean> {
     log_stdout: logStdout,
   };
   // P1 副作用表：外观/编辑器即时生效（model 层缩进单独应用）；引擎变化重启；intel 变化起停
-  app.monaco.editor.setTheme(theme);
+  //
+  // ⚠ 顺序不可调换（批 4 引入的新约束）：Monaco 主题的色值是**注册那一刻从 CSS 变量读的快照**，
+  // 故必须先切 data-theme（applyShellTheme）再重注册 + setTheme（app.applyEditorTheme）。
+  // 反过来写的话，编辑器会拿到上一套主题的表面色——症状是「切到浅色后编辑器背景仍是深灰」，
+  // 且因为 rules 的 token 色恰好也错成深色值，contrast 检查也发现不了。
   applyShellTheme(theme); // D1：外壳 CSS 主题与 Monaco 同步切换
+  app.applyEditorTheme(theme); // 批 4：重注册（读新 data-theme 的 CSS 变量快照）+ setTheme
   refreshTerminalThemes(); // D1：已打开的终端实例重套深浅配色
   // UI-29：已打开的终端实例跟随新字号/字体族（内部含 refit + PTY resize）。
   // 两个 devtools 只读预览器沿用第四批 UI-11 的既定裁决——随工具挂载新建、创建时读一次设置，

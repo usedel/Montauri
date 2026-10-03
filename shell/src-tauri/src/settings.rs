@@ -108,7 +108,9 @@ fn settings_path() -> std::path::PathBuf {
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(default)]
 pub struct Settings {
-    /// "vs-dark" | "vs"
+    /// 批 4：主题名 "opencharm-dark" | "opencharm-light"（自定义 Monaco 主题，见 src/theme/tokens.ts）。
+    /// 存量 "vs-dark" / "vs" 由前端 loadSettings::migrateLegacyThemeSettings 迁移
+    /// （只改内存不落盘，Rust 侧不重复实现同一条规则）。
     pub theme: String,
     /// 字号（Ctrl+滚轮 8-32）
     pub font_size: u32,
@@ -206,7 +208,9 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Settings {
-            theme: "vs-dark".into(),
+            // 批 4：编辑器从出厂 vs-dark 切到自定义主题。色值真源仍是 style.css 的 token
+            // （shell/src/theme/tokens.ts 只声明 Monaco 槽位 → CSS 变量的映射）。
+            theme: "opencharm-dark".into(),
             font_size: 14,
             // D3 P-14 起为常用等宽栈；批 3（ui_premium §5.3）起 JetBrains Mono 随包并排到首位，
             // 须与前端 DEFAULT_FONT_FAMILY / style.css --mono / index.html 字体族 preset 一致。
@@ -349,7 +353,7 @@ mod tests {
     #[test]
     fn test_defaults() {
         let d = Settings::default();
-        assert_eq!(d.theme, "vs-dark");
+        assert_eq!(d.theme, "opencharm-dark");
         assert_eq!(d.font_size, 14);
         assert_eq!(d.font_family, "\"JetBrains Mono\", \"Cascadia Code\", \"SF Mono\", Consolas, monospace");
         assert_eq!(d.font_ligatures, true);
@@ -458,7 +462,7 @@ mod tests {
         let json = r#"{"font_size":18}"#;
         let s: Settings = serde_json::from_str(json).unwrap();
         assert_eq!(s.font_size, 18);
-        assert_eq!(s.theme, "vs-dark"); // 未提供的字段走 default
+        assert_eq!(s.theme, "opencharm-dark"); // 未提供的字段走 default
         assert_eq!(s.probe_enabled, true);
         assert_eq!(s.format_on_save, false); // 旧配置文件无此字段 → 默认关闭
         assert_eq!(s.terminal_cwd, "workspace"); // 旧配置文件无此字段 → 默认工作区根
