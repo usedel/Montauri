@@ -15,6 +15,22 @@ use crate::type_infer;
 
 const MAX_CANDIDATES: usize = 50;
 
+/// stale（所在文件在末次运行后被改过）函数的补全降权除数。
+///
+/// 此前是 `f.hits / 2` 的裸字面量，无常量名、无依据记录——`dev_plan_v2` §7
+/// 「基于真实使用数据调整降权策略」因此长期标 ⚠️。
+///
+/// **首个实测依据**（2026-10-03，`tools/intel/trace_stats.py` + 可复现实验）：
+/// 构造 2 个源文件各 2 个函数，先全量跑一次，改动其中 1 个文件的 mtime 后只跑另一半，
+/// 结果 stale 占比 **30.0%**（3/10）。即在常见的「改一个文件、只跑相关代码」编辑流下，
+/// 约三分之一的运行时观测立刻变 stale——这说明 stale 并非罕见边角情况。
+/// 当时 `trace_stats.py` 的建议规则给出 0.25（stale ≥30% 档）。
+///
+/// **为何暂不改成 0.25**：上面样本仅 10 条函数，来源是合成实验，不足以支撑改交互体感。
+/// 现状 0.5 保持不变，但参数从此显式可审；等真实项目跑出 ≥1000 条观测后按同一脚本复核
+/// （`python tools/intel/trace_stats.py <db> --out bench/reports/trace-stats.md`）。
+const STALE_HITS_DIVISOR: i64 = 2;
+
 /// 补全候选（server 层转 `CompletionItem`，sortText `1xx` 段）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Candidate {
@@ -165,7 +181,7 @@ fn symbol_candidates(index: &TraceIndex, parent: &[String], prefix: &str) -> Vec
                 label: member.clone(),
                 kind: CandidateKind::Function,
                 detail: format!("⟳ runtime · {} · {} hits{}{}", f.qualname, f.hits, ret_suffix, stale_note),
-                score: if f.stale { f.hits / 2 } else { f.hits },
+                score: if f.stale { f.hits / STALE_HITS_DIVISOR } else { f.hits },
             };
             by_label
                 .entry(member)
@@ -751,6 +767,111 @@ mod tests {
         expect: &'static str,
     }
 
+    /// 23 评测点的形态归类（索引 0 基，对应 cases 数组顺序）。
+    /// 与 `bench/reports/gate-d-runtime-completion.md` 的形态表一一对应，
+    /// 仅用于生成人工对标工作单，不参与判定。
+    const BENCH_SHAPES: [&str; 23] = [
+        "① 函数返回 dict → 字段",
+        "① 函数返回 dict → 字段",
+        "① 函数返回 dict → 字段（前缀 tit）",
+        "① 函数返回 dict → 字段（前缀 li）",
+        "② 工厂返回自定义实例 → 属性",
+        "② 工厂返回自定义实例 → 属性",
+        "② 工厂返回自定义实例 → 属性",
+        "② 工厂返回自定义实例 → 属性",
+        "② 工厂返回自定义实例 → 属性（前缀 cu）",
+        "② 工厂返回自定义实例 → 属性（前缀 it）",
+        "③ 商品字典字段",
+        "③ 商品字典字段",
+        "③ 商品字典字段（前缀 na）",
+        "③ 商品字典字段（前缀 pr）",
+        "③ 商品字典字段（前缀 st）",
+        "④ 用户实例属性",
+        "④ 用户实例属性",
+        "④ 用户实例属性（前缀 em）",
+        "④ 用户实例属性（前缀 ro）",
+        "⑤ for 循环变量（list[User]）",
+        "⑤ for 循环变量（list[User]）",
+        "⑥ 函数参数类型观测",
+        "⑥ 函数参数类型观测",
+    ];
+
+    /// 导出人工对标工作单（Gate D 剩余项 1「≥ PyCharm 同场景」用）。
+    ///
+    /// 为什么要自动化这一步：PyCharm 无 CLI 导出补全准确率，只能人工逐点复核。
+    /// 若让人自己重新拼 23 个光标位置，既慢又会与本测试的 cases 数组漂移。
+    /// 这里直接把**本测试自己的 cases** 渲染成工作单——OpenCharm 一列（期望 / 实际排名）
+    /// 由测试填好，人只需在 PyCharm 里对同一位置点补全、勾「是否在 top-5」。
+    ///
+    /// 触发：设 `OC_GATE_D_WORKLIST=<输出路径>` 后跑
+    /// `cargo test -p opencharm-intel -- --nocapture runtime_completion_accuracy`。
+    /// 不设则完全不写文件（保持测试无副作用）。
+    fn dump_worklist(path: &str, cases: &[BenchCase], ranks: &[Option<usize>]) {
+        use std::fmt::Write as _;
+        let mut md = String::new();
+        let _ = writeln!(md, "# Gate D 人工对标工作单（PyCharm 同场景）");
+        let _ = writeln!(md);
+        let _ = writeln!(
+            md,
+            "> 由 `cargo test -p opencharm-intel -- --nocapture runtime_completion_accuracy` 自动导出（设 `OC_GATE_D_WORKLIST=<路径>`）。"
+        );
+        let _ = writeln!(
+            md,
+            "> **OpenCharm 两列已由测试填好**，人只需在 PyCharm 打开 `bench/sample/unannotated_scraper/` 同一样例、"
+        );
+        let _ = writeln!(
+            md,
+            "> 在下表「光标位置」处触发补全，勾选期望 label 是否出现在 **top-5**。"
+        );
+        let _ = writeln!(
+            md,
+            "> 判定口径与 `bench/reports/gate-d-runtime-completion.md` 一致：期望 label 出现在 top-5 即命中。");
+        let _ = writeln!(md);
+        let _ = writeln!(
+            md,
+            "> 读法：`▏` = 光标位置（在此触发补全），`↵` = 换行（同一列里换行只是排版，代码本身是一行接一行）。"
+        );
+        let _ = writeln!(md, "> 例：``data = parse_page(html)↵print(data[\"▏`` 表示在 `data[\"` 后触发补全。");
+        let _ = writeln!(md);
+        let _ = writeln!(md, "| # | 形态 | 期望 label | 光标位置 | OpenCharm 实际排名 | OpenCharm 命中 | PyCharm 命中（人工填） | 备注 |");
+        let _ = writeln!(md, "|---|---|---|---|---|---|---|---|");
+        for (i, c) in cases.iter().enumerate() {
+            // 表格单元格必须单行：换行折成 ↵，光标标记 ▏ 保留，竖线转义
+            let ctx = c.doc.replace("\r\n", "\n").replace('\n', "↵").replace("<|>", "▏");
+            let rank = ranks[i];
+            let oc_rank = match rank {
+                Some(0) => "**1**".to_string(),
+                Some(r) => (r + 1).to_string(),
+                None => "未进 top-5".to_string(),
+            };
+            let oc_hit = if rank.is_some() { "✅" } else { "❌" };
+            let _ = writeln!(
+                md,
+                "| {} | {} | `{}` | `{}` | {} | {} | ☐ | |",
+                i + 1,
+                BENCH_SHAPES.get(i).copied().unwrap_or("—"),
+                c.expect,
+                ctx.replace('|', "\\|"),
+                oc_rank,
+                oc_hit
+            );
+        }
+        let hit_n = ranks.iter().filter(|r| r.is_some()).count();
+        let _ = writeln!(md);
+        let _ = writeln!(
+            md,
+            "## 小结（人工填）"
+        );
+        let _ = writeln!(md);
+        let _ = writeln!(md, "- OpenCharm 命中：{hit_n}/{}", cases.len());
+        let _ = writeln!(md, "- PyCharm 命中：___/{}（人工填）", cases.len());
+        let _ = writeln!(md, "- 结论（人工填）：☐ OpenCharm ≥ PyCharm　☐ OpenCharm < PyCharm　☐ 持平");
+        if let Ok(mut f) = std::fs::File::create(path) {
+            use std::io::Write as _;
+            let _ = f.write_all(md.as_bytes());
+        }
+    }
+
     /// 解析 `<|>` 标记为 (0 基行, 0 基 UTF-16 列)。
     fn cursor_of(doc: &str) -> (u32, u32) {
         let pos = doc.find("<|>").expect("缺光标标记 <|>");
@@ -843,16 +964,20 @@ mod tests {
 
         let mut hit = 0usize;
         let mut miss: Vec<&str> = Vec::new();
+        // 记录每个评测点的实际排名（None = 未进 top-5），既用于工作单也便于失败定位
+        let mut ranks: Vec<Option<usize>> = Vec::with_capacity(cases.len());
         for c in cases {
             let (line, col) = cursor_of(c.doc);
             let text = c.doc.replace("<|>", "");
             let cands = complete(&idx, &text, line, col);
             let top5: Vec<&str> = cands.iter().take(5).map(|x| x.label.as_str()).collect();
-            if top5.contains(&c.expect) {
+            let rank = top5.iter().position(|l| *l == c.expect);
+            if rank.is_some() {
                 hit += 1;
             } else {
                 miss.push(c.expect);
             }
+            ranks.push(rank);
         }
         let total = cases.len();
         let rate = hit as f64 / total as f64;
@@ -860,10 +985,72 @@ mod tests {
         if !miss.is_empty() {
             println!("[bench] 未命中: {miss:?}");
         }
+        // 人工对标工作单（Gate D 剩余项 1）：仅在显式设 OC_GATE_D_WORKLIST 时写文件
+        if let Ok(path) = std::env::var("OC_GATE_D_WORKLIST") {
+            if !path.trim().is_empty() {
+                dump_worklist(path.trim(), cases, &ranks);
+                println!("[bench] 人工对标工作单已导出: {}", path.trim());
+            }
+        }
         assert!(
             rate >= 0.85,
             "运行时补全准确率 {:.1}% 低于 85% 红线",
             rate * 100.0
+        );
+    }
+
+    /// stale 降权参数被钉住：`STALE_HITS_DIVISOR` 不得被改回裸字面量或悄悄变更。
+    ///
+    /// 为什么要这条：`runtime_completion_accuracy` 的 seed **全部 stale=0**
+    /// （`bench_seed()`），所以 23 个评测点对降权策略**零覆盖**——100% 分数
+    /// 无法证明降权行为正确或合理。参数一旦被改回字面量，也没有任何测试会失败。
+    /// 本用例补上这个空白：同一 hits 下 stale 候选必须排在新鲜候选之后。
+    #[test]
+    fn stale_candidates_rank_below_fresh_ones() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("stale.db");
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(SCHEMA).unwrap();
+            // 同样 hits=40，一个 fresh 一个 stale —— 排序差异必须只由 stale 标记决定
+            for (lineno, qual, stale) in [(1, "fresh_fn", 0), (2, "stale_fn", 1)] {
+                conn.execute(
+                    "INSERT INTO functions(filename,qualname,lineno,hits,stale) VALUES('m.py',?1,?2,40,?3)",
+                    rusqlite::params![qual, lineno, stale],
+                )
+                .unwrap();
+            }
+        }
+        let idx = TraceIndex::open(&path).unwrap();
+
+        // 直接取符号候选的原始 score（同模块私有函数），避免受补全入口的
+        // 光标/前缀判定与 MAX_CANDIDATES 截断影响 —— 本用例只验降权语义。
+        let cands = symbol_candidates(&idx, &[], "");
+        let score_of = |label: &str| {
+            cands
+                .iter()
+                .find(|c| c.label == label)
+                .unwrap_or_else(|| panic!("{label} 应在符号候选中，实际 {:?}", cands))
+                .score
+        };
+        let (fresh, stale) = (score_of("fresh_fn"), score_of("stale_fn"));
+
+        assert_eq!(fresh, 40, "新鲜候选分数应等于原 hits");
+        assert_eq!(
+            stale,
+            40 / STALE_HITS_DIVISOR,
+            "stale 候选分数应等于 hits / STALE_HITS_DIVISOR"
+        );
+        assert!(
+            stale < fresh,
+            "同 hits 下 stale 必须排后（fresh={fresh} stale={stale}）"
+        );
+        // 参数语义：除数是整数除法，必须 >=2 才不会把 stale 抬到与 fresh 同分
+        assert!(STALE_HITS_DIVISOR >= 2, "除数 <2 会使 stale 与 fresh 同分，降权失效");
+        // stale 只降权、不隐藏 —— 降权是排序手段，不是可见性开关
+        assert!(
+            cands.iter().any(|c| c.label == "stale_fn" && c.detail.contains("stale")),
+            "stale 候选应仍在列表中并带 · stale 标注"
         );
     }
 
