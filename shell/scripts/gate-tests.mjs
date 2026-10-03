@@ -5,7 +5,7 @@
 //   node shell/scripts/gate-tests.mjs unit            # vitest 全量
 //   node shell/scripts/gate-tests.mjs unit <filter>   # vitest 单文件/单用例
 //   node shell/scripts/gate-tests.mjs e2e             # playwright e2e 全量（62 spec / ~280 用例 / ~26min）
-//   node shell/scripts/gate-tests.mjs e2e-ui          # **视觉关键子集**（9 spec，见 UI_KEY_SPECS）
+//   node shell/scripts/gate-tests.mjs e2e-ui          # **视觉关键子集**（12 spec / 65 用例，见 UI_KEY_SPECS）
 //   node shell/scripts/gate-tests.mjs e2e <spec...>   # playwright e2e（可指定 spec）
 //
 // 产物：%TEMP%\opencharm-gates\<kind>.log（覆盖写）；退出码透传。

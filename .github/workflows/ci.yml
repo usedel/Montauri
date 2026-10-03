@@ -59,6 +59,12 @@ jobs:
           npx vitest run
           npm run build
 
+      # UI 视觉「高级感」专项门禁（docs/ui_premium_dev_plan.md §4 第 2 项）：
+      # 98 项 token 判定（单色相 / accent 九面 / 表面阶梯 / 阴影纪律 / 抬升面文字…），
+      # 退出码非 0 即失败。零第三方依赖，故无需安装步骤。
+      - name: UI token 门禁
+        run: python tools/ui/audit_tokens.py
+
       - name: probe pytest
         working-directory: probe
         run: |
