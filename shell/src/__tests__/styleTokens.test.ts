@@ -204,8 +204,21 @@ describe("token 三方一致 · 浅色覆盖层", () => {
       expect(contrast(resolveVar("--fg-dim", light), resolveVar(`--surface-${i}`, light)), `L${i}`)
         .toBeGreaterThanOrEqual(4.5);
     }
-    // 浅色侧不需要 --fg-muted（浮层 L4 = 画布同值，--fg-dim 直接够用）
-    expect(light.has("--fg-muted"), "浅色不该定义 --fg-muted（会多一个无用的档）").toBe(false);
+  });
+
+  it("浅色必须也定义 --fg-muted，且与 --fg-dim 同值（批 2b 的刻意偏离）", () => {
+    // 方案 §5.2.1 的注原本说「浅色不需要 --fg-muted，省一个 token」——
+    // 那条判断的前提是「浅色继续用 --fg-dim」。但批 2b 落地了**选择器级纪律**
+    // 「抬升面上禁用 --fg-dim，一律 --fg-muted」，若浅色不定义该 token，
+    // var(--fg-muted) 会 invalid at computed-value time → color 变 unset（继承父级），
+    // 「次要文字」会变成「正文」，比不改更坏。故浅色显式给出同值定义。
+    expect(light.has("--fg-muted"), "浅色缺 --fg-muted 会让 9 处抬升面文字 unset").toBe(true);
+    expect(hex(resolveVar("--fg-muted", light))).toBe(hex(resolveVar("--fg-dim", light)));
+    // 该 token 在浅色各面上同样达标（不能因为「同值」就假定达标）
+    for (let i = 0; i < 4; i++) {
+      expect(contrast(resolveVar("--fg-muted", light), resolveVar(`--surface-${i}`, light)), `L${i}`)
+        .toBeGreaterThanOrEqual(4.5);
+    }
   });
 });
 

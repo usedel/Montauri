@@ -70,18 +70,22 @@
   --link-border: rgba(42, 168, 143, 0.4);
   --meta: #c586c0;
   --meta-border: rgba(197, 134, 192, 0.4);
-  /* 交互态 */
-  --hover: #2a2d2e;
-  --hover-subtle: rgba(255, 255, 255, 0.04);
-  --selected: #37373d;
-  --control-hover: #4b4b4b;
+  /* ---------- 交互态（批 2b 重算，ui_premium §5.2.3）----------
+     这几个值原先不在任何阶梯上，是「各自漂着」的历史值；表面阶梯落地后必须重算，
+     否则会出现「控件底比浮层还亮」的越阶现象（--control-hover #4b4b4b 就比新 S4 #35353d 更亮）。
+     规则：交互面按用途分三档 —— hover 在画布之上、control-hover 在抬升面之上、
+     selected 是青绿染色的选中面（正文 8.46 ✅；⚠ 其上禁用 --fg-dim，仅 3.94）。 */
+  --hover: #303038;            /* vs 画布 1.25；--fg-dim 4.80 ✅ */
+  --hover-subtle: rgba(255, 255, 255, 0.04);   /* 极轻底，不参与阶梯 */
+  --selected: #26433f;         /* 青绿染色，vs 画布 1.53；正文 8.46 ✅ */
+  --control-hover: #3a3a42;    /* vs 画布 1.46；正文 8.89 ✅ 规则：控件底上文字用 --fg，不用 --fg-dim */
   --focus-ring: var(--accent);
-  /* 标签页 */
-  --tab-active-bg: #1e1e1e;
-  --tab-inactive-bg: #2d2d2d;
-  /* 滚动条 / 参考线 / 浮层 */
-  --scrollbar-thumb: #4a4a4a;
-  --scrollbar-thumb-hover: #5a5a5a;
+  /* 标签页：底本就与画布近，靠 --brand 顶部条区分激活（故 inactive 只保 1.05） */
+  --tab-active-bg: var(--surface-2);
+  --tab-inactive-bg: #232329;  /* vs 画布 1.05；--fg-dim 5.73 ✅ */
+  /* 滚动条：半透明 + hover 容器才显（材质细节属批 5，此处只把实心方块改回半透明） */
+  --scrollbar-thumb: rgba(255, 255, 255, 0.14);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.22);
   --indent-guide: rgba(255, 255, 255, 0.06);
   --overlay: rgba(0, 0, 0, 0.45);
   /* ---------- 投影双轨（ui_premium §5.2.6）----------
@@ -287,16 +291,26 @@ html[data-reduce-motion] .codicon-modifier-spin { animation: none; }
      ⚠ 残留：现状浅色 --control-hover #c8c8c8 上仍只有 3.78 —— 须等批 2b 把它重算为
      #e4e4e6（新值 4.98 ✅）。审计残留登记在 tools/ui/audit_tokens.py::KNOWN_RESIDUALS。 */
   --fg-dim: #5f5f68;
-  --hover: #e8e8e8;
+  /* 批 2b：浅色**必须**也定义 --fg-muted。选择器级纪律「抬升面上禁用 --fg-dim」一旦落地，
+     浅色若不定义该 token，var(--fg-muted) 会 invalid at computed-value time →
+     color 变 unset（继承父级），层级的「次要文字」就变成了「正文」——比不改更糟。
+     取值与 --fg-dim 同值：浅色抬升面的层级由 S3/S4 表面差表达，不靠文字深浅。 */
+  --fg-muted: #5f5f68;
+  /* 交互态（批 2b 重算）：原值是「深色语义直接搬过来」的遗留值——--control-hover #c8c8c8
+     比画布暗一大截，既不像 hover 也不像控件底。新值全部按白底重算（括号内为 vs 画布）。 */
+  --hover: #f0f0f2;            /* 1.138；--fg-dim 5.55 ✅ · --accent 5.13 ✅ */
   --hover-subtle: rgba(0, 0, 0, 0.04);
-  --selected: #d3efeb;   /* 替掉蓝色 #d6ebff：青绿染色，正文 10.42 · --fg-dim 5.21 ✅ */
-  --control-hover: #c8c8c8;
+  --selected: #d3efeb;        /* 替掉蓝色 #d6ebff（ADR-0005）：青绿染色，vs 画布 1.213；
+                                 正文 10.42 · --fg-dim 5.21 ✅ */
+  --control-hover: #e4e4e6;    /* 1.270；--fg-dim 4.98 ✅ · --fg 9.95 ✅ · --accent 4.60 ✅
+                                  （原 #c8c8c8 上 --fg-dim 仅 3.14，是浅色主题最严重的一处 AA 缺陷） */
   --tab-active-bg: #ffffff;
-  --tab-inactive-bg: #ececec;
-  --scrollbar-thumb: #c1c1c1;
-  --scrollbar-thumb-hover: #a8a8a8;
+  --tab-inactive-bg: var(--surface-0);   /* = L0，1.212；--fg-dim 5.22 ✅ */
+  /* 滚动条：半透明 + hover 加深（深色侧同批改，材质细节属批 5） */
+  --scrollbar-thumb: rgba(0, 0, 0, 0.18);
+  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.32);
   --indent-guide: rgba(0, 0, 0, 0.08);
-  --overlay: rgba(0, 0, 0, 0.25);
+  --overlay: rgba(0, 0, 0, 0.18);   /* 遮罩不必这么重：浮层改走 --elev-3 + hairline 后 0.25 过重 */
   /* 浅色投影：去掉 inset 高光（白底上无意义，反而显脏），只留投影并降不透明度 */
   --elev-1: 0 1px 2px rgba(0, 0, 0, 0.06);
   --elev-2: 0 4px 12px rgba(0, 0, 0, 0.10);
@@ -1350,7 +1364,7 @@ button:focus-visible,
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   padding: var(--space-2) var(--space-4);
-  color: var(--fg-dim);
+  color: var(--fg-muted);       /* 抬升面（S3）上禁用 --fg-dim（门禁 6） */
   font-size: var(--text-sm);
   box-shadow: var(--elev-2);   /* 预览页悬浮提示条：浮层口径，原为裸阴影 */
 }
@@ -1359,8 +1373,8 @@ button:focus-visible,
   align-items: center;
   justify-content: center;
   border: none;
+  color: var(--fg-muted);   /* 抬升面（S3）上禁用 --fg-dim（门禁 6） */
   background: transparent;
-  color: var(--fg-dim);
   cursor: pointer;
   padding: 0;
   font-size: var(--text-md);
@@ -1545,10 +1559,10 @@ button:focus-visible,
   margin-left: auto;
   background: var(--surface-3);
   border: 1px solid var(--border);
+  color: var(--fg-muted);   /* 抬升面（S3）上禁用 --fg-dim（门禁 6） */
   border-radius: var(--radius-sm);
   padding: 1px var(--space-3);
   font-size: var(--text-xs);
-  color: var(--fg-dim);
   white-space: nowrap;
   flex: none;
 }
@@ -1601,10 +1615,10 @@ button:focus-visible,
 .ew-tour-item kbd {
   background: var(--surface-3);
   border: 1px solid var(--border);
+  color: var(--fg-muted);   /* 抬升面（S3）上禁用 --fg-dim（门禁 6） */
   border-radius: var(--radius-sm);
   padding: 1px var(--space-3);
   font-size: var(--text-xs);
-  color: var(--fg-dim);
   white-space: nowrap;
   flex: none;
 }
@@ -2007,7 +2021,7 @@ button:focus-visible,
   color: var(--fg);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow);
+  box-shadow: var(--elev-3);
   padding: var(--space-2) var(--space-4);
   font-size: var(--text-xs);
   line-height: 1.4;
@@ -2018,12 +2032,12 @@ button:focus-visible,
 .oc-tooltip kbd {
   background: var(--surface-3);
   border: 1px solid var(--border);
+  color: var(--fg-muted);   /* 抬升面（S3）上禁用 --fg-dim（门禁 6） */
   border-bottom-width: 2px;
   border-radius: var(--radius-sm);
   padding: var(--space-1) var(--space-3);
   font-size: var(--text-xs);
   font-family: inherit;
-  color: var(--fg-dim);
 }
 
 /* ---------- 滚动条 ---------- */
@@ -2052,7 +2066,7 @@ button:focus-visible,
   background: var(--bg-alt);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow);
+  box-shadow: var(--elev-3);
   padding: var(--space-2) 0;
 }
 .ctx-menu-item {
@@ -2122,6 +2136,9 @@ button:focus-visible,
   border-radius: var(--radius-lg);
   padding: var(--space-8) var(--space-9);
   min-width: 380px;
+  /* 批 2b：模态卡此前**完全没有投影**——层级只靠 1px 边框，是「用线框替代材质」的典型残留。
+     模态是离底最远的一层，给 --elev-3（深色侧带顶边高光，这才是「浮起来」的真正信号源）。 */
+  box-shadow: var(--elev-3);
 }
 .modal-title { font-size: var(--text-base); color: var(--fg); margin-bottom: var(--space-5); }
 .modal-card input {
@@ -2435,7 +2452,7 @@ button:focus-visible,
 }
 /* 列名 sticky + 行号列 sticky（横向滚动时行号不跟着走，便于对位） */
 .db-grid thead th { position: sticky; top: 0; z-index: 1; background: var(--bg-alt); font-weight: 600; }
-.db-grid .db-rowno { position: sticky; left: 0; z-index: 2; background: var(--bg-alt); color: var(--fg-dim); text-align: right; }
+.db-grid .db-rowno { position: sticky; left: 0; z-index: 2; background: var(--bg-alt); color: var(--fg-muted); text-align: right; }
 .db-grid thead .db-rowno { z-index: 3; }
 .db-num { font-variant-numeric: tabular-nums; }
 .db-cell-null { color: var(--fg-dim); font-style: italic; }
@@ -2512,8 +2529,8 @@ button:focus-visible,
   border-left: 3px solid var(--accent);
   border-radius: var(--radius-md);
   background: var(--hover);
+  color: var(--fg-muted);   /* 派生交互面（--hover）上禁用 --fg-dim（门禁 6） */
   font-size: var(--text-sm);
-  color: var(--fg-dim);
 }
 .env-banner.hidden { display: none; }
 /* 态A 无环境警示横幅（#2 决策 4）：warn 色填充，强于普通 info 横幅 */
@@ -2578,7 +2595,7 @@ button:focus-visible,
   background: var(--bg-alt);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow);
+  box-shadow: var(--elev-3);
   padding: var(--space-2) 0;
 }
 .interp-popover.hidden { display: none; }
@@ -3785,7 +3802,7 @@ button:focus-visible,
   border-radius: var(--radius-md);
   max-height: 240px;
   overflow: auto;
-  box-shadow: var(--shadow);
+  box-shadow: var(--elev-3);
   padding: var(--space-1) 0;
 }
 .oc-combo-drop.open { display: block; }
@@ -4590,7 +4607,7 @@ button:focus-visible,
   top: 0;
   padding: var(--space-2) var(--space-4);
   background: var(--surface-3);
-  color: var(--fg-dim);
+  color: var(--fg-muted);   /* 抬升面（S3）上禁用 --fg-dim（门禁 6） */
   font-size: var(--text-xs);
   border-bottom: 1px solid var(--border);
 }
@@ -5011,7 +5028,7 @@ button:focus-visible,
   background: var(--bg-alt);
   border: 1px solid var(--accent);
   border-radius: var(--radius-sm);
-  box-shadow: var(--shadow);
+  box-shadow: var(--elev-2);
   z-index: 40;
 }
 
@@ -5054,7 +5071,7 @@ button:focus-visible,
   background: var(--bg-alt);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow);
+  box-shadow: var(--elev-3);
   z-index: 40;
 }
 
@@ -5211,7 +5228,7 @@ button:focus-visible,
 .rx-table-wrap { overflow: auto; max-height: 220px; border: 1px solid var(--border); border-radius: var(--radius-sm); }
 .rx-table { width: 100%; border-collapse: collapse; font-size: var(--text-xs); }
 .rx-table th, .rx-table td { text-align: left; padding: 2px 8px; border-bottom: 1px solid var(--border-soft); white-space: nowrap; }
-.rx-table th { color: var(--fg-dim); position: sticky; top: 0; background: var(--surface-3); }
+.rx-table th { color: var(--fg-muted); position: sticky; top: 0; background: var(--surface-3); }
 .rx-row { cursor: pointer; }
 .rx-row:hover { background: var(--hover-subtle); }
 .rx-row td:first-child { color: var(--fg-dim); }
@@ -5430,7 +5447,7 @@ button:focus-visible,
   border: 1px solid var(--border);
   border-left: 2px solid var(--fg-dim);
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow);
+  box-shadow: var(--elev-3);
   color: var(--fg);
   font-size: var(--text-sm);
   animation: oc-fade-in calc(0.12s * var(--motion)) ease-out;

@@ -88,7 +88,8 @@ def extract_block(css: str, selector: str) -> list[str]:
 
 
 def parse_decls(body: str) -> dict[str, str]:
-    """声明解析：`name: value;` → dict。值内可能含逗号/括号但不含分号。"""
+    """声明解析：`name: value;` → dict。值内可能含逗号/括号但不含分号。
+    **只保留 `--` 自定义属性**（供 :root / light 覆盖层取 token）。"""
     out: dict[str, str] = {}
     for chunk in body.split(";"):
         if ":" not in chunk:
@@ -97,6 +98,21 @@ def parse_decls(body: str) -> dict[str, str]:
         name = name.strip()
         if name.startswith("--"):
             out[name] = value.strip()
+    return out
+
+
+def parse_style_decls(body: str) -> dict[str, str]:
+    """普通样式声明解析（保留全部属性；`--` 自定义属性也一并带上）。
+    括号内的分号（如 `content: "a;b"`）不常见于本文件，按分号切分可接受。"""
+    out: dict[str, str] = {}
+    for chunk in body.split(";"):
+        if ":" not in chunk:
+            continue
+        name, _, value = chunk.partition(":")
+        name = name.strip()
+        if not name or name.startswith("@") or name in ("from", "to"):
+            continue
+        out[name] = value.strip()
     return out
 
 
@@ -416,6 +432,170 @@ def gate_fg_dim(report: Report, theme: str, tokens: dict[str, str]) -> None:
                      f"{c:.2f}", residual=KNOWN_RESIDUALS.get((theme, "--fg-dim", face)))
 
 
+# 抬升面判定：这些 token 的背景色属于「浮起来的那一层」，其上的次要文字不能用 --fg-dim，
+# accent 类文字/图标必须走 --accent-emphasis（方案 §5.2.5 / §5.1 九面门禁）。
+LIFTED_SURFACE_TOKENS = {
+    "--surface-3", "--surface-4", "--bg-alt", "--control-hover", "--selected", "--hover",
+}
+
+# 继承来的「表面档」→ 不算抬升面（--fg-dim 在这些面上合规）
+SURFACE_TOKENS = {"--surface-0", "--surface-1", "--surface-2", "--bg", "--bg-panel",
+                  "--bg-chrome", "--tab-active-bg", "--tab-inactive-bg"}
+
+
+@dataclass(frozen=True)
+class Rule:
+    """一条 CSS 规则（选择器组已按逗号拆开）。"""
+
+    selector: str
+    decls: dict[str, str]
+    line: int
+
+
+def parse_rules(css_path: Path) -> list[Rule]:
+    """解析全部规则（注释已剥离，行号保持）。用于选择器级审计。
+    字符级扫描 + at-rule 递归：**单行规则**（`sel { a: b; }`）也必须正确解析——
+    早期版本按「行」切块，单行规则的声明全丢，扫描器静默返回 0 命中（假阴性）。"""
+    text = "\n".join(strip_comments_keep_lines(css_path.read_text(encoding="utf-8")))
+    rules: list[Rule] = []
+    _parse_rules(text, rules, 0)
+    return rules
+
+
+def _split_selector_group(head: str) -> list[str]:
+    """按逗号拆选择器组，但**不拆括号内**的逗号（`:is(a, b)` / `:not(x, y)`）。"""
+    out: list[str] = []
+    depth, cur = 0, ""
+    for ch in head:
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth = max(0, depth - 1)
+        if ch == "," and depth == 0:
+            out.append(cur.strip())
+            cur = ""
+        else:
+            cur += ch
+    if cur.strip():
+        out.append(cur.strip())
+    return [s for s in out if s and not s.startswith("@")]
+
+
+def _parse_rules(text: str, out: list[Rule], line_offset: int = 0) -> None:
+    i, n = 0, len(text)
+    while i < n:
+        j = text.find("{", i)
+        if j < 0:
+            return
+        head = text[i:j].strip()
+        depth, k = 1, j + 1
+        while k < n and depth:
+            if text[k] == "{":
+                depth += 1
+            elif text[k] == "}":
+                depth -= 1
+            k += 1
+        body = text[j + 1:k - 1]
+        line_no = text[:j].count("\n") + 1 + line_offset
+        if head.startswith("@"):
+            _parse_rules(body, out, line_no)  # 递归进 at-rule（@media / @supports / @keyframes）
+        elif head:
+            for sel in _split_selector_group(head):
+                out.append(Rule(selector=sel, decls=parse_style_decls(body), line=line_no))
+        i = k
+
+
+def strip_comments_keep_lines(src: str) -> list[str]:
+    """去注释但保持行数（选择器级审计需要行号）。"""
+    out: list[str] = []
+    in_block = False
+    for line in src.splitlines():
+        buf: list[str] = []
+        i = 0
+        while i < len(line):
+            if in_block:
+                end = line.find("*/", i)
+                if end < 0:
+                    i = len(line)
+                else:
+                    i = end + 2
+                    in_block = False
+            elif line.startswith("/*", i):
+                i += 2
+                in_block = True
+            else:
+                buf.append(line[i])
+                i += 1
+        out.append("".join(buf))
+    return out
+
+
+def _compound(selector: str) -> str:
+    """取选择器最右一段（`#db-grid thead th` → `th`）。"""
+    return selector.split()[-1] if selector.split() else selector
+
+
+def background_index(rules: list[Rule]) -> dict[str, str]:
+    """选择器 → 其背景 token（只认直接 var() 引用；多规则后者覆盖前者）。"""
+    out: dict[str, str] = {}
+    for r in rules:
+        for prop in ("background", "background-color", "background-color:"):
+            v = r.decls.get(prop)
+            if v and v.startswith("var("):
+                out[r.selector] = v[4:-1].strip()
+    return out
+
+
+def _ancestor_chain(selector: str) -> list[str]:
+    """`#db-grid .db-conn-node.active` → ['#db-grid', '#db-grid .db-conn-node', '…active']"""
+    parts = selector.split()
+    return [" ".join(parts[: i + 1]) for i in range(len(parts))]
+
+
+def gate_lifted_fg_dim(report: Report, rules: list[Rule]) -> None:
+    """门禁 6：抬升面（S3/S4 及派生交互面）上 `--fg-dim` 引用 0 命中。
+    背景判定走「同规则 → 最近祖先」两级解析，覆盖 `.foo { background } .foo .bar { color }` 同型写法。"""
+    bg = background_index(rules)
+    hits: list[str] = []
+    for r in rules:
+        color = r.decls.get("color")
+        if color != "var(--fg-dim)":
+            continue
+        # 自身背景优先，否则沿后代组合子向上找最近祖先的背景
+        surface = bg.get(r.selector)
+        if surface is None:
+            for anc in reversed(_ancestor_chain(r.selector)[:-1]):
+                if anc in bg:
+                    surface = bg[anc]
+                    break
+        if surface in LIFTED_SURFACE_TOKENS:
+            hits.append(f"L{r.line} {r.selector}（背景 {surface}）")
+    report.check("抬升面文字", "抬升面上 --fg-dim 引用为 0", not hits,
+                 f"命中 {len(hits)} 处" + (f"：{hits[:4]}" if hits else " ✅"))
+
+
+def gate_accent_on_lifted(report: Report, rules: list[Rule]) -> None:
+    """门禁 18：S4 / hover / control-hover / selected 四个面上，accent 类文字/图标必须用
+    `--accent-emphasis`——即这些面上不得再直接把 `--accent` 当文字色或边框色。"""
+    bg = background_index(rules)
+    hits: list[str] = []
+    for r in rules:
+        lifted = bg.get(r.selector)
+        if lifted is None:
+            for anc in reversed(_ancestor_chain(r.selector)[:-1]):
+                if anc in bg:
+                    lifted = bg[anc]
+                    break
+        if lifted not in {"--surface-4", "--hover", "--control-hover", "--selected"}:
+            continue
+        for prop in ("color", "border-color", "border-top-color", "border-bottom-color", "border-left-color"):
+            v = r.decls.get(prop)
+            if v == "var(--accent)":
+                hits.append(f"L{r.line} {r.selector}（{prop}，背景 {lifted}）")
+    report.check("accent 面归属", "四个亮面上的 accent 文字为 0 命中（改用 --accent-emphasis）",
+                 not hits, f"命中 {len(hits)} 处" + (f"：{hits[:4]}" if hits else " ✅"))
+
+
 def gate_ladder(report: Report, theme: str, tokens: dict[str, str]) -> None:
     """表面阶梯对比度，按**轴分档**（方案 §7-4）。
     刻意不设「任意相邻 ≥1.10」这种一刀切门禁：S0↔S1（外框↔侧栏）是刻意的弱差异，
@@ -493,6 +673,9 @@ def audit(css_path: Path) -> Report:
         gate_ladder(report, theme, t)
         gate_chrome_collision(report, theme, t)
     gate_no_bare_shadow(report, css_path)
+    rules = parse_rules(css_path)
+    gate_lifted_fg_dim(report, rules)
+    gate_accent_on_lifted(report, rules)
     return report
 
 
@@ -537,7 +720,8 @@ def main() -> int:
     bad = [r for r in report.rows if not r["ok"]]
     print(f"OpenCharm UI token 审计 —— {css_path}")
     print(f"共 {total} 项判定，未达标 {len(bad)} 项；FAIL {len(report.fails)} · WARN {len(report.warns)}\n")
-    for gate in ("单色相", "accent 面", "白字 on fill", "fg-dim 面", "阶梯轴", "chrome 分离", "阴影纪律"):
+    for gate in ("单色相", "accent 面", "白字 on fill", "fg-dim 面", "阶梯轴", "chrome 分离",
+                 "阴影纪律", "抬升面文字", "accent 面归属"):
         rows = [r for r in report.rows if r["gate"] == gate]
         if not rows:
             continue
