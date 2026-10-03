@@ -739,6 +739,44 @@ alpha 叠色把「同一色值在两个面上表现不一致」抹平了 —— 
 | 7 | 浮层描边用 `--surface-2` 做隔离环 | 新增 `--focus-gap`（暗环 / 淡影） | 焦点环会落在 S0–S4 五档表面上（§7.6.2） |
 | 8 | 加载态加 `stroke-linecap` | 不做 | codicon 是字体图标不是 SVG（§6.5） |
 
+### 8.1 真机 CDP 验收（批 1–5c 收口）
+
+`shell/e2e-real/ui-real.cjs` —— **32/32 PASS**（`node e2e-real/ui-real.cjs`）。
+
+批 1–5c 的产物几乎全是 CSS 变量，浏览器层 e2e 已覆盖绝大多数 computed style 断言。真机层补的是**浏览器层原理上测不到**的四类：
+
+| 类 | 本轮实测 |
+|---|---|
+| WebView2 与 Chromium 的渲染差异 | UA = `Chrome/149 Edg/149`（真 WebView2，非浏览器层）；`:focus-visible` 匹配时机、outline 绘制行为正常 |
+| **devicePixelRatio** | **1.25（125% 系统缩放）** —— 圆角与 1px alpha 边框在缩放下的呈现，浏览器层 fresh profile 恒为 1.0，测不到 |
+| 真实数据根 + 走完整用户路径 | 浅色主题经「设置 → 外观 → 色卡 → 保存」落地，**不是** mock 预置 |
+| 随包字体真实可达性 | 4 个 woff2 全 `status=loaded`；`document.fonts.check` true；`.view-lines` computed font-family 含 JetBrains Mono |
+
+关键实测值：编辑器画布 `rgb(31,31,36)` = `--surface-2`（不再是出厂 `#1e1e1e`）· 当前行 `rgb(36,36,41)` · 选区 `rgb(38,67,63)` 青绿（出厂是蓝 `#264f78`）· 语法色 identifier `#7ce3cd` 青绿 / keyword `#c586c0` 紫，旧浅蓝 `#9cdcfe` 已消失 · 边框 computed `rgba(255,255,255,0.10)` · 圆角输入框 6px / 关闭钮 3px · `--motion=0` 时 `transitionDuration` 归零。
+
+**焦点环双环的真机实测值**（证明结构正确渲染，而非仅声明存在）：
+```
+rgba(0, 0, 0, 0.55) 0px 0px 0px 2px   ← 内圈隔离环（--focus-gap）
+rgb(42, 168, 143)  0px 0px 0px 4px    ← 外圈青绿环（--focus-ring）
+```
+
+#### 8.1.1 真机首跑暴露的两个测试陷阱（浏览器层原理上测不到）
+
+| # | 陷阱 | 诊断证据 | 处置 |
+|---|---|---|---|
+| ① | **Monaco 会吞掉 Tab** | 60 次 Tab 全部停在 `TEXTAREA.inputarea monaco-mouse-cursor-text` | 遍历前先 `blur()`。**浏览器层 `editor/12` 没踩到纯粹因为它没点过编辑器**——属「测试通过但理由不成立」，必须真机复核才算数 |
+| ② | **只声明单边 border 的元素，读另一边的 border-color 得到 `currentColor`** | `#sidebar` 只写 `border-left`，读 `borderTopColor` 得 `rgb(212,212,212)` = `--fg`，看起来像「边框是实色灰」 | 验「边框是否 alpha」必须挑**四边都设了 border** 的元素（如 `.btn`） |
+
+另有 2 项失败是我的断言写错（无产品 bug）：当前行高亮必须在**选区为空**时读（Monaco 的 `_shouldRenderInContent` 判 `selectionIsEmpty`，全选时根本不渲染）；以及 `document.documentElement.setAttribute` 会在应用 init 完成前被 `applyReduceMotion(false)` 冲掉——**在应用就绪前改它的状态会与启动流程竞争**。
+
+#### 8.1.2 顺带闭环了跨三批的悬置判断
+
+此前 e2e-ui 长期 **51 passed / 8 failed**（症状统一为「编辑器尚未初始化」），批 4 / 5b / 5c 均用 `git stash` 对照证明「原始代码上同样失败」→ 判为存量环境问题，但**从未验证根因**。
+
+本轮杀掉那个长期运行的 vite（PID 11140）后重跑，**8 条全部消失**，根因（vite 重建模块图导致 `import("/src/state.ts")` 拿到另一份模块实例）得到实证闭环。随后又暴露并修掉两处测试自身的脆弱断言（`selectionBg` 的 `toBeAttached` 通过 ≠ 元素仍带背景，Monaco 重建视图行会把它替换成空背景）。
+
+**最终 e2e-ui 61/61 全绿**，且从此不再需要 stash 对照才能判定 e2e 失败是否回归——先杀掉 vite 再说。
+
 **遗留技术债**（已登记，非本轮范围）：① Monaco 浮层圆角无主题槽位（§7.8.4）；② `runWidget` 忙碌时切图标类导致按钮宽度变化（§6.5）；③ alpha 边框 1.32~1.36:1 不满足 WCAG 1.4.11 的 3:1，属自觉取舍（§7.7.4）；④ e2e-ui 那 8 条「编辑器尚未初始化」需 stash 对照判定（§7.5.7 其三）。
 
 

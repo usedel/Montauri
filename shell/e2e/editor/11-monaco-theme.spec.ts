@@ -64,13 +64,26 @@ async function openPy(page: import("@playwright/test").Page): Promise<void> {
   await expect(page.locator(".monaco-editor .view-line span[class*='mtk']").first()).toBeAttached({ timeout: 30_000 });
 }
 
-/** 全选并返回选区元素的实际底色（顺带断言选区 DOM 真的出现了，避免「读到 null 还当通过」） */
+/** 全选并返回选区元素的实际底色。
+ *  ⚠ 必须**轮询到拿到非透明底色**为止：`toBeAttached` 通过 ≠ 元素仍带背景——
+ *    Monaco 重建视图行（切主题、token 化完成、异步渲染）会把 .selected-text 整体替换掉，
+ *    那一刻读到的 computed backgroundColor 是空字符串。首跑就踩到过一次
+ *    （T-B4-5 收到 "" 而非某个错误色值），真机层同样要求读到实际色值。 */
 async function selectionBg(page: import("@playwright/test").Page): Promise<string> {
   await page.locator(".monaco-editor .view-lines").first().click();
   await page.keyboard.press("Control+a");
-  const sel = page.locator(".monaco-editor .selected-text").first();
-  await expect(sel, "全选后应出现选区 DOM（.selected-text）").toBeAttached({ timeout: 10_000 });
-  return sel.evaluate((el) => getComputedStyle(el).backgroundColor);
+  return page
+    .waitForFunction(
+      () => {
+        const el = document.querySelector(".monaco-editor .selected-text");
+        if (!el) return null;
+        const c = getComputedStyle(el).backgroundColor;
+        return c && c !== "rgba(0, 0, 0, 0)" ? c : null;
+      },
+      null,
+      { timeout: 10_000 },
+    )
+    .then((h) => h.jsonValue() as Promise<string>);
 }
 
 /** 编辑器内所有 token 文本的实际渲染色（去重小写） */

@@ -42,9 +42,17 @@ test("T-B5A-1 减少动画开关使 transition 时长真正归零（方案 §7-1
   expect(before.motion, "默认应启用动效（--motion: 1）").toBe("1");
   expect(before.duration, "默认应有非零过渡时长").not.toBe("0s");
 
+  // ⚠ 必须等应用 init 完成（settings 已应用）后再改状态。
+  // 首跑失败诊断：`setAttribute` 之后 `hasAttr` 已是 false —— 应用在 init 阶段按
+  // settings 调 `applyReduceMotion(false)`（默认关 → 移除属性），把测试设的值冲掉了。
+  // 也就是说：**在应用就绪前改它的状态，会与启动流程竞争**（真机层同样受此约束）。
+  await expect(page.locator("#tree .tree-item").first()).toBeVisible({ timeout: 30_000 });
+
   // 走应用内开关的等价 DOM 状态（applyReduceMotion 做的就是这一件事）
   await page.evaluate(() => document.documentElement.setAttribute("data-reduce-motion", ""));
   const after = await read();
+  const hasAttr = await page.evaluate(() => document.documentElement.hasAttribute("data-reduce-motion"));
+  expect(hasAttr, "data-reduce-motion 应仍在（若被应用移除说明 init 尚未完成）").toBe(true);
   expect(after.motion, "开启后 --motion 应为 0").toBe("0");
   expect(after.duration, "开启后过渡时长必须归零（calc(0.15s * 0) = 0s）").toBe("0s");
 });
