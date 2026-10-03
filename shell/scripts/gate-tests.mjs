@@ -4,12 +4,13 @@
 // 用法：
 //   node shell/scripts/gate-tests.mjs unit            # vitest 全量
 //   node shell/scripts/gate-tests.mjs unit <filter>   # vitest 单文件/单用例
-//   node shell/scripts/gate-tests.mjs e2e [spec...]   # playwright e2e（可指定 spec）
-//   node shell/scripts/gate-tests.mjs e2e-real        # 真机 CDP（若有）
+//   node shell/scripts/gate-tests.mjs e2e             # playwright e2e 全量（62 spec / ~280 用例 / ~26min）
+//   node shell/scripts/gate-tests.mjs e2e-ui          # **视觉关键子集**（9 spec，见 UI_KEY_SPECS）
+//   node shell/scripts/gate-tests.mjs e2e <spec...>   # playwright e2e（可指定 spec）
 //
 // 产物：%TEMP%\opencharm-gates\<kind>.log（覆盖写）；退出码透传。
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -20,6 +21,27 @@ const kind = process.argv[2] ?? "unit";
 const rest = process.argv.slice(3);
 mkdirSync(OUT_DIR, { recursive: true });
 
+/**
+ * 视觉关键子集（批 2a 起用于日常门禁）。
+ *
+ * 依据：全量 62 spec / ~280 用例 / ~26min，而 token / 表面 / 浮层类改动的回归面是**可枚举**的
+ * —— 粘性表头（曾出过「三个 sticky 组头共用一个吸顶位互相覆盖」的真 bug）、浮层与菜单、
+ * 状态栏、gutter 行高亮、设置面板、布局恢复。这些 spec 覆盖了全部历史视觉事故点。
+ * 反之 lsp / libs / pydantic / perf / clone / autosave 等域与 CSS token 无耦合，
+ * 只在**跨域改动**（LSP 桥、Monaco 主题、打包）或发版前跑全量。
+ */
+const UI_KEY_SPECS = [
+  "e2e/ux/01-ux-batch.spec.ts",              // 菜单 / 模态 / toast / 各类浮层与表面
+  "e2e/db/01-connections.spec.ts",           // 连接树布局（历史事故：flex 行容器撑高整棵树）
+  "e2e/db/03-data.spec.ts",                  // .db-grid 粘性表头 + 行号列（历史事故：吸顶互覆盖）
+  "e2e/git/04-stage-commit.spec.ts",         // SCM 徽标 / 状态色
+  "e2e/git/22-close-workspace-stale-list.spec.ts", // 底部面板 tab（输出/终端/引用/问题）+ 状态栏
+  "e2e/editor/03-editor-basics.spec.ts",     // 缩进参考线 / 当前行 / 标签页
+  "e2e/debug/01-functional.spec.ts",         // gutter 断点圆点 + 当前执行行高亮
+  "e2e/p3/01-discoverability.spec.ts",       // 设置面板（分类 / 搜索 / 控件态）
+  "e2e/session/01-restore.spec.ts",          // 布局与工作区恢复
+];
+
 let cmd;
 let args;
 if (kind === "unit") {
@@ -28,6 +50,15 @@ if (kind === "unit") {
 } else if (kind === "e2e") {
   cmd = process.execPath;
   args = ["node_modules/@playwright/test/cli.js", "test", ...rest];
+} else if (kind === "e2e-ui") {
+  cmd = process.execPath;
+  const missing = UI_KEY_SPECS.filter((s) => !existsSync(join(SHELL_DIR, s)));
+  if (missing.length) {
+    console.error(`[gate] e2e-ui 子集里有 spec 不存在：\n  ${missing.join("\n  ")}`);
+    process.exit(2);
+  }
+  args = ["node_modules/@playwright/test/cli.js", "test", ...UI_KEY_SPECS, ...rest];
+  console.log(`[gate] 视觉关键子集：${UI_KEY_SPECS.length} spec（全量 62 spec / ~26min）`);
 } else {
   console.error(`未知门禁类型：${kind}`);
   process.exit(2);
@@ -51,6 +82,8 @@ writeFileSync(
 );
 console.log(`[gate] ${kind} 日志：${logPath}（exit=${r.status}）`);
 const text = readFileSync(logPath, "utf8");
-const tail = text.split(/\r?\n/).slice(-40).join("\n");
+const summary = text.split(/\r?\n/).filter((l) => /passed|failed|flaky|Test Files|Tests\s/.test(l));
+if (summary.length) console.log(summary.slice(-6).join("\n"));
+const tail = text.split(/\r?\n/).slice(-25).join("\n");
 console.log(tail);
 process.exit(r.status ?? 1);

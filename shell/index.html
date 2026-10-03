@@ -7,7 +7,7 @@
     <!-- 首屏兜底样式：正式 CSS 由 main.ts 异步注入，此内联样式避免启动瞬间的白底/无样式闪烁（FOUC）。
          必须用字面值而非 var(--token)：本块要在 style.css 之前生效，那时 :root 里的 token 还不存在。
          ⚠ 因此这里与 style.css 的 token 存在隐式同步义务，共 6 项，改动下列任一 token 时须回来同步：
-           #1e1e1e = --bg · #d4d4d4 = --fg · 13px = --text-base（全局最小字号下限为 11px，见 UI-17）
+           #1f1f24 = --bg（表面阶梯 S2）· #d4d4d4 = --fg · 13px = --text-base（全局最小字号下限为 11px，见 UI-17）
            #ffffff / #333333 = 浅色主题的 --bg / --fg
            font-family = --font-ui（批 3 改 body 字体栈时同步；漏了它首帧与稳定帧不一致会产生可见抖动） -->
     <style>
@@ -15,7 +15,7 @@
         margin: 0;
         height: 100%;
         overflow: hidden;
-        background: #1e1e1e;
+        background: #1f1f24;
         color: #d4d4d4;
         font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
         font-size: 13px;

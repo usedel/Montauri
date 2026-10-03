@@ -1,14 +1,37 @@
 /* 设计 token（D1 收敛）：一切色值走语义变量；浅色主题经 [data-theme="light"] 覆盖层实现。
    新增样式禁止引入裸色值——如需新色，先在此登记 token。 */
 :root {
-  /* 表面与文字 */
-  --bg: #1e1e1e;
-  --bg-alt: #252526;
-  --bg-panel: #1b1b1b;
+  /* ---------- 表面阶梯（ui_premium §5.2.1）----------
+     S0 最深（窗口底 / 状态栏 / 面板底）→ S4 最亮（hover / 浮层强调）。
+     方向与现状相反且是本批的核心：现状 --bg-panel(#1b1b1b) 比 --bg(#1e1e1e) 更暗，
+     「框架比画布亮」导致内容浮不出来，三档表面端到端仅 1.12:1（人眼阈值约 1.15）。
+     新阶梯实算：S0→S1 1.06 · S1→S2 1.09 · S2→S3 1.15 · S3→S4 1.17
+                 S0→S2（画布轴，用户真正能感知的那一刀）1.16 ✅ · S0→S4 端到端 1.56
+     S0↔S1 只保底 1.06 是**设计选择**（外框↔侧栏靠 menubar 分隔线与内容密度区分），
+     不设更高门禁——强行提到 1.15 会让侧栏与面板糊成一片。1.15 阈值是经验值，只作目标不作 CI 门禁。 */
+  --surface-0: #101013;   /* 窗口底 / 状态栏 / 底部面板底 */
+  --surface-1: #17171b;   /* 侧栏 / 活动栏 / menubar / 标签栏 */
+  --surface-2: #1f1f24;   /* 编辑区 / 主内容画布 ← 内容面 */
+  --surface-3: #2a2a30;   /* 抬升面：卡片 / 菜单 / 模态 / 粘性表头 / 控件 */
+  --surface-4: #35353d;   /* hover / 浮层强调 */
+
+  /* ---------- 表面与文字 ----------
+     ⚠ 三条纪律（ui_premium §5.2.2）：
+       ① --bg-panel 缝合了三种语义（chrome / 外框底 / 抬升面），**已先拆散再映射**——
+          4 处 chrome 改走 --bg-chrome，12 处抬升面改走 --surface-3，剩 5 处才是外框/面板；
+       ② --bg-alt 语义是**抬升面**（19 处全是浮层/粘性表头/选中行），故映射 S3 而非 S1——
+          若映射 S1 会让粘性表头比画布沉下去、模态卡比编辑区更暗，与本批目的正好相反；
+       ③ --border 纪律（alpha 三档）与圆角/曲线属批 5，本批不动。 */
+  --bg: var(--surface-2);
+  --bg-chrome: var(--surface-1);   /* 新增：menubar / sidebar / tabbar / split-header */
+  --bg-panel: var(--surface-0);    /* 拆分后仅剩：底部面板 / 终端 / 状态栏 / 右面板 */
+  --bg-alt: var(--surface-3);      /* 抬升面（批 2b 逐 selector 确认） */
   --border: #3c3c3c;
   --border-soft: rgba(60, 60, 60, 0.4);
-  --fg: #d4d4d4;
-  --fg-dim: #9d9d9d;
+  --fg: #d4d4d4;                   /* 决策：保留不改（画布换 #1f1f24 后正文 11.07，仍远高于 AAA） */
+  --fg-dim: #9c9ca4;               /* 新阶梯取中性偏冷的 #9c9ca4：S2 6.02 · S3 5.23 ✅ */
+  --fg-muted: #adadb5;             /* 新增（抬升面专用次要文字）：S3 6.40 · S4 5.45 ✅ */
+  /* 配套规则（批 2b 落地选择器级审计）：S3/S4 等抬升面上**不用 --fg-dim，一律 --fg-muted**。 */
   /* ---------- 品牌与交互色（ADR-0005：青绿单一色相轴）----------
      原 D4 裁决是「青绿 = 品牌识别 / 蓝 --accent = 功能交互」双色分工，已被 ADR-0005 推翻：
      实测真正承载功能语义的是 --accent（82 处，为 --brand 24 处的 3.4 倍），双色分工使界面
@@ -61,7 +84,15 @@
   --scrollbar-thumb-hover: #5a5a5a;
   --indent-guide: rgba(255, 255, 255, 0.06);
   --overlay: rgba(0, 0, 0, 0.45);
-  --shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  /* ---------- 投影双轨（ui_premium §5.2.6）----------
+     深色 UI 的核心难题是纯黑投影落在深底上几乎不可见（rgba(0,0,0,.5) 打在 #1e1e1e 上增量极小）。
+     业界通行解法是「投影 + 顶边高光」双轨：真正让深色下这块浮起来的是那条 inset 高光。
+     四档按「离底多远」分级；--shadow 为兼容存量（8 处浮层）保留，值原地升级为 --elev-2。 */
+  --elev-1: 0 1px 2px rgba(0, 0, 0, 0.40), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  --elev-2: 0 4px 12px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --elev-3: 0 12px 32px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  --elev-4: 0 24px 64px rgba(0, 0, 0, 0.62), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  --shadow: var(--elev-2);
   --win-close-hover: #e81123;
   /* Git 状态色（深浅两套主题下均可读时免覆盖） */
   --git-modified: #e2c08d;
@@ -102,16 +133,16 @@
      这 8 个值描绘的是「各套主题自身」的基调，必须固定不随当前主题变化，
      故只在 :root 登记、[data-theme="light"] 覆盖层**不含**对应项（覆盖掉就失去预览意义）。
      取值与两套主题的实际 token 逐项对齐，不是凭观感挑的：
-       深色 = --bg #1e1e1e · --bg-panel #1b1b1b · --fg #d4d4d4 · --border #3c3c3c
-       浅色 = --bg #ffffff · --bg-panel #ececec · --fg #333333 · --border #d4d4d4
+       深色 = --bg #1f1f24 · --bg-panel #101013 · --fg #d4d4d4 · --border #3c3c3c
+       浅色 = --bg #ffffff · --bg-panel #e9e9ec · --fg #333333 · --border #d4d4d4
      预览里的强调色带直接用 var(--accent)：accent 族在浅色侧另有更深的青绿取值（白底 5.84:1），
      故「深浅两张卡的强调色带」并不同色——这是刻意的（色卡要各自忠于本套主题的实色）。 */
-  --theme-pv-dark-bg: #1e1e1e;
-  --theme-pv-dark-side: #1b1b1b;
+  --theme-pv-dark-bg: #1f1f24;
+  --theme-pv-dark-side: #101013;
   --theme-pv-dark-fg: #d4d4d4;
   --theme-pv-dark-border: #3c3c3c;
   --theme-pv-light-bg: #ffffff;
-  --theme-pv-light-side: #ececec;
+  --theme-pv-light-side: #e9e9ec;
   --theme-pv-light-fg: #333333;
   --theme-pv-light-border: #d4d4d4;
   /* 等宽字体栈（D3 P-14：输出/搜索匹配/终端/模板编辑等统一） */
@@ -234,9 +265,19 @@ html[data-reduce-motion] .codicon-modifier-spin { animation: none; }
    青绿在白底上必须更深才达 AA，故浅色侧另取 #0e7261（白底 5.84:1 / 其上白字 5.84:1，一值两用）。
    danger / warn 等**语义色**仍保持跨主题一致（它们不是品牌色轴的一员）。 */
 [data-theme="light"] {
-  --bg: #ffffff;
-  --bg-alt: #f3f3f3;
-  --bg-panel: #ececec;
+  /* ---------- 浅色表面阶梯（ui_premium §5.2.1）----------
+     方向与深色**相反**：越靠内容越白、越靠外框越灰。浮层不做亮度斜坡（L4 = 画布同值），
+     层级靠 --elev 投影 + 边框表达——这是浅色 IDE 的标准做法（VS Code / Zed 浅色皆如此）。
+     实算：L0→L1 1.09 · L1→L2 1.11 · L0→L2（画布轴）1.21 · 控件 L3 vs 画布 1.07。 */
+  --surface-0: #e9e9ec;   /* 面板底 / 外框 */
+  --surface-1: #f3f3f4;   /* 侧栏 / chrome */
+  --surface-2: #ffffff;   /* 编辑区画布 */
+  --surface-3: #f7f7f8;   /* 抬升面：控件内底 / 卡片 */
+  --surface-4: #ffffff;   /* 浮层 = 画布同值，靠投影抬升 */
+  --bg: var(--surface-2);
+  --bg-chrome: var(--surface-1);
+  --bg-panel: var(--surface-0);
+  --bg-alt: var(--surface-3);
   --border: #d4d4d4;
   --border-soft: rgba(0, 0, 0, 0.08);
   --fg: #333333;
@@ -256,7 +297,12 @@ html[data-reduce-motion] .codicon-modifier-spin { animation: none; }
   --scrollbar-thumb-hover: #a8a8a8;
   --indent-guide: rgba(0, 0, 0, 0.08);
   --overlay: rgba(0, 0, 0, 0.25);
-  --shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  /* 浅色投影：去掉 inset 高光（白底上无意义，反而显脏），只留投影并降不透明度 */
+  --elev-1: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --elev-2: 0 4px 12px rgba(0, 0, 0, 0.10);
+  --elev-3: 0 12px 32px rgba(0, 0, 0, 0.14);
+  --elev-4: 0 24px 64px rgba(0, 0, 0, 0.18);
+  --shadow: var(--elev-2);
   /* accent 族浅色取值（ADR-0005）：青绿在白底需更深，#0e7261 白底 5.84 / 其上白字 5.84，
      故 --accent 一值两用；--accent-emphasis 取 #0b6350（浅色七面最低 5.67 ✅）。 */
   --accent: #0e7261;
@@ -515,7 +561,7 @@ button:focus-visible,
   gap: var(--space-1);
   height: 34px;
   padding-left: var(--space-5);
-  background: var(--bg-panel);
+  background: var(--bg-chrome);
   border-bottom: 1px solid var(--border);
   flex: none;
 }
@@ -648,7 +694,7 @@ button:focus-visible,
   width: 280px;
   flex: 0 1 auto;
   min-width: 180px;
-  background: var(--bg-panel);
+  background: var(--bg-chrome);
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: row;
@@ -794,7 +840,7 @@ button:focus-visible,
 /* ---------- 标签栏 ---------- */
 #tabbar {
   display: flex;
-  background: var(--bg-panel);
+  background: var(--bg-chrome);
   border-bottom: 1px solid var(--border);
   overflow-x: auto;
   flex: none;
@@ -1185,7 +1231,7 @@ button:focus-visible,
   padding: var(--space-1) var(--space-3);
   font-size: var(--text-xs);
   color: var(--fg-dim);
-  background: var(--bg-panel);
+  background: var(--bg-chrome);
   border-bottom: 1px solid var(--border);
 }
 #split-editor-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1235,13 +1281,13 @@ button:focus-visible,
 #md-preview a:hover { text-decoration: underline; }
 #md-preview code {
   font-family: "Consolas", "Cascadia Code", "JetBrains Mono", monospace;
-  background: var(--bg-panel);
+  background: var(--surface-3);
   border-radius: var(--radius-xs);
   padding: 0 var(--space-2);
   font-size: 0.92em;
 }
 #md-preview pre {
-  background: var(--bg-panel);
+  background: var(--surface-3);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   padding: var(--space-4);
@@ -1259,7 +1305,7 @@ button:focus-visible,
 #md-preview li { margin: var(--space-1) 0; }
 #md-preview table { border-collapse: collapse; margin: var(--space-3) 0; display: block; overflow-x: auto; }
 #md-preview th, #md-preview td { border: 1px solid var(--border); padding: var(--space-2) var(--space-4); }
-#md-preview th { background: var(--bg-panel); font-weight: 600; }
+#md-preview th { background: var(--surface-3); font-weight: 600; }
 #md-preview img { max-width: 100%; }
 #md-preview hr { border: none; border-top: 1px solid var(--border); margin: var(--space-6) 0; }
 /* GFM 任务列表（marked 生成 <li class="task-list-item"><input type="checkbox" disabled>) */
@@ -1300,13 +1346,13 @@ button:focus-visible,
   align-items: center;
   gap: var(--space-4);
   max-width: 90%;
-  background: var(--bg-panel);
+  background: var(--surface-3);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   padding: var(--space-2) var(--space-4);
   color: var(--fg-dim);
   font-size: var(--text-sm);
-  box-shadow: 0 4px 16px var(--border-soft);
+  box-shadow: var(--elev-2);   /* 预览页悬浮提示条：浮层口径，原为裸阴影 */
 }
 #md-preview-hint .md-preview-hint-close {
   display: flex;
@@ -1478,7 +1524,7 @@ button:focus-visible,
   padding: var(--space-5);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  background: var(--bg-panel);
+  background: var(--surface-3);
   min-width: 0;
 }
 .ew-qs-head { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
@@ -1497,7 +1543,7 @@ button:focus-visible,
 .ew-qs-title { color: var(--fg); font-weight: 600; font-size: var(--text-sm); }
 .ew-qs-head kbd {
   margin-left: auto;
-  background: var(--bg-panel);
+  background: var(--surface-3);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 1px var(--space-3);
@@ -1553,7 +1599,7 @@ button:focus-visible,
 .ew-tour-desc { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ew-tour-item .btn { margin-left: auto; flex: none; }
 .ew-tour-item kbd {
-  background: var(--bg-panel);
+  background: var(--surface-3);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 1px var(--space-3);
@@ -1577,7 +1623,7 @@ button:focus-visible,
 .ew-shortcuts { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4) var(--space-10); }
 .ew-shortcut { display: flex; align-items: center; gap: var(--space-3); font-size: var(--text-sm); color: var(--fg); min-width: 0; }
 .ew-shortcut kbd {
-  background: var(--bg-panel);
+  background: var(--surface-3);
   border: 1px solid var(--border);
   border-bottom-width: 2px;
   border-radius: var(--radius-md);
@@ -1970,7 +2016,7 @@ button:focus-visible,
   animation: oc-fade-in calc(0.08s * var(--motion)) ease-out;
 }
 .oc-tooltip kbd {
-  background: var(--bg-panel);
+  background: var(--surface-3);
   border: 1px solid var(--border);
   border-bottom-width: 2px;
   border-radius: var(--radius-sm);
@@ -4342,8 +4388,8 @@ button:focus-visible,
   padding: var(--space-2) var(--space-4);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  background: var(--bg-panel);
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
+  background: var(--surface-3);
+  box-shadow: var(--elev-2);
   font-size: var(--text-sm);
 }
 .git-remote-list {
@@ -4519,7 +4565,7 @@ button:focus-visible,
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  box-shadow: 0 4px 16px rgb(0 0 0 / 35%);
+  box-shadow: var(--elev-3);   /* 浮层（工具选择器下拉）：--elev-3 + hairline 口径 */
   overflow: hidden;
 }
 #devtools-picker-search {
@@ -4543,7 +4589,7 @@ button:focus-visible,
   position: sticky;
   top: 0;
   padding: var(--space-2) var(--space-4);
-  background: var(--bg-panel);
+  background: var(--surface-3);
   color: var(--fg-dim);
   font-size: var(--text-xs);
   border-bottom: 1px solid var(--border);
@@ -5165,7 +5211,7 @@ button:focus-visible,
 .rx-table-wrap { overflow: auto; max-height: 220px; border: 1px solid var(--border); border-radius: var(--radius-sm); }
 .rx-table { width: 100%; border-collapse: collapse; font-size: var(--text-xs); }
 .rx-table th, .rx-table td { text-align: left; padding: 2px 8px; border-bottom: 1px solid var(--border-soft); white-space: nowrap; }
-.rx-table th { color: var(--fg-dim); position: sticky; top: 0; background: var(--bg-panel); }
+.rx-table th { color: var(--fg-dim); position: sticky; top: 0; background: var(--surface-3); }
 .rx-row { cursor: pointer; }
 .rx-row:hover { background: var(--hover-subtle); }
 .rx-row td:first-child { color: var(--fg-dim); }

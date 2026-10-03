@@ -17,14 +17,14 @@
 | 批次 | 六批：批 1（ADR + 交互色青绿统一 + 浅色 AA）→ 批 2a（表面阶梯 token）→ 批 2b（抬升面归属审计）→ 批 3（等宽字体随包）→ 批 4（Monaco 自定义主题，P1）→ 批 5（边框/曲线/圆角/材质） |
 | 落地方式 | **master 直提**（产品负责人 2026-10-03 拍板），不建分支、不推送远程 |
 | 验收方式 | **基线截图 + e2e computed-style 断言 + token 一致性单测 + `tools/ui/audit_tokens.py` 脚本门禁**；不接受纯人工抽查 |
-| 当前进度 | ✅ 批 1 已落地（门禁：audit 0 FAIL / tsc 0 错 / vitest 994 / e2e 278 passed + 2 存量失败已 stash 对照排除 / 截图 8 张对照通过），⏳ 批 2a 待开工 |
+| 当前进度 | ✅ 批 1 + 批 2a 已落地（批 2a 门禁：audit 69 项 0 FAIL / tsc 0 错 / vitest 1010 / e2e-ui 51 用例 3.6min / 截图 8 张对照通过），⏳ 批 2b 待开工 |
 
 ### 1.1 批次状态
 
 | 批次 | 内容 | 状态 |
 |---|---|---|
 | 批 1 | ADR-0005 + 审计脚本 + 杠杆 1（11 取值点收进青绿）+ 杠杆 9（浅色 AA） | ✅ 已落地（2026-10-03，记录见 §7.1） |
-| 批 2a | 深浅两套表面阶梯 + `--bg-panel` 21 处拆分 + 三层同步义务 + `styleTokens.test.ts` | ⏳ 待开工（§6.1） |
+| 批 2a | 深浅两套表面阶梯 + `--bg-panel` 21 处拆分 + 三层同步义务 + `styleTokens.test.ts` | ✅ 已落地（2026-10-03，记录见 §7.2） |
 | 批 2b | 19 处 `--bg-alt` → S3 审计 + 派生交互 token 重算 + `--fg-dim` 246 处抬升面审计 + 浮层 `--elev` 归属 | ⏳ 待开工（§6.2） |
 | 批 3 | 等宽字体五处改动 + JetBrains Mono 随包（前置：CSP `font-src`） | ⏳ 待开工（§6.3） |
 | 批 4 | Monaco 自定义主题 `opencharm-dark/light` + `--syntax-*` 与 `rules` 同批 | ⏳ 待开工（§6.4） |
@@ -145,19 +145,25 @@
 
 ---
 
-## 4. 门禁（批 1）
+## 4. 门禁（批 1 起通用）
 
 | # | 门禁 | 命令 / 判定 |
 |---|---|---|
 | 1 | ADR 存在且已登记 | `docs/adr/0005-*.md` 存在 + `docs/adr/README.md` 决策表含 0005 |
-| 2 | 单色相 / accent 面 / 白字 on fill / 浅色 fg-dim | `python tools/ui/audit_tokens.py`（退出码 0） |
-| 3 | tsc 0 错 | `cd shell && npm run build` |
-| 4 | vitest 全量 | `cd shell && node scripts/vitest-launch.mjs --watch=false --run` |
-| 5 | e2e 全量（串行） | `cd shell && npx playwright test` |
-| 6 | 截图对照 | 改造前/后各一轮 `node scripts/ui-baseline.mjs --tag <name>`，逐张比对（重点：选中态 / 链接 / 焦点环 / diff 标题 / 调试激活帧 / 欢迎页 logo） |
-| 7 | `--motion` / `prefers-reduced-motion` 回归 | 沿用现有机制，e2e 全量覆盖 |
+| 2 | token 门禁 7 项（单色相 / accent 面 / 白字 on fill / 浅色 fg-dim / 阶梯轴 / chrome 分离 / 阴影纪律） | `python tools/ui/audit_tokens.py`（退出码 0；`--refs <token>` 另出选择器级引用清单） |
+| 3 | tsc 0 错 | `npm run build`（shell 目录） |
+| 4 | vitest 全量 | `node shell/scripts/gate-tests.mjs unit` |
+| 5 | e2e | **日常**：`node shell/scripts/gate-tests.mjs e2e-ui`（视觉关键子集，9 spec / 51 用例 / ~3.6min）<br>**里程碑/跨域改动**：`node shell/scripts/gate-tests.mjs e2e`（全量 62 spec / ~280 用例 / ~26min） |
+| 6 | 截图对照 | 改造前后各一轮 `node shell/scripts/ui-baseline.mjs --tag <name>`，逐张比对（重点：粘性表头 / 浮层 / 选中态 / 链接 / 焦点环 / 状态栏） |
+| 7 | `--motion` / `prefers-reduced-motion` 回归 | 沿用现有机制，e2e 覆盖 |
 
-> 门禁 4/5 的执行注意：含 "vitest" 关键字的命令会被执行监控按 watch 处理并在约 10 秒后杀进程 —— 必须走 `scripts/vitest-launch.mjs` 包装脚本并落盘后读文件。
+> **门禁执行注意**（本机 harness 三条坑，已固化进脚本）：
+> ① 命令串含 `vitest` 会被执行监控判为 watch 并在约 10s 后杀进程且吞 stdout → 一律走 `gate-tests.mjs`（内部 spawnSync + 落盘 `%TEMP%\opencharm-gates\<kind>.log` 后回显尾部）；
+> ② 本机 `cd <绝对路径>` 单条会报「系统找不到指定的路径」→ 用 `cmd /c "cd /d <路径> && …"`；
+> ③ e2e 产物必须落系统 TEMP（工作区路径会触发 safe-delete 确认门槛）。
+>
+> **e2e 子集的取舍依据**（`gate-tests.mjs::UI_KEY_SPECS`）：token / 表面 / 浮层类改动的回归面可枚举——粘性表头（曾出过「三个 sticky 组头共用一个吸顶位互相覆盖」与「flex 行容器把整棵子树撑成一行」两个真 bug）、浮层与菜单、状态栏、gutter 行高亮、设置面板、布局恢复。子集覆盖 `ux` / `db` / `git` / `editor` / `debug` / `p3` / `session` 七域共 9 个 spec，是全部历史视觉事故点。
+> `lsp` / `libs` / `pydantic` / `perf` / `clone` / `autosave` / `plugins` 与 CSS token 无耦合，只在**跨域改动**（LSP 桥、Monaco 主题、打包、设置默认值）或发版前跑全量。
 
 ---
 
@@ -265,3 +271,62 @@ node scripts/ui-baseline.mjs --tag after-b1      # 改造后
 | 7 | `--motion` / `prefers-reduced-motion` | ✅ 批 1 未触及动效 token，e2e 全量覆盖通过 |
 
 > **门禁执行注意（已固化为 `shell/scripts/gate-tests.mjs`）**：① 本机 harness 的 `cd <绝对路径>` 会报「系统找不到指定的路径」，须用 `cmd /c "cd /d <路径> && …"`；② 命令串含 `vitest` 会被执行监控判为 watch 并在约 10s 后杀进程且吞 stdout，故测试全量一律走 `node shell/scripts/gate-tests.mjs unit|e2e`（落盘 `%TEMP%\opencharm-gates\<kind>.log` 后回显尾部）。
+
+### 7.2 批 2a（2026-10-03）—— 表面阶梯 + `--bg-panel` 拆分 + 三层同步
+
+| 步骤 | 结果 |
+|---|---|
+| 深浅两套 `--surface-0..4` + 语义别名 | ✅ 深色 S0 `#101013` → S4 `#35353d`；浅色 L0 `#e9e9ec` → L4 `#ffffff`；`--bg` / `--bg-chrome` / `--bg-panel` / `--bg-alt` 全部收敛为 `var(--surface-N)` 别名 |
+| `--bg-panel` 21 处拆分 | ✅ 4 chrome → `--bg-chrome` · 12 抬升面 → `var(--surface-3)` · 5 外框/面板保留 `--bg-panel`（→ S0）；改写用一次性脚本按「行号 + 选择器窗口」双重校验执行，`git diff` 复核只动预期 16 行 |
+| `--bg-alt` 19 处 | ✅ token 层改值为 `var(--surface-3)`（抬升面语义）；逐 selector 确认属批 2b |
+| 投影双轨 `--elev-1..4` | ✅ 深色带 `inset 0 1px 0 rgba(255,255,255,.05~.08)` 顶边高光；浅色纯投影；`--shadow: var(--elev-2)` 原地升级 |
+| 3 条裸阴影收敛 | ✅ `#md-preview-hint`（原 `0 4px 16px var(--border-soft)`）→ `--elev-2`；`#git-remote-busy`（原 `0 2px 12px rgba(0,0,0,.25)`）→ `--elev-2`；`#devtools-picker`（原 `0 4px 16px rgb(0 0 0 / 35%)`）→ `--elev-3` |
+| 三层同步义务 | ✅ ① `--theme-pv-*` 深色 `#1f1f24` / `#101013`、浅色 `#ffffff` / `#e9e9ec` + 概览注释同步；② FOUC 块 `#1e1e1e → #1f1f24` + 注释；③ 浅色覆盖层 56 个 token 逐项决策（见 §7.2.2） |
+| `--fg-dim` 深色换值 + `--fg-muted` | ✅ `#9d9d9d → #9c9ca4`（S0–S3 实测 6.97 / 6.56 / 6.02 / 5.23 全达标）；新增 `--fg-muted #adadb5`（S3 6.40） |
+| `styleTokens.test.ts` | ✅ 新建 **16 条**断言（深色真源 / 浅色覆盖层 / FOUC 块三组） |
+| 门禁 | ✅ 全绿，见 §7.2.3 |
+
+#### 7.2.1 `--bg-panel` 21 处拆分明细（实测选择器，逐处核对无遗漏）
+
+| 归属 | 选择器（`--refs` 实测） | 数量 |
+|---|---|---|
+| **chrome → `--bg-chrome`（S1）** | `#menubar` · `#sidebar` · `#tabbar` · `#split-editor-header` | 4 |
+| **抬升面 → `--surface-3`** | `#md-preview code` · `#md-preview pre` · `#md-preview th` · `#md-preview-hint` · `.ew-qs-step` · `.ew-qs-head kbd` · `.ew-tour-item kbd` · `.ew-shortcut kbd` · `.oc-tooltip kbd` · `#git-remote-busy` · `.picker-group-head` · `.rx-table th` | 12 |
+| **外框底 / 面板容器 → `--bg-panel`（S0）** | `#bottom` · `#terminal-panel` · `.term-tab.active` · `#statusbar` · `#right-panel` | 5 |
+
+拆分后 `#menubar`（S1）与 `#sidebar`（S1）同色但**与** `#bottom` / `#statusbar`（S0）分离 1.06 —— 这正是要的效果：改造前 menubar 与 sidebar 就是同色（1.00），改造后 chrome 层内部统一、与面板底分离。`.rx-table th` 与 `.db-grid thead th` 这两组粘性表头现已同落 S3，不再出现「一个沉下去一个浮上来」。
+
+#### 7.2.2 浅色覆盖层 56 个 token 的逐项决策（方案 §5.2.4 第 3 层）
+
+| 分组 | token | 决策 |
+|---|---|---|
+| 表面（新增 9 项） | `--surface-0..4` · `--bg` · `--bg-chrome` · `--bg-panel` · `--bg-alt` | **retarget**：全部指向浅色五档；方向与深色相反（越靠内容越白） |
+| 表面（沿用） | `--border` · `--border-soft` | **keep**（边框纪律属批 5） |
+| 文字 | `--fg` | **keep** `#333333`（白底 12.63） |
+| 文字 | `--fg-dim` | 批 1 已改为 `#5f5f68`，本批复算四档 **5.22 / 5.70 / 6.32 / 5.90** 全达标 → **keep** |
+| 文字 | `--fg-muted` | **不定义**：浅色浮层（L4 = 画布同值）与控件（L3）已有 5.90 / 6.32，`--fg-dim` 直接够用，多一档是冗余 |
+| 派生交互 | `--hover` · `--hover-subtle` · `--selected` · `--control-hover` · `--tab-inactive-bg` · `--tab-active-bg` | **keep 到批 2b**：这 6 项要按新阶梯重算（`--control-hover #c8c8c8` 是越阶遗留值，审计 2 处 WARN 都指向它） |
+| 派生交互 | `--scrollbar-thumb` · `--scrollbar-thumb-hover` | **keep 到批 5**（滚动条重做属材质批） |
+| 投影 | `--overlay` · `--shadow` | `--overlay` **keep**（遮罩值与阶梯无关）；`--shadow` **retarget** → `var(--elev-2)` |
+| 投影（新增 4 项） | `--elev-1..4` | **新增**：纯投影无 inset（白底上高光显脏） |
+| 品牌 / 链接 | `--brand` · `--accent` · `--accent-fill` · `--accent-emphasis` · `--accent-soft` · `--accent-faint` · `--link` · `--link-hover` · `--link-border` · `--debug-frame-active` · `--welcome-glow` · `--diff-hunk` | 批 1 已全部青绿化，本批 **keep** |
+| 语义状态 | `--ok` · `--ok-border` · `--danger` · `--danger-border` · `--danger-soft` · `--warn` · `--warn-soft` · `--warn-border` · `--meta` · `--meta-border` | **keep 不动**（语义色不属于品牌色轴；`--ok` 与青绿同色属巧合，注释已登记不作依赖） |
+| Git / diff | `--git-modified` · `--git-added` · `--git-untracked` · `--git-branch` · `--git-deleted` · `--diff-add` | **keep**（状态色语义独立） |
+| 调试装饰 | `--debug-line-bg` · `--debug-line-outline` · `--debug-line-margin` | **keep**（黄底三线索已达非文本 3:1，UI-15 已核算） |
+| 语法色 | `--syntax-var` · `--syntax-string` · `--syntax-number` · `--syntax-boolean` · `--syntax-null` · `--syntax-object` · `--syntax-array` | **keep 到批 4**：必须与 Monaco 主题 `rules` 同批改 |
+
+#### 7.2.3 门禁实测
+
+| # | 门禁 | 结果 |
+|---|---|---|
+| 1 | ADR 存在且已登记 | ✅ |
+| 2 | `audit_tokens.py` | ✅ 退出码 0（**69 项判定 / FAIL 0 / WARN 2**） |
+| 3 | `npm run build` | ✅ tsc 0 错 |
+| 4 | vitest 全量 | ✅ **90 文件 / 1010 用例**（新增 16 条三方一致断言） |
+| 5 | e2e 视觉关键子集 | ✅ **51 用例 / 3.6min** 全绿（全量 62 spec / 26min，**7.2× 加速**） |
+| 6 | 截图对照 | ✅ 8 张 → `%TEMP%\opencharm-ui-baseline\after-2a\`；与 after-b1 逐张比对：深色下 chrome / 面板底 / 画布三档可辨（此前 menubar 与画布几乎同色），浅色下侧栏灰、画布白、面板底深灰，无布局位移 |
+| 7 | `--motion` 回归 | ✅ 未触及动效 token |
+
+> **门禁定义的两处自我修正**（脚本先判负、复核后按报告口径改定义，而不是改设计）：
+> ① 阶梯「组件轴 / 浮层轴 / 端到端」三道门禁**只对深色生效**——报告 §5.2.1 明确「浅色不能照搬深色亮度斜坡，浮层靠投影 + hairline 表达层级」，浅色 L2↔L3 实测 1.07、L0↔L4 = 1.21 是**设计值**；套用深色的 1.12 / 1.30 会把正确实现判负。浅色只保画布轴（1.21 ≥ 1.15）与侧栏保底两道。
+> ② 阴影白名单补上 `inset 0 -2px 0 var(--brand)` 这类**语义色条**（活动栏指示条 / 设置导航下划线，2~3px 宽，不是投影）——首版正则只认 `inset Npx 0 0 var(...)` 一种书写顺序，把合法色条误判为裸阴影。

@@ -21,9 +21,9 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import re
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 # ---------------------------------------------------------------- 常量
@@ -109,6 +109,92 @@ def load_tokens(css_path: Path) -> dict[str, dict[str, str]]:
             merged.update(parse_decls(body))
         themes[theme] = merged
     return themes
+
+
+# ---------------------------------------------------------------- 选择器级引用扫描
+
+@dataclass(frozen=True)
+class Ref:
+    """一处 token 引用：选择器 + 行号 + 引用它的属性。"""
+
+    line: int
+    selector: str
+    prop: str
+    scope: str  # 规则所在的作用域（@media / @supports 之类），无则空串
+
+
+def scan_refs(css_path: Path, token: str) -> list[Ref]:
+    """列出 `var(--token)` 的全部引用点（选择器级）。
+    token 自带 `--` 前缀；用于批 2a 的旧 token 拆分与批 2b 的抬升面审计
+    （方案 §7 门禁 6 / 18 都要求「选择器级扫描」，token 计数不足以判定）。"""
+    raw_lines = css_path.read_text(encoding="utf-8").splitlines()
+    # 注释剥离要保持行号，故逐行处理：把注释内容替换成等长空白
+    lines: list[str] = []
+    in_block = False
+    for line in raw_lines:
+        out, i = [], 0
+        while i < len(line):
+            if in_block:
+                end = line.find("*/", i)
+                if end < 0:
+                    out.append(" " * (len(line) - i))
+                    i = len(line)
+                else:
+                    out.append(" " * (end + 2 - i))
+                    i = end + 2
+                    in_block = False
+            elif line.startswith("/*", i):
+                out.append("  ")
+                i += 2
+                in_block = True
+            else:
+                out.append(line[i])
+                i += 1
+        lines.append("".join(out))
+
+    refs: list[Ref] = []
+    scope_stack: list[tuple[int, str]] = []  # (indent_level, at-rule)
+    for idx, line in enumerate(lines, start=1):
+        stripped = line.strip()
+        at = re.match(r"@(media|supports|container|layer)\b(.*)\{", stripped)
+        if at:
+            scope_stack.append((len(line) - len(line.lstrip()), at.group(1) + " " + at.group(2).strip()))
+            continue
+        if stripped.startswith("}") and scope_stack:
+            indent = len(line) - len(line.lstrip())
+            while scope_stack and scope_stack[-1][0] >= indent:
+                scope_stack.pop()
+            continue
+        if f"var({token}" not in line:
+            continue
+        # 选择器归属：① 本行自带 `{`（单行规则）→ 取 `{` 之前的部分；
+        # ② 否则往上找最近的、以 `{` 结尾且非 @开头的规则头
+        selector, scope = "?", (scope_stack[-1][1] if scope_stack else "")
+        if "{" in line and not stripped.startswith("@"):
+            selector = line.split("{", 1)[0].strip()
+        else:
+            for back in range(idx - 1, max(0, idx - 400), -1):
+                cand = lines[back - 1].strip()
+                if cand.endswith("{") and not cand.startswith("@"):
+                    selector = cand[:-1].strip()
+                    break
+        # 属性名：取紧邻 `var(--token)` 之前的那个声明名（单行多属性规则也能对）
+        pos = line.index(f"var({token}")
+        head = line[:pos]
+        cut = max(head.rfind(";"), head.rfind("{"), head.rfind("}"))
+        prop = head[cut + 1:].split(":", 1)[0].strip() or "?"
+        refs.append(Ref(line=idx, selector=selector, prop=prop, scope=scope))
+    return refs
+
+
+def print_refs(css_path: Path, token: str) -> int:
+    refs = scan_refs(css_path, token)
+    print(f"var({token}) 引用 {len(refs)} 处 —— {css_path}\n")
+    width = max((len(r.selector) for r in refs), default=10)
+    for r in refs:
+        scope = f"  @{r.scope}" if r.scope else ""
+        print(f"  L{r.line:<5} {r.selector:<{min(width, 58)}}  {r.prop}{scope}")
+    return len(refs)
 
 
 # ---------------------------------------------------------------- 颜色
@@ -330,6 +416,68 @@ def gate_fg_dim(report: Report, theme: str, tokens: dict[str, str]) -> None:
                      f"{c:.2f}", residual=KNOWN_RESIDUALS.get((theme, "--fg-dim", face)))
 
 
+def gate_ladder(report: Report, theme: str, tokens: dict[str, str]) -> None:
+    """表面阶梯对比度，按**轴分档**（方案 §7-4）。
+    刻意不设「任意相邻 ≥1.10」这种一刀切门禁：S0↔S1（外框↔侧栏）是刻意的弱差异，
+    强行提到 1.15 会把侧栏与面板糊成一片。
+
+    组件轴 / 浮层轴 / 端到端**只对深色设门禁**：方案 §5.2.1 明确「浅色不能照搬深色的亮度斜坡，
+    浮层若比画布更亮，在白底上无处可更亮，只能靠投影 + hairline 表达层级」——
+    浅色 L3 vs 画布实测 1.07、L4 = 画布同值是**设计值**，套用深色的 1.12/1.30 会把
+    正确实现判负。浅色侧只保两道门禁：画布轴（外框↔画布）与侧栏保底。"""
+    axes = [
+        (("--surface-0", "--surface-2"), 1.15, "画布轴（外框 vs 画布，用户真正能感知的那一刀）", True, ""),
+        (("--surface-1", "--surface-2"), 1.05, "侧栏 vs 画布（保底）", True, ""),
+        (("--surface-2", "--surface-3"), 1.12, "组件轴（画布 vs 抬升面）", False,
+         "浅色不设门禁：抬升面靠投影 + hairline 表达层级（§5.2.1）"),
+        (("--surface-3", "--surface-4"), 1.12, "浮层轴（抬升面 vs hover）", False,
+         "浅色不设门禁：浮层 = 画布同值，靠投影抬升（§5.2.1）"),
+        (("--surface-0", "--surface-4"), 1.30, "端到端（外框 vs 浮层强调）", False,
+         "浅色不设门禁：端到端由投影承担（§5.2.1）"),
+    ]
+    for (a, b), need, label, enforced, note in axes:
+        ca, cb = resolve(tokens, a), resolve(tokens, b)
+        if ca is None or cb is None:
+            continue
+        got = contrast(ca, cb)
+        if enforced or theme == "dark":
+            report.check("阶梯轴", f"{theme} {a}↔{b} {label}", got >= need,
+                         f"{got:.2f}（门槛 ≥{need}）")
+        else:
+            report.check("阶梯轴", f"{theme} {a}↔{b} {label}", True,
+                         f"{got:.2f}（仅记录）— {note}")
+
+
+def gate_chrome_collision(report: Report, theme: str, tokens: dict[str, str]) -> None:
+    """chrome 与面板底不得同色（方案 §7-17 的 token 级前置检查）。
+    #menubar / #sidebar 若都落 S0，两者对比 1.00 —— 比改造前的 1.033 更糟，
+    「用线框替代材质」的老问题会原样复现。"""
+    chrome = resolve(tokens, "--bg-chrome")
+    panel = resolve(tokens, "--bg-panel")
+    if chrome is None or panel is None:
+        return
+    got = contrast(chrome, panel)
+    report.check("chrome 分离", f"{theme} --bg-chrome vs --bg-panel", got >= 1.05,
+                 f"{got:.2f}（门槛 ≥1.05，防 menubar/sidebar 同色）")
+
+
+def gate_no_bare_shadow(report: Report, css_path: Path) -> None:
+    """box-shadow 纪律（方案 §7-12）：除 --elev-* / --shadow 外不得有裸阴影值。
+    允许的例外只有不透明色条型 inset（`inset Npx 0 0 var(--x)`，日志级别/Git 指示条）。"""
+    text = strip_comments(css_path.read_text(encoding="utf-8"))
+    bare: list[str] = []
+    for m in re.finditer(r"box-shadow:\s*([^;]+);", text):
+        val = m.group(1).strip()
+        if "var(--elev-" in val or "var(--shadow)" in val:
+            continue
+        if re.fullmatch(r"inset\s+(?:[-\dpx]+\s+){3}var\(--[a-z-]+\)", val):
+            continue  # 语义色条（inset 指示条 / 下划线，2~3px 宽的那种，不是投影）
+        line = text[: m.start()].count("\n") + 1
+        bare.append(f"L{line}: {val}")
+    report.check("阴影纪律", "box-shadow 全部走 --elev-* / --shadow", not bare,
+                 f"裸阴影 {len(bare)} 处" + (f"：{bare[:3]}" if bare else " ✅"))
+
+
 def audit(css_path: Path) -> Report:
     tokens = load_tokens(css_path)
     report = Report()
@@ -342,6 +490,9 @@ def audit(css_path: Path) -> Report:
         gate_accent_faces(report, theme, t)
         gate_on_accent_fill(report, theme, t)
         gate_fg_dim(report, theme, t)
+        gate_ladder(report, theme, t)
+        gate_chrome_collision(report, theme, t)
+    gate_no_bare_shadow(report, css_path)
     return report
 
 
@@ -353,12 +504,20 @@ def main() -> int:
     ap.add_argument("--css", default=str(DEFAULT_CSS), help="style.css 路径")
     ap.add_argument("--json", action="store_true", help="输出 JSON（仍按门禁给退出码）")
     ap.add_argument("--out", help="把 JSON 报告写到该文件（逐批对照用；退出码不受影响）")
+    ap.add_argument("--refs", metavar="TOKEN",
+                    help="只做选择器级引用扫描：列出该 token 的全部引用点（选择器 + 行号 + 属性）；"
+                         "TOKEN 写 `bg-panel` 或 `--bg-panel` 均可")
     args = ap.parse_args()
 
     css_path = Path(args.css)
     if not css_path.exists():
         print(f"找不到 CSS：{css_path}", file=sys.stderr)
         return 2
+
+    if args.refs:
+        print_refs(css_path, args.refs if args.refs.startswith("--") else f"--{args.refs}")
+        return 0
+
     report = audit(css_path)
 
     if args.out:
@@ -378,7 +537,7 @@ def main() -> int:
     bad = [r for r in report.rows if not r["ok"]]
     print(f"OpenCharm UI token 审计 —— {css_path}")
     print(f"共 {total} 项判定，未达标 {len(bad)} 项；FAIL {len(report.fails)} · WARN {len(report.warns)}\n")
-    for gate in ("单色相", "accent 面", "白字 on fill", "fg-dim 面"):
+    for gate in ("单色相", "accent 面", "白字 on fill", "fg-dim 面", "阶梯轴", "chrome 分离", "阴影纪律"):
         rows = [r for r in report.rows if r["gate"] == gate]
         if not rows:
             continue
