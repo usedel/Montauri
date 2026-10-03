@@ -36,11 +36,11 @@
 | [`docs/dep_health_dev_plan.md`](docs/dep_health_dev_plan.md) | 依赖健康开发计划（已实施）：依赖风格/扫描/修复 + 忽略清单 |
 | [`docs/git_improvement_report.md`](docs/git_improvement_report.md) | Git 集成交付报告：远程/worktree/rebase/cherry-pick/stash/log/blame 等增强 |
 | [`docs/menubar_improvement_plan.md`](docs/menubar_improvement_plan.md) | 菜单栏改进计划 v1.4（**全部完成 6/16**）：菜单栏结构与命令面板收官；§6 留有可复审的排期与验收依据 |
-| [`docs/sqlite_tool_dev_plan.md`](docs/sqlite_tool_dev_plan.md) | **SQLite 数据库工具开发文档 v1.4（B3 唯一真源，已交付）**：v1.0 PR-1~4（侧栏四段视图 / rusqlite bundled / 默认只读 / Rust↔TS 数据契约 / 逐 PR 实施记录 §9.1~§9.4）+ 迭代 3 编辑器 Tab 化重设计（方案见 §17，含 e2e 真机抓到的两个真 bug 与修法）；§10.3 真机手测 13/13 PASS |
+| [`docs/sqlite_tool_dev_plan.md`](docs/sqlite_tool_dev_plan.md) | **SQLite 数据库工具开发文档 v1.6（B3 唯一真源，已交付）**：v1.0 PR-1~4（侧栏四段视图 / rusqlite bundled / 默认只读 / Rust↔TS 数据契约 / 逐 PR 实施记录 §9.1~§9.4）+ 迭代 3 编辑器 Tab 化重设计（方案见 §17）；**§17.8 v1.4 真机验收 18/18 PASS + 双主题截图** |
 | [`docs/toolbox_dev_plan.md`](docs/toolbox_dev_plan.md) | **工具箱开发计划 v1.0（待评审）**：HTTP Client / 结构化运行日志 / TODO 与 Markdown 增强（**SQLite 章已于 2026-10-02 迁出至 `sqlite_tool_dev_plan.md`**，此处仅留指向） |
-| [`docs/improvement_and_roadmap_report.md`](docs/improvement_and_roadmap_report.md) | **现状评估 · 改进建议与未来功能规划 v1.1（待评审）**：规模与质量底座实测（HEAD `964ea7e`）、P0~P2 改进清单、A–D 四类未来功能候选池与四阶段路线图；§9 含取数命令与复核触发条件 |
+| [`docs/improvement_and_roadmap_report.md`](docs/improvement_and_roadmap_report.md) | **现状评估 · 改进建议与未来功能规划 v1.2（待评审）**：规模与质量底座实测、改进清单（门禁/预算/Gate D 调参多项已交付）、A–D 四类功能候选池与路线图；§9 含**取数禁则**（含一次真实的取数口径翻车教训） |
 | [`docs/onboarding_guide.md`](docs/onboarding_guide.md) | **新手指南（面向用户）**：三分钟上手（新建项目 / 依赖 / 运行 / 调试入口） |
-| [`docs/onboarding_dev_plan.md`](docs/onboarding_dev_plan.md) | 新手引导 + uv 速查卡开发计划 v1.2（PR-S1~S5 策划；⚠️ 状态与 `onboarding_guide.md` 存在双源冲突，待裁定） |
+| [`docs/onboarding_dev_plan.md`](docs/onboarding_dev_plan.md) | 新手引导 + uv 速查卡开发计划 v1.3（PR-S1/S2/S4 已交付；PR-S3 推迟 · PR-S5 不排期） |
 | [`docs/multi_window_dev_plan.md`](docs/multi_window_dev_plan.md) | 多窗口开发计划 v0.1（阶段 0/1/2 方案；⚠️ 阶段 0 代码已落地，状态栏未回填） |
 | [`docs/git_clone_dev_plan.md`](docs/git_clone_dev_plan.md) | Git 远端克隆开发计划 v1.0（已实施 2026-10-01，Git 迭代 6 · P3-1） |
 | [`docs/python_library_support_dev_plan.md`](docs/python_library_support_dev_plan.md) | 库特别支持开发计划 v1.3（已实施）：P0 四件套 + P1 五件套（re 三件套 / 格式串 / JSON / 求值桥 / 脚本参数表单），v1.3 收口互斥性（10 项） |
@@ -123,7 +123,7 @@ powershell -File .\build-release.ps1
 ## 当前状态
 
 - 项目阶段：**Phase 1 / Phase 2 / Phase 3（opencharm-intel）均已交付**；当前进入 **Phase 4（持续打磨）**，进度见 `docs/python_ide_dev_plan_v2.md` §7。
-- **调试功能（DAP / debugpy 最小闭环）已交付**：D1–D5 / Gate E 见 [`docs/debug_acceptance_record.md`](docs/debug_acceptance_record.md)；协议层与打包均已验证，部分 UI 交互项待人工抽查（清单见验收记录 §五）。
+- **调试功能（DAP / debugpy 最小闭环）已交付**：D1–D5 / Gate E 见 [`docs/debug_acceptance_record.md`](docs/debug_acceptance_record.md)；真机 CDP 验收 **12/12 PASS**（含三态互斥与改键生效）；**真安装包验收已完成**（出包 → 安装 → 对安装后的程序实测 **7/7 PASS**，见 `e2e-real/release-real.cjs`）。
 - **运行功能迁移（M1–M4）已交付**：脚本/项目两种运行 + 统一 PTY 运行控制台 + 多实例并行 + 运行历史按实例归属；交互口径 [`docs/python_run_dev_plan.md`](docs/python_run_dev_plan.md) v3.4、验收记录 [`docs/run_acceptance_record.md`](docs/run_acceptance_record.md)。
 - **界面设计改进计划已收官**（十批，30/30 项 + 2 条遗留）：按钮体系 / scale token / Tooltip 双轨收敛 / ARIA 语义（tree·tabs·dialog·tooltip·menu）/ 浅色主题对比度达标 / 响应式下限 / 字号字体族全局跟随设置；沉淀的硬规则已固化到 `.codebuddy/rules/typescript-code-style`，逐批可见变化的人工抽查清单见计划文档 §7。
 - **国际化（zh-CN / en-US 双语）已交付**：index.html 静态骨架、Rust 错误提示与全部功能域动态文案均已纳管（20 批抽取，en/zh 词条编译期对齐 + 单测兜底）；设置 → 外观 → 语言即时切换，实施与新增文案流程见 [`docs/i18n.md`](docs/i18n.md)。

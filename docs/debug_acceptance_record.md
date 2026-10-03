@@ -166,7 +166,38 @@ connect → initialize → attach({"justMyCode":true}) → [initialized 事件]
 2. 断点暂停 → 侧栏调用栈 + 变量显示、编辑器当前行高亮（E2E 已覆盖）
 3. 继续/单步跳过/单步进入/单步退出/停止按钮与快捷键（E2E 已覆盖键盘+按钮双路径）
 4. ~~`print`/`input()` 彩色输出与交互（PTY）~~ → **v1.2 修订**：调试输出落输出面板（已验证）；PTY 交互为后续增强
-5. 调试中普通运行被拒绝（三态互斥）（代码接线已验证，人工抽查）
-6. 调试退出后进程树无残留（E2E bridge 侧已验证 debuggee 被杀；人工抽查任务管理器）
-7. 设置面板改键后调试快捷键生效
-8. `build-release.ps1` 全流程出包 + 安装后调试可用（真安装包验收）
+5. 调试中普通运行被拒绝（三态互斥）（代码接线已验证，人工抽查） → **✅ 2026-10-03 已自动化**：`e2e-real/debug-real.cjs` 新增 `R-REAL-9`（运行按钮 `aria-disabled=true` + `data-tip="调试进行中，请先停止调试"`，点击被静默拦截：无 toast、调试态不变）
+6. 调试退出后进程树无残留（E2E bridge 侧已验证 debuggee 被杀；人工抽查任务管理器） → **✅ 2026-10-03 已自动化**：`R-REAL-8` 实测 python 进程 3 → 2
+7. 设置面板改键后调试快捷键生效 → **✅ 2026-10-03 已自动化**：`R-REAL-11`（设置面板录入 F6 → 无冲突 → `settings.json` 落盘 F6）+ `R-REAL-12`（**新键 F6 能启动调试并命中断点，旧键 F5 无效果**）
+8. `build-release.ps1` 全流程出包 + 安装后调试可用（真安装包验收） → **✅ 2026-10-03 已完成**：出包链路修复后打出安装包（8.63 MB），安装至 `D:\OpenCharm`（四项自研组件随包落地：`opencharm-shell.exe` 20.58 MB / `opencharm-intel.exe` 4.75 MB / `probe/src` / `debugpy`），`e2e-real/release-real.cjs` 对**安装后的程序**实测 **7/7 PASS**（含 debugpy 随包可用、运行脚本真实输出 `RESULT 11 22`）
+
+### 5.1 第 8 项阻塞说明（2026-10-03）
+
+### 5.1 第 8 项出包阻塞与解决（2026-10-03）
+
+**当时的现象**：`npx tauri build` 稳定链接失败（`LNK2019: __imp_memchr / __imp_strchr / __imp_strrchr` 未解析，全部来自 bundled SQLite 的 `sqlite3.o`；`LNK1120: 3 个未解析`）。
+
+**根因（两层）**：① 本机 PATH 里的 MSVC 是 VS2015 RTM，其 `VC\lib` 既无 `ucrt.lib` 也无 `__imp_*` 符号（UCRT 自 VS2015 后期起改为随 Windows SDK 分发）；② **tauri CLI spawn cargo 时用自己的 MSVC 探测覆盖 rustc 的探测结果**，只留 VS2015 的 lib —— 因此所有"给 cargo/tauri 传环境变量"的修法都会被覆盖掉（实测 4 种均无效：`LIBPATH` / `LIB` / `WindowsSdkDir` / `RUSTFLAGS=+crt-static`）。已排除代码问题：手动 `cargo build --release` 链接成功。
+
+**修法（方案 A + 进程级环境装配）**：
+
+1. 安装 **VS Build Tools 2022**（MSVC 14.44.35207 + Windows SDK 10.0.26100.0）到 `D:\VSBuildTools`。
+   ⚠️ **踩坑**：非管理员安装会导致**实例未写入注册表**（`vswhere` 返回空），cargo/cc 仍探测到 VS2015 —— 必须以管理员身份安装，让 `vswhere` 能查到实例。
+2. 新增 **`tools/msvc-env.ps1`**（`Import-MsvcEnv`）：用 `vswhere` 定位工具链，在**进程环境**里前置 `link.exe` 与 SDK 的 `LIB` / `INCLUDE`。选进程环境而非 `.cargo/config.toml`，正是因为 tauri 只覆盖自己 spawn 的子进程环境、而 `.cargo/config.toml` 里的 `link-arg` 在含空格路径上会被 rustc 截断（表现为 `LNK1181` 找不到 `Files.obj`）。
+3. `build-release.ps1` 在任何 cargo/tauri 调用**之前** dot-source 该脚本；同时新增 `Invoke-Native` 包装 —— PowerShell 的 `$ErrorActionPreference="Stop"` 会把 cargo/npm 写到 stderr 的进度行（`Finished release profile …`）当成致命错误，导致构建 5 秒后假失败。
+
+**解决后实测**：`npx tauri build` 成功出包（8.63 MB）；安装至 `D:\OpenCharm`，四项自研组件随包落地（`opencharm-shell.exe` 20.58 MB · `opencharm-intel.exe` 4.75 MB · `probe/src` · `debugpy`）；`e2e-real/release-real.cjs` 对**安装后的程序**实测 **7/7 PASS**。
+
+- 完整根因、证据、候选修法对比：[`bench/reports/release-build-blocker.md`](../bench/reports/release-build-blocker.md)
+- 附带发现：安装包 `/S` **静默安装无效**（退出码 0 但无文件、无注册表项），故验收走"安装后程序 + CDP"，不用静默安装。
+- `e2e-real/release-real.cjs` 默认从注册表 `HKCU\...\Uninstall\OpenCharm\InstallLocation` 读安装路径（NSIS 允许 `/D=` 覆盖，不能写死 `%LOCALAPPDATA%\OpenCharm`）；可用 `OC_RELEASE_EXE` 覆盖为构建产物路径。
+
+### 5.2 本轮真机验收附带发现的产品缺陷
+
+| 编号 | 缺陷 | 证据 | 严重度 |
+|---|---|---|---|
+| **D-7** | 调试中「运行脚本」**菜单项未置灰**（按钮路径正确置灰）。`main.ts:1789` 的 `disabled` 只看 `scriptBusy`、漏了 `debugging`，而 `disabledReason` 却含"调试进行中"——自相矛盾。后果：菜单项可点 → 走 `runScript()` → 由 Rust `terminal.rs:339` 兜底报错 → 用户看到 toast + 终端红字，而非预期的置灰 | `e2e-real/debug-real.cjs` `R-REAL-10`（诊断项） | 中（体验不一致，非功能失效） |
+| **D-8** | 改键后**调试工具栏 tooltip 的键位副文本不刷新**。键位副文本只在 `renderToolbar()` 时更新（`debugView.ts:101` 注释已说明），而 `settingsPanel.ts:924-927` 保存后的刷新清单里没有调试工具栏。后果：`F5 → F6` 保存后，功能已生效（`R-REAL-12` 证明），但 tooltip 要等下一次 phase 变化才显示新键 | `R-REAL-11` detail：`落盘 F6` 但 `data-tip-key` 仍为 `F5` | 低（仅显示滞后） |
+
+> 另两条 `#btn-debug` 调试中点击是**静默 no-op**（既不置灰也无提示，`main.ts:2676-2677`）、window 级 keydown 路由（`main.ts:2328-2340`）无调试态判定——这两点符合"三态互斥收窄裁决 10"的设计意图（项目实例放行），不算缺陷，但**菜单/快捷键路径的反馈与按钮路径不一致**（见 D-7）值得统一。
+
