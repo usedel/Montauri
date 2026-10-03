@@ -643,19 +643,81 @@ def gate_chrome_collision(report: Report, theme: str, tokens: dict[str, str]) ->
 
 def gate_no_bare_shadow(report: Report, css_path: Path) -> None:
     """box-shadow 纪律（方案 §7-12）：除 --elev-* / --shadow 外不得有裸阴影值。
-    允许的例外只有不透明色条型 inset（`inset Npx 0 0 var(--x)`，日志级别/Git 指示条）。"""
+
+    豁免两类（都不是投影）：
+      ① `none`——显式清除（内缩焦点环组用它把上方的双环关掉）；
+      ② **spread-only 焦点环**：`0 0 0 Npx <色>`（零偏移零模糊、只有 spread）。
+         这是方案 §5.8 的焦点环双环，不是投影——门禁若不放行，批 5a 会被自己的纪律项判负。
+         判据是「无 x/y 偏移且无 blur」，故 `0 1px 2px …` 这类真投影仍会被拦下。
+    另保留原有的语义色条豁免（inset 不透明色条：日志级别 / Git 指示条）。
+    """
     text = strip_comments(css_path.read_text(encoding="utf-8"))
     bare: list[str] = []
     for m in re.finditer(r"box-shadow:\s*([^;]+);", text):
         val = m.group(1).strip()
         if "var(--elev-" in val or "var(--shadow)" in val:
             continue
+        if val == "none":
+            continue
         if re.fullmatch(r"inset\s+(?:[-\dpx]+\s+){3}var\(--[a-z-]+\)", val):
             continue  # 语义色条（inset 指示条 / 下划线，2~3px 宽的那种，不是投影）
+        if all(re.fullmatch(r"0 0 0 \d+px var\(--[a-z-]+\)", part.strip())
+               for part in val.split(",")):
+            continue  # spread-only 焦点环（非投影）
         line = text[: m.start()].count("\n") + 1
         bare.append(f"L{line}: {val}")
     report.check("阴影纪律", "box-shadow 全部走 --elev-* / --shadow", not bare,
                  f"裸阴影 {len(bare)} 处" + (f"：{bare[:3]}" if bare else " ✅"))
+
+
+def gate_easing_tokens(report: Report, css_path: Path) -> None:
+    """门禁 20（方案 §7-11）：transition / animation 的**时间函数**必须走 `--ease-*`。
+
+    判定式按方案 v1.2 的修正写：不能直接 grep `ease`（会命中 `var(--ease-out)` 自身），
+    必须**先剥掉 `var(--ease-…)` 形式**再找裸关键字。只扫 `transition` / `animation` **简写**——
+    `@keyframes` 内部实测不含任何时间函数（缓动写在使用它们的规则里）。
+
+    `transition: none` / `animation: none` 天然不含关键字，天然豁免。
+    """
+    text = strip_comments(css_path.read_text(encoding="utf-8"))
+    bare: list[str] = []
+    for m in re.finditer(r"(?<![-\w])(transition|animation)\s*:\s*([^;]+);", text):
+        val = m.group(2)
+        probe = re.sub(r"var\(--ease-[a-z-]+\)", "", val)  # 先剥 token 形式
+        if re.search(r"\b(ease-in-out|ease-out|ease-in|linear|cubic-bezier)\b", probe):
+            line = text[: m.start()].count("\n") + 1
+            bare.append(f"L{line}: {m.group(1)}: {val.strip()[:56]}")
+    report.check("缓动纪律", "transition/animation 时间函数全部走 --ease-*", not bare,
+                 f"裸缓动 {len(bare)} 处" + (f"：{bare[:3]}" if bare else " ✅"))
+
+
+# 动效未挂 --motion 时的白名单：循环装饰动画。
+# 不能靠「时长乘 var(--motion)」压制——motion=0 会让 duration 变成 0，infinite 循环将高频
+# 闪成一团糊；正确做法是 animation:none（已由双通道规则压制），故此处登记豁免。
+MOTION_EXEMPT = {"rx-progress-slide"}
+
+
+def gate_motion_scaling(report: Report, css_path: Path) -> None:
+    """门禁 21（方案 §7-16 的 token 级前置检查）：任何**有限时长的**动效都必须挂
+    `var(--motion)`，否则「减少动画」开关与 `prefers-reduced-motion` 对它无效。
+
+    方案 §7-16 要求「prefers-reduced-motion 下全部动效仍为 0」，但那是行为验收；
+    本门禁是它的**成因检查**——漏挂 --motion 是这类回归唯一能在代码里看出来的痕迹。
+    """
+    text = strip_comments(css_path.read_text(encoding="utf-8"))
+    offenders: list[str] = []
+    for m in re.finditer(r"(?<![-\w])(transition|animation)\s*:\s*([^;]+);", text):
+        val = m.group(2)
+        if not re.search(r"\d", val):  # none / 纯 var(...)：无时长
+            continue
+        if "var(--motion)" in val:
+            continue
+        if any(x in val for x in MOTION_EXEMPT):
+            continue
+        line = text[: m.start()].count("\n") + 1
+        offenders.append(f"L{line}: {m.group(1)}: {val.strip()[:56]}")
+    report.check("动效可降级", "有限时长动效均挂 var(--motion)", not offenders,
+                 f"未挂 --motion {len(offenders)} 处" + (f"：{offenders[:3]}" if offenders else " ✅"))
 
 
 def audit(css_path: Path) -> Report:
@@ -676,6 +738,8 @@ def audit(css_path: Path) -> Report:
     rules = parse_rules(css_path)
     gate_lifted_fg_dim(report, rules)
     gate_accent_on_lifted(report, rules)
+    gate_easing_tokens(report, css_path)
+    gate_motion_scaling(report, css_path)
     return report
 
 

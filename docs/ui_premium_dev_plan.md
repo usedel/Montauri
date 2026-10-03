@@ -17,7 +17,7 @@
 | 批次 | 六批：批 1（ADR + 交互色青绿统一 + 浅色 AA）→ 批 2a（表面阶梯 token）→ 批 2b（抬升面归属审计）→ 批 3（等宽字体随包）→ 批 4（Monaco 自定义主题，P1）→ 批 5（边框/曲线/圆角/材质） |
 | 落地方式 | **master 直提**（产品负责人 2026-10-03 拍板），不建分支、不推送远程 |
 | 验收方式 | **基线截图 + e2e computed-style 断言 + token 一致性单测 + `tools/ui/audit_tokens.py` 脚本门禁**；不接受纯人工抽查 |
-| 当前进度 | ✅ 批 1 + 2a + 2b + 3 + 4 已落地（批 4 门禁：audit 74 项 0 FAIL 0 WARN / tsc 0 错 / vitest 92 文件 1051 用例 / cargo settings 3 passed / e2e 新增 6 用例全绿 / e2e-ui 51 passed + 8 failed 经 stash 对照确认为存量 / 截图 8 张），⏳ 批 5（边框 / 曲线 / 圆角 / 材质）待开工 |
+| 当前进度 | ✅ 批 1 + 2a + 2b + 3 + 4 + 5a 已落地（批 5a 门禁：audit **76 项** 0 FAIL 0 WARN / tsc 0 错 / vitest 92 文件 1060 用例 / e2e 新增 2 用例全绿 / e2e-ui 51 passed + 8 failed 经 stash 对照确认为存量 / 截图 8 张），⏳ 批 5b（边框）/ 5c（圆角）待开工 |
 
 ### 1.1 批次状态
 
@@ -28,7 +28,7 @@
 | 批 2b | 19 处 `--bg-alt` → S3 审计 + 派生交互 token 重算 + `--fg-dim` 246 处抬升面审计 + 浮层 `--elev` 归属 | ✅ 已落地（2026-10-03，记录见 §7.3） |
 | 批 3 | 等宽字体五处改动 + JetBrains Mono 随包（**落地路径已修订为 `public/fonts/` 入库**，见 §7.4.1） | ✅ 已落地（2026-10-03，记录见 §7.4） |
 | 批 4 | Monaco 自定义主题 `opencharm-dark/light` + `--syntax-*` 与 `rules` 同批 | ✅ 已落地（2026-10-03，记录见 §7.5） |
-| 批 5 | 边框纪律 / 动效曲线 / 圆角档位 / 材质细节 | ⏳ 待开工（§6.5） |
+| 批 5 | 边框三档 alpha（**只换值 + 重点提升**，§6.5）· 圆角档位 3→6px（**最大面积单点改动**，§6.5） | ⏳ 5a ✅ 已落地（§7.6）· 5b / 5c ⏳ 待开工 |
 
 ---
 
@@ -214,7 +214,17 @@ node scripts/ui-baseline.mjs --tag after-b1      # 改造后
 
 ### 6.5 批 5 —— 边框 / 曲线 / 圆角 / 材质（方案 §5.5–§5.8）
 
-边框三档 alpha（151 处 `--border` 原地升级）· 缓动三档（9 处 `animation` 简写 + 23 处 transition token）· 圆角主档 3→6px（91 处，**最大面积单点改动，必须逐张截图比对**）· 滚动条 / 焦点环双环 / 加载态。
+**拆三批**（2026-10-03 拍板，理由：四个杠杆的视觉影响叠加后截图无法区分回归来源，且任一杠杆出问题需能单独回滚）：
+
+| 子批 | 内容 | 状态 |
+|---|---|---|
+| **5a** | 缓动曲线分级（`--ease-*` 三档 + 4 个时长档，14 处收口）· 焦点环双环（4 处外扩改双环 + `--focus-gap`）· 进度条 reduce-motion 双通道补齐 · 滚动条 10→8px | ✅ 已落地（2026-10-03，记录见 §7.6） |
+| **5b** | 边框三档 alpha：**只换值 + 重点提升**（`--border` 换 alpha 即拿到「叠色自动跟随表面」的核心收益；只把模态/浮层/聚焦控件/active 标签提到 `--border-strong`；`--border-hairline` 定义但不强制使用） | ⏳ 待开工 |
+| **5c** | 圆角档位：`--radius-sm` 3→6px（md 8 / lg 10 / xl 16），**最大面积单点改动，逐张截图比对** | ⏳ 待开工 |
+
+> **5a 明确不做的两条**（附理由，避免后人当漏做）：
+> ① **加载态**（方案 §5.8「加 `stroke-linecap: round` 的旋转弧」）——codicon 是**字体图标**不是 SVG，`stroke-linecap` 对它无效；其「避免文字跳动」的真实成因是 `runWidget.ts:157-168` 在忙碌时把图标类从 `codicon-run`（▶）换成 `codicon-loading`（⟳），两个字形宽度不同导致按钮宽度变化。修它需改 `runWidget` 的尺寸稳定化，与本批收益不成比例，登记为技术债。
+> ② **换图标集**（方案 §5.8 中长期项）——工作量大且会破坏「外壳与 Monaco 都用 codicon」的观感一致性评估基线，方案本身也判定为「短期接受」。
 
 ---
 
@@ -492,5 +502,69 @@ Monaco 主题的色值是**注册那一刻从 CSS 变量读到的快照**。故�
 > **其二：Monaco 主题槽位只能在带前缀的选择器上断言。** `currentLineHighlight.js` 的 `registerThemingParticipant` 只生成 `.monaco-editor .view-overlays .current-line { background-color: … }` 与 `.margin-view-overlays .current-line-margin {…}`。用无前缀的 `.monaco-editor .current-line` 会命中 **gutter 侧**那个元素，读到 `transparent`，误判成「主题没生效」。另：当前行高亮只在编辑器**有焦点**时渲染（`_shouldRenderInContent` 判 `focused`），断言前必须先点一下编辑器。正确写法见 `11-monaco-theme.spec.ts::T-B4-1`。
 
 > **其三：e2e-ui 那 8 条「编辑器尚未初始化」与本批无关——stash 对照是唯一可靠判据。** 本批首跑 e2e-ui 得 51 passed / 8 failed（E-BASIC-1..4 / S-1 / S-2 / UX-1 / UX-9），错误与 §7.4.8 记录的现象完全一致。`git stash push -- <15 个改动文件>` 后在**原始代码**上重跑同样 3 个 spec，**同样 8 条失败、同样症状**（含 UX-9 的 `toBeFocused` 失败）→ 判定为存量/环境（vite 模块图），非本批回归。教训：§7.4.8 说的「先重启 vite」是**止血**手段，而「是否回归」只能由 stash 对照回答；两者结论一致时也要以对照为准，因为重启 vite 顺带会掩盖真实回归。
+
+### 7.6 批 5a（2026-10-03）—— 动效曲线分级 + 焦点环双环
+
+杠杆 6（曲线）与杠杆 8（材质细节）。开工前实测发现方案里的数字有几处已被前批做掉：滚动条早已是半透明 + 圆角（批 2b 顺手改的），故 5a 只剩宽度 10→8px；曲线 27 处里**真待改仅 14 处**（其余已走 token）。
+
+#### 7.6.1 三个 token 层
+
+| 层 | token | 取值 | 为什么 |
+|---|---|---|---|
+| 曲线 | `--ease-out` | `cubic-bezier(0.16, 1, 0.3, 1)` | decelerate：快速启动、缓慢落位，「有惯性」的来源 |
+| 曲线 | `--ease-in-out` | `cubic-bezier(0.4, 0, 0.2, 1)` | standard：位移 / 形变 |
+| 曲线 | `--ease-in` | `cubic-bezier(0.4, 0, 1, 1)` | accelerate：出场 / 收起 |
+| 时长 | `--transition-fast` | 0.12s · dec | 悬停、淡入、小位移 |
+| 时长 | `--transition-base` | 0.15s · dec | 面板宽度、进度条填充 |
+| 时长 | `--transition-slow` | 0.24s · standard | **唯一**结构性动画（模态卡片入场），是方案 §3「≤150ms」的唯一例外 |
+| 时长 | `--transition-exit` | 0.1s · acc | **方案未列的第四档**，为让 4 处出场动画也不必内联 `calc()` |
+
+曲线从内建 `ease` 换成三档可分辨的曲线，是本批最本质的变化：此前全部是 `ease`，而「入场减速 / 出场加速」恰恰是动效感知质量的主要来源，只靠时长区分不出来。
+
+#### 7.6.2 焦点环：双环 + 一个必须显式排除的陷阱
+
+方案 §5.8 给的是 `box-shadow: 0 0 0 2px var(--surface-2), 0 0 0 4px var(--accent)`。落地两处偏离：
+
+① **`--focus-gap` 不用表面档**。同一个焦点环会落在 S0–S4 五档表面上（侧栏 S1、画布 S2、浮层 S3），用 `--surface-2` 只对其余四档成立。新增 `--focus-gap`：深色 `rgba(0,0,0,.55)`（比画布更深的暗环）、浅色 `rgba(0,0,0,.14)`（淡影——浅色画布纯白，隔离带只能是影子）。
+
+② **`outline` 写 `2px solid transparent` 而非 `none`**。Windows 强制高亮模式（HCM / `forced-colors`）下浏览器靠 `outline` 绘制系统焦点框，写 `none` 会让该模式用户彻底失去焦点指示 —— 这是可访问性回归，不是视觉细节。
+
+**陷阱（4 个小尺寸元素）**：`.term-tab-close` / `.term-tab-stop` / `.tab .close` / `.debug-bp-del` 原本用 `outline-offset: -1px` 内描边（16px 的关闭钮外扩 4px 会盖住相邻 tab）。它们**必须从双环名单里移出**并在自身规则里写 `box-shadow: none` —— 因为 **`box-shadow` 不受 `outline-offset` 影响**，「先在组里给 box-shadow、再靠后一条规则改 `offset:-1px`」是**无效**的，会画出内缩双环（外扩的环照旧画在元素外侧）。这条已钉进单测。
+
+#### 7.6.3 门禁脚本新增两项判定
+
+`tools/ui/audit_tokens.py` 从 74 项扩到 **76 项**：
+
+| # | 判定 | 实现要点 |
+|---|---|---|
+| 20 | `transition`/`animation` 的时间函数全部走 `--ease-*` | **不能直接 grep `ease`**（会命中 `var(--ease-out)` 自身）→ 先剥 `var(--ease-…)` 再找裸关键字；只扫简写，`@keyframes` 内部实测无时间函数 |
+| 21 | 有限时长动效均挂 `var(--motion)` | 方案 §7-16 的**成因检查**（此前只有行为要求、无成因门禁）。白名单只有 `rx-progress-slide` 一个循环装饰动画，且要求其双通道压制就位 |
+
+门禁 21 上线**当场抓到 2 处真实缺陷**：`.interp-trigger-caret` 的 `transition: transform 0.12s` 与 `.clone-progress-fill` 的 `transition: width 0.2s` —— 两处都既未挂 `--motion`（reduce-motion 下照动）也未走缓动 token，已修。
+
+#### 7.6.4 顺带修掉一处可访问性不一致
+
+`.rx-progress::after`（进度条循环动画）原本**只有 `@media (prefers-reduced-motion)` 一条压制通道**，漏了应用内「减少动画」开关那条（`html[data-reduce-motion]`，见 `applyReduceMotion`）—— 用户在设置里关掉动效后进度条仍会无限循环。已按 `.codicon-modifier-spin` 的双通道范式补齐。
+
+> ⚠ 顺带记一条**不能怎么做**：该动画**不能**靠「时长 × `var(--motion)`」压制 —— `motion=0` 会让 `duration` 变成 0，`infinite` 循环将高频闪成一团糊。正确做法只有 `animation: none`。门禁 21 的白名单机制正是为此存在（豁免 motion 挂载，但要求双通道压制就位）。
+
+#### 7.6.5 门禁实测
+
+| # | 门禁 | 结果 |
+|---|---|---|
+| 1 | `tools/ui/audit_tokens.py` | ✅ **76 项**判定 · FAIL 0 · WARN 0 |
+| 2 | `npm run build`（tsc） | ✅ 0 错 |
+| 3 | vitest 全量 | ✅ **92 文件 / 1060 用例**（`styleTokens.test.ts` +10：曲线三档、时长档挂 motion、双环结构、内缩组关双环） |
+| 4 | e2e `editor/12-motion-focus.spec.ts` | ✅ **2/2**：`--motion` 归零实测 + 焦点环双环 computed |
+| 5 | e2e-ui 视觉子集 | ✅ 51 passed；8 failed **经 stash 对照确认为存量**（同 §7.5.7 其三） |
+| 6 | 基线截图 | ✅ 8 张 → `%TEMP%\opencharm-ui-baseline\batch5a\` |
+
+**新增 e2e 的价值**（单测与门禁脚本都覆盖不到）：`--transition-base` 写的是 `calc(0.15s * var(--motion))`，单测只能断言「字符串里有 `var(--motion)`」，无法证明浏览器真的算出 `0s`；焦点环「两层 spread 是否真叠成两圈」同理要读 computed。方案 §7-16「reduce-motion 下全部动效为 0」此前**只有代码审查、没有实测**，现由 T-B5A-1 承担。
+
+焦点环 e2e 有一处设计取舍：Tab 顺序取决于 UI 状态（menubar / 活动栏 / 工具栏各有多少可聚焦项），故**不指定元素** —— 逐个 Tab 直到撞上带焦点环的控件（认 `--accent` 色值），任何一个都行。初版写死「Tab 到 `.tree-item`」在 40 次内没走到，改成自适应后稳定通过。同理 T-B5A-1 读 `#sidebar`（恒存）而非 `.tab .close`（要先打开文件才存在）——**e2e 选元素要挑「状态无关」的，否则断言会随 UI 状态漂移**。
+
+#### 7.6.6 门禁自身做了注入自检
+
+把 `.tree-item:focus-visible` 的双环改回单环 → 单测如期变红（报 `outline 必须是 transparent`），确认新断言不是假绿。
 
 

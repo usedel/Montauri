@@ -130,6 +130,14 @@
   --selected: #26433f;         /* 青绿染色，vs 画布 1.53；正文 8.46 ✅ */
   --control-hover: #3a3a42;    /* vs 画布 1.46；正文 8.89 ✅ 规则：控件底上文字用 --fg，不用 --fg-dim */
   --focus-ring: var(--accent);
+  /* 批 5a：焦点环双环的「隔离环」色（方案 §5.8）。
+     原实现是 `outline: 1px solid var(--focus-ring)` 单环——青绿环直接贴在元素边界上，
+     元素底色与画布接近时环显得「糊」在背景里。双环的做法是环与元素之间留一圈隔离带：
+     外圈青绿（--focus-ring）+ 内圈暗色（--focus-gap），环因此「脱离背景」。
+     ⚠ 取值刻意**不用表面档**（--surface-2/3）：同一个环会落在 S0–S4 五档表面上，
+        用任一表面色都只对其余四档成立；用「比该主题画布略深的暗色」则对全部档位一致。
+        浅色侧反过来用淡影（白底上画布是纯白，隔离带只能是影子）。 */
+  --focus-gap: rgba(0, 0, 0, 0.55);
   /* 标签页：底本就与画布近，靠 --brand 顶部条区分激活（故 inactive 只保 1.05） */
   --tab-active-bg: var(--surface-2);
   --tab-inactive-bg: #232329;  /* vs 画布 1.05；--fg-dim 5.73 ✅ */
@@ -287,15 +295,27 @@
   --radius-xl: 10px;  /* 品牌装饰（欢迎页 logo） */
 }
 
-/* ---------- 动效系统（D3 P-06） ----------
-   --motion 为全局动效倍率：0 = 禁用（「减少动画」设置或系统 prefers-reduced-motion）。
-   所有动效时长 ≤150ms（快而克制，方案 §3）。 */
-/* --transition-* 为 UI-18 附带的过渡 token（已内置 --motion 倍率）；
-   UI-11 会把其余散落的硬编码 transition 时长一并收敛到这两个 token。 */
+/* ---------- 动效系统（D3 P-06 · 批 5a 补曲线分级） ----------
+  --motion 为全局动效倍率：0 = 禁用（「减少动画」设置或系统 prefers-reduced-motion）。
+  所有动效时长 ≤150ms（快而克制，方案 §3）；唯一例外是结构性动画（--transition-slow，240ms）。 */
+/* --transition-* 为 UI-18 附带的过渡 token（已内置 --motion 倍率）。
+   批 5a（ui_premium §5.6）把三档曲线拆成独立 token：此前全部是内建 `ease`（= ease-in-out 的
+   变体），无法表达「入场用减速、出场用加速」——而这两者恰恰是动效感知质量的主要来源。
+   曲线取自方案 §5.6（业界通行值，非自创）。 */
 :root {
   --motion: 1;
-  --transition-fast: calc(0.12s * var(--motion)) ease;
-  --transition-base: calc(0.15s * var(--motion)) ease;
+  /* 三档曲线：decelerate（快速启动缓慢落位，「有惯性」的来源）/ standard（位移形变）/
+     accelerate（出场收起）。命名即用途，不按数学形状记。 */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --transition-fast: calc(0.12s * var(--motion)) var(--ease-out);
+  --transition-base: calc(0.15s * var(--motion)) var(--ease-out);
+  /* 结构性动画专用（面板展开 / 模态）：IDE 不能为观感牺牲操作节奏，故只这一档放宽到 240ms */
+  --transition-slow: calc(0.24s * var(--motion)) var(--ease-in-out);
+  /* 出场专用：比入场更快且用 accelerate 曲线（东西离场不该「慢慢飘」）。
+     方案 §5.6 只列了三档时长，此处补第四档是为了让 4 处出场动画也不必内联 calc 时长。 */
+  --transition-exit: calc(0.1s * var(--motion)) var(--ease-in);
 }
 html[data-reduce-motion] { --motion: 0; }
 @media (prefers-reduced-motion: reduce) {
@@ -321,19 +341,23 @@ html[data-reduce-motion] .codicon-modifier-spin { animation: none; }
   to { opacity: 0; transform: scale(0.98); }
 }
 
-/* 入场：display:none → 可见时动画自动重放；出场：.closing 由 hideEl 两阶段驱动 */
-.modal:not(.hidden) { animation: oc-fade-in calc(0.12s * var(--motion)) ease-out; }
-.modal:not(.hidden) .modal-card { animation: oc-modal-in calc(0.12s * var(--motion)) ease-out; }
-.modal.closing { animation: oc-fade-out calc(0.1s * var(--motion)) ease-in forwards; pointer-events: none; }
-.modal.closing .modal-card { animation: oc-modal-out calc(0.1s * var(--motion)) ease-in forwards; }
-.ctx-menu:not(.hidden) { animation: oc-fade-in calc(0.08s * var(--motion)) ease-out; }
-.sidebar-view:not(.hidden) { animation: oc-fade-in calc(0.1s * var(--motion)) ease-out; }
-#editor-overlay:not(.hidden) { animation: oc-fade-in calc(0.12s * var(--motion)) ease-out; }
+/* 入场：display:none → 可见时动画自动重放；出场：.closing 由 hideEl 两阶段驱动。
+   批 5a：入场统一 decelerate（--ease-out），出场统一 accelerate（--ease-in）+ 更短时长。
+   模态卡片是唯一放宽到 --transition-slow 的结构性动画（面板/对话框入场）。 */
+.modal:not(.hidden) { animation: oc-fade-in var(--transition-fast); }
+.modal:not(.hidden) .modal-card { animation: oc-modal-in var(--transition-slow); }
+.modal.closing { animation: oc-fade-out var(--transition-exit) forwards; pointer-events: none; }
+.modal.closing .modal-card { animation: oc-modal-out var(--transition-exit) forwards; }
+.ctx-menu:not(.hidden) { animation: oc-fade-in calc(0.08s * var(--motion)) var(--ease-out); }
+.sidebar-view:not(.hidden) { animation: oc-fade-in calc(0.1s * var(--motion)) var(--ease-out); }
+#editor-overlay:not(.hidden) { animation: oc-fade-in var(--transition-fast); }
 
-/* 面板尺寸过渡（拖拽期间经 .resizing 关闭，避免跟手延迟） */
-#sidebar { transition: width calc(0.15s * var(--motion)) ease-out; }
-#right-panel { transition: width calc(0.15s * var(--motion)) ease-out; }
-#bottom { transition: height calc(0.15s * var(--motion)) ease-out; }
+/* 面板尺寸过渡（拖拽期间经 .resizing 关闭，避免跟手延迟）。
+   批 5a：改用 --transition-base（dec 曲线）——拖拽松手后「快速落定」比匀速更贴手感，
+   时长仍为 150ms，未突破方案 §3 的 ≤150ms 上限。 */
+#sidebar { transition: width var(--transition-base); }
+#right-panel { transition: width var(--transition-base); }
+#bottom { transition: height var(--transition-base); }
 #sidebar.resizing, #right-panel.resizing, #bottom.resizing { transition: none; }
 
 /* 浅色主题覆盖层（D1 P-01）：覆盖表面 / 对比 / 交互派生相关 token。
@@ -383,6 +407,9 @@ html[data-reduce-motion] .codicon-modifier-spin { animation: none; }
   --scrollbar-thumb-hover: rgba(0, 0, 0, 0.32);
   --indent-guide: rgba(0, 0, 0, 0.08);
   --overlay: rgba(0, 0, 0, 0.18);   /* 遮罩不必这么重：浮层改走 --elev-3 + hairline 后 0.25 过重 */
+  /* 焦点环隔离带（批 5a）：浅色下画布是纯白，深色做法（比画布更深的暗环）无从取值，
+     反过来用一道**淡影**——双环的视觉收益是「环脱离背景」，浅色背景上「浮起」只能靠影子。 */
+  --focus-gap: rgba(0, 0, 0, 0.14);
   /* 编辑器当前行（批 4 新增，与深色侧同批）：浅色下必须给足可见度，--hover(#f0f0f2) 是白底上
      唯一既可见又不过重的档（1.138）。--surface-3(#f7f7f8) 只有 1.045，等于没画。 */
   --editor-line-highlight: #f0f0f2;
@@ -475,11 +502,14 @@ html, body {
 
 .hidden { display: none !important; }
 
-/* ---------- 键盘焦点反馈（D1 P-02） ----------
+/* ---------- 键盘焦点反馈（D1 P-02 · 批 5a 改双环） ----------
    输入控件以 border-color 变化表达焦点（见各 :focus 规则）；
-   按钮与列表项类控件统一 outline。UI-16 起 .tab / .term-tab 与可点击 span 按钮
+   按钮与列表项类控件统一焦点环。UI-16 起 .tab / .term-tab 与可点击 span 按钮
    已接入 tabindex + 键盘激活；其余 div 列表项（scm-item 等）规则先行就位，
-   后续接入键盘导航即生效。 */
+   后续接入键盘导航即生效。
+
+   批 5a（方案 §5.8）：`outline: 1px solid` 单环 → **双环**（外圈青绿 + 内圈暗色隔离带）。
+   单环时青绿直接贴在元素边界上，元素底色与画布接近时环显得糊在背景里；双环让环「脱离背景」。 */
 button:focus-visible,
 .menubar-item:focus-visible,
 .win-btn:focus-visible,
@@ -499,25 +529,30 @@ button:focus-visible,
 .lt-row:focus-visible,
 #status-engine:focus-visible,
 #status-interpreter:focus-visible, /* 状态栏芯片语义（第七批）：解释器芯片补 tabindex 后纳入统一键盘焦点 */
-/* UI-16：以下元素本批补齐 role=button + tabindex=0（可点击 span/div 的键盘可达性），
-   纳入统一键盘焦点规则；小尺寸元素用 -1px 内描边，避免 outline 溢出挤占相邻热区 */
-.term-tab-close:focus-visible,
-.term-tab-stop:focus-visible,
+/* UI-16：以下元素本批补齐 role=button + tabindex=0（可点击 span/div 的键盘可达性） */
 .term-tab-add:focus-visible,
-.tab .close:focus-visible,
-.debug-bp-del:focus-visible,
 .debug-bp-label:focus-visible,
 .debug-stack-frame:focus-visible,
 #outline-header:focus-visible,
 .btn:focus-visible {
-  outline: 1px solid var(--focus-ring);
+  /* outline 写 transparent 而非 none：Windows 强制高亮模式（forced-colors / HCM）下
+     浏览器靠 outline 绘制系统焦点框，写 none 会让该模式用户彻底失去焦点指示。
+     常态下它透明不可见，真正可见的是下面这两圈 box-shadow。 */
+  outline: 2px solid transparent;
   outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--focus-gap), 0 0 0 4px var(--focus-ring);
 }
+/* UI-16：小尺寸元素用 1px 内描边，外扩双环会挤占相邻热区（16px 的关闭钮外扩 4px
+   会盖住相邻的 tab）。⚠ 这组必须**独立成条**，不能靠在上面那条后面改 outline-offset:
+   -1px —— box-shadow 不受 outline-offset 影响，同一元素上「先 box-shadow 再改 offset」无效，
+   必须显式 box-shadow:none 才不会被双环牵连。 */
 .term-tab-close:focus-visible,
 .term-tab-stop:focus-visible,
 .tab .close:focus-visible,
 .debug-bp-del:focus-visible {
+  outline: 1px solid var(--focus-ring);
   outline-offset: -1px;
+  box-shadow: none;
 }
 
 /* ---------- 通用按钮体系（UI-08） ----------
@@ -828,8 +863,9 @@ button:focus-visible,
 }
 .tree-item:hover { background: var(--hover); }
 .tree-item.active { background: var(--selected); }
-/* UI-10：改 :focus-visible + 统一 outline-offset，与全局键盘焦点反馈规则一致（鼠标点击不再误显焦点框） */
-.tree-item:focus-visible { outline: 1px solid var(--focus-ring); outline-offset: 2px; }
+/* UI-10：改 :focus-visible + 统一焦点环，与全局键盘焦点反馈规则一致（鼠标点击不再误显焦点框）。
+   批 5a：同全局规则改为双环（外圈青绿 + 内圈 --focus-gap 隔离带）。 */
+.tree-item:focus-visible { outline: 2px solid transparent; outline-offset: 2px; box-shadow: 0 0 0 2px var(--focus-gap), 0 0 0 4px var(--focus-ring); }
 .tree-item .icon {
   width: 16px; height: 16px;
   display: flex; align-items: center; justify-content: center;
@@ -1285,7 +1321,7 @@ button:focus-visible,
   font-size: var(--text-base);
   /* D4：默认隐藏，悬停或活动（非脏）标签显示；脏标签悬停时关闭钮取代脏点（VS Code 行为） */
   opacity: 0;
-  transition: opacity calc(0.1s * var(--motion)) ease;
+  transition: opacity var(--transition-base);
 }
 .tab:hover .close, .tab.active:not(.dirty) .close { opacity: 1; }
 .tab.dirty:hover .dirty { display: none; }
@@ -1353,7 +1389,7 @@ button:focus-visible,
   line-height: 1.6;
   color: var(--fg);
   padding: var(--space-6);
-  transition: width calc(0.15s * var(--motion)) ease-out;
+  transition: width var(--transition-base);
 }
 #md-preview.resizing { transition: none; }
 
@@ -2114,7 +2150,7 @@ button:focus-visible,
   line-height: 1.4;
   pointer-events: none;
   white-space: nowrap;
-  animation: oc-fade-in calc(0.08s * var(--motion)) ease-out;
+  animation: oc-fade-in calc(0.08s * var(--motion)) var(--ease-out);
 }
 .oc-tooltip kbd {
   background: var(--surface-3);
@@ -2128,7 +2164,10 @@ button:focus-visible,
 }
 
 /* ---------- 滚动条 ---------- */
-::-webkit-scrollbar { width: 10px; height: 10px; }
+/* 批 5a（方案 §5.8）：10px → 8px。IDE 里滚动条是常驻元素（不像网页那样随悬停出现），
+   宽度直接决定右侧视觉重量；8px 是「够用且不抢戏」的值（VS Code 默认 14px 但其侧栏更宽、
+   内容区更空；本项目侧栏条目密集，8px 更协调）。圆角与半透明由批 2b 落地，此处只改宽度。 */
+::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: var(--radius-lg); }
 ::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -2668,7 +2707,9 @@ button:focus-visible,
 .interp-trigger:hover { border-color: var(--accent); }
 .interp-trigger:focus-visible { outline: none; border-color: var(--accent); }
 .interp-trigger-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.interp-trigger-caret { flex: none; color: var(--fg-dim); transition: transform 0.12s; }
+/* 批 5a：原为 `transition: transform 0.12s`（裸时长 + 隐式 ease），既未挂 --motion
+   （reduce-motion 下箭头照样转）也未走缓动 token。 */
+.interp-trigger-caret { flex: none; color: var(--fg-dim); transition: transform var(--transition-fast); }
 .interp-trigger[aria-expanded="true"] .interp-trigger-caret { transform: rotate(180deg); }
 
 .interp-popover {
@@ -3624,7 +3665,7 @@ button:focus-visible,
 /* 焦点反馈：设置面板的表单控件此前既不在全站 :focus-visible 名单内、也没有 :focus 规则，
    键盘 Tab 到下拉 / 输入框 / 复选框时没有任何可见反馈。 */
 .settings-row select:focus-visible,
-.settings-row input:focus-visible { outline: 1px solid var(--focus-ring); outline-offset: 1px; }
+.settings-row input:focus-visible { outline: 2px solid transparent; outline-offset: 1px; box-shadow: 0 0 0 1px var(--focus-gap), 0 0 0 3px var(--focus-ring); }
 
 /* ---------- UI-31：分类内分组（编辑器 20+ 项复选框墙 → 四组小标题）---------- */
 .settings-group { display: flex; flex-direction: column; gap: var(--space-5); }
@@ -3809,7 +3850,10 @@ button:focus-visible,
 #clone-submit { align-self: flex-start; }
 .clone-progress { margin-top: var(--space-2); }
 .clone-progress-bar { height: 4px; background: var(--border-soft); border-radius: var(--radius-sm); overflow: hidden; }
-.clone-progress-fill { height: 100%; background: var(--accent); width: 0%; transition: width 0.2s; }
+/* 批 5a：原为 `transition: width 0.2s`（裸时长 + 隐式 ease，且未挂 --motion）。
+   进度条填充是「持续位移」而非入场，用 --transition-slow 的曲线语义（ease-in-out）更贴；
+   但 200ms 已超方案 §3 的 ≤150ms 上限，故沿用 base 时长（150ms）只换曲线。 */
+.clone-progress-fill { height: 100%; background: var(--accent); width: 0%; transition: width var(--transition-base); }
 /* 原文为 var(--font-mono)：该 token 从未定义，且此处无 fallback 值——自定义属性未定义时
    整条 font-family 声明失效（不是回退到 monospace），故克隆进度文本一直没拿到等宽字体。
    批 3 随其余 5 处一并收口到 --mono。 */
@@ -4747,7 +4791,9 @@ button:focus-visible,
   cursor: pointer;
 }
 .tool-radio:hover { background: var(--hover-subtle); }
-.tool-radio:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* 批 5a：原为 `outline: 2px solid var(--accent)` 单环（此处是全站唯一不走 --focus-ring 的焦点环），
+   改双环后与其它控件视觉一致。gap 环取 1px 使外扩总量（3px）不挤压单选圆点相邻布局。 */
+.tool-radio:focus-visible { outline: 2px solid transparent; outline-offset: 1px; box-shadow: 0 0 0 1px var(--focus-gap), 0 0 0 3px var(--focus-ring); }
 /* 勾选指示点：aria-checked 驱动（占位常驻防跳动） */
 .tool-radio-dot {
   flex: none;
@@ -5334,9 +5380,16 @@ button:focus-visible,
 .rx-progress { height: 2px; border-radius: 1px; background: var(--border); overflow: hidden; margin-bottom: 2px; }
 .rx-progress::after {
   content: ""; display: block; width: 40%; height: 100%; background: var(--accent);
-  animation: rx-progress-slide 1.1s ease-in-out infinite;
+  /* 曲线走 token（方案 §5.6 把这一条列入白名单：**不**改时长与 infinite 语义，
+     1.1s 是刻意的装饰性循环速度）。⚠ 时长刻意不挂 var(--motion)：motion=0 会让 duration=0，
+     infinite 循环将高频闪成一团糊，故下面用 animation:none 压制而非时长归零。 */
+  animation: rx-progress-slide 1.1s var(--ease-in-out) infinite;
 }
 @keyframes rx-progress-slide { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+/* 批 5a 补齐：原先只有 @media 系统通道，**漏了应用内「减少动画」开关**那条
+   （与 .codicon-modifier-spin 的双通道范式不一致——用户在设置里关掉动效时，
+   进度条仍会无限循环）。两条通道都必须压。 */
+html[data-reduce-motion] .rx-progress::after { animation: none; width: 100%; opacity: .5; }
 @media (prefers-reduced-motion: reduce) { .rx-progress::after { animation: none; width: 100%; opacity: .5; } }
 .rx-eval-zone.is-stale { opacity: .55; } /* 求值中：保留上次结果 */
 .rx-eval-zone.is-disabled { opacity: .45; pointer-events: none; } /* 无解释器：求值产出区置灰 */
@@ -5540,9 +5593,9 @@ button:focus-visible,
   box-shadow: var(--elev-3);
   color: var(--fg);
   font-size: var(--text-sm);
-  animation: oc-fade-in calc(0.12s * var(--motion)) ease-out;
+  animation: oc-fade-in var(--transition-fast);
 }
-.toast.closing { animation: oc-fade-out calc(0.1s * var(--motion)) ease-in forwards; }
+.toast.closing { animation: oc-fade-out var(--transition-exit) forwards; }
 .toast .codicon { font-size: var(--text-md); flex: none; }
 .toast--error { border-left-color: var(--danger); }
 .toast--error > .codicon { color: var(--danger); }

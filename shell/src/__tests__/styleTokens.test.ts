@@ -250,3 +250,95 @@ describe("token 三方一致 · index.html FOUC 块", () => {
     }
   });
 });
+
+/* ══════════════════════ 批 5a · 动效曲线与焦点环（方案 §5.6 / §5.8） ══════════════════════ */
+
+describe("批 5a · 动效曲线分级（方案 §5.6）", () => {
+  it("三档曲线 token 齐备（dec / standard / accelerate）", () => {
+    expect(resolveVar("--ease-out")).toBe("cubic-bezier(0.16, 1, 0.3, 1)");
+    expect(resolveVar("--ease-in-out")).toBe("cubic-bezier(0.4, 0, 0.2, 1)");
+    expect(resolveVar("--ease-in")).toBe("cubic-bezier(0.4, 0, 1, 1)");
+  });
+
+  it("四个时长档都内置 --motion 倍率（减少动画开关必须能整体归零）", () => {
+    for (const t of ["--transition-fast", "--transition-base", "--transition-slow", "--transition-exit"]) {
+      expect(root.get(t), `${t} 应在 :root 定义`).toBeDefined();
+      expect(root.get(t), `${t} 必须内置 var(--motion)`).toContain("var(--motion)");
+    }
+  });
+
+  it("入场走 decelerate、出场走 accelerate（曲线语义与用途绑定，不可对调）", () => {
+    expect(root.get("--transition-fast")).toContain("var(--ease-out)");
+    expect(root.get("--transition-base")).toContain("var(--ease-out)");
+    expect(root.get("--transition-exit")).toContain("var(--ease-in)");
+    // 结构性动画（面板/模态）是唯一放宽到 240ms 的一档
+    expect(root.get("--transition-slow")).toContain("var(--ease-in-out)");
+  });
+
+  it("除白名单外，transition / animation 的时间函数全部走 --ease-*", () => {
+    // 判定式同 audit_tokens.py 门禁 20：先剥 var(--ease-…) 再找裸关键字，否则会命中自身
+    const offenders: string[] = [];
+    for (const m of bare.matchAll(/(?<![-\w])(transition|animation)\s*:\s*([^;]+);/g)) {
+      const probe = m[2].replace(/var\(--ease-[a-z-]+\)/g, "");
+      if (/\b(ease-in-out|ease-out|ease-in|linear|cubic-bezier)\b/.test(probe)) {
+        offenders.push(`${m[1]}: ${m[2].trim().slice(0, 50)}`);
+      }
+    }
+    expect(offenders, `仍有裸缓动：${offenders.join(" | ")}`).toEqual([]);
+  });
+
+  it("进度条循环动画是唯一豁免 --motion 的动效，且双通道压制已就位", () => {
+    // 不能靠「时长 × var(--motion)」压制：motion=0 → duration=0 → infinite 循环高频闪糊。
+    // 故豁免它并要求 animation:none 双通道（系统 media + 应用内 html[data-reduce-motion]）。
+    const spin = /\.rx-progress::after\s*\{([^}]*)\}/.exec(bare)?.[1] ?? "";
+    expect(spin).toContain("rx-progress-slide");
+    expect(spin).not.toContain("var(--motion)");
+    expect(bare).toContain("html[data-reduce-motion] .rx-progress::after");
+    expect(bare).toMatch(/@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.rx-progress::after/);
+  });
+});
+
+describe("批 5a · 焦点环双环（方案 §5.8）", () => {
+  /** 取某个 focus-visible 规则块的声明体 */
+  function ruleBody(selector: string): string {
+    const i = bare.indexOf(selector);
+    if (i < 0) throw new Error(`未找到规则 ${selector}`);
+    const open = bare.indexOf("{", i);
+    let depth = 0;
+    for (let j = open; j < bare.length; j++) {
+      if (bare[j] === "{") depth++;
+      else if (bare[j] === "}") {
+        depth--;
+        if (depth === 0) return bare.slice(open + 1, j);
+      }
+    }
+    throw new Error(`${selector} 块未闭合`);
+  }
+
+  it("--focus-gap 两套主题都有定义（深色用暗环、浅色用淡影）", () => {
+    expect(resolveVar("--focus-gap")).toBeDefined();
+    expect(light.get("--focus-gap"), "浅色必须覆盖 --focus-gap（否则 var() unset → 环失去隔离带）").toBeDefined();
+  });
+
+  it("外扩焦点环是 spread-only 双环，且 outline 写 transparent 而非 none", () => {
+    // outline:none 会让 Windows 强制高亮模式（HCM）用户彻底失去焦点指示 —— 可访问性回归
+    for (const sel of [".tree-item:focus-visible", ".tool-radio:focus-visible"]) {
+      const body = ruleBody(sel);
+      expect(body, `${sel} 应走双环`).toMatch(/box-shadow:[^;]*var\(--focus-gap\)[^;]*var\(--focus-ring\)/);
+      expect(body, `${sel} 的 outline 必须是 transparent`).toMatch(/outline:\s*2px solid transparent/);
+      expect(body, `${sel} 不得残留单环 outline`).not.toMatch(/outline:\s*\d+px solid var\(--focus-ring\)/);
+    }
+  });
+
+  it("小尺寸内缩组保留 1px 内描边并显式关掉双环（box-shadow 不受 outline-offset 影响）", () => {
+    const body = ruleBody(".tab .close:focus-visible");
+    expect(body).toMatch(/outline:\s*1px solid var\(--focus-ring\)/);
+    expect(body).toMatch(/outline-offset:\s*-1px/);
+    expect(body, "必须显式 box-shadow:none，否则会被上方双环牵连").toMatch(/box-shadow:\s*none/);
+  });
+
+  it("双环与滚动条宽度都不再是裸值（材质细节走 token）", () => {
+    expect(bare).toMatch(/::-webkit-scrollbar\s*\{\s*width:\s*8px/);
+    expect(root.get("--radius-lg"), "滚动条圆角走圆角 token").toBeDefined();
+  });
+});
