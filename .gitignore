@@ -46,5 +46,9 @@ ci/.cache/
 
 # 临时提交信息文件（提交辅助脚本用）
 .git-commit-msg.tmp
+# 本机生成的 cargo 链接配置（tools/msvc-env.ps1 走进程环境变量，不再落 .cargo/config.toml）
+shell/.cargo/
+# AI 助手工作区数据（非项目产物）
+.workbuddy-ai/
 # 过程中生成的临时脚本与产物
 scripts/_tmp/

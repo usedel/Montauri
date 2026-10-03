@@ -18,6 +18,11 @@
  *   OC_CDP_PORT     WebView2 CDP 端口（默认 9223；可用 options.cdpPort 覆盖默认值）
  *   OC_CDP_TIMEOUT  等待 CDP 就绪秒数（默认 600，首次 cargo build 较慢可调大）
  *   OC_KEEP_APP=1   结束后不杀应用（保留现场人工检查；临时目录同样保留）
+ *   OC_JSON_OUT=<路径>  把验收汇总写成 JSON（nightly / run-real-all 断言用）
+ *
+ * 为什么要 JSON 汇总（P0-1 子项 3）：原先只有人读的控制台表格，CI 无法断言、
+ * 也无法跨次对比历史。落盘后 nightly 可直接 gate「项数 / 失败数 / 时长」，
+ * 且同一文件既是本次结论也是下次对比基线。
  *
  * 实现要点（沿既有真机验收经验）：
  *   - 隔离数据根 OPENCHARM_DATA_ROOT + 预置 config/recent-workspaces.json
@@ -57,6 +62,39 @@ function printSummary(title, keepApp) {
   return failed;
 }
 
+/**
+ * 落盘 JSON 汇总（P0-1 子项 3）。路径取 OC_JSON_OUT 环境变量，未设则不写。
+ * 写出后打印一行路径，便于 CI 从日志定位产物。
+ */
+function writeJsonSummary(meta) {
+  const out = process.env.OC_JSON_OUT;
+  if (!out) return null;
+  const failed = results.filter((r) => !r.ok).length;
+  const error = meta.error || null;
+  const payload = {
+    schema: 'opencharm-e2e-real-summary/1',
+    suite: meta.suite || 'unknown',
+    at: new Date().toISOString(),
+    // 有用例失败或预检/运行中断（error）都算不通过；「0 项 + 无 error」视为空跑，判 false 以免被误当通过
+    ok: failed === 0 && !error && results.length > 0,
+    total: results.length,
+    failed,
+    error,
+    durationMs: meta.durationMs ?? null,
+    headCommit: meta.headCommit || null,
+    cdpPort: meta.cdpPort ?? null,
+    cases: results.map((r) => ({ id: r.id, desc: r.desc, ok: r.ok, detail: r.detail || null })),
+  };
+  try {
+    mkdirSync(path.dirname(path.resolve(out)), { recursive: true });
+    writeFileSync(path.resolve(out), JSON.stringify(payload, null, 2), 'utf8');
+    console.log(`\n[汇总] JSON: ${path.resolve(out)}（${payload.total} 项 / 失败 ${payload.failed}）`);
+  } catch (e) {
+    console.error(`[汇总] JSON 写入失败（不计入失败）: ${e.message}`);
+  }
+  return payload;
+}
+
 // —— 通用小工具 ——
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
@@ -90,6 +128,17 @@ async function waitCdpReady(port, timeoutMs) {
 }
 
 function tail(text, n) { return text.length <= n ? text : '...' + text.slice(-n); }
+
+/** 当前 git HEAD 短哈希，写进 JSON 汇总便于把失败结果对应到具体提交（取不到即 null） */
+function gitHead() {
+  try {
+    return execSync('git rev-parse --short HEAD', {
+      cwd: path.join(__dirname, '..', '..', '..'),
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim() || null;
+  } catch { return null; }
+}
 
 function countPythonProcs() {
   try {
@@ -182,6 +231,9 @@ function allPages(browser) {
  *   requirePaths   [{ path, message, hint }] 存在性预检，缺失即退出码 2
  *   setupFixtures({ tmp, workspace, dataRoot })  自定义 fixture；返回值透传到 session.fixtures
  * checks(session)  断言主体；session.page 为主窗口页面，session.browser 可做多窗口
+ *
+ * 结束时若设了 OC_JSON_OUT，会落盘一份 JSON 汇总（见 writeJsonSummary）；
+ * 预检失败也会落盘（ok:false + error），使 CI 能区分「环境没起来」与「断言失败」。
  */
 async function runWithRealApp(options, checks) {
   const o = {
@@ -192,20 +244,29 @@ async function runWithRealApp(options, checks) {
     logName: options.logName || '.tauri-dev.log',
     summaryTitle: options.summaryTitle || '真机 CDP 验收结果',
   };
+  const t0 = Date.now();
+  const suiteMeta = {
+    suite: options.suite || path.basename(process.argv[1] || 'unknown', '.cjs'),
+    cdpPort: o.cdpPort,
+    headCommit: gitHead(),
+  };
+  /** 预检失败：也落 JSON，让 nightly 能识别「环境未就绪」而非断言回归 */
+  function precheckFail(msg) {
+    console.error(`[预检失败] ${msg}`);
+    writeJsonSummary({ ...suiteMeta, durationMs: Date.now() - t0, error: msg });
+    process.exit(2);
+  }
 
   // —— 预检（fail fast，退出码 2） ——
   if (options.checkDevPort !== false && await portInUse(5173)) {
-    console.error('[预检失败] 5173 已被占用（可能已有 vite / tauri dev 在跑），请先停掉再运行本脚本。');
-    process.exit(2);
+    precheckFail('5173 已被占用（可能已有 vite / tauri dev 在跑），请先停掉再运行本脚本。');
   }
   if (await portInUse(o.cdpPort)) {
-    console.error(`[预检失败] CDP 端口 ${o.cdpPort} 已被占用（可能残留上一次会话）。`);
-    process.exit(2);
+    precheckFail(`CDP 端口 ${o.cdpPort} 已被占用（可能残留上一次会话）。`);
   }
   for (const r of options.requirePaths || []) {
     if (!existsSync(r.path)) {
-      console.error(`[预检失败] ${r.message || '路径不存在'}: ${r.path}${r.hint ? `（${r.hint}）` : ''}`);
-      process.exit(2);
+      precheckFail(`${r.message || '路径不存在'}: ${r.path}${r.hint ? `（${r.hint}）` : ''}`);
     }
   }
 
@@ -234,6 +295,7 @@ async function runWithRealApp(options, checks) {
 
   let exitCode = 0;
   let browser = null;
+  let runError = null;
   try {
     const waited = await waitCdpReady(o.cdpPort, o.cdpTimeoutMs);
     console.log(`[就绪] CDP 已监听（等待 ${Math.round(waited / 1000)}s），连接…`);
@@ -267,6 +329,7 @@ async function runWithRealApp(options, checks) {
     }
   } catch (e) {
     console.error(`\n[运行中断] ${e.message || e}`);
+    runError = String(e.message || e);
     try {
       const fs = require('fs');
       const log = fs.readFileSync(logPath, 'utf8');
@@ -284,6 +347,7 @@ async function runWithRealApp(options, checks) {
   }
 
   const failed = printSummary(o.summaryTitle, o.keepApp);
+  writeJsonSummary({ ...suiteMeta, durationMs: Date.now() - t0, error: runError });
   process.exit(exitCode || (failed > 0 ? 1 : 0));
 }
 
@@ -292,11 +356,13 @@ module.exports = {
   results,
   record,
   printSummary,
+  writeJsonSummary,
   sleep,
   httpGet,
   portInUse,
   waitCdpReady,
   tail,
+  gitHead,
   countPythonProcs,
   projectHash,
   presetInterpreter,

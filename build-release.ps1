@@ -27,6 +27,26 @@ function Fail([string]$msg) {
     exit 1
 }
 
+# Run a native command without letting its *stderr output* abort the script.
+# PowerShell + `$ErrorActionPreference = "Stop"` turns ANY stderr write from a native
+# command into a terminating NativeCommandError -- and cargo/npm routinely write
+# progress lines ("Finished release profile ...") to stderr, which killed the build
+# after ~5s with a bogus failure. Merging stderr into the output stream avoids that;
+# $LASTEXITCODE of the native command is still preserved for the caller to check.
+function Invoke-Native {
+    # Local override: a native command's stderr must not be fatal here (see note above).
+    $ErrorActionPreference = "Continue"
+    $cmd = $args[0]
+    $rest = @()
+    if ($args.Count -gt 1) { $rest = $args[1..($args.Count - 1)] }
+    # ErrorRecords (from the merged stderr stream) are rendered with the noisy
+    # "cmd.exe : ... + CategoryInfo ..." formatting; keep just the message line.
+    $text = (& $cmd @rest 2>&1 | ForEach-Object {
+        if ($_ -is [System.Management.Automation.ErrorRecord]) { $_.ToString() } else { $_ }
+    } | Out-String).TrimEnd()
+    if ($text) { Write-Host $text }
+}
+
 # ---------- 0. prerequisites ----------
 Step "Prerequisites (cargo / npm)"
 if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) {
@@ -34,6 +54,18 @@ if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) {
 }
 if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
     Fail "npm not found. Install Node.js (pinned 22.12.0 in ci/versions.toml)"
+}
+
+# ---------- 0.5 MSVC build environment (link.exe + Windows SDK libs) ----------
+# Must happen before any cargo/tauri invocation: tauri CLI overrides rustc's MSVC
+# probing, so the *process* environment decides which link.exe and which SDK libs get
+# used. See tools/msvc-env.ps1 header for the full backstory (LNK2019 __imp_memchr...).
+Step "MSVC build environment (vswhere -> link.exe + SDK libs)"
+try {
+    . (Join-Path $Root "tools\msvc-env.ps1")
+    Import-MsvcEnv
+} catch {
+    Fail ("MSVC env setup failed: " + $_.Exception.Message)
 }
 
 # ---------- 1. clean python caches ----------
@@ -50,7 +82,7 @@ if ($pycache) {
 Step "Build opencharm-intel (release, lto, may take a while)"
 Push-Location (Join-Path $Root "intel")
 try {
-    cargo build -p opencharm-intel --release
+    Invoke-Native cargo build -p opencharm-intel --release
     if ($LASTEXITCODE -ne 0) { Fail "opencharm-intel release build failed" }
 } finally {
     Pop-Location
@@ -58,7 +90,7 @@ try {
 
 # ---------- 2.5 fetch vendored debugpy (sha256-pinned, idempotent) ----------
 Step "Fetch vendored debugpy (cp310-cp314 win_amd64, pinned in ci/versions.toml)"
-& (Join-Path $Root "tools\fetch-debugpy.ps1")
+Invoke-Native (Join-Path $Root "tools\fetch-debugpy.ps1")
 if ($LASTEXITCODE -ne 0) { Fail "fetch-debugpy.ps1 failed" }
 
 # ---------- 3. npm install (optional) ----------
@@ -66,7 +98,7 @@ if (-not $SkipNpmInstall) {
     Step "npm install (frontend deps)"
     Push-Location (Join-Path $Root "shell")
     try {
-        npm install
+        Invoke-Native npm install
         if ($LASTEXITCODE -ne 0) { Fail "npm install failed" }
     } finally {
         Pop-Location
@@ -80,7 +112,7 @@ if (-not $SkipNpmInstall) {
 Step "Tauri build (nsis)"
 Push-Location (Join-Path $Root "shell")
 try {
-    npm run tauri -- build
+    Invoke-Native npm run tauri -- build
     if ($LASTEXITCODE -ne 0) { Fail "Tauri build failed" }
 } finally {
     Pop-Location
