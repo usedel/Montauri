@@ -720,6 +720,59 @@ def gate_motion_scaling(report: Report, css_path: Path) -> None:
                  f"未挂 --motion {len(offenders)} 处" + (f"：{offenders[:3]}" if offenders else " ✅"))
 
 
+def gate_border_scale(report: Report, css_path: Path, tokens: dict[str, dict[str, str]]) -> None:
+    """门禁 22（方案 §5.5）：边框三档 alpha 齐备，且兼容别名指向正确。
+
+    ① 三档必须在**两套主题**下都定义（缺一档 → 引用它的规则颜色 unset 并继承父级）；
+    ② `--border` 必须指向 subtle、`--border-soft` 必须指向 hairline —— 这两个是存量
+       150 / 24 处的兼容入口，指错档等于把 174 处静默改到另一档；
+    ③ 档位值必须是 **alpha 叠色**（rgba 且 a < 1）——实色边框是本批要消灭的对象，
+       门禁守住「不许退回实色」这条不变量。
+    """
+    for theme in ("dark", "light"):
+        t = tokens.get(theme, {})
+        for name in ("--border-hairline", "--border-subtle", "--border-strong"):
+            raw = t.get(name)
+            if raw is None:
+                report.check("边框纪律", f"{theme}/{name}", False, "未定义")
+                continue
+            a = re.search(r"rgba\([^)]*?,\s*([\d.]+)\s*\)", raw)
+            if not a:
+                report.check("边框纪律", f"{theme}/{name}", False,
+                             f"应为 alpha 叠色 rgba(…, a)，实得 {raw}（实色边框是本批要消灭的对象）")
+            else:
+                report.check("边框纪律", f"{theme}/{name}", True, raw)
+        # 兼容别名
+        for alias, target, why in (
+            ("--border", "--border-subtle", "150 处面板/控件边界的默认档"),
+            ("--border-soft", "--border-hairline", "24 处细分隔线（menubar/状态栏/表格行）"),
+        ):
+            got = t.get(alias, "")
+            report.check("边框纪律", f"{theme}/{alias} → {target}", got.strip() == f"var({target})",
+                         f"{why}；实得 `{got or '(未定义)'}`")
+
+
+def gate_overlay_hairline(report: Report, rules: list[Rule]) -> None:
+    """门禁 23（方案 §5.5 配套）：浮层容器边框必须是 hairline。
+
+    浮层已由 --elev-3 投影表达「浮起」，边框若还用常规档，会在投影之外再加一道硬边，
+    读起来「厚一圈」。这是选择器级判定，token 计数判不了。
+    """
+    overlays = (".modal-card", ".ctx-menu", ".oc-tooltip", ".interp-popover")
+    for r in rules:
+        sel = r.selector
+        if sel not in overlays:
+            continue
+        # Rule.decls 已按属性名拆好；边框可能写在 border / border-top / border-bottom 任一个上
+        val = next((v for k, v in r.decls.items()
+                    if k in ("border", "border-top", "border-bottom") and "solid" in v), None)
+        if val is None:
+            report.check("浮层描边", sel, False, "未找到 1px solid 边框声明（预期 hairline）")
+            continue
+        report.check("浮层描边", sel, "var(--border-hairline)" in val,
+                     f"浮层容器边框应为 var(--border-hairline)，实得 `{val.strip()}`")
+
+
 def audit(css_path: Path) -> Report:
     tokens = load_tokens(css_path)
     report = Report()
@@ -740,6 +793,8 @@ def audit(css_path: Path) -> Report:
     gate_accent_on_lifted(report, rules)
     gate_easing_tokens(report, css_path)
     gate_motion_scaling(report, css_path)
+    gate_border_scale(report, css_path, tokens)
+    gate_overlay_hairline(report, rules)
     return report
 
 

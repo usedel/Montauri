@@ -342,3 +342,49 @@ describe("批 5a · 焦点环双环（方案 §5.8）", () => {
     expect(root.get("--radius-lg"), "滚动条圆角走圆角 token").toBeDefined();
   });
 });
+
+/* ══════════════════════ 批 5b · 边框三档 alpha（方案 §5.5） ══════════════════════ */
+
+describe("批 5b · 边框 alpha 叠色", () => {
+  it("三档在两套主题下都定义，且都是 alpha 叠色（实色是本批要消灭的对象）", () => {
+    for (const scope of [root, light]) {
+      for (const name of ["--border-hairline", "--border-subtle", "--border-strong"]) {
+        const v = scope.get(name);
+        expect(v, `${name} 必须两套主题都定义（缺一 → 引用它的规则颜色 unset 并继承父级）`).toBeDefined();
+        expect(v, `${name} 必须是 rgba(…, a) 叠色，实得 ${v}`).toMatch(/^rgba\(/);
+      }
+    }
+  });
+
+  it("alpha 递增：hairline < subtle < strong（两套主题各自单调）", () => {
+    const alphaOf = (v: string) => Number(/,\s*([\d.]+)\s*\)$/.exec(v)![1]);
+    for (const scope of [root, light]) {
+      const h = alphaOf(scope.get("--border-hairline")!);
+      const s = alphaOf(scope.get("--border-subtle")!);
+      const g = alphaOf(scope.get("--border-strong")!);
+      expect(h, `hairline ${h} 应 < subtle ${s}`).toBeLessThan(s);
+      expect(s, `subtle ${s} 应 < strong ${g}`).toBeLessThan(g);
+    }
+  });
+
+  it("兼容别名指向正确档位（--border 150 处 + --border-soft 24 处，指错等于静默改 174 处）", () => {
+    for (const scope of [root, light]) {
+      expect(scope.get("--border")?.trim()).toBe("var(--border-subtle)");
+      expect(scope.get("--border-soft")?.trim()).toBe("var(--border-hairline)");
+    }
+  });
+
+  it("浮层容器边框走 hairline（投影已表达层级，边框退居辅助）", () => {
+    // 方案 §5.5 配套：.ctx-menu / .oc-tooltip / .modal-card / .palette
+    for (const sel of [".modal-card", ".ctx-menu", ".oc-tooltip", ".interp-popover"]) {
+      // ⚠ 必须**行首**匹配：`.modal:not(.hidden) .modal-card { animation: … }` 这类**子选择器**
+      //   的结尾也是 `.modal-card {`，用 indexOf(sel + " {") 会命中它并读到 animation 块。
+      const i = bare.indexOf("\n" + sel + " {");
+      expect(i, `未找到顶层规则 ${sel}`).toBeGreaterThan(-1);
+      const body = bare.slice(i, bare.indexOf("}", i));
+      expect(body, `${sel} 边框应为 hairline`).toMatch(/border:\s*1px solid var\(--border-hairline\)/);
+      // 浮层必须同时有投影，否则「边框退居辅助」的前提不成立
+      expect(body, `${sel} 应有 --elev-* 投影`).toMatch(/box-shadow:\s*var\(--elev-/);
+    }
+  });
+});

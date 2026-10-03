@@ -76,8 +76,24 @@
   --bg-chrome: var(--surface-1);   /* 新增：menubar / sidebar / tabbar / split-header */
   --bg-panel: var(--surface-0);    /* 拆分后仅剩：底部面板 / 终端 / 状态栏 / 右面板 */
   --bg-alt: var(--surface-3);      /* 抬升面（批 2b 逐 selector 确认） */
-  --border: #3c3c3c;
-  --border-soft: rgba(60, 60, 60, 0.4);
+  /* ---------- 边框纪律（批 5b · 方案 §5.5）----------
+     三档 alpha 而非实色，实算依据（深色，画布 S2 #1f1f24 / 抬升面 S3 #2a2a30）：
+       旧实色 #3c3c3c → S2 上 1.51 / S3 上 **1.29**（同一色值在两个面上表现不一致）
+       新 subtle .10  → S2 上 1.36 / S3 上 **1.36**（叠色自动跟随所在表面，两面一致）
+     这就是 alpha 叠色的核心收益，也是实色做不到的：边框颜色随所在表面自动调整，
+     跨 S0–S4 五档都正确，不需要为每层单独定义。
+     ⚠ 1.36 仍**不满足** WCAG 1.4.11 非文本对比 3:1 —— 但这是**存量事实**（旧值 1.29~1.51
+       同样不达标），聚焦态由 `border-color: var(--accent)`（青绿 4.98:1）承担识别，
+       故不构成回归。alpha 边框不可能达到 3:1，这是「精致」与「合规」的自觉取舍。
+     档位语义（按「同一元素会落在哪一档面上」定，而非按好看程度定）：
+       · hairline 极细：行内 / 列表分隔、面板内细分隔线（原本 --border-soft 的 24 处）
+       · subtle  常规：面板边界、卡片、控件边框（默认，--border 保持指向它）
+       · strong  强调：**当前无使用场景**（见 §7.7）——预留给将来需要「边框本身即强调信号」的场景。 */
+  --border-hairline: rgba(255, 255, 255, 0.06);
+  --border-subtle: rgba(255, 255, 255, 0.10);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --border: var(--border-subtle);   /* 兼容存量 150 处引用，逐处不改即可拿到 alpha 收益 */
+  --border-soft: var(--border-hairline);  /* 24 处细分隔线：语义本就是 hairline */
   --fg: #d4d4d4;                   /* 决策：保留不改（画布换 #1f1f24 后正文 11.07，仍远高于 AAA） */
   --fg-dim: #9c9ca4;               /* 新阶梯取中性偏冷的 #9c9ca4：S2 6.02 · S3 5.23 ✅ */
   --fg-muted: #adadb5;             /* 新增（抬升面专用次要文字）：S3 6.40 · S4 5.45 ✅ */
@@ -378,8 +394,14 @@ html[data-reduce-motion] .codicon-modifier-spin { animation: none; }
   --bg-chrome: var(--surface-1);
   --bg-panel: var(--surface-0);
   --bg-alt: var(--surface-3);
-  --border: #d4d4d4;
-  --border-soft: rgba(0, 0, 0, 0.08);
+  /* 边框三档（批 5b）：浅色用「黑色 alpha」而非白色 alpha——白底上叠白看不见。
+     实算：旧实色 #d4d4d4 白底 1.48 / 面板底 #f7f7f8 1.38；新 subtle .12 → 1.32 / 1.32
+     （同样抹平了「同一色值在两个面上表现不一致」的问题，方向与深色侧一致）。 */
+  --border-hairline: rgba(0, 0, 0, 0.08);
+  --border-subtle: rgba(0, 0, 0, 0.12);
+  --border-strong: rgba(0, 0, 0, 0.18);
+  --border: var(--border-subtle);
+  --border-soft: var(--border-hairline);
   --fg: #333333;
   /* 杠杆 9（浅色 AA 悬崖）：原 #6c6c6c 在面板底 #ececec 上仅 4.44:1（差 0.06 判负），
      在 --selected #d6ebff 上 4.30、--hover #e8e8e8 上 4.29，同样不达标。
@@ -2142,7 +2164,9 @@ button:focus-visible,
   z-index: 400;
   background: var(--bg-alt);
   color: var(--fg);
-  border: 1px solid var(--border);
+  /* 批 5b：浮层边框走 hairline（方案 §5.5 配套）。理由：浮层已由 --elev-3 投影表达
+     「浮起」，边框应退居辅助——用实色/常规档会在投影之外再加一道硬边，读起来「厚一圈」。 */
+  border: 1px solid var(--border-hairline);
   border-radius: var(--radius-md);
   box-shadow: var(--elev-3);
   padding: var(--space-2) var(--space-4);
@@ -2190,7 +2214,8 @@ button:focus-visible,
   overflow-y: auto;
   overflow-x: hidden;
   background: var(--bg-alt);
-  border: 1px solid var(--border);
+  /* 批 5b：浮层容器边框走 hairline（投影已表达层级，边框退居辅助）。 */
+  border: 1px solid var(--border-hairline);
   border-radius: var(--radius-md);
   box-shadow: var(--elev-3);
   padding: var(--space-2) 0;
@@ -2208,7 +2233,8 @@ button:focus-visible,
 .ctx-menu-item .sep {
   height: 1px;
   margin: var(--space-2) var(--space-4);
-  background: var(--border);
+  /* 批 5b：菜单内分隔线 = 教科书级 hairline 场景（行内分隔），由 --border 提到显式 hairline。 */
+  background: var(--border-hairline);
   cursor: default;
 }
 .ctx-menu-item.sep-item { padding: 0; cursor: default; }
@@ -2258,7 +2284,8 @@ button:focus-visible,
 }
 .modal-card {
   background: var(--bg-alt);
-  border: 1px solid var(--border);
+  /* 批 5b：同 .ctx-menu，浮层容器边框走 hairline。 */
+  border: 1px solid var(--border-hairline);
   border-radius: var(--radius-lg);
   padding: var(--space-8) var(--space-9);
   min-width: 380px;
@@ -2721,7 +2748,8 @@ button:focus-visible,
   max-height: 360px;
   overflow-y: auto;
   background: var(--bg-alt);
-  border: 1px solid var(--border);
+  /* 批 5b：浮层容器边框走 hairline（投影已表达层级，边框退居辅助）。 */
+  border: 1px solid var(--border-hairline);
   border-radius: var(--radius-md);
   box-shadow: var(--elev-3);
   padding: var(--space-2) 0;
