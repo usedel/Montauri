@@ -8,6 +8,7 @@
 |---|---|---|---|
 | [0003](0003-lsp-bridge-custom.md) | LSP 接入采用自研轻量桥接层（Rust stdio ↔ Tauri IPC ↔ Monaco providers） | 已定案 | 2026-08-20 |
 | [0004](0004-dap-bridge-debugpy-bundled.md) | 调试接入采用自研轻量 DAP 桥 + debugpy 随应用打包分发（stdio adapter 模式） | 已定案 | 2026-09-10 |
+| [0005](0005-brand-accent-unification.md) | 品牌色与交互色统一到青绿单色相轴（修订 D4 / UI-06 / 浅色层 accent 跨主题一致；accent 拆三角色） | 已定案 | 2026-10-03 |
 
 ## 待记录（候选）
 

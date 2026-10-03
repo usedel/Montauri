@@ -9,14 +9,29 @@
   --border-soft: rgba(60, 60, 60, 0.4);
   --fg: #d4d4d4;
   --fg-dim: #9d9d9d;
-  /* 强调与语义色 */
-  --accent: #0e639c;
-  --accent-hover: #1177bb;
-  --accent-soft: rgba(14, 99, 156, 0.35);
-  --accent-faint: rgba(14, 99, 156, 0.18);
+  /* ---------- 品牌与交互色（ADR-0005：青绿单一色相轴）----------
+     原 D4 裁决是「青绿 = 品牌识别 / 蓝 --accent = 功能交互」双色分工，已被 ADR-0005 推翻：
+     实测真正承载功能语义的是 --accent（82 处，为 --brand 24 处的 3.4 倍），双色分工使界面
+     呈现三支色系（蓝交互 + 蓝紫 logo 渐变 + 青绿品牌点），即「拼装感」的直接来源。
+     现青绿是唯一色相轴（~168°），accent 按**角色**三分——单值不可兼得：
+       · --accent          描边 / 图标 / 文字 / 焦点环，需在其所落面上 ≥4.5:1（限 ≤S3 面）
+       · --accent-emphasis  落在 S4 / --hover / --control-hover / --selected 四个亮面上的 accent 文字
+                           （--accent 在这四面实测 3.63~4.42，跌破 AA；emphasis 九面 5.27~9.32 全达标）
+       · --accent-fill     实心按钮 / 选中点底，其上放 13 处 --on-accent 白字（需 ≥4.5:1）
+     品牌阶梯 = 单一色相的明度分级；括号内为「自身 / 画布」的对比度（画布 #1e1e1e，批 2a 换 S2 后复算）。 */
+  --brand-1: #7ce3cd;   /* 高亮 / 悬停            9.72 */
+  --brand-2: #4ec9b0;   /* 主色（= --accent-emphasis）  7.28 */
+  --brand-3: #2aa88f;   /* 交互色（= --accent）        4.98 */
+  --brand-4: #1f8070;   /* 实心填充底（= --accent-fill），白字 4.79 ✅ */
+  --brand-5: #175a50;   /* 极深底色               1.90 */
+  --brand: var(--brand-2);            /* 兼容存量 24 处引用 */
+  --accent: var(--brand-3);
+  --accent-emphasis: var(--brand-2);
+  --accent-fill: var(--brand-4);
+  --accent-hover: #38b8a0;
+  --accent-soft: rgba(42, 168, 143, 0.28);
+  --accent-faint: rgba(42, 168, 143, 0.14);
   --on-accent: #ffffff;
-  /* 品牌主色（D4：青绿 = 品牌识别；蓝 --accent = 功能交互。双色分工见文档 §7） */
-  --brand: #4ec9b0;
   --danger: #f14c4c;
   --danger-bg: #e5484d;
   --danger-bg-hover: #d13a3f;
@@ -27,9 +42,9 @@
   --warn: #dcdcaa;
   --warn-soft: rgba(220, 220, 170, 0.25);
   --warn-border: rgba(220, 220, 170, 0.4);
-  --link: #4daafc;
-  --link-hover: #7cc2ff;
-  --link-border: rgba(77, 170, 252, 0.4);
+  --link: #2aa88f;
+  --link-hover: #38b8a0;
+  --link-border: rgba(42, 168, 143, 0.4);
   --meta: #c586c0;
   --meta-border: rgba(197, 134, 192, 0.4);
   /* 交互态 */
@@ -53,8 +68,8 @@
   --git-added: #81b88b;
   --git-untracked: #73c991;
   --git-branch: #d7ba7d; /* 状态栏分支名（D3 起为中性底，浅色主题需覆盖） */
-  /* diff 输出语法色 */
-  --diff-hunk: #569cd6;
+  /* diff 输出语法色（--diff-hunk 属交互色轴，已随 ADR-0005 青绿化；--diff-add 是语义色，不动） */
+  --diff-hunk: #2aa88f;
   --diff-add: #6a9955;
 
   /* ---------- 语法色（UI-15）----------
@@ -78,10 +93,10 @@
   --debug-line-bg: rgba(245, 197, 24, 0.18);      /* 当前执行行底色 */
   --debug-line-outline: rgba(245, 197, 24, 0.5);  /* 当前执行行描边 */
   --debug-line-margin: #f5c518;                   /* gutter 左侧 3px 指示条 */
-  --debug-frame-active: rgba(84, 116, 224, 0.2);  /* 调用栈激活帧底色 */
+  --debug-frame-active: rgba(42, 168, 143, 0.22);  /* 调用栈激活帧底色（青绿染色，与 --selected 同源） */
   /* 品牌 / 欢迎页装饰 */
-  --brand-gradient: linear-gradient(135deg, #4da3ff, #9a6bff);
-  --welcome-glow: rgba(88, 166, 255, 0.07);
+  --brand-gradient: linear-gradient(135deg, var(--brand-1), var(--brand-2) 55%, var(--brand-3));
+  --welcome-glow: rgba(78, 201, 176, 0.07);
 
   /* ---------- 主题预览色卡（UI-26）----------
      这 8 个值描绘的是「各套主题自身」的基调，必须固定不随当前主题变化，
@@ -89,7 +104,8 @@
      取值与两套主题的实际 token 逐项对齐，不是凭观感挑的：
        深色 = --bg #1e1e1e · --bg-panel #1b1b1b · --fg #d4d4d4 · --border #3c3c3c
        浅色 = --bg #ffffff · --bg-panel #ececec · --fg #333333 · --border #d4d4d4
-     预览里的强调色带直接用 var(--accent)（accent 跨主题一致，见浅色覆盖层头部注释）。 */
+     预览里的强调色带直接用 var(--accent)：accent 族在浅色侧另有更深的青绿取值（白底 5.84:1），
+     故「深浅两张卡的强调色带」并不同色——这是刻意的（色卡要各自忠于本套主题的实色）。 */
   --theme-pv-dark-bg: #1e1e1e;
   --theme-pv-dark-side: #1b1b1b;
   --theme-pv-dark-fg: #d4d4d4;
@@ -213,8 +229,10 @@ html[data-reduce-motion] .codicon-modifier-spin { animation: none; }
 #bottom { transition: height calc(0.15s * var(--motion)) ease-out; }
 #sidebar.resizing, #right-panel.resizing, #bottom.resizing { transition: none; }
 
-/* 浅色主题覆盖层（D1 P-01）：仅覆盖与表面/对比相关的 token；
-   accent/danger 等语义色保持深色值，确保强调色跨主题一致。 */
+/* 浅色主题覆盖层（D1 P-01）：覆盖表面 / 对比 / 交互派生相关 token。
+   ⚠ accent 族自 ADR-0005 起**不再跨主题一致**（原「保持深色值」的裁决已推翻）：
+   青绿在白底上必须更深才达 AA，故浅色侧另取 #0e7261（白底 5.84:1 / 其上白字 5.84:1，一值两用）。
+   danger / warn 等**语义色**仍保持跨主题一致（它们不是品牌色轴的一员）。 */
 [data-theme="light"] {
   --bg: #ffffff;
   --bg-alt: #f3f3f3;
@@ -222,10 +240,15 @@ html[data-reduce-motion] .codicon-modifier-spin { animation: none; }
   --border: #d4d4d4;
   --border-soft: rgba(0, 0, 0, 0.08);
   --fg: #333333;
-  --fg-dim: #6c6c6c;
+  /* 杠杆 9（浅色 AA 悬崖）：原 #6c6c6c 在面板底 #ececec 上仅 4.44:1（差 0.06 判负），
+     在 --selected #d6ebff 上 4.30、--hover #e8e8e8 上 4.29，同样不达标。
+     加深到 #5f5f68 后：面板底 5.35 · 白底 6.13 · --bg-alt 5.34 ✅
+     ⚠ 残留：现状浅色 --control-hover #c8c8c8 上仍只有 3.78 —— 须等批 2b 把它重算为
+     #e4e4e6（新值 4.98 ✅）。审计残留登记在 tools/ui/audit_tokens.py::KNOWN_RESIDUALS。 */
+  --fg-dim: #5f5f68;
   --hover: #e8e8e8;
   --hover-subtle: rgba(0, 0, 0, 0.04);
-  --selected: #d6ebff;
+  --selected: #d3efeb;   /* 替掉蓝色 #d6ebff：青绿染色，正文 10.42 · --fg-dim 5.21 ✅ */
   --control-hover: #c8c8c8;
   --tab-active-bg: #ffffff;
   --tab-inactive-bg: #ececec;
@@ -234,10 +257,15 @@ html[data-reduce-motion] .codicon-modifier-spin { animation: none; }
   --indent-guide: rgba(0, 0, 0, 0.08);
   --overlay: rgba(0, 0, 0, 0.25);
   --shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
-  --accent-soft: rgba(14, 99, 156, 0.18);
-  --accent-faint: rgba(14, 99, 156, 0.1);
-  /* 语义色浅底可读化 */
-  --brand: #14806b;
+  /* accent 族浅色取值（ADR-0005）：青绿在白底需更深，#0e7261 白底 5.84 / 其上白字 5.84，
+     故 --accent 一值两用；--accent-emphasis 取 #0b6350（浅色七面最低 5.67 ✅）。 */
+  --accent: #0e7261;
+  --accent-fill: var(--accent);
+  --accent-emphasis: #0b6350;
+  --accent-soft: rgba(14, 114, 97, 0.18);
+  --accent-faint: rgba(14, 114, 97, 0.1);
+  /* 语义色浅底可读化（--ok 与品牌同青绿属巧合，不作依赖） */
+  --brand: #0e7261;
   --ok: #14806b;
   --danger: #d61f1f;
   /* UI-15：原值 #8a6d00 在面板底 #ececec 上仅 4.16:1，且 .search-hit 是「--warn 文字叠在
@@ -250,9 +278,9 @@ html[data-reduce-motion] .codicon-modifier-spin { animation: none; }
   --warn-soft: rgba(189, 155, 0, 0.2);
   --warn-border: rgba(146, 118, 0, 0.4);
   --ok-border: rgba(26, 127, 106, 0.4);
-  --link: #0f6cbd;
-  --link-hover: #0e639c;
-  --link-border: rgba(15, 109, 180, 0.4);
+  --link: #0e7261;
+  --link-hover: #0b6350;   /* 白底 7.20 · 面板底 5.95 · ctl-hover 5.67 —— 七面全达标 */
+  --link-border: rgba(14, 114, 97, 0.4);
   --meta: #a0519f;
   --meta-border: rgba(148, 84, 144, 0.4);
   --danger-border: rgba(209, 58, 63, 0.5);
@@ -263,7 +291,7 @@ html[data-reduce-motion] .codicon-modifier-spin { animation: none; }
   --git-branch: #946c00;
   /* gutter 删除指示（红三角）与 SCM badge D 共用 danger 红 */
   --git-deleted: var(--danger);
-  --diff-hunk: #3070c0;
+  --diff-hunk: #0e7261;
   --diff-add: #4d7a3f;
   /* 语法色浅色适配（UI-15）：取 VS Code Light+ 的对应 token 色，与深色侧同源同一套体系。
      括号内为「文字色 / 面板底 #ececec」的对比度（按最暗的浅底算，白底必然更高）。
@@ -285,8 +313,8 @@ html[data-reduce-motion] .codicon-modifier-spin { animation: none; }
   --debug-line-bg: rgba(245, 200, 30, 0.45);      /* 合成 #fae69a */
   --debug-line-outline: rgba(163, 123, 0, 0.85);  /* 合成 #b18f26，3.08:1 */
   --debug-line-margin: #a37b00;                   /* 3.90:1（原 #f5c518 在白底仅 1.63:1） */
-  --debug-frame-active: rgba(14, 99, 156, 0.18);  /* 可辨识 1.31:1，略优于深色主题的 1.26:1 */
-  --welcome-glow: rgba(88, 166, 255, 0.12);
+  --debug-frame-active: rgba(14, 114, 97, 0.16);  /* 可辨识 1.28:1，与深色主题同源（青绿染色） */
+  --welcome-glow: rgba(14, 114, 97, 0.08);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
