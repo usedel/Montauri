@@ -1,6 +1,6 @@
 # UI 视觉「高级感」改造 · 开发文档
 
-> 版本：**v1.2** · 日期：2026-10-03 · 状态：**六批全部落地 + 修记 A**（批 1 / 2a / 2b / 3 / 4 / 5a / 5b / 5c · 2026-10-03 一日收官；修记 A = 编辑器滚动条变红，见 §7.9）；门禁与逐批记录见 §1.1 与 §7，真机 CDP 主题验收 32/32 PASS（提交 `ae62b73`）
+> 版本：**v1.3** · 日期：2026-10-04 · 状态：**六批全部落地 + 修记 A + 修记 B**（批 1 / 2a / 2b / 3 / 4 / 5a / 5b / 5c · 2026-10-03 一日收官；修记 A = 编辑器滚动条变红 §7.9；修记 B = 行号色「死映射」§7.10，2026-10-04 由真机验收缺口排查带出）；门禁与逐批记录见 §1.1 与 §7，真机 CDP 验收 **39/39 PASS**（批 1–5c 32 项 @ `ae62b73` + 修记 A/B 7 项 @ 2026-10-04，见 §8.1.3）
 > v1.2 修订：交付后复核（实跑门禁 + 对照仓库现状）更正 11 处文档与现状不符的数据，补登记 3 条技术债（TD-022~TD-024），并把 audit 门禁接进 CI。**技术面无产品缺陷**，更正清单见 §8.2。
 > 上游方案：`docs/ui_premium_design_report.md`（v1.2，二轮评审修订版）——**方案与本文档冲突时以本文档为准并反馈修订方案**（架构铁律「文档约定」）。
 > 与 `docs/ui_design_improvement_plan.md`（v2.1，30/30 已完成）的关系：那份解决"对不对"（缺陷修复与一致性），本次解决"贵不贵"（材质 / 身份 / 排版）。
@@ -18,7 +18,7 @@
 | 批次 | 六批：批 1（ADR + 交互色青绿统一 + 浅色 AA）→ 批 2a（表面阶梯 token）→ 批 2b（抬升面归属审计）→ 批 3（等宽字体随包）→ 批 4（Monaco 自定义主题，P1）→ 批 5（边框/曲线/圆角/材质） |
 | 落地方式 | **master 直提**（产品负责人 2026-10-03 拍板），不建分支、不推送远程 |
 | 验收方式 | **基线截图 + e2e computed-style 断言 + token 一致性单测 + `tools/ui/audit_tokens.py` 脚本门禁**；不接受纯人工抽查 |
-| 当前进度 | 🎉 **六批全部落地 + 修记 A**（批 1 / 2a / 2b / 3 / 4 / 5a / 5b / 5c）。门禁现状：audit **98 项** 0 FAIL 0 WARN · tsc 0 错 · vitest 92 文件 **1081** 用例 · e2e 新增 3 个 spec（10 字体 / 11 Monaco 主题 / 12 动效焦点；「主题迁移」是 11 内的 T-B4-6 用例）· e2e-ui 视觉子集 **12 spec / 65 条**。方案与实际的 8 处偏差全部登记在 §8 |
+| 当前进度 | 🎉 **六批全部落地 + 修记 A + 修记 B**（批 1 / 2a / 2b / 3 / 4 / 5a / 5b / 5c）。门禁现状：audit **98 项** 0 FAIL 0 WARN · tsc 0 错 · vitest 92 文件 **1081** 用例 · e2e 新增 3 个 spec（10 字体 / 11 Monaco 主题 / 12 动效焦点；「主题迁移」是 11 内的 T-B4-6 用例，11 于修记 B 增至 **11 条**）· e2e-ui 视觉子集 **12 spec / 66 条 · 66/66 实测全绿**（2026-10-04）· 真机 CDP **39/39 PASS**（§8.1.3）。方案与实际的 8 处偏差全部登记在 §8 |
 | 复核 | 2026-10-03 交付后复核（实跑门禁 + 对照仓库现状）：技术面无产品缺陷；发现并修正 11 处文档与现状不符，见 §8.2 |
 
 ### 1.1 批次状态
@@ -31,7 +31,8 @@
 | 批 3 | 等宽字体五处改动 + JetBrains Mono 随包（**落地路径已修订为 `public/fonts/` 入库**，见 §7.4.1） | ✅ 已落地（2026-10-03，记录见 §7.4） |
 | 批 4 | Monaco 自定义主题 `opencharm-dark/light` + `--syntax-*` 与 `rules` 同批 | ✅ 已落地（2026-10-03，记录见 §7.5） |
 | 批 5 | 边框三档 alpha（**只换值 + 重点提升**，§6.5）· 圆角档位 3→6px（**最大面积单点改动**，§6.5） | ✅ 5a（§7.6）· ✅ 5b（§7.7）· ✅ 5c（§7.8）—— **六批全部落地** |
-| 修记 A | 用户报「编辑器滚动条是纯红」→ 根因是 **Monaco 只认 hex 色值**，`rgba()` 被静默判成 `#ff0000`（含 `minimapSlider` 派生与三条浮层红边框）；修法是**边界归一**（`toMonacoHexColor`），不动 CSS。另顺带把编辑器滚动条宽度 14px → **10px**（Monaco 自绘控件，只能走 editorOption；外壳是 8px） | ✅ 已落地（2026-10-03，记录见 §7.9） |
+| 修记 A | 用户报「编辑器滚动条是纯红」→ 根因是 **Monaco 只认 hex 色值**，`rgba()` 被静默判成 `#ff0000`（含 `minimapSlider` 派生与三条浮层红边框）；修法是**边界归一**（`toMonacoHexColor`），不动 CSS。另顺带把编辑器滚动条宽度 14px → **10px**（Monaco 自绘控件，只能走 editorOption；外壳是 8px） | ✅ 已落地（2026-10-03，记录见 §7.9）· 真机层缺口 2026-10-04 补齐（§8.1.3） |
+| 修记 B | 行号色「死映射」：`editorGutter.foreground` 在 Monaco 0.52.2 **未注册** → 换 `editorLineNumber.foreground` / `.activeForeground`（浅色行号由出厂蓝 `#237893` 转中性）。由真机 R-FIXA-1 判负引出 | ✅ 已落地（2026-10-04，记录见 §7.10；commit 未提交） |
 
 ---
 
@@ -156,9 +157,10 @@
 | 2 | token 门禁 **98 项判定 / 9 类**（单色相 / accent 面 / 白字 on fill / fg-dim 面 / 阶梯轴 / chrome 分离 / 阴影纪律 / 抬升面文字 / accent 面归属） | `python tools/ui/audit_tokens.py`（退出码 0；`--refs <token>` 另出选择器级引用清单）。**已进 CI**（`.github/workflows/ci.yml` 前端 job） |
 | 3 | tsc 0 错 | `npm run build`（shell 目录） |
 | 4 | vitest 全量 | `node shell/scripts/gate-tests.mjs unit` |
-| 5 | e2e | **日常**：`node shell/scripts/gate-tests.mjs e2e-ui`（视觉关键子集，**12 spec / 65 用例** / ~4min）<br>**里程碑/跨域改动**：`node shell/scripts/gate-tests.mjs e2e`（全量 62 spec / ~280 用例 / ~26min） |
+| 5 | e2e | **日常**：`node shell/scripts/gate-tests.mjs e2e-ui`（视觉关键子集，**12 spec / 66 用例** / ~6min，2026-10-04 实测 66/66）<br>**里程碑/跨域改动**：`node shell/scripts/gate-tests.mjs e2e`（全量 62 spec / ~280 用例 / ~26min） |
 | 6 | 截图对照 | 改造前后各一轮 `node shell/scripts/ui-baseline.mjs --tag <name>`，逐张比对（重点：粘性表头 / 浮层 / 选中态 / 链接 / 焦点环 / 状态栏） |
 | 7 | `--motion` / `prefers-reduced-motion` 回归 | 沿用现有机制，e2e 覆盖 |
+| 8 | 真机 CDP（**低频**：跨域改动 / 发版前） | `node shell/e2e-real/ui-real.cjs`（当前 **39/39**）。补的是浏览器层原理上测不到的：`dpr=1.25` 缩放、WebView2 渲染、真实数据根走完整用户路径、随包字体可达性、**Monaco 注入变量的真实形态**（修记 B 的死映射就是这条抓的）。首跑 ~394s（cargo 冷编译），预检要求 5173 / 9223 空闲 |
 
 > **门禁执行注意**（本机 harness 三条坑，已固化进脚本）：
 > ① 命令串含 `vitest` 会被执行监控判为 watch 并在约 10s 后杀进程且吞 stdout → 一律走 `gate-tests.mjs`（内部 spawnSync + 落盘 `%TEMP%\opencharm-gates\<kind>.log` 后回显尾部）；
@@ -226,8 +228,12 @@ node scripts/ui-baseline.mjs --tag after-b1      # 改造后
 | **5c** | 圆角档位：`--radius-sm` 3→6px（md 8 / lg 10 / xl 16）→ 落地时补做**归属修正**：15 处小元素（≤24px）归 xs，否则 6px 圆角读成胶囊（见 §7.8.2） | ✅ 已落地（2026-10-03，记录见 §7.8） |
 
 > **5a 明确不做的两条**（附理由，避免后人当漏做）：
-> ① **加载态**（方案 §5.8「加 `stroke-linecap: round` 的旋转弧」）——codicon 是**字体图标**不是 SVG，`stroke-linecap` 对它无效；其「避免文字跳动」的真实成因是 `runWidget.ts:157-168` 在忙碌时把图标类从 `codicon-run`（▶）换成 `codicon-loading`（⟳），两个字形宽度不同导致按钮宽度变化。修它需改 `runWidget` 的尺寸稳定化，与本批收益不成比例，登记为技术债。
+> ① **加载态**（方案 §5.8「加 `stroke-linecap: round` 的旋转弧」）——codicon 是**字体图标**不是 SVG，`stroke-linecap` 对它无效；其「避免文字跳动」的成因被推定为 `runWidget.ts:157-168` 在忙碌时把图标类从 `codicon-run`（▶）换成 `codicon-loading`（⟳），两个字形宽度不同导致按钮宽度变化。修它需改 `runWidget` 的尺寸稳定化，与本批收益不成比例，登记为技术债（TD-023）。
 > ② **换图标集**（方案 §5.8 中长期项）——工作量大且会破坏「外壳与 Monaco 都用 codicon」的观感一致性评估基线，方案本身也判定为「短期接受」。
+>
+> **2026-10-04 复核：TD-023 已关闭——① 里那句「两个字形宽度不同」是**推断**，实测不成立。** 在 `.menubar-icon` 上下文逐个量 14 个 codicon 字形（`run` / `run-all` / `loading` / `sync` / `refresh` / `debug-stop` / `tools` / `gear` / `debug` / `play` / `circle-filled` / `triangle-right` / `dashboard` / `check`），`#btn-run-script` 的 `getBoundingClientRect().width` **恒为 28px**，图标元素在 16px 字号下**恒为 16px**——@vscode/codicons 0.0.46-24 的字形**推进宽度统一为 1em**，换字形不改变布局，故不存在「按钮抖动」。
+>
+> 中途曾据此推断落过一版修复（`.menubar-icon .codicon { width: 1em }` + 单测 + e2e 宽度断言），**已全部回退**：两条门禁在「有/无修复」下都通过（**假绿**），留着会让人误以为该风险已被覆盖。这与批 5b 推翻"重点提升"前提（§7.7.1）是同一类教训，落为一条规矩：**先量前提，再动手；验证不了前提的门禁不要留。**
 
 ---
 
@@ -779,6 +785,57 @@ alpha 叠色把「同一色值在两个面上表现不一致」抹平了 —— 
 
 > **「静默 fallback 到某个合法但语义错误的值」比抛错更难发现。** 这次的症状（红色）恰好**长得像另一个真实功能**（错误标记），所以第一反应是「配色没调好」；真正定位靠的是**把注入结果整张 dump 出来**（1573 个 `--vscode-*` 变量）而不是盯着一处看。判据也随之升级：门禁不能只断言「不是红色」，要断言**语义**（无彩色 + 低 alpha）——前者会在有人把滑块改成橙色时继续放行。
 
+### 7.10 修记 B（2026-10-04）—— 行号色的「死映射」：`editorGutter.foreground` 在 Monaco 里不存在
+
+起因是补真机验收缺口时新增的 R-FIXA-1（断言「映射表里每个槽位都真的被注入成 `--vscode-*` 变量」）**当场判负**：29 个目标槽位注入 28 个，缺 `editorGutter.foreground`。
+
+#### 7.10.1 根因
+
+| 环 | 事实 | 出处 |
+|---|---|---|
+| 1 | `defineTheme` 的 `colors` 是**自由键值对**，任何 id 都收下，不校验是否已注册 | `theme/tokens.ts::COLOR_SLOTS` → `monaco.ts::defineEditorThemes` |
+| 2 | 但生成 CSS 变量的循环遍历的是 **Monaco 已注册的颜色表** `colorRegistry.getColors()` | `standaloneThemeService.js::_updateThemeOrColorMap`（`for (const item of colorRegistry.getColors())`） |
+| 3 | 故**未注册的 id 永远不会写成 `--vscode-*` 变量**，编辑器悄悄吃 base 主题（vs-dark / vs）的出厂色 | 同上；浏览器实测注入 1573 个变量，唯独没有它 |
+| 4 | 0.52.2 **只注册了 `editorGutter.background`**，没有 `editorGutter.foreground`；行号的真实 id 是 `editorLineNumber.foreground` / `.activeForeground` | `editor/common/core/editorColorRegistry.js`（`registerColor('editorGutter.background', …)` 一条） |
+
+**实际后果**（不是"没生效"这么轻）：行号一直用出厂值——深色 `#858585`、**浅色 `#237893`（蓝）**。浅色下这一处蓝与 ADR-0005 的单色相轴直接冲突，而批 1 的青绿统一、批 4 的语法色同批都**没覆盖到它**，是漏网而非取舍。
+
+#### 7.10.2 修法
+
+`COLOR_SLOTS` 里把 `editorGutter.foreground` 换成真实 id，并补当前行行号：
+
+| 槽位 | 映射 | 效果 |
+|---|---|---|
+| `editorLineNumber.foreground` | `--fg-dim` | 深 `#9c9ca4`（原出厂 `#858585`）/ 浅 `#5f5f68`（原出厂蓝 `#237893` → 中性） |
+| `editorLineNumber.activeForeground` | `--fg` | 深 `#d4d4d4` / 浅 `#333333`（当前行行号最亮） |
+
+不动 `style.css`（CSS 仍是唯一色值真源，与 §7.5.1 一致）。
+
+#### 7.10.3 门禁（两类都要，缺一就会复发）
+
+| # | 门禁 | 落点 | 拦的是什么 |
+|---|---|---|---|
+| 1 | **真机 R-FIXA-1**：映射表槽位（含 minimap 三个派生槽位，共 29 项）必须**全部注入**；并先断言「注入变量总数 > 0」证伪假阴性 | `shell/e2e-real/ui-real.cjs` | 未注册 id / 色值被 `toMonacoHexColor` 判非法而跳过 → 死映射 |
+| 2 | **浏览器层 T-B4-11**：`MONACO_COLOR_SLOTS` 的每个键都必须出现在注入变量里，同样先证伪「0 个变量」 | `e2e/editor/11-monaco-theme.spec.ts` | 同上，但反馈快（52s vs 真机 ~2min 起应用） |
+
+槽位名单**不硬编码**：`ui-real.cjs` 从 `src/theme/tokens.ts` 的 `COLOR_SLOTS` 块解析（实测 27 项，含无引号写法 `focusBorder:`），解析失败才回退兜底名单并在记录里标注 ⚠——硬编码名单会随映射表扩展而过时，那正是这类"0 命中"假阴性的温床（§7.3.2 的三条硬规矩）。
+
+#### 7.10.4 门禁实测
+
+| # | 门禁 | 结果 |
+|---|---|---|
+| 1 | 真机 CDP `ui-real.cjs` | ✅ **39/39**（原 32 项 + 新增 R-FIXA-1~5 / R-LIGHT-9~10 共 7 项），`dpr=1.25` |
+| 2 | 浏览器层 `e2e/editor/11-monaco-theme.spec.ts` | ✅ **11/11**（新增 T-B4-11） |
+| 3 | vitest 全量 | ✅ 92 文件 / **1081** 用例（映射改动未动任何断言） |
+| 4 | `npm run build`（tsc） | ✅ 0 错 |
+| 5 | e2e-ui 视觉关键子集 | ✅ **66/66**（12 spec / ~6min）——行号色映射改动面在编辑器，子集已含 spec 11 |
+| 6 | `tools/ui/audit_tokens.py` | ✅ 98 项判定 · FAIL 0 · WARN 0（改动在 TS 映射表，不涉 CSS 色值门禁） |
+| 7 | 修前对照（本批天然具备） | ✅ R-FIXA-1 在**修前**那次真机跑里判负并报出缺失项，修后转绿——门禁有效性已实证，非注入自检 |
+
+#### 7.10.5 教训（与 §7.9.6 同源，值得并读）
+
+> **`defineTheme({ colors })` 是"无校验写入"，不是"配置"。** 它不报未知 id、不报警告、不抛错，写错的唯一外部表征是「编辑器里那一处颜色看起来还行，但不是我们的」。这类缺陷**只能靠"读注入结果"发现**——单测能证明映射表自身没写错（键是字符串、值走 CSS 变量），恰恰证不了"键在 Monaco 眼里存在"。故 §7.5 那句「单测证不了落 editor，必须读注入」应扩展到：**注入变量的存在性本身也要断言**。
+
 ---
 
 ## 8. ui_premium 全六批完成情况
@@ -794,6 +851,7 @@ alpha 叠色把「同一色值在两个面上表现不一致」抹平了 —— 
 | 批 5b | `74780c8` | 边框三档 alpha | audit 90 · vitest 1064 |
 | **批 5c** | `bd33cf4` | 圆角档位（收官） | audit **98** · tsc 0 错 · vitest **1074**（原记 1070，见 §7.8.6）· e2e-ui 53 passed · 截图 8 张 |
 | **修记 A** | `e2107df` | 编辑器滚动条/缩略图滑块/浮层边框变红 → 色值格式边界归一（`toMonacoHexColor`） | tsc 0 错 · vitest **1081**（**+7**：`themeTokens.test.ts` 25 → 32）· e2e **4** 条新断言（T-B4-7~10）· 浏览器实测红槽位 6 → **0** |
+| **修记 B** | 本次（未提交） | 行号色「死映射」：`editorGutter.foreground` 在 Monaco 0.52.2 未注册 → 换 `editorLineNumber.foreground` / `.activeForeground`（浅色行号由出厂蓝 `#237893` 转中性） | 真机 **39/39**（+7：R-FIXA-1~5 / R-LIGHT-9~10）· 浏览器层 spec 11 **11/11**（+1：T-B4-11）· vitest **1081** · tsc 0 错；修前 R-FIXA-1 判负并报出缺失项 → 门禁有效性实证 |
 
 **门禁工具演进**：audit 从 39 项（改造前基线）→ 53 → 69 → 74 → 76 → 90 → **98 项**；`styleTokens.test.ts` 从 16 → 36 条；e2e 新增 **3 个 spec 文件**（10 字体 / 11 Monaco 主题 / 12 动效焦点），「主题迁移」是 11 内的 T-B4-6 用例。
 
@@ -810,9 +868,9 @@ alpha 叠色把「同一色值在两个面上表现不一致」抹平了 —— 
 | 7 | 浮层描边用 `--surface-2` 做隔离环 | 新增 `--focus-gap`（暗环 / 淡影） | 焦点环会落在 S0–S4 五档表面上（§7.6.2） |
 | 8 | 加载态加 `stroke-linecap` | 不做 | codicon 是字体图标不是 SVG（§6.5） |
 
-### 8.1 真机 CDP 验收（批 1–5c 收口）
+### 8.1 真机 CDP 验收（批 1–5c 收口 + 修记 A/B 补齐）
 
-`shell/e2e-real/ui-real.cjs` —— **32/32 PASS**（`node e2e-real/ui-real.cjs`）。
+`shell/e2e-real/ui-real.cjs` —— 批 1–5c 收口 **32/32 PASS**（`ae62b73`）；2026-10-04 补齐修记 A 后 **39/39 PASS**（见 §8.1.3）。
 
 批 1–5c 的产物几乎全是 CSS 变量，浏览器层 e2e 已覆盖绝大多数 computed style 断言。真机层补的是**浏览器层原理上测不到**的四类：
 
@@ -836,7 +894,7 @@ rgb(42, 168, 143)  0px 0px 0px 4px    ← 外圈青绿环（--focus-ring）
 | # | 陷阱 | 诊断证据 | 处置 |
 |---|---|---|---|
 | ① | **Monaco 会吞掉 Tab** | 60 次 Tab 全部停在 `TEXTAREA.inputarea monaco-mouse-cursor-text` | 遍历前先 `blur()`。**浏览器层 `editor/12` 没踩到纯粹因为它没点过编辑器**——属「测试通过但理由不成立」，必须真机复核才算数 |
-| ② | **只声明单边 border 的元素，读另一边的 border-color 得到 `currentColor`** | `#sidebar` 只写 `border-left`，读 `borderTopColor` 得 `rgb(212,212,212)` = `--fg`，看起来像「边框是实色灰」 | 验「边框是否 alpha」必须挑**四边都设了 border** 的元素（如 `.btn`） |
+| ② | **只声明单边 border 的元素，读另一边的 border-color 得到 `currentColor`** | `#sidebar` 只写 `border-left`，读 `borderTopColor` 得 `rgb(212,212,212)` = `--fg`，看起来像「边框是实色灰」 | 验「边框是否 alpha」必须挑**四边都设了 border** 的元素（如 `.btn`）。**补充（2026-10-04）**：还要排除 `.btn--ghost`（`border-color: transparent`），否则读到 `rgba(0,0,0,0)` 也能通过「以 rgba 开头」的判据（§8.1.3） |
 
 另有 2 项失败是我的断言写错（无产品 bug）：当前行高亮必须在**选区为空**时读（Monaco 的 `_shouldRenderInContent` 判 `selectionIsEmpty`，全选时根本不渲染）；以及 `document.documentElement.setAttribute` 会在应用 init 完成前被 `applyReduceMotion(false)` 冲掉——**在应用就绪前改它的状态会与启动流程竞争**。
 
@@ -853,12 +911,36 @@ rgb(42, 168, 143)  0px 0px 0px 4px    ← 外圈青绿环（--focus-ring）
 | 编号 | 债 | 出处 |
 |---|---|---|
 | TD-022 | Monaco 浮层圆角无主题槽位，无法跟随外壳 `--radius-*` | §7.8.4 |
-| TD-023 | `runWidget` 忙碌时切图标类导致按钮宽度变化 | §6.5 |
+| ~~TD-023~~ | ~~`runWidget` 忙碌时切图标类导致按钮宽度变化~~ → **已关闭**（2026-10-04 实测 14 个 codicon 字形推进宽度统一为 1em，换字形按钮宽度恒 28px，前提不成立；中途那版定宽修复与两条假绿门禁已回退） | §6.5 |
 | TD-024 | alpha 边框 1.32~1.36:1 不满足 WCAG 1.4.11 的 3:1（自觉取舍，非回归） | §7.7.4 |
 
 > 原列的第 ④ 条「e2e-ui 那 8 条需 stash 对照判定」**已由本轮闭环**（根因 = 长期运行的 vite 重建模块图），不再作为债登记——改记为一条**环境纪律**：判定 e2e 失败是否回归前，先杀掉长跑的 vite dev。
 
-### 8.2 交付后复核（2026-10-03）
+#### 8.1.3 补齐修记 A 的真机缺口（2026-10-04）—— 并抓出修记 B
+
+**缺口由来**：`ui-real.cjs` 停在 `ae62b73`，**早于**修记 A（`e2107df`），且脚本里从头到尾没有滚动条 / 滑块 / 浮层边框断言——修记 A 修的三类（滑块纯红、缩略图滑块派生红、三条浮层红边框）与顺带的 `verticalScrollbarSize 14→10px` 在真机层**既没跑过也没断言**；而文档 §1 曾把「真机 32/32」当成收官状态写。
+
+**新增 7 条断言**（实测 39/39 全 PASS，`dpr=1.25`）：
+
+| 编号 | 断言 | 实测 |
+|---|---|---|
+| R-FIXA-1 | 映射表槽位（27 项，**由 `tokens.ts` 解析**）+ 3 个 minimap 派生槽位**全部注入**；先断言「注入变量总数 > 0」证伪假阴性 | 注入 `--vscode-*` 共 1573 个；修前缺 1 项 → **修记 B** |
+| R-FIXA-2 | 上述 29 项无一被判非法色（静默 `#ff0000`） | 0 红 |
+| R-FIXA-3 | 三条浮层边框（`editorWidget` / `editorHoverWidget` / `editorSuggestWidget`）不是红边 | 均取 `--border` 的 rgba computed |
+| R-FIXA-4 | 滑块 DOM computed 底色：无彩色（通道跨度 ≤2）+ alpha ≤0.5（**用户真正看到的那块像素**，长文件 + hover + wheel 等高度 >0） | `rgba(255,255,255,0.14)` |
+| R-FIXA-5 | 垂直滚动条容器 **10px**（出厂 14px） | `width=10` |
+| R-LIGHT-9 | 切浅色**重新注册**后同样无一为红 | 0 红 |
+| R-LIGHT-10 | 浅色滑块是中性灰黑（`--scrollbar-thumb` 黑 18%） | 通道跨度 ≤2 |
+
+**顺带产出**：R-FIXA-1 在修前的那次真机跑里直接判负并报出缺失项，引出修记 B（§7.10）——真机层补的不只是"再验一遍"，而是抓到了一个浏览器层也没覆盖的真缺陷。
+
+**顺手修掉一处存量假阴性（R-BORDER-2）**：原判据是「computed 以 `rgba` 开头」，但 DOM 里第一个 `.btn` 往往是 `.btn--ghost`（`border-color: transparent`），实测读到 `rgba(0, 0, 0, 0)` 照样判绿——全透明边框什么都没证明。已改为取 `.btn:not(.btn--ghost)` 并断言 **alpha ∈ (0, 0.5]**。
+
+> **两条判据（并读 §7.3.2 的三条硬规矩）**：
+> ① 新增"存在性"断言必须**先证伪假阴性**（先断言注入变量总数 > 0，再断言缺失项为 0）。只写 `missing.length === 0` 的话，扫描器读法失效时会安静地全绿。
+> ② **"看起来是 rgba"不等于"是半透明材质"**——`rgba(0,0,0,0)` 也以 rgba 开头。凡是「验证 alpha 档位」的断言都要带上 alpha 区间，否则退化成恒真。
+
+### 8.2 交付后复核（2026-10-03，2026-10-04 补注）
 
 复核方式：实跑 `tools/ui/audit_tokens.py` 与 vitest 全量，逐条对照仓库现状（commit `e2107df`）。
 
@@ -867,5 +949,11 @@ rgb(42, 168, 143)  0px 0px 0px 4px    ← 外圈青绿环（--focus-ring）
 **本次复核更正的文档数据**（11 处）：§1 的 vitest 1070 → 1081 与「e2e-ui 53 passed + 8 存量」（后者已被 §8.1.2 推翻）；§4 门禁 5 的「9 spec / 51 用例」→ 12 spec / 65 用例（`gate-tests.mjs` 头部注释同步改）；§8 完成表批 5c / 修记 A 的 commit 列（原写「本次」）→ `bd33cf4` / `e2107df`；§7.9.4 的 `themeTokens.test.ts` 25→36 更正为 25→32（+7）、spec 11 由 9/9 更正为 10/10；§7.8.1 圆角引用数按统一口径重测为 151 处；§8 偏差表 #5「曲面」→「圆角」且实测值与方案一致。
 
 **未能复核（环境限制，非文档问题）**：e2e 浏览器层与真机 CDP。本环境起 vite dev 会被 safe-delete 守卫拦在 `shell/node_modules/.vite/deps`（360 项 > 阈值 50），故 e2e 相关数字只核到「文件在位 + 声明用例数」，实际执行数待能跑 e2e 的机器确认。
+
+> **2026-10-04 补注（该限制已解除）**：修记 B 那轮两层都实跑过——真机 `ui-real.cjs` **39/39**（§8.1.3）、浏览器层 `e2e/editor/11-monaco-theme.spec.ts` **11/11**。故 §7.9.4 与 §8 里的 e2e 数字不再是"待确认"，唯 **e2e-ui 子集 65 vs 实测 64** 那 1 条条件用例仍待（§7.9.4 第 4 项）。
+>
+> 另：真机首跑 `npm run tauri dev` 需 ~394s（cargo 冷编译），其后重跑 ~11s；预检要求 5173 与 9223 空闲，跑前先查端口，残留 WebView2 需按命令行含 `remote-debugging-port` 清理。
+>
+> **「65 vs 64 差 1 条条件用例」已消解**：2026-10-04 实跑 e2e-ui 得 **66 passed / 0 failed**（65 条声明 + spec 11 新增的 T-B4-11）。此前那个差值是「声明数按 spec 文件静态统计、实际执行受条件用例影响」的口径差，不是失败。
 
 

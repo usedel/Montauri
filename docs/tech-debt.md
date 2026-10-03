@@ -24,13 +24,13 @@
 - **处理时机**：有合规诉求时；否则长期挂账。
 - **涉及文件**：`shell/src/style.css`（`--border-*` 三档）、`tools/ui/audit_tokens.py`（阶梯轴/对比度判定）。
 
-### TD-023 `runWidget` 忙碌态切图标类导致按钮宽度变化（P4，观感；2026-10-03 UI 高级感批 5c 复核登记）
+### ~~TD-023 `runWidget` 忙碌态切图标类导致按钮宽度变化~~ —— ✅ **已关闭（2026-10-04 实测：前提不成立）**
 
-- **起因**：批 5c 统一圆角档位时发现——运行控件的忙碌态通过切换 codicon 图标类实现，两个图标的**字形宽度不同**，按钮在忙/闲切换时会横向抖动。
-- **根因**：codicon 是**字体图标**（不是 SVG），宽度由字形决定；`ui_premium_dev_plan.md §6.5` 据此否决了「给加载态加 `stroke-linecap`」的方案（对字体图标无效）。
-- **建议方案**：给图标容器固定宽度（或改用等宽字形 / SVG 图标），让切换只换内容不换尺寸。
-- **处理时机**：运行体验下一次迭代时顺带做；非缺陷。
-- **涉及文件**：`shell/src/runWidget.ts`（或对应运行控件模块）、`shell/src/style.css`（`.run-widget*` 规则）。
+- **起因**：批 5c 统一圆角档位时**推断**——运行控件的忙碌态通过切换 codicon 图标类实现（▶ `codicon-run` → ⟳ `codicon-loading`），推断「两个字形宽度不同」会让按钮横向抖动。
+- **实测结论（2026-10-04，浏览器探针）**：**前提不成立**。在 `.menubar-icon` 上下文里逐个量 14 个 codicon 字形（`run` / `run-all` / `loading` / `sync` / `refresh` / `debug-stop` / `tools` / `gear` / `debug` / `play` / `circle-filled` / `triangle-right` / `dashboard` / `check`），`#btn-run-script` 的 `getBoundingClientRect().width` **恒为 28px**；图标元素本身在 16px 字号下也**恒为 16px**。即 **@vscode/codicons 0.0.46-24 的字形推进宽度是统一的 1em**，换字形不改变布局。
+- **过程中曾按旧推断落过一版修复**（`.menubar-icon .codicon { width: 1em }` + 单测 + e2e 宽度断言），**已全部回退**：那两条门禁在「有/无修复」下都通过（假绿），留着只会让人误以为已被覆盖——与 `ui_premium_dev_plan.md §7.7.1`（批 5b 推翻"重点提升"前提）是同一类教训：**先验证前提再动手**。
+- **不做的事**：不为已统一推进宽度的字体加定宽槽位（纯噪声）；若将来换图标集 / 自定义字形（非 1em 推进），再按本节方法重测一次即可。
+- **涉及文件**：无（无代码改动）；证据与结论登记在 `docs/ui_premium_dev_plan.md §6.5` 与 §8.1.2。
 
 ### TD-022 Monaco 浮层圆角无法跟随外壳 `--radius-*`（P4，一致性；2026-10-03 UI 高级感批 5c 登记）
 

@@ -90,7 +90,12 @@ const COLOR_SLOTS: Readonly<Record<string, string>> = {
   "editorCursor.foreground": "--fg",
   // —— gutter 与当前行 ——
   "editorGutter.background": "--surface-2",
-  "editorGutter.foreground": "--fg-dim",
+  // ⚠ 槽位 id 必须是 Monaco **已注册**的颜色 id，否则 defineTheme 收下但 CSS 变量循环
+  //   只遍历注册表 → 该槽位永不注入 → 映射静默失效（真机 R-FIXA-1 就是这么抓到的：
+  //   `editorGutter.foreground` 在 0.52.2 里不存在，行号一直吃出厂色，浅色下仍是蓝
+  //   `#237893`，与 ADR-0005 单色相轴冲突）。行号的真实 id 是 editorLineNumber.*。
+  "editorLineNumber.foreground": "--fg-dim",
+  "editorLineNumber.activeForeground": "--fg",
   "editor.lineHighlightBackground": "--editor-line-highlight",
   "editor.lineHighlightBorder": "#00000000",
   // —— 选区 ——

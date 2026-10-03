@@ -223,6 +223,20 @@ test.describe("深色主题 opencharm-dark", () => {
     expect(vars["--vscode-minimapSlider-background"], "minimapSlider.background 应已注入").toBeTruthy();
     expect(vars["--vscode-minimapSlider-background"]).not.toMatch(/^rgba\(\s*255\s*,\s*0\s*,\s*0/);
   });
+
+  test("T-B4-11 映射表的槽位全部被 Monaco 真实注入（防「id 未注册 → 死映射」）", async ({ page }) => {
+    // 真机 R-FIXA-1 抓到的那类缺陷：`defineTheme` 收下任意键，但生成 CSS 变量的循环
+    // 只遍历 Monaco **已注册**的颜色 id —— 未注册的槽位永不注入，编辑器悄悄吃出厂色
+    // （`editorGutter.foreground` 就是如此，行号在浅色下一直是出厂蓝 #237893）。
+    // 单测证不了这件事（它只能证明「映射表自身没写错」），必须读注入结果。
+    const vars = await injectedThemeVars(page);
+    // ⚠ 假阴性防线：先证明读法有效（0 个变量 = 扫描器坏了，不是全通过）
+    expect(Object.keys(vars).length, "应读到 Monaco 注入的 CSS 变量").toBeGreaterThan(0);
+    const missing = Object.keys(MONACO_COLOR_SLOTS).filter(
+      (slot) => !vars[`--vscode-${slot.replace(/\./g, "-")}`],
+    );
+    expect(missing, `这些槽位在 Monaco 里未注册，映射是死的：${missing.join("; ")}`).toEqual([]);
+  });
 });
 
 test.describe("浅色主题 opencharm-light", () => {

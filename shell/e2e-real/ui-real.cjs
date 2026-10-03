@@ -1,5 +1,5 @@
 /**
- * 真机 CDP 验收 · UI 主题（ui_premium 批 1–5c 收口）
+ * 真机 CDP 验收 · UI 主题（ui_premium 批 1–5c + 修记 A 收口）
  *
  * ## 为什么浏览器层 e2e 已全绿还要跑真机
  *
@@ -11,6 +11,15 @@
  *   ③ 真实数据根 + 真实 settings.json——浏览器层用 mock 预置，本轮走完整
  *      「打开设置 → 切色卡 → 保存」用户路径；
  *   ④ 随包字体的真实可达性——`public/fonts/` 走 vite 托管（打包链路另测）。
+ *
+ * ## 修记 A 为什么必须在真机补（§ E2 / R-FIXA-*）
+ *
+ * 滚动条变红那次（`ui_premium_dev_plan.md` §7.9）的真机验收停在 `ae62b73`，**早于**修记 A
+ * 的提交 `e2107df`，且脚本里从头到尾没有滚动条 / 滑块 / 浮层边框的断言——即修记 A 修的三类
+ * （滑块纯红、缩略图滑块派生红、三条浮层红边框）与顺带的 `verticalScrollbarSize 14→10px`
+ * 在真机层既没跑过也没断言。浏览器层有 T-B4-7~10 覆盖，真机层补的是它测不到的两点：
+ *   ⑤ WebView2 下 Monaco 注入样式表的**实际序列化形式**（读 `cssRules`，不是 DOM 快照）；
+ *   ⑥ 125% 系统缩放（dpr 1.25）下滑块底色与滚动条宽度的真实呈现。
  *
  * 用法：
  *   node e2e-real/ui-real.cjs                      # 完整验收（自起 tauri dev，结束清理）
@@ -32,7 +41,7 @@
  */
 'use strict';
 
-const { writeFileSync, mkdirSync } = require('fs');
+const { writeFileSync, mkdirSync, readFileSync } = require('fs');
 const path = require('path');
 const { runWithRealApp, record, sleep, dismissBlockingModals } = require('./lib/real-env.cjs');
 
@@ -46,6 +55,9 @@ const SRC = [
   '    """doc"""',
   "    print(f'hi {name}')",
 ].join('\n');
+
+/** 修记 A 的滑块断言需要**内容溢出**的文件：9 行的 main.py 下滚动条是 0×0 隐藏态 → 假阴性 */
+const LONG_SRC = Array.from({ length: 300 }, (_, i) => `VALUE_${i} = ${i}  # 行 ${i}`).join('\n');
 
 /** CSS 颜色归一化比较：浏览器 getPropertyValue 返回**声明值**，`0.10` 不会规范化成 `0.1` */
 function colorEq(actual, expected) {
@@ -61,6 +73,74 @@ function colorEq(actual, expected) {
     );
   };
   return grab(actual) === grab(expected);
+}
+
+// ── 修记 A · 工具 ────────────────────────────────────────────────────
+// Monaco 主题服务的色值**唯一通路**是「把色值写成 `--vscode-<槽位>` 的 CSS 变量」。
+// 修记 A 的红滚动条只发生在这条通路上（解析失败静默回落 Color.red），所以要读**注入结果**。
+
+/** `--vscode-<槽位>`：`editor.background` → `--vscode-editor-background` */
+function slotVarName(slot) {
+  return `--vscode-${slot.replace(/\./g, '-')}`;
+}
+
+/** 从 `src/theme/tokens.ts` 的 COLOR_SLOTS 解析槽位名单——硬编码会随映射表扩展而过期。
+ *  解析失败（文件挪位 / 写法变更）返回空数组，由调用方兜底为内建名单并如实记录。 */
+function monacoSlotNames() {
+  try {
+    const text = readFileSync(path.join(__dirname, '..', 'src', 'theme', 'tokens.ts'), 'utf8');
+    const block = text.match(/const COLOR_SLOTS[^=]*=\s*\{([\s\S]*?)\n\};/);
+    if (!block) return [];
+    // 键有两种写法：`"editor.background":` 与 `focusBorder:`（无引号）
+    const re = /^\s*"?([A-Za-z][\w.]*)"?:\s*"/gm;
+    const out = [];
+    let m;
+    while ((m = re.exec(block[1])) !== null) out.push(m[1]);
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+/** 兜底名单（tokens.ts 解析不出时用）：修记 A 实测受害的 9 个槽位 */
+const FALLBACK_SLOTS = [
+  'scrollbarSlider.background', 'scrollbarSlider.hoverBackground', 'scrollbarSlider.activeBackground',
+  'editorWidget.border', 'editorHoverWidget.border', 'editorSuggestWidget.border',
+];
+
+/** Monaco 注入的全部 `--vscode-*` 变量（读注入的 <style> 的 cssRules） */
+function injectedThemeVars(page) {
+  return page.evaluate(() => {
+    const out = {};
+    for (const sheet of Array.from(document.styleSheets)) {
+      let rules;
+      try {
+        rules = sheet.cssRules;
+      } catch {
+        continue; // 跨域样式表读不到；Monaco 注入的是同源 <style>，不受影响
+      }
+      for (const rule of Array.from(rules || [])) {
+        const style = rule.style;
+        if (!style) continue;
+        for (const prop of Array.from(style)) {
+          if (prop.startsWith('--vscode-')) out[prop] = style.getPropertyValue(prop).trim();
+        }
+      }
+    }
+    return out;
+  });
+}
+
+/** 非法色 = 纯红。Monaco 的 `Color.fromHex` 解析失败时**静默**返回 `Color.red`。 */
+function isRedValue(value) {
+  return /^#ff0000$/i.test(value) || /^rgba\(\s*255\s*,\s*0\s*,\s*0\s*(,|\))/.test(value);
+}
+
+/** 拆 `rgb()` / `rgba()` → 通道（Monaco 注入的是这两种序列化形式） */
+function parseRgb(value) {
+  const m = String(value).match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*(?:,\s*([\d.]+)\s*)?\)$/);
+  if (!m) return null;
+  return { r: +m[1], g: +m[2], b: +m[3], a: m[4] === undefined ? 1 : +m[4] };
 }
 
 const DARK = {
@@ -86,10 +166,12 @@ runWithRealApp(
   {
     tmpPrefix: 'oc-ui-real-',
     logName: '.tauri-dev-ui-real.log',
-    summaryTitle: '真机 CDP · UI 主题验收（批 1–5c）',
+    summaryTitle: '真机 CDP · UI 主题验收（批 1–5c + 修记 A）',
     setupFixtures({ workspace, dataRoot }) {
       mkdirSync(workspace, { recursive: true });
       writeFileSync(path.join(workspace, 'main.py'), SRC, 'utf8');
+      // 修记 A 的滑块断言需要内容溢出的长文件（见 LONG_SRC 注释）
+      writeFileSync(path.join(workspace, 'long.py'), LONG_SRC, 'utf8');
       // ⚠ 必须预置 recent-workspaces.json，否则启动后不会自动恢复到该工作区，
       // 文件树是空的 → 后续 `#tree .tree-item` 全部超时（首跑就踩了）。
       // 形态对齐 debug-real.cjs：数组元素是工作区绝对路径。
@@ -181,11 +263,14 @@ runWithRealApp(
         radiusSm: tok('--radius-sm'),
         radiusXs: tok('--radius-xs'),
         sidebarBorder: (() => {
-          // ⚠ 必须挑**四边都设了 border** 的元素：#sidebar 只声明 `border-left`，
-          // 读它的 borderTopColor 会拿到 currentColor（= --fg #d4d4d4），
-          // 看起来像「边框是实色灰」，实则是 border-color 的 initial 值。
-          // 改用 .btn（`border: 1px solid var(--border)`）。
-          const el = document.querySelector('.btn') || document.querySelector('#tree-filter-input');
+          // ⚠ 两处坑，缺一都会读到假值：
+          // ① 必须挑**四边都设了 border** 的元素：#sidebar 只声明 `border-left`，
+          //    读它的 borderTopColor 会拿到 currentColor（= --fg #d4d4d4），
+          //    看起来像「边框是实色灰」，实则是 border-color 的 initial 值。
+          // ② 必须排除 `.btn--ghost`（`border-color: transparent`）：DOM 里第一个 `.btn`
+          //    往往就是幽灵按钮（模态关闭钮），初版读到 `rgba(0,0,0,0)` 却因判据只查
+          //    「以 rgba 开头」而通过 —— 全透明边框什么都没证明，是假阴性。
+          const el = document.querySelector('.btn:not(.btn--ghost)') || document.querySelector('#tree-filter-input');
           if (!el) return null;
           const cs = getComputedStyle(el);
           return { prop: 'borderTopColor', value: cs.borderTopColor, all: cs.border };
@@ -219,8 +304,11 @@ runWithRealApp(
       colorEq(dark.accent, DARK.accent), dark.accent);
     record('R-BORDER-1', '--border-subtle = alpha 叠色（实色是批 5b 要消灭的对象）',
       colorEq(dark.borderSubtle, DARK.borderSubtle), dark.borderSubtle);
-    record('R-BORDER-2', '真实元素四边边框的 computed 是 rgba（alpha 在真机生效，非实色）',
-      String(dark.sidebarBorder && dark.sidebarBorder.value).startsWith('rgba'),
+    // ⚠ 判据必须是「rgba 且 alpha 在 (0, 0.5]」：只查「以 rgba 开头」会让
+    //   `rgba(0,0,0,0)`（幽灵按钮的 transparent）也通过，等于没验。
+    const borderRgb = parseRgb(String(dark.sidebarBorder && dark.sidebarBorder.value));
+    record('R-BORDER-2', '真实元素四边边框的 computed 是半透明 alpha（不是实色，也不是全透明）',
+      borderRgb !== null && borderRgb.a > 0 && borderRgb.a <= 0.5,
       `${String(dark.sidebarBorder && dark.sidebarBorder.all).slice(0, 60)}`);
 
     // ── E. 批 5c · 圆角 ────────────────────────────────────────
@@ -228,6 +316,70 @@ runWithRealApp(
     record('R-RADIUS-2', '真实输入框圆角 = 6px', dark.filterRadius === '6px', String(dark.filterRadius));
     record('R-RADIUS-3', '小元素（标签关闭钮 16px）走 xs 3px 而非主档（否则读成胶囊）',
       dark.closeRadius === '3px', `${String(dark.closeRadius)}（xs=${dark.radiusXs}）`);
+
+    // ── E2. 修记 A · 滚动条 / 缩略图滑块 / 浮层边框（真机层此前未覆盖）────────
+    const parsedSlots = monacoSlotNames();
+    const slots = parsedSlots.length >= 6 ? parsedSlots : FALLBACK_SLOTS;
+    // minimap 三个槽位不在映射表里，但出厂默认由 scrollbarSlider 派生（transparent(x,.5)），
+    // 坏值会连坐 → 必须一并验。
+    const targets = [
+      ...slots,
+      'minimapSlider.background',
+      'minimapSlider.hoverBackground',
+      'minimapSlider.activeBackground',
+    ];
+    const vars1 = await injectedThemeVars(page);
+    const missing = targets.filter((n) => !vars1[slotVarName(n)]);
+    const reds = targets.filter((n) => vars1[slotVarName(n)] && isRedValue(vars1[slotVarName(n)]))
+      .map((n) => `${n} = ${vars1[slotVarName(n)]}`);
+
+    record('R-FIXA-1', `注入变量可达（槽位表 ${slots.length} 项${parsedSlots.length ? '，由 tokens.ts 解析' : '，⚠ 解析失败用兜底名单'}）`,
+      missing.length === 0 && Object.keys(vars1).length > 0,
+      `注入 --vscode-* 共 ${Object.keys(vars1).length} 个；缺 ${missing.length} 项${missing.length ? '：' + missing.slice(0, 4).join(', ') : ''}`);
+    // ⚠ 假阴性防线：上面那条先证伪「0 命中」，这条才敢断言「无一为红」
+    record('R-FIXA-2', '我们映射的槽位 + minimap 派生槽位无一被 Monaco 判成非法色（静默回落 #ff0000）',
+      reds.length === 0, reds.length ? reds.join('; ').slice(0, 160) : `${targets.length} 项全部非红`);
+
+    const overlayBorders = ['editorWidget.border', 'editorHoverWidget.border', 'editorSuggestWidget.border'];
+    const borders = overlayBorders.map((n) => ({ n, v: vars1[slotVarName(n)] }));
+    record('R-FIXA-3', '三条浮层边框（补全框 / hover 框 / 通用 widget）不是红边（--border computed 是 rgba）',
+      borders.every((b) => b.v && !isRedValue(b.v)),
+      borders.map((b) => `${b.n.replace('editor', '').replace('Widget', '')}=${b.v || '(未注入)'}`).join(' · '));
+
+    // 用户真正看到的那块像素：长文件 + 悬停滚动，等滑块高度 > 0 再读 computed
+    await page.locator('#tree .tree-item .name', { hasText: 'long.py' }).first().dblclick();
+    await page.locator('.monaco-editor .view-line').first().waitFor({ state: 'visible', timeout: 60_000 });
+    await page.locator('.monaco-editor').first().hover();
+    await page.mouse.wheel(0, 1200);
+    const sliderBg = await page
+      .waitForFunction(
+        () => {
+          const el = document.querySelector('.monaco-editor .scrollbar.vertical .slider');
+          if (!el || el.getBoundingClientRect().height === 0) return null; // 仍是隐藏态
+          return getComputedStyle(el).backgroundColor;
+        },
+        null,
+        { timeout: 15_000 },
+      )
+      .then((h) => h.jsonValue())
+      .catch(() => null);
+    const sb = sliderBg ? parseRgb(sliderBg) : null;
+    const spread = sb ? Math.max(sb.r, sb.g, sb.b) - Math.min(sb.r, sb.g, sb.b) : -1;
+    record('R-FIXA-4', '滑块 computed 底色是无彩色 + 低 alpha（不是纯红；红色在 IDE 里语义是「错误」）',
+      sb !== null && spread <= 2 && sb.a <= 0.5,
+      sb ? `${sliderBg}（通道跨度 ${spread}，alpha ${sb.a}）` : `未取到可见滑块：${String(sliderBg)}`);
+
+    const sbWidth = await page.evaluate(() => {
+      const el = document.querySelector('.monaco-editor .scrollbar.vertical');
+      return el ? el.getBoundingClientRect().width : null;
+    });
+    record('R-FIXA-5', '垂直滚动条容器 10px（出厂 14px 比外壳 8px 明显粗；量容器不依赖滑块显形时序）',
+      sbWidth === 10, `width=${sbWidth}（dpr=${env.dpr}）`);
+
+    // 回到 main.py：后续浅色段要读 7 类 token 的语法色
+    await page.locator('#tree .tree-item .name', { hasText: 'main.py' }).first().dblclick();
+    await page.locator(".monaco-editor .view-line span[class*='mtk']").first()
+      .waitFor({ state: 'attached', timeout: 60_000 });
 
     // ── F. 批 5a · 焦点环双环（真机 WebView2 的 :focus-visible）──
     // ⚠ 真机诊断（首跑 60 次 Tab 全部停在 `TEXTAREA.inputarea monaco-mouse-cursor-text`）：
@@ -336,6 +488,20 @@ runWithRealApp(
       colorEq(light.focusGap, LIGHT.focusGap), light.focusGap);
     record('R-LIGHT-8', '浅色覆盖层重定义 --surface-2（两套主题各有真值，不靠继承）',
       colorEq(light.surface2, LIGHT.surface2), light.surface2);
+
+    // 切主题会**重新注册** Monaco 主题（色值是注册那一刻从 CSS 读的快照），故浅色侧必须重验一遍
+    const vars2 = await injectedThemeVars(page);
+    const lightReds = targets
+      .filter((n) => vars2[slotVarName(n)] && isRedValue(vars2[slotVarName(n)]))
+      .map((n) => `${n} = ${vars2[slotVarName(n)]}`);
+    const thumb2 = vars2['--vscode-scrollbarSlider-background'];
+    const thumbRgb = thumb2 ? parseRgb(thumb2) : null;
+    record('R-LIGHT-9', '切浅色后重新注册的槽位同样无一为红（修记 A 与主题无关，两套都要验）',
+      lightReds.length === 0 && Object.keys(vars2).length > 0,
+      lightReds.length ? lightReds.join('; ').slice(0, 160) : `scrollbarSlider=${thumb2}`);
+    record('R-LIGHT-10', '浅色滚动条滑块是中性灰黑（--scrollbar-thumb 黑 18%，不是彩色）',
+      thumbRgb !== null && Math.max(thumbRgb.r, thumbRgb.g, thumbRgb.b) - Math.min(thumbRgb.r, thumbRgb.g, thumbRgb.b) <= 2,
+      `scrollbarSlider.background=${thumb2}`);
 
     // ── I. 收尾 ─────────────────────────────────────────────────
     record('R-END-1', '全程无未捕获页面异常', pageErrors.length === 0,
