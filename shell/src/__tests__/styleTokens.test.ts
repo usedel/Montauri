@@ -388,3 +388,80 @@ describe("批 5b · 边框 alpha 叠色", () => {
     }
   });
 });
+
+/* ══════════════════════ 批 5c · 圆角档位（方案 §5.7） ══════════════════════ */
+
+describe("批 5c · 圆角五档", () => {
+  const RADIUS = ["--radius-xs", "--radius-sm", "--radius-md", "--radius-lg", "--radius-xl"];
+
+  it("五档值即方案 §5.7 的裁决（3 / 6 / 8 / 10 / 16）", () => {
+    expect(root.get("--radius-xs")).toBe("3px");
+    expect(root.get("--radius-sm")).toBe("6px");
+    expect(root.get("--radius-md")).toBe("8px");
+    expect(root.get("--radius-lg")).toBe("10px");
+    expect(root.get("--radius-xl")).toBe("16px");
+  });
+
+  it("档位严格递增，且必须是显式 px（相对单位会让「圆角占高度比例」的推理失效）", () => {
+    const vals = RADIUS.map((n) => {
+      const v = root.get(n)!;
+      expect(v, `${n} 必须是显式 px`).toMatch(/^\d+px$/);
+      return Number(/(\d+)px/.exec(v)![1]);
+    });
+    for (let i = 1; i < vals.length; i++) {
+      expect(vals[i - 1], `${RADIUS[i - 1]}(${vals[i - 1]}px) 应 < ${RADIUS[i]}(${vals[i]}px)`).toBeLessThan(vals[i]);
+    }
+  });
+
+  it("浮层容器圆角不得小于 md 档（浮层比控件更「软」；菜单/tooltip 用 md、模态用 lg）", () => {
+    // 存量设计是分档的：.modal-card 用 lg（最大的容器），.ctx-menu / .oc-tooltip /
+    // .interp-popover 用 md（菜单比模态小一档）。本批**不改**这个分配——它是合理的，
+    // 断言只守住下界「不得回退到 sm/xs」，那才是「浮层看起来太硬」的回归。
+    for (const sel of [".modal-card", ".ctx-menu", ".oc-tooltip", ".interp-popover"]) {
+      const i = bare.indexOf("\n" + sel + " {");
+      expect(i, `未找到顶层规则 ${sel}`).toBeGreaterThan(-1);
+      const body = bare.slice(i, bare.indexOf("}", i));
+      expect(body, `${sel} 圆角应为 md 或 lg 档`).toMatch(/border-radius:\s*var\(--radius-(md|lg)\)/);
+    }
+  });
+
+  it("小尺寸元素（高度 ≤24px）一律 xs 档 —— 6px 圆角配 14px 高会读成胶囊", () => {
+    // 方案 §5.7 只说「sm 是控件主档」，没说「主档要按元素尺寸校验」；
+    // 这 15 处是批 5c 实测后归位的（门禁 audit_tokens.py 门禁 26 同步守住）。
+    const SMALL = [
+      ".tab .close", ".term-tab-close", ".term-tab-stop", ".env-pkg-line > button",
+      ".git-section-title .scm-section-action", ".scm-item .scm-action", ".scm-item .scm-discard",
+      ".clone-progress-bar", ".new-project-preview", ".lt-badge", ".surround-num",
+      ".ew-recent-clear", ".ew-recent-remove", ".pkg-drift-tag", ".storage-badge",
+    ];
+    for (const sel of SMALL) {
+      const i = bare.indexOf("\n" + sel + " {");
+      expect(i, `未找到规则 ${sel}`).toBeGreaterThan(-1);
+      const body = bare.slice(i, bare.indexOf("}", i));
+      expect(body, `${sel} 应走 xs 档`).toMatch(/border-radius:\s*var\(--radius-xs\)/);
+      expect(body, `${sel} 不应再用 sm 及以上`).not.toMatch(/border-radius:\s*var\(--radius-(sm|md|lg|xl)\)/);
+    }
+  });
+
+  it("存量 7 处裸圆角已归档：5 处归 token，2 处光学值保留并登记", () => {
+    // 归档：.debug-bp-dot-log(菱形指示点) / .out-chip-count(计数徽标) /
+    //      #db-filter-input / #db-data-filter（硬编码旧 sm 值）/ .oc-rename-ghost
+    for (const sel of [".debug-bp-dot-log", "#db-filter-input", "#db-data-filter", ".oc-rename-ghost"]) {
+      const i = bare.indexOf("\n" + sel + " {");
+      const body = bare.slice(i, bare.indexOf("}", i));
+      expect(body, `${sel} 应走 token`).toMatch(/border-radius:\s*var\(--radius-/);
+    }
+    // 保留：2px 宽指示条与 2px 高进度条的半宽圆角（改成 3px 反而变半圆）
+    for (const sel of [".activity-item.active::before", ".rx-progress"]) {
+      expect(bare, `${sel} 的 1px 光学值应保留`).toMatch(
+        new RegExp("\\n" + sel.replace(/[.[\]()]/g, "\\$&") + "\\s*\\{[^}]*border-radius:\\s*1px"),
+      );
+    }
+  });
+
+  it("Monaco 侧圆角缺口已登记（0.52 无 *.borderRadius 主题槽位，不做 CSS 覆盖）", () => {
+    const tokensSrc = readRepoFile("src/theme/tokens.ts");
+    expect(tokensSrc, "缺口必须写进 tokens.ts 注释，避免后人以为漏了").toContain("borderRadius");
+    expect(tokensSrc).toContain("0.52");
+  });
+});

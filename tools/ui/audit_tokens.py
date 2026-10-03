@@ -773,6 +773,85 @@ def gate_overlay_hairline(report: Report, rules: list[Rule]) -> None:
                      f"浮层容器边框应为 var(--border-hairline)，实得 `{val.strip()}`")
 
 
+def gate_radius_scale(report: Report, tokens: dict[str, dict[str, str]]) -> None:
+    """门禁 24（方案 §5.7）：圆角五档齐备且严格单调递增。
+
+    档位值必须显式给 px 数值——写 `0.5rem` 之类会让「圆角占元素高度的比例」随根字号漂移，
+    而本批 6px 的取值判断建立在「14px 元素配 6px 会变胶囊」这个比例推理上。
+    """
+    order = ["--radius-xs", "--radius-sm", "--radius-md", "--radius-lg", "--radius-xl"]
+    root = tokens.get("dark", {})
+    vals: list[int] = []
+    for name in order:
+        raw = root.get(name)
+        if raw is None:
+            report.check("圆角档位", name, False, "未定义")
+            vals.append(-1)
+            continue
+        m = re.fullmatch(r"(\d+)px", raw.strip())
+        if not m:
+            report.check("圆角档位", name, False, f"应为显式 px 数值，实得 `{raw}`（相对单位会让比例推理失效）")
+            vals.append(-1)
+        else:
+            report.check("圆角档位", name, True, raw)
+            vals.append(int(m.group(1)))
+    if all(v >= 0 for v in vals):
+        mono = all(a < b for a, b in zip(vals, vals[1:]))
+        report.check("圆角档位", "五档严格递增 xs<sm<md<lg<xl", mono,
+                     " → ".join(f"{n.replace('--radius-', '')}={v}px" for n, v in zip(order, vals))
+                     + ("" if mono else " ❌ 非递增"))
+
+
+# 裸圆角白名单：圆形语义 + 「与元素自身尺寸成比例」的一次性光学值（方案注释已登记）
+BARE_RADIUS_EXEMPT = {
+    "50%",  # 圆形（状态点、色卡、头像）
+    ".activity-item.active::before",  # 2px 宽指示条的半宽圆角
+    ".rx-progress",                   # 2px 高进度条的半宽圆角
+}
+
+
+def gate_no_bare_radius(report: Report, rules: list[Rule]) -> None:
+    """门禁 25：border-radius 必须走 --radius-* token（方案 §5.7 的「禁止裸圆角」纪律）。
+
+    存量 7 处裸值已在批 5c 归档 5 处；剩下 2 处 1px 是**与元素自身尺寸成比例**的光学值
+    （2px 宽指示条 / 2px 高进度条），改成 3px 反而会让它变成半圆，故列入白名单保留。
+    """
+    bare: list[str] = []
+    for r in rules:
+        val = r.decls.get("border-radius")
+        if not val:
+            continue
+        v = val.strip()
+        if "var(--radius" in v or v == "50%":
+            continue
+        if v in ("1px",) and r.selector in BARE_RADIUS_EXEMPT:
+            continue
+        bare.append(f"L{r.line} {r.selector}: {v}")
+    report.check("圆角纪律", "border-radius 全部走 --radius-*", not bare,
+                 f"裸圆角 {len(bare)} 处" + (f"：{bare[:3]}" if bare else " ✅"))
+
+
+def gate_small_element_radius(report: Report, rules: list[Rule]) -> None:
+    """门禁 26：高度 ≤24px 的元素不得用 sm 及以上档（方案未提，批 5c 实测发现）。
+
+    14–16px 高的元素（标签关闭钮、chip、徽标、scm 操作按钮）配 6px 圆角时，
+    圆角占高度 37–43%，直接读成胶囊形。这是**让「sm = 控件主档」这条语义真正成立的前提**，
+    不是额外的设计变更——方案 §5.7 只说「sm 是控件主档」，没说「主档要按元素尺寸校验」。
+    """
+    SMALL_MAX = 24
+    offenders: list[str] = []
+    for r in rules:
+        val = r.decls.get("border-radius", "")
+        if not re.search(r"var\(--radius-(sm|md|lg|xl)\)", val):
+            continue
+        h = r.decls.get("height", "").strip()
+        m = re.fullmatch(r"(\d+)px", h)
+        if m and int(m.group(1)) <= SMALL_MAX:
+            offenders.append(f"L{r.line} {r.selector}: height {m.group(1)}px 但用 {val.strip()}")
+    report.check("圆角档位", f"高度 ≤{SMALL_MAX}px 的元素用 xs 档", not offenders,
+                 f"小元素误用主档 {len(offenders)} 处" + (f"：{offenders[:3]}" if offenders else " ✅"))
+
+
 def audit(css_path: Path) -> Report:
     tokens = load_tokens(css_path)
     report = Report()
@@ -795,6 +874,9 @@ def audit(css_path: Path) -> Report:
     gate_motion_scaling(report, css_path)
     gate_border_scale(report, css_path, tokens)
     gate_overlay_hairline(report, rules)
+    gate_radius_scale(report, tokens)
+    gate_no_bare_radius(report, rules)
+    gate_small_element_radius(report, rules)
     return report
 
 

@@ -15,6 +15,20 @@
 // [data-theme="light"] 覆盖层里。切主题只需切 data-theme 后重新注册，映射表永不重复。
 //
 // 断言见 __tests__/themeTokens.test.ts（映射引用的变量必须在两套主题下都有定义）。
+//
+// ## 已登记的缺口：Monaco 浮层圆角无法跟随外壳（批 5c 实测）
+//
+// 批 5c 把外壳圆角主档从 3px 提到 6px 后，Monaco 侧的浮层（补全建议框 / hover 浮层）
+// **无法**跟着走：遍历 monaco-editor 0.52.2 的 esm 产物确认，它**没有注册任何
+// `*.borderRadius` 主题槽位**（全仓只有 `scrollElement.style.borderRadius` 这个 DOM API，
+// 以及 `editorSuggestWidget.background` 这类颜色槽位）。即在 0.52 上「用主题同步浮层圆角」
+// 这条路走不通。
+//
+// 备选方案是 CSS 覆盖 `.monaco-editor .suggest-widget { border-radius: … }`，本批**不做**：
+// ① 收益低——Monaco 浮层与外壳浮层几乎不同时同屏，感知度接近 0；
+// ② 风险高——要用 `!important` 压 Monaco 的内联样式，而该 widget 挂载在
+//    `.overflow-guard` 内且随补全弹窗反复重绘，改错了会连带影响补全框定位。
+// 登记为已知缺口，待 Monaco 升级到支持该槽位的版本再补。
 
 /** 出厂深色主题名（= Settings.theme 的深色取值） */
 export const EDITOR_THEME_DARK = "opencharm-dark";

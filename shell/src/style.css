@@ -301,14 +301,26 @@
   --space-11: 28px;
   --space-12: 32px;
 
-  /* ---------- 圆角 scale（UI-18）----------
-     审计口径：83 处 border-radius、7 种取值；3px 为绝对主档（51 处）。
-     5px（7 处，均为卡片/内嵌面板类容器）就近归入容器档 6px。 */
-  --radius-xs: 2px;   /* 徽标 / 行内输入 / 高亮片段 */
-  --radius-sm: 3px;   /* 通用控件主档：按钮 / 输入 / 菜单 / 列表 */
-  --radius-md: 4px;   /* 稍大控件与内嵌面板 */
-  --radius-lg: 6px;   /* 卡片 / 容器 / 模态 */
-  --radius-xl: 10px;  /* 品牌装饰（欢迎页 logo） */
+  /* ---------- 圆角 scale（批 5c · 方案 §5.7）----------
+     审计口径：5 档 token 共 142 处引用 + 7 处历史裸值（本批归档 5 处，保留 2 处）。
+     档位语义（按「元素的物理尺寸」定，不是按好看程度定）：
+       · xs  3px 徽标 / 行内高亮 / **高度 ≤24px 的小元素**（14 处 + 本批归档 5 处）
+       · sm  6px 控件主档：按钮 / 输入框 / 卡片（89 处 → 扣除小元素后 ~78）
+       · md  8px 内嵌面板 / 表格容器（29 处）
+       · lg  10px 浮层容器：模态卡 / 菜单 / tooltip / 弹层（10 处）
+       · xl  16px 品牌装饰（欢迎页 logo，1 处）
+     ⚠ 取值 6px 是方案 §5.7 的裁决（对比 VS Code 2 / JetBrains 4 / PyCharm 4）。
+       本 IDE 侧栏条目密度高于那三家，故 sm 与 md 差距拉到 2px（3→6 / 4→8）——
+       若 6px 在密集列表里显松，往回退一档只需改这 5 行。
+     ⚠ 小元素为什么必须走 xs 而不是 sm（方案未提，本批实测发现）：
+       14–16px 高的元素（标签关闭钮、chip、徽标、scm 操作按钮）用 6px 时圆角占高度
+       37–43%，直接变成胶囊形。故这 11 处已由 sm 归到 xs——**这是让「sm = 控件主档」
+       这条语义真正成立的前提**，不是额外的设计变更。 */
+  --radius-xs: 3px;   /* 徽标 / 行内输入 / 高亮片段 / 高度 ≤24px 的小元素 */
+  --radius-sm: 6px;   /* 通用控件主档：按钮 / 输入 / 菜单项 / 卡片 */
+  --radius-md: 8px;   /* 内嵌面板与表格容器 */
+  --radius-lg: 10px;  /* 浮层容器：模态卡 / 右键菜单 / tooltip / 弹层 */
+  --radius-xl: 16px;  /* 品牌装饰（欢迎页 logo） */
 }
 
 /* ---------- 动效系统（D3 P-06 · 批 5a 补曲线分级） ----------
@@ -1305,7 +1317,7 @@ button:focus-visible,
   border: 2px solid var(--debug-breakpoint);
 }
 .debug-bp-dot-log {
-  border-radius: 2px;
+  border-radius: var(--radius-xs);
   transform: rotate(45deg) scale(0.85);
 }
 /* 条件/日志摘要：次要信息，允许被挤压（断点定位标签优先保证完整） */
@@ -1338,7 +1350,7 @@ button:focus-visible,
 .tab .close {
   width: 16px; height: 16px;
   display: flex; align-items: center; justify-content: center;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-xs);
   color: var(--fg-dim);
   font-size: var(--text-base);
   /* D4：默认隐藏，悬停或活动（非脏）标签显示；脏标签悬停时关闭钮取代脏点（VS Code 行为） */
@@ -1597,7 +1609,7 @@ button:focus-visible,
   height: 20px;
   padding: 0;
   border: none;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-xs);
   background: transparent;
   color: var(--fg-dim);
   cursor: pointer;
@@ -1637,7 +1649,7 @@ button:focus-visible,
   height: 18px;
   padding: 0;
   border: none;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-xs);
   background: transparent;
   color: var(--fg-dim);
   cursor: pointer;
@@ -1904,7 +1916,7 @@ button:focus-visible,
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-xs);
   font-size: var(--text-sm);
   color: var(--fg-dim);
 }
@@ -1926,7 +1938,7 @@ button:focus-visible,
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-xs);
   color: var(--danger);
   flex: none;
 }
@@ -2066,7 +2078,7 @@ button:focus-visible,
 .out-line.lvl-info { box-shadow: inset 3px 0 0 var(--ok); }
 .out-line.lvl-debug { box-shadow: inset 3px 0 0 var(--border); color: var(--fg-dim); }
 /* §11.7：级别 chips 计数徽标（0 时由 termUi 加 .hidden） */
-.out-chip-count { margin-left: 4px; padding: 0 4px; border-radius: 8px; background: var(--hover-subtle); color: var(--fg-dim); font-size: var(--text-xs); }
+.out-chip-count { margin-left: 4px; padding: 0 4px; border-radius: var(--radius-sm); background: var(--hover-subtle); color: var(--fg-dim); font-size: var(--text-xs); }
 .out-line.diff-meta { color: var(--meta); }
 .out-line.diff-hunk { color: var(--diff-hunk); }
 .out-line.diff-add { color: var(--diff-add); }
@@ -2477,7 +2489,7 @@ button:focus-visible,
   padding: 2px var(--space-2);
   background: var(--bg-alt);
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   color: var(--fg);
 }
 #db-filter-input:focus-visible { outline: 1px solid var(--focus-ring); outline-offset: -1px; }
@@ -2565,7 +2577,7 @@ button:focus-visible,
   padding: 2px var(--space-2);
   background: var(--bg-alt);
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   color: var(--fg);
 }
 #db-data-filter:focus-visible { outline: 1px solid var(--focus-ring); outline-offset: -1px; }
@@ -2864,7 +2876,7 @@ button:focus-visible,
   justify-content: center;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-xs);
   color: var(--fg-dim);
   cursor: pointer;
   font-size: var(--text-sm);
@@ -2883,7 +2895,7 @@ button:focus-visible,
   color: var(--warn);
   background: var(--warn-soft);
   border: 1px solid var(--warn-border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-xs);
   vertical-align: middle;
 }
 /* UI-08：按钮忙碌态（内联转圈 + 禁用交互）已收敛到 .btn.busy，见「通用按钮体系」 */
@@ -3114,7 +3126,7 @@ button:focus-visible,
   flex: none;
   display: flex; align-items: center; justify-content: center;
   border: none;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-xs);
   background: transparent;
   color: var(--fg-dim);
   font-size: var(--text-md);
@@ -3142,7 +3154,7 @@ button:focus-visible,
   flex: none;
   display: flex; align-items: center; justify-content: center;
   border: none;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-xs);
   background: transparent;
   color: var(--fg-dim);
   font-size: var(--text-md);
@@ -3166,7 +3178,7 @@ button:focus-visible,
   flex: none;
   display: flex; align-items: center; justify-content: center;
   border: none;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-xs);
   background: transparent;
   color: var(--fg-dim);
   font-size: var(--text-md);
@@ -3877,7 +3889,7 @@ button:focus-visible,
 .clone-option label, .clone-option span { min-width: 0; }
 #clone-submit { align-self: flex-start; }
 .clone-progress { margin-top: var(--space-2); }
-.clone-progress-bar { height: 4px; background: var(--border-soft); border-radius: var(--radius-sm); overflow: hidden; }
+.clone-progress-bar { height: 4px; background: var(--border-soft); border-radius: var(--radius-xs); overflow: hidden; }
 /* 批 5a：原为 `transition: width 0.2s`（裸时长 + 隐式 ease，且未挂 --motion）。
    进度条填充是「持续位移」而非入场，用 --transition-slow 的曲线语义（ease-in-out）更贴；
    但 200ms 已超方案 §3 的 ≤150ms 上限，故沿用 base 时长（150ms）只换曲线。 */
@@ -3997,7 +4009,7 @@ button:focus-visible,
   color: var(--fg-dim);
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-xs);
   padding: var(--space-3) var(--space-5);
   word-break: break-all;
   min-height: 16px;
@@ -4102,7 +4114,7 @@ button:focus-visible,
   font-size: var(--text-xs);
   color: var(--fg-dim);
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-xs);
   padding: 0 var(--space-3);
   line-height: 16px;
   flex: none;
@@ -4258,7 +4270,7 @@ button:focus-visible,
   align-items: center;
   justify-content: center;
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-xs);
   color: var(--fg-dim);
   font-size: var(--text-xs);
 }
@@ -4998,7 +5010,7 @@ button:focus-visible,
 
 .storage-size { flex: none; color: var(--fg-dim); font-variant-numeric: tabular-nums; min-width: 64px; text-align: right; }
 
-.storage-badge { flex: none; font-size: var(--text-xs); color: var(--fg-dim); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0 var(--space-2); }
+.storage-badge { flex: none; font-size: var(--text-xs); color: var(--fg-dim); border: 1px solid var(--border); border-radius: var(--radius-xs); padding: 0 var(--space-2); }
 
 .storage-badge-ok { color: var(--ok); border-color: var(--ok-border); }
 
@@ -5180,7 +5192,7 @@ button:focus-visible,
 .oc-rename-ghost {
   background: var(--accent-faint);
   outline: 1px solid var(--accent-soft);
-  border-radius: 2px;
+  border-radius: var(--radius-xs);
 }
 
 /* 原地输入框 widget：锚定在标识符位置下方 */
