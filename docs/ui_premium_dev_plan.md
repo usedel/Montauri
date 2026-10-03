@@ -1,6 +1,6 @@
 # UI 视觉「高级感」改造 · 开发文档
 
-> 版本：**v1.0** · 日期：2026-10-03 · 状态：**六批全部落地**（批 1 / 2a / 2b / 3 / 4 / 5a / 5b / 5c · 2026-10-03 一日收官）；门禁与逐批记录见 §1.1 与 §7，真机 CDP 主题验收 32/32 PASS（提交 `ae62b73`）
+> 版本：**v1.1** · 日期：2026-10-03 · 状态：**六批全部落地 + 修记 A**（批 1 / 2a / 2b / 3 / 4 / 5a / 5b / 5c · 2026-10-03 一日收官；修记 A = 编辑器滚动条变红，见 §7.9）；门禁与逐批记录见 §1.1 与 §7，真机 CDP 主题验收 32/32 PASS（提交 `ae62b73`）
 > 上游方案：`docs/ui_premium_design_report.md`（v1.2，二轮评审修订版）——**方案与本文档冲突时以本文档为准并反馈修订方案**（架构铁律「文档约定」）。
 > 与 `docs/ui_design_improvement_plan.md`（v2.1，30/30 已完成）的关系：那份解决"对不对"（缺陷修复与一致性），本次解决"贵不贵"（材质 / 身份 / 排版）。
 > 冲突时以 `docs/python_ide_dev_plan_v2.md` 为准并反馈修订本文档。
@@ -29,6 +29,7 @@
 | 批 3 | 等宽字体五处改动 + JetBrains Mono 随包（**落地路径已修订为 `public/fonts/` 入库**，见 §7.4.1） | ✅ 已落地（2026-10-03，记录见 §7.4） |
 | 批 4 | Monaco 自定义主题 `opencharm-dark/light` + `--syntax-*` 与 `rules` 同批 | ✅ 已落地（2026-10-03，记录见 §7.5） |
 | 批 5 | 边框三档 alpha（**只换值 + 重点提升**，§6.5）· 圆角档位 3→6px（**最大面积单点改动**，§6.5） | ✅ 5a（§7.6）· ✅ 5b（§7.7）· ✅ 5c（§7.8）—— **六批全部落地** |
+| 修记 A | 用户报「编辑器滚动条是纯红」→ 根因是 **Monaco 只认 hex 色值**，`rgba()` 被静默判成 `#ff0000`（含 `minimapSlider` 派生与三条浮层红边框）；修法是**边界归一**（`toMonacoHexColor`），不动 CSS。另顺带把编辑器滚动条宽度 14px → **10px**（Monaco 自绘控件，只能走 editorOption；外壳是 8px） | ✅ 已落地（2026-10-03，记录见 §7.9） |
 
 ---
 
@@ -709,6 +710,73 @@ alpha 叠色把「同一色值在两个面上表现不一致」抹平了 —— 
 
 **注入自检**：把 `--radius-sm` 改回 `3px` → 单测 2 条变红（档位值 + 递增性）。
 
+### 7.9 修记 A（2026-10-03）—— 编辑器滚动条是纯红：Monaco 只认 hex 色值
+
+用户报「编辑区滚动条是红色的，很刺眼，而且红色代表错误，会让人误以为滚动条的位置是错误」。这不是配色偏好问题，是**产品缺陷**：红色在 IDE 里有既定语义。
+
+#### 7.9.1 根因（取证链逐环可复核）
+
+| 环 | 事实 | 出处 |
+|---|---|---|
+| 1 | 批 4 把 `--scrollbar-thumb`（**rgba 半透明**）直接喂给 `defineTheme` | `monaco.ts::defineEditorThemes` · `theme/tokens.ts` `COLOR_SLOTS` |
+| 2 | Monaco 解析主题色**只走 `Color.fromHex`** | `vs/editor/standalone/browser/standaloneThemeService.js::StandaloneTheme.getColors()` |
+| 3 | `fromHex` → `parseHex`，**只认 `#RGB` / `#RGBA` / `#RRGGBB` / `#RRGGBBAA`**，不认 `rgb()/rgba()` | `vs/base/common/color.js::Color.Format.CSS.parseHex` |
+| 4 | 解析失败**静默返回 `Color.red`**（不抛错、不警告） | 同上：`return Color.Format.CSS.parseHex(hex) \|\| Color.red` |
+| 5 | 缩略图滑块跟着变红，因为它的出厂默认是**由滚动条槽位派生**的 | `vs/platform/theme/common/colors/minimapColors.js`：`registerColor('minimapSlider.background', transparent(scrollbarSliderBackground, 0.5))` |
+
+浏览器实测（`monaco-scrollable-element > .scrollbar.vertical > .slider` 的 computed `background-color`）：
+
+- 修前：`rgb(255, 0, 0)` —— 纯红；缩略图滑块 `rgba(255, 0, 0, 0.5)`
+- 修后：`rgba(255, 255, 255, 0.14)` —— 即 `--scrollbar-thumb` 本来的设计值；缩略图滑块 `rgba(255, 255, 255, 0.07)`（= 0.14 × 0.5，Monaco 派生正确）
+
+**受害槽位共 9 个**，分两批发现：
+
+| 批次 | 槽位 | 发现方式 |
+|---|---|---|
+| 首批 6 个 | `scrollbarSlider.background` / `.hoverBackground` / `.activeBackground` + `minimapSlider.*` 三个派生值 | 浏览器探针 dump `--vscode-*` 变量（恰好等于「坏值 + 其派生」） |
+| 后补 3 个 | `editorWidget.border` / `editorSuggestWidget.border` / `editorHoverWidget.border` —— `--border` 的 authored 值是 `var(--border-subtle)`，computed 后是 `rgba(255,255,255,0.10)`，故**补全框 / hover 框是红边框** | e2e 注入自检（§7.9.4 第 6 项）。此前只有推断，实测才发现——**若只盯用户报的那一处，这 3 条会长期潜伏** |
+
+修后实测：滑块与缩略图滑块取到设计值，三条浮层边框为 `rgba(255, 255, 255, 0.1)`，与外壳描边同源。
+
+#### 7.9.2 修法：边界归一，不动 CSS
+
+`theme/tokens.ts` 新增 `toMonacoHexColor(value)`：把 CSS 色值翻译成 Monaco 语法（hex 透传 / 短 hex 展开 / `rgb()`·`rgba()` → 8 位 hex 带 alpha），**无法解析返回 `null`**；`monaco.ts::defineEditorThemes` 据此**跳过该槽位并打警告**，绝不把非法值原样传下去。
+
+**为什么不反过来把 CSS token 改成 hex**（这是本条最关键的取舍）：CSS 侧用 rgba 是刻意的设计语言（alpha 档位是批 2b/5b 的核心手法），同一个 `--scrollbar-thumb` 还要喂给 `::-webkit-scrollbar-thumb` 等原生选择器。把 20 多个半透明 token 全改成 hex8 会让「alpha 档位」这一读法在 CSS 里失效，且**治的是标不是因**——任何未来新增的 rgba token 都会再踩一次。边界归一后 CSS 仍是唯一真源，本函数只做语法翻译，不新增任何色值真值（与 §7.5.1 的真源纪律一致）。
+
+#### 7.9.3 门禁（这类静默失效必须有断言，否则必然复发）
+
+| # | 门禁 | 落点 | 拦的是什么 |
+|---|---|---|---|
+| 1 | `toMonacoHexColor` 单测 6 组（hex 透传 / 短 hex / rgba→8 位 / alpha=1→6 位 / 现代语法与百分比 / 非法值返回 null） | `themeTokens.test.ts` | 归一逻辑本身写错（第一版就把传统 `rgba(r,g,b,a)` 的第 4 段当成通道，实测 `rgba(255,255,255,0.10)` 判成非法 → 单测当场抓出） |
+| 2 | **静态扫描**：映射表引用的每个 token，在 `:root` 与浅色覆盖层下的取值（解 `var()` 引用）都必须可解析 | `themeTokens.test.ts` | 有人把某个槽位指向 rgba token / 命名色 / 未定义值 |
+| 3 | **e2e T-B4-7 / T-B4-8**：读 Monaco 注入的 `--vscode-*` 变量，断言**我们映射的槽位**无一为红 | `e2e/editor/11-monaco-theme.spec.ts` | 单测证不了「色值真的落到编辑器上」（§7.5 已记该教训）。**范围必须限定在 `MONACO_COLOR_SLOTS` 的键**——全量扫描会误伤 vs-dark 出厂的 `diffEditor.removedTextBackground`（`rgba(255,0,0,0.2)`，合法 diff 红底） |
+| 4 | **e2e T-B4-9**：长文件 + 悬停 + 滚轮，等滑块**高度 > 0** 后读 computed 底色，断言「无彩色（通道跨度 ≤ 2）+ alpha ≤ 0.5」 | 同上 | 用户真正看到的那块像素。短文件（9 行）下滚动条是 0×0 隐藏态，直接断言会假阴性 |
+
+#### 7.9.4 门禁实测
+
+| # | 门禁 | 结果 |
+|---|---|---|
+| 1 | `npm run build`（tsc） | ✅ 0 错 |
+| 2 | vitest 全量 | ✅ **92 文件 / 1081 用例**（`themeTokens.test.ts` 25 → **36**，+11） |
+| 3 | e2e `editor/11-monaco-theme.spec.ts` | ✅ **9/9**（新增 T-B4-7 / T-B4-8 / T-B4-9） |
+| 3b | e2e-ui 视觉关键子集 | ✅ **64/64**（原 61 + 新增 3） |
+| 4 | 浏览器实测（`monaco-scrollable-element > .scrollbar.vertical > .slider` 的 computed `background-color`） | 修前 `rgb(255, 0, 0)` → 修后 `rgba(255, 255, 255, 0.14)`；缩略图滑块 `rgba(255,0,0,0.5)` → `rgba(255,255,255,0.07)`；浮层边框 `rgba(255,255,255,0.1)` |
+| 5 | **全量扫描 1573 个 `--vscode-*` 变量** | 非法红 **9 → 0**（残留 2 处含红是 vs-dark 出厂的 `diffEditor.removedTextBackground` / `removedLineBackground` = `rgba(255,0,0,0.2)`，**合法 diff 红底**，故 e2e 断言范围必须限定在 `MONACO_COLOR_SLOTS` 的键） |
+| 6 | **门禁注入自检**（把 `slotColor` 临时改成不归一） | ✅ 用例按预期变红，并一次报全 6 个红槽位——其中 3 条浮层边框（`editorWidget` / `editorHoverWidget` / `editorSuggestWidget`）是这次自检才**首次实证**的（此前只有推断），已回填 §7.9.1。自检后已回滚 |
+
+#### 7.9.5 顺带统一：编辑器滚动条宽度 14px → 10px
+
+用户拍板顺带修「右侧滑块比左侧/底部粗」。Monaco 出厂 `verticalScrollbarSize = 14`，外壳 `::-webkit-scrollbar` 是 8px（批 5a 定的），三处粗细不一致本身就是「拼装感」的一个来源。
+
+**只能走 `editorOption`**：Monaco 0.52 的滚动条是**自绘控件**，`style.css` 里那条 `::-webkit-scrollbar` 规则一直管不到它（这也是此 bug 排查时容易被误导的一点——看 CSS 一切正常）。取值 **10px 而非 8px**：与 8px 视觉协调，同时留得住滑块的拖拽目标（8px 与外壳等宽但滑块偏窄，拖拽手感下降）。滑块宽度（`verticalSliderSize`）默认跟随该值，故不必另设。
+
+落点在 `settingsPanel.ts::buildEditorOptions`——它是编辑器创建与设置变更的**唯一共用入口**，故分屏（`splitEditor` 复用同一份 opts）自动同步。门禁：e2e `T-B4-10` 量滚动条容器宽度（不是滑块宽度，避免依赖显形时序）。
+
+#### 7.9.6 工具级教训一则
+
+> **「静默 fallback 到某个合法但语义错误的值」比抛错更难发现。** 这次的症状（红色）恰好**长得像另一个真实功能**（错误标记），所以第一反应是「配色没调好」；真正定位靠的是**把注入结果整张 dump 出来**（1573 个 `--vscode-*` 变量）而不是盯着一处看。判据也随之升级：门禁不能只断言「不是红色」，要断言**语义**（无彩色 + 低 alpha）——前者会在有人把滑块改成橙色时继续放行。
+
 ---
 
 ## 8. ui_premium 全六批完成情况
@@ -723,6 +791,7 @@ alpha 叠色把「同一色值在两个面上表现不一致」抹平了 —— 
 | 批 5a | `db208d9` | 动效曲线分级 + 焦点环双环 + 材质细节 | audit 76 · vitest 1060 · e2e 2 条 |
 | 批 5b | `74780c8` | 边框三档 alpha | audit 90 · vitest 1064 |
 | **批 5c** | 本次 | 圆角档位（收官） | audit **98** · tsc 0 错 · vitest **1070** · e2e-ui 53 passed · 截图 8 张 |
+| **修记 A** | 本次 | 编辑器滚动条/缩略图滑块/浮层边框变红 → 色值格式边界归一（`toMonacoHexColor`） | tsc 0 错 · vitest **1081**（+11）· e2e 3 条新断言 · 浏览器实测红槽位 6 → **0** |
 
 **门禁工具演进**：audit 从 39 项（改造前基线）→ 53 → 69 → 74 → 76 → 90 → **98 项**；`styleTokens.test.ts` 从 16 → 36 条；e2e 新增 4 个 spec（字体 / Monaco 主题 / 动效焦点 / 主题迁移）。
 

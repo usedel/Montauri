@@ -151,11 +151,24 @@ import {
   THEME_BASES,
   resolveEditorTheme,
   shellThemeOf,
+  toMonacoHexColor,
 } from "./theme/tokens";
 
 /** 读 CSS 变量当前值（trim：getPropertyValue 会带前导空白，不去会让 defineTheme 拿到非法颜色） */
 function cssVar(name: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+/** 槽位取色：**读 CSS 变量 → 归一成 Monaco 能解析的 hex**；不可解析返回 null（调用方跳过该槽位）。
+ *
+ *  ⚠ 归一这步不是洁癖：Monaco 只认 hex，`rgba()` 会被 `parseHex` 判为非法并**静默变成纯红**
+ *    （取证链见 theme/tokens.ts::toMonacoHexColor 的注释）。此处返回 null 而不是原样传下去，
+ *    是为了让失败可见：调用方打警告 + 跳过 → 该槽位回落 base 主题（可接受），
+ *    而不是变成一个「看起来像报错的红色」。 */
+function slotColor(token: string): string | null {
+  const raw = token.startsWith("#") ? token : cssVar(token);
+  if (!raw) return null;
+  return toMonacoHexColor(raw);
 }
 
 /** 注册两套自定义主题。**必须在目标 data-theme 已生效后调用**——色值是注册那一刻读到的快照。
@@ -167,13 +180,17 @@ export function defineEditorThemes(): void {
     const colors: Record<string, string> = {};
     for (const [slot, token] of Object.entries(MONACO_COLOR_SLOTS)) {
       // 硬编码槽位（仅 lineHighlightBorder 的透明值）直接内联，其余现读 CSS 变量
-      const value = token.startsWith("#") ? token : cssVar(token);
+      const value = slotColor(token);
       if (value) colors[slot] = value;
-      else console.warn(`[theme] CSS 变量 ${token} 未定义，Monaco 槽位 ${slot} 回落 base 主题`);
+      else console.warn(`[theme] CSS 变量 ${token} 未定义或不是可解析色值，Monaco 槽位 ${slot} 回落 base 主题`);
     }
     const rules = Object.entries(MONACO_TOKEN_SLOTS)
-      .map(([token, cssName]) => ({ token, foreground: cssVar(cssName) }))
-      .filter((r) => r.foreground.length > 0);
+      .map(([token, cssName]) => ({ token, foreground: slotColor(cssName) }))
+      .filter((r) => {
+        if (r.foreground === null) console.warn(`[theme] 语法色 ${r.token} 的 CSS 变量不可解析，该 token 回落默认前景色`);
+        return r.foreground !== null;
+      })
+      .map((r) => ({ token: r.token, foreground: r.foreground as string }));
     editorApi.editor.defineTheme(name, { base: THEME_BASES[name], inherit: true, colors, rules });
   }
 }

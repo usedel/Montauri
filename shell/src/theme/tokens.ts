@@ -156,6 +156,101 @@ export const THEME_BASES: Readonly<Record<string, "vs-dark" | "vs">> = {
   [EDITOR_THEME_LIGHT]: "vs",
 };
 
+/* ------------------------------------------------------------------------- *
+ * 色值格式归一（本模块唯一的「非映射」职责）
+ *
+ * ## 为什么必须有这一步（2026-10-03 实测，取证链见下）
+ *
+ * Monaco 的主题色**只接受 hex**。monaco-editor 0.52.2 的解析链是：
+ *   standaloneThemeService.js::StandaloneTheme.getColors()
+ *     → `Color.fromHex(themeData.colors[id])`
+ *     → base/common/color.js::Color.Format.CSS.parseHex()  // 只认 #RGB/#RGBA/#RRGGBB/#RRGGBBAA
+ *     → 解析失败 **返回 `Color.red`**
+ *
+ * 也就是说：把 `rgba(255, 255, 255, 0.14)` 这类 CSS 合法色喂给 defineTheme，
+ * **不报错、不警告**，槽位直接变成纯红 `#ff0000`。
+ *
+ * 本项目的 token 恰好大量用 rgba（半透明是批 2b 的核心手法），故这条路径真实被踩到：
+ * `--scrollbar-thumb` / `--scrollbar-thumb-hover` 是 rgba → 编辑器滚动条**纯红**；
+ * `--border` 是 `var(--border-subtle)`（computed 后是 rgba）→ 补全框 / hover 框**红边框**；
+ * 而 `minimapSlider.*` 在 minimapColors.js 里的出厂默认是
+ * `transparent(scrollbarSlider.background, 0.5)` —— **由坏值派生**，于是缩略图滑块也变半透明红。
+ * e2e 注入自检实测报全 6 个红槽位：3 个 `scrollbarSlider` + 3 个
+ * `editorWidget.border` / `editorHoverWidget.border` / `editorSuggestWidget.border`（`--border`
+ * 的 authored 值是 `var(--border-subtle)`，computed 后是 rgba），以及不在本表内的
+ * 3 个 `minimapSlider` 派生值。
+ *
+ * ## 为什么不反过来改 CSS token 成 hex
+ * CSS 侧用 rgba 是刻意的（alpha 档位是批 2b/5b 的设计语言），而且同一 token 还要喂给
+ * `::-webkit-scrollbar-thumb` 等原生选择器。**边界归一**才是正确层：CSS 仍是唯一真源，
+ * 本函数只负责把「CSS 语法」翻译成「Monaco 语法」，不新增任何色值真值。
+ * ------------------------------------------------------------------------- */
+
+/** 把任意 CSS 颜色串归一成 Monaco 能解析的 hex；无法解析返回 null（**绝不把非法值原样传下去**）。
+ *
+ *  支持：`#RGB` / `#RGBA` / `#RRGGBB` / `#RRGGBBAA`（大小写不限，输出统一小写）、
+ *  `rgb(r,g,b)` / `rgba(r,g,b,a)`（逗号或空格分隔，通道支持 `0-255` 与 `0%-100%`）。
+ *  alpha 为 1 时输出 6 位（Monaco 的 `Color.isOpaque()` 会把 6 位渲成 hex、8 位渲成 rgba，
+ *  两种都能被 `parseHex` 读回，故此处只求「能被解析」，不追求与 `format()` 逐字节一致）。
+ *
+ *  返回 null 的场景交给调用方**跳过该槽位**（回落 base 主题）并打警告——静默变红是最坏结果。 */
+export function toMonacoHexColor(value: string): string | null {
+  const v = value.trim().toLowerCase();
+  if (!v) return null;
+
+  // ① 已是 hex
+  if (v.startsWith("#")) {
+    const digits = v.slice(1);
+    if (!/^[0-9a-f]+$/.test(digits)) return null;
+    const pair = (d: string) => parseInt(d + d, 16);
+    if (digits.length === 3 || digits.length === 4) {
+      const hex = [digits[0], digits[1], digits[2]].map((d) => pair(d).toString(16)).join("");
+      return digits.length === 4 ? `#${hex}${pair(digits[3]).toString(16)}` : `#${hex}`;
+    }
+    if (digits.length === 6 || digits.length === 8) return `#${digits}`;
+    return null;
+  }
+
+  // ② rgb() / rgba()（Monaco 不认，必须转）
+  const m = v.match(/^rgba?\(([^)]*)\)$/);
+  if (!m) return null;
+  // 两种分隔都要认：现代语法 `rgb(r g b / a)`、传统语法 `rgb(r, g, b, a)`。
+  // ⚠ 传统语法是**逗号分隔的 4 段**——按 `/[\s,]+/` 一刀切会把 alpha 当成第 4 个通道，
+  //   从而把合法的 rgba() 判成非法（这正是本函数自身的第一版 bug，单测当场抓到）。
+  const inner = m[1];
+  let chanParts: string[];
+  let alphaRaw: string | undefined;
+  if (inner.includes("/")) {
+    const [head, tail] = inner.split("/");
+    chanParts = head.trim().split(/[\s,]+/).filter(Boolean);
+    alphaRaw = tail.trim();
+  } else {
+    const all = inner.trim().split(/[\s,]+/).filter(Boolean);
+    if (all.length === 4) alphaRaw = all.pop();
+    chanParts = all;
+  }
+  if (chanParts.length !== 3) return null;
+  const chan = (raw: string): number | null => {
+    const isPct = raw.endsWith("%");
+    const n = Number.parseFloat(isPct ? raw.slice(0, -1) : raw);
+    if (!Number.isFinite(n)) return null;
+    const scaled = isPct ? (n / 100) * 255 : n;
+    return Math.max(0, Math.min(255, Math.round(scaled)));
+  };
+  const rgb = chanParts.map(chan);
+  if (rgb.some((n) => n === null)) return null;
+  let alpha = 1;
+  if (alphaRaw !== undefined && alphaRaw !== "") {
+    const a = alphaRaw.endsWith("%")
+      ? Number.parseFloat(alphaRaw.slice(0, -1)) / 100
+      : Number.parseFloat(alphaRaw);
+    if (!Number.isFinite(a)) return null;
+    alpha = Math.max(0, Math.min(1, a));
+  }
+  const hex = rgb.map((n) => (n as number).toString(16).padStart(2, "0")).join("");
+  return alpha >= 1 ? `#${hex}` : `#${hex}${Math.round(alpha * 255).toString(16).padStart(2, "0")}`;
+}
+
 /** 两套主题共用的槽位表（导出供单测断言「深浅一致」——本表按设计不得分主题） */
 export const MONACO_COLOR_SLOTS = COLOR_SLOTS;
 export const MONACO_TOKEN_SLOTS = TOKEN_SLOTS;

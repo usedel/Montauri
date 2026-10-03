@@ -447,6 +447,13 @@ export function buildEditorOptions(settings: Settings): MonacoApi.editor.IEditor
     lineNumbersMinChars: 3,
     // PR-B：粘性滚动（Monaco 0.52 内建 stickyScroll；旧配置无字段时兜底为开，同 C-6 惯例）
     stickyScroll: { enabled: settings.sticky_scroll !== false },
+    // 修记 A 配套（ui_premium §7.9）：Monaco 出厂垂直滚动条 14px，比外壳 `::-webkit-scrollbar`
+    // 的 8px 明显粗——右侧滑块与左侧/底部三处粗细不一致，本身就是「拼装感」的一个来源。
+    // 压到 10px：与 8px 视觉协调，又留得住滑块的拖拽目标（取 8px 与外壳等宽但滑块偏窄，手感下降）。
+    // ⚠ 只能走 editorOption：Monaco 0.52 的滚动条是**自绘控件**，`::-webkit-scrollbar` 对它无效
+    //   （这也是为什么外壳那条 CSS 规则一直管不到它）。滑块宽度（verticalSliderSize）默认跟随本值。
+    // 本函数是创建与设置变更的唯一共用入口，故分屏（splitEditor 复用它）也一并同步。
+    scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10 },
   };
   const family = settings.font_family.trim();
   if (family) opts.fontFamily = family;

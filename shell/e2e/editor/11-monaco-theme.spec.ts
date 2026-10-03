@@ -16,6 +16,7 @@
  */
 import { test, expect } from "@playwright/test";
 import { equipPage, makePlainDir, type GitRepo } from "../helpers";
+import { MONACO_COLOR_SLOTS } from "../../src/theme/tokens";
 
 /** 深色侧 token 值（style.css :root；与 themeTokens.test.ts 同源） */
 const DARK = {
@@ -97,6 +98,58 @@ async function tokenColors(page: import("@playwright/test").Page): Promise<strin
   });
 }
 
+/** Monaco 主题服务注入的全部 `--vscode-*` 变量（主题 → CSS 变量的唯一通路）。
+ *
+ *  批 4 的教训是「defineTheme 的色值真的落到编辑器上」单测证不了；而修记 A 的红滚动条
+ *  恰恰只发生在这条通路上（`StandaloneTheme` 把色值写成 `--vscode-<槽位>` 变量），
+ *  所以这里读的是**注入结果**而不是主题定义。 */
+async function injectedThemeVars(page: import("@playwright/test").Page): Promise<Record<string, string>> {
+  return page.evaluate(() => {
+    const out: Record<string, string> = {};
+    for (const sheet of Array.from(document.styleSheets)) {
+      let rules: CSSRuleList | undefined;
+      try {
+        rules = sheet.cssRules;
+      } catch {
+        continue; // 跨域样式表读不到，跳过（Monaco 注入的是同源 <style>，不受影响）
+      }
+      for (const rule of Array.from(rules ?? [])) {
+        const style = (rule as CSSStyleRule).style;
+        if (!style) continue;
+        for (const prop of Array.from(style)) {
+          if (prop.startsWith("--vscode-")) out[prop] = style.getPropertyValue(prop).trim();
+        }
+      }
+    }
+    return out;
+  });
+}
+
+/** 拆 `rgb(r, g, b)` / `rgba(r, g, b, a)` → 通道值（Monaco 注入的是这两种序列化形式） */
+function parseRgb(value: string): { r: number; g: number; b: number; a: number } | null {
+  const m = value.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*(?:,\s*([\d.]+)\s*)?\)$/);
+  if (!m) return null;
+  return { r: +m[1], g: +m[2], b: +m[3], a: m[4] === undefined ? 1 : +m[4] };
+}
+
+/** 断言「我们的槽位一个都没被 Monaco 判成非法色」。
+ *
+ *  非法色 = 纯红 `#ff0000`：`Color.fromHex` 解析失败时**静默返回 `Color.red`**，
+ *  不报错、不警告。红色在 IDE 里语义是「错误」，滑块变红会被读成「这个位置有错」。
+ *  `rgba(255,0,0,…)` 一并算红——`minimapSlider.*` 的出厂默认是
+ *  `transparent(scrollbarSlider.background, 0.5)`，会跟着坏值一起变红。 */
+async function expectNoIllegalRed(page: import("@playwright/test").Page): Promise<void> {
+  const vars = await injectedThemeVars(page);
+  const isRed = (value: string): boolean => /^#ff0000$/i.test(value) || /^rgba\(\s*255\s*,\s*0\s*,\s*0\s*(,|\))/.test(value);
+  const reds: string[] = [];
+  for (const slot of Object.keys(MONACO_COLOR_SLOTS)) {
+    const name = `--vscode-${slot.replace(/\./g, "-")}`;
+    const value = vars[name];
+    if (value && isRed(value)) reds.push(`${name} = ${value}`);
+  }
+  expect(reds, `这些槽位被 Monaco 判为非法色而静默变红：${reds.join("; ")}`).toEqual([]);
+}
+
 test.beforeEach(async () => {
   repo = await makePlainDir({ "main.py": SRC });
 });
@@ -159,6 +212,17 @@ test.describe("深色主题 opencharm-dark", () => {
     expect(colors, "旧的浅蓝 identifier 不应再出现").not.toContain(DARK.legacyVar);
     expect(colors, "旧的蓝 keyword 不应再出现").not.toContain(DARK.legacyKeyword);
   });
+
+  test("T-B4-7 滚动条不是红色（修记 A：Monaco 只认 hex，rgba 曾被静默判成 #ff0000）", async ({ page }) => {
+    await expectNoIllegalRed(page);
+    const vars = await injectedThemeVars(page);
+    // 正向判据：滚动条滑块取到的是 --scrollbar-thumb（白 14% 半透明），不是纯红
+    expect(vars["--vscode-scrollbarSlider-background"], "scrollbarSlider.background 应已注入").toBeTruthy();
+    expect(vars["--vscode-scrollbarSlider-background"]).not.toBe("#ff0000");
+    // minimapSlider 的出厂默认由 scrollbarSlider 派生，故一并验（半透明红也是坏值）
+    expect(vars["--vscode-minimapSlider-background"], "minimapSlider.background 应已注入").toBeTruthy();
+    expect(vars["--vscode-minimapSlider-background"]).not.toMatch(/^rgba\(\s*255\s*,\s*0\s*,\s*0/);
+  });
 });
 
 test.describe("浅色主题 opencharm-light", () => {
@@ -190,6 +254,20 @@ test.describe("浅色主题 opencharm-light", () => {
     expect(colors, "旧的深蓝 identifier 不应再出现").not.toContain(LIGHT.legacyVar);
     expect(colors, "旧的纯蓝 keyword 不应再出现").not.toContain(LIGHT.legacyKeyword);
   });
+
+  test("T-B4-8 浅色下滚动条同样不是红色（rgba → hex 归一与主题无关）", async ({ page }) => {
+    await expectNoIllegalRed(page);
+    const vars = await injectedThemeVars(page);
+    // 浅色 --scrollbar-thumb 是黑 18%，Monaco 注入后应是「无彩色 + 低 alpha」
+    const value = vars["--vscode-scrollbarSlider-background"];
+    expect(value, "scrollbarSlider.background 应已注入").toBeTruthy();
+    const rgb = parseRgb(value);
+    if (rgb) {
+      expect(Math.max(rgb.r, rgb.g, rgb.b) - Math.min(rgb.r, rgb.g, rgb.b), `实际 ${value}`).toBeLessThanOrEqual(2);
+    } else {
+      expect(value, "浅色滚动条应是中性灰黑，不得是彩色").toMatch(/^#[0-9a-f]{6,8}$/);
+    }
+  });
 });
 
 test.describe("存量设置迁移（旧出厂主题名 → 自定义名）", () => {
@@ -213,5 +291,65 @@ test.describe("存量设置迁移（旧出厂主题名 → 自定义名）", () 
     expect(migrated.editor, "迁移后编辑器必须是浅色画布").toBe(LIGHT.editorBg);
     // 浅色画布与出厂 vs 相同，故再验一次选区——那是唯一能区分两者的槽位
     expect(await selectionBg(page), "迁移后选区应是青绿染色").toBe(LIGHT.selected);
+  });
+});
+
+/* 修记 A：滚动条的 DOM 侧真判据。上面两条读的是 Monaco 注入的变量（确定性强），
+   这一条读**用户真正看到的那块像素**：滑块元素的 computed 底色。
+   单独一个 describe + 自己的长文件仓库——滚动条只在**内容溢出**时才有可见滑块，
+   拿 9 行的样例文件去断言只会得到 0×0 的隐藏滑块（假阴性）。 */
+test.describe("修记 A · 编辑器滚动条真实底色（长文件，滚动条可见）", () => {
+  const LONG = Array.from({ length: 300 }, (_, i) => `VALUE_${i} = ${i}  # 行 ${i}`).join("\n");
+  let longRepo: GitRepo;
+
+  test.beforeEach(async () => {
+    longRepo = await makePlainDir({ "long.py": LONG });
+  });
+
+  test("T-B4-9 滑块底色是无彩色半透明（不是纯红）", async ({ page }) => {
+    await page.addInitScript(() => {
+      (window as unknown as { __E2E_SETTINGS_PRESET__?: Record<string, unknown> }).__E2E_SETTINGS_PRESET__ = {
+        theme: "opencharm-dark",
+      };
+    });
+    await equipPage(page, longRepo);
+    await page.goto("/");
+    await page.locator("#tree .tree-item .name", { hasText: "long.py" }).first().dblclick();
+    await expect(page.locator(".monaco-editor .view-line").first()).toBeVisible({ timeout: 30_000 });
+    // 悬停 + 滚一下，让 0.52 的 auto-hide 滚动条从 hidden 切到 visible
+    await page.locator(".monaco-editor").first().hover();
+    await page.mouse.wheel(0, 1200);
+    const bg = await page
+      .waitForFunction(
+        () => {
+          const el = document.querySelector(".monaco-editor .scrollbar.vertical .slider");
+          if (!el || el.getBoundingClientRect().height === 0) return null; // 仍是隐藏态
+          return getComputedStyle(el).backgroundColor;
+        },
+        null,
+        { timeout: 10_000 },
+      )
+      .then((h) => h.jsonValue() as Promise<string>);
+    const rgb = parseRgb(bg);
+    expect(rgb, `滚动条底色应是 rgb()/rgba() 形式，实际 ${bg}`).not.toBeNull();
+    const spread = Math.max(rgb!.r, rgb!.g, rgb!.b) - Math.min(rgb!.r, rgb!.g, rgb!.b);
+    expect(spread, `滚动条应是无彩色（灰白），实际 ${bg} 三通道跨度 ${spread}`).toBeLessThanOrEqual(2);
+    expect(rgb!.a, `滚动条应是低 alpha 的半透明材质，实际 ${bg}`).toBeLessThanOrEqual(0.5);
+  });
+
+  test("T-B4-10 滑块宽度 10px（Monaco 出厂 14px 比外壳 8px 明显粗，ui_premium §7.9）", async ({ page }) => {
+    await equipPage(page, longRepo);
+    await page.goto("/");
+    await page.locator("#tree .tree-item .name", { hasText: "long.py" }).first().dblclick();
+    await expect(page.locator(".monaco-editor .view-line").first()).toBeVisible({ timeout: 30_000 });
+    await page.locator(".monaco-editor").first().hover();
+    await page.mouse.wheel(0, 1200);
+    // 量滚动条**容器**宽度（滑块宽度默认跟随该值，容器在隐藏态也存在，可不依赖显形时序）
+    const width = await page.evaluate(() => {
+      const el = document.querySelector(".monaco-editor .scrollbar.vertical");
+      return el ? el.getBoundingClientRect().width : null;
+    });
+    expect(width, "应能取到编辑器垂直滚动条容器").not.toBeNull();
+    expect(width, `垂直滚动条应为 10px（出厂 14px），实际 ${width}`).toBe(10);
   });
 });

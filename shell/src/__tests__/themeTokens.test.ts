@@ -24,6 +24,7 @@ import {
   isLightEditorTheme,
   resolveEditorTheme,
   shellThemeOf,
+  toMonacoHexColor,
 } from "../theme/tokens";
 import { DEFAULT_SETTINGS, migrateLegacyThemeSettings } from "../state";
 
@@ -69,6 +70,20 @@ function definedVars(selector: string): Set<string> {
 
 const rootVars = definedVars(":root");
 const lightVars = definedVars('[data-theme="light"]');
+
+/** 某选择器块内某自定义属性的 authored 值（**取最后一条**声明，与 CSS 层叠一致）。
+ *  顺带解 `var(--x)` 引用——computed-value time 会把它替换成被引 token 的值，
+ *  而 Monaco 拿到的正是替换后的结果（`--border: var(--border-subtle)` 就是这种写法）。 */
+function tokenValue(selector: string, name: string, depth = 0): string {
+  const body = blockBody(selector);
+  let value: string | null = null;
+  for (const m of body.matchAll(new RegExp(`${name}\\s*:\\s*([^;]+);`, "g"))) value = m[1].trim();
+  if (value === null) throw new Error(`${selector} 下未找到 ${name}`);
+  const ref = value.match(/^var\(\s*(--[A-Za-z0-9-]+)\s*\)$/);
+  if (!ref) return value;
+  if (depth >= 4) throw new Error(`${selector} 的 ${name} var() 引用成环或过深：${value}`);
+  return tokenValue(selector, ref[1], depth + 1);
+}
 
 /** 映射表里允许内联硬编码的槽位（Monaco 需要一个「透明」色值，没有任何 CSS token 对应） */
 const INLINE_HEX_SLOTS = new Set(["editor.lineHighlightBorder"]);
@@ -259,5 +274,84 @@ describe("批 4 · 语法色已与 Monaco rules 同批改（唯二偏蓝的两�
     expect(MONACO_TOKEN_SLOTS.keyword).toBe("--syntax-boolean");
     // 变量名走 var 槽位（青绿亮档）——代码区最高频 token
     expect(MONACO_TOKEN_SLOTS.identifier).toBe("--syntax-var");
+  });
+});
+
+/* ------------------------------------------------------------------------- *
+ * 修记 A（2026-10-03）：色值格式归一 —— 滚动条变红
+ *
+ * 症状：编辑器右侧滚动条是**纯红**，缩略图滑块是半透明红，红在 IDE 里语义是「错误」，
+ *      用户会误以为滑块位置指向出错行。
+ * 根因：Monaco 主题色只接受 hex（`parseHex` 只认 #RGB/#RGBA/#RRGGBB/#RRGGBBAA），
+ *      `rgba()` 一律判为非法并**静默返回 `Color.red`**。本项目 token 大量用 rgba，
+ *      `--scrollbar-thumb` / `--border` 首当其冲。详见 theme/tokens.ts::toMonacoHexColor。
+ * 本组断言把「凡是喂给 Monaco 的色值必须可解析」钉成门禁——否则同类静默变红会再次发生。
+ * ------------------------------------------------------------------------- */
+describe("修记 A · toMonacoHexColor（Monaco 只认 hex，rgba 会被判非法并变红）", () => {
+  it("6/8 位 hex 原样透传（大小写归一）", () => {
+    expect(toMonacoHexColor("#1F1F24")).toBe("#1f1f24");
+    // ⚠ lineHighlightBorder 的透明值就是 8 位 hex，走的是同一分支（改动前它没变红过）
+    expect(toMonacoHexColor("#00000000")).toBe("#00000000");
+  });
+
+  it("3/4 位短 hex 展开（Monaco 只认这两种长度，展开后才 parse 得到）", () => {
+    expect(toMonacoHexColor("#abc")).toBe("#aabbcc");
+    expect(toMonacoHexColor("#abcd")).toBe("#aabbccdd");
+  });
+
+  it("rgba → 8 位 hex 带 alpha（本 bug 的直接修复点）", () => {
+    // 深色 --scrollbar-thumb：白 14% → 0.14*255 = 35.7 → 0x24
+    expect(toMonacoHexColor("rgba(255, 255, 255, 0.14)")).toBe("#ffffff24");
+    // 浅色 --scrollbar-thumb：黑 18% → 0.18*255 = 45.9 → 0x2e
+    expect(toMonacoHexColor("rgba(0, 0, 0, 0.18)")).toBe("#0000002e");
+  });
+
+  it("rgb / alpha=1 → 6 位 hex（不补 ff，parseHex 两种长度都吃）", () => {
+    expect(toMonacoHexColor("rgb(31, 31, 36)")).toBe("#1f1f24");
+    expect(toMonacoHexColor("rgba(0, 0, 0, 1)")).toBe("#000000");
+  });
+
+  it("现代语法（空格分隔 + 斜杠 alpha）与百分比通道也能解析", () => {
+    expect(toMonacoHexColor("rgb(255 255 255 / 0.14)")).toBe("#ffffff24");
+    expect(toMonacoHexColor("rgb(100% 100% 100% / 50%)")).toBe("#ffffff80");
+  });
+
+  it("无法解析的一律返回 null（绝不能原样传给 defineTheme——那会静默变红）", () => {
+    for (const bad of ["", "   ", "transparent", "red", "var(--scrollbar-thumb)", "#12345", "rgb(1,2)", "rgb(a,b,c)"]) {
+      expect(toMonacoHexColor(bad), `${bad} 应被拒`).toBeNull();
+    }
+  });
+});
+
+describe("修记 A · 所有映射槽位在两套主题下的取值都能被 Monaco 解析", () => {
+  const colorTokens = [...new Set(Object.values(MONACO_COLOR_SLOTS).filter((v) => v.startsWith("--")))];
+  const tokenTokens = [...new Set(Object.values(MONACO_TOKEN_SLOTS))];
+
+  it.each([
+    [":root", "深色"],
+    ['[data-theme="light"]', "浅色"],
+  ])("%s（%s）下 color 槽位引用的每个 token 都可解析", (selector) => {
+    const bad: string[] = [];
+    for (const token of colorTokens) {
+      const raw = tokenValue(selector, token);
+      if (toMonacoHexColor(raw) === null) bad.push(`${token}: ${raw}`);
+    }
+    expect(bad, `这些取值会让 Monaco 槽位静默变红：${bad.join("; ")}`).toEqual([]);
+  });
+
+  it.each([
+    [":root", "深色"],
+    ['[data-theme="light"]', "浅色"],
+  ])("%s（%s）下语法色引用的每个 token 都可解析", (selector) => {
+    const bad: string[] = [];
+    for (const token of tokenTokens) {
+      const raw = tokenValue(selector, token);
+      if (toMonacoHexColor(raw) === null) bad.push(`${token}: ${raw}`);
+    }
+    expect(bad, `这些取值会让语法色静默变红：${bad.join("; ")}`).toEqual([]);
+  });
+
+  it("内联的 lineHighlightBorder 是 8 位 hex（唯一允许的硬编码色值）", () => {
+    expect(toMonacoHexColor(MONACO_COLOR_SLOTS["editor.lineHighlightBorder"])).toBe("#00000000");
   });
 });
