@@ -3,6 +3,7 @@
 > 版本：v2.1 · 日期：2026-09-11 · 状态：**全部完成（30/30 + 遗留 2 项）**——第一至十批已交付：P0 缺陷 5 项、一致性小改动 7 项、UI-08 按钮体系 + UI-18 scale token、UI-09/11/12、UI-15/17、UI-16 ARIA 语义、UI-19/21/22/27 视觉层次与信息密度、UI-23/24/25/26 响应式边缘情况与细节打磨、UI-29 字号/字体族接入用户设置 + UI-30 菜单 ARIA 与键盘导航（第九批）；第八批登记的两条清单外存量缺口（表单 label 无 for/id 关联、`#bottom` 分隔条内联 height 压过折叠态）已在第十批一并修掉。见 §7 进度记录。
 > 来源：基于 `shell/src`（`index.html` / `style.css` / `main.ts` / `layout.ts` / `debugView.ts` / `settingsPanel.ts` / `termUi.ts` / `search.ts` / `dialog.ts` / `util.ts` / `engineChip.ts` / `runWidget.ts` / `fileTree.ts` / `tooltip.ts` / `anim.ts`）的全量 UI 代码审阅。
 > 本文档是后续 UI 改进排期与验收的唯一依据；与 `python_ide_dev_plan_v2.md` 冲突时以开发计划为准并反馈修订本文档。
+> ⚠ **后续修订（2026-10-02）**：本文档确立的 D4「青绿 = 品牌识别 / 蓝 `--accent` = 功能交互」双色分工已被 [ADR-0005](adr/0005-brand-accent-unification.md) 推翻（青绿成为唯一色相轴）。本文档的**已完成状态与 UI-01–UI-30 验收结论不受影响**，仅"品牌/交互色分工"这一条口径以 ADR-0005 为准；后续视觉改造见 `docs/ui_premium_design_report.md` v1.1。
 > 涉及范围仅限 `shell/`（Tauri 2 + Monaco 外壳前端），不触及 `probe/`、`intel/` 的架构第一原则（独立进程/包，不依赖外壳内部 API）。
 
 ## 1. 背景与目标
@@ -144,6 +145,8 @@
 - **建议方案**：统一改为 `--brand`；若确有"devtools 属于功能交互区"的设计意图，需在 `style.css` 顶部注释里补充说明，否则按遗漏处理。
 - **涉及文件**：`shell/src/style.css`。
 - **验收标准**：右侧面板 tab 激活态颜色与底部面板/编辑器 tab 一致。
+
+> ⚠ **后续修订（2026-10-02）**：本条依据的「青绿 = 品牌识别 / 蓝 `--accent` = 功能交互」双色分工，已被 [ADR-0005](adr/0005-brand-accent-unification.md) **推翻**——青绿成为唯一色相轴，`--accent` 亦取青绿。原文与本条记录保留作为历史，**执行口径以 ADR-0005 为准**。实测该分工长期处于失衡状态：`--brand` 24 处对 `--accent` 82 处（另 `--on-accent` 13 / `--accent-soft` 15 / `--accent-faint` 4 / `--accent-hover` 4），即"功能交互"实际由蓝色承担，本条只把 1 处拉向品牌色而未触及大头。
 
 #### UI-07 · JSONPath 选中行背景色强度不一致
 

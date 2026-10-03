@@ -224,7 +224,7 @@ A 类全部复用已有的 probe trace 数据或外壳基建，**别人抄不走
 |---|---|---|---|---|
 | B1 | **pytest 集成** | `pytest -q` / `--json` 结果解析 → 树形结果面板 + 失败点击跳转 + 重跑单测 + 覆盖率着色（覆盖率可用 coverage.py） | 中（3~4d） | README 目前写「明确不做 pytest 面板」。**建议重新评估**：自用 Python 开发者没有测试面板是真痛点，且比同等成本的"锦上添花"功能实用得多 |
 | B2 | **REPL / Scratch 执行** | 选中代码 → 发送到长驻 Python 进程执行（复用 `libEval` 求值桥 + 终端 PTY）；或轻量 cell 模式 | 小-中（2d） | 与 A4 共享求值桥基建；对"小脚本"画像高频 |
-| B3 | **数据库/SQL 工具** | SQLite 优先（零配置）：连接管理 + 表浏览 + 查询编辑 + 结果网格 | 中-大（8~10d，含 rusqlite） | 爬虫/小脚本场景常伴 SQLite；若要支持 Postgres/MySQL 成本翻番，建议只做 SQLite。**已有 PR 级计划：`docs/toolbox_dev_plan.md` §4** |
+| B3 | **数据库/SQL 工具** ⚠️ **已实施（代码已落地，待收尾）** | SQLite 优先（零配置）：连接管理 + 表浏览 + 查询编辑 + 结果网格 | 中-大（8~10d，含 rusqlite） | 爬虫/小脚本场景常伴 SQLite；若要支持 Postgres/MySQL 成本翻番，建议只做 SQLite。**已实施（2026-10-02），唯一真源：`docs/sqlite_tool_dev_plan.md`（v2.0，含交互设计 / 数据契约 / 逐 PR 实施记录 / 真机验收）**——原 `docs/toolbox_dev_plan.md` §4 已于同日迁出 |
 | B4 | **HTTP Client**（`.http` 文件） | 类 REST Client：写请求 → 发送 → 历史 + 变量；与 A5/A4 天然协同 | 中-大（7~9d，含 reqwest） | 已有 `curl2python` 与求值桥，可复用。**已有 PR 级计划：`docs/toolbox_dev_plan.md` §5** |
 | B5 | **日志/输出结构化视图** | 运行输出里结构化日志（JSON/loguru）的级别过滤、字段折叠、时间戳对齐 | 小-中（4~5d） | 复用 `output.ts` 已有级别层；需把 `termUi` 采集钩子改多播。**已有 PR 级计划：`docs/toolbox_dev_plan.md` §6** |
 | B6 | **TODO/任务与文档工具** | 已有 `todoView.ts` / `markdownPreview.ts`；可扩 Mermaid/图表预览、文档大纲 | 小（3~4d） | 低风险。**已有 PR 级计划：`docs/toolbox_dev_plan.md` §7** |
