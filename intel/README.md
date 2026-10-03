@@ -44,7 +44,20 @@ cargo build --release  # P3-T02 性能验收用
 | P3-T07 | inlay hints（运行时类型标注，`⟳ type`） | 已完成（`inlay.rs` + shell `registerLspInlayHints`） |
 | P3-T08 | 类型推断补强（for 循环变量）+ stale 新鲜度降权 | 已完成（`type_infer` + 全链路降权） |
 | P3-T09 | 运行时层一键关闭全局开关 | 已完成（设置 `runtime_intel_enabled` + `stopIntel`） |
-| P3-T10 | bench 补全准确率评测 + Gate D 验收 | 确定性评测 23/23 通过；PyCharm 同场景人工对标待复核 |
+| P3-T10 | bench 补全准确率评测 + Gate D 验收 | 确定性评测 23/23 通过（红线 ≥85%）；**人工对标工作单已自动生成**（`bench/reports/gate-d-ab-worklist.md`，OpenCharm 侧 23 点排名已由测试填好）；⏳ 只差真人在 PyCharm 里勾 23 点 + 真实项目端到端采数 |
+
+### P3-T10 现状（2026-10-03 更新）
+
+**两格 PENDING 的工具侧已全部就绪，缺的只是人的动作与真实数据：**
+
+| 项 | 状态 |
+|---|---|
+| 确定性口径 base 数值 | ✅ 23/23 = 100%（`bench/reports/gate-d-runtime-completion.md`），红线 ≥85% PASS |
+| 评测覆盖的已知空洞 | ⚠️ `completion.rs::bench_seed()` 的 6 个函数**全部 `stale=0`** → 23 个评测点对**降权策略零覆盖**；100% 既不能证明也不能反驳降权合理性。已补单测 `stale_candidates_rank_below_fresh_ones` 钉住降权行为（33/33 通过） |
+| 降权参数的依据 | 🔄 此前是裸字面量 `f.hits / 2`。现已提成具名常量 `STALE_HITS_DIVISOR`（值不变）+ 注释记录首个实测：改 1/2 源文件后只跑另一半，**stale 占比 30.0%**（3/10）——即常见编辑流下约 1/3 观测立刻变 stale。取值待真实项目 ≥1000 条观测后用 `tools/intel/trace_stats.py` 复核 |
+| 人工横向对标 | ⏳ **待人工**：设 `OC_GATE_D_WORKLIST=<路径>` 后跑 `cargo test -p opencharm-intel -- --nocapture runtime_completion_accuracy` 导出工作单，在 PyCharm 同一样例上勾 23 点 → `gate-d-ab.md` |
+| 真实项目端到端 | ⏳ **待数据**：本机此前无任何 `traces/*.db`。用 IDE 同款注入 env（`run_env.rs:274-289` 四件套）跑真实代码产出库后，`python tools/intel/trace_stats.py` 出统计与建议 |
+| trace 库保留窗口 | ⏳ 现行无条数/体积上限；`probe clean --days N` **只删 runs 行、不删观测数据**（易被误读为保留窗口）。`trace_stats.py` 建议按 8 MB 预算设条数上限并已在报告中给出反推口径 |
 
 ## 索引与并发模型（2026-09-10 整改后）
 
