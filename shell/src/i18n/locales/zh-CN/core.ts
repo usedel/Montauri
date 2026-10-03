@@ -298,7 +298,7 @@ export const core = {
   "settings.appearance.fontFamily2": "字体栈（逗号分隔多个）",
   "settings.appearance.fontFamilyPreset": "常用等宽字体",
   "settings.appearance.fontFamilyPreset.custom": "自定义…",
-  "settings.appearance.fontFamilyPreset.default": "默认（Consolas / Cascadia / JetBrains）",
+  "settings.appearance.fontFamilyPreset.default": "默认（JetBrains Mono 随包）",
   "settings.appearance.locale": "语言",
   "settings.appearance.localeHint": "仅影响外壳界面文案，无需重启。",
   "settings.appearance.sectionAppearanceDiv": "勾选「动效」= 减少动画：禁用模态 / 面板 / 菜单的过渡动画（系统「减少动态效果」偏好自动生效）。",

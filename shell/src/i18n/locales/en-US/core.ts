@@ -299,7 +299,7 @@ export const core: Record<CoreKey, string> = {
   "settings.appearance.fontFamily2": "Font stack (comma separated)",
   "settings.appearance.fontFamilyPreset": "Common monospace fonts",
   "settings.appearance.fontFamilyPreset.custom": "Custom…",
-  "settings.appearance.fontFamilyPreset.default": "Default (Consolas / Cascadia / JetBrains)",
+  "settings.appearance.fontFamilyPreset.default": "Default (JetBrains Mono, bundled)",
   "settings.appearance.locale": "Language",
   "settings.appearance.localeHint": "Applies to the shell UI; restart is not required.",
   "settings.appearance.sectionAppearanceDiv": "Checking \"Motion\" = reduced animation: disables transitions for modals / panels / menus (the system \"reduce motion\" preference applies automatically).",

@@ -9,7 +9,11 @@
          ⚠ 因此这里与 style.css 的 token 存在隐式同步义务，共 6 项，改动下列任一 token 时须回来同步：
            #1f1f24 = --bg（表面阶梯 S2）· #d4d4d4 = --fg · 13px = --text-base（全局最小字号下限为 11px，见 UI-17）
            #ffffff / #333333 = 浅色主题的 --bg / --fg
-           font-family = --font-ui（批 3 改 body 字体栈时同步；漏了它首帧与稳定帧不一致会产生可见抖动） -->
+           第 6 项 font-family = --font-ui：批 3 已核对——--font-ui 此前**没有这个 token**（body
+           与本块各写一份裸栈，属悬空同步义务），批 3 已在 style.css 把它坐实为 token 且**取值
+           未变**（"Segoe UI" / "Microsoft YaHei" 系统栈，UI 字体不随包，见 ui_premium §5.3-3b），
+           故本块字面量与 token 天然一致，无需再改。等宽字体不涉及本块：它只作用于 Monaco，
+           而 Monaco 字体经 settings.font_family 注入（不读 CSS），由 buildEditorOptions 负责。 -->
     <style>
       html, body {
         margin: 0;
@@ -825,7 +829,7 @@
                     <div class="settings-controls">
                       <!-- D3 P-14：常用等宽字体候选 + 自定义输入，改动即时预览 -->
                       <select data-i18n-title="settings.appearance.fontFamilyPreset" id="settings-font-family-preset" title="常用等宽字体">
-                        <option data-i18n="settings.appearance.fontFamilyPreset.default" value='Consolas, "Cascadia Code", "JetBrains Mono", monospace'>默认（Consolas / Cascadia / JetBrains）</option>
+                        <option data-i18n="settings.appearance.fontFamilyPreset.default" value='"JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace'>默认（JetBrains Mono 随包）</option>
                         <option value="Consolas">Consolas</option>
                         <option value='"Cascadia Code"'>Cascadia Code</option>
                         <option value='"JetBrains Mono"'>JetBrains Mono</option>

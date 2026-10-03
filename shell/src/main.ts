@@ -68,7 +68,7 @@ import {
 } from "./termUi";
 import { setTerminalLinkHandler, setTerminalUrlHandler } from "./terminal";
 import { setExternalUrlOpener } from "./termUi";
-import { loadSettings, saveSettings, applyFontStatus, openSettingsPanel, setSettingsPanelHandlers, wireSettingsPanel, buildEditorOptions } from "./settingsPanel";
+import { loadSettings, saveSettings, applyFontStatus, openSettingsPanel, setSettingsPanelHandlers, wireSettingsPanel, buildEditorOptions, ensureEditorFontLoaded } from "./settingsPanel";
 import { checkFirstRunStorage } from "./storagePanel";
 import { cancelPendingSessionSave, restoreSession, scheduleSessionSave, saveSessionNow, setSessionHandlers } from "./session"; // A-5 会话恢复
 import { wireResourcePanel } from "./resourcePanel"; // A-1 资源可观测
@@ -2080,6 +2080,11 @@ async function init(): Promise<void> {
   app.monaco = (await import("./monaco")).default;
   lsp.setMonaco(app.monaco);
   await loadSettings(); // 设置先于编辑器创建（字号/主题，P25-T08）
+  // 批 3：等随包等宽字体真正就绪再建编辑器。Monaco 用 canvas measureText 测字符宽度并缓存
+  // （CharConfig），字体异步到位后宽度与缓存不符会让网格/光标列整体错位，且 0.52 不会自动重测；
+  // font-display: swap 下浏览器先画回退字体再交换，不等就是这个窗口。
+  // 实测本地 4 个 woff2 共 75 KB，load 约 8ms；函数内另有 1.5s 超时兜底，绝不把 init 拖死。
+  await ensureEditorFontLoaded(app.settings);
   app.monaco.editor.setTheme(app.settings.theme); // D1：启动即应用已存主题（外壳 data-theme 由 loadSettings 同步）
   // 快捷键域：注册稳定命令 + 按设置建立键 → 命令映射（设置保存后可重建）
   kb.initKeybindingCommands(app.monaco);

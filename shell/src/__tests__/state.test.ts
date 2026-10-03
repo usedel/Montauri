@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from "vitest";
-import { DEFAULT_SETTINGS, type Settings } from "../state";
+import { DEFAULT_FONT_FAMILY, DEFAULT_SETTINGS, type Settings } from "../state";
 
 // 前端单源漂移锁（P2-A）：
 //   keyof Settings（接口定义）与 keyof typeof DEFAULT_SETTINGS（默认值字面量）必须完全一致。
@@ -21,7 +21,9 @@ describe("Settings 前端单源一致性（P2-A）", () => {
   it("关键默认值与后端 Settings::default 对齐（新增字段时需同步两侧）", () => {
     expect(DEFAULT_SETTINGS.theme).toBe("vs-dark");
     expect(DEFAULT_SETTINGS.font_size).toBe(14);
-    expect(DEFAULT_SETTINGS.font_family).toBe('Consolas, "Cascadia Code", "JetBrains Mono", monospace');
+    expect(DEFAULT_SETTINGS.font_family).toBe(DEFAULT_FONT_FAMILY);
+    // 批 3：连字出厂默认开（JetBrains Mono 的编程连字是核心卖点）
+    expect(DEFAULT_SETTINGS.font_ligatures).toBe(true);
     expect(DEFAULT_SETTINGS.tab_size).toBe(4);
     expect(DEFAULT_SETTINGS.insert_spaces).toBe(true);
     expect(DEFAULT_SETTINGS.word_wrap).toBe("off");

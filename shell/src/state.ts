@@ -128,13 +128,45 @@ function defaultKeybindings(): Record<string, string> {
   return map;
 }
 
+/** 出厂等宽字体栈（ui_premium §5.3 · 批 3）：JetBrains Mono 随包分发（`shell/public/fonts/`，
+ *  @font-face 见 style.css 文件头），其后依次是本机可能已装的可选字体与系统兜底。
+ *  旧栈把 2007 年的 Consolas 排第一，而它命中的恰是 80% 注视时间的代码区。
+ *  ⚠ 同步义务（共 4 处）：① 本常量 ② Rust `Settings::default` ③ style.css `--mono`
+ *     ④ index.html 字体族 preset 的首选项。 */
+export const DEFAULT_FONT_FAMILY = '"JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace';
+
+/** 批 3 之前的出厂等宽串（D3 P-14）。**仅供存量配置迁移**：settings.json 里
+ *  `font_family` 已固化为旧串，不迁移的话随包字体对老用户 100% 无效；判定为「等于旧出厂串」
+ *  才替换，用户自定义过的一律保留。改动此值需同步 settingsPanel.ts::loadSettings。 */
+export const LEGACY_FONT_FAMILY = 'Consolas, "Cascadia Code", "JetBrains Mono", monospace';
+
+/** 存量设置迁移：等宽字体（ui_premium 批 3 · §5.3-3a 第 4 项）。
+ *
+ *  为什么必须做：老用户的 `settings.json` 里 `font_family` 已固化为**旧出厂串**，不迁移的话
+ *  随包的 JetBrains Mono 对他们 100% 无效（CSS 的 `--mono` 只管外壳，编辑器字体不读 CSS，
+ *  走 `settings.font_family` → `buildEditorOptions` 注入 Monaco）。这与批 4 的
+ *  `vs-dark` → `opencharm-dark` 主题名迁移完全同构。
+ *
+ *  口径：**仅当等于旧出厂串时替换**，用户自定义过的一律保留、绝不覆盖。
+ *  只改内存不落盘——用户下次点「保存」时自然写回，且每次启动重跑是幂等的。
+ *  放在本文件而非 settingsPanel.ts：这是纯数据规则，不该让它的单测拖入面板的整条 Tauri 依赖链。
+ */
+export function migrateLegacyFontSettings<T extends { font_family: string }>(settings: T): T {
+  if (settings.font_family === LEGACY_FONT_FAMILY) {
+    settings.font_family = DEFAULT_FONT_FAMILY;
+  }
+  return settings;
+}
+
 /** Settings 出厂默认值（「恢复默认」与 app.settings 初始值共用；须与 Rust Settings::default 保持一致） */
 export const DEFAULT_SETTINGS: Settings = {
   theme: "vs-dark",
   font_size: 14,
-  // D3 P-14：显式常用等宽栈（须与 Rust Settings::default 保持同步）
-  font_family: 'Consolas, "Cascadia Code", "JetBrains Mono", monospace',
-  font_ligatures: false,
+  font_family: DEFAULT_FONT_FAMILY,
+  // 批 3 起默认开：JetBrains Mono 的编程连字（=> != >= 合成单符）是它相对 Consolas 的
+  // 核心卖点，也是本项目「有身份感」的主要来源。Monaco 侧由 buildEditorOptions 的
+  // fontLigatures 消费（settingsPanel.ts:397），与 CSS 的 font-variant-ligatures 是两套开关。
+  font_ligatures: true,
   tab_size: 4,
   insert_spaces: true,
   word_wrap: "off",

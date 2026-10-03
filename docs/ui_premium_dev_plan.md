@@ -17,7 +17,7 @@
 | 批次 | 六批：批 1（ADR + 交互色青绿统一 + 浅色 AA）→ 批 2a（表面阶梯 token）→ 批 2b（抬升面归属审计）→ 批 3（等宽字体随包）→ 批 4（Monaco 自定义主题，P1）→ 批 5（边框/曲线/圆角/材质） |
 | 落地方式 | **master 直提**（产品负责人 2026-10-03 拍板），不建分支、不推送远程 |
 | 验收方式 | **基线截图 + e2e computed-style 断言 + token 一致性单测 + `tools/ui/audit_tokens.py` 脚本门禁**；不接受纯人工抽查 |
-| 当前进度 | ✅ 批 1 + 2a + 2b 已落地（批 2b 门禁：audit 74 项 0 FAIL 0 WARN / tsc 0 错 / vitest 1011 / e2e-ui 51 用例 3.5min / 截图 8 张对照通过），⏳ 批 3（等宽字体）待开工 |
+| 当前进度 | ✅ 批 1 + 2a + 2b + 3 已落地（批 3 门禁：audit 74 项 0 FAIL 0 WARN / tsc 0 错 / vitest 1026 / e2e-ui 53 用例 3.7min / 截图 8 张 + 字体实测全绿），⏳ 批 4（Monaco 主题，P1）待开工 |
 
 ### 1.1 批次状态
 
@@ -26,7 +26,7 @@
 | 批 1 | ADR-0005 + 审计脚本 + 杠杆 1（11 取值点收进青绿）+ 杠杆 9（浅色 AA） | ✅ 已落地（2026-10-03，记录见 §7.1） |
 | 批 2a | 深浅两套表面阶梯 + `--bg-panel` 21 处拆分 + 三层同步义务 + `styleTokens.test.ts` | ✅ 已落地（2026-10-03，记录见 §7.2） |
 | 批 2b | 19 处 `--bg-alt` → S3 审计 + 派生交互 token 重算 + `--fg-dim` 246 处抬升面审计 + 浮层 `--elev` 归属 | ✅ 已落地（2026-10-03，记录见 §7.3） |
-| 批 3 | 等宽字体五处改动 + JetBrains Mono 随包（前置：CSP `font-src`） | ⏳ 待开工（§6.3） |
+| 批 3 | 等宽字体五处改动 + JetBrains Mono 随包（**落地路径已修订为 `public/fonts/` 入库**，见 §7.4.1） | ✅ 已落地（2026-10-03，记录见 §7.4） |
 | 批 4 | Monaco 自定义主题 `opencharm-dark/light` + `--syntax-*` 与 `rules` 同批 | ⏳ 待开工（§6.4） |
 | 批 5 | 边框纪律 / 动效曲线 / 圆角档位 / 材质细节 | ⏳ 待开工（§6.5） |
 
@@ -198,9 +198,13 @@ node scripts/ui-baseline.mjs --tag after-b1      # 改造后
 
 19 处 `--bg-alt` → S3 逐 selector 确认 · 派生交互 token 重算（深色 6 + 浅色 11）· `--accent-emphasis` 九面归属（门禁 18：四面 0 命中）· `--fg-dim` 246 处抬升面扫描（门禁 6：0 命中）· 浮层 `--elev` 归属。
 
-### 6.3 批 3 —— 字体（方案 §5.3）
+### 6.3 批 3 —— 字体（方案 §5.3）✅ 已落地
 
-前置改 CSP `font-src 'self' data: asset: http://asset.localhost;` → `tools/fetch-fonts.ps1` + `ci/versions.toml [fonts]`（sha256 锁）→ `bundle.resources` → `@font-face`。**五处改动**：`state.ts:136` 默认栈 / `--mono`（`style.css:102`）/ `style.css:1209` 裸栈 / `loadSettings` 存量迁移（仅在等于旧出厂串时替换）/ 设置面板 preset 下拉 + `font_ligatures` 默认。验收含真机 `document.fonts.check('12px "JetBrains Mono"')`。
+**原路径（已否决，见 §7.4.1）**：改 CSP `font-src` + `vendor/fonts/` + `bundle.resources` + `@font-face` —— 在 `@font-face` 场景下走不通（资源目录不由前端协议服务 / `assetProtocol.scope` 为空 / dev 下 404 断掉门禁链）。
+
+**实际路径**：`ci/versions.toml [fonts]`（version + tarball + 5 个 sha256 锁）→ `tools/fetch-fonts.ps1`（幂等，`-Force` 重拉；依赖 `tar.exe`）→ `shell/public/fonts/`（**入库**，75.4 KB，含 `OFL.txt`）→ `style.css` 4 条 `@font-face`（`/fonts/…` 绝对路径）→ **CSP 零改动**。
+
+**五处改动**：`state.ts` `DEFAULT_FONT_FAMILY` / `settings.rs Settings::default` / `style.css --mono` / `index.html` 字体族 preset 首选项 / `loadSettings::migrateLegacyFontSettings`（仅在等于旧出厂串时替换）；外加 `font_ligatures` 出厂 `true`（前后端 + 两处测试同步）、`ensureEditorFontLoaded()`（建编辑器前等字体，带 1.5s 超时）、6 处 `--font-mono` 收口、`--font-ui` token 坐实。验收由 `ui-baseline.mjs --probe-fonts` + `e2e/editor/10-font-family.spec.ts` + `fontStack.test.ts`（四方一致 15 条）承担。
 
 ### 6.4 批 4 —— Monaco 主题（方案 §5.4）
 
@@ -364,3 +368,64 @@ node scripts/ui-baseline.mjs --tag after-b1      # 改造后
 
 > **一处工具级教训（值得记）**：选择器级扫描器第一版按「行」切块，**单行规则**（`sel { a: b; }`）的声明全丢 → 门禁静默返回「0 命中」的**假阴性**；第二版又因复用了只认 `--` 自定义属性的 `parse_decls` 而丢弃全部普通声明。两次都是「扫描器返回 0」而非「报错」，若不是同时用 `--refs` 交叉核对（`--refs` 走的是另一条解析路径，能正确报出 19/21 处），就会把假阴性当成「已达标」写进验收记录。
 > 教训落成三条硬规矩：① 审计脚本的「0 命中」必须与另一条独立路径（`--refs`）交叉验证；② `parse_decls`（只取自定义属性）与 `parse_style_decls`（取全部声明）必须分开，不能复用；③ CSS 解析必须字符级 + at-rule 递归，不能按行猜块边界。
+
+### 7.4 批 3（2026-10-03）—— 随包等宽字体（JetBrains Mono）
+
+#### 7.4.1 落地路径修订：方案 §5.3-3b 的 `bundle.resources` 路线在 `@font-face` 上走不通
+
+方案原文要求「改 CSP `font-src` → `vendor/fonts/` + `bundle.resources` 入包 → `@font-face` 引用」。逐字核实 `tauri.conf.json` 与 `dap.rs:78-114` 后判定该路线不可行，已改走 `shell/public/fonts/` 入库：
+
+| # | 方案原文路线的硬伤 | 证据 |
+|---|---|---|
+| 1 | `bundle.resources` 的文件在**安装目录资源根**，由 Rust 走文件系统路径读取（`resource_candidates` 四级查找全是路径拼接），**前端协议不服务该目录** → prod 下 `/fonts/x.woff2` 直接 404 | `dap.rs:95-103`（debugpy 同款机制能 work 的原因就在这里：它不经 URL） |
+| 2 | 改走 asset 协议需同时改 `assetProtocol.scope`（当前 `[]` = **全禁**，只改 CSP 无效），且 asset URL 形如 `asset://localhost/C:/Users/<user>/AppData/.../fonts/x.woff2` —— **安装路径含用户名，CSS 里写不出来**，只能运行时 `convertFileSrc` 拼装，与「字体栈单一真源」直接冲突 | `tauri.conf.json:16`（`"scope": []`） |
+| 3 | `bundle.resources` 对 `vite dev` 不可见 → dev 下恒 404，而**单测 / e2e / 基线截图门禁链全部跑在 dev 上**，方案等于把门禁链打断 | `playwright.config.ts:26-31`（`reuseExistingServer`，跑 dev） |
+| 4 | CSP 那一步其实**不需要**：`public/` 下字体与前端 bundle 同源，`font-src 'self' data:` 已足够 | — |
+
+改走 `public/` 后：dev 与 prod 同为 `'self'` 相对 URL、CSP 零改动、门禁链完整。仍保留 `tools/fetch-fonts.ps1` + `ci/versions.toml [fonts]` sha256 锁——为的是**升级受控与可复现**（换版本必过锁值比对），不是防仓库膨胀（4 个子集共 75 KB，vs debugpy 20 MB，「不入库」的理由不成立）。
+
+#### 7.4.2 上游取源变更：GitHub Release CDN 不可达，改走 npm 官方镜像
+
+`JetBrainsMono-2.304.zip`（github.com/…/releases/download）直连 **0 字节 + `curl (56) Recv failure: Connection was reset`**（`api.github.com` 可通，Release CDN 不可通）。改用 JetBrains 官方 npm 分发镜像 `@fontsource/jetbrains-mono@5.3.0`（对应上游 JetBrains Mono v2.304），4 个 woff2 子集 + `OFL.txt` 经 `tar` 解包（PS 5.1 的 `System.IO.Compression` 无 tar reader，故脚本依赖 Windows 10 1803+ 自带的 `tar.exe`）。
+
+取的 4 个子集（`latin-400-normal` / `latin-400-italic` / `latin-700-normal` / `latin-ext-400-normal`，共 75.4 KB）：**真斜体**（Monaco 默认注释是 italic，合成斜体在等宽字体上明显歪）、**真粗体**（合成粗体几乎不可读）、拉丁扩展（欧洲语言注释）。不含 CJK —— 中文注释回退系统字体，这是等宽栈的正常行为。
+
+#### 7.4.3 方案未覆盖的时序问题：Monaco 建编辑器前必须等字体（否则网格错位）
+
+Monaco 用 canvas `measureText` 测字符宽度并缓存（`CharConfig`），字体异步到位后实测宽度与缓存不符 → **网格与光标列整体错位**，且 0.52 **不会自动重测**。`font-display: swap` 下浏览器先画回退字体再交换，不等就是这个窗口。故在 `init()` 的 `loadSettings()` 与 `editor.create()` 之间插入 `await ensureEditorFontLoaded()`（`settingsPanel.ts`，函数内含 1.5s 超时兜底——字体是渐进增强，任何情况下都不该拦住编辑器创建）。实测本地 4 个 woff2 共 75 KB，`document.fonts.load` 约 8ms。
+
+#### 7.4.4 顺带收口两处既有缺陷（方案未提）
+
+| # | 缺陷 | 处置 |
+|---|---|---|
+| 1 | **`--font-mono` 从未定义**：6 处 `var(--font-mono, monospace)` 静默回落到浏览器默认 `monospace`（等宽但不是设计字体），其中 `.clone-progress-text` 是 `var(--font-mono)` **无 fallback** → 自定义属性未定义时**整条 font-family 失效**（不是回落 monospace），克隆进度文本一直没拿到等宽字体 | 6 处全部收口到 `var(--mono)`（含无 fallback 那处） |
+| 2 | **`--font-ui` 从未存在**：body 与 FOUC 块各写一份裸栈，而 FOUC 块注释把它列为第 6 项同步项（悬空引用） | 新增 `--font-ui` token 并让 body 走它；FOUC 块值**未变**（UI 字体刻意不随包），注释改为说明「已核对、值未变」 |
+
+另：方案 §5.3-3c 的 `tabular-nums` 列为「新增」，实测项目**已贯彻 8 处**（`.db-num` / `.storage-size` / `.history-time` / `.oc-cv-row-loc` 等），本批不重复加；3c 的 `font-optical-sizing` 未加（Segoe UI 非可变字体，该声明无意义，与方案已删 cv05/ss03 同理）。
+
+#### 7.4.5 连字范围刻意收窄（偏离方案，已登记）
+
+方案 §5.3-3c 写 `.mono, [class*="-mono"], pre, code` 全局生效。本批**只开在 `#md-preview code` / `#md-preview pre`**，理由：① 项目**无 `.mono` 类**（该选择器无对象）；② 输出面板 / 终端 / 搜索命中的等宽文本是**日志与命令输出**，连字把 `->` `=>` 变形会妨碍逐字比对。Monaco 侧由 `settings.font_ligatures` 控制（批 3 起**出厂 true**，拍板决定）。
+
+#### 7.4.6 存量迁移
+
+`settings.json` 的 `font_family` 已固化为旧出厂串，**不迁移则随包字体对老用户 100% 无效**（`--mono` 只管外壳，编辑器走 `settings.font_family`）。新增 `state.ts::migrateLegacyFontSettings`：**仅当等于旧出厂串时替换**，用户自定义值一律保留；只改内存不落盘（下次点「保存」自然写回，每次启动重跑幂等）。放在 `state.ts` 而非 `settingsPanel.ts` —— 纯数据规则，不该让它的单测拖入面板的整条 Tauri 依赖链。
+
+#### 7.4.7 门禁实测
+
+| # | 门禁 | 结果 |
+|---|---|---|
+| 1 | `audit_tokens.py` | ✅ **74 项判定 / FAIL 0 / WARN 0**（字体改动不涉色值门禁） |
+| 2 | `npm run build`（tsc） | ✅ 0 错 |
+| 3 | vitest 全量 | ✅ **91 文件 / 1026 用例**（新增 `fontStack.test.ts` **15 条**：四方字面一致 / @font-face 4 条 face 与 woff2 存在 / OFL 随包 / 迁移 5 条 / body 走 token / 无旧裸栈残留） |
+| 4 | `cargo test settings::` | ✅ **3 passed**（`test_defaults` 与「旧配置缺字段回落」两处断言同步改） |
+| 5 | e2e 视觉关键子集 | ✅ **53 用例 / 3.7min** 全绿（新增 `e2e/editor/10-font-family.spec.ts` 2 条，已登记进 `UI_KEY_SPECS`） |
+| 6 | 截图对照 | ✅ 8 张 → `%TEMP%\opencharm-ui-baseline\after-b3\`；`->` / `=>` 已合成为单符（连字可见），`0` 带斜杠、`l` 带尾钩（JetBrains Mono 字形），无布局位移 |
+| 7 | **字体实测**（方案 §5.3-3b 第 5 步「这一步不做等于没做」） | ✅ 由 `ui-baseline.mjs --probe-fonts` 固化为脚本门禁：4 个 woff2 全 **200 / font/woff2**（3–6ms）· `document.fonts.load` **8ms resolve** · `document.fonts.check('14px "JetBrains Mono"')` **true** · `--mono` token 与外壳 computed 一致 · e2e 侧 `.view-lines` 的 computed `font-family` **含 JetBrains Mono**（Monaco 不读 CSS，这是「编辑器真用上了」的唯一权威证据） |
+
+#### 7.4.8 工具级教训两则（值得记）
+
+> **其一：e2e 报「编辑器尚未初始化」不等于编辑器没创建。** 本批首次跑 e2e-ui 出现 8 项失败（E-BASIC-1..4 / S-1 / S-2 / UX-1 / UX-9），错误统一是 `app.editor` 抛「尚未初始化」。逐层排查（`initStep` 打点 → `editor.create` 返回值 → 模块实例比对）才定位到：那 8 个用例用 `await import("/src/state.ts")` 取 `app`，而**长时间运行的 vite dev 在我改动 `state.ts` 后重建了模块图**，页面拿到的是**另一份模块实例**（其 `_editor` 恒为 null）；`editor.create` 实际早已返回正常对象。杀掉 vite 进程后 e2e-ui 立刻 **51/51 全绿**。教训：① 诊断「实例未初始化」类问题必须先证伪「同一模块实例」这个前提（比对 `app.workspaceRoot` / `app.tabs` 这类被 init 填过的字段最快）；② e2e 断言应用内部状态时，**读 DOM 比读模块实例稳**（本批新增的字体 e2e 因此全部走 computed style）；③ 长时间运行的 vite dev 是 e2e 的隐性依赖源，**e2e 报出成片的编辑器类失败时，第一动作是重启 vite**。
+
+> **其二：`ui-baseline.mjs` 的探针模式不宜对「编辑器就绪」设门禁。** 该脚本的 `makeBridge` 只实现「UI 渲染必需」通道（没有 `lsp`），`init()` 会停在 `await startLsp()`，编辑器根本没到创建那一步——**与字体无关**。故 `--probe-fonts` 的门禁只覆盖字体项（可达性 / MIME / `fonts.check` / token），编辑器就绪降为提示；Monaco 侧证据由 e2e（编辑器就绪后可用）与截图承担。附带的 monaco 预热逻辑保留（冷启动时它确实要几十秒）。
+

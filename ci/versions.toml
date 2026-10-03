@@ -39,6 +39,29 @@ debugpy_cp312_win_amd64 = "bd7ba9dd3daa7c2f942c6ca8d4695a16bf9ac16b63615261c7982
 debugpy_cp313_win_amd64 = "aa648733047443eb1d07682c4ef287d36a54507b643ffdf38b09a3ef002c72a0"
 debugpy_cp314_win_amd64 = "fe0744a12353406de0ae8ccff0d0a4a666f00801a3db8fd04e7a5f761cd520e8"
 
+[fonts]
+# JetBrains Mono 随包分发（docs/ui_premium_dev_plan.md 批 3 · ui_premium_design_report.md §5.3-3b）：
+# tools/fetch-fonts.ps1 按 sha256 锁定，从 npm 官方镜像 @fontsource/jetbrains-mono 拉取
+# 4 个 woff2 子集 + OFL.txt 到 shell/public/fonts/（**入库**，不走 vendor/ 机制）。
+#
+# 为什么入库而 debugpy 不入库（量级不同 + 通道不同）：
+#   · 通道：@font-face 走 URL。bundle.resources 只对 Rust 文件系统可见（dap.rs:78-114
+#     的四级查找全是路径拼接），prod 下 tauri 协议不服务资源目录 → 放 bundle.resources
+#     时 @font-face 的 URL 无法预知安装路径（asset:// 需含用户名），且 vite dev 恒 404，
+#     单测 / e2e / 基线截图门禁链会断。public/ 下 dev 与 prod 同为 'self' 相对 URL。
+#   · 量级：4 个子集合计 71 KB，vs debugpy 20 MB。不入库的原始理由（仓库膨胀）不成立。
+# 仍保留 sha256 锁 + 拉取脚本：为的是升级受控与可复现（换版本时必过锁值比对）。
+#
+# 上游对应 JetBrains Mono v2.304（fontsource 5.3.0 打包，2026-10-03 校验）。
+# 升级：改 version + 五个 sha256 → -Force 重跑脚本 → audit + 截图对照 → 合并。
+jetbrains_mono = "5.3.0"
+jetbrains_mono_tgz = "1bbea47d1387406da5b6ccc4184cc61eae6851cc0db5c1d9bbd088ea9daa0b4a"
+jetbrains_mono_latin_400_normal = "14425ba9c695763c1547f48a206b7aa60350a33ae23de09f0407877f3fcd89eb"
+jetbrains_mono_latin_400_italic = "87ddac4a62229787528cf4ac3fa58137b62a9aec364c44fc0f40470bcda9efba"
+jetbrains_mono_latin_700_normal = "d0d4e818808f2a0ba39b2b09d1989366f63494e295f003c7ef436697378507e8"
+jetbrains_mono_latin_ext_400_normal = "505dfba8ecbe77e82765f36d317ed7ef4ac42719dc5f4ae68d1c483fd22d0d14"
+jetbrains_mono_ofl = "403581b69dac5cff4079205e01c6b467e56af449ecbd7247693ddb1baafa005b"
+
 [notes]
 # - monaco-editor 与 monaco-languageclient 版本强耦合（ADR-0003 弃用后者的原因之一），
 #   升级 Monaco 前需重新评估桥接层兼容性。

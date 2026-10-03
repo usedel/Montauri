@@ -4,7 +4,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import type * as MonacoApi from "monaco-editor/esm/vs/editor/editor.api";
-import { app, $, $btn, DEFAULT_SETTINGS, lazyEl, outputEl, type Settings } from "./state";
+import { app, $, $btn, DEFAULT_SETTINGS, lazyEl, migrateLegacyFontSettings, outputEl, type Settings } from "./state";
 import * as lsp from "./lsp/client";
 import { renderEngineChip } from "./engineChip";
 import { repaintRunWidget } from "./runWidget";
@@ -359,6 +359,7 @@ export async function loadSettings(): Promise<void> {
   }
   // 快捷键逐项兜底：旧配置 / 手改文件缺项时回落出厂默认（Rust 侧仅保证整表缺省）
   app.settings.keybindings = { ...DEFAULT_SETTINGS.keybindings, ...(app.settings.keybindings ?? {}) };
+  migrateLegacyFontSettings(app.settings);
   applyShellTheme(app.settings.theme);
 }
 
@@ -387,6 +388,35 @@ function applyEditorFontVar(): void {
 export function applyFontStatus(): void {
   statusFontEl.textContent = t("settings.statusFontSize", { size: app.settings.font_size });
   applyEditorFontVar();
+}
+
+/** 等随包等宽字体真正就绪（ui_premium 批 3；应在创建编辑器**之前** await）。
+ *
+ *  为什么需要等：Monaco 用 canvas `measureText` 测字符宽度并缓存（CharConfig），字体异步
+ *  到位后实测宽度与缓存值不符 → 网格与光标列整体错位；0.52 不会自动重测，只能由调用方
+ *  在建编辑器前把字体等出来。`font-display: swap` 下浏览器先画回退字体再交换，不等就是这个窗口。
+ *
+ *  与 CSS 侧的分工：`--mono` / @font-face 只管外壳，Monaco 字体不读 CSS，走
+ *  `settings.font_family` → `buildEditorOptions` 注入，故等字体只能在这里做。
+ *
+ *  ⚠ **必须带超时**（实测教训，2026-10-03）：`document.fonts.load()` 在 Playwright 的
+ *  Chromium 里可能长时间不 settle，直接 await 会把 init 整条链卡死（症状：app.editor 永不
+ *  创建，8 个编辑器相关 e2e 全红）。字体加载是**渐进增强**，任何情况下都不该拦住编辑器创建，
+ *  故超时后放行——最坏情况是短暂用回退字体测量一次，而不是没有编辑器。
+ */
+const EDITOR_FONT_LOAD_TIMEOUT_MS = 1500;
+
+export async function ensureEditorFontLoaded(settings: Settings): Promise<void> {
+  if (typeof document === "undefined" || !document.fonts) return;
+  const family = settings.font_family.trim();
+  if (!family) return; // 空串 = Monaco 内置默认，无需等
+  const timeout = new Promise<void>((resolve) => setTimeout(resolve, EDITOR_FONT_LOAD_TIMEOUT_MS));
+  try {
+    // load() 接受完整 CSS font 语法（含逗号分隔的字体栈），会加载栈中所有能命中的 face
+    await Promise.race([document.fonts.load(`${settings.font_size}px ${family}`), timeout]);
+  } catch (e) {
+    console.warn("等宽字体加载失败，回落系统等宽栈", e);
+  }
 }
 
 /** 由 Settings 构造 Monaco 编辑器选项（P1：外观/编辑器高频项收敛）。

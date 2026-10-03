@@ -112,9 +112,9 @@ pub struct Settings {
     pub theme: String,
     /// 字号（Ctrl+滚轮 8-32）
     pub font_size: u32,
-    /// 编辑器字体族（D3 起默认为常用等宽栈；空串 = Monaco 内置默认）
+    /// 编辑器字体族（批 3 起默认 JetBrains Mono 随包栈；空串 = Monaco 内置默认）
     pub font_family: String,
-    /// 连字（font ligatures）
+    /// 连字（font ligatures，批 3 起出厂默认开）
     pub font_ligatures: bool,
     /// Tab 宽度（1-8）
     pub tab_size: u32,
@@ -208,9 +208,13 @@ impl Default for Settings {
         Settings {
             theme: "vs-dark".into(),
             font_size: 14,
-            // D3 P-14：与前端 DEFAULT_SETTINGS.font_family 保持同步
-            font_family: "Consolas, \"Cascadia Code\", \"JetBrains Mono\", monospace".into(),
-            font_ligatures: false,
+            // D3 P-14 起为常用等宽栈；批 3（ui_premium §5.3）起 JetBrains Mono 随包并排到首位，
+            // 须与前端 DEFAULT_FONT_FAMILY / style.css --mono / index.html 字体族 preset 一致。
+            // 存量 settings.json 的旧串由前端 loadSettings::migrateLegacyFontSettings 迁移
+            //（只改内存不落盘，Rust 侧不重复实现同一条规则）。
+            font_family: "\"JetBrains Mono\", \"Cascadia Code\", \"SF Mono\", Consolas, monospace".into(),
+            // 批 3 起默认开：JetBrains Mono 的编程连字是它相对 Consolas 的核心卖点。
+            font_ligatures: true,
             tab_size: 4,
             insert_spaces: true,
             word_wrap: "off".into(),
@@ -347,8 +351,8 @@ mod tests {
         let d = Settings::default();
         assert_eq!(d.theme, "vs-dark");
         assert_eq!(d.font_size, 14);
-        assert_eq!(d.font_family, "Consolas, \"Cascadia Code\", \"JetBrains Mono\", monospace");
-        assert_eq!(d.font_ligatures, false);
+        assert_eq!(d.font_family, "\"JetBrains Mono\", \"Cascadia Code\", \"SF Mono\", Consolas, monospace");
+        assert_eq!(d.font_ligatures, true);
         assert_eq!(d.tab_size, 4);
         assert_eq!(d.insert_spaces, true);
         assert_eq!(d.word_wrap, "off");
@@ -465,7 +469,8 @@ mod tests {
         assert_eq!(s.insert_spaces, true);
         assert_eq!(s.word_wrap, "off");
         assert_eq!(s.minimap, false);
-        assert_eq!(s.font_ligatures, false);
+        // 批 3 起连字出厂默认开，故「旧配置缺该字段」回落到 true 而非 false
+        assert_eq!(s.font_ligatures, true);
         // C-6：旧配置文件无这两个字段 → 回落默认开
         assert_eq!(s.indent_guides, true);
         assert_eq!(s.bracket_colors, true);

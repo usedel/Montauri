@@ -80,11 +80,12 @@ const GIT_STATUS = {
 };
 
 function parseArgs(argv) {
-  const out = { tag: "baseline", out: join(tmpdir(), "opencharm-ui-baseline") };
+  const out = { tag: "baseline", out: join(tmpdir(), "opencharm-ui-baseline"), probeFonts: false };
   for (let i = 2; i < argv.length; i += 1) {
     const a = argv[i];
     if (a === "--tag") out.tag = argv[++i];
     else if (a === "--out") out.out = resolve(argv[++i]);
+    else if (a === "--probe-fonts") out.probeFonts = true;
     else throw new Error(`未知参数：${a}`);
   }
   return out;
@@ -204,8 +205,116 @@ async function setTheme(page, theme) {
   await settle(page);
 }
 
+/**
+ * 字体探针（批 3 门禁 · ui_premium §5.3-3b 第 5 步「实测这一步不做等于没做」）。
+ *
+ * 为什么必须自动化：随包字体是**静默失败**的典型——CSP 拦了、路径错了、MIME 不对，
+ * 页面都不报错，只是安静地回落 Consolas。方案原文要求人工开 Network 面板确认，
+ * 本项目不接受纯人工抽查，故固化为脚本门禁。
+ *
+ * 探四项：
+ *   1. 静态可达性（HTTP 状态 + MIME + 字节数）—— 路径错 / vite 未托管 public/ 会在这里暴露
+ *   2. `document.fonts.load()` 是否 settle 及耗时 —— 不 settle 会把 init 拖到超时（实测坑）
+ *   3. `document.fonts.check()` 对整条栈是否为 true —— 真正生效的判据
+ *   4. CSS 与 Monaco 两侧的实际取值 —— token / computed / 注入值三处是否同源
+ */
+async function probeFonts(page) {
+  // init 的最后一步是建编辑器（且批 3 起前面多了一次「等字体」）。先等它，
+  // 才能读到 Monaco 侧的注入值——顺带暴露 init 是否真的走完。
+  const editorReadyMs = await page
+    // state:"attached" 而非默认的 "visible"：#editor 容器在探针时刻可能尚未布局出尺寸，
+    // 用 visible 会把「已创建但不可见」误判成「未创建」（实测踩过）。
+    .waitForSelector(".monaco-editor", { timeout: 30000, state: "attached" })
+    .then(() => Date.now())
+    .catch(() => 0);
+  const probe = await page.evaluate(async () => {
+    const out = {};
+    out.fontsApi = !!document.fonts;
+    out.statusBefore = document.fonts.status;
+    out.registeredFaces = document.fonts.size;
+
+    // ① 静态可达性：**逐个**核对 4 个子集。Monaco 的 editor.create 内部会等字体就绪，
+    // 只要有一个 face 停在 pending，整个编辑器就永不创建（实测 initStep=before-create）。
+    out.files = {};
+    for (const f of ["JetBrainsMono-latin-400-normal.woff2", "JetBrainsMono-latin-400-italic.woff2",
+      "JetBrainsMono-latin-700-normal.woff2", "JetBrainsMono-latin-ext-400-normal.woff2"]) {
+      try {
+        const t = Date.now();
+        const r = await fetch("/fonts/" + f);
+        out.files[f] = `${r.status} ${(await r.arrayBuffer()).byteLength}B ${Date.now() - t}ms`;
+      } catch (e) {
+        out.files[f] = `ERR ${e}`;
+      }
+    }
+    out.faces = [];
+    document.fonts.forEach((f) => out.faces.push(`${f.family}|${f.style}|${f.weight}|${f.status}`));
+
+    // ② load() 是否 settle（永远 pending 是批 3 实测到的真实故障）
+    const t0 = performance.now();
+    out.load = await Promise.race([
+      document.fonts.load('14px "JetBrains Mono"').then(() => "resolved").catch((e) => `rejected: ${e}`),
+      new Promise((r) => setTimeout(() => r("TIMEOUT(3s)"), 3000)),
+    ]);
+    out.loadElapsedMs = Math.round(performance.now() - t0);
+    out.statusAfter = document.fonts.status;
+
+    // ③ check：整条栈命中即 true（含兜底项时恒真，故另测单独族名）
+    out.checkSingle = document.fonts.check('14px "JetBrains Mono"');
+    out.checkStack = document.fonts.check('14px "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace');
+
+    // ④ CSS 侧 token 与 computed
+    const cs = getComputedStyle(document.documentElement);
+    out.monoToken = cs.getPropertyValue("--mono").trim();
+    out.fontUiToken = cs.getPropertyValue("--font-ui").trim();
+    out.bodyFontFamily = getComputedStyle(document.body).fontFamily;
+
+    // ⑤ Monaco 实际渲染的字体：**从 DOM 读**，不碰 app —— app.editor / app.monaco 是
+    // 「未初始化即抛错」的 getter，且 page.evaluate 里的动态 import 有可能拿到另一份
+    // state.ts 模块实例（vite HMR 重建模块图时），两种情况都会让读数失真。
+    // Monaco 把 fontFamily / font-feature-settings 内联在 .view-lines 上，是权威来源。
+    const viewLines = document.querySelector(".monaco-editor .view-lines");
+    if (viewLines) {
+      const cs = getComputedStyle(viewLines);
+      out.monacoFontFamily = cs.fontFamily;
+      out.monacoFontSize = cs.fontSize;
+      out.monacoFontFeatureSettings = cs.fontFeatureSettings;
+      out.monacoLigatures = cs.fontVariantLigatures;
+    } else {
+      out.monacoFontFamily = "(.view-lines 未找到)";
+    }
+    // 外壳等宽区（输出面板/搜索）抽样，确认 --mono 真的落到 DOM 上
+    const shellMono = document.querySelector(".search-match-text, .resource-table, .db-grid");
+    if (shellMono) out.shellMonoFontFamily = getComputedStyle(shellMono).fontFamily;
+    // vite 侧的 monaco 模块可达性（预打包是否正常；冷启动时它可能很慢）
+    try {
+      const t = performance.now();
+      await import(/* @vite-ignore */ "/src/monaco.ts");
+      out.monacoDirectImport = `ok (${Math.round(performance.now() - t)}ms)`;
+    } catch (e) {
+      out.monacoDirectImport = `FAILED: ${e}`;
+    }
+    try {
+      const { app } = await import(/* @vite-ignore */ "/src/state.ts");
+      // init 链判据：mock 的 keybindings 是 {}，只有 loadSettings 跑过（填充了默认键位）
+      // 才会非空 → 据此区分「卡在 loadSettings 之前」还是「之后」。
+      out.keybindingsLoaded = Object.keys(app.settings?.keybindings ?? {}).length;
+      out.settingsFontFamily = app.settings?.font_family ?? null;
+      // **模块实例判据**（批 3 踩坑留）：探针若拿到另一份 state.ts 模块（vite 长时间运行后
+      // 重建模块图会新建实例），workspaceRoot 会是 null 而非 init 填过的路径。排查
+      // 「app.editor 未初始化」类问题时先看这一项，能立刻排除「实例不同」这个前提。
+      out.workspaceRoot = app.workspaceRoot ?? null;
+    } catch (e) {
+      out.stateError = String(e);
+    }
+    return out;
+  });
+  probe.editorReady = editorReadyMs > 0;
+  probe.editorReadyMs = editorReadyMs;
+  return probe;
+}
+
 async function main() {
-  const { tag, out } = parseArgs(process.argv);
+  const { tag, out, probeFonts: wantProbe } = parseArgs(process.argv);
   const outDir = join(out, tag);
   mkdirSync(outDir, { recursive: true });
   const devChild = await ensureDevServer();
@@ -213,6 +322,8 @@ async function main() {
   const mockSrc = readFileSync(MOCK_PATH, "utf8");
   const browser = await chromium.launch();
   const shots = [];
+  /** 页面级异常收集（init 长链任一环抛错都会静默掐断） */
+  const errors = [];
 
   /** 每套主题一个**独立页面**，主题经 __E2E_SETTINGS_PRESET__ 在启动时预置。
    *  不用「切色卡再保存」的原因：tauri-mock 的 get_settings 是静态值（save_settings 也不落盘），
@@ -225,6 +336,10 @@ async function main() {
     }, theme === "dark" ? "vs-dark" : "vs");
     await page.addInitScript({ content: mockSrc });
     await page.exposeFunction("__E2E_BRIDGE__", makeBridge(repoRoot));
+    // init 是一条长 await 链，任何一处抛错都会让编辑器永不创建（而症状只表现为
+    // 「app.editor 尚未初始化」）。把异常收上来，否则只能靠猜。
+    page.on("pageerror", (e) => { errors.push(`pageerror: ${e && e.message ? e.message : e}`); });
+    page.on("console", (m) => { if (m.type() === "error") errors.push(`console.error: ${m.text()}`); });
     await page.goto(DEV_URL, { waitUntil: "domcontentloaded" });
     // 应用就绪：文件树出现
     await page.locator("#tree .tree-item").first().waitFor({ state: "visible", timeout: 30_000 });
@@ -235,6 +350,47 @@ async function main() {
   };
 
   try {
+    // 字体门禁模式：只探针不截图（截图批次跑完后单独跑，避免每次都等 8 张）
+    if (wantProbe) {
+      // 预热：vite 冷启动时 monaco 走几十个深路径 ESM 导入，依赖预打包要几十秒，
+      // 而 init 的 `await import("./monaco")` 会一直挂着 —— 表现是「编辑器永不创建」，
+      // 与字体无关。先用一个独立页面把预打包等出来，正式页面才能在合理时间内就绪。
+      console.log("[ui-baseline] 预热 monaco 依赖预打包 …");
+      const warm = await browser.newPage({ viewport: VIEWPORT });
+      await warm.goto(DEV_URL, { waitUntil: "domcontentloaded" }).catch(() => {});
+      await warm.evaluate(() => import("/src/monaco.ts")).catch(() => {});
+      await sleep(3000);
+      await warm.close();
+
+      const page = await newThemedPage("dark");
+      const probe = await probeFonts(page);
+      probe.pageErrors = errors;
+      console.log(JSON.stringify(probe, null, 2));
+      const bad = [];
+      for (const [f, info] of Object.entries(probe.files ?? {})) {
+        if (!String(info).startsWith("200")) bad.push(`${f} 不可达（${info}）`);
+      }
+      if (!probe.checkSingle) bad.push('document.fonts.check 对 "JetBrains Mono" 为 false（字体未生效）');
+      if (String(probe.load).startsWith("TIMEOUT")) {
+        bad.push("document.fonts.load() 永不 settle（Monaco 的 editor.create 会因此挂起）");
+      }
+      if (bad.length) {
+        console.error("[ui-baseline] 字体门禁 FAIL：");
+        for (const b of bad) console.error("  · " + b);
+        process.exitCode = 1;
+      } else {
+        console.log(`[ui-baseline] 字体门禁 PASS（load ${probe.loadElapsedMs}ms · ${probe.monacoFontFamily}）`);
+      }
+      if (!probe.editorReady) {
+        // **不是字体问题**：本脚本的 makeBridge 只实现「UI 渲染必需」通道（没有 lsp），
+        // init 会停在 `await startLsp()`，编辑器根本没到创建那一步。Monaco 侧的字体证据
+        // 由 e2e-ui（编辑器就绪后可用）+ 基线截图（连字可见）提供，不在此处设门禁。
+        console.log("[ui-baseline] 提示：编辑器未就绪（探针环境缺 lsp 通道，init 停在 startLsp）——不计入字体门禁");
+      }
+      await page.close();
+      return;
+    }
+
     for (const theme of ["dark", "light"]) {
       console.log(`[ui-baseline] ${theme} 主题`);
       const page = await newThemedPage(theme);

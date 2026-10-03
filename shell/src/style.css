@@ -1,5 +1,55 @@
 /* 设计 token（D1 收敛）：一切色值走语义变量；浅色主题经 [data-theme="light"] 覆盖层实现。
    新增样式禁止引入裸色值——如需新色，先在此登记 token。 */
+
+/* ---------- 随包等宽字体（ui_premium §5.3-3b · 批 3）----------
+   JetBrains Mono 随应用分发：文件在 public/fonts/（**入库**），版本与 sha256 锁在
+   ci/versions.toml [fonts]，由 tools/fetch-fonts.ps1 拉取校验（幂等，-Force 强制重拉）。
+   放 public/ 而非 bundle.resources 的理由（与 debugpy 的 vendor 机制不同）：@font-face
+   走 URL 通道，而 bundle.resources 只对 Rust 文件系统可见（dap.rs 的四级查找全是路径
+   拼接），prod 下 tauri 协议不服务资源目录 → 那样 @font-face 的 URL 无法预知安装路径，
+   且 vite dev 恒 404，会让单测 / e2e / 基线截图门禁链全断。public/ 下 dev 与 prod 同为
+   'self' 相对路径，CSP 无需改动（font-src 'self' data: 已足够）。
+   ⚠ 不声明 unicode-range：fontsource 5.x 自身也不发；同 family/style/weight 的多个 face
+     由浏览器按字符覆盖范围组成字体栈逐字符回退（latin → latin-ext），手抄 Google Fonts
+     的区间反而可能与实际子集划分不符。
+   ⚠ 同步义务（本 family 名 / 字重共 4 条 face 改动时须一并核对）：
+     ① --mono 栈  ② state.ts DEFAULT_SETTINGS.font_family  ③ settings.rs Default
+     ④ index.html 字体族 preset 首选项  ⑤ index.html FOUC 块的 --font-ui 引用。 */
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/JetBrainsMono-latin-400-normal.woff2") format("woff2");
+}
+/* 斜体是**真斜体**（v2.304 含 Italic 设计，非合成）：Monaco 默认把注释渲染为 italic，
+   缺这条会退到浏览器斜体变形，等宽字体的合成斜体明显歪。 */
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/JetBrainsMono-latin-400-italic.woff2") format("woff2");
+}
+/* 粗体：Monaco 的部分 token（函数名 / 类型名，取决于主题 rules）用 font-weight: bold。
+   代码字体的合成粗体几乎无法读，宁可多 21 KB 也要真 Bold。 */
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/JetBrainsMono-latin-700-normal.woff2") format("woff2");
+}
+/* 拉丁扩展：欧洲语言标识符与注释（捷克 / 波兰 / 匈牙利 / 土耳其等）。
+   不含 CJK——中文注释回退系统字体，这是等宽栈的正常行为（monospace 兜底）。 */
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/JetBrainsMono-latin-ext-400-normal.woff2") format("woff2");
+}
+
 :root {
   /* ---------- 表面阶梯（ui_premium §5.2.1）----------
      S0 最深（窗口底 / 状态栏 / 面板底）→ S4 最亮（hover / 浮层强调）。
@@ -149,8 +199,16 @@
   --theme-pv-light-side: #e9e9ec;
   --theme-pv-light-fg: #333333;
   --theme-pv-light-border: #d4d4d4;
-  /* 等宽字体栈（D3 P-14：输出/搜索匹配/终端/模板编辑等统一） */
-  --mono: Consolas, "Cascadia Code", "JetBrains Mono", monospace;
+  /* ---------- 字体栈（ui_premium §5.3 · 批 3）----------
+     UI 字体走系统栈：单人自用 IDE，跨机一致性收益为零，不值得为它改 CSP + 增 300 KB。
+     ⚠ --font-ui 此前**没有这个 token**：body 与 index.html 的 FOUC 块各写一份裸栈，
+       而 FOUC 块注释把它列为同步项（悬空引用），批 3 顺手坐实这个 token。
+     等宽字体随包 JetBrains Mono（见文件头 @font-face）：旧栈把 2007 年的 Consolas 排第一，
+     而它命中的正是 80% 注视时间的代码区；JetBrains Mono 的 x-height 更大、字面更宽、
+     带编程连字与真斜体/真粗体。Consolas 降为兜底（用户装了 Cascadia Code 时会先命中它，
+     这与出厂意图一致：显式选择优于静默降级）。 */
+  --font-ui: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  --mono: "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
 
   /* ---------- 字号 scale（UI-18）----------
      审计口径：全项目 181 处 font-size、12 种取值。裁决「主动精简档位」后归档如下
@@ -384,8 +442,11 @@ html, body {
   overflow: hidden;
   background: var(--bg);
   color: var(--fg);
-  font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  font-family: var(--font-ui);
   font-size: var(--text-base);
+  /* 细字重在深色底上关掉 subpixel 抗锯齿（合成 bold 时不发虚）：Windows 上 Chromium
+     默认关 subpixel，这行是跨平台一致的显式声明，非冗余。 */
+  -webkit-font-smoothing: antialiased;
   user-select: none;
 }
 
@@ -1293,14 +1354,23 @@ button:focus-visible,
 #md-preview p { margin: var(--space-3) 0; }
 #md-preview a { color: var(--accent); text-decoration: none; }
 #md-preview a:hover { text-decoration: underline; }
+/* 代码块开编程连字（ui_premium §5.3-3c）。范围**只限代码块**——方案原文写的是
+   `.mono, [class*="-mono"], pre, code` 全局生效，但本项目无 .mono 类（该选择器无对象），
+   且输出面板 / 终端 / 搜索命中的等宽文本是日志与命令输出，连字把 "->" "=>" 变形会妨碍
+   逐字比对。Monaco 侧由 settings.font_ligatures 控制（批 3 起出厂 true）。 */
 #md-preview code {
-  font-family: "Consolas", "Cascadia Code", "JetBrains Mono", monospace;
+  font-family: var(--mono);
+  font-variant-ligatures: contextual;
+  font-feature-settings: "liga" 1, "calt" 1;
   background: var(--surface-3);
   border-radius: var(--radius-xs);
   padding: 0 var(--space-2);
   font-size: 0.92em;
 }
 #md-preview pre {
+  font-family: var(--mono);
+  font-variant-ligatures: contextual;
+  font-feature-settings: "liga" 1, "calt" 1;
   background: var(--surface-3);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
@@ -2275,7 +2345,7 @@ button:focus-visible,
 .ep-badge-ws { color: var(--meta, var(--fg-dim)); font-style: italic; }
 .ep-route {
   color: var(--fg);
-  font-family: var(--font-mono, monospace);
+  font-family: var(--mono);
   font-size: var(--text-sm);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2408,7 +2478,7 @@ button:focus-visible,
   flex: 1;
   min-width: 120px;
   font-size: var(--text-sm);
-  font-family: var(--font-mono, monospace);
+  font-family: var(--mono);
   padding: 2px var(--space-2);
   background: var(--bg-alt);
   border: 1px solid var(--border);
@@ -2435,7 +2505,7 @@ button:focus-visible,
 .db-stale { opacity: 0.55; }
 .db-grid {
   border-collapse: collapse;
-  font-family: var(--font-mono, monospace);
+  font-family: var(--mono);
   font-size: var(--text-sm);
 }
 .db-grid th,
@@ -2481,7 +2551,7 @@ button:focus-visible,
 }
 .db-cell-detail-head { color: var(--fg-dim); font-size: var(--text-xs); margin-bottom: var(--space-1); }
 .db-cell-detail-body {
-  font-family: var(--font-mono, monospace);
+  font-family: var(--mono);
   white-space: pre-wrap;
   word-break: break-all;
   max-height: 30vh;
@@ -3665,7 +3735,7 @@ button:focus-visible,
   color: var(--fg);
   padding: var(--space-3) var(--space-4);
   font-size: var(--text-sm);
-  font-family: var(--font-mono, monospace);
+  font-family: var(--mono);
   resize: vertical;
 }
 
@@ -3723,7 +3793,10 @@ button:focus-visible,
 .clone-progress { margin-top: var(--space-2); }
 .clone-progress-bar { height: 4px; background: var(--border-soft); border-radius: var(--radius-sm); overflow: hidden; }
 .clone-progress-fill { height: 100%; background: var(--accent); width: 0%; transition: width 0.2s; }
-.clone-progress-text { font-size: var(--text-xs); color: var(--fg-dim); margin-top: var(--space-1); font-family: var(--font-mono); }
+/* 原文为 var(--font-mono)：该 token 从未定义，且此处无 fallback 值——自定义属性未定义时
+   整条 font-family 声明失效（不是回退到 monospace），故克隆进度文本一直没拿到等宽字体。
+   批 3 随其余 5 处一并收口到 --mono。 */
+.clone-progress-text { font-size: var(--text-xs); color: var(--fg-dim); margin-top: var(--space-1); font-family: var(--mono); }
 .input-error { border-color: var(--danger) !important; }
 
 /* ---------- 运行配置管理器（PyCharm 式左列表 + 右编辑） ---------- */
