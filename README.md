@@ -12,6 +12,7 @@
 
 | 文档 | 说明 |
 |---|---|
+| [`docs/delivery-overview.md`](docs/delivery-overview.md) | **交付总览（现行入口）**：20 个功能域 × 交付日期 × 计划真源 × 验收记录 × 状态、文档地图（按角色读）、已知文档不一致登记、门禁与复核命令、新会话上手路径 |
 | [`docs/python_ide_tech_plan_v3.md`](docs/python_ide_tech_plan_v3.md) | **技术方案 v3（现行）**：Tauri+Monaco 外壳架构 |
 | [`docs/python_ide_dev_plan_v2.md`](docs/python_ide_dev_plan_v2.md) | **开发计划 v2（现行）**：Phase 重排与当前进度 |
 | [`docs/python_debug_dev_plan.md`](docs/python_debug_dev_plan.md) | **调试功能开发计划 v1.3（已实施）**：DAP / debugpy 集成，D1–D5 |
@@ -23,7 +24,8 @@
 | [`docs/disk-space-plan.md`](docs/disk-space-plan.md) | 系统盘占用治理方案（已实施） |
 | [`docs/tech-debt.md`](docs/tech-debt.md) | 技术债登记（待处理 + 已归档） |
 | [`docs/ui_design_improvement_plan.md`](docs/ui_design_improvement_plan.md) | **界面设计改进计划 v2.1（已全部完成：30/30 项 + 2 条清单外遗留，共十批）**：UI 缺陷、设计系统一致性、ARIA 无障碍与响应式打磨；§7 有逐批进度记录与人工抽查清单 |
-| [`docs/ui_premium_design_report.md`](docs/ui_premium_design_report.md) | **视觉「高级感」诊断与改造方案 v1.0（待评审）**：品牌色系统一、五档表面阶梯与真实层级、字体替换、Monaco 主题同步；含实算对比度数据与四批落地路线图 |
+| [`docs/ui_premium_design_report.md`](docs/ui_premium_design_report.md) | 视觉「高级感」诊断与改造方案 v1.2（方向已批准）：品牌色系统一、五档表面阶梯与真实层级、字体替换、Monaco 主题同步；含实算对比度数据与六批落地路线图。**执行真源见 [`docs/ui_premium_dev_plan.md`](docs/ui_premium_dev_plan.md)** |
+| [`docs/ui_premium_dev_plan.md`](docs/ui_premium_dev_plan.md) | **UI 视觉「高级感」改造执行计划 v1.0（六批全部落地）**：批 1 ADR-0005 单色相轴 / 2a 表面五档阶梯 / 2b 抬升面归属 / 3 JetBrains Mono 随包 / 4 Monaco 自定义主题 / 5 边框·曲线·圆角·材质；§4 门禁 · §6 批次入口 · §7 逐批实施记录 · §8 方案与实际的 8 处偏差登记 |
 | [`docs/markdown_preview_dev_plan.md`](docs/markdown_preview_dev_plan.md) | Markdown 预览开发计划 v1.0（已实施）：编辑区分栏实时预览 + GFM / 图片 / 链接 |
 | [`docs/live_templates上下文轴修订稿.md`](docs/live_templates上下文轴修订稿.md) | Live Templates 上下文位置轴修订稿 v1.1（相位 A 已实现）：容器 × 位置 × 词法三维 |
 | [`docs/pycharm_feature_research_report.md`](docs/pycharm_feature_research_report.md) | PyCharm 功能调研报告 v1.1（调研，非排期依据） |
@@ -33,12 +35,23 @@
 | [`docs/edit_prediction_research_plan.md`](docs/edit_prediction_research_plan.md) | 低延迟编辑预测研究方案 v0.1（探索中） |
 | [`docs/dep_health_dev_plan.md`](docs/dep_health_dev_plan.md) | 依赖健康开发计划（已实施）：依赖风格/扫描/修复 + 忽略清单 |
 | [`docs/git_improvement_report.md`](docs/git_improvement_report.md) | Git 集成交付报告：远程/worktree/rebase/cherry-pick/stash/log/blame 等增强 |
-| [`docs/menubar_improvement_plan.md`](docs/menubar_improvement_plan.md) | 菜单栏改进计划 |
-| [`docs/sqlite_tool_dev_plan.md`](docs/sqlite_tool_dev_plan.md) | **SQLite 数据库工具开发文档 v1.1（PR-1~4 已实施，待复核）**：侧栏「数据库」视图（连接 / 对象树 / SQL 编辑器 / 结果网格四段）、rusqlite 引擎 + 默认只读、Rust↔TS 数据契约、i18n 词条表、4 个 PR 排期与**逐 PR 实施记录**（§9.1~§9.4，含 e2e 抓到的两个真 bug 与修法） |
-| [`docs/toolbox_dev_plan.md`](docs/toolbox_dev_plan.md) | **工具箱开发计划 v1.0（待评审）**：SQLite 数据库工具 / HTTP Client / 结构化运行日志 / TODO 与 Markdown 增强，四项共 14 个 PR 的实施设计 |
-| [`docs/improvement_and_roadmap_report.md`](docs/improvement_and_roadmap_report.md) | **现状评估 · 改进建议与未来功能规划 v1.0（待评审）**：规模与质量底座实测、P0/P1/P2 改进清单、A–D 四类未来功能候选池与四阶段路线图 |
+| [`docs/menubar_improvement_plan.md`](docs/menubar_improvement_plan.md) | 菜单栏改进计划 v1.4（**全部完成 6/16**）：菜单栏结构与命令面板收官；§6 留有可复审的排期与验收依据 |
+| [`docs/sqlite_tool_dev_plan.md`](docs/sqlite_tool_dev_plan.md) | **SQLite 数据库工具开发文档 v1.4（B3 唯一真源，已交付）**：v1.0 PR-1~4（侧栏四段视图 / rusqlite bundled / 默认只读 / Rust↔TS 数据契约 / 逐 PR 实施记录 §9.1~§9.4）+ 迭代 3 编辑器 Tab 化重设计（方案见 §17，含 e2e 真机抓到的两个真 bug 与修法）；§10.3 真机手测 13/13 PASS |
+| [`docs/toolbox_dev_plan.md`](docs/toolbox_dev_plan.md) | **工具箱开发计划 v1.0（待评审）**：HTTP Client / 结构化运行日志 / TODO 与 Markdown 增强（**SQLite 章已于 2026-10-02 迁出至 `sqlite_tool_dev_plan.md`**，此处仅留指向） |
+| [`docs/improvement_and_roadmap_report.md`](docs/improvement_and_roadmap_report.md) | **现状评估 · 改进建议与未来功能规划 v1.1（待评审）**：规模与质量底座实测（HEAD `964ea7e`）、P0~P2 改进清单、A–D 四类未来功能候选池与四阶段路线图；§9 含取数命令与复核触发条件 |
+| [`docs/onboarding_guide.md`](docs/onboarding_guide.md) | **新手指南（面向用户）**：三分钟上手（新建项目 / 依赖 / 运行 / 调试入口） |
+| [`docs/onboarding_dev_plan.md`](docs/onboarding_dev_plan.md) | 新手引导 + uv 速查卡开发计划 v1.2（PR-S1~S5 策划；⚠️ 状态与 `onboarding_guide.md` 存在双源冲突，待裁定） |
+| [`docs/multi_window_dev_plan.md`](docs/multi_window_dev_plan.md) | 多窗口开发计划 v0.1（阶段 0/1/2 方案；⚠️ 阶段 0 代码已落地，状态栏未回填） |
+| [`docs/git_clone_dev_plan.md`](docs/git_clone_dev_plan.md) | Git 远端克隆开发计划 v1.0（已实施 2026-10-01，Git 迭代 6 · P3-1） |
+| [`docs/python_library_support_dev_plan.md`](docs/python_library_support_dev_plan.md) | 库特别支持开发计划 v1.3（已实施）：P0 四件套 + P1 五件套（re 三件套 / 格式串 / JSON / 求值桥 / 脚本参数表单），v1.3 收口互斥性（10 项） |
+| [`docs/python_library_support_research.md`](docs/python_library_support_research.md) | 库特别支持调研报告 v1.5（**非排期依据**）：逐库价值/成本矩阵、pytest 边界（§8 明确不复议）、`re` 三件套论证 |
+| [`docs/pyrefly_pydantic_support_plan.md`](docs/pyrefly_pydantic_support_plan.md) | pyrefly Pydantic 支持完善计划 v0.2：撤销 basedpyright 推荐 + 自研改名传播补充（references=0 场景） |
+| [`docs/pycharm_ux_review_and_proposal.md`](docs/pycharm_ux_review_and_proposal.md) | PyCharm UX 对标与改进提案 v1.0（**非排期依据**）：§10 裁决表，含 **F-1 pytest 维持非目标（2026-09-25 已裁决）** |
+| [`docs/pycharm_framework_support_report.md`](docs/pycharm_framework_support_report.md) | PyCharm 框架支持调研报告 v1.2（**非排期依据**） |
+| [`docs/dx_features_backlog.md`](docs/dx_features_backlog.md) | DX 顺手功能储备（**已全部收官**）：第一/第二梯队落地记录，§6.8 进度快照 |
+| [`docs/e2e_divergence_ledger.md`](docs/e2e_divergence_ledger.md) | e2e 分歧台账（mock ↔ CDP 真机）：D-001~D-007 根因与避坑速查；真机覆盖的论据来源 |
 | [`docs/i18n.md`](docs/i18n.md) | **国际化实施说明（zh-CN / en-US 双语，已交付）**：扁平 key 语言包、20 批动态文案抽取、三步新增文案流程与踩坑记录 |
-| [`docs/adr/`](docs/adr/) | 技术决策记录（ADR） |
+| [`docs/adr/`](docs/adr/) | 技术决策记录（ADR）：0003 自研 LSP 桥 · 0004 DAP + debugpy 随包 · 0005 品牌/交互色统一 |
 
 > 技术方案与开发计划冲突时，以开发计划为准并反馈修订。
 

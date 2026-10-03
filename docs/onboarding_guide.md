@@ -1,6 +1,10 @@
 # OpenCharm 新手指南
 
+> 版本：v1.0 · 日期：2026-09-30（随 PR-S1 交付）· 状态：**已交付**
 > 面向第一次使用 OpenCharm 的你。从零到跑通第一个 Python 程序，大约需要三分钟。
+> **本文档是 `docs/onboarding_dev_plan.md` v1.3 的 PR-S1 产物**：源文件经 Vite `?raw` 打包（`shell/src/welcomeGuide.ts:24`），由 `openOnboardingGuide()` 写入数据根 `docs/` 后打开并渲染 Markdown 预览——**每次打开都从仓库最新版覆写，无版本陈旧问题**。
+> 入口三处：帮助菜单「新手指南」· 命令面板搜「新手指南」· 欢迎页「查看完整指南」链接。
+> 修改本文档后**无需额外构建步骤**（?raw 走 Vite 依赖图，热更新即生效）；新增功能发现条目请同时更新 `shell/src/welcomeGuide.ts` 的巡礼策展数据（单一数据源纪律见计划 §2.0）。
 
 ---
 

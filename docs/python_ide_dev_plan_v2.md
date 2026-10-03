@@ -111,11 +111,12 @@ open-charm/
 
 ## 7. Phase 4 · 打磨期（第 41 周起，持续）
 
-> 进度（2026-08-24）：Phase 3（opencharm-intel）P3-T01~T10 已基本完成，仅剩 PyCharm 同场景人工对标待复核——项目已实际进入本阶段；「外壳基本功补齐」三项已提前交付。
+> 进度（**2026-10-03 回填**，上一版 2026-08-24）：Phase 3（opencharm-intel）P3-T01~T09 已交付，仅剩 **P3-T10 的两格 PENDING**——「≥ PyCharm 同场景人工横向对标」+「真实项目 trace 端到端」（确定性口径已 PASS：`bench/reports/gate-d-runtime-completion.md` 23/23 = 100%，红线 ≥85%）。项目已实际进入本阶段。
+> **逐功能域的交付日期 · 计划真源 · 验收记录 · 状态，见 [`docs/delivery-overview.md`](delivery-overview.md)（20 个功能域总表）**；本表只保留打磨期任务与后续功能域的粗粒度状态。全局改进优先级见 `docs/improvement_and_roadmap_report.md` v1.1。
 
 | 任务 | 说明 | 状态 |
 |---|---|---|
-| 上游跟随 | Tauri / Monaco / Pyrefly / basedpyright / ruff 升级走回归 CI | ⚠️ 版本已锁定（`ci/versions.toml`），升级回归 CI 自动化待建 |
+| 上游跟随 | Tauri / Monaco / Pyrefly / basedpyright / ruff 升级走回归 CI | ⚠️ 版本已锁定（`ci/versions.toml`）；**`.github/workflows/ci.yml` 的 `on.push.branches` 仍为 `[main]` 而主干是 `master` → 推送主干零 CI 触发**；无 `schedule`，升级回归自动化待建（`docs/improvement_and_roadmap_report.md` P0-1） |
 | 外壳基本功补齐 | 集成终端（xterm.js + portable-pty 多会话）、Git 集成（状态装饰 + 暂存/提交/diff/分支起步，后续扩展远程/worktree/rebase 等，见 `docs/git_improvement_report.md`）、全局搜索（`ignore` crate 遍历 + 自实现并行匹配） | ✅ 已交付 |
 | 打包发布 + 首次启动环境引导 | 自研组件（`opencharm-intel`、`probe/src`）随 NSIS 安装包分发（`bundle.resources`，运行时按 `locate_*` 查找资源目录）；外部命令（uv/pyrefly/ruff/git）统一经 `shell/src-tauri/src/tool_paths.rs` 解析（环境变量 → `~/.opencharm/bin`/`~/.local/bin` → 系统 PATH）；全新系统缺 uv/pyrefly 时由 `toolchain.rs` 探测、前端弹「环境引导」一键安装到用户目录；`build-release.ps1` 一键打包（清理 → intel release 构建 → 前端依赖 → `tauri build` nsis） | ✅ 已交付（Phase 4 第 1~4 步） |
 | 调试评估 | debugpy DAP 集成是否立项（Phase 3 后裁决） | ✅ 已立项并交付最小闭环（`docs/python_debug_dev_plan.md` v1.3：debugpy 1.8.21 随包分发 + DAP 桥 + 断点/步进/调用栈/变量；验收记录 `docs/debug_acceptance_record.md`，人工验收清单待办） |
@@ -123,6 +124,19 @@ open-charm/
 | trace 新鲜度优化 | 基于真实使用数据调整降权/清理策略 | ⚠️ 机制已就位（probe `stale` + `clean` + intel 降权），基于真实使用数据的调参未做 |
 | 边角修复 | 产品负责人日常使用反馈驱动 | 🔄 持续中 |
 | 边角修复 · live template 上下文位置轴 | 模板上下文从「容器单轴」升级为「容器 × 位置 × 词法」三维（`docs/live_templates上下文轴修订稿.md` v1.1）；缺省位置 = statement+expression（排除 name），根治 `main` 撞函数名误触发 | ✅ 相位 A + 相位 B（PyCharm `<context>` 导入映射 + 管理面板适用环境多选）均已交付（2026-09-25，注记见修订稿 §8/§9） |
+| 库特别支持 | `re` 三件套 / 格式串 / JSON / 求值桥 / 脚本参数表单（`docs/python_library_support_dev_plan.md` v1.3） | ✅ 已交付（P0 四件套 + P1 五件套，2026-09-28） |
+| 依赖健康 | 依赖风格识别 / 扫描 / 修复 / 忽略清单（`docs/dep_health_dev_plan.md` v1.7） | ✅ 已交付（M1–M4，2026-09-16） |
+| Pydantic 支持 | 构造校验 + 改名传播（pyrefly `references=0` 场景的自研补充）（`docs/pyrefly_pydantic_support_plan.md` v0.2） | ✅ 已交付（2026-09-28） |
+| 菜单栏 | 菜单栏结构与命令面板收官（`docs/menubar_improvement_plan.md` v1.4） | ✅ 已交付（6/16，2026-09-21） |
+| 界面设计改进 | UI 缺陷 / 设计系统一致性 / ARIA 无障碍 / 响应式（`docs/ui_design_improvement_plan.md` v2.1） | ✅ 已交付（30/30 + 2 条清单外遗留，2026-09-11） |
+| UI 视觉身份 | 单色相轴（ADR-0005）+ 表面五档阶梯 + 随包等宽字体 + Monaco 自定义主题 + 边框/曲线/圆角/材质（`docs/ui_premium_dev_plan.md` v1.0 执行真源 · `docs/ui_premium_design_report.md` v1.2 论证） | ✅ 六批全部落地（2026-10-03；audit 98 项 0 FAIL · 真机主题 32/32 PASS） |
+| Git 增强（迭代 0–6） | 远程 / worktree / rebase / cherry-pick / stash / log / blame / **远端克隆**（`docs/git_improvement_report.md` · `docs/git_clone_dev_plan.md` v1.0） | ✅ 迭代 0–6 已交付（2026-10-01）；shelf / changelist 与完整凭据 UI 暂缓 |
+| SQLite 数据库工具 | 侧栏资源管理器 + 编辑器 Tab 双形态 + rusqlite bundled + 默认只读 + 分页排序过滤（`docs/sqlite_tool_dev_plan.md` v1.5 唯一真源，方案见 §17） | ✅ v1.4 已交付（2026-10-02；门禁全绿 tsc 0 / vitest 994 / e2e db 30/30 / cargo 286）；⏳ v1.4 真机手测待做（§17.7；§10.3 的 13/13 属 v1.0 侧栏态） |
+| 插件（工具切片） | manifest + host API + kit 积木 + 热重载（`docs/plugin_system_design.md` v0.2 §9 · `docs/devtools_plugin_guide.md` v1） | ✅ PR-1~4 已交付（2026-09-20，490 测试）；**v2 议题未启动**（P1-6 只做工作区级插件目录） |
+| 国际化 | zh-CN / en-US 双语（`docs/i18n.md`） | ✅ 已交付（20 批抽取，2026-10-01；en/zh 词条编译期对齐 + 单测兜底） |
+| 多窗口 | 独立窗口与状态隔离（`docs/multi_window_dev_plan.md` v0.2） | ✅ 阶段 0/1/2 全部交付（2026-09-28 实施 / 09-30 入库；真机 `multi-window-real.cjs` 16/16 PASS；#4~#6 依赖健康缓存经拍板暂缓） |
+| 新手引导 | 欢迎页三步卡 / 功能巡礼 / force-show / uv 速查卡（`docs/onboarding_dev_plan.md` v1.3） | ✅ PR-S1 / S2 / S4 已交付（2026-09-30；e2e `04-onboarding.spec.ts` OG-1..OG-9）；PR-S3（可选 P2）未开工 · PR-S5 登记不排期 |
+| 文档治理 | 交付总览 / 全局评估 / 分歧台账 / 技术债登记 | ✅ `docs/delivery-overview.md` 已建（20 功能域总表 + 文档地图 + 不一致登记，**9 条不一致已全部关闭**）；README 索引 39 篇全覆盖；`dev_plan_v2` §7 已回填；ADR 0006~0009 已补记 |
 
 ## 8. 工程规范（不变）
 

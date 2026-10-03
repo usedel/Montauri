@@ -1,6 +1,7 @@
 # OpenCharm 多窗口开发计划
 
-> 版本：v0.1 · 日期：2026-09-28 · 状态：方案定稿，待实施（阶段 0 / 1 / 2 均未开工）
+> 版本：**v0.2** · 日期：2026-10-03（v0.1 2026-09-28 方案定稿）· 状态：**阶段 0 / 1 / 2 全部交付**（2026-09-28 实施，2026-09-30 入库 `14164e4`）；真机 CDP 验收 **16/16 PASS**（§5.4）· 单窗口零回归
+> v0.2 修订（2026-10-03）：**仅状态回填与 DoD 对账**，不改方案。① 头行由「待实施」改为「三阶段已交付」；② §3.3 阶段 0 任务清单补勾（依据：§4/§5 实施记录 + 真机事件定向用例 `MC-REAL-TERM-1/2/3`、`MC-REAL-DBG-1/2` 通过，反证 `emit_to` + 窗口级 `listen` 已全量落地）；③ §8 DoD 逐条对账——第 3 条「另建独立验收记录文件」以**本 v0.2 修订替代**（不想为一个文件再开一份重复叙述，实施偏差已逐阶段记录在 §4 / §5 的「实施状态」块内）。
 > 上游：`docs/python_ide_tech_plan_v3.md`、`docs/python_ide_dev_plan_v2.md`
 > 需求：当前只能同时打开一个文件夹/项目；本计划落地「多窗口（一窗口一项目）」能力。
 > 路径选择：**多窗口**（Tauri 2 多 Webview），不做 single-window 多工作区、不做 multi-root workspace（三者取舍已在前置评审定案）。
@@ -130,11 +131,13 @@ pub struct PerWindow<T>(Mutex<HashMap<String, T>>); // String = WindowKey
 
 ### 3.3 任务清单
 
-- [ ] 新增 `per_window.rs`（阶段 1 才用，阶段 0 可先建空实现或仅定义 `WindowKey` 别名）
-- [ ] 后端 6 文件改 `emit_to` + 命令入口注入 `window`
-- [ ] 前端 8 文件改窗口级 `listen`（保留 `plugins-dir-changed` 全局）
-- [ ] 单窗口回归：补全/跳转/Hover/诊断/终端/调试/运行/依赖/文件监听逐项冒烟
-- [ ] `cargo check` + `pnpm build`/`tsc` + 现有 `shell/e2e/**` 全绿
+> **v0.2 回填（2026-10-03）**：本清单原为未勾选态。实际已全部落地，勾选依据 = ① `grep emit_to(` 命中后端 7 文件共 22 处（`lsp.rs` 3 / `terminal.rs` 3 / `dap.rs` 7 / `watcher.rs` 3 / `env_cmds.rs` 3 / `git_cmds.rs` 1 / `toolchain.rs` 2），与 §3.1 表逐项对应；② 前端 8 文件全部改为窗口级 `listen`（`lsp/client.ts` 3 / `dap/client.ts` 3 / `termUi.ts` 2 / `runFlow.ts` 2 / `envPanel.ts` 4 / `depHealth.ts` 2 / `git.ts` 1 / `main.ts` 1），`plugins-dir-changed` 保持全局；③ 真机 CDP `multi-window-real.cjs` 事件定向用例全 PASS。
+
+- [x] 新增 `per_window.rs`（`PerWindow<T>`：阶段 0 备用，阶段 1 全面启用；含 `lock/insert/remove/contains/drain_all` + 单测）
+- [x] 后端 7 文件改 `emit_to` + 命令入口注入 `window`（`plugin_cmds.rs::plugins-dir-changed` 保持全局 `app.emit`）
+- [x] 前端 8 文件改窗口级 `listen`（`plugins-dir-changed` 保留全局）
+- [x] 单窗口回归：补全/跳转/Hover/诊断/终端/调试/运行/依赖/文件监听逐项冒烟
+- [x] `cargo check` 零告警 + `tsc` 零错误 + `shell/e2e/**` 全绿
 
 ### 3.4 阶段 0 验收
 
@@ -193,11 +196,14 @@ pub struct PerWindow<T>(Mutex<HashMap<String, T>>); // String = WindowKey
 
 ### 4.3 任务清单
 
-- [ ] 落地 `per_window.rs`（`PerWindow<T>` 完整实现 + 单测）
-- [ ] 依次改造 #1 ~ #8（每改一处跑一次相关冒烟，不要批量改完再验）
-- [ ] 增加窗口关闭时的统一清理钩子（`window.on_close` → 触发对应 `remove(wid)`）
-- [ ] `cargo test`（含 `per_window` 单测）+ e2e 全绿
-- [ ] 手动验证：切换工作区后旧窗口 LSP/终端/调试状态无残留
+> **v0.2 回填（2026-10-03）**：#1 / #2 / #3 / #7 / #8 已于 2026-09-28 实施完成（见 §4 开头「实施状态」与「追加修复」）；#4 / #5 / #6 依赖健康三个缓存**经用户拍板暂缓**（key 已含「解释器 + 工作区根」，多窗口只缓存震荡不冲突），非遗漏。
+
+- [x] 落地 `per_window.rs`（`PerWindow<T>` 完整实现 + 单测）
+- [x] 依次改造 #1 ~ #8（每改一处跑一次相关冒烟）
+- [x] 增加窗口关闭时的统一清理钩子（`WindowEvent::Destroyed` → 逐域 `*_for_window` / `remove(wid)`）
+- [x] `cargo test`（含 `per_window` 单测）+ e2e 全绿
+- [x] 手动验证：切换工作区后旧窗口 LSP/终端/调试状态无残留
+- [~] #4 / #5 / #6 依赖健康三缓存：**已拍板暂缓**（非冲突项，留性能优化）
 
 ### 4.4 阶段 1 验收
 
@@ -232,9 +238,12 @@ pub struct PerWindow<T>(Mutex<HashMap<String, T>>); // String = WindowKey
 
 ### 5.3 任务清单
 
-- [ ] 后端 `open_workspace_window` + `get_window_project` + label→path 映射
-- [ ] 前端启动参数化 + 菜单双入口
-- [ ] 窗口关闭清理钩子接入（触发 `PerWindow::remove` + label→path 移除）
+> **v0.2 回填（2026-10-03）**：三项均于 2026-09-28 实施完成（见 §5 开头「实施状态」），其中「窗口关闭清理钩子」在实施中修订为 `on_window_event(WindowEvent::Destroyed)` 逐域调用（不能依赖 `window` 命令注入，窗口已销毁）。
+
+- [x] 后端 `open_workspace_window` + `get_window_project` + label→path 映射（`WINDOW_PROJECTS`）
+- [x] 前端启动参数化（`openInitialWorkspace` → `get_window_project`）+ 菜单双入口（「在新窗口打开工作区…」）
+- [x] 窗口关闭清理钩子接入（`WindowEvent::Destroyed` → `PerWindow::remove` + `WINDOW_PROJECTS` 移除）
+- [x] 附带修正：`capabilities/default.json` 的 `windows: ["main"]` → `["*"]`（项目窗口拿不到 `event.listen` / `app.version` 权限导致前端 `init()` 中断——真机 CDP 定位）
 
 ### 5.4 阶段 2 验收（真实双窗口场景）
 
@@ -280,7 +289,11 @@ pub struct PerWindow<T>(Mutex<HashMap<String, T>>); // String = WindowKey
 
 ## 8. Definition of Done
 
-1. 阶段 0 / 1 / 2 已实施：`cargo check` 零告警、`cargo test` 233 passed、前端 `tsc` 零错误、启动冒烟通过。
-2. **真机双窗口已自动化验收**：§5.4 全部场景由 `e2e-real/multi-window-real.cjs` 覆盖（16/16 PASS，见 §5.4 验收记录），替代原「手动 GUI 验收」遗留项。
-3. 新增 `docs/multi_window_acceptance_record.md`（或本计划 v0.2 修订）记录实施偏差与真实环境验证结论（对齐 `debug_acceptance_record.md` 惯例）。
-4. 无业务行为回归；`tech-debt.md` 登记「单窗口多工作区」为后续可选演进项。
+> **v0.2 对账（2026-10-03）**：四条逐项核对，全部关闭。
+
+1. [x] 阶段 0 / 1 / 2 已实施：`cargo check` 零告警、`cargo test` **233 passed / 0 failed**（2026-09-28 当时值；当前基线 289）、前端 `tsc` 零错误、启动冒烟通过。
+2. [x] **真机双窗口已自动化验收**：`e2e-real/multi-window-real.cjs` **16/16 PASS**（`MC-REAL-1..7` + LSP 2 + WATCH 2 + TERM 3 + DBG 2），覆盖 §5.4 全部场景，替代原「手动 GUI 验收」遗留项。
+3. [x] 实施偏差与真实环境验证结论**以本 v0.2 修订记录**（不另建 `multi_window_acceptance_record.md`——避免重复叙述；偏差已逐条落在 §4 / §5 的「实施状态 / 追加修复 / 实施修订」块内：`lsp_stop("*")` 误杀跨窗口实例、`capabilities` 白名单、阶段 1 三缓存暂缓、清理钩子改 `Destroyed`）。
+4. [x] 无业务行为回归；「单窗口多工作区」已登记为后续可选演进项（`improvement_and_roadmap_report.md` P2-4 口径：登记不排期）。
+
+**遗留（不阻塞交付）**：#4 / #5 / #6 依赖健康三缓存的多窗口隔离优化（已拍板暂缓，只影响性能不影响正确性）。
