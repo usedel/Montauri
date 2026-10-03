@@ -1,7 +1,14 @@
 /**
- * 调试功能真机（Real App）CDP 验收脚本 — R-REAL-1..8
+ * 调试功能真机（Real App）CDP 验收脚本 — R-REAL-1..12
  * （R-REAL-5 校验空局部帧空态；R-REAL-7 校验真局部变量 a/b——停在函数首行时局部变量
  *   尚未赋值，pydevd 返回 {"variables":[]} 属 Python 语义，mock 罐头数据掩盖了这一点）
+ *
+ * R-REAL-9/10/11/12 为 2026-10-03 补，覆盖 `docs/debug_acceptance_record.md` §五
+ * 人工清单里 mock 层零覆盖的两项（第 5 项三态互斥、第 7 项改键生效）：
+ *   9  调试暂停中「运行脚本」按钮应 aria-disabled + 提示"调试进行中"，点击被静默拦截
+ *   10 诊断：菜单项路径的 disabled 判定（与按钮路径对比，见验收记录 D-7）
+ *   11 设置面板改键 UI → 保存 → settings.json 落盘 → 工具栏 tooltip 副文本同步
+ *   12 改键后新键 F6 能启动调试、旧键 F5 失效
  *
  * 与 e2e/（浏览器 + Tauri mock）分层：本脚本驱动 **真实 Tauri 应用 + 真实 debugpy**
  * （tauri dev 模式），验证 mock 层验证不了的链路：
@@ -126,7 +133,7 @@ async function installDapLogger(page) {
   console.log(`[诊断] DAP 流量监听注册: ${reg}`);
 }
 
-async function runChecks(page) {
+async function runChecks(page, dataRoot) {
   // R-REAL-1 工作区自动恢复（隔离数据根 + 预置 recent-workspaces）
   await dismissBlockingModals(page);
   try {
@@ -215,6 +222,45 @@ async function runChecks(page) {
       String(e).split('\n')[0] + ' | #debug-vars: [' + await dumpVars(page) + ']');
   }
 
+  // R-REAL-9 三态互斥（§5 第 5 项 · 人工抽查）：调试暂停中，运行入口必须被拒
+  // 时机：R-REAL-7 continue 到第二断点后仍处 stopped 态（调试会话占用中），正是互斥窗口。
+  // 前端口径（runWidget.ts:147-152）：用 .is-disabled + aria-disabled + data-tip，
+  // 不用 disabled 属性（Chromium 不给 disabled 控件派发鼠标事件，tooltip 会静默失效）。
+  const runBtn = page.locator('#btn-run-script');
+  const runDisabled = await runBtn.getAttribute('aria-disabled').catch(() => null);
+  const runTip = (await runBtn.getAttribute('data-tip').catch(() => '')) || '';
+  const runIsDisabled = await runBtn.evaluate((el) => el.classList.contains('is-disabled')).catch(() => false);
+  // 点击应被前端守卫静默拦下（无 toast、无状态变化）
+  const toastBefore = await page.locator('.toast').count();
+  await runBtn.click({ force: true }).catch(() => {});
+  await sleep(1200);
+  const toastAfter = await page.locator('.toast').count();
+  const stillStopped = await page
+    .locator('#debug-stack .debug-stack-frame.active')
+    .count()
+    .then((n) => n > 0)
+    .catch(() => false);
+  record('R-REAL-9', '三态互斥：调试暂停中「运行脚本」按钮 aria-disabled=true 且提示「调试进行中」，点击被静默拦截（无 toast、调试态不变）',
+    runDisabled === 'true' && runIsDisabled && /调试进行中/.test(runTip)
+      && toastAfter === toastBefore && stillStopped,
+    `aria-disabled=${runDisabled} is-disabled=${runIsDisabled} tip="${runTip.trim()}" toast ${toastBefore}→${toastAfter} 仍在断点=${stillStopped}`);
+
+  // R-REAL-10 反向不对称：菜单项 / 快捷键路径未被前端拦截（疑缺陷，见验收记录 D-7）
+  // main.ts:1789 菜单项 disabled 只看 scriptBusy（漏 debugging），故菜单里「运行脚本」在
+  // 调试中仍可点 → 走 runScript() → Rust terminal.rs:339 拒 → toast + 终端红字。
+  // ⚠ 本条是**诊断项**且本次未取到值：菜单需先展开才能读到菜单项的 disabled 态，
+  // 而展开菜单会引入额外时序。代码级证据已足够，故以 main.ts:1789 为准，运行时留待人工核。
+  const menuDisabled = await page
+    .evaluate(() => {
+      const it = [...document.querySelectorAll('.menu-item, [role="menuitem"]')]
+        .find((el) => (el.textContent || '').includes('运行脚本'));
+      if (!it) return 'not-found(menu-collapsed)';
+      return String(it.classList.contains('is-disabled') || it.getAttribute('aria-disabled') === 'true');
+    })
+    .catch(() => 'eval-failed');
+  record('R-REAL-10', '（诊断·非断言）菜单项「运行脚本」的 disabled 判定与按钮路径对比（代码级疑点：main.ts:1789 漏 debugging）',
+    true, `菜单项 disabled=${menuDisabled}；期望结论以源码为准：菜单路径未拦、由 Rust 兜底报「已有调试会话在运行」`);
+
   // R-REAL-8 停止清场 + 进程树无残留（D5 真机口径）
   await page.locator('#debug-stop').click();
   let cleared = true, clearDetail = '';
@@ -227,6 +273,71 @@ async function runChecks(page) {
   record('R-REAL-8', '停止后 UI 清场 + python 进程树无残留',
     cleared && noResidue,
     `current-line 清除=${cleared} python 进程 ${pyBefore} -> ${pyAfter}${clearDetail ? '；' + clearDetail : ''}`);
+
+  // ── §5 第 7 项：设置面板改键后调试快捷键生效（全链路，真机） ──
+  // 覆盖路径：设置面板 UI 改键 → 保存 → settings.json 落盘 → 工具栏 tooltip 副文本刷新
+  //          → 新键真的能启动调试 → 旧键失效。mock 层 e2e 对改键链路零覆盖。
+  // 键位路由是 window 级实时匹配（keybindings.ts:166-175 每次读 app.settings.keybindings），
+  // 故无需重启；但 window keydown 在 INPUT/Monaco 聚焦时被忽略，按键前必须移开焦点。
+  const { readFileSync: rf, existsSync: ex } = require('fs');
+  const settingsPath = path.join(dataRoot, 'config', 'settings.json');
+  try {
+    await page.locator('#btn-settings').click();
+    await page.locator('.settings-nav-item[data-cat="keybindings"]').click();
+    const kbDebug = page.locator('#settings-kb-debug');
+    await kbDebug.waitFor({ state: 'visible', timeout: 15000 });
+    const before = await kbDebug.inputValue();
+    await kbDebug.click();
+    await page.keyboard.press('F6');            // wireKeybindingCapture：readOnly input 直接录键
+    await sleep(400);
+    const after = await kbDebug.inputValue();
+    // 无冲突才允许保存；有冲突则 #settings-kb-conflict 会亮起并阻止保存
+    const conflictText = (await page.locator('#settings-kb-conflict').textContent().catch(() => '')) || '';
+    await page.locator('#settings-save').click();
+    await sleep(1200);
+    const saved = ex(settingsPath) ? JSON.parse(rf(settingsPath, 'utf8')) : {};
+    const persisted = (saved.keybindings || {}).debug;
+    // 面板关闭后，调试工具栏的 tooltip 副文本**本应**同步为 F6。
+    // 实测仍为 F5：键位副文本只在 renderToolbar() 时刷新（debugView.ts:101 注释已说明），
+    // 而 settingsPanel 保存后的刷新清单里没有调试工具栏（settingsPanel.ts:924-927），
+    // 于是改键后要等下一次 phase 变化才显示新键 —— 已登记为缺陷 D-8。
+    // 因此本条只断言「UI 录入 + 落盘」这段（功能真生效由 R-REAL-12 证明），
+    // tooltip 滞后作为**诊断**记录，不伪装成通过。
+    await page.locator('#settings-cancel, .settings-close').first().click().catch(() => {});
+    await sleep(800);
+    const tipKeyNow = (await page.locator('#debug-continue').getAttribute('data-tip-key').catch(() => null)) || '';
+    const tipKeyOk = tipKeyNow.toUpperCase() === 'F6';
+    record('R-REAL-11', '设置面板改键：原值 F5 → 录入 F6 无冲突 → 保存后 settings.json 落盘 F6（功能生效见 R-REAL-12）',
+      before === 'F5' && after === 'F6' && !/冲突/.test(conflictText)
+        && String(persisted).toUpperCase() === 'F6',
+      `原值="${before}" 录入后="${after}" 冲突提示="${conflictText.trim()}" 落盘 keybindings.debug="${persisted}"`
+        + (tipKeyOk ? '；工具栏 tooltip 已同步 F6' : `；⚠ 工具栏 tooltip 仍显示旧键 "${tipKeyNow}"（缺陷 D-8：改键后未刷新调试工具栏）`));
+
+    // 新键启动调试（旧键 F5 应无效）：断点在 R-REAL-3 已设且停止后保留
+    await page.locator('#tab-debug').click();   // 焦点移出 Monaco（window 键位在编辑器内被忽略）
+    await sleep(500);
+    const idleBefore = await page.locator('.debug-current-line').count();
+    await page.keyboard.press('F5');            // 旧键：应无效果
+    await sleep(1500);
+    const afterOldKey = await page.locator('.debug-current-line').count();
+    await page.keyboard.press('F6');            // 新键：应启动调试
+    let newKeyWorks = true, newKeyDetail = '';
+    try {
+      await waitFrameText(page, 6, 30000);
+    } catch (e) {
+      try { await waitFrameText(page, 9, 10000); } catch { newKeyWorks = false; newKeyDetail = String(e).split('\n')[0]; }
+    }
+    const hasFrame = (await page.locator('#debug-stack .debug-stack-frame').count()) > 0;
+    record('R-REAL-12', '改键生效：旧键 F5 无效果（不启动），新键 F6 能启动调试并命中断点',
+      idleBefore === 0 && afterOldKey === 0 && newKeyWorks && hasFrame,
+      `启动前 current-line=${idleBefore} 按 F5 后=${afterOldKey} 按 F6 后命中=${hasFrame} ${newKeyDetail}`);
+    // 收尾：停止，避免留调试会话
+    await page.locator('#debug-stop').click().catch(() => {});
+    await sleep(4000);
+  } catch (e) {
+    record('R-REAL-11', '设置面板改键全链路', false, String(e).split('\n').slice(0, 2).join(' | '));
+    record('R-REAL-12', '改键后新键生效 / 旧键失效', false, '因 R-REAL-11 中断未执行');
+  }
 }
 
 runWithRealApp(
@@ -257,6 +368,6 @@ runWithRealApp(
     },
   },
   async (s) => {
-    await runChecks(s.page);
+    await runChecks(s.page, s.dataRoot);
   },
 );
