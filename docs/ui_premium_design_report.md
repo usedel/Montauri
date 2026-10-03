@@ -1,10 +1,10 @@
 # OpenCharm 视觉「高级感」诊断与改造方案
 
-> 版本：**v1.2（二轮评审修订版）** · 日期：2026-10-02 · 状态：**方向已批准，按 §6 六批实施**
-> 审阅对象：`shell/`（Tauri 2 + Monaco 外壳前端）——`index.html`、`src/style.css`（实测 **5394 行 / 214 KB**）、`src/*.ts`、`src-tauri/`
+> 版本：**v1.3（实施回填版）** · 日期：2026-10-02（v1.2 二轮评审）· **2026-10-03 回填实施结论** · 状态：**方向已批准且六批已全部落地 + 修记 A**
+> 审阅对象：`shell/`（Tauri 2 + Monaco 外壳前端）——`index.html`、`src/style.css`（v1.2 时实测 **5394 行 / 214 KB**）、`src/*.ts`、`src-tauri/`
 > 与既有文档的关系：本文件是**方向性设计评估**，与 `docs/ui_design_improvement_plan.md`（v2.1，30/30 已完成的**缺陷修复与一致性**计划）互补而非替代。那份计划解决"对不对"，本文档解决"贵不贵"。
-> **本文档推翻 D4「青绿 = 品牌识别 / 蓝 `--accent` = 功能交互」既有裁决**，配套 ADR：[`docs/adr/0005-brand-accent-unification.md`](adr/0005-brand-accent-unification.md)。
-> ⚠ **v1.2 修订**：该 ADR 截至本次修订**尚未创建**（`docs/adr/` 现有 0003 / 0004 / README），而 `docs/ui_design_improvement_plan.md:6` 与 `:149` 已先行以既成语气引用它 —— 形成"裁决已被推翻、依据文件还没写"的倒置。**批 1 第一步必须先补 ADR，再改色。**
+> **本文档推翻 D4「青绿 = 品牌识别 / 蓝 `--accent` = 功能交互」既有裁决**，配套 ADR：[`docs/adr/0005-brand-accent-unification.md`](adr/0005-brand-accent-unification.md)（**已于 2026-10-03 批 1 落地并登记进 `docs/adr/README.md`**，本节 v1.2 的"尚未创建"提示已作废）。
+> ✅ **v1.3 回填（2026-10-03）**：六批 + 修记 A 已全部落地（commit `34cb858` → `e2107df`），逐批实施记录与门禁实测见 [`docs/ui_premium_dev_plan.md`](ui_premium_dev_plan.md)（v1.2）。**方案与实际的 8 处偏差及理由登记在该文档 §8**，按架构铁律「方案与开发计划冲突时以开发计划为准」，凡与本节冲突之处**一律以开发计划为准**。另：原要求"把统计固化为 `tools/ui/audit_tokens.py`"已实现为 **98 项判定门禁**并接进 CI。
 > 冲突时以 `docs/python_ide_dev_plan_v2.md` 为准并反馈修订本文档。
 
 ---

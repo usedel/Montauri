@@ -3,7 +3,7 @@
 > 版本：v2.1 · 日期：2026-09-11 · 状态：**全部完成（30/30 + 遗留 2 项）**——第一至十批已交付：P0 缺陷 5 项、一致性小改动 7 项、UI-08 按钮体系 + UI-18 scale token、UI-09/11/12、UI-15/17、UI-16 ARIA 语义、UI-19/21/22/27 视觉层次与信息密度、UI-23/24/25/26 响应式边缘情况与细节打磨、UI-29 字号/字体族接入用户设置 + UI-30 菜单 ARIA 与键盘导航（第九批）；第八批登记的两条清单外存量缺口（表单 label 无 for/id 关联、`#bottom` 分隔条内联 height 压过折叠态）已在第十批一并修掉。见 §7 进度记录。
 > 来源：基于 `shell/src`（`index.html` / `style.css` / `main.ts` / `layout.ts` / `debugView.ts` / `settingsPanel.ts` / `termUi.ts` / `search.ts` / `dialog.ts` / `util.ts` / `engineChip.ts` / `runWidget.ts` / `fileTree.ts` / `tooltip.ts` / `anim.ts`）的全量 UI 代码审阅。
 > 本文档是后续 UI 改进排期与验收的唯一依据；与 `python_ide_dev_plan_v2.md` 冲突时以开发计划为准并反馈修订本文档。
-> ⚠ **后续修订（2026-10-02）**：本文档确立的 D4「青绿 = 品牌识别 / 蓝 `--accent` = 功能交互」双色分工已被 [ADR-0005](adr/0005-brand-accent-unification.md) 推翻（青绿成为唯一色相轴）。本文档的**已完成状态与 UI-01–UI-30 验收结论不受影响**，仅"品牌/交互色分工"这一条口径以 ADR-0005 为准；后续视觉改造见 `docs/ui_premium_design_report.md` v1.1。
+> ⚠ **后续修订（2026-10-02）**：本文档确立的 D4「青绿 = 品牌识别 / 蓝 `--accent` = 功能交互」双色分工已被 [ADR-0005](adr/0005-brand-accent-unification.md) 推翻（青绿成为唯一色相轴）。本文档的**已完成状态与 UI-01–UI-30 验收结论不受影响**，仅"品牌/交互色分工"这一条口径以 ADR-0005 为准；后续视觉改造见 `docs/ui_premium_design_report.md`（**v1.3**，六批已全部落地，实施记录见 `docs/ui_premium_dev_plan.md` v1.2）。
 > 涉及范围仅限 `shell/`（Tauri 2 + Monaco 外壳前端），不触及 `probe/`、`intel/` 的架构第一原则（独立进程/包，不依赖外壳内部 API）。
 
 ## 1. 背景与目标

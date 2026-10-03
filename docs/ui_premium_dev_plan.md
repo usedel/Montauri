@@ -1,6 +1,7 @@
 # UI 视觉「高级感」改造 · 开发文档
 
-> 版本：**v1.1** · 日期：2026-10-03 · 状态：**六批全部落地 + 修记 A**（批 1 / 2a / 2b / 3 / 4 / 5a / 5b / 5c · 2026-10-03 一日收官；修记 A = 编辑器滚动条变红，见 §7.9）；门禁与逐批记录见 §1.1 与 §7，真机 CDP 主题验收 32/32 PASS（提交 `ae62b73`）
+> 版本：**v1.2** · 日期：2026-10-03 · 状态：**六批全部落地 + 修记 A**（批 1 / 2a / 2b / 3 / 4 / 5a / 5b / 5c · 2026-10-03 一日收官；修记 A = 编辑器滚动条变红，见 §7.9）；门禁与逐批记录见 §1.1 与 §7，真机 CDP 主题验收 32/32 PASS（提交 `ae62b73`）
+> v1.2 修订：交付后复核（实跑门禁 + 对照仓库现状）更正 11 处文档与现状不符的数据，补登记 3 条技术债（TD-022~TD-024），并把 audit 门禁接进 CI。**技术面无产品缺陷**，更正清单见 §8.2。
 > 上游方案：`docs/ui_premium_design_report.md`（v1.2，二轮评审修订版）——**方案与本文档冲突时以本文档为准并反馈修订方案**（架构铁律「文档约定」）。
 > 与 `docs/ui_design_improvement_plan.md`（v2.1，30/30 已完成）的关系：那份解决"对不对"（缺陷修复与一致性），本次解决"贵不贵"（材质 / 身份 / 排版）。
 > 冲突时以 `docs/python_ide_dev_plan_v2.md` 为准并反馈修订本文档。
@@ -17,7 +18,8 @@
 | 批次 | 六批：批 1（ADR + 交互色青绿统一 + 浅色 AA）→ 批 2a（表面阶梯 token）→ 批 2b（抬升面归属审计）→ 批 3（等宽字体随包）→ 批 4（Monaco 自定义主题，P1）→ 批 5（边框/曲线/圆角/材质） |
 | 落地方式 | **master 直提**（产品负责人 2026-10-03 拍板），不建分支、不推送远程 |
 | 验收方式 | **基线截图 + e2e computed-style 断言 + token 一致性单测 + `tools/ui/audit_tokens.py` 脚本门禁**；不接受纯人工抽查 |
-| 当前进度 | 🎉 **六批全部落地**（批 1 / 2a / 2b / 3 / 4 / 5a / 5b / 5c）。门禁现状：audit **98 项** 0 FAIL 0 WARN · tsc 0 错 · vitest 92 文件 **1070** 用例 · e2e 4 个新 spec · e2e-ui 53 passed（8 条经 stash 对照确认为存量环境问题）。方案与实际的 8 处偏差全部登记在 §8 |
+| 当前进度 | 🎉 **六批全部落地 + 修记 A**（批 1 / 2a / 2b / 3 / 4 / 5a / 5b / 5c）。门禁现状：audit **98 项** 0 FAIL 0 WARN · tsc 0 错 · vitest 92 文件 **1081** 用例 · e2e 新增 3 个 spec（10 字体 / 11 Monaco 主题 / 12 动效焦点；「主题迁移」是 11 内的 T-B4-6 用例）· e2e-ui 视觉子集 **12 spec / 65 条**。方案与实际的 8 处偏差全部登记在 §8 |
+| 复核 | 2026-10-03 交付后复核（实跑门禁 + 对照仓库现状）：技术面无产品缺陷；发现并修正 11 处文档与现状不符，见 §8.2 |
 
 ### 1.1 批次状态
 
@@ -151,10 +153,10 @@
 | # | 门禁 | 命令 / 判定 |
 |---|---|---|
 | 1 | ADR 存在且已登记 | `docs/adr/0005-*.md` 存在 + `docs/adr/README.md` 决策表含 0005 |
-| 2 | token 门禁 7 项（单色相 / accent 面 / 白字 on fill / 浅色 fg-dim / 阶梯轴 / chrome 分离 / 阴影纪律） | `python tools/ui/audit_tokens.py`（退出码 0；`--refs <token>` 另出选择器级引用清单） |
+| 2 | token 门禁 **98 项判定 / 9 类**（单色相 / accent 面 / 白字 on fill / fg-dim 面 / 阶梯轴 / chrome 分离 / 阴影纪律 / 抬升面文字 / accent 面归属） | `python tools/ui/audit_tokens.py`（退出码 0；`--refs <token>` 另出选择器级引用清单）。**已进 CI**（`.github/workflows/ci.yml` 前端 job） |
 | 3 | tsc 0 错 | `npm run build`（shell 目录） |
 | 4 | vitest 全量 | `node shell/scripts/gate-tests.mjs unit` |
-| 5 | e2e | **日常**：`node shell/scripts/gate-tests.mjs e2e-ui`（视觉关键子集，9 spec / 51 用例 / ~3.6min）<br>**里程碑/跨域改动**：`node shell/scripts/gate-tests.mjs e2e`（全量 62 spec / ~280 用例 / ~26min） |
+| 5 | e2e | **日常**：`node shell/scripts/gate-tests.mjs e2e-ui`（视觉关键子集，**12 spec / 65 用例** / ~4min）<br>**里程碑/跨域改动**：`node shell/scripts/gate-tests.mjs e2e`（全量 62 spec / ~280 用例 / ~26min） |
 | 6 | 截图对照 | 改造前后各一轮 `node shell/scripts/ui-baseline.mjs --tag <name>`，逐张比对（重点：粘性表头 / 浮层 / 选中态 / 链接 / 焦点环 / 状态栏） |
 | 7 | `--motion` / `prefers-reduced-motion` 回归 | 沿用现有机制，e2e 覆盖 |
 
@@ -163,7 +165,7 @@
 > ② 本机 `cd <绝对路径>` 单条会报「系统找不到指定的路径」→ 用 `cmd /c "cd /d <路径> && …"`；
 > ③ e2e 产物必须落系统 TEMP（工作区路径会触发 safe-delete 确认门槛）。
 >
-> **e2e 子集的取舍依据**（`gate-tests.mjs::UI_KEY_SPECS`）：token / 表面 / 浮层类改动的回归面可枚举——粘性表头（曾出过「三个 sticky 组头共用一个吸顶位互相覆盖」与「flex 行容器把整棵子树撑成一行」两个真 bug）、浮层与菜单、状态栏、gutter 行高亮、设置面板、布局恢复。子集覆盖 `ux` / `db` / `git` / `editor` / `debug` / `p3` / `session` 七域共 9 个 spec，是全部历史视觉事故点。
+> **e2e 子集的取舍依据**（`gate-tests.mjs::UI_KEY_SPECS`）：token / 表面 / 浮层类改动的回归面可枚举——粘性表头（曾出过「三个 sticky 组头共用一个吸顶位互相覆盖」与「flex 行容器把整棵子树撑成一行」两个真 bug）、浮层与菜单、状态栏、gutter 行高亮、设置面板、布局恢复。子集覆盖 `ux` / `db` / `git` / `editor` / `debug` / `p3` / `session` 七域共 **12 个 spec**（`db` ×2、`git` ×2、`editor` ×3，其余各 1），是全部历史视觉事故点。
 > `lsp` / `libs` / `pydantic` / `perf` / `clone` / `autosave` / `plugins` 与 CSS token 无耦合，只在**跨域改动**（LSP 桥、Monaco 主题、打包、设置默认值）或发版前跑全量。
 
 ---
@@ -635,13 +637,13 @@ alpha 叠色把「同一色值在两个面上表现不一致」抹平了 —— 
 
 | 档 | 旧 → 新 | 语义（按**元素物理尺寸**定，不是按好看程度定） | 引用数 |
 |---|---|---|---|
-| `xs` | 2 → **3px** | 徽标 / 行内高亮 / **高度 ≤24px 的小元素** | 14 → 29 |
-| `sm` | 3 → **6px** | 控件主档：按钮 / 输入框 / 菜单项 / 卡片 | 89 → 72 |
-| `md` | 4 → **8px** | 内嵌面板与表格容器 | 29 |
+| `xs` | 2 → **3px** | 徽标 / 行内高亮 / **高度 ≤24px 的小元素** | 14 → **31** |
+| `sm` | 3 → **6px** | 控件主档：按钮 / 输入框 / 菜单项 / 卡片 | 91 → **81** |
+| `md` | 4 → **8px** | 内嵌面板与表格容器 | 30 → **28** |
 | `lg` | 6 → **10px** | 浮层容器：模态卡 / 菜单 / tooltip / 弹层 | 10 |
 | `xl` | 10 → **16px** | 品牌装饰（欢迎页 logo） | 1 |
 
-合计 142 处 token 引用 + 7 处历史裸值。**5 行 token 改动即全部生效**——这正是 token 化在批 5 的回报（批 1 审计时 style.css 有 83 处裸 `border-radius`、7 种取值）。
+合计 **151 处** token 引用（5b 时点 146）+ 7 处历史裸值。引用数口径：`git show <commit>:shell/src/style.css | grep -o "var(--radius-[a-z]*)" | sort | uniq -c`（逐出现计数，同一规则的多个角各计一次）——2026-10-03 复核时按此口径重测，修正了原记的 142 处（口径不一致）。**5 行 token 改动即全部生效**——这正是 token 化在批 5 的回报（批 1 审计时 style.css 有 83 处裸 `border-radius`、7 种取值）。
 
 #### 7.8.2 方案漏掉的一类：15 处小元素会变胶囊
 
@@ -702,8 +704,8 @@ alpha 叠色把「同一色值在两个面上表现不一致」抹平了 —— 
 |---|---|---|
 | 1 | `tools/ui/audit_tokens.py` | ✅ **98 项**判定 · FAIL 0 · WARN 0 |
 | 2 | `npm run build`（tsc） | ✅ 0 错 |
-| 3 | vitest 全量 | ✅ **92 文件 / 1070 用例**（`styleTokens.test.ts` +6） |
-| 4 | e2e-ui 视觉子集 | ✅ 53 passed；8 failed 同存量（§7.5.7 其三） |
+| 3 | vitest 全量 | ✅ **92 文件 / 1074 用例**（`styleTokens.test.ts` +6）<br>⚠ 原记 1070，与修记 A 后 1081 相差 11，但两提交间**只有 `themeTokens.test.ts` 变更（25 → 32，+7）**，故 1070 应为 1074（口径待原记录复核，总数 1081 无误） |
+| 4 | e2e-ui 视觉子集 | ✅ 53 passed；8 failed 同存量（§7.5.7 其三）——该 8 条的根因在 §8.1.2 实证闭环（长期运行的 vite），**非存量环境问题** |
 | 5 | 基线截图逐张比对 | ✅ 8 张 → `%TEMP%\opencharm-ui-baseline\batch5c\` |
 
 **视觉结论**（逐张看过深/浅 × 编辑区/侧栏/设置/终端）：密集列表**没有松垮感**——因为文件树项、设置导航项这类列表行**本身不设圆角**，改的只是控件（按钮/输入/浮层）；chip 类走 3px 后比例回到 34% 上下；浅色设置面板在白底上 6px 不显松垮（控件高 24–28px，比例 21–25%）。若日后觉得偏圆，**回退只需改 `style.css` 的 5 行 token**，不必逐处回改。
@@ -758,12 +760,12 @@ alpha 叠色把「同一色值在两个面上表现不一致」抹平了 —— 
 | # | 门禁 | 结果 |
 |---|---|---|
 | 1 | `npm run build`（tsc） | ✅ 0 错 |
-| 2 | vitest 全量 | ✅ **92 文件 / 1081 用例**（`themeTokens.test.ts` 25 → **36**，+11） |
-| 3 | e2e `editor/11-monaco-theme.spec.ts` | ✅ **9/9**（新增 T-B4-7 / T-B4-8 / T-B4-9） |
-| 3b | e2e-ui 视觉关键子集 | ✅ **64/64**（原 61 + 新增 3） |
-| 4 | 浏览器实测（`monaco-scrollable-element > .scrollbar.vertical > .slider` 的 computed `background-color`） | 修前 `rgb(255, 0, 0)` → 修后 `rgba(255, 255, 255, 0.14)`；缩略图滑块 `rgba(255,0,0,0.5)` → `rgba(255,255,255,0.07)`；浮层边框 `rgba(255,255,255,0.1)` |
-| 5 | **全量扫描 1573 个 `--vscode-*` 变量** | 非法红 **9 → 0**（残留 2 处含红是 vs-dark 出厂的 `diffEditor.removedTextBackground` / `removedLineBackground` = `rgba(255,0,0,0.2)`，**合法 diff 红底**，故 e2e 断言范围必须限定在 `MONACO_COLOR_SLOTS` 的键） |
-| 6 | **门禁注入自检**（把 `slotColor` 临时改成不归一） | ✅ 用例按预期变红，并一次报全 6 个红槽位——其中 3 条浮层边框（`editorWidget` / `editorHoverWidget` / `editorSuggestWidget`）是这次自检才**首次实证**的（此前只有推断），已回填 §7.9.1。自检后已回滚 |
+| 2 | vitest 全量 | ✅ **92 文件 / 1081 用例**（`themeTokens.test.ts` 25 → **32**，**+7**；原记 36/+11 系与 `styleTokens` 增量混记，2026-10-03 复核更正） |
+| 3 | e2e `editor/11-monaco-theme.spec.ts` | ✅ **10/10**（新增 T-B4-7 / T-B4-8 / T-B4-9 / T-B4-10） |
+| 4 | e2e-ui 视觉关键子集 | ✅ **64/64 实测**（原 61 + 新增 3；子集声明用例数 **65**，差 1 为条件用例，待能跑 e2e 的环境复核） |
+| 5 | 浏览器实测（`monaco-scrollable-element > .scrollbar.vertical > .slider` 的 computed `background-color`） | 修前 `rgb(255, 0, 0)` → 修后 `rgba(255, 255, 255, 0.14)`；缩略图滑块 `rgba(255,0,0,0.5)` → `rgba(255,255,255,0.07)`；浮层边框 `rgba(255,255,255,0.1)` |
+| 6 | **全量扫描 1573 个 `--vscode-*` 变量** | 非法红 **9 → 0**（残留 2 处含红是 vs-dark 出厂的 `diffEditor.removedTextBackground` / `removedLineBackground` = `rgba(255,0,0,0.2)`，**合法 diff 红底**，故 e2e 断言范围必须限定在 `MONACO_COLOR_SLOTS` 的键） |
+| 7 | **门禁注入自检**（把 `slotColor` 临时改成不归一） | ✅ 用例按预期变红，并一次报全 6 个红槽位——其中 3 条浮层边框（`editorWidget` / `editorHoverWidget` / `editorSuggestWidget`）是这次自检才**首次实证**的（此前只有推断），已回填 §7.9.1。自检后已回滚 |
 
 #### 7.9.5 顺带统一：编辑器滚动条宽度 14px → 10px
 
@@ -790,10 +792,10 @@ alpha 叠色把「同一色值在两个面上表现不一致」抹平了 —— 
 | 批 4 | `ddc5464` | Monaco 自定义主题 + 语法色同批改 | audit 74 · tsc · vitest 1051 · e2e 6 条 |
 | 批 5a | `db208d9` | 动效曲线分级 + 焦点环双环 + 材质细节 | audit 76 · vitest 1060 · e2e 2 条 |
 | 批 5b | `74780c8` | 边框三档 alpha | audit 90 · vitest 1064 |
-| **批 5c** | 本次 | 圆角档位（收官） | audit **98** · tsc 0 错 · vitest **1070** · e2e-ui 53 passed · 截图 8 张 |
-| **修记 A** | 本次 | 编辑器滚动条/缩略图滑块/浮层边框变红 → 色值格式边界归一（`toMonacoHexColor`） | tsc 0 错 · vitest **1081**（+11）· e2e 3 条新断言 · 浏览器实测红槽位 6 → **0** |
+| **批 5c** | `bd33cf4` | 圆角档位（收官） | audit **98** · tsc 0 错 · vitest **1074**（原记 1070，见 §7.8.6）· e2e-ui 53 passed · 截图 8 张 |
+| **修记 A** | `e2107df` | 编辑器滚动条/缩略图滑块/浮层边框变红 → 色值格式边界归一（`toMonacoHexColor`） | tsc 0 错 · vitest **1081**（**+7**：`themeTokens.test.ts` 25 → 32）· e2e **4** 条新断言（T-B4-7~10）· 浏览器实测红槽位 6 → **0** |
 
-**门禁工具演进**：audit 从 39 项（改造前基线）→ 53 → 69 → 74 → 76 → 90 → **98 项**；`styleTokens.test.ts` 从 16 → 36 条；e2e 新增 4 个 spec（字体 / Monaco 主题 / 动效焦点 / 主题迁移）。
+**门禁工具演进**：audit 从 39 项（改造前基线）→ 53 → 69 → 74 → 76 → 90 → **98 项**；`styleTokens.test.ts` 从 16 → 36 条；e2e 新增 **3 个 spec 文件**（10 字体 / 11 Monaco 主题 / 12 动效焦点），「主题迁移」是 11 内的 T-B4-6 用例。
 
 **方案与实际的偏差汇总**（8 处，全部在 dev_plan 登记并说明理由）：
 
@@ -803,7 +805,7 @@ alpha 叠色把「同一色值在两个面上表现不一致」抹平了 —— 
 | 2 | 迁 `vs-dark` / `vs-light` | 存量浅色名是 `vs` | `vs-light` 从未在本仓库出现（§7.5.2） |
 | 3 | 接线点 5 处 | 7 处 | 方案把 `applyShellTheme` 归为「值域不变」，但它硬编码了 `=== "vs"`（§7.5.2） |
 | 4 | `theme/tokens.ts` 是单一真源 | CSS 仍是真源，TS 只存映射 | 抄第二份色值后两边都是合法颜色，静态门禁发现不了漂移（§7.5.1） |
-| 5 | 曲面 91 处主档 | 实测 89 处，且 15 处小元素需归 xs | 方案未说「主档要按元素尺寸校验」（§7.8.2） |
+| 5 | 圆角 sm 主档 91 处 | 实测确为 **91 处**（原记 89 系统计口径偏差，非方案偏差）；真正的偏差是**其中 15 处小元素须归 xs** | 方案未说「主档要按元素尺寸校验」（§7.8.2） |
 | 6 | 边框提到 `--border-strong` | strong 定义但不使用 | alpha 叠色已自动抹平面间差异（§7.7.1） |
 | 7 | 浮层描边用 `--surface-2` 做隔离环 | 新增 `--focus-gap`（暗环 / 淡影） | 焦点环会落在 S0–S4 五档表面上（§7.6.2） |
 | 8 | 加载态加 `stroke-linecap` | 不做 | codicon 是字体图标不是 SVG（§6.5） |
@@ -846,6 +848,24 @@ rgb(42, 168, 143)  0px 0px 0px 4px    ← 外圈青绿环（--focus-ring）
 
 **最终 e2e-ui 61/61 全绿**，且从此不再需要 stash 对照才能判定 e2e 失败是否回归——先杀掉 vite 再说。
 
-**遗留技术债**（已登记，非本轮范围）：① Monaco 浮层圆角无主题槽位（§7.8.4）；② `runWidget` 忙碌时切图标类导致按钮宽度变化（§6.5）；③ alpha 边框 1.32~1.36:1 不满足 WCAG 1.4.11 的 3:1，属自觉取舍（§7.7.4）；④ e2e-ui 那 8 条「编辑器尚未初始化」需 stash 对照判定（§7.5.7 其三）。
+**遗留技术债**（非本轮范围；2026-10-03 复核时补登记进 `docs/tech-debt.md`，编号 TD-022~TD-024）：
+
+| 编号 | 债 | 出处 |
+|---|---|---|
+| TD-022 | Monaco 浮层圆角无主题槽位，无法跟随外壳 `--radius-*` | §7.8.4 |
+| TD-023 | `runWidget` 忙碌时切图标类导致按钮宽度变化 | §6.5 |
+| TD-024 | alpha 边框 1.32~1.36:1 不满足 WCAG 1.4.11 的 3:1（自觉取舍，非回归） | §7.7.4 |
+
+> 原列的第 ④ 条「e2e-ui 那 8 条需 stash 对照判定」**已由本轮闭环**（根因 = 长期运行的 vite 重建模块图），不再作为债登记——改记为一条**环境纪律**：判定 e2e 失败是否回归前，先杀掉长跑的 vite dev。
+
+### 8.2 交付后复核（2026-10-03）
+
+复核方式：实跑 `tools/ui/audit_tokens.py` 与 vitest 全量，逐条对照仓库现状（commit `e2107df`）。
+
+**复核为真**：audit 98 项 0 FAIL 0 WARN；vitest 92 文件 / 1081 用例全绿；ADR-0005 已入 `docs/adr/README.md` 决策表；字体 4 个 woff2 + `OFL.txt` 在 `shell/public/fonts/`；`toMonacoHexColor` / `verticalScrollbarSize=10` / `applyShellTheme → applyEditorTheme` 顺序均已落实。
+
+**本次复核更正的文档数据**（11 处）：§1 的 vitest 1070 → 1081 与「e2e-ui 53 passed + 8 存量」（后者已被 §8.1.2 推翻）；§4 门禁 5 的「9 spec / 51 用例」→ 12 spec / 65 用例（`gate-tests.mjs` 头部注释同步改）；§8 完成表批 5c / 修记 A 的 commit 列（原写「本次」）→ `bd33cf4` / `e2107df`；§7.9.4 的 `themeTokens.test.ts` 25→36 更正为 25→32（+7）、spec 11 由 9/9 更正为 10/10；§7.8.1 圆角引用数按统一口径重测为 151 处；§8 偏差表 #5「曲面」→「圆角」且实测值与方案一致。
+
+**未能复核（环境限制，非文档问题）**：e2e 浏览器层与真机 CDP。本环境起 vite dev 会被 safe-delete 守卫拦在 `shell/node_modules/.vite/deps`（360 项 > 阈值 50），故 e2e 相关数字只核到「文件在位 + 声明用例数」，实际执行数待能跑 e2e 的机器确认。
 
 
