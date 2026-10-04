@@ -11,7 +11,7 @@
 
 | 项 | 现状 |
 |---|---|
-| 定位 | 单人自用 Python IDE（FastAPI + 爬虫 + 小脚本） |
+| 定位 | **高性能 · 轻量 Python IDE**（FastAPI + 爬虫 + 小脚本；2026-10-05 定位变更，ADR-0010；性能与体积为一等目标） |
 | 阶段 | **Phase 4 · 打磨期**（Phase 1/2/3 均已交付：外壳 / 语义引擎 / 运行时智能） |
 | 规模 | 约 83K 行自研代码 · 192 个 Tauri 命令 · 38 篇 `docs/*.md` + 4 篇 ADR |
 | 质量底座 | 前端 1070 用例 · Rust 333 测试 · probe 81 pytest · e2e 65 spec（mock 层）+ 9 个真机脚本（**手动**） |
@@ -47,6 +47,7 @@
 | 18 | 数据目录 v2 与系统盘治理 | 2026-08-29 | `data-directory-layout-v2.md` · `disk-space-plan.md` | — | ✅ |
 | 19 | 多窗口 | 2026-09-28 实施 / 2026-09-30 入库 | `multi_window_dev_plan.md` **v0.2** | `e2e-real/multi-window-real.cjs` 16/16 PASS | ✅ 阶段 0/1/2 全交付（#4~#6 依赖健康缓存经拍板暂缓） |
 | 20 | 新手引导 | 2026-09-30 入库 | `onboarding_dev_plan.md` **v1.3** · `onboarding_guide.md` v1.0 | `e2e/ux/04-onboarding.spec.ts` OG-1..OG-9 | ✅ PR-S1/S2/S4 已交付；S3（可选 P2）未开工 · S5 登记不排期 |
+| 21 | **TODO / Markdown 增强（B6）** | 2026-10-05 | `toolbox_dev_plan.md` v1.1 §7 | TODO 单测 19/19 · `e2e/todo/` 7/7 | ⏳ PR-B6-3 TODO 增强已交付；PR-B6-2 大纲、PR-B6-1 Mermaid 待实施 |
 
 ---
 
@@ -84,7 +85,7 @@
 
 ### 3.5 计划（待开工 / 部分开工）
 
-`onboarding_dev_plan.md` v1.2 · `multi_window_dev_plan.md` v0.1 · `toolbox_dev_plan.md` v1.0（**SQLite 章已迁出**，余 HTTP Client / 结构化日志 / TODO 与 Markdown 增强 = 候选池 B4 / B5 / B6）
+`onboarding_dev_plan.md` v1.3 · `multi_window_dev_plan.md` v0.2 · `toolbox_dev_plan.md` v1.1（B3 已交付；B6 的 PR-B6-3 已交付、PR-B6-1/2 待实施；B4/B5 待实施）
 
 ### 3.6 治理与账本
 

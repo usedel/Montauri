@@ -38,6 +38,14 @@ export const editor = {
   "editor.rename.unstableSuffix": "{base} · 索引未稳定，结果可能不完整",
   "editor.rename.unstableToast": "工作区索引未稳定，重命名可能漏改未打开的文件——建议稍后用 Alt+F7 复查引用",
   // ---- editor.todo ----
+  "editor.todo.clearFilter": "清空过滤",
+  "editor.todo.filterAria": "过滤待办标记",
+  "editor.todo.filterPlaceholder": "过滤标记 / 说明 / 文件",
+  "editor.todo.groupBy": "分组方式",
+  "editor.todo.groupByFile": "按文件",
+  "editor.todo.groupByTag": "按标签",
+  "editor.todo.noMatch": "没有匹配的待办",
+  "editor.todo.noMatchHint": "换个关键词，或清空过滤条件",
   "editor.todo.noWorkspace": "未打开工作区",
   "editor.todo.noWorkspaceHint": "打开后此处列出 TODO / FIXME",
   "editor.todo.none": "没有待办标记",
@@ -49,6 +57,8 @@ export const editor = {
   "editor.todo.scanningHint": "正在遍历工作区文件",
   "editor.todo.summary.one": "{count} 项 · {tags}",
   "editor.todo.summary.other": "{count} 项 · {tags}",
+  "editor.todo.summaryFiltered": "命中 {hit} / 共 {total} 项",
+  "editor.todo.toggleGroup": "展开或折叠「{name}」",
   "editor.todo.zeroItems": "0 项",
   // ---- editor.vision ----
   "editor.vision.more.one": "…其余 {count} 处在「引用」面板查看",

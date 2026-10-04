@@ -2413,6 +2413,46 @@ button:focus-visible,
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* B6-3：过滤框 + 分组模式切换（todoView.ts；输入框形态对齐 #db-filter-input） */
+.todo-filter-box {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-soft);
+}
+#todo-filter {
+  flex: 1;
+  min-width: 0;
+  box-sizing: border-box;
+  font-size: var(--text-sm);
+  padding: var(--space-1) var(--space-2);
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+}
+#todo-filter:focus-visible { outline: 1px solid var(--focus-ring); outline-offset: -1px; }
+.todo-filter-box .btn { flex: none; margin-left: 0; }
+.todo-group-mode {
+  flex: none;
+  font-size: var(--text-sm);
+  padding: var(--space-1);
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+}
+.todo-group-chev { flex: none; display: flex; color: var(--fg-dim); font-size: var(--text-xs); }
+.todo-group-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-sm);
+  color: var(--fg);
+}
 
 /* ---------- 端点工具窗（F1/F2/F4，endpointView.ts；布局复用 todo-group-header / todo-item） ---------- */
 #ep-toolbar { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); }

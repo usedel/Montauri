@@ -107,6 +107,15 @@
     get_bookmarks: function () { return []; },
     run_config_list: function () { return []; },
     list_python_versions: function () { return []; },
+    // B6-3 TODO 视图：固定三条命中（两条同文件，便于验「按文件分组」与折叠）。
+    // 测试可经 window.__E2E_TODO_SCAN__ 覆写（未预置 = 内置三条）。
+    scan_todos: function () {
+      return window.__E2E_TODO_SCAN__ || [
+        { path: "D:/repo/app/main.py", line: 12, tag: "TODO", message: "补上重试", text: "# TODO 补上重试" },
+        { path: "D:/repo/app/main.py", line: 40, tag: "FIXME", message: "空列表会漏", text: "# FIXME 空列表会漏" },
+        { path: "D:/repo/app/util.py", line: 7, tag: "TODO", message: "抽成工具函数", text: "# TODO 抽成工具函数" },
+      ];
+    },
     // F9：新建 FastAPI 项目的依赖安装（uv add）——mock 返回 exit 0（成功路径；
     // 输出无真实 uv 流，pip-stdout 事件不发也不影响：前端只回显 cmd 行 + busy 复位）
     pip_install: function () { return 0; },

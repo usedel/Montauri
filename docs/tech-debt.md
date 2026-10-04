@@ -16,6 +16,27 @@
 
 > 2026-10-03 UI 视觉「高级感」改造（`docs/ui_premium_dev_plan.md` 六批 + 修记 A）交付后复核新增 **TD-022 / TD-023 / TD-024**。均为**自觉取舍或非缺陷的观感项**，交付时已在开发计划 §8.1.2 声明，本次复核补登记（此前只写在计划里，未进本文件）。
 
+> 2026-10-05 产品定位变更（「单人自用」→「高性能 · 轻量」，ADR-0010）新增 **TD-025**：全项目 60+ 处决策曾以「单人自用」为论据，定位变更后这些论据**原则上已过期**。本轮按裁决**不逐个复审**，仅登记清单；读这些文档时须记住「论据过期 ≠ 结论错误」，画像类裁决仍然成立。
+
+### TD-025 历史「单人自用」论据的定位失效复审清单（P2，文档一致性；2026-10-05 定位变更登记）
+
+- **起因**：产品定位由「单人自用 Python IDE」变更为「高性能 · 轻量 Python IDE」（ADR-0010，目标用户画像**不变**：FastAPI + 爬虫 + 小脚本）。历史文档大量以「自用 / 单人 / 没人在乎跨机一致性」作为取舍论据，这些论据在对外定位下不再自明。
+- **本轮裁决**：**不逐个复审、不批量替换表述**（工作量多日且多数结论仍成立）；只登记清单，由后续独立 PR 逐项处理。**结论仍成立的画像类裁决明确不复审**（见下「不复审」）。
+- **复审清单**（按建议处理顺序）：
+
+| # | 条目 | 原论据（已过期） | 失效原因 / 复审要点 | 涉及文件 |
+|---|---|---|---|---|
+| 1 | nightly 的 e2e-real / bench / budget 三个 job **只告警不阻断** | 「单人自用项目没人盯 CI 告警，价值在出报告而非卡合并」 | 定位对外后，告警无人看 = 护栏形同虚设；需决定：接通知渠道（Windows 通知/邮件）还是升级为 PR 阻断（ADR-0010 决策 5 已把后者延后） | `.github/workflows/nightly.yml`、`docs/improvement_and_roadmap_report.md` P0-1 子项 2 |
+| 2 | **更新通道 / 版本回滚**延后 | 「自用项目也要面对『我这版是不是装错了』」 | 对外分发后更新与回滚从「锦上添花」升为分发链路一环；至少要有 `version.json` 比对提示 + 设置面板「检查更新」 | `docs/improvement_and_roadmap_report.md`（更新通道段）、`shell/src-tauri/Cargo.toml`（无 updater 依赖） |
+| 3 | UI 字体 **Inter 走系统栈**、只随包等宽字体 | 「单人自用定位，跨机一致性收益为零」 + CSP 阻碍 | 跨机一致性不再天然无用；需重估是否值得改 CSP（`font-src`）把 Inter 随包 | `docs/ui_premium_design_report.md` §5.3 / §7、`docs/ui_premium_dev_plan.md` §2、`shell/src-tauri/tauri.conf.json`（CSP） |
+| 4 | Watches / 低频配置存 **localStorage** | 「低频个人配置、无跨设备诉求，避免为 20 条字符串扩后端」 | 同上；若做配置同步才需动，否则维持现状即可 | `docs/pycharm_ux_review_and_proposal.md` §16.5、`shell/src/debugWatches.ts` |
+| 5 | 插件 v2 **硬沙箱**（iframe/Worker）延后 | 「成本高、收益对自用场景有限」 | 面向外部插件作者时，信任模型（现为同源 + facade）重要性上升；工作区级插件目录可先行 | `docs/plugin_system_design.md` §10、`docs/improvement_and_roadmap_report.md` P1-6 |
+| 6 | HTTP Client（工具箱）对内网地址**不拦截只提示** `private_target` | 「自用工具不拦，知情即可」 | 模板/配置可分享后，SSRF 需重新裁决是「提示」还是「默认拦 + 显式放行」 | `docs/toolbox_dev_plan.md`（HTTP Client 章） |
+
+- **不复审（结论仍成立，仅论据措辞过期）**：S1 画像类打分（`docs/python_library_support_research.md` 的「单人自用脚本 / 小项目」画像）、框架支持裁决（`docs/pycharm_framework_support_report.md` 的 FastAPI 第一 / Flask 第二 / Django 浅做）、pytest 面板 / Jupyter 不做（`docs/python_ide_dev_plan_v2.md` §1.1）——**用户画像未变**，这些裁决的依据是画像而非「自用」二字。
+- **处理时机**：各自独立成 PR；建议顺序 1 → 2 → 3 → 4 → 5 → 6（1/2 影响分发可信度，优先级最高）。任一项复审结论若要推翻原裁决，须先写 ADR 再改代码。
+- **涉及文件**：见上表；本条本身登记于 `docs/tech-debt.md`。
+
 ### TD-024 alpha 边框不满足 WCAG 1.4.11 非文本对比 3:1（P4，合规取舍；2026-10-03 UI 高级感批 5b 登记）
 
 - **起因**：批 5b 把边框换成三档 alpha 叠色（`--border-hairline` / `--border-subtle` / `--border-strong`），实测对比 1.32~1.36:1，**低于** WCAG 1.4.11 要求的 3:1。

@@ -2,7 +2,9 @@
 
 This file provides guidance to coding agents when working with code in this repository.
 
-OpenCharm 是为「FastAPI + 爬虫 + 小脚本」开发者定制的单人自用 Python IDE。现行技术方案 `docs/python_ide_tech_plan_v3.md`，现行开发计划 `docs/python_ide_dev_plan_v2.md`（两者冲突时以开发计划为准）。
+OpenCharm 是面向「FastAPI + 爬虫 + 小脚本」开发者的**高性能 · 轻量 Python IDE**。现行技术方案 `docs/python_ide_tech_plan_v3.md`，现行开发计划 `docs/python_ide_dev_plan_v2.md`（两者冲突时以开发计划为准）。
+
+> 定位变更（2026-10-05）：原「单人自用」定位作废，**性能与体积升为一等目标**（与功能正确性同权），章程见 `docs/adr/0010-performance-lightweight-charter.md`。目标用户画像**不变**（FastAPI + 爬虫 + 小脚本），既有功能裁决继续成立。
 
 ## 规则与规范（单一真源：`.codebuddy/rules/`）
 
@@ -33,11 +35,19 @@ CodeBuddy 自动加载 `RULE.mdc` 全文；其他 agent 遵循以下内联的架
 2. 一切自研组件都是**独立进程或独立包**，不侵入外壳与静态引擎内核。
 3. 主干开发 + 短分支 PR；CI 全绿才可合并。工具链版本锁定在 `ci/versions.toml`，升级任何组件必须 PR + bench 回归全绿。
 
+**性能与轻量（一等目标，不可违反）**：
+
+1. **预算先行**：任何功能不得突破 `ci/budgets.toml` 的既定预算（巨型文件行数 / 命令面 / 产物体积）与项目级性能指标（冷启动、空闲内存、探针开销——数值真源见 `docs/python_ide_dev_plan_v2.md` §1.2）。**数值维持现值不动**，调整必须显式 PR 写清理由，`budget-check.mjs` 与采集脚本绝不自动抬阈值。
+2. **默认轻量**：新增依赖、常驻进程、后台轮询/定时器前先问「能不能不做 / 能不能按需加载」；按需加载优先于常驻，复用已有进程优先于新起进程。
+3. **运行时开销红线**：`probe` 采样开销 < 1.5x（当前 1.35x），改采集路径必须 bench 回归。
+4. **体积与内存是卖点不是技术细节**：突破预算的功能要么换个做法，要么不立项——不允许「先上线再优化」。
+
 **文档约定**：
 
 - 技术方案与开发计划冲突时，**以开发计划为准**并反馈修订；新旧版本文档冲突时，以版本号更高者为准。
 - 重大设计决策先写 ADR（`docs/adr/`）；功能交付后更新对应验收记录（`docs/*_acceptance_record.md`）；技术债登记在 `docs/tech-debt.md`。
 - 调试功能：计划 `docs/python_debug_dev_plan.md`（v1.3）· 验收 `docs/debug_acceptance_record.md` · 决策 `docs/adr/0004-dap-bridge-debugpy-bundled.md`。
+- 性能与轻量：章程 `docs/adr/0010-performance-lightweight-charter.md`（2026-10-05 定位变更，性能/体积升为一等目标）。
 
 ### Python 规范核心红线（全文见 `.codebuddy/rules/python-code-style/RULE.mdc`）
 

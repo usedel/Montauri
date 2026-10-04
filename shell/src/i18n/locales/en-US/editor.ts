@@ -39,6 +39,14 @@ export const editor: Record<EditorKey, string> = {
   "editor.rename.unstableSuffix": "{base} · index is unstable; results may be incomplete",
   "editor.rename.unstableToast": "The workspace index is unstable; the rename may miss files that are not open — re-check references with Alt+F7 later",
   // ---- editor.todo ----
+  "editor.todo.clearFilter": "Clear filter",
+  "editor.todo.filterAria": "Filter todo markers",
+  "editor.todo.filterPlaceholder": "Filter by tag / text / file",
+  "editor.todo.groupBy": "Group by",
+  "editor.todo.groupByFile": "By file",
+  "editor.todo.groupByTag": "By tag",
+  "editor.todo.noMatch": "No matching todos",
+  "editor.todo.noMatchHint": "Try another keyword, or clear the filter",
   "editor.todo.noWorkspace": "No workspace open",
   "editor.todo.noWorkspaceHint": "Open one and TODO / FIXME items will be listed here",
   "editor.todo.none": "No todo markers",
@@ -50,6 +58,8 @@ export const editor: Record<EditorKey, string> = {
   "editor.todo.scanningHint": "Walking workspace files",
   "editor.todo.summary.one": "{count} items · {tags}",
   "editor.todo.summary.other": "{count} items · {tags}",
+  "editor.todo.summaryFiltered": "{hit} of {total} matched",
+  "editor.todo.toggleGroup": "Expand or collapse “{name}”",
   "editor.todo.zeroItems": "0 items",
   // ---- editor.vision ----
   "editor.vision.more.one": "…{count} more in the References panel",

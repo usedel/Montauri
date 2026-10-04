@@ -1,7 +1,8 @@
 # OpenCharm
 
-为「FastAPI + 爬虫 + 小脚本」开发者定制的单人自用 Python IDE。
+面向「FastAPI + 爬虫 + 小脚本」开发者的**高性能 · 轻量 Python IDE**。
 
+- **一等目标**：性能与体积与功能正确性同权，任何功能不得突破 `ci/budgets.toml` 预算（章程见 [`docs/adr/0010-performance-lightweight-charter.md`](docs/adr/0010-performance-lightweight-charter.md)）
 - **外壳**：**Tauri 2 + Monaco**（2026-08-20 裁决，取代原 Zed 方案）
 - **静态语义**：Pyrefly（默认）/ basedpyright（备选），第一天实现可切换
 - **差异化核心**：运行时类型采样（PEP 669 `sys.monitoring`）+ 自研运行时智能 LSP（`opencharm-intel`）
@@ -51,7 +52,7 @@
 | [`docs/dx_features_backlog.md`](docs/dx_features_backlog.md) | DX 顺手功能储备（**已全部收官**）：第一/第二梯队落地记录，§6.8 进度快照 |
 | [`docs/e2e_divergence_ledger.md`](docs/e2e_divergence_ledger.md) | e2e 分歧台账（mock ↔ CDP 真机）：D-001~D-007 根因与避坑速查；真机覆盖的论据来源 |
 | [`docs/i18n.md`](docs/i18n.md) | **国际化实施说明（zh-CN / en-US 双语，已交付）**：扁平 key 语言包、20 批动态文案抽取、三步新增文案流程与踩坑记录 |
-| [`docs/adr/`](docs/adr/) | 技术决策记录（ADR）：0003 自研 LSP 桥 · 0004 DAP + debugpy 随包 · 0005 品牌/交互色统一 |
+| [`docs/adr/`](docs/adr/) | 技术决策记录（ADR）：0003 自研 LSP 桥 · 0004 DAP + debugpy 随包 · 0005 品牌/交互色统一 · **0010 性能与轻量章程（一等目标）** |
 
 > 技术方案与开发计划冲突时，以开发计划为准并反馈修订。
 

@@ -1,6 +1,6 @@
 # OpenCharm 工具箱开发计划（SQLite · HTTP Client · 结构化日志 · TODO/Markdown 增强）
 
-> 版本：v1.0 · 日期：2026-10-02 · 状态：**待评审**（方案定稿，未开工）
+> 版本：v1.1 · 日期：2026-10-05 · 状态：**实施中**（B3、PR-B6-3 已交付；B4 / B5 / PR-B6-1 / PR-B6-2 待实施）
 > 上游：`docs/improvement_and_roadmap_report.md` 第 3 章候选池 **B3 / B4 / B5 / B6**；本报告把四条选题落成 PR 级实施计划。
 > 与既有文档的关系：本计划是**执行依据**，与 `python_ide_dev_plan_v2.md`（Phase 4 打磨期）不冲突；冲突时以后者为准并反馈修订。
 > 事实底座：全部结论均于 2026-10-02 回代码核实（含 file:line）。`git` HEAD `44c85ea`，分支 `master`。
@@ -18,6 +18,8 @@
 | **B3** SQLite 数据库工具 | 侧栏「数据库」视图：连接管理 + 对象树 + 数据网格 + SQL 编辑器（默认只读） | Rust **rusqlite bundled**（已定案）；py 桥为降级 | `rusqlite`（Rust，bundled） | **8~10 人日** | 4 |
 
 > **B3 已实施**（2026-10-02）：PR-1 ~ PR-4 代码完成、测试全绿（`cargo test db_` 33 / `vitest` 994 / `e2e/db/` 22），**未提交**。实施记录与 e2e 抓到的两个真 bug 见 `docs/sqlite_tool_dev_plan.md` §9.1~§9.4。本节以下内容保留为原始计划，供回溯。
+>
+> **B6 实施中**（2026-10-05）：PR-B6-3 TODO 增强已交付并完成复核修正；PR-B6-2 Markdown 大纲、PR-B6-1 Mermaid 尚未开始，因此 **B6 整体未完成**。
 
 **总量约 22~28 人日**（含测试与 e2e）。建议推进顺序 **B6 → B5 → B4 → B3**：先做零新依赖、见效快的两项，把两个引入 Rust 依赖的重头戏放在后面（且各自第一个 PR 就是"加依赖 + 跑通 CI"，风险前置）。
 
@@ -44,7 +46,7 @@
 
 | 项 | 现状 | 证据 |
 |---|---|---|
-| TODO 视图 | 已在侧栏注册表（`id:"todo"`）；`invoke("scan_todos",{root})` → Rust `fs_cmds::scan_todos`；**按 tag 分组**（TODO/FIXME/HACK/BUG/XXX），无文件分组、无过滤、无关键字搜索 | `todoView.ts:150-173`（`groups` 按 `m.tag`）、`:41 setTodoViewHandlers`、`:79 refreshTodos`、`:116 renderTodoPanel`；DOM `#todo-toolbar` / `#todo-summary` / `#todo-refresh` / `#todo-results` |
+| TODO 视图 | 已在侧栏注册表（`id:"todo"`）；`invoke("scan_todos",{root})` → Rust `fs_cmds::scan_todos`；支持按标签/文件分组、200ms 关键字过滤、折叠、命中/总数摘要与点击跳转 | `todoView.ts::filterTodos/groupTodosByFile/renderTodoPanel/setTodoViewHandlers`；e2e `todo/01-filter-group.spec.ts` |
 | Markdown 预览 | **不在侧栏注册表**（编辑区右侧分栏）；管线 `marked`(GFM) → `DOMPurify.sanitize` → 图片 `convertFileSrc` 改写 → `monaco.editor.colorize` | `markdownPreview.ts:87 renderMarkdownToHtml`、`:47 sanitizeHtml`、`:65 rewriteImageSrcs`；DOM `#md-preview` / `#btn-md-preview` |
 | Mermaid | **全仓零命中** | grep `mermaid` = 0 |
 | 文档大纲 | **无** | — |
@@ -430,14 +432,16 @@ export function formatLogRow(e: LogEntry, fields: readonly string[]): string;
 
 ### 7.3 TODO 视图增强（PR-B6-3）
 
-现状：按 tag 分组（TODO/FIXME/HACK/BUG/XXX），无过滤、无文件分组、无搜索。
+实施前基线：仅按 tag 分组（TODO/FIXME/HACK/BUG/XXX），无过滤、无文件分组、无搜索。
 新增：
 1. **关键字过滤**（输入框，防抖 200ms，匹配 tag 与文本）；
-2. **按文件分组**折叠（二级：tag → 文件 → 条目），与现有 tag 分组可切换（下拉：按标签 / 按文件）；
+2. **按文件分组**折叠，与现有 tag 分组可切换（下拉：按标签 / 按文件）；
 3. **点击跳转**：条目点击 → 打开文件并定位行（走既有 `setTodoViewHandlers` 注入的 handler 范式，确认现有是否已支持跳转，未支持则补）；
 4. 计数徽标：过滤后仍显示总数与命中数。
 - 纯函数：抽 `filterTodos(matches, query)` / `groupTodosByFile(matches)` 放 `__tests__/todoView.test.ts`（**新文件**）。
 - 注意：Rust `fs_cmds::scan_todos` 是否返回文件路径与行号？**开工前先核实**；若只返回文本则需扩返回结构（后端 + mock 同步）。
+  → **2026-10-04 已核实**：`fs_cmds.rs:1110` 的 `TodoMatch` 已含 `path` / `line` / `tag` / `message` / `text`，
+  **后端零改动**；点击跳转也已由 `todoView.ts::setTodoViewHandlers` + `openFile(path, line)` 接好，只差补齐 1/2/4。
 
 ### 7.4 PR 切分
 
@@ -445,12 +449,48 @@ export function formatLogRow(e: LogEntry, fields: readonly string[]): string;
 |---|---|---|---|---|
 | **PR-B6-1** | Mermaid 支持（懒加载 + 白名单 + 主题同步 + 失败降级） | `package.json`、`markdownPreview.ts`、`__tests__/markdownMermaid.test.ts`、`ci/versions.toml` | 1.5 天 | tsc 0 错、vitest 全绿、≥6 例；真机：含 mermaid 的 md 能渲染、语法错误降级、无图文档不加载 mermaid（Network 面板验证） |
 | **PR-B6-2** | Markdown 文档大纲 | `markdownPreview.ts`（+ `mdOutline.ts`）、`index.html`、`style.css`、`i18n/` | 1 天 | ≥6 例（含代码块内 `#` 对抗样本）；真机点击跳转 |
-| **PR-B6-3** | TODO 视图：过滤 + 按文件分组 + 跳转 + 计数 | `todoView.ts`、（可能）`fs_cmds.rs`、`tauri-mock.js`、`__tests__/todoView.test.ts` | 1~1.5 天 | ≥8 例；e2e `shell/e2e/ux/` 或新 `todo/` 域 ≥4 条 |
+| **PR-B6-3** | TODO 视图：过滤 + 按文件分组 + 跳转 + 计数 | `todoView.ts`、`style.css`、`i18n/`、`e2e/mocks/tauri-mock.js`、`__tests__/todoView.test.ts` | 1~1.5 天 | ≥8 例；e2e 新 `todo/` 域 ≥4 条 |
+
+> **PR-B6-3 已交付**（2026-10-04，实测量级 ≈0.5 天）：后端未动（`scan_todos` 已够用），详见 §7.6。
 
 ### 7.5 已知边界与不做
 
 - **不做**：Markdown 导出 PDF/HTML、双向编辑（预览侧编辑）、图表类型扩展（只支持 mermaid 原生）、TODO 的自定义 tag 配置（沿用硬编码五类，除非顺手加设置项）。
 - 边界：mermaid 首图渲染有一次性开销（懒加载 + 首次初始化），大图建议提示；大纲只取 1~6 级标题，Setext 式标题（`===`/`---`）v1 不支持（登记）。
+
+### 7.6 交付记录 · PR-B6-3（2026-10-04）
+
+**形态调整（与 §7.3 原稿的两处偏差，均已在本文档同步）**：
+
+1. 「按文件分组」实现为**文件 → 条目**两级，而非原稿的「tag → 文件 → 条目」三级。侧栏宽度下三级嵌套层级过深、可用性反而下降；文件模式下丢失的标记维度改为在**条目前补徽标**补回。
+2. 组头**可点击折叠**（原稿只在「按文件分组」下提折叠，实际两种模式都做了；折叠键带模式前缀 `tag:` / `file:`，切模式时清空）。
+
+**改动清单**：
+
+| 文件 | 改动 |
+|---|---|
+| `shell/src/todoView.ts` | 新增纯函数 `filterTodos` / `groupTodosByTag` / `groupTodosByFile` / `groupTodos`（原 tag 分组逻辑从渲染函数里提出，变成可单测的纯函数）；新增过滤框（输入框 + 清空按钮 + 分组模式下拉，200ms 防抖，Esc 清空）、组头折叠、命中/总数摘要；复核后补齐语言切换重建、清空按钮状态、折叠后的焦点与滚动恢复 |
+| `shell/src/__tests__/todoView.test.ts` | **新文件**，19 例：过滤（空查询 / 空白 / 标记 / 说明 / 路径 / 整行回退 / 无命中 / 不改入参）、tag 分组（TAG_ORDER / 未登记标记后置 / 组内保序）、file 分组（首次出现顺序 / 文件名 vs 全路径 / 总数守恒）、`groupTodos` 模式分派 |
+| `shell/src/style.css` | `.todo-filter-box` / `#todo-filter` / `.todo-group-mode` / `.todo-group-chev` / `.todo-group-name`（全 token，无裸色值 / 裸字号 / 裸间距 / 裸圆角） |
+| `shell/src/i18n/locales/{zh-CN,en-US}/editor.ts`、`shell/tools/i18n/data/editor_{zh,en,map}.json` | 新增 10 条 `editor.todo.*`（filterPlaceholder / filterAria / clearFilter / groupBy / groupByTag / groupByFile / noMatch / noMatchHint / summaryFiltered / toggleGroup），由数据真源重新生成语言包 |
+| `shell/e2e/mocks/tauri-mock.js` | 新增 `scan_todos` 桩（固定三条命中，可用 `window.__E2E_TODO_SCAN__` 覆写） |
+| `shell/e2e/todo/01-filter-group.spec.ts` | **新域新文件**，7 条：默认 tag 分组 / 过滤、计数、按钮及 Esc 清空 / 无命中空态 / 切 file 分组 / 键盘折叠与焦点恢复 / 运行时语言切换 / 点击条目打开文件 |
+
+**复核修正（2026-10-05）**：修复清空按钮未隐藏、运行时切换语言后动态文案滞留、折叠重渲染丢失焦点/滚动位置三项问题；补齐 i18n `data/editor_{zh,en,map}.json` 真源并由 `gen_domain.py` 重生成语言包。门禁：`npm run build` 通过；前端全量 93 文件 / 1100 用例通过；`e2e/todo/` 7/7 通过；UI token 审计 98/98。`cargo test` 为 290 通过 / 1 个存量 Windows CRLF 失败 / 2 ignored，本 PR 无 Rust 改动。
+
+> 当前完成范围仅为 **PR-B6-3**；PR-B6-2（Markdown 大纲）与 PR-B6-1（Mermaid）仍待实施，B6 整体不得标记完成。
+
+**代码里挖出、原稿未记载的事实**（后续 PR 可直接引用）：
+
+- `fs_cmds.rs:1110` `TodoMatch` 已含 `path` / `line` / `tag` / `message` / `text` → **后端零改动**；
+- `todoView.ts` 跳转 handler（`setTodoViewHandlers` + `openFile(path, line)`）**已在位**；
+- **`marked` 18.0.12 不给标题生成 `id`**（实测 `marked.parse('# x')` → `<h1>x</h1>`）→ PR-B6-2 必须自己 post-process 补 id；
+  - 连带现存 bug：`markdownPreview.ts` 的 `#anchor` 点击委托目前**命中不到任何元素**（页面无带 id 的节点），补 id 后该功能才真正生效；
+- **大纲应从渲染后的 HTML 提取**（`querySelectorAll("h1..h6")`）而非正则扫 md 源——代码块内的 `#` 已被 marked 塞进 `<code>`，原稿 §7.2 列为「必须的对坑样本」可直接规避；
+- CSP（`tauri.conf.json:15`）`script-src 'self' 'wasm-unsafe-eval'`**无 `unsafe-eval`** → PR-B6-1 的 mermaid 需先做真机 spike；
+- `exportActiveMarkdown`（`markdownPreview.ts`）走另一条 marked → sanitize 管线，PR-B6-1 不处理它则**导出 HTML 里图表是空代码块**；
+- `schedulePreviewRender` 300ms 防抖会重复触发渲染，mermaid 必须按源码文本做缓存 key；
+- `markdownPreview.test.ts` 把 DOMPurify mock 成 identity（happy-dom 不完整）→ mermaid 的消毒行为**单测验不了**，真机验收不可省。
 
 ---
 
@@ -458,9 +498,9 @@ export function formatLogRow(e: LogEntry, fields: readonly string[]): string;
 
 | 序 | PR | 依赖 | 量级 | 累计 |
 |---|---|---|---|---|
-| 1 | PR-B6-1 Mermaid | — | 1.5 d | 1.5 d |
-| 2 | PR-B6-2 Markdown 大纲 | — | 1 d | 2.5 d |
-| 3 | PR-B6-3 TODO 增强 | 需先核实 `scan_todos` 返回结构 | 1~1.5 d | 4 d |
+| 1 | PR-B6-3 TODO 增强 | `scan_todos` 返回结构已核实 | 1~1.5 d | 1~1.5 d |
+| 2 | PR-B6-2 Markdown 大纲 | — | 1 d | 2~2.5 d |
+| 3 | PR-B6-1 Mermaid | — | 1.5 d | 3.5~4 d |
 | 4 | PR-B5-1 多播 + 解析 | —（**可与 B6 并行**） | 1 d | 5 d |
 | 5 | PR-B5-2 运行日志 tab | 4 | 1.5 d | 6.5 d |
 | 6 | PR-B5-3 字段/导出/e2e | 5 | 1.5~2 d | 8.5 d |
@@ -476,6 +516,14 @@ export function formatLogRow(e: LogEntry, fields: readonly string[]): string;
 **关键路径风险**：PR-B4-2 与 PR-B3-1 都引入新的 Rust 原生依赖，**必须各自单独成 PR 并先验证 CI（windows-latest + MSVC）能编过**；若 bundled 编译在 CI 上不过，B3 需回退到决策 1 的方案 B（Python 桥），量级会变的更细碎但不必推倒重来（前端视图层不变）。
 
 **并行建议**：B6 与 B5 无冲突可并行；B4/B3 因都要动 `Cargo.toml` 与 `lib.rs`，**串行更安全**。
+
+**B6 内部顺序修订（2026-10-04，已同步到上表）**：初版把 PR-B6-1（Mermaid）排在最先，与第 0 章「先做零新依赖、见效快的两项」自相矛盾——Mermaid 是 B6 里**唯一引入新依赖**且**唯一有未验证项**（严格 CSP 下能否跑通）的一项。最终顺序为 **B6-3 → B6-2 → B6-1**：
+
+| 新序 | PR | 理由 |
+|---|---|---|
+| 1 | PR-B6-3 TODO 增强 | 零依赖，后端已够用（§7.6），≈0.5 d 见效 |
+| 2 | PR-B6-2 Markdown 大纲 | 零依赖，纯函数可单测，顺带修 `#anchor` 跳转现存 bug |
+| 3 | PR-B6-1 Mermaid | **第一件事是 30 分钟真机 spike**（CSP + DOMPurify 白名单 + 体积）；不过即砍，前两项不受影响 |
 
 ---
 
@@ -518,11 +566,12 @@ export function formatLogRow(e: LogEntry, fields: readonly string[]): string;
 
 1. **拍板第 3 章的 3 个决策**（B3 引擎 / B4 执行方式 / B3 默认只读）；
 2. `git status` 确认工作区干净（当前有未提交的视觉改造改动，先收口）；
-3. 从 **PR-B6-1** 开始（最快见效、零 Rust 依赖）；
+3. B6 按修订顺序继续 **PR-B6-2**（PR-B6-3 已交付；PR-B6-1 最后做并先跑真机 CSP spike）；
 4. B5 开工前重读 `termUi.ts:40/315/569/887` 与 `runHistory.ts:118` 的采集链，确认多播改造点；
 5. B4 开工前确认 `monaco-editor@0.52.2` 是否导出 `basic-languages/http` contribution（决定方案 a / b）；
 6. B3 开工前确认 `splitEditor.ts:49` 的第二实例创建/销毁范式，以及 `views.ts` 注册是否需要 `onHide` 做 dispose；
-7. B6-3 开工前确认 `fs_cmds::scan_todos` 的返回结构是否含文件路径与行号（决定要不要扩后端）；
+7. ~~B6-3 开工前确认 `fs_cmds::scan_todos` 的返回结构是否含文件路径与行号（决定要不要扩后端）~~
+   → **2026-10-04 已核实：含，后端零改动**（见 §7.6）；
 8. 每个 PR 结束跑第 9 章门禁，并把交付记录回填本文档（照 `git_clone_dev_plan.md` §12「交付记录」的写法）。
 
 ---

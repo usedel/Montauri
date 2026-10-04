@@ -13,6 +13,7 @@
 | [0007](0007-intel-as-independent-lsp.md) | 运行时智能作为独立 LSP（opencharm-intel）+ 独立 probe 包，不修改 Pyrefly 内核 | 已定案（补记） | 2026-08-20 |
 | [0008](0008-pep669-sys-monitoring-sampling.md) | 运行时采样技术选型：PEP 669 `sys.monitoring`（三段式事件策略，开销红线 1.5x） | 已定案（补记） | 2026-08-21 |
 | [0009](0009-lsp-result-merge-sorttext.md) | LSP 结果合并策略：固定 sortText 段位（0NN/0y/0z/1xx/2xx/3xx）+ `⟳ runtime` 来源标注 + 运行时优先 | 已定案（补记） | 2026-08-20 |
+| [0010](0010-performance-lightweight-charter.md) | 产品定位转向「高性能 · 轻量」，性能与体积升为一等目标（画像不变 / 数值维持现值 / 门禁策略不改） | 已定案 | 2026-10-05 |
 
 > 0006~0009 为 2026-10-03 追溯补记：决策本身自 2026-08-20~21 起生效并已落地实施，此前只在 `README.md`「待记录（候选）」里挂着。补记目的是让「重大决策写 ADR」这条铁律从今天起无欠账。
 
