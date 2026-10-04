@@ -238,6 +238,115 @@ pub(crate) fn kill_pty_child_tree_async(mut child: Box<dyn portable_pty::Child +
     });
 }
 
+// ── 启动窗口的初始几何（主窗口 + 项目窗口共用） ──────────────────────────
+//
+// 修的问题：开应用后窗口偏下、底部被屏幕切掉，必须手动往上拖。
+//
+// 根因是**从不指定位置**。tao 建窗时只在「传入的 position 落在某显示器范围内」
+// 才采纳它，否则一律退回 `CW_USEDEFAULT`（tao src/platform_impl/windows/window.rs
+// 的 `(monitor, position)` 解析），交给系统自选——落到工作区下半部就表现为偏下。
+// 实测修复前后（本机 1920×1080 @125%）：旧 rect 顶部越出工作区上沿、底部被切；
+// 新 rect 完全落在工作区内并居中。
+//
+// 次要隐患一并处理：尺寸写死 `inner_size(1280, 800)`（逻辑像素 = CSS px），
+// 在更高缩放 / 更矮的屏上（例：1536×864 物理 @150% → 工作区仅 384 逻辑高）
+// 会直接超出工作区下沿。故按「近似工作区」收尺寸，并在工作区内居中。
+// 取不到显示器信息（无头 / 远程会话）时返回 None，调用方退回 `center()`。
+
+/// 窗口初始尺寸的期望值（逻辑像素 = CSS px）。
+pub(crate) const WIN_PREF_W: f64 = 1280.0;
+pub(crate) const WIN_PREF_H: f64 = 800.0;
+
+/// 窗口尺寸下限（逻辑像素）。800×600 的推导见 `lib.rs` 建窗处注释（UI-23：
+/// 三栏宽度下限 180 + 240 + 260 = 680，留余量后编辑区不会被挤没）。
+pub(crate) const WIN_MIN_W: f64 = 800.0;
+pub(crate) const WIN_MIN_H: f64 = 600.0;
+
+/// 启动窗口的初始位置与尺寸：收进主显示器的近似工作区，并在该工作区内居中。
+///
+/// 工作区只能近似：tao 的 [`tauri::Monitor`] 只给整块显示器的物理尺寸与位置
+/// （**不含**任务栏），故按「屏高 − 任务栏近似」反推。近似偏保守的唯一后果是
+/// 窗口略小，不会切边，方向上安全。
+///
+/// 返回 `None` = 取不到显示器信息，调用方应退回 `center()` + 期望尺寸。
+pub(crate) fn initial_window_geometry(
+    app: &tauri::AppHandle,
+) -> Option<(tauri::LogicalPosition<f64>, tauri::LogicalSize<f64>)> {
+    let mon = app.primary_monitor().ok().flatten()?;
+    let scale = mon.scale_factor();
+    if !scale.is_finite() || scale <= 0.0 {
+        return None;
+    }
+    let (x, y, w, h) = geometry_for_monitor(
+        f64::from(mon.position().x) / scale,
+        f64::from(mon.position().y) / scale,
+        f64::from(mon.size().width) / scale,
+        f64::from(mon.size().height) / scale,
+        scale,
+    );
+    crate::logging::log_line(
+        crate::logging::Level::Info,
+        &format!(
+            "[window_geom] monitor_px={}x{} origin_px=({},{}) scale={scale} \
+             => pos=({x:.1},{y:.1}) size={w:.1}x{h:.1} (logical)",
+            mon.size().width,
+            mon.size().height,
+            mon.position().x,
+            mon.position().y
+        ),
+    );
+    Some((
+        tauri::LogicalPosition::new(x, y),
+        tauri::LogicalSize::new(w, h),
+    ))
+}
+
+/// 任务栏近似高度（物理像素）：Windows 默认 48，DPI 放大不成比例，
+/// 故与屏高 5.5% 取大者；自动隐藏任务栏时会多扣一点空白，可接受。
+const TASKBAR_PX: f64 = 48.0;
+const TASKBAR_RATIO: f64 = 0.055;
+/// 上下留白（物理像素）
+const MARGIN_PX: f64 = 24.0;
+/// 宽度占比。横向不按「屏宽 − 留白」算，是为了顺带容下贴侧边的任务栏
+/// （竖排任务栏 / 侧边 dock 宽度不固定，按比例留边更稳）。
+const WIDTH_RATIO: f64 = 0.92;
+
+/// 纯计算部分（逻辑像素进出，`scale` 用于把物理量的留白/任务栏换算成逻辑量）。
+///
+/// 三个区域依次收窄，居中基于**工作区**（而非已扣过边的可用区），否则左右/上下
+/// 留白会不对称（一侧贴边、另一侧留白）：
+///   屏（mon）→ 工作区（扣底部任务栏）→ 可用区（工作区再扣上下留白 / 横向按比例）。
+fn geometry_for_monitor(
+    mon_x: f64,
+    mon_y: f64,
+    mon_w: f64,
+    mon_h: f64,
+    scale: f64,
+) -> (f64, f64, f64, f64) {
+    let mon_h_px = mon_h * scale;
+    // 近似工作区：横 = 屏宽，纵 = 屏高 − 任务栏
+    let work_w = mon_w;
+    let work_h = (mon_h_px - TASKBAR_PX.max(mon_h_px * TASKBAR_RATIO)) / scale;
+    // 可用区：横向按比例留边，纵向扣上下留白（极端小屏至少留屏高 40%）
+    let avail_w = work_w * WIDTH_RATIO;
+    let avail_h = (work_h - 2.0 * MARGIN_PX / scale).max(mon_h * 0.4);
+
+    let w = fit_size(WIN_PREF_W, WIN_MIN_W, avail_w);
+    let h = fit_size(WIN_PREF_H, WIN_MIN_H, avail_h);
+    (
+        mon_x + (work_w - w) / 2.0,
+        mon_y + (work_h - h) / 2.0,
+        w,
+        h,
+    )
+}
+
+/// 在 `[min, avail]` 区间内取最接近 `pref` 的值：优先不超过可用空间，
+/// 又不被下限顶穿（`avail < min` 时取 `avail`，宁可在极小屏上略小也不越界）。
+fn fit_size(pref: f64, min: f64, avail: f64) -> f64 {
+    pref.min(avail).max(min.min(avail))
+}
+
 /// 打包后 Tauri 资源目录候选：`bundle.resources` 的落地位置跨平台有差异，
 /// 列出多个常见位置（`resource_dir()` 本身与其 `resources/` 子目录），命中即用。
 /// 供 `lsp::locate_intel_binary` / `run_env::locate_probe_src` 复用（第 2 步：资源目录支持）。
@@ -336,6 +445,70 @@ impl IncrementalUtf8Decoder {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn geometry_fits_real_125pct_screen() {
+        // 本机实测屏（真机 DPI-aware 探针确认）：1920×1080 物理 @125%，
+        // 工作区 1080−59.4 任务栏 = 1020.6 物理（System.Windows.Forms 之类
+        // DPI-unaware API 会把它报成 1536×864 逻辑值，别拿那个当物理值用）。
+        // 期望值 1280×800 逻辑在这里放得下，故宽度用期望值、高度收进工作区。
+        let (x, y, w, h) = geometry_for_monitor(0.0, 0.0, 1920.0 / 1.25, 1080.0 / 1.25, 1.25);
+        assert!((w - 1280.0).abs() < 0.5, "宽 {w} 应保持期望值 1280");
+        assert!((h - 778.1).abs() < 0.5, "高 {h} 应收进「屏高 − 任务栏 − 上下留白」");
+        let left = x * 1.25;
+        let top = y * 1.25;
+        let right = (x + w) * 1.25;
+        let bottom = (y + h) * 1.25;
+        assert!(left > 0.0, "左边距 {left} 不得贴边");
+        assert!(top > 0.0, "上边距 {top} 不得贴边");
+        assert!(
+            ((1920.0 - right) - left).abs() < 0.5,
+            "左右边距应对称（left={left}, right_gap={}）",
+            1920.0 - right
+        );
+        assert!(bottom <= 1020.6, "底边 {bottom} 越过了工作区下沿 1020.6");
+    }
+
+    #[test]
+    fn geometry_uses_pref_on_large_screen_and_clamps_on_small_one() {
+        // 1080p @100%：期望 1280×800 装得下 → 用期望值并居中
+        // （工作区高 = 1080 − 任务栏 max(48, 5.5%×1080=59.4) = 1020.6）
+        let (x, y, w, h) = geometry_for_monitor(0.0, 0.0, 1920.0, 1080.0, 1.0);
+        assert_eq!((w, h), (WIN_PREF_W, WIN_PREF_H));
+        assert!((x - (1920.0 - 1280.0) / 2.0).abs() < 0.01);
+        assert!((y - (1020.6 - 800.0) / 2.0).abs() < 0.01, "应在扣除任务栏后的工作区内居中");
+        assert!(y + h <= 1020.6, "底边不得越过工作区下沿");
+
+        // 极小屏（1024×768 @160% → 640×480 逻辑）：可用区小于下限时取可用区，不越界
+        let (x, y, w, h) = geometry_for_monitor(0.0, 0.0, 640.0, 480.0, 1.6);
+        assert!(w <= 640.0 && h <= 480.0, "不得越出屏幕 ({w}, {h})");
+        assert!(x >= 0.0 && y >= 0.0 && x + w <= 640.0 && y + h <= 480.0);
+    }
+
+    #[test]
+    fn geometry_shrinks_height_on_tall_scaled_screen() {
+        // 高缩放 + 矮屏：1536×864 物理 @150% → 1024×576 逻辑，工作区仅 512 逻辑高。
+        // 期望高度 800 逻辑在此必然越界（这正是「固定 800 高」的隐患），必须收到可用区。
+        let (x, y, w, h) = geometry_for_monitor(0.0, 0.0, 1024.0, 576.0, 1.5);
+        assert!(h < WIN_PREF_H, "高 {h} 应被收进工作区");
+        assert!(y + h <= 576.0 - 1.0, "底边不得越过屏幕（{}+{}）", y, h);
+        assert!(x >= 0.0 && x + w <= 1024.0);
+    }
+
+    #[test]
+    fn fit_size_clamps_pref_into_available_space() {
+        // 常规屏：期望 1280×800，工作区更大 → 用期望值
+        assert_eq!(fit_size(1280.0, 800.0, 1920.0), 1280.0);
+        assert_eq!(fit_size(800.0, 600.0, 1080.0), 800.0);
+        // 本机 125% 缩放屏：工作区宽 1130 < 期望 1280 → 收到工作区宽
+        assert_eq!(fit_size(1280.0, 800.0, 1130.5), 1130.5);
+        // 工作区高于期望 → 不放大
+        assert_eq!(fit_size(800.0, 600.0, 1400.0), 800.0);
+        // 期望值低于下限 → 顶到下限
+        assert_eq!(fit_size(640.0, 800.0, 1920.0), 800.0);
+        // 极小屏：工作区小于下限 → 取工作区（宁略小不越界）
+        assert_eq!(fit_size(1280.0, 800.0, 700.0), 700.0);
+    }
 
     #[test]
     fn decoder_passes_ascii_through() {

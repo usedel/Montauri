@@ -25,14 +25,22 @@ pub async fn open_workspace_window(app: AppHandle, path: String) -> Result<(), S
         return Ok(());
     }
 
-    // 复刻主窗口构建配置（lib.rs:41）：隐藏待页面加载完成后显示（防 FOUC）
+    // 复刻主窗口构建配置（lib.rs 建窗处）：隐藏待页面加载完成后显示（防 FOUC），
+    // 尺寸常量与初始几何（按主显示器工作区收尺寸 + 居中）统一走 util，避免两处漂移。
     let builder = WebviewWindowBuilder::new(&app, &label, WebviewUrl::default())
         .title("OpenCharm")
-        .inner_size(1280.0, 800.0)
-        .min_inner_size(800.0, 600.0)
+        .inner_size(crate::util::WIN_PREF_W, crate::util::WIN_PREF_H)
+        .min_inner_size(crate::util::WIN_MIN_W, crate::util::WIN_MIN_H)
         .decorations(false)
         .disable_drag_drop_handler()
         .visible(false);
+
+    let builder = match crate::util::initial_window_geometry(&app) {
+        Some((pos, size)) => builder
+            .inner_size(size.width, size.height)
+            .position(pos.x, pos.y),
+        None => builder.center(),
+    };
 
     // 与主窗口共享同一 WebView2 数据目录（同一 profile，多 Webview 共享是常态）：
     // 应用级 UI 偏好经 localStorage 共享；窗口/项目级状态走 Rust storage 按 root 落盘。

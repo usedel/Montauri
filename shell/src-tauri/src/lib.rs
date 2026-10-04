@@ -43,17 +43,27 @@ pub fn run() {
 
             let builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
                 .title("OpenCharm")
-                .inner_size(1280.0, 800.0)
+                .inner_size(crate::util::WIN_PREF_W, crate::util::WIN_PREF_H)
                 // UI-23：窗口下限（本项目窗口在 Rust 侧手动构建，故约束在这里而非 tauri.conf.json 的 app.windows）。
                 // 800 不是随手取的：三栏布局的宽度下限之和 = 侧栏 180 + 编辑区 240 + 右面板 260 = 680
                 // （见 style.css 的 #sidebar / #center / #right-panel 与 layout.ts 的 SIDEBAR_MIN / RIGHT_MIN），
                 // 留余量后任何面板宽度组合都不会把编辑区挤没；两侧面板可 flex 收缩、拖拽上限也按窗口宽动态收口。
                 // ⚠ 下调前先核对上面那组下限；⚠ 上调到 900 以上会让 UI-21 的 `@media (max-width:900px)`
                 // （状态栏窄窗口降级）在打包应用内永不触发。
-                .min_inner_size(800.0, 600.0)
+                .min_inner_size(crate::util::WIN_MIN_W, crate::util::WIN_MIN_H)
                 .decorations(false)
                 .disable_drag_drop_handler()
                 .visible(false);
+
+            // 初始几何：按主显示器近似工作区收尺寸 + 居中（修「窗口偏下、底部被切」，
+            // 见 util::initial_window_geometry 的推导）；拿不到显示器信息则只居中。
+            let builder = match crate::util::initial_window_geometry(app.handle()) {
+                Some((pos, size)) => {
+                    builder.inner_size(size.width, size.height)
+                        .position(pos.x, pos.y)
+                }
+                None => builder.center(),
+            };
 
             #[cfg(windows)]
             let builder = builder.data_directory(webview_dir);
@@ -63,6 +73,24 @@ pub fn run() {
                     match payload.event() {
                         PageLoadEvent::Started => {}
                         PageLoadEvent::Finished => {
+                            // 落位诊断：tao 只在「给定位置落在某显示器内」时才采纳 position，
+                            // 否则退回 CW_USEDEFAULT（症状=窗口偏下/底部被切）。记实际值便于事后核对。
+                            if let (Ok(pos), Ok(size), Ok(scale)) = (
+                                window.outer_position(),
+                                window.outer_size(),
+                                window.scale_factor(),
+                            ) {
+                                crate::logging::log_line(
+                                    crate::logging::Level::Info,
+                                    &format!(
+                                        "[window_geom] actual_outer=({},{}) {}x{} scale={scale} (physical)",
+                                        pos.x,
+                                        pos.y,
+                                        size.width,
+                                        size.height
+                                    ),
+                                );
+                            }
                             let _ = window.show();
                             let _ = window.set_focus();
                         }
