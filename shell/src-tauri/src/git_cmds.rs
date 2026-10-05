@@ -1569,6 +1569,16 @@ pub async fn git_default_branch(
 mod tests {
     use super::*;
 
+    /// 为临时仓库设置仓库级提交身份：CI runner 不保证有全局 user.name/email，
+    /// 任何会 `git commit` 的端到端测试都必须先调这个。
+    fn set_repo_identity(root: &str) {
+        for (k, v) in [("user.name", "opencharm-test"), ("user.email", "test@opencharm.local")] {
+            let mut cfg = tool_command("git", ENV_GIT);
+            cfg.arg("config").arg(k).arg(v);
+            assert!(exec_git(root, cfg).is_ok(), "设置 {k} 失败");
+        }
+    }
+
     /// parse_blame 中文行不 panic（用户仓库实测：summary 含中文时原 split_at(40)
     /// 字节切分切进多字节字符 → Rust panic "not a char boundary"）。
     /// 复现数据取自真实仓库的 blame porcelain 输出（中文 summary 超 40 字节）。
@@ -1625,6 +1635,7 @@ filename a.py
             let _ = std::fs::remove_dir_all(&tmp);
             return;
         }
+        set_repo_identity(&root);
 
         // 创建一个文件并暂存
         std::fs::write(tmp.join("a.py"), "print(1)\n").unwrap();
@@ -1837,6 +1848,7 @@ filename a.py
         let mut add = tool_command("git", ENV_GIT);
         add.arg("add").arg("README.md");
         assert!(exec_git(source.to_str().unwrap(), add).is_ok());
+        set_repo_identity(source.to_str().unwrap());
         let mut commit = tool_command("git", ENV_GIT);
         commit.arg("commit").arg("-m").arg("init").arg("--no-gpg-sign");
         assert!(exec_git(source.to_str().unwrap(), commit).is_ok());
@@ -1847,8 +1859,12 @@ filename a.py
         ).unwrap();
         assert_eq!(dir_name, "cloned");
 
-        // 用 exec_git 直接模拟 clone（不经过 Tauri 命令包装，避免 AppHandle 依赖）
+        // clone 时禁用 autocrlf（经 GIT_CONFIG_COUNT 注入，优先级压过 system/global 配置）：
+        // 本机/CI 的 core.autocrlf 会把 checkout 出来的 LF 转 CRLF，环境差异污染下面的逐字节断言
         let mut cmd = tool_command("git", ENV_GIT);
+        cmd.env("GIT_CONFIG_COUNT", "1")
+            .env("GIT_CONFIG_KEY_0", "core.autocrlf")
+            .env("GIT_CONFIG_VALUE_0", "false");
         cmd.arg("clone").arg("--progress");
         let file_url = format!("file://{}", source.to_str().unwrap());
         cmd.arg(&file_url).arg(&dir_name);

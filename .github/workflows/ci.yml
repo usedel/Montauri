@@ -18,6 +18,12 @@
 
 name: CI
 
+# Windows runner 控制台默认 cp1252：任何 Python 步骤打印中文/✅/—— 都会
+# UnicodeEncodeError（audit_tokens 首跑即踩）。UTF-8 模式全局兜底，
+# 覆盖 audit_tokens / pip / pytest 等一切 python 子进程。
+env:
+  PYTHONUTF8: "1"
+
 on:
   push:
     # 主干 = master（origin/HEAD -> origin/master）；保留 main 以防分支改名
@@ -74,6 +80,17 @@ jobs:
       - name: intel cargo test
         working-directory: intel
         run: cargo test
+
+      # tauri 构建脚本在 cargo test 编译期就会校验 tauri.conf.json bundle.resources：
+      # opencharm-intel.exe（需 release 构建）与 vendor/debugpy（.gitignore 不入库）
+      # 在全新 checkout 上都不存在——与 build-release.ps1 步骤 2 / 2.5 对齐。
+      - name: opencharm-intel release 构建（bundle.resources 依赖）
+        working-directory: intel
+        run: cargo build -p opencharm-intel --release
+
+      - name: vendored debugpy（bundle.resources 依赖，sha256 锁定）
+        shell: pwsh
+        run: ./tools/fetch-debugpy.ps1
 
       - name: shell/src-tauri cargo test（LSP 桥）
         working-directory: shell/src-tauri
