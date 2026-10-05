@@ -1,6 +1,7 @@
 # OpenCharm 工具箱开发计划（SQLite · HTTP Client · 结构化日志 · TODO/Markdown 增强）
 
-> 版本：v1.4 · 日期：2026-10-05 · 状态：**实施中**（B3、PR-B6-3、**B4 三个 PR 全部交付**、**B5 三个 PR 全部交付（B5 闭环）**；PR-B6-1 / PR-B6-2 待实施）
+> 版本：v1.5 · 日期：2026-10-06 · 状态：**B3 / B4 / B5 三功能已闭环**；**B6 于 2026-10-06 终止**（仅保留已交付的 PR-B6-3，PR-B6-1 / PR-B6-2 不再实施）
+> **v1.5 变更：B6 终止**（§7.7 决策记录；同步第 0 章状态、第 8 章排期表、第 10 章风险、第 11 章前置清单）。终止附带项：顺手修掉 `#anchor` 跳转现存 bug（§7.7 附）。
 > **v1.4 变更：B5 闭环**（§6.9 三项拍板；交付记录 §6.10 PR-B5-1 / §6.11 PR-B5-2 / §6.12 PR-B5-3）。
 > **v1.3 变更：B5 开工**（§6.9「拍板结论」）。
 > **v1.2 变更：B4 形态改版**（§5 整体重写）。原「`.http` 文件驱动」形态于 2026-10-05 由产品负责人否决并撤销已实现版本，改为「**devtools 内置工具 · 面板驱动**」：随时唤起、**不在项目目录落下任何文件**、不做 `.http` 文件、v1 不做 SSE。决策记录见 §3 决策 5 与 §5.8。
@@ -15,16 +16,18 @@
 
 | 功能 | 一句话形态 | 选型结论 | 新依赖 | 量级 | PR 数 |
 |---|---|---|---|---|---|
-| **B6** TODO / Markdown 增强 | Markdown 预览支持 Mermaid + 文档大纲；TODO 视图按文件分组 + 过滤 + 跳转 | 纯前端，Mermaid **懒加载** | `mermaid`（前端，动态 import，首屏零成本） | **3~4 人日** | 3 |
+| ~~**B6** TODO / Markdown 增强~~ | ~~Markdown 预览支持 Mermaid + 文档大纲~~；TODO 视图按文件分组 + 过滤 + 跳转 | **已终止**（2026-10-06，§7.7）：仅 PR-B6-3 交付并保留；Mermaid / 大纲不做 | 无（Mermaid 依赖随之取消） | 实耗 **0.5 人日** | 3 → **1** |
 | **B5** 结构化运行日志视图 | 底部新 tab「运行日志」：级别过滤 + JSON/loguru 行解析折叠 + 时间戳对齐 + 搜索 | 复用 `output.ts` 已有级别层；`termUi` 采集钩子改多播 | 无 | **4~5 人日** | 3 |
 | **B4** HTTP Client | devtools 内置「HTTP 请求」工具：`Ctrl+Shift+T` 随时唤起 + 发送请求 + 响应面板 + 变量/环境 + 历史 + curl 粘贴导入（**零项目内文件**） | Rust **reqwest**（已定案）；载体 **devtools 内置工具**（已定案）；Python 桥不排期 | `reqwest`（Rust） | **4.5~6 人日** | 3 |
 | **B3** SQLite 数据库工具 | 侧栏「数据库」视图：连接管理 + 对象树 + 数据网格 + SQL 编辑器（默认只读） | Rust **rusqlite bundled**（已定案）；py 桥为降级 | `rusqlite`（Rust，bundled） | **8~10 人日** | 4 |
 
 > **B3 已实施**（2026-10-02）：PR-1 ~ PR-4 代码完成、测试全绿（`cargo test db_` 33 / `vitest` 994 / `e2e/db/` 22），**未提交**。实施记录与 e2e 抓到的两个真 bug 见 `docs/sqlite_tool_dev_plan.md` §9.1~§9.4。本节以下内容保留为原始计划，供回溯。
 >
-> **B6 实施中**（2026-10-05）：PR-B6-3 TODO 增强已交付并完成复核修正；PR-B6-2 Markdown 大纲、PR-B6-1 Mermaid 尚未开始，因此 **B6 整体未完成**。
+> **B6 已终止**（2026-10-06 产品负责人裁决：价值有限，§7.7）：PR-B6-3 TODO 增强**保留在代码中**（19 例单测 + `e2e/todo/` 7 条，门禁已绿，回退无收益）；**PR-B6-2 Markdown 大纲、PR-B6-1 Mermaid 不再实施**，B6 整体标记为「部分交付后终止」，不得再排期。
 
-**总量约 20~25 人日**（含测试与 e2e；B4 由 7~9 降为 4.5~6，见 §5.8）。建议推进顺序 **B6 → B5 → B4 → B3**：先做零新依赖、见效快的两项，把两个引入 Rust 依赖的重头戏放在后面（且各自第一个 PR 就是"加依赖 + 跑通 CI"，风险前置）。
+**原估总量约 20~25 人日**（含测试与 e2e；B4 由 7~9 降为 4.5~6，见 §5.8）。原建议推进顺序 **B6 → B5 → B4 → B3**（先零新依赖、见效快，两个引入 Rust 依赖的重头戏放后面，各自第一个 PR 即"加依赖 + 跑通 CI"，风险前置）。
+
+> **2026-10-06 实际落点**：B3 / B4 / B5 三个功能**已闭环**（交付记录见 §5.9~§5.11、§6.10~§6.12、§4.5 与 `sqlite_tool_dev_plan.md`）；B6 **终止**，只保留已交付的 PR-B6-3（0.5 人日）。本报告自此为**回溯文档**，不再新增排期。
 
 选型的**拍板结论**（2026-10-05，详见第 3 章）：
 
@@ -133,7 +136,9 @@
 **建议默认只读**：`db_open` 默认 `SQLITE_OPEN_READ_ONLY`；写语句（`INSERT/UPDATE/DELETE/DROP/ALTER/CREATE/PRAGMA` 写入类）需：① 连接显式开启"可写"开关；② 执行前弹确认框显示语句；③ 结果提示影响行数。
 理由：自用工具最怕手滑；只读打开还能避免锁库（SQLite 单写者限制）与 WAL 污染。
 
-### 决策 4 · B6 的 Mermaid 打包
+### 决策 4 · ~~B6 的 Mermaid 打包~~ · **已作废**（B6 终止，§7.7）
+
+> 保留原文仅为决策留档；PR-B6-1 取消后 `mermaid` 不再引入，以下三条不适用。
 
 - **懒加载**：`markdownPreview.ts` 检测到 ```mermaid 代码块时才 `await import("mermaid")`，首屏零成本、无图文档完全不加载。
 - 体积控制：mermaid 完整包较大（约 2~3 MB min），可接受（本地打包，不进首屏关键路径）。
@@ -901,9 +906,14 @@ export function addRunDataConsumer(fn: RunDataConsumer): () => void; // 返回 d
 
 ---
 
-## 7. B6 · TODO / Markdown 增强（3~4 人日，3 个 PR）
+## 7. B6 · TODO / Markdown 增强（**已终止**：3~4 人日 → 实耗 0.5 人日，3 个 PR → 1 个）
 
-### 7.1 Markdown：Mermaid（PR-B6-1）
+> **终止裁决（2026-10-06，产品负责人）**：B6 价值有限，**不再实施**。
+> - ✅ **PR-B6-3 TODO 增强保留**（代码 / 单测 / e2e 均已入库并全绿，回退无收益）；
+> - ❌ **PR-B6-2 Markdown 大纲、PR-B6-1 Mermaid 取消**，此后不排期。
+> 决策记录见 §7.7。以下 §7.1 / §7.2 仅为历史方案留档，**不得作为开工依据**。
+
+### 7.1 ~~Markdown：Mermaid（PR-B6-1）~~ · **取消**
 
 - 依赖：`npm i mermaid`（**本地打包，禁 CDN**；版本以 npm 解析为准，写入 `package.json` 与 `ci/versions.toml`）。
 - **懒加载**：`markdownPreview.ts` 在 `renderMarkdownToHtml` 之后的 post-process 阶段检测 ```mermaid 块，**仅在存在时** `await import("mermaid")`；无图文档零成本。
@@ -912,7 +922,7 @@ export function addRunDataConsumer(fn: RunDataConsumer): () => void; // 返回 d
 - 主题同步：mermaid 初始化时传外壳当前主题（深/浅），随主题切换重渲染（复用 `onLocaleChange` 同款重建模式）。
 - 单测：抽纯函数 `extractMermaidBlocks(md)` / `mermaidSvgAllowed(html)` 放 `__tests__/markdownMermaid.test.ts`。
 
-### 7.2 Markdown：文档大纲（PR-B6-2）
+### 7.2 ~~Markdown：文档大纲（PR-B6-2）~~ · **取消**
 
 - 纯函数 `extractOutline(md): OutlineItem[]`（`#`~`######`，**跳过代码块内**的 `#` —— 这是必须的对坑样本；标题文本去 Markdown 行内标记）。
 - UI：`#md-preview` 面板顶部/侧边小目录（可折叠），点击滚动到对应标题（给渲染后的标题元素加 `id`，用 `scrollIntoView`）；预览滚动时高亮当前标题（v1.1 可选）。
@@ -935,8 +945,8 @@ export function addRunDataConsumer(fn: RunDataConsumer): () => void; // 返回 d
 
 | PR | 内容 | 涉及文件 | 量级 | 验收 |
 |---|---|---|---|---|
-| **PR-B6-1** | Mermaid 支持（懒加载 + 白名单 + 主题同步 + 失败降级） | `package.json`、`markdownPreview.ts`、`__tests__/markdownMermaid.test.ts`、`ci/versions.toml` | 1.5 天 | tsc 0 错、vitest 全绿、≥6 例；真机：含 mermaid 的 md 能渲染、语法错误降级、无图文档不加载 mermaid（Network 面板验证） |
-| **PR-B6-2** | Markdown 文档大纲 | `markdownPreview.ts`（+ `mdOutline.ts`）、`index.html`、`style.css`、`i18n/` | 1 天 | ≥6 例（含代码块内 `#` 对抗样本）；真机点击跳转 |
+| ~~**PR-B6-1**~~ | ~~Mermaid 支持（懒加载 + 白名单 + 主题同步 + 失败降级）~~ | — | ~~1.5 天~~ | **取消**（2026-10-06，§7.7） |
+| ~~**PR-B6-2**~~ | ~~Markdown 文档大纲~~ | — | ~~1 天~~ | **取消**（2026-10-06，§7.7） |
 | **PR-B6-3** | TODO 视图：过滤 + 按文件分组 + 跳转 + 计数 | `todoView.ts`、`style.css`、`i18n/`、`e2e/mocks/tauri-mock.js`、`__tests__/todoView.test.ts` | 1~1.5 天 | ≥8 例；e2e 新 `todo/` 域 ≥4 条 |
 
 > **PR-B6-3 已交付**（2026-10-04，实测量级 ≈0.5 天）：后端未动（`scan_todos` 已够用），详见 §7.6。
@@ -966,39 +976,71 @@ export function addRunDataConsumer(fn: RunDataConsumer): () => void; // 返回 d
 
 **复核修正（2026-10-05）**：修复清空按钮未隐藏、运行时切换语言后动态文案滞留、折叠重渲染丢失焦点/滚动位置三项问题；补齐 i18n `data/editor_{zh,en,map}.json` 真源并由 `gen_domain.py` 重生成语言包。门禁：`npm run build` 通过；前端全量 93 文件 / 1100 用例通过；`e2e/todo/` 7/7 通过；UI token 审计 98/98。`cargo test` 为 290 通过 / 1 个存量 Windows CRLF 失败 / 2 ignored，本 PR 无 Rust 改动。
 
-> 当前完成范围仅为 **PR-B6-3**；PR-B6-2（Markdown 大纲）与 PR-B6-1（Mermaid）仍待实施，B6 整体不得标记完成。
+> **2026-10-06 终局**：B6 已终止（§7.7），PR-B6-3 是本功能**唯一且最终**的交付范围；PR-B6-2 / PR-B6-1 不再实施，本节的「待实施」表述作废。
 
 **代码里挖出、原稿未记载的事实**（后续 PR 可直接引用）：
 
 - `fs_cmds.rs:1110` `TodoMatch` 已含 `path` / `line` / `tag` / `message` / `text` → **后端零改动**；
 - `todoView.ts` 跳转 handler（`setTodoViewHandlers` + `openFile(path, line)`）**已在位**；
-- **`marked` 18.0.12 不给标题生成 `id`**（实测 `marked.parse('# x')` → `<h1>x</h1>`）→ PR-B6-2 必须自己 post-process 补 id；
-  - 连带现存 bug：`markdownPreview.ts` 的 `#anchor` 点击委托目前**命中不到任何元素**（页面无带 id 的节点），补 id 后该功能才真正生效；
+- **`marked` 18.0.12 不给标题生成 `id`**（实测 `marked.parse('# x')` → `<h1>x</h1>`）→ 补 id 必须由自己做；
+  - 连带现存 bug：`markdownPreview.ts` 的 `#anchor` 点击委托**命中不到任何元素**（页面无带 id 的节点）→ **已于 2026-10-06 修复**（§7.7 附），不再依赖 PR-B6-2；
 - **大纲应从渲染后的 HTML 提取**（`querySelectorAll("h1..h6")`）而非正则扫 md 源——代码块内的 `#` 已被 marked 塞进 `<code>`，原稿 §7.2 列为「必须的对坑样本」可直接规避；
 - CSP（`tauri.conf.json:15`）`script-src 'self' 'wasm-unsafe-eval'`**无 `unsafe-eval`** → PR-B6-1 的 mermaid 需先做真机 spike；
 - `exportActiveMarkdown`（`markdownPreview.ts`）走另一条 marked → sanitize 管线，PR-B6-1 不处理它则**导出 HTML 里图表是空代码块**；
 - `schedulePreviewRender` 300ms 防抖会重复触发渲染，mermaid 必须按源码文本做缓存 key；
-- `markdownPreview.test.ts` 把 DOMPurify mock 成 identity（happy-dom 不完整）→ mermaid 的消毒行为**单测验不了**，真机验收不可省。
+- `markdownPreview.test.ts` 把 DOMPurify mock 成 identity（happy-dom 不完整）→ mermaid 的消毒行为**单测验不了**，真机验收不可省。（随 B6 终止，第 1 / 4 / 5 条留档价值仅限"日后若重启 Markdown 增强"）
+
+### 7.7 决策记录 · B6 终止（2026-10-06，已定案）
+
+**裁决**：B6（TODO / Markdown 增强）**价值有限，不再实施**。
+
+| 项 | 结论 |
+|---|---|
+| PR-B6-3 TODO 增强 | **保留**（2026-10-04 已交付：19 例单测 + `e2e/todo/` 7 条 + 10 条 i18n，门禁全绿）。已落地代码回退只带来负收益，故不动 |
+| PR-B6-2 Markdown 文档大纲 | **取消** |
+| PR-B6-1 Mermaid | **取消**（连带取消 `mermaid` 依赖、`ci/versions.toml` 条目、严格 CSP 真机 spike、DOMPurify `svg` 白名单放行这一整套工作量） |
+| 功能状态 | **部分交付后终止**；不得再排期，日后重启须另立议题重新论证 |
+
+**终止理由**：
+
+1. 剩余两项属**锦上添花型**体验增强——大纲与流程图对「FastAPI + 爬虫 + 小脚本」画像的日常编码路径不产生实质增益；
+2. Mermaid 是 B6 里**唯一引入新依赖**（约 2~3 MB min）且**唯一带未验证项**（CSP 无 `unsafe-eval` / DOMPurify 白名单 / 体积）的一项，与「性能与体积是一等目标」（`docs/adr/0010-performance-lightweight-charter.md`）直接冲突，收益成本比最差；
+3. TODO 增强已把 B6 里**唯一高频可用**的部分交付完毕，剩余收益边际递减。
+
+**连带处置**：第 0 章功能表、第 8 章排期表、第 10 章风险登记、第 11 章前置清单已同步；`docs/delivery-overview.md` 第 21 项同步为「部分交付后终止」。
+
+#### 附 · 顺手修掉的现存 bug：`#anchor` 点击跳转命中不到元素
+
+B6 终止不影响该 bug 的独立性——它是 PR-B6-2 调研时**从代码里挖出的既有缺陷**（与大纲无关），故单独修掉。
+
+| 项 | 内容 |
+|---|---|
+| 现象 | `markdownPreview.ts` 的 `#锚点` 点击委托命中不到任何元素：`marked` 18.x 不生成标题 id，页面里根本没有带 id 的节点，锚点链接点了没反应 |
+| 修法 | 新增纯函数 `slugifyHeading` / `assignHeadingIds` / `findAnchorTarget`，在「marked → 消毒」之后补 h1~h6 的 id（已有 id 不覆盖，重复标题 `-1` / `-2` 去重）；点击查找改为**在预览容器内按 id 精确匹配**（不再用 `document.getElementById` + `querySelector("a[name=…]")`，避免命中容器外同名 id 与特殊字符选择器非法）；导出管线 `buildExportHtml` 同口径补 id |
+| 文件 | `shell/src/markdownPreview.ts`、`shell/src/__tests__/markdownPreview.test.ts`（新增 5 例：slugify 边界 / 补 id 与去重 / 已有 id 不覆盖且代码块内 `#` 不误判 / 端到端锚点命中 / 不被容器外同名 id 干扰） |
+| 门禁 | `tsc --noEmit` 零错 · `npm test`（vitest）**98 文件 / 1214 用例全绿** |
 
 ---
 
 ## 8. 排期总表与依赖
 
-| 序 | PR | 依赖 | 量级 | 累计 |
+> **2026-10-06**：B3 / B4 / B5 全部闭环，B6 终止（§7.7）。下表为**历史排期留档**，仅 B6-3 / B5-* / B4-* / B3-* 实际执行；删除线行为取消项。
+
+| 序 | PR | 依赖 | 量级 | 状态 |
 |---|---|---|---|---|
-| 1 | PR-B6-3 TODO 增强 | `scan_todos` 返回结构已核实 | 1~1.5 d | 1~1.5 d |
-| 2 | PR-B6-2 Markdown 大纲 | — | 1 d | 2~2.5 d |
-| 3 | PR-B6-1 Mermaid | — | 1.5 d | 3.5~4 d |
-| 4 | PR-B5-1 多播 + 解析 | —（**可与 B6 并行**） | 1 d | 5 d |
-| 5 | PR-B5-2 运行日志 tab | 4 | 1.5 d | 6.5 d |
-| 6 | PR-B5-3 字段/导出/e2e | 5 | 1.5~2 d | 8.5 d |
-| 7 | PR-B4-1 reqwest + http_cmds + facade `net` 门控 | **依赖风险（CI 编译）** | 2 d | 10.5 d |
-| 8 | PR-B4-2 devtools 内置工具（发送 + 响应） | 7 | 2.5 d | 13 d |
-| 9 | PR-B4-3 变量/历史 + curl 导入 + 端点联动 | 8 | 1~1.5 d | 14~14.5 d |
-| 10 | PR-B3-1 rusqlite + CI | **依赖风险（CI 编译）** | 1 d | 15~15.5 d |
-| 11 | PR-B3-2 查询内核 | 10 | 2 d | 17~17.5 d |
-| 12 | PR-B3-3 前端骨架 | 11 | 2 d | 19~19.5 d |
-| 13 | PR-B3-4 编辑器/网格/e2e | 12 | 2~3 d | 21~22.5 d |
+| 1 | PR-B6-3 TODO 增强 | `scan_todos` 返回结构已核实 | 0.5 d | ✅ 已交付（2026-10-04） |
+| ~~2~~ | ~~PR-B6-2 Markdown 大纲~~ | — | ~~1 d~~ | ❌ 取消（§7.7） |
+| ~~3~~ | ~~PR-B6-1 Mermaid~~ | — | ~~1.5 d~~ | ❌ 取消（§7.7） |
+| 4 | PR-B5-1 多播 + 解析 | —（**可与 B6 并行**） | 1 d | ✅ 已交付（§6.10） |
+| 5 | PR-B5-2 运行日志 tab | 4 | 1.5 d | ✅ 已交付（§6.11） |
+| 6 | PR-B5-3 字段/导出/e2e | 5 | 1.5~2 d | ✅ 已交付（§6.12，B5 闭环） |
+| 7 | PR-B4-1 reqwest + http_cmds + facade `net` 门控 | **依赖风险（CI 编译）** | 2 d | ✅ 已交付（§5.9） |
+| 8 | PR-B4-2 devtools 内置工具（发送 + 响应） | 7 | 2.5 d | ✅ 已交付（§5.10） |
+| 9 | PR-B4-3 变量/历史 + curl 导入 + 端点联动 | 8 | 1~1.5 d | ✅ 已交付（§5.11，B4 闭环） |
+| 10 | PR-B3-1 rusqlite + CI | **依赖风险（CI 编译）** | 1 d | ✅ 已交付 |
+| 11 | PR-B3-2 查询内核 | 10 | 2 d | ✅ 已交付 |
+| 12 | PR-B3-3 前端骨架 | 11 | 2 d | ✅ 已交付 |
+| 13 | PR-B3-4 编辑器/网格/e2e | 12 | 2~3 d | ✅ 已交付（B3 闭环） |
 
 > **B4 由 4 个 PR 缩为 3 个**（2026-10-05 形态改版）：原 PR-B4-1（`.http` 语言注册 + `httpParser.ts`）整块删除，原 PR-B4-4（curl 互转）缩为 PR-B4-3 的子项；总量 7~9 d → 4.5~6 d。
 
@@ -1006,13 +1048,13 @@ export function addRunDataConsumer(fn: RunDataConsumer): () => void; // 返回 d
 
 **并行建议**：B6 与 B5 无冲突可并行；B4/B3 因都要动 `Cargo.toml` 与 `lib.rs`，**串行更安全**。
 
-**B6 内部顺序修订（2026-10-04，已同步到上表）**：初版把 PR-B6-1（Mermaid）排在最先，与第 0 章「先做零新依赖、见效快的两项」自相矛盾——Mermaid 是 B6 里**唯一引入新依赖**且**唯一有未验证项**（严格 CSP 下能否跑通）的一项。最终顺序为 **B6-3 → B6-2 → B6-1**：
+**B6 内部顺序修订（2026-10-04）**：初版把 PR-B6-1（Mermaid）排在最先，与第 0 章「先做零新依赖、见效快的两项」自相矛盾——Mermaid 是 B6 里**唯一引入新依赖**且**唯一有未验证项**（严格 CSP 下能否跑通）的一项。修订顺序为 **B6-3 → B6-2 → B6-1**：
 
-| 新序 | PR | 理由 |
-|---|---|---|
-| 1 | PR-B6-3 TODO 增强 | 零依赖，后端已够用（§7.6），≈0.5 d 见效 |
-| 2 | PR-B6-2 Markdown 大纲 | 零依赖，纯函数可单测，顺带修 `#anchor` 跳转现存 bug |
-| 3 | PR-B6-1 Mermaid | **第一件事是 30 分钟真机 spike**（CSP + DOMPurify 白名单 + 体积）；不过即砍，前两项不受影响 |
+| 新序 | PR | 理由 | 终局 |
+|---|---|---|---|
+| 1 | PR-B6-3 TODO 增强 | 零依赖，后端已够用（§7.6），≈0.5 d 见效 | ✅ 已交付并保留 |
+| 2 | PR-B6-2 Markdown 大纲 | 零依赖，纯函数可单测 | ❌ 取消（§7.7）；其附带价值「修 `#anchor` 跳转」已于 2026-10-06 独立交付（§7.7 附） |
+| 3 | PR-B6-1 Mermaid | **第一件事是 30 分钟真机 spike**（CSP + DOMPurify 白名单 + 体积）；不过即砍 | ❌ 取消（§7.7）——「不过即砍」的预设条件未验证即整体终止 |
 
 ---
 
@@ -1024,7 +1066,7 @@ export function addRunDataConsumer(fn: RunDataConsumer): () => void; // 返回 d
 | 前端单测 | `npm run test`（vitest）全绿 + 新增用例覆盖新纯函数 |
 | Rust 单测 | `cargo test`（src-tauri）全绿；新增 `*_impl` 纯函数必须有用例 |
 | E2E（mock） | **一律用 `npm run e2e -- <域/文件>`**（启动器见 §5.11 踩坑 1；直接 `npx playwright test` 在 Windows 上会在用例跑完后挂住数分钟）。对应域 spec 全绿；新 Tauri 命令必须在 `tauri-mock.js` 加桩（**e2e 全程离线，禁止真网络请求 / 真数据库文件**） |
-| 真机冒烟 | 新功能首次落地需一次真机手测（B3 开真实 .sqlite；B4 对本地 `python -m http.server` 发一次；B5 跑一个 loguru 脚本；B6 开含 mermaid 的 md） |
+| 真机冒烟 | 新功能首次落地需一次真机手测（B3 开真实 .sqlite；B4 对本地 `python -m http.server` 发一次；B5 跑一个 loguru 脚本；~~B6 开含 mermaid 的 md~~ → 随 B6 终止作废） |
 | i18n | zh-CN 真源 + en-US 编译期对齐（`TKey`）；新域过 `tools/i18n` 流程 |
 | 样式 | 无裸色值 / 裸字号 / 裸圆角；深/浅双主题抽查 |
 | 文档 | README 索引或 `delivery-overview` 同步（见评估报告 P0-5） |
@@ -1047,8 +1089,8 @@ export function addRunDataConsumer(fn: RunDataConsumer): () => void; // 返回 d
 | loading 动画漏压「减少动画」双通道 | 中 | 低 | 转圈一律用 `spinIcon()`（已双通道压制）；若照抄 `.rx-progress::after`，**必须同时压 `html[data-reduce-motion]` 与 `@media (prefers-reduced-motion)`**（`style.css:5470` 记过一次返工） | PR-B4-2 |
 | `Esc` 取消与 devtools picker 关闭抢键 | 中 | 低 | 仅在 `sending` 阶段拦截 `Esc`，其余放行；开工前确认 picker 的 Esc 优先级 | PR-B4-2 |
 | mock 桩无延迟 → loading 态在 e2e 里抓不到 | 中 | 中 | `tauri-mock.js` 的 `http_send` 支持 `window.__E2E_HTTP_DELAY_MS__`（§5.7.8） | PR-B4-2 |
-| mermaid 体积拖累首屏 | 低 | 中 | 严格懒加载；无 mermaid 块不 import（Network 面板验证） | PR-B6-1 |
-| DOMPurify 白名单放行 svg 带来 XSS 面 | 中 | 高 | mermaid 产物再过一次 sanitize；只放行必要标签/属性；预览内容来源为本地文件 | PR-B6-1 |
+| ~~mermaid 体积拖累首屏~~ | — | — | **风险消解**：PR-B6-1 取消（§7.7），`mermaid` 依赖不再引入 | — |
+| ~~DOMPurify 白名单放行 svg 带来 XSS 面~~ | — | — | **风险消解**：PR-B6-1 取消（§7.7），不再放行 `svg` | — |
 | 日志解析误判（普通句子被当日志级别） | 中 | 低 | 沿用 `LEVEL_RULES` 的大小写敏感口径；解析失败永远退化为原样行 | PR-B5-1 |
 | 运行日志与运行历史职责混淆 | 中 | 中 | 文档与 UI 提示写清分工（实时视图 vs 按次归档） | PR-B5-2 |
 | B4 e2e 真发网络请求导致不稳定 | 中 | 中 | **强制** mock 桩；真机冒烟只对本地 http server 手动执行 | PR-B4-2 |
@@ -1060,9 +1102,10 @@ export function addRunDataConsumer(fn: RunDataConsumer): () => void; // 返回 d
 
 按顺序执行，避免踩已登记的坑：
 
-1. ~~拍板第 3 章的 3 个决策~~ → **第 3 章 5 个决策已于 2026-10-05 全部拍板**（B3 引擎 / B4 执行方式 / B3 默认只读 / B6 Mermaid 打包 / **B4 交互形态**），实施时直接按结论执行，不再回头论证；
+1. ~~拍板第 3 章的 3 个决策~~ → **第 3 章 5 个决策已于 2026-10-05 全部拍板**（B3 引擎 / B4 执行方式 / B3 默认只读 / ~~B6 Mermaid 打包~~ / **B4 交互形态**），实施时直接按结论执行，不再回头论证（**决策 4 随 B6 终止作废**，§7.7）；
 2. `git status` 确认工作区干净（当前有未提交的视觉改造改动，先收口）；
-3. B6 按修订顺序继续 **PR-B6-2**（PR-B6-3 已交付；PR-B6-1 最后做并先跑真机 CSP spike）；
+3. ~~B6 按修订顺序继续 **PR-B6-2**（PR-B6-3 已交付；PR-B6-1 最后做并先跑真机 CSP spike）~~
+   → **B6 已于 2026-10-06 终止**（§7.7）：PR-B6-3 保留，PR-B6-2 / PR-B6-1 不再实施，本条作废；
 4. ~~B5 开工前重读 `termUi.ts:40/315/569/887` 与 `runHistory.ts:118` 的采集链，确认多播改造点~~
    → **2026-10-05 已核实并完成改造**（PR-B5-1，见 §6.10）；注意行号已因删字段位移，后续 PR 以符号名为准；
 5. B4 开工前确认四件事（形态改版后的新前置，原「`basic-languages/http` 是否导出」一条已作废）：

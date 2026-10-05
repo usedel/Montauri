@@ -47,7 +47,7 @@
 | 18 | 数据目录 v2 与系统盘治理 | 2026-08-29 | `data-directory-layout-v2.md` · `disk-space-plan.md` | — | ✅ |
 | 19 | 多窗口 | 2026-09-28 实施 / 2026-09-30 入库 | `multi_window_dev_plan.md` **v0.2** | `e2e-real/multi-window-real.cjs` 16/16 PASS | ✅ 阶段 0/1/2 全交付（#4~#6 依赖健康缓存经拍板暂缓） |
 | 20 | 新手引导 | 2026-09-30 入库 | `onboarding_dev_plan.md` **v1.3** · `onboarding_guide.md` v1.0 | `e2e/ux/04-onboarding.spec.ts` OG-1..OG-9 | ✅ PR-S1/S2/S4 已交付；S3（可选 P2）未开工 · S5 登记不排期 |
-| 21 | **TODO / Markdown 增强（B6）** | 2026-10-05 | `toolbox_dev_plan.md` v1.1 §7 | TODO 单测 19/19 · `e2e/todo/` 7/7 | ⏳ PR-B6-3 TODO 增强已交付；PR-B6-2 大纲、PR-B6-1 Mermaid 待实施 |
+| 21 | **TODO / Markdown 增强（B6）** | 2026-10-05 | `toolbox_dev_plan.md` **v1.5** §7 | TODO 单测 19/19 · `e2e/todo/` 7/7 | ⛔ **部分交付后终止**（2026-10-06）：仅 PR-B6-3 TODO 增强交付并保留；PR-B6-2 大纲 / PR-B6-1 Mermaid 取消 |
 
 ---
 
@@ -85,7 +85,7 @@
 
 ### 3.5 计划（待开工 / 部分开工）
 
-`onboarding_dev_plan.md` v1.3 · `multi_window_dev_plan.md` v0.2 · `toolbox_dev_plan.md` v1.1（B3 已交付；B6 的 PR-B6-3 已交付、PR-B6-1/2 待实施；B4/B5 待实施）
+`onboarding_dev_plan.md` v1.3 · `multi_window_dev_plan.md` v0.2 · `toolbox_dev_plan.md` **v1.5**（**已闭环，待整体移出本节**：B3 / B4 / B5 三功能全交付；**B6 已终止**——只保留 PR-B6-3，PR-B6-1/2 取消）
 
 ### 3.6 治理与账本
 
