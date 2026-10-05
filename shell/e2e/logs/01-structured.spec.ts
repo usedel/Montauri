@@ -200,6 +200,24 @@ test("08 导出：复制全部写入剪贴板；插入编辑器落到光标处",
   expect(text).toContain("启动完成");
 });
 
+test("11 列跨行对齐：四列 left 坐标逐行一致（含无时间戳/无级别的行）", async ({ page }) => {
+  await openLogsTab(page);
+  await pushLogs(page, SAMPLE);
+  // 每行是**独立** grid 容器，只靠 tabular-nums 不会对齐——靠三列的最小宽度（§6.1 时间戳对齐）。
+  // 样本里刻意混入「无时间戳（uvicorn）」「无级别」「无 logger」三种行，验证空列照样占位。
+  const cols = await page.evaluate(() =>
+    [...document.querySelectorAll(".logs-list .log-row")].map((r) => {
+      const left = (sel: string): number => {
+        const el = r.querySelector(sel);
+        return el ? Math.round(el.getBoundingClientRect().left) : -1;
+      };
+      return [left(".log-ts"), left(".log-level"), left(".log-logger"), left(".log-msg")];
+    }),
+  );
+  expect(cols.length).toBeGreaterThan(3);
+  for (const c of cols) expect(c, JSON.stringify(cols)).toEqual(cols[0]);
+});
+
 test("10 首次使用提示：点「知道了」后消失（回归：display:flex 曾让 hidden 属性失效）", async ({ page }) => {
   await openLogsTab(page);
   const hint = page.locator(".logs-hint");

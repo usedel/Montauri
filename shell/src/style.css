@@ -5887,13 +5887,33 @@ html[data-reduce-motion] .rx-progress::after { animation: none; width: 100%; opa
 .log-row--c3 { grid-template-columns: auto auto 1fr; }
 .log-row--c4 { grid-template-columns: auto auto auto 1fr; }
 .log-row--c5 { grid-template-columns: auto auto auto auto 1fr; }
-.log-ts { color: var(--fg-dim); font-variant-numeric: tabular-nums; }
-.log-level { color: var(--fg-dim); }
-.log-logger { color: var(--fg-muted); }
+/* 列宽：每行是**独立** grid 容器，只靠 tabular-nums 做不到跨行对齐（列宽会按各行内容算），
+   故给前三列定最小宽度；logger 另给上限 + 省略号，避免超长名把整行推歪（§6.1 时间戳对齐）。 */
+.log-ts {
+  min-width: 23ch; /* 2026-10-05 12:03:41.512 */
+  color: var(--fg-dim);
+  font-variant-numeric: tabular-nums;
+}
+.log-level { min-width: 5ch; color: var(--fg-dim); }
+.log-logger {
+  min-width: 12ch;
+  max-width: 24ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-muted);
+}
 .log-msg { color: var(--fg); }
 .log-extra { color: var(--fg-dim); }
-/* 超长单元格折叠后的摘要（§6.6：> 5 KB 只渲染前 5 KB + …） */
-.log-cell--truncated { color: var(--fg-dim); }
+/* 超长单元格折叠后的摘要（§6.6：> 5 KB 只渲染前 5 KB + …）——
+   截断后文本仍可能很长（5 KB 够占满整屏），故再按 3 行做视觉折叠 */
+.log-cell--truncated {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  color: var(--fg-dim);
+}
 .log-row--error .log-level { color: var(--danger); }
 .log-row--warn .log-level { color: var(--warn); }
 .log-row--info .log-level { color: var(--ok); }

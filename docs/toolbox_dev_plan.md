@@ -870,6 +870,20 @@ export function addRunDataConsumer(fn: RunDataConsumer): () => void; // 返回 d
   「运行历史（{key}）= …」，`{key}` 取 `bindingLabel("run_history")`（键位单一来源，随用户自定义变化）。
 - 回归防护：单测 +1（提示可关闭 + 占位符已注入）、`e2e/logs` +1（第 10 条：点「知道了」后提示消失）。
 
+**界面样式自查（2026-10-05，e2e 环境真实渲染 + 截图 + 坐标断言）**：
+
+用临时 spec 在 mock 环境真实渲染日志面板（深色/浅色、空态/多格式/搜索/字段列/新日志提示/超长行），
+逐张比对后发现并修掉两处：
+
+1. **列跨行不对齐（真问题）**：每行是**独立**的 grid 容器，`auto` 列按**该行自身内容**算宽度，
+   `tabular-nums` 只能保证数字等宽、做不到跨行对齐 → 时间戳/级别/logger 起点逐行漂移（浅色/深色同）。
+   修：给三列设宽度下限（ts `23ch`、level `5ch`、logger `min 12ch` + `max 24ch` + 省略号）。
+   实测 8 行四列 left 坐标**完全一致**（含无时间戳 / 无级别 / 无 logger 的行）。
+2. **超长行截断后仍占满整屏**：5 KB 截断后仍够渲染 8 行 → 补 `-webkit-line-clamp: 3` 做视觉折叠。
+
+回归防护：`e2e/logs` 10 → **11 条**（新增「列跨行对齐」坐标断言——这是**唯一**能自动验证对齐的方式，
+截图肉眼看不出 1px 级偏差）。
+
 **复核确认无问题的点（留证）**：`.hidden` 带 `!important`（`#logs-panel { display: flex }` 不会盖过它）；`termUi → logView → menu/util` 无环（`logView` 不反向 import termUi/settingsPanel）；设置保存顺序正确（`app.settings` 先整体赋值、再 `applyLogSettings()`）；e2e mock 无需补字段（`log_max_lines ?? 5000` 与 `!== false` 已兜底）。
 
 **踩坑（后续 PR 直接引用）**：
