@@ -781,6 +781,7 @@
             <button class="settings-nav-item" role="tab" aria-selected="false" aria-controls="settings-section-templates" data-cat="templates"><i class="codicon codicon-symbol-snippet" aria-hidden="true"></i><span>Live Templates</span></button>
             <button class="settings-nav-item" role="tab" aria-selected="false" aria-controls="settings-section-terminal" data-cat="terminal"><i class="codicon codicon-terminal" aria-hidden="true"></i><span data-i18n="settings.modalButton6">终端</span></button>
             <button class="settings-nav-item" role="tab" aria-selected="false" aria-controls="settings-section-database" data-cat="database"><i class="codicon codicon-database" aria-hidden="true"></i><span data-i18n="settings.database.section">数据库</span></button>
+            <button class="settings-nav-item" role="tab" aria-selected="false" aria-controls="settings-section-http" data-cat="http"><i class="codicon codicon-globe" aria-hidden="true"></i><span data-i18n="settings.http.section">HTTP 请求</span></button>
             <button class="settings-nav-item" role="tab" aria-selected="false" aria-controls="settings-section-logging" data-cat="logging"><i class="codicon codicon-output" aria-hidden="true"></i><span data-i18n="settings.modalButton7">日志</span></button>
             <button class="settings-nav-item" role="tab" aria-selected="false" aria-controls="settings-section-storage" data-cat="storage"><i class="codicon codicon-database" aria-hidden="true"></i><span data-i18n="settings.modalButton8">存储</span></button>
             <button class="settings-nav-item" role="tab" aria-selected="false" aria-controls="settings-section-plugins" data-cat="plugins"><i class="codicon codicon-extensions" aria-hidden="true"></i><span data-i18n="settings.modalButton9">插件</span></button>
@@ -1179,6 +1180,31 @@
                   <div class="settings-row">
                     <label data-i18n="settings.database.warnWrite" for="settings-db-warn-on-write">写操作执行前确认</label>
                     <input id="settings-db-warn-on-write" type="checkbox" autocomplete="off" />
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div id="settings-section-http" class="settings-section hidden" role="tabpanel">
+              <div class="settings-group">
+                <h3 data-i18n="settings.http.section" class="settings-group-title">HTTP 请求</h3>
+                <div class="settings-grid">
+                  <div class="settings-row">
+                    <label data-i18n="settings.http.timeout" for="settings-http-timeout">请求超时</label>
+                    <select id="settings-http-timeout">
+                      <option value="5000">5 秒</option>
+                      <option value="10000">10 秒</option>
+                      <option value="30000">30 秒</option>
+                      <option value="60000">60 秒</option>
+                      <option value="120000">120 秒</option>
+                    </select>
+                  </div>
+                  <div class="settings-row">
+                    <label data-i18n="settings.http.followRedirects" for="settings-http-follow-redirects">跟随重定向</label>
+                    <input id="settings-http-follow-redirects" type="checkbox" autocomplete="off" />
+                  </div>
+                  <div class="settings-row">
+                    <label data-i18n="settings.http.saveTokens" for="settings-http-save-tokens">把环境变量保存到本机</label>
+                    <input id="settings-http-save-tokens" type="checkbox" autocomplete="off" />
                   </div>
                 </div>
               </div>

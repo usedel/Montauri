@@ -203,6 +203,12 @@ pub struct Settings {
     pub db_page_size: u32,
     /// B3：写语句执行前是否弹确认框（默认开；须与前端同步）
     pub db_warn_on_write: bool,
+    /// B4：HTTP 请求超时（ms；须与前端 DEFAULT_SETTINGS 同步）
+    pub http_timeout_ms: u64,
+    /// B4：是否跟随重定向
+    pub http_follow_redirects: bool,
+    /// B4：环境变量（可能含 token）是否落盘。前端据此决定写不写 storage（§5.6 边界 3）
+    pub http_save_tokens: bool,
 }
 
 impl Default for Settings {
@@ -271,6 +277,10 @@ impl Default for Settings {
             // 写前确认默认开——写库不可撤销，且「默认只读」是本功能的产品定位
             db_page_size: 200,
             db_warn_on_write: true,
+            // B4（HTTP 工具）：与前端 DEFAULT_SETTINGS 的 http_* 三项逐一对齐
+            http_timeout_ms: 30000,
+            http_follow_redirects: true,
+            http_save_tokens: true,
         }
     }
 }

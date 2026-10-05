@@ -120,6 +120,12 @@ export interface Settings {
   db_page_size: number;
   /** B3：写语句执行前是否弹确认框（默认开——写库不可撤销；须与 Rust settings.rs 同步） */
   db_warn_on_write: boolean;
+  /** B4：HTTP 请求超时（ms；候选档见 settingsPanel 的 HTTP_TIMEOUTS） */
+  http_timeout_ms: number;
+  /** B4：是否跟随重定向（默认开；关闭时只取首个响应） */
+  http_follow_redirects: boolean;
+  /** B4：是否把环境变量（可能含 token）落盘。**关闭时只存活于本次会话**（§5.6 边界 3） */
+  http_save_tokens: boolean;
 }
 
 /** 从单一来源（keybindingDefaults.ts）派生出厂键位表，避免三处手写漂移（tech-debt #6） */
@@ -246,6 +252,10 @@ export const DEFAULT_SETTINGS: Settings = {
   // （写库不可撤销，且「默认只读」是本功能的产品定位，须与 Rust Settings::default 保持同步）
   db_page_size: 200,
   db_warn_on_write: true,
+  // B4（HTTP 工具）：30s 超时 / 跟随重定向；环境变量默认落盘（可在设置里关掉，见 §5.6 边界 3）
+  http_timeout_ms: 30000,
+  http_follow_redirects: true,
+  http_save_tokens: true,
 };
 
 export interface AppState {

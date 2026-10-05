@@ -7,6 +7,12 @@ export const settings: Record<SettingsKey, string> = {
   "settings.failOpenLogDir": "Open log directory",
   "settings.failSave": "Save settings",
   "settings.failStartIntel": "Start runtime intelligence",
+  // ---- settings.http ----
+  "settings.http.followRedirects": "Follow redirects",
+  "settings.http.saveTokens": "Keep variables on this machine",
+  "settings.http.section": "HTTP requests",
+  "settings.http.timeout": "Request timeout",
+  // ---- settings ----
   "settings.keybindTip": "Press the key combination directly; Backspace clears it (empty = unbound)",
   // ---- settings.kw ----
   "settings.kw.autosave": "autosave",

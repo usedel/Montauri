@@ -8,13 +8,25 @@
 import { $ } from "../state";
 import { onLocaleChange } from "../i18n"; // 第十七批 i18n：语言切换重注册内置工具（刷新 manifest 展示文案）
 import { createToolHost, type DevToolsHostDeps } from "./host";
-import { initDevToolsPanel } from "./panel";
+import { initDevToolsPanel, openDevTools } from "./panel";
+import { setPendingHttpUrl } from "./builtin/http";
 import { registerBuiltinPlugin } from "../extensions/loader";
 import { buildBuiltinManifest, BUILTIN_TOOL_MODULES } from "./builtin";
 
 export { openDevTools, closeDevTools, openDevToolsPanel } from "./panel";
 export { listDevTools } from "./registry";
 export { groupToolsByCategory, PRESET_CATEGORIES, categoryLabel } from "./types";
+
+/**
+ * 打开 HTTP 工具并预填 URL（B4 PR-B4-3 端点视图联动）。
+ * 预填值经模块级 pending 传递：工具可能是**首次挂载**（读 pending）也可能已在实例缓存中
+ * （此时 `openDevTools` 只切显示，pending 会留在下一次挂载才消费——已知取舍，避免为一次
+ * 联动给 panel 加跨模块回调）。
+ */
+export function openHttpTool(url: string): void {
+  setPendingHttpUrl(url);
+  openDevTools("http");
+}
 
 /** 语言切换重注册只挂一次（重复调用 registerBuiltinTools 不重复订阅） */
 let localeSubscribed = false;

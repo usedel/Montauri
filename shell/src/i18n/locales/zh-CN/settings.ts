@@ -6,6 +6,12 @@ export const settings = {
   "settings.failOpenLogDir": "打开日志目录",
   "settings.failSave": "保存设置",
   "settings.failStartIntel": "启动运行时智能层",
+  // ---- settings.http ----
+  "settings.http.followRedirects": "跟随重定向",
+  "settings.http.saveTokens": "把环境变量保存到本机",
+  "settings.http.section": "HTTP 请求",
+  "settings.http.timeout": "请求超时",
+  // ---- settings ----
   "settings.keybindTip": "点击后直接按下要使用的组合键；Backspace 清除（留空 = 解绑）",
   // ---- settings.kw ----
   "settings.kw.autosave": "autosave 自动保存",

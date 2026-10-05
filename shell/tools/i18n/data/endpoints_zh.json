@@ -18,6 +18,8 @@
   "endpoints.scanFailedShort": "扫描失败",
   "endpoints.scanning": "扫描中…",
   "endpoints.scanningHint": "正在遍历工作区文件",
+  "endpoints.sendAria": "在 HTTP 工具中打开",
+  "endpoints.sendTip": "在 HTTP 工具中打开（预填完整 URL）",
   "endpoints.serviceNotRunning": "服务未运行：先运行项目，待控制台出现就绪行后可用",
   "endpoints.zeroItems": "0 项"
 }

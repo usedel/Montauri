@@ -8,7 +8,8 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "node scripts/vitest-launch.mjs",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "e2e": "node scripts/e2e-launch.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",

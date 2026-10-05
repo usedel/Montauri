@@ -32,3 +32,9 @@ sysinfo = "0.39.6"
 # B3（docs/sqlite_tool_dev_plan.md）：SQLite 数据库工具窗。bundled = 自带 SQLite C 源码（免系统库）；
 # 版本锁 0.32.1（离线缓存可用；升级须走 bench/CI 回归并同步 ci/versions.toml）。
 rusqlite = { version = "0.32.1", features = ["bundled"] }
+# B4（docs/toolbox_dev_plan.md §5）：HTTP 客户端内核。
+# · rustls-tls = 自带 TLS 实现（免系统 OpenSSL，与 tauri 的 TLS 栈同源）
+# · blocking = 与 db_cmds / git_cmds 的 spawn_blocking 范式同构：便于在读取循环里做
+#   协作式取消与分块进度上报（async + abort 方案在本项目的 async_runtime 下无法轮询取消）
+# 版本锁 0.13.4（随 Cargo.lock；升级须走 bench/CI 回归并同步 ci/versions.toml）。
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "rustls"] }

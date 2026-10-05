@@ -44,7 +44,10 @@ export interface ManifestCheck {
 }
 
 /** v1 已知权限集合；不在集合内的权限字符串视为笔误（拒绝，防「以为声明了其实拼错」） */
-export const KNOWN_PERMISSIONS = ["clipboard", "selection", "fs:read", "storage", "monaco"] as const;
+// "net"（B4 · HTTP 客户端，docs/toolbox_dev_plan.md §5.4.1）：授予后插件可经 `host.http`
+// 发请求。插件拿不到 invoke（本文件第 2 行注释），网络能力必须走这条门控通道——否则
+// 内置工具只能绕过 facade 直接 import Tauri，等于给第三方插件开口子。
+export const KNOWN_PERMISSIONS = ["clipboard", "selection", "fs:read", "storage", "monaco", "net"] as const;
 export type PluginPermission = (typeof KNOWN_PERMISSIONS)[number];
 
 /** 校验权限声明：未知权限 → 错误；重复 → 去重后通过 */

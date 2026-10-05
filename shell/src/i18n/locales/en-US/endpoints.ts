@@ -25,6 +25,8 @@ export const endpoints: Record<EndpointsKey, string> = {
   "endpoints.scanFailedShort": "Scan failed",
   "endpoints.scanning": "Scanning…",
   "endpoints.scanningHint": "Walking workspace files",
+  "endpoints.sendAria": "Open in HTTP tool",
+  "endpoints.sendTip": "Open in HTTP tool (URL prefilled)",
   "endpoints.serviceNotRunning": "Service not running: run the project first; usable once the ready line appears in the console",
   "endpoints.zeroItems": "0 items",
 };

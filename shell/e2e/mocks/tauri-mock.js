@@ -1051,6 +1051,49 @@
       var dbOut = dbHandle(cmd, args);
       if (dbOut !== undefined) return dbOut;
     }
+    // 4.95) B4 HTTP 工具（PR-B4-2）：罐头响应，**全程离线**（禁止真网络请求）。
+    //   测试侧可覆写：__E2E_HTTP__（整个响应对象）、__E2E_HTTP_DELAY_MS__（慢响应 → 抓 loading 态，
+    //   期间自动推送 http-op-progress 进度事件）、__E2E_HTTP_FAIL__（错误串 → 走 err 态）。
+    //   http_cancel 记 __E2E_HTTP_CANCELLED__，供「点取消是否真的调了后端」断言。
+    if (cmd === "http_send") {
+      // 记下最近一次请求（e2e 断言前端组装的头/体是否正确——invokeLog 只有参数名没有值）
+      window.__E2E_HTTP_LAST_REQ__ = args.req || null;
+      if (window.__E2E_HTTP_FAIL__) throw new Error(String(window.__E2E_HTTP_FAIL__));
+      var httpRes = window.__E2E_HTTP__ || {
+        status: 200,
+        statusText: "OK",
+        headers: [["content-type", "application/json"], ["x-demo", "e2e"]],
+        body: '{"ok":true,"items":[1,2,3]}',
+        bodyBase64: null,
+        bytes: 25,
+        elapsedMs: 12,
+        redirectChain: [],
+        truncated: false,
+        privateTarget: false,
+        binary: false,
+      };
+      var httpDelay = Number(window.__E2E_HTTP_DELAY_MS__ || 0);
+      if (httpDelay > 0) {
+        var opId = String(args.opId || "");
+        for (var hs = 1; hs <= 3; hs++) {
+          (function (step) {
+            setTimeout(function () {
+              emitEvent("http-op-progress", {
+                opId: opId,
+                received: Math.round(4096 * step / 3),
+                total: 4096,
+              });
+            }, Math.round(httpDelay * step / 3));
+          })(hs);
+        }
+        await new Promise(function (r) { setTimeout(r, httpDelay); });
+      }
+      return httpRes;
+    }
+    if (cmd === "http_cancel") {
+      window.__E2E_HTTP_CANCELLED__ = true;
+      return null;
+    }
     // pick_file：默认返回 null（= 用户取消，与真实对话框一致）；预置 __E2E_DB__.pick 时回该路径
     // （数据库「添加连接」的 e2e 用；runConfigPanel 等既有调用点不受影响）
     if (cmd === "pick_file" && window.__E2E_DB__ && window.__E2E_DB__.pick !== undefined) {

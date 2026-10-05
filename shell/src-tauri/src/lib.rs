@@ -7,6 +7,7 @@ mod fs_cmds;
 mod git_cmds;
 mod git_status;
 mod history;
+mod http_cmds;
 mod lib_cmds;
 mod logging;
 mod lsp;
@@ -340,6 +341,9 @@ pub fn run() {
             db_cmds::db_rows,
             db_cmds::db_cancel,
             db_cmds::db_ddl,
+            // B4（docs/toolbox_dev_plan.md §5）：HTTP 客户端内核（PR-B4-1）
+            http_cmds::http_send,
+            http_cmds::http_cancel,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -358,6 +362,7 @@ pub fn run() {
                 git_cmds::git_stop_net_ops_for_exit(); // P2-6：进行中的 push/pull/fetch 同步杀树
                 plugin_cmds::plugins_stop_watcher_for_exit(); // P2-6：插件目录 watcher
                 db_cmds::db_stop_for_exit(); // B3：SQLite 连接（句柄释放，防锁库）
+                http_cmds::http_stop_for_exit(); // B4：在途 HTTP 请求（置取消标志，防线程悬挂）
             }
         });
 }

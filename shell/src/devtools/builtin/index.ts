@@ -30,6 +30,8 @@ import * as sortlines from "./sortlines";
 import * as color from "./color";
 import * as password from "./password";
 import * as textdiff from "./textdiff";
+// B4 批次（2026-10-05）：HTTP 请求工具（docs/toolbox_dev_plan.md §5 v2）
+import * as http from "./http";
 
 /** 内置工具模块表：entry 名 → 模块（对应第三方 manifest 的 entry 文件） */
 export const BUILTIN_TOOL_MODULES: Record<string, ToolModuleLike> = {
@@ -54,6 +56,8 @@ export const BUILTIN_TOOL_MODULES: Record<string, ToolModuleLike> = {
   "./color.ts": color as ToolModuleLike,
   "./password.ts": password as ToolModuleLike,
   "./textdiff.ts": textdiff as ToolModuleLike,
+  // B4 批次
+  "./http.ts": http as ToolModuleLike,
 };
 
 /** 工具模块契约（与第三方 ES module 导出同形；见 loader.ToolModule） */
@@ -242,9 +246,20 @@ export function buildBuiltinManifest(): PluginManifest {
         icon: "diff",
         entry: "./textdiff.ts",
       },
+      // ---------- B4 批次（2026-10-05，docs/toolbox_dev_plan.md §5 v2） ----------
+      // 无 inline：选中 curl → 直接发送依赖 curl 解析，随 PR-B4-3 的粘贴导入一起加。
+      {
+        id: "http",
+        title: t("devtools.tool.http.title"),
+        description: t("devtools.tool.http.desc"),
+        category: "网络",
+        icon: "globe",
+        entry: "./http.ts",
+      },
     ],
   },
-  // monaco：正则测试器的测试文本区（P6 定案）需要裸 Monaco 实例；fs:read：workspaceRoot()（求值桥定位解释器）
-  permissions: ["clipboard", "selection", "monaco", "fs:read"],
+  // monaco：正则测试器的测试文本区（P6 定案）需要裸 Monaco 实例；fs:read：workspaceRoot()（求值桥定位解释器）；
+  // storage：HTTP 工具草稿（B4 §5.2）；net：HTTP 请求唯一出口（B4 §5.4.1，经 facade 门控）
+  permissions: ["clipboard", "selection", "monaco", "fs:read", "storage", "net"],
   };
 }

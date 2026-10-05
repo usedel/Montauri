@@ -699,7 +699,7 @@ def gate_easing_tokens(report: Report, css_path: Path) -> None:
 # 动效未挂 --motion 时的白名单：循环装饰动画。
 # 不能靠「时长乘 var(--motion)」压制——motion=0 会让 duration 变成 0，infinite 循环将高频
 # 闪成一团糊；正确做法是 animation:none（已由双通道规则压制），故此处登记豁免。
-MOTION_EXEMPT = {"rx-progress-slide"}
+MOTION_EXEMPT = {"rx-progress-slide", "http-progress-slide"}
 
 
 def gate_motion_scaling(report: Report, css_path: Path) -> None:
@@ -812,6 +812,7 @@ BARE_RADIUS_EXEMPT = {
     "50%",  # 圆形（状态点、色卡、头像）
     ".activity-item.active::before",  # 2px 宽指示条的半宽圆角
     ".rx-progress",                   # 2px 高进度条的半宽圆角
+    ".http-progress",                 # 同上：HTTP 工具的 2px 高进度条（B4）
 }
 
 

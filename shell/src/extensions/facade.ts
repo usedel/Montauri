@@ -8,6 +8,7 @@
 //   InlineHost 不含 root/kit/monaco。
 
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { t } from "../i18n";
 import { toast } from "../toast";
 import { createToolKit } from "../devtools/kit";
@@ -20,6 +21,58 @@ export class PermissionDeniedError extends Error {
     super(t("ext.permDenied", { perm, method }));
     this.name = "PermissionDeniedError";
   }
+}
+
+// ---------- HTTP 能力（B4 · docs/toolbox_dev_plan.md §5.4.1，权限 "net"） ----------
+
+/** 请求入参（与 Rust `http_cmds::HttpRequestJson` 同名 camelCase） */
+export interface HttpRequestPayload {
+  method: string;
+  url: string;
+  /** `[name, value]` 对；头名/值消毒在 Rust 侧做（前端不可信） */
+  headers: [string, string][];
+  body?: string | null;
+  timeoutMs?: number | null;
+  followRedirects?: boolean | null;
+  maxRedirects?: number | null;
+}
+
+/** 响应（与 Rust `http_cmds::HttpResponse` 同名 camelCase） */
+export interface HttpResponsePayload {
+  status: number;
+  statusText: string;
+  headers: [string, string][];
+  /** 文本响应体；二进制响应体为空串（见 `bodyBase64`） */
+  body: string;
+  bodyBase64: string | null;
+  bytes: number;
+  elapsedMs: number;
+  redirectChain: string[];
+  truncated: boolean;
+  /** 目标是本机 / 内网（不拦截，仅提示） */
+  privateTarget: boolean;
+  binary: boolean;
+}
+
+/** 进度事件 `http-op-progress` 的 payload（与 Rust `http_cmds::HttpProgress` 同名 camelCase） */
+export interface HttpProgressPayload {
+  opId: string;
+  received: number;
+  /** 服务端未给 Content-Length 时为 null（前端不显示百分比） */
+  total: number | null;
+}
+
+/** 受 `"net"` 门控的网络能力。**插件唯一出口**：不得自行 import `@tauri-apps/api/core`。 */
+export interface HttpCapability {
+  /** 发送一次请求；`opId` 由调用方生成，用于 `cancel` 与 `onProgress` 归属 */
+  send(req: HttpRequestPayload, opId: string): Promise<HttpResponsePayload>;
+  /** 协作式取消：置标志，读取循环下个分块边界生效（不保证即时） */
+  cancel(opId: string): Promise<void>;
+  /**
+   * 订阅下载进度（Rust 侧 `http-op-progress` 定向事件）。返回退订函数，**必须**在工具
+   * dispose 时调用（事件监听不随 DOM 卸载自动释放）。
+   */
+  onProgress(cb: (p: HttpProgressPayload) => void): () => void;
 }
 
 /** 通用能力（BaseHost）：两模式共有 */
@@ -36,6 +89,8 @@ export interface BaseHost {
   storage: { get(key: string): string | null; set(key: string, v: string): void; clear(): void };
   workspaceRoot(): string | null;
   readFile(rel: string): Promise<string>;
+  /** HTTP 请求（权限 `"net"`）：唯一出口是 Rust `http_cmds`，插件不得直接 invoke */
+  http: HttpCapability;
 }
 
 /** 面板模式：BaseHost + UI 能力（root / kit / 可选 monaco） */
@@ -135,6 +190,35 @@ function createBaseHost(manifest: PluginManifest, pluginDir: string, deps: Facad
     readFile: (rel) => {
       requirePerm(perms, "fs:read", "readFile");
       return readPluginFile(pluginDir, rel);
+    },
+    // 门控同步抛出（与 readClipboard 同风格）：调用方 `try/catch` 即可拿到 PermissionDeniedError，
+    // 不必等 promise reject；未声明 "net" 时连 invoke 都不会发出。
+    http: {
+      send: (req, opId) => {
+        requirePerm(perms, "net", "http.send");
+        return invoke<HttpResponsePayload>("http_send", { req, opId });
+      },
+      cancel: (opId) => {
+        requirePerm(perms, "net", "http.cancel");
+        return invoke<void>("http_cancel", { opId });
+      },
+      onProgress: (cb) => {
+        requirePerm(perms, "net", "http.onProgress");
+        let unlisten: (() => void) | null = null;
+        let disposed = false;
+        // listen 是异步的：注册完成前就被退订时，拿到句柄后立即注销（防监听泄漏）
+        void listen<HttpProgressPayload>("http-op-progress", (e) => cb(e.payload))
+          .then((un) => {
+            if (disposed) un();
+            else unlisten = un;
+          })
+          .catch((e) => console.warn("[extensions] 进度事件订阅失败", e));
+        return () => {
+          disposed = true;
+          unlisten?.();
+          unlisten = null;
+        };
+      },
     },
   };
 }

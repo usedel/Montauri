@@ -71,6 +71,29 @@ describe("权限门控", () => {
   });
 });
 
+describe("net 权限（B4 · HTTP 客户端，toolbox_dev_plan §5.4.1）", () => {
+  const req = { method: "GET", url: "https://example.com", headers: [] };
+
+  it("未声明 net → http.send / http.cancel 抛 PermissionDeniedError", () => {
+    const host = createInlineHost(manifestWith([]), "/dir", deps);
+    expect(() => void host.http.send(req, "op-1")).toThrow(PermissionDeniedError);
+    expect(() => void host.http.cancel("op-1")).toThrow(PermissionDeniedError);
+  });
+
+  it("已声明 net → 门控放行（此后只可能因 invoke 缺失而失败，不再是权限错）", async () => {
+    const host = createInlineHost(manifestWith(["net"]), "/dir", deps);
+    const e = await host.http.send(req, "op-1").catch((x: unknown) => x);
+    expect(e).not.toBeInstanceOf(PermissionDeniedError);
+  });
+
+  it('"net" 是已知权限；拼错（"nt"）被 manifest 校验拒绝', () => {
+    expect(manifestWith(["net"]).permissions).toContain("net");
+    const bad = JSON.parse(MANIFEST_JSON);
+    bad.permissions = ["nt"];
+    expect(validateManifest(JSON.stringify(bad)).ok).toBe(false);
+  });
+});
+
 describe("PanelHost / InlineHost 分型", () => {
   it("PanelHost 有 root/kit；未声明 monaco 则无", () => {
     const root = document.createElement("div");

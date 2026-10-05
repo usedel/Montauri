@@ -13,6 +13,7 @@ import { t } from "./i18n"; // 第十五批 i18n：端点视图动态文案走�
 import { localizeBackendError } from "./i18n/backendError";
 import { fullEndpointUrl } from "./frameworks";
 import { lastServiceBaseUrl } from "./termUi";
+import { openHttpTool } from "./devtools"; // B4 PR-B4-3：端点 → HTTP 工具联动
 import { toast, toastFail } from "./toast";
 
 export interface EndpointMatch {
@@ -285,7 +286,35 @@ function buildEndpointRow(m: EndpointMatch): HTMLElement {
     }
   });
 
-  row.append(route, loc, open, copy);
+  // B4 PR-B4-3：在 HTTP 工具中打开（预填 base + route）——"扫到路由随手发一次"的最短路径
+  const send = document.createElement("span");
+  send.className = "ep-action";
+  send.setAttribute("role", "button");
+  send.tabIndex = 0;
+  send.setAttribute("aria-label", t("endpoints.sendAria"));
+  send.dataset.tip = t("endpoints.sendTip");
+  send.appendChild(codicon("play"));
+  const sendToHttp = (): void => {
+    const url = endpointUrl(m.route);
+    if (!url) {
+      toast(t("endpoints.serviceNotRunning"), "info");
+      return;
+    }
+    openHttpTool(url);
+  };
+  send.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    sendToHttp();
+  });
+  send.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter" || ev.key === " ") {
+      ev.preventDefault();
+      ev.stopPropagation();
+      sendToHttp();
+    }
+  });
+
+  row.append(route, loc, open, copy, send);
   // UI-16：可点击行补 button 语义 + 键盘激活（跳转声明是主动作）
   row.setAttribute("role", "button");
   row.tabIndex = 0;

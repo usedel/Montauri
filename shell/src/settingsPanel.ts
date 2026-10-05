@@ -55,6 +55,8 @@ function sh(): SettingsPanelHandlers {
 
 /** B3：结果每页行数的候选档（与 index.html 的 select 选项一致；手改配置塞进非法值时回落 200） */
 const DB_PAGE_SIZES = [100, 200, 500, 1000];
+/** B4（HTTP 工具）超时候选档（ms）：只认档位内的值，防手改配置塞进非法值 */
+const HTTP_TIMEOUTS = [5000, 10000, 30000, 60000, 120000];
 
 // ---------- 域内 DOM ----------// P2-6（2026-09-29 review）：顶层快照改惰性（铁律 1——此前模块加载期解析 60 个控件，
 // 精简 DOM 测试环境 import 即炸，设置域因此零单测）。用法均为 .value/.checked/
@@ -99,6 +101,10 @@ const settingsLogLevelColorsEl = lazyEl<HTMLInputElement>("settings-log-level-co
 // B3（SQLite 数据库工具窗）：结果每页行数 / 写前确认
 const settingsDbPageSizeEl = lazyEl<HTMLSelectElement>("settings-db-page-size");
 const settingsDbWarnOnWriteEl = lazyEl<HTMLInputElement>("settings-db-warn-on-write");
+// B4（HTTP 工具）：超时档 / 跟随重定向 / 环境变量是否落盘（后者含 token，默认开但可关）
+const settingsHttpTimeoutEl = lazyEl<HTMLSelectElement>("settings-http-timeout");
+const settingsHttpFollowRedirectsEl = lazyEl<HTMLInputElement>("settings-http-follow-redirects");
+const settingsHttpSaveTokensEl = lazyEl<HTMLInputElement>("settings-http-save-tokens");
 // 阶段 4：Pydantic 构造校验诊断开关
 const settingsPydanticDiagnosticsEl = lazyEl<HTMLInputElement>("settings-pydantic-diagnostics");
 const settingsAutosaveEl = lazyEl<HTMLSelectElement>("settings-autosave");
@@ -720,6 +726,12 @@ function fillForm(settings: Settings): void {
   // B3：每页行数（旧配置缺字段兜底 200）；写前确认默认开（!== false 惯例）
   settingsDbPageSizeEl.value = String(settings.db_page_size ?? 200);
   settingsDbWarnOnWriteEl.checked = settings.db_warn_on_write !== false;
+  // B4：HTTP 超时（旧配置缺字段或档位外的手改值 → 回落 30000）；另两项 `!== false` 惯例
+  settingsHttpTimeoutEl.value = String(
+    HTTP_TIMEOUTS.includes(settings.http_timeout_ms) ? settings.http_timeout_ms : 30000,
+  );
+  settingsHttpFollowRedirectsEl.checked = settings.http_follow_redirects !== false;
+  settingsHttpSaveTokensEl.checked = settings.http_save_tokens !== false;
   // 阶段 4：Pydantic 诊断默认开（!== false 惯例）
   settingsPydanticDiagnosticsEl.checked = settings.pydantic_diagnostics !== false;
   settingsAutosaveEl.value = settings.autosave;
@@ -885,6 +897,12 @@ async function commitSettingsPanel(closeAfter: boolean): Promise<boolean> {
       ? Number(settingsDbPageSizeEl.value)
       : 200,
     db_warn_on_write: settingsDbWarnOnWriteEl.checked,
+    // B4：HTTP 工具（超时同样只认档位内取值）
+    http_timeout_ms: HTTP_TIMEOUTS.includes(Number(settingsHttpTimeoutEl.value))
+      ? Number(settingsHttpTimeoutEl.value)
+      : 30000,
+    http_follow_redirects: settingsHttpFollowRedirectsEl.checked,
+    http_save_tokens: settingsHttpSaveTokensEl.checked,
     pydantic_diagnostics: settingsPydanticDiagnosticsEl.checked, // 阶段 4
     autosave,
     autosave_delay: app.settings.autosave_delay,
