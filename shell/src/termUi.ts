@@ -7,6 +7,8 @@
 // invoke 返回后按 id 幂等补杀兜底（§7.4）。
 //
 // v3.4 §11（M3-3.8）：运行历史采集挂到 term-data 分发点——按实例 id 归属，剥离 ANSI。
+// B5（toolbox_dev_plan.md §6.8）：单槽位 `runOnData` 改为多播 `addRunDataConsumer`——
+// 运行历史与结构化运行日志同时消费同一份输出，消费者各自按 instanceId 判断归属。
 
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
@@ -18,6 +20,8 @@ import { hasGitDetailContent, renderGitDetailEmptyState } from "./git";
 import { showMenu } from "./menu";
 import { sniffTerminalOutput, handleTracebackLine } from "./depHealth"; // M2 §4.4 嗅探 / M4-3 traceback 一键安装
 import { t } from "./i18n"; // 第十三批 i18n：动态文案走语言包
+import { emitRunData } from "./runDataBus"; // B5 §6.8：运行输出多播（替代单槽位 runOnData）
+import { setLogPanelVisible } from "./logView"; // B5 §6.7.3：日志面板前台/后台（隐藏时只入数组不渲染）
 
 // ---------- 域内状态 ----------
 
@@ -36,13 +40,17 @@ interface TermSessionUI {
   runActive: boolean;
   /** 运行终端专属：按实例退出回调（runFlow 注册；自然退出 / 主动停止 / 关闭 tab 三路共用） */
   runExit?: (code: number) => void;
-  /** 运行终端专属：按实例输出采集回调（运行历史入档，§11） */
-  runOnData?: (text: string) => void;
   /** preparing 期关闭 tab：invoke 返回后按 id 幂等补杀（§7.4 竞态兜底） */
   canceled?: boolean;
   /** 该会话的 shell 别名（"auto"/"pwsh"/"powershell"/"cmd"）；run 会话恒为 "auto"（不参与 shell 选择，仅占位） */
   shell: string;
 }
+
+// ---------- 运行输出多播（B5 · toolbox_dev_plan.md §6.8） ----------
+//
+// 原 `runOnData` 是**单槽位**且签名不带 id，已被运行历史独占（runFlow 侧用闭包捕获 instanceId）。
+// B5 的结构化运行日志要消费同一份输出 → 改为多播（实现在 `runDataBus.ts`，零依赖可单测）：
+// 本模块只负责在 term-data 分发点 `emitRunData`，消费者各自按 instanceId 判断归属。
 
 /** 终端会话列表 */
 const termSessions: TermSessionUI[] = [];
@@ -66,7 +74,7 @@ export function setOutputPanelHooks(h: OutputPanelHooks): void {
 }
 
 /** 底部面板可切换标签（差异视图已迁入编辑区 tab，不再属于底部） */
-export type BottomTab = "output" | "terminal" | "git" | "findUsages" | "problems";
+export type BottomTab = "output" | "terminal" | "git" | "findUsages" | "problems" | "logs";
 /** 底部面板当前激活标签（输出 / 终端 / 差异 / Git） */
 let bottomTab: BottomTab = "output";
 
@@ -117,6 +125,7 @@ export function setBottomTab(tab: BottomTab): void {
     ["tab-git-detail", tab === "git"],
     ["tab-find-usages", tab === "findUsages"],
     ["tab-problems", tab === "problems"],
+    ["tab-logs", tab === "logs"],
   ] as const) {
     const el = $(id);
     el.classList.toggle("active", sel);
@@ -127,6 +136,9 @@ export function setBottomTab(tab: BottomTab): void {
   gitDetailPanelEl.classList.toggle("hidden", tab !== "git");
   findUsagesPanelEl.classList.toggle("hidden", tab !== "findUsages");
   $("problems-panel").classList.toggle("hidden", tab !== "problems");
+  // B5：日志面板显隐（视图内部据此决定「隐藏时只入数组不渲染」，§6.7.3）
+  $("logs-panel").classList.toggle("hidden", tab !== "logs");
+  setLogPanelVisible(tab === "logs");
   $("terminal-cmd").classList.toggle("hidden", tab !== "terminal");
   // P2：输出过滤 chips 只在输出 tab 下出现（其他 tab 下无意义）；
   // 级别 chips 还须 `log_level_colors` 开关打开（关掉后着色与过滤整体失效，research §11.9）
@@ -312,7 +324,6 @@ async function closeTerminal(id: string): Promise<void> {
     // §7.4 竞态兜底：标记 canceled，spawn 返回后按 id 幂等补杀；runActive 期 kill 即时生效。
     s.canceled = true;
     s.runExit = undefined; // 关闭 tab 即复位，退出回调不再需要（实例移除由 hook 承担）
-    s.runOnData = undefined;
     // IntegratedTerminal.dispose 在 started=true 时含 term_kill；started=false（invoke 在途）
     // 时 kill 落空——补杀由 runScriptInTerminal 返回路径的 killIfCanceled 承担
   }
@@ -519,8 +530,6 @@ export interface RunTerminalOptions {
   instanceId?: string;
   /** probe 开关（缺省 = 后端按全局 probe_enabled 控制；选区运行传 false） */
   probe?: boolean;
-  /** 按实例输出采集回调（运行历史入档，§11；ANSI 剥离在采集侧） */
-  onData?: (text: string) => void;
   /** 按实例退出回调（自然退出；主动停止 / 关闭 tab 由 runFlow 侧收口） */
   onExit: (code: number) => void;
 }
@@ -562,11 +571,11 @@ export async function runScriptInTerminal(opts: RunTerminalOptions): Promise<voi
       if (Number.isFinite(n)) projectRunSeq = Math.max(projectRunSeq, n);
     }
   }
-  // 按实例绑定回调（§17-5：每实例各自挂自己的退出回调与采集回调）。
+  // 按实例绑定退出回调（§17-5）。输出采集不再走 per-instance 槽位（B5 §6.8 多播）：
+  // 消费者自行按 instanceId 过滤，注册一次即可跨实例生效。
   // canceled 只在新会话上清零：既有会话可能已被 stopRunById 标记 canceled（preparing 期
   // 停止），无条件清零会让 spawn 落地后的补杀失效 → 孤儿进程（复查修复）。
   s.runExit = opts.onExit;
-  s.runOnData = opts.onData;
   if (isNewSession) s.canceled = false;
   if (kind === "script") s.label = t("ide.term.runLabel", { name: basename(path) });
   activeTermId = s.id;
@@ -814,6 +823,8 @@ export function wireBottomPanel(): void {
     setBottomTab("git");
   });
   $("tab-find-usages").addEventListener("click", () => setBottomTab("findUsages"));
+  // B5：运行日志 tab（切过去时视图会按「面板前台」重建一次）
+  $("tab-logs").addEventListener("click", () => setBottomTab("logs"));
   $("btn-clear-output").addEventListener("click", () => {
     outputHooks?.onClear(); // S4：先丢弃未完结行状态，再清空容器
     clearOutput(outputEl);
@@ -884,7 +895,8 @@ export async function wireTerminalEvents(): Promise<void> {
     // 彩色输出中 URL 后可能紧跟重置码（\x1b[0m），对原始数据跑 \S+ 会把转义码吃进 URL（复查修复）
     const plain = stripAnsi(e.payload.data);
     if (s.kind === "run") {
-      s.runOnData?.(plain);
+      // B5 §6.8：多播给所有消费者（运行历史 / 结构化运行日志），带 instanceId 供归属判断
+      emitRunData(s.id, plain);
       watchServiceUrlLine(s.id, plain);
     }
     // M4-3 §6.4：traceback 的 ModuleNotFoundError → toast +「安装」按钮（复核修复 #4：

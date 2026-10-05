@@ -1,6 +1,8 @@
 # OpenCharm 工具箱开发计划（SQLite · HTTP Client · 结构化日志 · TODO/Markdown 增强）
 
-> 版本：v1.2 · 日期：2026-10-05 · 状态：**实施中**（B3、PR-B6-3、**B4 三个 PR 全部交付**；B5、PR-B6-1 / PR-B6-2 待实施）
+> 版本：v1.4 · 日期：2026-10-05 · 状态：**实施中**（B3、PR-B6-3、**B4 三个 PR 全部交付**、**B5 三个 PR 全部交付（B5 闭环）**；PR-B6-1 / PR-B6-2 待实施）
+> **v1.4 变更：B5 闭环**（§6.9 三项拍板；交付记录 §6.10 PR-B5-1 / §6.11 PR-B5-2 / §6.12 PR-B5-3）。
+> **v1.3 变更：B5 开工**（§6.9「拍板结论」）。
 > **v1.2 变更：B4 形态改版**（§5 整体重写）。原「`.http` 文件驱动」形态于 2026-10-05 由产品负责人否决并撤销已实现版本，改为「**devtools 内置工具 · 面板驱动**」：随时唤起、**不在项目目录落下任何文件**、不做 `.http` 文件、v1 不做 SSE。决策记录见 §3 决策 5 与 §5.8。
 > 上游：`docs/improvement_and_roadmap_report.md` 第 3 章候选池 **B3 / B4 / B5 / B6**；本报告把四条选题落成 PR 级实施计划。
 > 与既有文档的关系：本计划是**执行依据**，与 `python_ide_dev_plan_v2.md`（Phase 4 打磨期）不冲突；冲突时以后者为准并反馈修订。
@@ -633,6 +635,246 @@ export function formatLogRow(e: LogEntry, fields: readonly string[]): string;
 - **不做**：日志聚合/多实例合并视图、日志文件 tail（只接运行输出）、告警规则。
 - 边界：多行日志（如异常堆栈）按行切分后会散开（v1 接受；可考虑把紧跟的非结构化行归入上一条 —— 列为 v1.1 备选）；超长行（> 5 KB）折叠为摘要；行数达上限保尾弃头。
 
+### 6.7 交互细节与状态机（v1.1 细化，2026-10-05）
+
+> 与 B4 同一取向：**先把口径定死再开工**。下面每条都指向核实过的代码位置。
+
+#### 6.7.1 面板布局
+
+```
+[错误 3] [警告 12] [信息 148] [调试 0]              ← 级别 chips（多选过滤；默认全选=不过滤）
+[搜索 ______] [Aa] [.*]  [字段 ▾]  [自动滚动 ☑] [清空] [复制全部]
+┌───────────────────────────────────────────────────────────────┐
+│ 12:03:41.512  INFO   app.main     启动完成                     │
+│ 12:03:41.880  ERROR  app.worker  ▸ {"msg":"连接失败","retry":3}│  ← 行内 JSON 可展开
+│ 12:03:42.101  INFO   app.main     就绪                         │
+└───────────────────────────────────────────────────────────────┘
+1,543 行 · 显示 148 · 已丢弃 12,000（超出上限）      ← 状态条（tabular-nums）
+```
+
+- **字段列可切换**（`字段 ▾` 多选：time / level / logger / message / extra）——关闭的列不占位；
+- **时间戳列 `font-variant-numeric: tabular-nums`**（§6.1 已定）；
+- 顶部**首次使用提示一行**（可关闭）：「运行历史 = 按次归档回看；运行日志 = 当前运行的实时视图」（§6.6 的职责混淆风险对策）。
+
+#### 6.7.2 状态机
+
+```ts
+type LogPhase = "idle" | "live" | "ended";
+```
+
+| 转移 | 触发 | 行为 |
+|---|---|---|
+| `idle → live` | 新运行会话启动（`startRunRecord` 对应时机） | **清空视图**（含 chips 计数），绑定该实例 |
+| `live → live` | 收到该实例的输出块 | 追加解析后的条目（批量渲染，见 6.7.3） |
+| `live → ended` | `finishRunRecord`（code / stopped / canceled） | 保留内容，状态条追加「已结束（退出码 N）」 |
+| `ended → live` | 再次运行 | 同 `idle → live`（清空重来） |
+| 任意 → `idle` | 关闭工作区 / `resetRunHistory` 时机 | 清空 + 解绑 |
+
+**实例归属**：v1 **只绑定最近一次 run 会话**（`termUi` 的 `activeTermId` 语义），不做多实例合并（§6.6 已声明不做）。切实例即清空重来——符合「当前运行的实时视图」定位。
+
+#### 6.7.3 高频输出：必须批量渲染
+
+终端输出常按块到达（一次几十~几百行）。**禁止逐行 append DOM**，改为：
+
+- 解析后先入**内存数组**（上限 `log_max_lines`，默认 5000，超限保尾弃头并计数「已丢弃 N」）；
+- 用 **`requestAnimationFrame` 合并渲染**（同一帧内的多块输出只渲染一次；无 rAF 时回落 100ms 定时器）；
+- 单帧渲染行数上限（如 300 行）——超出则分帧续渲染，避免一次插入上万节点卡住主线程；
+- 视图**隐藏时只入数组不渲染**（`onHide` 置脏标记），`onShow` 时整表重建一次。
+
+#### 6.7.4 过滤与搜索（纯显示层，不改数据）
+
+- **级别 chips**：多选，默认全选；点击切换；`Shift+点击` 只留该项（对齐终端惯例）。计数**由本视图自建**（不复用 `output.ts` 的 `levelCounts` 单例——那是输出面板的，共用会互相污染）；级别判定**复用** `output.ts::detectLogLevel`（§6.4 已定「不改 output.ts」）。
+- **搜索**：关键字 / 正则（`.*` 切换）+ 大小写（`Aa`）；防抖 200ms；命中高亮；与级别过滤**叠加**（先级别后搜索）；无命中显示空态而非空白列表（对齐 todoView 的 `noMatch` 口径）。
+- 过滤/搜索**不动数据**：只影响渲染集合，切回全选立即恢复。
+
+#### 6.7.5 自动滚动（关键交互）
+
+- 默认开；**用户手动上滚 → 自动关闭**（滚到底部 → 自动恢复）；
+- 关闭期间新日志到达：状态条显示「↓ N 条新日志」（可点击跳到底部）；
+- 判定用「距底部 < 8px」而非「scrollTop + clientHeight === scrollHeight」（浮点误差会失效）。
+
+#### 6.7.6 行内 JSON 展开
+
+- 整行 JSON（或 `msg` 字段是 JSON 字符串）→ 行尾 `▸` 展开为树；
+- **抽公共 `src/jsonTree.ts`**：B4 已在 `http.ts` 内私有实现了一份（`jsonNode`），加上 `devtools/jsonpath/tree.ts`，这是第三处 —— 抽公共的收益此时成立（B4 §5.4.2 当时判断「不成立」是基于只有两处）；
+- 展开状态**不持久化**（重渲染即收起），默认折叠。
+
+#### 6.7.7 空态与导出
+
+- 空态：`emptyState("output", t(...), t(...), true)` —— 「运行脚本后，日志会实时出现在这里」；
+- 导出：v1 用**「复制全部」**（过滤后的可见行）+ **「插入编辑器」**（照 B4 口径）；保存到磁盘留 v1.1（与 B4 同一未做项，避免重复引入写权限通道）。
+
+#### 6.7.8 设置项（2 个，三步接线）
+
+`log_structured_enabled`（默认 true；关闭则 tab 不显示，回到纯终端行为）、`log_max_lines`（默认 5000）。照 §2 纪律 3 接线（`state.ts` / `settingsPanel.ts` / `index.html` / Rust `Settings::default`）；**新增「设置 → 运行日志」分区或并入「日志」分区**（开工时定）。
+
+#### 6.7.9 明确禁止
+
+1. 禁止逐行 append DOM（必须批量渲染，见 6.7.3）；
+2. 禁止在 `live` 态清空视图（除新运行）；
+3. 禁止把「运行日志」做成第二个「运行历史」（不提供按次回看、不做 Pin/删除）；
+4. 禁止过滤/搜索时丢数据（纯显示层）；
+5. 禁止改 `output.ts`（保持其零 DOM 可单测的现状，只复用纯函数）。
+
+### 6.8 数据流改造落地细节（核实于 2026-10-05）
+
+**现状**（file:line 已核实）：
+
+| 事实 | 位置 |
+|---|---|
+| `runOnData?: (text: string) => void` —— **单槽位**，签名**不带 id** | `termUi.ts:40` |
+| 由 runHistory 在每实例绑定时设置（**闭包捕获 instanceId**，故调用点不需要传 id） | `termUi.ts:569` |
+| 调用点只传 `plain`（已 `stripAnsi`） | `termUi.ts:887` |
+| 实例销毁时清空槽位 | `termUi.ts:315` |
+| runHistory 已有**半行缓冲**（chunk 不以换行结尾时留到下一块） | `runHistory.ts:121-136` |
+| 级别层完整可复用：`LEVEL_RULES`（四条形态，**大小写敏感仅大写**）、`detectLogLevel`、`setOutputLevelFilter`、`levelCounts` + 计数上浮 sink | `output.ts:109/139/148/118-135` |
+| 输出行数上限常量 `DEFAULT_MAX_OUTPUT_LINES = 5000` | `output.ts:213` |
+| 底部 tab 枚举 5 个；`setBottomTab` 三张同步表（tab 按钮 aria/active、面板显隐、辅助元素 `output-channels`/`output-levels`/`terminal-cmd`） | `termUi.ts:69` / `:111-140` |
+| 复位表 `resetOutputChannelUi()`（**漏改会导致关闭工作区后状态残留**） | `termUi.ts:859+` |
+
+**改造**（PR-B5-1，独立成 PR）：
+
+```ts
+// termUi.ts
+type RunDataConsumer = (instanceId: string, text: string) => void;
+const runDataConsumers = new Set<RunDataConsumer>();
+export function addRunDataConsumer(fn: RunDataConsumer): () => void; // 返回 dispose
+```
+
+- `:887` 改为遍历 consumers，**每个 consumer 独立 `try/catch`**（一个抛错不影响其他）；
+- runHistory 一并改走 `addRunDataConsumer`（不再用 `opts.onData` 闭包），**半行缓冲逻辑保留在 runHistory 内部**；
+- `:569` / `:315` 的 `s.runOnData` 赋值与清空随之删除（consumer 自己按 id 过滤）；
+- **回归门禁**：`e2e/session/` + `e2e/autosave/` + `e2e/p4/` 必须全绿（§10 已登记该风险）。
+
+**行归属**：B5 只消费 `kind === "run"` 的会话输出（`termUi.ts:887` 的 `if (s.kind === "run")` 分支），交互 shell 输出不进运行日志。
+
+### 6.9 决策记录 · 拍板结论（2026-10-05，已定案）
+
+开工前三项拍板，**结论如下，实施时不再回头论证**：
+
+| # | 议题 | 拍板 | 落地要求 |
+|---|---|---|---|
+| 1 | **多实例归属** | **只跟最近一次运行**（否决多实例合并视图） | v1 只绑定最近启动的 run 会话；新运行即清空重来。与 §6.6「不做多实例合并视图」一致，省 0.5~1 天 |
+| 2 | **底部 tab 数量（6 个）** | **保持平铺 6 个**（否决图标化 / 溢出下拉） | `output / terminal / git / findUsages / problems / logs` 全平铺文字按钮；新 tab 位置在 problems 之后 |
+| 3 | **`log_*` 设置分区** | **并入现有「日志」分区**（不新建分区） | 注意：该分区现有 `log_enabled` / `log_level` / `log_keep` / `log_level_colors` 属**应用日志文件**设置，与运行日志语义不同 → **加一行小标题分隔**（PR-B5-3 落地） |
+
+> 原「待确认」三问已作废，保留结论即可。后续若有新议题，追加在此表下方。
+
+### 6.10 交付记录 · PR-B5-1（2026-10-05）
+
+**范围**：`termUi` 采集钩子单槽位 → 多播（§6.8 全部改造点）+ `logParse.ts` 纯解析层 + 单测。**无 UI**（视图在 PR-B5-2）。
+
+| 文件 | 改动 |
+|---|---|
+| `shell/src/runDataBus.ts` | **新文件**（约 55 行）：多播总线。`addRunDataConsumer`（返回 dispose）/ `removeRunDataConsumer` / `emitRunData` / `runDataConsumerCount` / `resetRunDataBus`（单测复位）。**零依赖**（无 DOM / 无 Tauri → 可单测） |
+| `shell/src/termUi.ts` | 删 `TermSessionUI.runOnData`（`:40`）、`RunTerminalOptions.onData`（`:523`）、`:569` 赋值、`:315` 清空；`:887` 改 `emitRunData(s.id, plain)`；import 新总线 |
+| `shell/src/runFlow.ts` | 删 3 处 `onData: (text) => recordRunLines(...)`（`:467` / `:561` / `:822`）+ import 收敛 |
+| `shell/src/main.ts` | import `addRunDataConsumer`（runDataBus）；在 `initRunHistory()` 后注册 `addRunDataConsumer(recordRunLines)` —— **接线放在胶水层**，避免 `runHistory → termUi` 的新依赖（termUi 依赖 DOM/Tauri，会让 `runHistory.test.ts` 拉进整条链） |
+| `shell/src/logParse.ts` | **新文件**（约 220 行）：`LogEntry` / `parseLogLine` / `logFieldValue` / `formatLogRow` / `normalizeLogLevel` / `levelLabel` / `LOG_FIELDS`；6 条行规则表 + 整行 JSON 分支 + 退化分支 |
+| `shell/src/__tests__/logParse.test.ts` | **新文件，21 例**（≥12 例要求）：纯 JSON / 字段别名 / 缺 message / 嵌套 JSON / JSON 数组 / 非法 JSON / loguru / logging 带 name / 无 name / `LEVEL:logger:msg` / `[LEVEL]` / uvicorn / 行内 JSON / 无级别 / 空行 / `\r` / 超长行 / fuzz / 归一化 / 格式化 |
+| `shell/src/__tests__/runDataBus.test.ts` | **新文件，6 例**：多消费者 / 多实例归属 / dispose / **单消费者抛错不影响其他** / 空文本不广播 / 回调内注册不破坏遍历 |
+
+**门禁**：`npx tsc --noEmit` 零错 · `npm test` **1172/1172（96 文件）** · `npm run e2e -- session` **2/2** · `autosave` **7/7** · `p4` **8/8**（§6.8 指定的回归域全绿）。
+
+**实现决策与踩坑（后续 PR 直接引用）**：
+
+1. **多播总线要独立成模块**：`termUi` 依赖 DOM + Tauri，`__tests__` 里没有任何测试 import 它（实测 grep 确认）。把 `emitRunData` 抽到 `runDataBus.ts`（照 B4 的 `httpRequest.ts` 纯函数层先例）后，多播才有单测；B5-2 的 `logView` 也可直接注册而不必反向依赖 termUi。
+2. **接线位置在 `main.ts` 而不是 `runHistory.ts`**：`runHistory → termUi` 的 import 会让 `runHistory.test.ts` 拉进 `@tauri-apps/api/window` / xterm 整条链（风险高、收益零）。`main.ts` 是胶水层，同时 import 两侧，天然合适。
+3. **时间戳正则不能写宽松字符类**：最初用 `[\d:\-., T]+` 当 ts 组，实测会把 ` - ` 一起吃进时间戳（`"2026-10-05 12:03:41,512 - "`），污染对齐列 → 改为显式形态 `TS = \d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?|\d{2}:\d{2}:\d{2}(?:[.,]\d+)?|\d{4}-\d{2}-\d{2}`。
+4. **logger 捕获组必须以 `[\w]` 开头**：`([\w.\-]+)` 会把纯 `-`（`… - INFO - 就绪` 里的分隔）当成 logger，改为 `([\w][\w.\-]*)`。
+5. **级别组必须过 `normalizeLogLevel` 校验**：规则表里 level 组匹配到认不出的词（如 `GET`）要视为**该形态不成立**并继续下一条规则，否则 `GET: /api` 之类会被误判成日志行。
+6. **超长行不做 JSON.parse**：> 16 KB 直接走文本规则（视图层也会折叠为摘要，双重省）。
+7. **JSON 行的 `message` 缺失时留空串**（不填 raw），由视图 `e.message || e.raw` 回退——保持解析层字段语义纯净。
+
+**与 §6.3 的偏差（登记）**：`LogEntry.json` 类型从文档写的 `Record<string, unknown> | null` 放宽为 `LogJson = Record<string, unknown> | unknown[]`（整行是 JSON **数组**的场景要能展开，Python 侧批量日志确实会这么打）。
+
+**未做（属 PR-B5-2 / B5-3）**：底部「运行日志」tab 与视图渲染、级别 chips、搜索/正则、字段列选择、自动滚动、JSON 展开树（含抽公共 `jsonTree.ts`）、i18n `logs` 域、两个设置项、e2e。
+
+### 6.11 交付记录 · PR-B5-2（2026-10-05）
+
+**范围**：底部 tab「运行日志」+ 视图渲染（级别 chips / 搜索 / JSON 展开）+ i18n `logs` 域。**无设置项、无导出、无自动滚动**（PR-B5-3）。
+
+| 文件 | 改动 |
+|---|---|
+| `shell/src/logStore.ts` | **新文件**（约 170 行）：纯状态层——状态机 `idle/live/ended`、半行缓冲切行、上限保尾弃头 + `dropped` 计数、级别计数、`visibleEntries`（级别 → 搜索两级叠加）、`compileMatcher`（正则非法降级为不过滤） |
+| `shell/src/logView.ts` | **新文件**（约 420 行）：视图主体。DOM 骨架（提示行 / chips / 搜索行 / 列表 / 状态条）；**批量渲染**（rAF 合并 + 单帧 300 行 + 增量游标 + 裁头检测重建）；行四列渲染 + 命中高亮 `mark.log-hit`；行内 JSON `▸` 懒展开；空态两态（无日志 / 过滤无命中）；状态条（总行·显示·已丢弃·相位·正则错误） |
+| `shell/src/jsonTree.ts` | **新文件**：通用 JSON 折叠树（§6.7.6 要求的公共化）。默认折叠，`expandedDepth` 可控。**B4 的 `http.ts` 仍用其私有实现**（切换留 v1.1，本次不动已交付代码） |
+| `shell/src/__tests__/logStore.test.ts` | **新文件，14 例**：状态机三态 / 只跟最近一次运行 / 半行缓冲 / 上限与计数递减 / 空行不入列 / 过滤与搜索叠加 / 正则与非法正则 |
+| `shell/src/__tests__/logView.test.ts` | **新文件，14 例**（`happy-dom`）：骨架与空态、四列渲染、chips 计数与 Shift 只留该项、关键字高亮、正则模式、JSON 展开/收起、清空、**隐藏时只入数组**、状态条（已丢弃 / 退出码） |
+| `shell/src/termUi.ts` | `BottomTab` 加 `"logs"`；三张同步表加 `tab-logs` / `#logs-panel` / `setLogPanelVisible()`；import logView |
+| `shell/src/runHistory.ts` | 新增生命周期订阅 `addRunLifecycleListener`（`start` / `end`），在 `startRunRecord` / `finishRunRecord` 末尾广播（注入式，logView 不认识 runHistory） |
+| `shell/src/main.ts` | `initLogView()` + 生命周期转发（`start → beginLogSession` / `end → endLogSession`）；工作区复位加 `resetLogView()` |
+| `shell/index.html` | 底部 tab 按钮 `#tab-logs`（problems 之后，§6.9 决策 2 平铺）+ 面板 `#logs-panel` |
+| `shell/src/style.css` | B5 段（约 110 行）：面板 / chips / 搜索行 / `.log-row` 四列网格（`--font-mono` + 时间戳 `tabular-nums`）/ 高亮 / JSON 树，全 token |
+| `tools/i18n/data/logs_{zh,en}.json` | **新域 `logs`，25 条**（含 `logs.tab`）→ `gen_domain.py` 生成两侧域文件并在 `locales/{zh-CN,en-US}/index.ts` 注册 |
+
+**门禁**：`npx tsc --noEmit` 零错 · `npm test` **1200/1200（98 文件）** · `npm run e2e -- session` **2/2** · `p4` **8/8** · `todo` **7/7** · UI token 审计 **全绿**。
+
+**实现决策与踩坑（后续 PR 直接引用）**：
+
+1. **视图必须拆「纯状态层 + DOM 层」**：`logStore.ts` 承担状态机/缓冲/上限/过滤，才有 14 例零 DOM 单测；照 B4 的 `httpRequest.ts` 先例。
+2. **生命周期走注入式订阅，不要让 logView 依赖 runHistory/runFlow**：`runHistory` 广播 `start/end`，`main.ts` 转发。这样 logView 的测试只需 `beginLogSession/endLogSession` 两个入口。
+3. **隐藏语义要贯彻到「强制刷新」入口**：`flushLogView()` 在面板不在前台时必须**只置脏标记**而不是照常渲染，否则「隐藏时只入数组」的保证会被这个后门绕过（实测踩到）。
+4. **首次点击 JSON `▸` 容易写成切换**：新建的 `box.hidden` 默认 false，`box.hidden = !box.hidden` 会让它**一创建就是收起**。必须显式「首次 = 展开，之后 = 切换」。
+5. **增量游标会被「裁头」打乱**：超上限丢头部后索引全部错位 → 渲染时比对 `state.dropped`，变化即整表重建（否则会出现重复行/漏行）。
+6. **未分级行永远显示**（与 `output.ts::levelVisible` 同口径）：只选 error 时普通行仍在——这不是 bug，测试期望要按这个口径写。
+7. **DOM 测试必须声明 `// @vitest-environment happy-dom`**：默认 node 环境没有 `document`（落地时第一个红灯就是这个）。
+8. **圆角要过 token 门禁**：`border-radius: 2px` 被 `audit_tokens.py` 判违规，改 `var(--radius-xs)`（语义正好是「高亮片段」）。
+
+**与 §6.7 的偏差（登记）**：① 首次使用提示**只做会话级**（关闭后本次会话不再出现），不引入持久化通道——跨会话记未做属 B5-3 与设置项一起接；② `jsonTree.ts` 已公共化但 B4 `http.ts` 未切换（避免动已交付的 e2e 覆盖代码）。
+
+**未做（属 PR-B5-3）**：字段列选择（`字段 ▾`）、时间戳对齐列宽优化、自动滚动（含「↓ N 条新日志」）、导出（复制全部 / 插入编辑器）、`log_structured_enabled` + `log_max_lines` 两个设置项、`e2e/logs/01-structured.spec.ts`。
+
+### 6.12 交付记录 · PR-B5-3（2026-10-05）
+
+**范围**：字段列选择、自动滚动、「↓ N 条新日志」、导出（复制全部 / 插入编辑器）、两个设置项、e2e。**B5 至此闭环**（剩余项见文末 v1.1 候选）。
+
+| 文件 | 改动 |
+|---|---|
+| `shell/src/logView.ts` | 字段列多选（`字段 ▾` 走 `showMenu`，至少留一列；列数变体类 `log-row--cN`）；自动滚动（`FOLLOW_BOTTOM_EPSILON_PX = 8` + scroll 监听 + 暂停计数 + `scrollToBottom`）；「↓ N 条新日志」按钮；导出两键（复制全部 → `copy_to_clipboard`；插入编辑器 → 注入通道）+ 1.2s 文本反馈；`setLogViewHandlers` / `applyLogSettings` / `toggleLogField` / `isAtBottom` 导出 |
+| `shell/src/termUi.ts` | **补 `#tab-logs` 的点击绑定**（`wireBottomPanel` 是硬编码 id 列表，漏一处则点击无反应——见踩坑 1） |
+| `shell/src/state.ts` | `Settings` 加 `log_structured_enabled`（默认 true）/ `log_max_lines`（默认 5000）+ `DEFAULT_SETTINGS` |
+| `shell/src/settingsPanel.ts` | 三步接线（声明 / 回填 / 收集，行数钳 100~100000）；保存后 `applyLogSettings()`，关掉时若停在 logs tab 则切回「输出」 |
+| `shell/index.html` | 「日志」分区内新增**「运行日志」小标题组**（与「应用日志文件」设置分隔，§6.9 决策 3）+ 开关 + 行数上限（含 desc） |
+| `shell/src-tauri/src/settings.rs` | `log_structured_enabled` / `log_max_lines` 两字段 + `Settings::default` 同步 |
+| `shell/src/main.ts` | `setLogViewHandlers({ insertToEditor })`（有选区替换、否则插到文末）+ 启动时 `applyLogSettings()` |
+| `shell/src/style.css` | 列数变体 5 条、`.log-extra`、`.logs-autoscroll`、`.logs-new-btn`、`.logs-status` 改 flex、`.logs-flash--error` |
+| `tools/i18n/data/logs_{zh,en}.json` | +17 条（字段名 / 自动滚动 / 新日志 / 导出反馈）→ 42 条 |
+| `tools/i18n/data/settings_{zh,en}.json` | +4 条（运行日志分区）→ 58 条 |
+| `shell/src/__tests__/logView.test.ts` | 14 → **21 例**（字段列切换与「至少留一列」、自动滚动与「新日志」提示、复制/插入编辑器、`log_max_lines` 生效与非法值回落、开关隐藏 tab、超长行折叠） |
+| `shell/src/__tests__/logStore.test.ts` | 14 → **15 例**（追加 `endSession` 按传入上限裁剪） |
+| `shell/src/editorInsert.ts` | **新文件**：外壳级「插入编辑器」（有选区替换、否则插文末）；`devtools/host.ts` 的同名能力属插件通道，此处供底部面板域复用 |
+| `shell/e2e/logs/01-structured.spec.ts` | **新文件，9 条**：tab 与空态 / 四列渲染 / chips 计数与过滤 / 搜索与正则 / 字段列 / JSON 展开 / 自动滚动与新日志提示 / 导出 / 设置项隐藏 tab |
+
+**e2e 数据注入方式（重要）**：mock 不实现 PTY，故用页面内 `import("/src/logView.ts")` 直接调用视图**公共入口**（`beginLogSession` / `ingestLogText` / `endLogSession` / `flushLogView`）灌数据——照 `e2e/dx/*` 里 `import("/src/state.ts")` 的既有范式，**不新增测试后门**。`term-data → runDataBus → logView` 的链路由单测覆盖。
+
+**门禁**：`npx tsc --noEmit` 零错 · `cargo check` 通过 · `npm test` **1208/1208（98 文件）** · `npm run e2e -- logs` **9/9** · `session` / `autosave` / `p4` / `todo` / `db` 回归全绿 · UI token 审计 **全绿**。
+
+**提交前复核修正（2026-10-05，独立复核 + 门禁复跑）**：
+
+1. **`endSession` 冲刷半行时未用设置的 `maxLines`**（真 bug）：用户把上限调小后，收尾行会绕过裁剪越界 → 签名加 `maxLines` 参数，`logView` 传入；补单测。
+2. **`updateChips` 每块输出都写 DOM**：违反 §6.7.3「高频输出必须批量」→ 移进渲染帧，只随帧更新一次。
+3. **`rebuild()` 不检查 `visible`**：隐藏时也会渲染，与「隐藏时只入数组」自相矛盾 → 隐藏时只置脏标记。
+4. **删掉 `beginLogSession` 里无效的 `filter = { ...filter }`**（浅拷贝自己，无任何效果）；顺手写明「不重置搜索/字段」的意图。
+5. **超长行折叠补齐**（§6.6 声明过但未实现）：单元格 > 5 KB 只渲染前 5 KB + `…` 并打 `.log-cell--truncated`；补单测。
+6. **删掉未使用的 `row.dataset.raw`**：每行 DOM 多存一份原文（超长行场景是纯浪费）。
+7. **`main.ts` 内联的 20 行「插入编辑器」抽成 `editorInsert.ts`**：规范要求 main 只做接线。
+
+**复核确认无问题的点（留证）**：`.hidden` 带 `!important`（`#logs-panel { display: flex }` 不会盖过它）；`termUi → logView → menu/util` 无环（`logView` 不反向 import termUi/settingsPanel）；设置保存顺序正确（`app.settings` 先整体赋值、再 `applyLogSettings()`）；e2e mock 无需补字段（`log_max_lines ?? 5000` 与 `!== false` 已兜底）。
+
+**踩坑（后续 PR 直接引用）**：
+
+1. **`wireBottomPanel` 是硬编码 id 列表**：加 tab 只改 `BottomTab` 枚举与同步表还不够，**必须同时加 `$("tab-xxx").addEventListener("click", …)`**——漏了则 tab 点不动（本轮 e2e 抓到的第一个真 bug）。
+2. **面板容器不要整体覆盖 `className`**：`host.className = "logs-panel"` 会把 termUi 用来控制显隐的 `hidden` 类抹掉 → 初始化后面板在**所有 tab 下都可见**（e2e 抓到的第二个真 bug）。要用 `classList.add`。
+3. **e2e 里 `import("/src/logView.ts")` 与页面实例是同一个**（同 URL → 同模块），所以「模块状态」与「DOM」一致；但**点击 tab 若抢在 init 完成前**会被后续初始化重置，症状是 `visible=false` 而面板看起来可见（因为 bug 2）。诊断手段：把 `visible` / `wired` / `renderedUpTo` 放进 `logViewSnapshot()`。
+4. **行内 JSON 展开要求 `msg` 整体是 JSON**：`重试中 {"retry":3}` 这类"中文 + JSON 尾巴"不展开（`tryParseEmbeddedJson` 只认首字符 `{`/`[`）——写样本时别踩。
+5. **字段列是用户偏好，`resetLogView` 有意不重置**：单测里必须显式复位，否则用例间互相污染（本轮踩到）。
+6. **DOM 单测里调 `showMenu` 需先建 `#ctx-menu`**：menu.ts 会给 document 挂关闭监听，缺容器会让**后续任何点击**都抛「缺少元素 #ctx-menu」。
+7. **`vi.mock` 的工厂函数签名要与 `vi.fn` 一致**，否则 `tsc` 报 `Expected 0 arguments`（`noUnusedParameters` + 严格签名）。
+8. **正则样本别用 `^ERROR`**：日志行首是时间戳，锚点应打在分隔符上（`\| ERROR`）。
+
+**与 §6.7 的偏差（登记）**：① 首次使用提示仍是会话级（未接持久化，与 B5-2 同）；② 「时间戳对齐」靠 `tabular-nums` + 网格列实现，未做按最长时间戳动态定宽（视觉上已对齐，动态定宽留 v1.1）；③ 导出仍不做「保存到磁盘」（与 B4 同口径，§6.7.7 已声明留 v1.1）。
+
 ---
 
 ## 7. B6 · TODO / Markdown 增强（3~4 人日，3 个 PR）
@@ -797,7 +1039,8 @@ export function formatLogRow(e: LogEntry, fields: readonly string[]): string;
 1. ~~拍板第 3 章的 3 个决策~~ → **第 3 章 5 个决策已于 2026-10-05 全部拍板**（B3 引擎 / B4 执行方式 / B3 默认只读 / B6 Mermaid 打包 / **B4 交互形态**），实施时直接按结论执行，不再回头论证；
 2. `git status` 确认工作区干净（当前有未提交的视觉改造改动，先收口）；
 3. B6 按修订顺序继续 **PR-B6-2**（PR-B6-3 已交付；PR-B6-1 最后做并先跑真机 CSP spike）；
-4. B5 开工前重读 `termUi.ts:40/315/569/887` 与 `runHistory.ts:118` 的采集链，确认多播改造点；
+4. ~~B5 开工前重读 `termUi.ts:40/315/569/887` 与 `runHistory.ts:118` 的采集链，确认多播改造点~~
+   → **2026-10-05 已核实并完成改造**（PR-B5-1，见 §6.10）；注意行号已因删字段位移，后续 PR 以符号名为准；
 5. B4 开工前确认四件事（形态改版后的新前置，原「`basic-languages/http` 是否导出」一条已作废）：
    ① `extensions/facade.ts:111-121` 的 `storage` 门控写法即为 `http` 的模板，照抄加进 `BaseHost` 并在 `manifest.ts:48` 登记 `"net"`；
    ② 内置工具 manifest 的 `icon` codicon 名是否存在（照 `endpointView.ts` 的 `codicon()` 用法核实）；
@@ -816,7 +1059,7 @@ export function formatLogRow(e: LogEntry, fields: readonly string[]): string;
 |---|---|
 | 侧栏视图注册 | `shell/src/views.ts:5/7-17/37/47`；注册点 `main.ts:2653-2704` |
 | 底部 tab | `shell/src/termUi.ts:69`（枚举）/`:114/:125/:130`（同步表）/`:764-781`（复位表）/`:805 wireBottomPanel`；`index.html:353-357`、`:392-405` |
-| 运行采集链 | `termUi.ts:40 runOnData`、`:569`、`:887`、`:315`；`runHistory.ts:118` |
+| 运行采集链 | **B5 §6.8 起为多播**：`runDataBus.ts`（`addRunDataConsumer` / `emitRunData`）；分发点 = `termUi.ts::wireTerminalEvents` 的 `kind === "run"` 分支；消费方 `runHistory.ts::recordRunLines`（接线在 `main.ts`，`initRunHistory()` 之后） |
 | 输出级别层 | `shell/src/output.ts:101 OutputLogLevel`、`:109 LEVEL_RULES`、`:139 detectLogLevel`、`:148 setOutputLevelFilter`、`:213 MAX_OUTPUT_LINES`、`:298 appendOutputLine` |
 | 设置三步接线 | `state.ts:43-118`（接口）/`:128-191`（默认）；`settingsPanel.ts:93`（声明）/`:630`（回填）/`:770`（收集） |
 | i18n | `shell/src/i18n/locales/zh-CN/index.ts:30,33`；工具 `shell/tools/i18n/` |

@@ -64,8 +64,10 @@ import {
   toggleBranchList, toggleHistory, wireGitUI,
 } from "./git";
 import {
-  disposeTerminal, openTerminalAt, resetOutputChannelUi, setBottomTab, toggleBottomPanel, wireBottomPanel, wireTerminalEvents,
+  disposeTerminal, openTerminalAt, resetOutputChannelUi, setBottomTab,
+  toggleBottomPanel, wireBottomPanel, wireTerminalEvents,
 } from "./termUi";
+import { addRunDataConsumer } from "./runDataBus"; // B5 §6.8：运行输出多播的消费方注册
 import { setTerminalLinkHandler, setTerminalUrlHandler } from "./terminal";
 import { setExternalUrlOpener } from "./termUi";
 import { loadSettings, saveSettings, applyFontStatus, openSettingsPanel, setSettingsPanelHandlers, wireSettingsPanel, buildEditorOptions, ensureEditorFontLoaded } from "./settingsPanel";
@@ -119,9 +121,11 @@ import {
   resetBookmarks, setBookmarkHandlers, toggleBookmarkAtCursor,
 } from "./bookmarks";
 import {
-  initRunHistory, openRunHistory, closeRunHistory, resetRunHistory,
-  setRunHistoryHandlers,
+  addRunLifecycleListener, initRunHistory, openRunHistory, closeRunHistory, recordRunLines,
+  resetRunHistory, setRunHistoryHandlers,
 } from "./runHistory";
+import { applyLogSettings, beginLogSession, endLogSession, initLogView, resetLogView, setLogViewHandlers } from "./logView"; // B5：结构化运行日志
+import { insertTextIntoEditor } from "./editorInsert"; // B5：日志「插入编辑器」的外壳级实现
 import { renderWelcomeShortcuts } from "./welcomeShortcuts"; // UI-25：欢迎页快捷键跟随键位系统
 import * as mdPreview from "./markdownPreview"; // Markdown 预览（markdown preview dev plan）
 // TD-14 拆分出的功能域：环境面板 / 新建项目 / 菜单栏机制 / 运行域 / 运行配置面板 / 输出链接
@@ -236,6 +240,7 @@ function resetWorkspaceUiState(): void {
   resetBookmarks();             // P2：书签（列表缓存 + gutter 装饰）
   resetBreakpoints();           // P2-11：断点内存表随工作区切换清空（盘上数据按工作区隔离）
   resetRunHistory();            // P2：运行历史（§15：切换/关闭工作区重置）
+  resetLogView();               // B5：结构化运行日志（§6.7.2：任意相位 → idle，清空 + 解绑）
   resetEnvPanelState();          // 环境域状态（包面板 + 解释器缓存 + 在途请求令牌 + 提示去重）
   resetDepHealth();              // 依赖健康域（在途体检令牌作废 + diff 快照清空，dep plan §4.7 规则 4）
   resetDepHealthPanel();         // 健康面板 UI 投影（横幅/tab/折叠态/状态栏图标，dep plan M3）
@@ -2499,6 +2504,18 @@ async function init(): Promise<void> {
   // P2：运行历史（v3.4 M3-3.8：chip 标签条已删，Ctrl+Shift+R 列表；M4 收口：P2-O
   // 保存输出随历史列表行，原 #run-tabs-row 的「保存当前」按钮一并删除）
   initRunHistory();
+  // B5 §6.8：运行历史的采集改走 termUi 多播（per-instance `runOnData` 槽位已删）。
+  // 消费者签名带 instanceId，由 runHistory 自己按实例入档（半行缓冲仍在 runHistory 内部）。
+  addRunDataConsumer(recordRunLines);
+  // B5 §6.7.2：运行日志的状态机由 runHistory 的生命周期事件驱动（注入式，logView 不认识 runHistory）
+  addRunLifecycleListener((e) => {
+    if (e.type === "start") beginLogSession(e.instanceId);
+    else endLogSession(e.instanceId, e.code);
+  });
+  initLogView();
+  // B5 §6.7.7：「插入编辑器」由外壳注入（logView 不直接依赖编辑器域）
+  setLogViewHandlers({ insertToEditor: insertTextIntoEditor });
+  applyLogSettings(); // B5 §6.7.8：启动时按 log_structured_enabled 决定 tab 显隐
   setRunHistoryHandlers({
     // P2：历史重放回填前重置 channel 过滤——历史行是 all，停在「调试/Git」过滤态下回放会看不到内容
     clearOutput: () => {

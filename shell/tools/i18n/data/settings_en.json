@@ -51,5 +51,10 @@
   "settings.shellCmd": "Command Prompt (cmd)",
   "settings.statusFontSize": "Font size {size}",
   "settings.theme.dark": "Dark",
-  "settings.theme.light": "Light"
+  "settings.theme.light": "Light",
+  "settings.logging.groupRunLogs": "Run logs",
+  "settings.logging.runLogsEnabled": "Enable structured run logs",
+  "settings.logging.runLogsEnabledDesc": "When off, the Run Logs tab is hidden (Run History via Ctrl+Shift+R is unaffected)",
+  "settings.logging.runLogsMaxLines": "Max lines kept",
+  "settings.logging.runLogsMaxLinesDesc": "Oldest lines are dropped once the limit is reached (the status bar shows the dropped count)"
 }

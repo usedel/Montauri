@@ -53,6 +53,13 @@ export const settings = {
   "settings.kw.wordWrap": "wrap 换行",
   // ---- settings ----
   "settings.loadFailedToast": "设置加载失败，本次会话使用默认设置（改动可能无法保存）",
+  // ---- settings.logging ----
+  "settings.logging.groupRunLogs": "运行日志",
+  "settings.logging.runLogsEnabled": "启用结构化运行日志",
+  "settings.logging.runLogsEnabledDesc": "关闭后底部不显示「运行日志」tab（运行历史 Ctrl+Shift+R 不受影响）",
+  "settings.logging.runLogsMaxLines": "保留行数上限",
+  "settings.logging.runLogsMaxLinesDesc": "超出上限后丢弃最早的日志行（保尾弃头），状态条会显示已丢弃条数",
+  // ---- settings ----
   "settings.saved": "设置已保存",
   "settings.shellAuto": "自动（PowerShell 优先，回退 cmd）",
   "settings.shellCmd": "命令提示符（cmd）",

@@ -5804,3 +5804,163 @@ html[data-reduce-motion] .rx-progress::after { animation: none; width: 100%; opa
   cursor: pointer;
 }
 .toast-action:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ---------- B5 · 结构化运行日志（docs/toolbox_dev_plan.md §6.7） ----------
+   底部「运行日志」tab：当前/最近一次运行的实时结构化视图（与「运行历史」分工见 §6.1）。
+   布局：级别 chips → 搜索行 → 行列表（四列网格） → 状态条。全部走语义 token。 */
+
+#logs-panel { display: flex; flex-direction: column; min-height: 0; }
+.logs-panel { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+/* 首次使用提示（可关闭；会话级，不落盘） */
+.logs-hint {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--border);
+  color: var(--fg-dim);
+  font-size: var(--text-xs);
+}
+.logs-hint > span { flex: 1 1 auto; min-width: 0; }
+/* 级别 chips：与输出面板 chips 同族（多选过滤；默认全选 = 不过滤） */
+.logs-levels { display: flex; align-items: center; gap: var(--space-1); padding: var(--space-2) var(--space-4); }
+.log-chip,
+.out-chip.log-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  background: transparent;
+  color: var(--fg-dim);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-3);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  line-height: 1.2;
+}
+.log-chip:hover { color: var(--fg); border-color: var(--fg-dim); }
+.log-chip.active,
+.log-chip[aria-pressed="true"] { color: var(--fg); border-color: var(--fg-dim); background: var(--hover); }
+.log-chip-count {
+  margin-left: var(--space-1);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--hover-subtle);
+  color: var(--fg-dim);
+  font-size: var(--text-xs);
+}
+/* 搜索行 */
+.logs-bar { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-4); }
+.logs-search {
+  flex: 0 1 320px;
+  min-width: 120px;
+  background: var(--input-bg, var(--bg-elevated, transparent));
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-sm);
+}
+.logs-search:focus { outline: none; border-color: var(--accent); }
+.logs-bar .spacer { flex: 1 1 auto; }
+/* 行列表：四列网格（time / level / logger / message），时间戳 tabular-nums 对齐 */
+.logs-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  font-family: var(--font-mono, monospace);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  padding: 0 var(--space-4) var(--space-2);
+}
+.log-row {
+  display: grid;
+  gap: var(--space-3);
+  align-items: baseline;
+  padding: 1px 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+/* 列数变体（「字段 ▾」多选后关闭的列不占位，§6.7.1；最后一列吃满剩余宽度） */
+.log-row--c1 { grid-template-columns: 1fr; }
+.log-row--c2 { grid-template-columns: auto 1fr; }
+.log-row--c3 { grid-template-columns: auto auto 1fr; }
+.log-row--c4 { grid-template-columns: auto auto auto 1fr; }
+.log-row--c5 { grid-template-columns: auto auto auto auto 1fr; }
+.log-ts { color: var(--fg-dim); font-variant-numeric: tabular-nums; }
+.log-level { color: var(--fg-dim); }
+.log-logger { color: var(--fg-muted); }
+.log-msg { color: var(--fg); }
+.log-extra { color: var(--fg-dim); }
+/* 超长单元格折叠后的摘要（§6.6：> 5 KB 只渲染前 5 KB + …） */
+.log-cell--truncated { color: var(--fg-dim); }
+.log-row--error .log-level { color: var(--danger); }
+.log-row--warn .log-level { color: var(--warn); }
+.log-row--info .log-level { color: var(--ok); }
+.log-row--debug .log-level { color: var(--fg-dim); }
+.log-row--error .log-msg { color: var(--danger); }
+/* 命中高亮 */
+.log-hit { background: var(--accent-soft); color: inherit; border-radius: var(--radius-xs); }
+/* 行内 JSON 展开 */
+.log-json-toggle {
+  background: none;
+  border: none;
+  color: var(--fg-dim);
+  cursor: pointer;
+  padding: 0 var(--space-1);
+  margin-left: var(--space-2);
+  font-size: var(--text-sm);
+}
+.log-json-toggle:hover { color: var(--accent); }
+.log-json { padding: var(--space-1) 0 var(--space-2) var(--space-5); }
+/* 自动滚动开关 */
+.logs-autoscroll {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--fg-dim);
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+.logs-autoscroll:hover { color: var(--fg); }
+/* 导出反馈（1.2s 后还原；失败态用 danger） */
+.logs-flash--error { color: var(--danger); }
+/* 状态条（tabular-nums：数字不跳动） */
+.logs-status {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-1) var(--space-4);
+  border-top: 1px solid var(--border);
+  color: var(--fg-dim);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+.logs-status--error { color: var(--danger); }
+/* 「↓ N 条新日志」（暂停跟随期间出现；点击跳到底部并恢复跟随，§6.7.5） */
+.logs-new-btn {
+  flex: none;
+  background: var(--accent-faint);
+  color: var(--accent-emphasis);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-xs);
+  padding: 0 var(--space-2);
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+.logs-new-btn:hover { background: var(--accent-soft); }
+
+/* 通用 JSON 折叠树（shell/src/jsonTree.ts；B5 行内展开用，B4 的 http.ts 暂保留私有实现） */
+.json-tree { font-family: var(--font-mono, monospace); font-size: var(--text-sm); line-height: 1.5; }
+.jt-row { display: flex; align-items: baseline; gap: var(--space-1); white-space: pre-wrap; word-break: break-word; }
+.jt-key { color: var(--accent); }
+.jt-sep { color: var(--fg-dim); }
+.jt-toggle { color: var(--fg-dim); cursor: default; }
+.jt-toggle--link { cursor: pointer; }
+.jt-toggle--link:hover { color: var(--accent); }
+.jt-preview { color: var(--fg-dim); }
+.jt-val--string { color: var(--ok); }
+.jt-val--number { color: var(--warn); }
+.jt-val--boolean { color: var(--accent); }
+.jt-val--null { color: var(--fg-dim); }

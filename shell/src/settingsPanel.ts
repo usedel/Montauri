@@ -11,7 +11,8 @@ import { repaintRunWidget } from "./runWidget";
 import * as ltUi from "./live-templates/ui/manager";
 import { KEYBINDING_META, chordFromEvent, modsFromEvent, validateKeybindingMap, applyEditorKeybindings } from "./keybindings";
 import { KEYBINDING_GROUP_ORDER, keybindingsOfGroup } from "./keybindingDefaults";
-import { refreshTerminalFonts, refreshTerminalMotion, refreshTerminalThemes, syncOutputLevelChips } from "./termUi";
+import { activeBottomTab, refreshTerminalFonts, refreshTerminalMotion, refreshTerminalThemes, setBottomTab, syncOutputLevelChips } from "./termUi";
+import { applyLogSettings } from "./logView"; // B5：运行日志开关/上限即时生效
 import { applyOutputLevelSetting } from "./output";
 import { shellThemeOf } from "./theme/tokens";
 import { applyReduceMotion, hideEl, motionDisabled, reduceMotionEnabled, showEl } from "./anim";
@@ -98,6 +99,9 @@ const settingsLibsArgparseEl = lazyEl<HTMLInputElement>("settings-libs-argparse"
 // 库特别支持 P1：JSON 字面量注入 / 输出面板日志级别着色（research §11.9）
 const settingsLibsJsonInjectEl = lazyEl<HTMLInputElement>("settings-libs-json-inject");
 const settingsLogLevelColorsEl = lazyEl<HTMLInputElement>("settings-log-level-colors");
+// B5（结构化运行日志）：开关 + 保留行数上限
+const settingsLogStructuredEl = lazyEl<HTMLInputElement>("settings-log-structured");
+const settingsLogMaxLinesEl = lazyEl<HTMLInputElement>("settings-log-max-lines");
 // B3（SQLite 数据库工具窗）：结果每页行数 / 写前确认
 const settingsDbPageSizeEl = lazyEl<HTMLSelectElement>("settings-db-page-size");
 const settingsDbWarnOnWriteEl = lazyEl<HTMLInputElement>("settings-db-warn-on-write");
@@ -723,6 +727,9 @@ function fillForm(settings: Settings): void {
   settingsLibsArgparseEl.checked = settings.libs_argparse !== false;
   settingsLibsJsonInjectEl.checked = settings.libs_json_inject !== false;
   settingsLogLevelColorsEl.checked = settings.log_level_colors !== false;
+  // B5：结构化运行日志（旧配置缺字段兜底：开 / 5000 行）
+  settingsLogStructuredEl.checked = settings.log_structured_enabled !== false;
+  settingsLogMaxLinesEl.value = String(settings.log_max_lines ?? 5000);
   // B3：每页行数（旧配置缺字段兜底 200）；写前确认默认开（!== false 惯例）
   settingsDbPageSizeEl.value = String(settings.db_page_size ?? 200);
   settingsDbWarnOnWriteEl.checked = settings.db_warn_on_write !== false;
@@ -892,6 +899,9 @@ async function commitSettingsPanel(closeAfter: boolean): Promise<boolean> {
     libs_argparse: settingsLibsArgparseEl.checked, // 库支持 PR-4
     libs_json_inject: settingsLibsJsonInjectEl.checked, // 库支持 P1
     log_level_colors: settingsLogLevelColorsEl.checked, // 库支持 P1
+    // B5：结构化运行日志（行数上限钳到 100~100000，防手改配置塞进 0/负数让视图自伤）
+    log_structured_enabled: settingsLogStructuredEl.checked,
+    log_max_lines: Math.min(100000, Math.max(100, Number(settingsLogMaxLinesEl.value) || 5000)),
     // B3：数据库工具窗（page_size 只在候选档内取值，防手改配置塞进非法值）
     db_page_size: DB_PAGE_SIZES.includes(Number(settingsDbPageSizeEl.value))
       ? Number(settingsDbPageSizeEl.value)
@@ -957,6 +967,9 @@ async function commitSettingsPanel(closeAfter: boolean): Promise<boolean> {
   // 库支持 P1：日志级别着色开关即时生效（既有行重刷 + chips 显隐，research §11.9）
   applyOutputLevelSetting(outputEl);
   syncOutputLevelChips();
+  // B5：运行日志开关与行数上限即时生效；关掉时若正停在「运行日志」tab 则切回「输出」
+  // （tab 隐藏后留在该 tab 会让底部面板看起来空了一块）
+  if (!applyLogSettings() && activeBottomTab() === "logs") setBottomTab("output");
   await saveSettings();
   // tech-debt #19：即时操作结果统一轻提示；UI-32：「应用」与「保存」各说各的结果
   toast(t(closeAfter ? "settings.saved" : "settings.applied"), "success");

@@ -370,6 +370,8 @@
             <button id="tab-git-detail" class="bottom-tab" role="tab" aria-selected="false" aria-controls="git-detail-panel">Git</button>
             <button data-i18n="output.tabFindUsages" id="tab-find-usages" class="bottom-tab" role="tab" aria-selected="false" aria-controls="find-usages-panel">引用</button>
             <button data-i18n="output.tabProblems" id="tab-problems" class="bottom-tab" role="tab" aria-selected="false" aria-controls="problems-panel">问题</button>
+            <!-- B5：结构化运行日志（当前/最近一次运行的实时视图，与 Ctrl+Shift+R 运行历史分工） -->
+            <button data-i18n="logs.tab" id="tab-logs" class="bottom-tab" role="tab" aria-selected="false" aria-controls="logs-panel">运行日志</button>
           </div>
           <span class="spacer"></span>
           <!-- P2：输出面板 channel 过滤（调试 / 环境 / Git）——仅输出 tab 下显示（termUi 同步显隐）。
@@ -418,6 +420,8 @@
         <!-- 问题面板（对标 PyCharm Problems）：按文件分组的诊断列表，点击条目跳转定位。
              空态/列表由 problemsPanel.ts 渲染；数据源 = 全 owner 桶 marker（与 F8 导航同口径）。 -->
         <div id="problems-panel" class="hidden" role="tabpanel" aria-labelledby="tab-problems"></div>
+        <!-- B5：运行日志面板（内容由 logView.ts::initLogView 渲染） -->
+        <div id="logs-panel" class="hidden" role="tabpanel" aria-labelledby="tab-logs"></div>
         <div id="terminal-panel" class="hidden" role="tabpanel" aria-labelledby="tab-terminal">
           <!-- UI-16：终端会话 tabs（tab 由 termUi.ts 渲染）；每个 .terminal-view 是 tabpanel -->
           <div data-i18n-aria="terminal.terminalTabs" id="terminal-tabs" role="tablist" aria-label="终端会话"></div>
@@ -1236,6 +1240,27 @@
                   <div class="settings-row">
                     <label data-i18n="settings.logging.sectionLoggingLabel4" for="settings-log-stdout">同时输出到终端（stdout）</label>
                     <input id="settings-log-stdout" type="checkbox" />
+                  </div>
+                </div>
+              </div>
+              <!-- B5（§6.7.8 决策 3）：运行日志并入本分区，用独立小标题与上面的「应用日志文件」设置分隔
+                   （两者语义不同：上面是应用自身日志落盘，这里是运行输出的结构化视图） -->
+              <div class="settings-group">
+                <h3 data-i18n="settings.logging.groupRunLogs" class="settings-group-title">运行日志</h3>
+                <div class="settings-grid">
+                  <div class="settings-row">
+                    <label data-i18n="settings.logging.runLogsEnabled" for="settings-log-structured">启用结构化运行日志</label>
+                    <div class="settings-field">
+                      <input id="settings-log-structured" type="checkbox" />
+                      <div data-i18n="settings.logging.runLogsEnabledDesc" class="settings-row-desc">关闭后底部不显示「运行日志」tab（运行历史 Ctrl+Shift+R 不受影响）</div>
+                    </div>
+                  </div>
+                  <div class="settings-row">
+                    <label data-i18n="settings.logging.runLogsMaxLines" for="settings-log-max-lines">保留行数上限</label>
+                    <div class="settings-field">
+                      <input id="settings-log-max-lines" type="number" min="100" max="100000" step="100" />
+                      <div data-i18n="settings.logging.runLogsMaxLinesDesc" class="settings-row-desc">超出上限后丢弃最早的日志行（保尾弃头），状态条会显示已丢弃条数</div>
+                    </div>
                   </div>
                 </div>
               </div>

@@ -54,6 +54,13 @@ export const settings: Record<SettingsKey, string> = {
   "settings.kw.wordWrap": "wrap word wrap",
   // ---- settings ----
   "settings.loadFailedToast": "Loading settings failed; defaults are used for this session (changes may not be saved)",
+  // ---- settings.logging ----
+  "settings.logging.groupRunLogs": "Run logs",
+  "settings.logging.runLogsEnabled": "Enable structured run logs",
+  "settings.logging.runLogsEnabledDesc": "When off, the Run Logs tab is hidden (Run History via Ctrl+Shift+R is unaffected)",
+  "settings.logging.runLogsMaxLines": "Max lines kept",
+  "settings.logging.runLogsMaxLinesDesc": "Oldest lines are dropped once the limit is reached (the status bar shows the dropped count)",
+  // ---- settings ----
   "settings.saved": "Settings saved",
   "settings.shellAuto": "Auto (PowerShell first, falls back to cmd)",
   "settings.shellCmd": "Command Prompt (cmd)",

@@ -116,6 +116,10 @@ export interface Settings {
   libs_json_inject: boolean;
   /** 输出面板日志级别着色与过滤（research §11.7，须与 Rust settings.rs 同步） */
   log_level_colors: boolean;
+  /** B5：结构化运行日志开关（关闭则底部不显示「运行日志」tab；须与 Rust settings.rs 同步） */
+  log_structured_enabled: boolean;
+  /** B5：运行日志保留行数上限（默认 5000，保尾弃头；须与 Rust settings.rs 同步） */
+  log_max_lines: number;
   /** B3：SQLite 结果每页行数（100/200/500/1000；须与 Rust settings.rs 同步） */
   db_page_size: number;
   /** B3：写语句执行前是否弹确认框（默认开——写库不可撤销；须与 Rust settings.rs 同步） */
@@ -248,6 +252,9 @@ export const DEFAULT_SETTINGS: Settings = {
   // 库特别支持 P1（research §11.9，默认开，与 Rust Settings::default 同步）
   libs_json_inject: true,
   log_level_colors: true,
+  // B5（结构化运行日志）：默认开；上限 5000 行（与 output.ts 的 DEFAULT_MAX_OUTPUT_LINES 同量级）
+  log_structured_enabled: true,
+  log_max_lines: 5000,
   // B3（SQLite 数据库工具窗）：每页 200 行（与后端默认 limit 一致）；写前确认默认开
   // （写库不可撤销，且「默认只读」是本功能的产品定位，须与 Rust Settings::default 保持同步）
   db_page_size: 200,

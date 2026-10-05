@@ -2,7 +2,8 @@
 // 可回看、可再点 traceback 跳转、可保存输出到文件（P2-O）。
 //
 // v3.4 M3-3.8（§17-8 + §11）：
-// - **采集来源改为终端输出**：termUi 的 term-data 分发点挂钩（runOnData 回调），
+// - **采集来源改为终端输出**：termUi 的 term-data 分发点挂钩（B5 §6.8 起为
+//   `addRunDataConsumer` 多播，接线在 main.ts；此前是 per-instance `runOnData` 单槽位），
 //   剥离 ANSI（stripAnsi，termUi）后按行入档，失败降级原样入档（§19-6）；
 // - **按实例绑定归属**：startRunRecord(instanceId, …)——脚本实例与「项目 N」实例
 //   各写各的快照（记录 tab 标签 + 启动序号，§11 记录内容）；
@@ -46,6 +47,36 @@ export interface RunRecord {
   lines: RunLine[];
   /** Pin——豁免 MAX_RUNS 淘汰 */
   pinned: boolean;
+}
+
+// ---------- 生命周期订阅（B5 §6.7.2 状态机的数据源） ----------
+//
+// 结构化运行日志要知道「新运行开始 / 本次运行结束」才能走 `idle → live → ended`。
+// 注入式订阅（与 output.ts 的 sink 同模式）：runHistory 不认识 logView，由 main.ts 接线转发。
+
+export type RunLifecycleEvent =
+  | { type: "start"; instanceId: string; label: string }
+  | { type: "end"; instanceId: string; code: number | null; exitKind: RunRecord["exitKind"] };
+
+const lifecycleListeners = new Set<(e: RunLifecycleEvent) => void>();
+
+/** 订阅运行生命周期（start / end），返回 dispose */
+export function addRunLifecycleListener(fn: (e: RunLifecycleEvent) => void): () => void {
+  lifecycleListeners.add(fn);
+  return () => {
+    lifecycleListeners.delete(fn);
+  };
+}
+
+/** 广播生命周期事件：单个监听者抛错不影响其他（同 `runDataBus` 纪律） */
+function emitLifecycle(e: RunLifecycleEvent): void {
+  for (const fn of [...lifecycleListeners]) {
+    try {
+      fn(e);
+    } catch {
+      /* 单个监听者失败不阻断其余 */
+    }
+  }
 }
 
 export interface RunHistoryHandlers {
@@ -104,6 +135,7 @@ export function startRunRecord(
   };
   runs.push(rec);
   activeByInstance.set(instanceId, rec);
+  emitLifecycle({ type: "start", instanceId, label: meta.label });
   // 淘汰：从最旧找**已结束且未 Pin**的记录移除（Pinned 豁免；进行中 = finishedAt===null 不被移除）。
   // 判据必须用 finishedAt 而非 activeByInstance.has(instanceId)：instanceId 可复用（脚本恒
   // "run-term-script"），startRunRecord 时 activeByInstance 必含当前 instanceId，会让同
@@ -150,6 +182,7 @@ export function finishRunRecord(instanceId: string, code: number | null, exitKin
   rec.code = code;
   rec.exitKind = exitKind;
   activeByInstance.delete(instanceId);
+  emitLifecycle({ type: "end", instanceId, code, exitKind });
 }
 
 /** 全部历史（从新到旧） */

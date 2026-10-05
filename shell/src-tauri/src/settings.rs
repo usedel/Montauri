@@ -199,6 +199,10 @@ pub struct Settings {
     pub libs_json_inject: bool,
     /// 输出面板日志级别着色与过滤（research §11.9，须与前端同步）
     pub log_level_colors: bool,
+    /// B5：结构化运行日志开关（关闭则底部不显示「运行日志」tab；须与前端同步）
+    pub log_structured_enabled: bool,
+    /// B5：运行日志保留行数上限（默认 5000，保尾弃头；须与前端同步）
+    pub log_max_lines: u32,
     /// B3：SQLite 结果每页行数（100/200/500/1000，须与前端同步）
     pub db_page_size: u32,
     /// B3：写语句执行前是否弹确认框（默认开；须与前端同步）
@@ -273,6 +277,9 @@ impl Default for Settings {
             libs_argparse: true,
             libs_json_inject: true,
             log_level_colors: true,
+            // B5（结构化运行日志）：默认开 + 5000 行上限（与前端 DEFAULT_SETTINGS 对齐）
+            log_structured_enabled: true,
+            log_max_lines: 5000,
             // B3（SQLite 工具窗）：与前端 DEFAULT_SETTINGS.db_page_size 对齐；
             // 写前确认默认开——写库不可撤销，且「默认只读」是本功能的产品定位
             db_page_size: 200,

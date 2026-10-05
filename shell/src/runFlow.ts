@@ -36,7 +36,8 @@ import {
   removeRunInstance, scriptRunActive,
   type RunConfig, type SelectionRunMeta,
 } from "./runState";
-import { startRunRecord, finishRunRecord, recordRunLines, runsSnapshot, type RunRecord } from "./runHistory";
+// B5 §6.8：输出采集改为 termUi 多播（runHistory 侧统一按 instanceId 入档），此处不再传 per-instance onData
+import { startRunRecord, finishRunRecord, runsSnapshot, type RunRecord } from "./runHistory";
 import type { RunWidgetState } from "./runWidget";
 
 // ---------- 注入（main 的 init 中 setRunFlowHandlers） ----------
@@ -464,7 +465,6 @@ async function launchScript(path: string, selection: SelectionRunMeta | null = n
       echo: prep.echo,
       kind: "script",
       probe,
-      onData: (text) => recordRunLines("run-term-script", text),
       onExit: (code) => settleExited("run-term-script", { kind: "code", code }),
     });
     // preparing 期 tab 被关闭：runScriptInTerminal 内 killIfCanceled 已补杀，
@@ -558,7 +558,6 @@ async function launchProject(p: RunConfig, instanceId: string, label: string, st
       echo,
       kind: "project",
       instanceId,
-      onData: (text) => recordRunLines(instanceId, text),
       onExit: (code) => settleExited(instanceId, { kind: "code", code }),
     });
     // preparing 期 tab 被关闭：runScriptInTerminal 内 killIfCanceled 已补杀，实例同步移除
@@ -819,7 +818,6 @@ export async function runSelection(): Promise<void> {
         echo,
         kind: "script",
         probe: false,
-        onData: (text) => recordRunLines("run-term-script", text),
         onExit: (code2) => settleExited("run-term-script", { kind: "code", code: code2 }),
       });
       // preparing 期 tab 被关闭：补杀已由 termUi 完成，实例同步移除（§7.4）
