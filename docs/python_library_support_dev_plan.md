@@ -207,6 +207,7 @@ cd shell && npx playwright test e2e/<域>/…   # 相关 e2e
   - **CACHE_MAX=5 维持不变**——正则面板（含面板内 Monaco 实例 #2）激活态堆增量 ~3.2MB、LRU 缓存隐藏态驻留 ~4.3MB，远低于内存红线顾虑；
   - **复测发现并修复一个真实泄漏**：`hash / base64 / urlcode / uuid / jsonfmt(×2) / json2model` 六个工具的 `mount` 未返回 `dispose`，其 `kit.output` Monaco 实例在面板关闭 / LRU 逐出后永不释放（每次重挂净增 ~1.2MB 线性累积）；已对齐 curl2python/jsonpath 先例补齐 `return { dispose() { … } }`，修复后重挂趋势降至 ~0.14MB/轮且逐轮收敛（平台），dispose-all 后残余 ~3.7MB 为一次性成本（首次加载的模块代码 + Monaco 静态注册结构，不随实例回收）；
   - 测量手段：CDP `Performance.getMetrics`（JSHeapUsedSize）+ `HeapProfiler.collectGarbage` 强制 GC；注意事项：CDP `Runtime.enable` 会保留 console 消息参数引用造成伪泄漏，GC 前须 `discardConsoleEntries`。
+  - **阈值修正（2026-10-05）**：`reclaimedAll > 1MB` 这条断言原按**一次被噪声抬高的读数**定阈（同一份代码三连跑得 1.59 / 0.65 / 0.69MB，阈值恰卡在两模态之间 → 一过两败），属**测量噪声而非回收退化**——同期残余 3.63~3.72MB（与本条记录的 ~3.7MB 一致）、驻留 3.37~3.49MB、重挂趋势 150~164KB/轮三项都稳定，且 DOM 侧 4 个面板 Monaco 实例关闭后全部归零。已改为：① 读数**先收敛再取**（`stableHeap`：反复 GC 直到连续两次读数差 < 64KB；改后三连跑逐位一致 ~0.65MB，① 也从 2.3 回到与本条记录的 ~3.2MB 同档）；② 补两条**与 GC 无关**的 DOM 断言（关面板后 `#devtools-body` 内 Monaco 实例数 = 0、节点数下降）作为「dispose 真的走到了」的硬判据；③ 回收阈值按收敛实测值重定为 `> 0.5MB`，其职责降为「可回收部分不得为零」。
 - **验收基线（2026-09-27 复验）**：`npx tsc --noEmit` 全绿 · vitest 765/765 全绿 · `cargo test` 229/229 全绿。
 
 ---

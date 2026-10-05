@@ -92,6 +92,28 @@ test.describe("R-5 面板 Monaco 实例内存复测", () => {
       if (!m) throw new Error("JSHeapUsedSize 指标不可用");
       return m.value; // 字节
     };
+    /** 取「稳定堆」：反复「强制 GC → 读数」直到连续两次读数收敛（差 < 64KB）。
+     *
+     *  为什么不能只 GC 一次就读：单次读数**不保证已收敛**——读数里可能还留着上一轮未收完的
+     *  可回收对象（一次 `collectGarbage` 不承诺清空），于是同一个量会落在两个模态上。
+     *  实测同一份代码三连跑，「④ 关面板回收」得到 1.59 / 0.65 / 0.69 MB（第 1 次高于 1MB
+     *  阈值通过、后两次失败）——注意是**单次读数把回收量抬高**（关面板前的读数仍含待回收垃圾），
+     *  而非回收能力退化：同期残余（3.63~3.72MB）、驻留（3.37~3.49MB）、重挂趋势（150~164KB/轮）
+     *  三项都稳定，且残余与 2026-09-27 记录的 ~3.7MB 一致；DOM 侧 4 个面板 Monaco 实例
+     *  关闭后全部归零。即：**原阈值 >1MB 恰好卡在这个量的双模态中间**。
+     *  收敛判据用「最后两次读数之差」，返回收敛后的值（不取 min——取 min 会系统性偏向
+     *  「回收更多」，等于给断言放水）。 */
+    const stableHeap = async (): Promise<number> => {
+      let prev = -1;
+      let cur = -1;
+      for (let i = 0; i < 6; i++) {
+        await gc();
+        cur = await heapUsed();
+        if (prev >= 0 && Math.abs(cur - prev) < 64 * 1024) break;
+        prev = cur;
+      }
+      return cur;
+    };
     const mb = (b: number): string => (b / 1024 / 1024).toFixed(2);
     /** DOM 侧佐证：devtools-body 内残留的 monaco 编辑器数 + 全文档节点数（泄漏时 detached 节点滞留） */
     const domStat = async (): Promise<{ panelMonacos: number; nodes: number }> =>
@@ -101,8 +123,7 @@ test.describe("R-5 面板 Monaco 实例内存复测", () => {
       }));
 
     // ---------- 基线：编辑器就绪、面板未开 ----------
-    await gc();
-    const base = await heapUsed();
+    const base = await stableHeap();
 
     // ---------- ① 激活态成本：打开正则测试器（Monaco 实例 #2 + 面板 DOM） ----------
     await page.keyboard.press("Control+Shift+T");
@@ -119,14 +140,12 @@ test.describe("R-5 面板 Monaco 实例内存复测", () => {
     await page.locator("#rx-test .monaco-editor").last().click();
     await page.keyboard.insertText(TEST_TEXT);
     await expect(page.locator("#rx-test .monaco-editor")).toBeVisible();
-    await gc();
-    const heapActive = await heapUsed();
+    const heapActive = await stableHeap();
     const activeCost = heapActive - base;
 
     // ---------- ② 驻留成本：切走（正则面板隐藏但被 LRU 缓存） ----------
     await switchTool(page, "UUID 生成", "UUID");
-    await gc();
-    const heapHidden = await heapUsed();
+    const heapHidden = await stableHeap();
     const retainedCost = heapHidden - base;
 
     // ---------- ③ 填满缓存：正则面板隐藏驻留于 LRU 缓存 ----------
@@ -146,12 +165,10 @@ test.describe("R-5 面板 Monaco 实例内存复测", () => {
     // ---------- ④ 关闭面板 dispose-all 回收验证（无混淆：全部实例一次 dispose） ----------
     // 注：不做「LRU 单实例逐出」的直接测量——逐出必然伴随新工具挂载，新增内存掩盖回收量，
     // 数值为负属测量混淆而非泄漏；dispose 路径一致性由关闭面板的 disposeAllCached 验证。
-    await gc();
-    const heapBeforeClose = await heapUsed();
+    const heapBeforeClose = await stableHeap();
     const domBeforeClose = await domStat();
     await page.locator("#devtools-close").click();
-    await gc();
-    const heapClosed = await heapUsed();
+    const heapClosed = await stableHeap();
     const domClosed = await domStat();
     const reclaimedAll = heapBeforeClose - heapClosed;
     const closedResidual = heapClosed - base;
@@ -183,8 +200,7 @@ test.describe("R-5 面板 Monaco 实例内存复测", () => {
         }
       }
       await clearMockLog();
-      await gc();
-      cycleHeaps.push(await heapUsed());
+      cycleHeaps.push(await stableHeap());
       console.log(`[R-5] 第 ${i + 1} 轮 DOM:`, JSON.stringify(await domStat()));
     }
     const cycleGrowth = cycleHeaps[CYCLES - 1] - cycleHeaps[0];
@@ -199,9 +215,18 @@ test.describe("R-5 面板 Monaco 实例内存复测", () => {
     console.log("[R-5] ⑤ 重挂堆趋势:", mb(cycleGrowth), "MB /", CYCLES - 1, "轮 =", (leakPerCycle / 1024).toFixed(1), "KB/轮");
 
     // ---------- 断言（宽松阈值防 CI 噪音；数字以日志为准回填文档） ----------
-    // dispose-all 应回收可观内存（5 个面板实例的可回收部分；首次加载的模块代码与
-    // Monaco 静态注册结构不随 dispose 回收，实测回收 ~1.5MB）
-    expect(reclaimedAll, "关闭面板应回收缓存实例内存").toBeGreaterThan(1024 * 1024);
+    // ① 确定性判据（与 GC 无关，先断）：关闭面板必须把面板内 Monaco 实例与其 rootEl 一并拆掉。
+    //    堆数字会受 GC 时序影响，DOM 不会——这条是「dispose 真的走到了」的硬证据。
+    expect(domClosed.panelMonacos, "关闭面板后 #devtools-body 内不应残留面板 Monaco 实例").toBe(0);
+    expect(domClosed.nodes, "关闭面板后节点数应下降（缓存 rootEl 随实例一并移除）").toBeLessThan(domBeforeClose.nodes);
+    // ② dispose-all 应回收可观内存（5 个面板实例的可回收部分；首次加载的模块代码与
+    //    Monaco 静态注册结构不随 dispose 回收——那是残余 ~3.7MB 的主体）。
+    //    ⚠ 阈值 1MB 是**按一次被噪声抬高的读数定的，已证伪**：同一份代码三连跑得到
+    //    1.59 / 0.65 / 0.69MB（阈值恰卡在两模态之间 → 一过两败）；改用 stableHeap 收敛后
+    //    三连跑逐位一致 0.65MB。故按实测收敛值定阈，留 ~25% 余量（跨机器/CI 抖动）。
+    //    「回收是否真的发生」的主判据是上面两条 DOM 断言 + 下面的残余预算，本条的职责
+    //    只是「可回收部分不得为零」。
+    expect(reclaimedAll, "关闭面板应回收缓存实例内存").toBeGreaterThan(512 * 1024);
     // 回收后残余距基线 < 5MB（一次性成本：模块代码 + Monaco 静态结构，实测 ~3.7MB）
     expect(closedResidual, "dispose 后残余应限于一次性成本").toBeLessThan(5 * 1024 * 1024);
     // 重挂堆趋势：每轮净增长 < 512KB 且末轮增量 < 256KB（收敛平台；线性累积即为泄漏）

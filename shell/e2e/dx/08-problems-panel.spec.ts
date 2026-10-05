@@ -164,9 +164,13 @@ test("E-DX-PB6 清除 marker 后联动清空", async ({ page }) => {
   });
   await expect(chip).toBeHidden({ timeout: 5_000 });
   await expect(page.locator("#tab-problems")).toHaveText("问题");
-  // 面板（若打开）显示空态
+  // 面板（若打开）显示空态：清空后不应再有任何条目行
+  // ⚠ 空态元素是共享基建 emptyState() 产出的 `.empty-state`（S4 教学版：图标 + 「没有发现问题」
+  //   + ruff 引导），不是旧实现的 `.pb-empty`——后者已随 S4 改造消失（类名在 src/ 已无产出）。
   await page.keyboard.press("Alt+0");
-  await expect(page.locator("#problems-panel .pb-empty")).toBeVisible();
+  await expect(page.locator("#problems-panel .empty-state")).toBeVisible();
+  await expect(page.locator("#problems-panel")).toContainText("没有发现问题");
+  await expect(page.locator("#problems-panel .pb-item")).toHaveCount(0);
 });
 
 test("E-DX-PB7 点击最后一条后滚动位置不跳顶（指纹短路 + scrollTop 转移）", async ({ page }) => {

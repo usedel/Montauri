@@ -4474,12 +4474,6 @@ button:focus-visible,
   flex-direction: column;
   overflow: hidden;
 }
-.pb-empty {
-  padding: var(--space-6) var(--space-5);
-  color: var(--fg-dim);
-  font-size: var(--text-sm);
-  text-align: center;
-}
 /* 单条问题行：徽标 + 行:列 + 消息 + 来源（点击/Enter 跳转） */
 .pb-item {
   display: flex;
