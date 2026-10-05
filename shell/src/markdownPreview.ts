@@ -84,7 +84,63 @@ export function rewriteImageSrcs(
   return doc.body.innerHTML;
 }
 
-/** marked（GFM）→ 消毒 → 图片改写，产出可直接写入面板的 HTML（纯函数，图片改写可注入以便测试） */
+/**
+ * 标题文本 → 锚点 id（GitHub 风格的简化版）。
+ * 注意：marked 18.x **不给标题生成 id**（实测 `marked.parse('# x')` → `<h1>x</h1>`），
+ * 而 `#锚点` 点击委托靠 id 定位目标，故必须自己补——否则面板内锚点链接点了没反应。
+ */
+export function slugifyHeading(text: string): string {
+  const slug = (text ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\-_ ]/gu, "") // 去标点（保留字母 / 数字 / 中日韩文字 / 连字符 / 下划线 / 空格）
+    .replace(/\s+/g, "-")
+    .replace(/-{2,}/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug || "section";
+}
+
+/**
+ * 给渲染结果里的 h1~h6 补 id：已有 id 的不覆盖；重复标题按 `-1` / `-2` 递增去重。
+ * 只认渲染后的 h1~h6，代码块内的 `#` 已被 marked 塞进 `<code>`，天然不会被误当标题。
+ */
+export function assignHeadingIds(html: string): string {
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const used = new Set<string>();
+  for (const h of Array.from(doc.querySelectorAll<HTMLElement>("h1,h2,h3,h4,h5,h6"))) {
+    const existing = h.getAttribute("id");
+    if (existing) {
+      used.add(existing);
+      continue;
+    }
+    let id = slugifyHeading(h.textContent ?? "");
+    if (used.has(id)) {
+      let n = 1;
+      while (used.has(`${id}-${n}`)) n++;
+      id = `${id}-${n}`;
+    }
+    used.add(id);
+    h.setAttribute("id", id);
+  }
+  return doc.body.innerHTML;
+}
+
+/**
+ * 在预览容器内按锚点名定位目标元素：先按 id 精确匹配（不用 `querySelector("#…")`，
+ * 避免 id 含特殊字符时选择器非法 / 命中到容器外同名 id），再回落老式 `<a name>`。
+ */
+export function findAnchorTarget(container: HTMLElement | null, id: string): HTMLElement | null {
+  if (!container || !id) return null;
+  for (const el of Array.from(container.querySelectorAll<HTMLElement>("[id]"))) {
+    if (el.id === id) return el;
+  }
+  for (const a of Array.from(container.querySelectorAll<HTMLAnchorElement>("a[name]"))) {
+    if (a.getAttribute("name") === id) return a;
+  }
+  return null;
+}
+
+/** marked（GFM）→ 消毒 → 补标题 id → 图片改写，产出可直接写入面板的 HTML（纯函数，图片改写可注入以便测试） */
 export function renderMarkdownToHtml(
   md: string,
   baseDir = "",
@@ -93,7 +149,7 @@ export function renderMarkdownToHtml(
   // async:false 强制同步返回；GFM 默认开启（表格 / 删除线 / 任务列表 / 代码块）
   const raw = marked.parse(md, { gfm: true, async: false }) as string;
   const clean = DOMPurify.sanitize(raw);
-  return rewriteImageSrcs(clean, baseDir, toAssetUrl);
+  return rewriteImageSrcs(assignHeadingIds(clean), baseDir, toAssetUrl);
 }
 
 // ---------- 显隐判定（纯函数，测试显隐逻辑用） ----------
@@ -225,9 +281,9 @@ export function wireMarkdownClicks(): void {
     const href = a.getAttribute("href") ?? "";
     const kind = classifyLink(href);
     if (kind === "anchor") {
+      // 目标限定在预览面板内：id 由 assignHeadingIds 补上（marked 默认不生成）
       const target = decodeURIComponent(href.slice(1));
-      const node = document.getElementById(target) ?? document.querySelector(`a[name="${target}"]`);
-      node?.scrollIntoView({ behavior: "smooth" });
+      findAnchorTarget(mdPreviewEl(), target)?.scrollIntoView({ behavior: "smooth" });
       return;
     }
     if (kind === "external") {
@@ -309,7 +365,8 @@ function escapeHtml(s: string): string {
 async function buildExportHtml(mdText: string, baseDir: string, title: string): Promise<string> {
   const raw = marked.parse(mdText, { gfm: true, async: false }) as string;
   const clean = DOMPurify.sanitize(raw);
-  const doc = new DOMParser().parseFromString(clean, "text/html");
+  // 与预览同口径补标题 id：导出稿是自包含 HTML，浏览器原生锚点跳转同样依赖 id
+  const doc = new DOMParser().parseFromString(assignHeadingIds(clean), "text/html");
   await inlineImagesBase64(doc, baseDir);
   // 代码高亮：导出稿是自包含浅色文档，故临时切到浅色主题再 colorize。
   // 批 4：切的是 opencharm-light（自定义浅色主题）而非出厂 "vs"——否则导出文件里的代码块

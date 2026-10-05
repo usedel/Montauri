@@ -2,7 +2,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import DOMPurify from "dompurify";
 import {
+  assignHeadingIds,
   classifyLink,
+  findAnchorTarget,
   isMarkdownPath,
   renderMarkdownToHtml,
   resolveMarkdownLinkPath,
@@ -11,6 +13,7 @@ import {
   schedulePreviewRender,
   setPreviewOpen,
   shouldShowPreview,
+  slugifyHeading,
 } from "../markdownPreview";
 import { app, type Tab } from "../state";
 
@@ -100,6 +103,53 @@ describe("图片改写 rewriteImageSrcs", () => {
     const out = renderMarkdownToHtml("# Hi\n\n![a](pic.png)", "D:\\proj", (p) => `asset://${p}`);
     expect(out).toContain("<h1");
     expect(out).toContain("asset://D:\\proj\\pic.png");
+  });
+});
+
+describe("标题锚点 id（marked 不生成，需自补；#锚点 点击跳转的前提）", () => {
+  it("slugifyHeading：小写 + 去标点 + 空格转连字符 + 保留中文", () => {
+    expect(slugifyHeading("Hello World")).toBe("hello-world");
+    expect(slugifyHeading("  Step 1: 开始  ")).toBe("step-1-开始");
+    expect(slugifyHeading("**加粗** 与 `code`")).toBe("加粗-与-code");
+    expect(slugifyHeading("...")).toBe("section"); // 全是标点 → 兜底
+    expect(slugifyHeading("")).toBe("section");
+  });
+
+  it("assignHeadingIds：h1~h6 补 id，重复标题递增去重", () => {
+    const out = assignHeadingIds(
+      `<h1>标题</h1><h2>安装</h2><h2>安装</h2><h3>FAQ?</h3>`,
+    );
+    expect(out).toContain(`<h1 id="标题">标题</h1>`);
+    expect(out).toContain(`<h2 id="安装">安装</h2>`);
+    expect(out).toContain(`<h2 id="安装-1">安装</h2>`);
+    expect(out).toContain(`<h3 id="faq">FAQ?</h3>`);
+  });
+
+  it("assignHeadingIds：已有 id 不覆盖；代码块内的 # 不是标题", () => {
+    const out = assignHeadingIds(`<h2 id="custom">A</h2><pre><code># not a heading</code></pre>`);
+    expect(out).toContain(`<h2 id="custom">A</h2>`);
+    expect(out).not.toContain("not-a-heading");
+  });
+
+  it("renderMarkdownToHtml 端到端：标题带 id，且锚点可被 findAnchorTarget 命中", () => {
+    const html = renderMarkdownToHtml("# 快速开始\n\n正文\n\n## 快速开始\n", "", (p) => p);
+    const host = document.createElement("div");
+    host.innerHTML = html;
+    const first = findAnchorTarget(host, "快速开始");
+    expect(first?.tagName).toBe("H1");
+    expect(findAnchorTarget(host, "快速开始-1")?.tagName).toBe("H2");
+    expect(findAnchorTarget(host, "不存在")).toBeNull();
+  });
+
+  it("findAnchorTarget：优先容器内的 id，不被容器外同名 id 干扰", () => {
+    const outside = document.createElement("div");
+    outside.id = "dup";
+    document.body.appendChild(outside);
+    const host = document.createElement("div");
+    host.innerHTML = `<h2 id="dup">inner</h2>`;
+    expect(findAnchorTarget(host, "dup")?.textContent).toBe("inner");
+    expect(findAnchorTarget(null, "dup")).toBeNull();
+    expect(findAnchorTarget(host, "")).toBeNull();
   });
 });
 
