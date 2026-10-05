@@ -60,6 +60,9 @@ let activeTermId: string | null = null;
 let termSeq = 0;
 /** 项目运行实例序号（v3.4 §17-12：id `run-term-project-<N>`，「项目 2」起为并行实例） */
 let projectRunSeq = 1;
+/** 运行终端「建实例前先切面板」窗口期（见 runScriptInTerminal）：此窗口内 setBottomTab
+ *  不得触发 ensureAnyTerminal 自动新建交互 shell（那会抢激活态 + 多起一个 PTY）。 */
+let preparingRunTerminal = false;
 /** 输出面板的跨域回调（main.ts 注册，避免 termUi 反向依赖 main.ts 造成循环导入） */
 export interface OutputPanelHooks {
   /** 切标签后调用：同步 S4 交互输入行的可见性（输入行只在「输出」标签下有意义） */
@@ -283,6 +286,9 @@ async function ensureShellTerminal(): Promise<TermSessionUI | null> {
  * 已有运行终端时**不自动新建 shell**：用户此刻要看的是运行输出，凭空多一个 shell 会话
  * 只会抢激活态、多起一个 PTY 进程；真需要交互 shell 时点「＋」或用「命令…」下拉按需创建。 */
 async function ensureAnyTerminal(): Promise<void> {
+  // 运行终端正在「先切面板、后建实例」的窗口期：此刻列表里还没有会话，自动建 shell 会
+  // 抢走激活态并多起一个 PTY 进程（见 runScriptInTerminal 的时序说明）。
+  if (preparingRunTerminal) return;
   const active = activeTermSession();
   if (active && active.kind === "shell") {
     active.iterm.focus();
@@ -556,6 +562,19 @@ export async function runScriptInTerminal(opts: RunTerminalOptions): Promise<voi
   let s = termSessions.find((x) => x.id === id);
   const isNewSession = !s;
   if (!s) {
+    // **先切面板、后建实例**（与下方「先落好运行终端再切标签」的原顺序约束不冲突，是它的一半）：
+    // xterm 在 open() 里**一次性**量测滚动条宽度（`viewport.scrollBarWidth`，之后不再重测）。
+    // 容器若处在 display:none 下，两个 offsetWidth 都是 0 → 量测落到 15px 兜底值，而本应用
+    // 的滚动条真实是 8px（style.css 全局 ::-webkit-scrollbar）→ cols 少算一列，表现为
+    // 「运行终端比 shell 终端提前换行」（shell 路径建实例时面板已可见，量到的是 8px）。
+    // 此刻 termSessions 里还没有会话，setBottomTab 会顺手调 ensureAnyTerminal 建交互 shell，
+    // 故用 preparingRunTerminal 抑制它——窗口期只覆盖这次同步调用。
+    preparingRunTerminal = true;
+    try {
+      setBottomTab("terminal");
+    } finally {
+      preparingRunTerminal = false;
+    }
     const view = document.createElement("div");
     view.className = "terminal-view";
     terminalViewsEl.appendChild(view);
@@ -580,7 +599,10 @@ export async function runScriptInTerminal(opts: RunTerminalOptions): Promise<voi
   if (kind === "script") s.label = t("ide.term.runLabel", { name: basename(path) });
   activeTermId = s.id;
   // **先落好运行终端再切标签**：setBottomTab 会触发 ensureAnyTerminal，
-  // 顺序反了它会先建一个交互 shell 并把激活态抢走（用户看到的是 shell 而不是运行输出）
+  // 顺序反了它会先建一个交互 shell 并把激活态抢走（用户看到的是 shell 而不是运行输出）。
+  // 新会话路径已在上面（建实例之前）先切过一次面板——那次的 ensureAnyTerminal 被
+  // preparingRunTerminal 抑制；这次调用对它是幂等的（run 会话已存在，ensureAnyTerminal 直接返回），
+  // 对「复用既有会话」的路径则是必需的那一次。
   setBottomTab("terminal");
   renderTerminalTabs();
   renderTerminalViews();

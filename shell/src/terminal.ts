@@ -90,9 +90,33 @@ export class IntegratedTerminal {
   /** 本次洪峰因硬上限丢弃的最旧输出字节数（队列清空时汇总提示后复位） */
   private droppedBytes = 0;
 
-  constructor(id: string, container: HTMLElement) {
+  constructor(id: string, view: HTMLElement) {
     this.id = id;
-    this.container = container;
+    // 宿主元素（**修的是「终端滚动条拖不动」**，勿删、勿把 padding 挪回父元素）。
+    // ⚠ open() / ResizeObserver 必须挂在本宿主上，不能挂回 view——挂回 view 等于本修复失效。
+    //
+    // FitAddon.proposeDimensions 的取数口径：读 **xterm 元素的父元素** 的
+    // getComputedStyle().width/height，再扣掉 xterm 元素**自身**的 padding。它只认这一层，
+    // 祖父元素的内边距完全不在它的计算里。而 .terminal-view 是带 padding 的视觉内框
+    // （6px 8px 6px 12px），且全局 `* { box-sizing: border-box }` 下 border-box 元素的
+    // getComputedStyle().width 返回的是**边框盒**宽（1280）而非内容盒（1260）——
+    // 于是 cols/rows 按 1280×188 算：canvas 变成 1272×180 > .xterm-viewport 的 1260×176。
+    //
+    // 后果有两层，第二层才是用户报的那个：
+    //  1. .xterm-screen（DOM 渲染器，行 div 带 overflow:hidden）越出 viewport 右缘/下缘
+    //     → 最右一列、最末一行被裁（少 12px / 4px）；
+    //  2. .xterm-screen 在 DOM 顺序上晚于 .xterm-viewport 且同为定位元素 → 它压在上层，
+    //     正好盖住 viewport 右侧那条 8px 原生滚动条 → 鼠标按下落在行 div 上，
+    //     滚动条收不到拖拽（滚轮仍可用，因为滚轮是 xterm 自己监听 element 的 wheel）
+    //     → 「运行脚本后终端面板里的滚动条无法拖动」。
+    //
+    // 修法：在容器内补一层**零 padding 的定尺寸宿主**，让 FitAddon 量到的就是真实可用宽高。
+    // 不用「把 padding 从 .terminal-view 挪到 .xterm」那种改法——那会让终端底色铺满整个
+    // 面板、视觉内框消失（xterm 主题底色 #1b1b1b vs --bg-panel #101013 是两色）。
+    const host = document.createElement("div");
+    host.className = "term-host";
+    view.appendChild(host);
+    this.container = host;
     this.term = new Terminal({
       // UI-29：字号/字体族读用户设置（原硬编码 fontSize:13 + 一份与 --mono 重复维护的字体栈）
       fontSize: termFontSize(),
@@ -105,7 +129,7 @@ export class IntegratedTerminal {
     });
     this.fit = new FitAddon();
     this.term.loadAddon(this.fit);
-    this.term.open(container);
+    this.term.open(host);
     this.fit.fit();
 
     // 键盘输入 → PTY
@@ -120,9 +144,9 @@ export class IntegratedTerminal {
       provideLinks: (bufferLine, callback) => callback(this.provideLinks(bufferLine)),
     });
 
-    // 容器尺寸变化 → adapt fit + 同步 PTY 尺寸
+    // 宿主尺寸变化 → adapt fit + 同步 PTY 尺寸
     this.resizeObserver = new ResizeObserver(() => this.syncSize());
-    this.resizeObserver.observe(container);
+    this.resizeObserver.observe(host);
   }
 
   setOnExit(cb: () => void): void {

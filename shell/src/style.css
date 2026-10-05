@@ -1955,6 +1955,13 @@ button:focus-visible,
   inset: 0;
   padding: var(--space-3) var(--space-4) var(--space-3) var(--space-6);
 }
+/* FitAddon 的宿主（terminal.ts 构造器内创建）——**勿合并回 .terminal-view，勿给它加 padding**。
+   口径：FitAddon 量的是 xterm 元素的父元素（= 本元素）的 computed width/height，且只扣 xterm
+   自身的 padding。宿主必须零 padding、尺寸确定，量到的才是真实可用宽高。
+   .terminal-view 的 padding 是视觉内框，一旦被 FitAddon 当成「可用宽高」的一部分，cols/rows
+   就会算大 → .xterm-screen 越出 .xterm-viewport 并盖住右侧原生滚动条（滚动条拖不动 +
+   最右列/末行被裁）。详见 terminal.ts 构造器注释。 */
+.term-host { width: 100%; height: 100%; }
 .terminal-view .xterm { height: 100%; }
 
 /* UI-12：终端无会话时的兜底空态。此前切到「终端」标签只看到一片空白区域，
