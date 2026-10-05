@@ -111,8 +111,14 @@ def main() -> int:
             print(f"   + {k}", file=sys.stderr)
         return 1
 
-    (LOCALES / "zh-CN" / f"{domain}.ts").write_text(emit(domain, zh_x, "zh"), encoding="utf-8")
-    (LOCALES / "en-US" / f"{domain}.ts").write_text(emit(domain, en_x, "en"), encoding="utf-8")
+    # newline="\n"：Windows 上 Python 默认把 \n 写成 CRLF，会让同一份语言包在平台间行尾不同
+    # （git 每次都报 CRLF 警告、协作时产生整文件 diff 噪音）。语言包一律 LF。
+    (LOCALES / "zh-CN" / f"{domain}.ts").write_text(
+        emit(domain, zh_x, "zh"), encoding="utf-8", newline="\n"
+    )
+    (LOCALES / "en-US" / f"{domain}.ts").write_text(
+        emit(domain, en_x, "en"), encoding="utf-8", newline="\n"
+    )
     print(f"✓ zh-CN/{domain}.ts ({len(zh_x)} 条)  en-US/{domain}.ts ({len(en_x)} 条)")
     return 0
 

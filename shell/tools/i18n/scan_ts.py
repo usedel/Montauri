@@ -172,7 +172,7 @@ def main() -> int:
         print(f"   HTML | {k[:100]}")
     if out:
         Path(out).write_text(
-            json.dumps(entry, ensure_ascii=False, indent=1), encoding="utf-8"
+            json.dumps(entry, ensure_ascii=False, indent=1), encoding="utf-8", newline="\n"
         )
         print(f"→ {out}")
     return 0

@@ -146,9 +146,13 @@ def main() -> int:
             print(f"   - {t[:90]}")
     if not dry:
         for src_path, src in results:
-            src_path.write_text(src, encoding="utf-8")
+            src_path.write_text(src, encoding="utf-8", newline="\n")
         out_path = Path(__file__).parent / out
-        out_path.write_text(json.dumps(dict(sorted(all_entries.items())), ensure_ascii=False, indent=2), encoding="utf-8")
+        out_path.write_text(
+            json.dumps(dict(sorted(all_entries.items())), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+            newline="\n",
+        )
         print(f"→ 改写 {len(results)} 个源文件；词条 → {out_path}")
     return 0
 
