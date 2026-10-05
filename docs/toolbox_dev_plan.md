@@ -860,6 +860,16 @@ export function addRunDataConsumer(fn: RunDataConsumer): () => void; // 返回 d
 6. **删掉未使用的 `row.dataset.raw`**：每行 DOM 多存一份原文（超长行场景是纯浪费）。
 7. **`main.ts` 内联的 20 行「插入编辑器」抽成 `editorInsert.ts`**：规范要求 main 只做接线。
 
+**手工验收反馈修复（2026-10-05，用户实测）**：
+
+- **提示条「知道了」点了没反应（真 bug）**：`.logs-hint { display: flex }` 是作者样式，会盖掉 `hidden` 属性
+  的 UA `display: none` → 点了等于没点。**同类隐患一并修掉**：视图内三处显隐（提示条 / 行内 JSON 展开框 /
+  「↓ N 条新日志」按钮）统一改用全局 `.hidden` 类（带 `!important`），不再用 `hidden` 属性。
+  > 规则沉淀：**凡是自己写了 `display` 的元素，禁用 `hidden` 属性做显隐**；本仓库统一走 `.hidden` 类。
+- **提示文案补上入口键位**：原文案只说「运行历史 = 按次归档回看」，用户找不到入口 → 改为
+  「运行历史（{key}）= …」，`{key}` 取 `bindingLabel("run_history")`（键位单一来源，随用户自定义变化）。
+- 回归防护：单测 +1（提示可关闭 + 占位符已注入）、`e2e/logs` +1（第 10 条：点「知道了」后提示消失）。
+
 **复核确认无问题的点（留证）**：`.hidden` 带 `!important`（`#logs-panel { display: flex }` 不会盖过它）；`termUi → logView → menu/util` 无环（`logView` 不反向 import termUi/settingsPanel）；设置保存顺序正确（`app.settings` 先整体赋值、再 `applyLogSettings()`）；e2e mock 无需补字段（`log_max_lines ?? 5000` 与 `!== false` 已兜底）。
 
 **踩坑（后续 PR 直接引用）**：

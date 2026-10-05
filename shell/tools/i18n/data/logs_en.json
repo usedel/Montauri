@@ -1,5 +1,5 @@
 {
-  "logs.hint": "Run History = archived per run; Run Logs = live view of the current run",
+  "logs.hint": "Run History ({key}) = archived per run; Run Logs = live view of the current run",
   "logs.hintDismiss": "Got it",
   "logs.levelError": "Error",
   "logs.levelWarn": "Warning",

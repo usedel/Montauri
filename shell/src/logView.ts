@@ -20,6 +20,7 @@ import {
 } from "./logStore";
 import { addRunDataConsumer } from "./runDataBus";
 import { renderJsonTree } from "./jsonTree";
+import { bindingLabel } from "./keybindings"; // 提示文案里的「运行历史」入口键位（单一来源）
 import type { OutputLogLevel } from "./output";
 
 /** 字段列的中文名（顺序与 `LOG_FIELDS` 一致） */
@@ -237,15 +238,15 @@ function buildRow(e: LogEntry): HTMLElement {
     let box: HTMLElement | null = null;
     toggle.addEventListener("click", () => {
       if (!box) {
+        // 首次点击 = 展开：创建即可见，不挂 .hidden（显隐一律走全局 `.hidden` 类，见 logs-hint 注释）
         box = document.createElement("div");
         box.className = "log-json";
         box.appendChild(renderJsonTree(e.json));
         row.insertAdjacentElement("afterend", box);
-        box.hidden = false; // 首次点击 = 展开
       } else {
-        box.hidden = !box.hidden;
+        box.classList.toggle("hidden");
       }
-      toggle.textContent = box.hidden ? "▸" : "▾";
+      toggle.textContent = box.classList.contains("hidden") ? "▸" : "▾";
     });
     // 挂在**最后一个单元格内**：直接 appendChild 到 row 会多出一个网格项而错位
     (row.lastElementChild ?? row).appendChild(toggle);
@@ -345,7 +346,7 @@ function renderStatus(shown: number): void {
   statusEl.classList.toggle("logs-status--error", !!err);
   // 「↓ N 条新日志」（暂停跟随期间才有；点击跳到底部并恢复跟随）
   if (newBtn) {
-    newBtn.hidden = pendingNew <= 0;
+    newBtn.classList.toggle("hidden", pendingNew <= 0);
     newBtn.textContent = t("logs.newLogs", { n: pendingNew });
   }
 }
@@ -391,19 +392,22 @@ function buildDom(host: HTMLElement): void {
   // （实测：初始化后面板在所有 tab 下都可见）。只追加自己的类。
   host.classList.add("logs-panel");
 
-  // 首次使用提示（可关闭；会话级——不引入新的持久化通道）
+  // 首次使用提示（可关闭；会话级——不引入新的持久化通道）。
+  // 显隐一律走全局 `.hidden` 类（带 `!important`），**不能用 `hidden` 属性**：
+  // 本元素有 `display: flex` 的作者样式，会盖掉 hidden 属性的 UA `display:none`（实测点了没反应）。
   hintEl = document.createElement("div");
   hintEl.className = "logs-hint";
-  hintEl.hidden = hintDismissed;
+  hintEl.classList.toggle("hidden", hintDismissed);
   const hintText = document.createElement("span");
-  hintText.textContent = t("logs.hint");
+  // 带上「运行历史」的实际入口键位（键位可自定义，走 bindingLabel 单一来源）
+  hintText.textContent = t("logs.hint", { key: bindingLabel("run_history") || "Ctrl+Shift+R" });
   const hintBtn = document.createElement("button");
   hintBtn.className = "btn btn--sm";
   hintBtn.type = "button";
   hintBtn.textContent = t("logs.hintDismiss");
   hintBtn.addEventListener("click", () => {
     hintDismissed = true;
-    if (hintEl) hintEl.hidden = true;
+    hintEl?.classList.add("hidden");
   });
   hintEl.appendChild(hintText);
   hintEl.appendChild(hintBtn);
@@ -566,7 +570,7 @@ function buildDom(host: HTMLElement): void {
   newBtn = document.createElement("button");
   newBtn.className = "logs-new-btn";
   newBtn.type = "button";
-  newBtn.hidden = true;
+  newBtn.classList.add("hidden"); // 同 logs-hint：显隐走 `.hidden` 类而非 hidden 属性
   newBtn.addEventListener("click", () => {
     autoScroll = true;
     if (autoScrollEl) autoScrollEl.checked = true;

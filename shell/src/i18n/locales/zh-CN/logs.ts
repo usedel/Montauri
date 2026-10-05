@@ -21,7 +21,7 @@ export const logs = {
   "logs.fieldMessage": "消息",
   "logs.fieldTime": "时间",
   "logs.fields": "字段",
-  "logs.hint": "运行历史 = 按次归档回看；运行日志 = 当前运行的实时视图",
+  "logs.hint": "运行历史（{key}）= 按次归档回看；运行日志 = 当前运行的实时视图",
   "logs.hintDismiss": "知道了",
   "logs.insertEditor": "插入编辑器",
   "logs.insertEditorTip": "把当前可见行插入编辑器光标处",

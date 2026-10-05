@@ -1,5 +1,5 @@
 {
-  "logs.hint": "运行历史 = 按次归档回看；运行日志 = 当前运行的实时视图",
+  "logs.hint": "运行历史（{key}）= 按次归档回看；运行日志 = 当前运行的实时视图",
   "logs.hintDismiss": "知道了",
   "logs.levelError": "错误",
   "logs.levelWarn": "警告",

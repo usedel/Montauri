@@ -22,7 +22,7 @@ export const logs: Record<LogsKey, string> = {
   "logs.fieldMessage": "Message",
   "logs.fieldTime": "Time",
   "logs.fields": "Fields",
-  "logs.hint": "Run History = archived per run; Run Logs = live view of the current run",
+  "logs.hint": "Run History ({key}) = archived per run; Run Logs = live view of the current run",
   "logs.hintDismiss": "Got it",
   "logs.insertEditor": "Insert into editor",
   "logs.insertEditorTip": "Insert the visible lines at the cursor",

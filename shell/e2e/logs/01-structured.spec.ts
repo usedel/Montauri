@@ -200,6 +200,15 @@ test("08 导出：复制全部写入剪贴板；插入编辑器落到光标处",
   expect(text).toContain("启动完成");
 });
 
+test("10 首次使用提示：点「知道了」后消失（回归：display:flex 曾让 hidden 属性失效）", async ({ page }) => {
+  await openLogsTab(page);
+  const hint = page.locator(".logs-hint");
+  await expect(hint).toBeVisible();
+  await expect(hint).toContainText("运行历史");
+  await page.locator(".logs-hint button").click();
+  await expect(hint).toBeHidden();
+});
+
 test("09 设置项：关闭 log_structured_enabled 后底部不显示该 tab", async ({ page }) => {
   // 本用例需要预置设置，故重开一次页面（beforeEach 的 equipPage 已注入 mock）
   await page.addInitScript(() => {

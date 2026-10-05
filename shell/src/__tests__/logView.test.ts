@@ -189,12 +189,12 @@ describe("JSON 展开 / 清空 / 隐藏重建（§6.7.6 / §6.7.3）", () => {
     toggle.click();
     const box = logViewRoot()!.querySelector<HTMLElement>(".log-json")!;
     expect(box).not.toBeNull();
-    expect(box.hidden).toBe(false);
+    expect(box.classList.contains("hidden")).toBe(false);
     expect(box.querySelector(".json-tree")).not.toBeNull();
     expect(box.textContent).toContain("msg");
     expect(toggle.textContent).toBe("▾");
     toggle.click();
-    expect(box.hidden).toBe(true);
+    expect(box.classList.contains("hidden")).toBe(true);
   });
 
   it("清空按钮：回到空态但保持 live 相位", () => {
@@ -284,13 +284,13 @@ describe("字段列 / 自动滚动 / 导出 / 设置（PR-B5-3）", () => {
     flushLogView();
     expect(logViewSnapshot().pendingNew).toBe(1);
     const newBtn = logViewRoot()!.querySelector<HTMLButtonElement>(".logs-new-btn")!;
-    expect(newBtn.hidden).toBe(false);
+    expect(newBtn.classList.contains("hidden")).toBe(false);
     expect(newBtn.textContent).toContain("1");
     newBtn.click();
     expect(logViewSnapshot().pendingNew).toBe(0);
     expect(logViewSnapshot().autoScroll).toBe(true);
     expect(box.checked).toBe(true);
-    expect(newBtn.hidden).toBe(true);
+    expect(newBtn.classList.contains("hidden")).toBe(true);
   });
 
   it("导出：复制全部写剪贴板（内容按选中字段格式化）", async () => {
@@ -339,6 +339,19 @@ describe("字段列 / 自动滚动 / 导出 / 设置（PR-B5-3）", () => {
     expect(applyLogSettings()).toBe(true);
     expect(document.getElementById("tab-logs")!.hidden).toBe(false);
     app.settings.log_structured_enabled = prev;
+  });
+});
+
+describe("首次使用提示（会话级，可关闭）", () => {
+  it("提示带「运行历史」入口键位（占位符已替换），点「知道了」后隐藏", () => {
+    const hint = logViewRoot()!.querySelector<HTMLElement>(".logs-hint")!;
+    expect(hint.classList.contains("hidden")).toBe(false);
+    expect(hint.textContent).toContain("运行历史");
+    expect(hint.textContent).not.toContain("{key}"); // t() 的键位参数必须已注入
+    const btn = [...hint.querySelectorAll("button")].find((b) => b.textContent?.includes("知道了"))!;
+    btn.click();
+    // 回归：曾用 `hidden` 属性，被 `display: flex` 盖掉导致「点了没反应」
+    expect(hint.classList.contains("hidden")).toBe(true);
   });
 });
 
