@@ -234,6 +234,28 @@ test("E2E-11b：本地已有同名分支时点远程分支 → 切本地不覆�
   expect(repo.read("a.py")).toContain("local-only");
 });
 
+// ---------- E2E-11c：远程默认分支符号引用不进分支列表 ----------
+
+test("E2E-11c：远程分支组不显示 origin/HEAD（符号引用非真实分支）", async ({ page }) => {
+  // clone 会建立 refs/remotes/origin/HEAD → 远程默认分支；它是符号引用而非分支，
+  // 点击走 checkout --track 会 fatal: 'HEAD' is not a valid branch name，故面板须剔除。
+  const repo = await makeGitRepo({ files: { "a.py": "base\n" }, commitMsg: "base" });
+  await repo.git(["update-ref", "refs/remotes/origin/main", "HEAD"]);
+  await repo.git(["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]);
+  await repo.git(["config", "remote.origin.url", "https://example.invalid/e2e.git"]);
+  await repo.git(["config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"]);
+  await equipPage(page, repo);
+  await page.goto("/");
+  await expect(page.locator("#tree .tree-item .name", { hasText: "a.py" })).toBeVisible({ timeout: 20_000 });
+
+  await page.locator("#tab-git").click();
+  await page.locator("#git-branch-btn").click();
+  const list = page.locator("#git-branch-list");
+  // 真实远程分支照常显示（防过滤写宽误删）
+  await expect(list.locator(".git-branch-item", { hasText: "origin/main" })).toHaveCount(1, { timeout: 10_000 });
+  await expect(list.locator(".git-branch-item", { hasText: "origin/HEAD" })).toHaveCount(0);
+});
+
 /** 点「抓取（全部远程）」菜单项的辅助（抽出避免 locator 重复） */
 async function pclickFetch(page: Page): Promise<void> {
   await page.locator(".ctx-menu-item", { hasText: "抓取（全部远程）" }).click();

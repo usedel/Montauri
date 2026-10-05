@@ -192,6 +192,44 @@ pub struct GitBranch {
     pub remote: bool,
 }
 
+/// 解析 `git branch -a --format "%(HEAD)\t%(refname)\t%(objectname:short)"` 的输出。
+///
+/// 剔除 `refs/remotes/<remote>/HEAD`：它是 clone / `git remote set-head` 建立的**符号引用**
+/// （指向远程默认分支），不是真实分支——不可检出（`git checkout --track origin/HEAD`
+/// → `fatal: 'HEAD' is not a valid branch name`），列在面板里只是幻影条目。
+fn parse_branches(out: &str) -> Vec<GitBranch> {
+    let mut branches = Vec::new();
+    for line in out.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let mut parts = line.splitn(3, '\t');
+        let head_mark = parts.next().unwrap_or("");
+        let name = parts.next().unwrap_or("").trim().to_string();
+        let _hash = parts.next().unwrap_or("");
+        if name.is_empty() || name == "HEAD" {
+            continue;
+        }
+        // refs/heads/x → 本地 x；refs/remotes/origin/x → 远程 origin/x（保留远程命名空间）
+        let (display, remote) = if let Some(rest) = name.strip_prefix("refs/remotes/") {
+            if rest.rsplit_once('/').map(|(_, last)| last) == Some("HEAD") {
+                continue; // 远程默认分支指针，非真实分支
+            }
+            (rest.to_string(), true)
+        } else if let Some(rest) = name.strip_prefix("refs/heads/") {
+            (rest.to_string(), false)
+        } else {
+            (name, false) // branch -a 不出其他 ref；兜底当本地处理
+        };
+        branches.push(GitBranch {
+            name: display,
+            current: head_mark.trim() == "*",
+            remote,
+        });
+    }
+    branches
+}
+
 /// 列出本地 + 远程分支及当前分支（迭代 3 · B8：`git branch -a`，远程条目标 remote=true）。
 #[tauri::command]
 pub async fn git_branches(root: String) -> Result<Vec<GitBranch>, String> {
@@ -203,33 +241,7 @@ pub async fn git_branches(root: String) -> Result<Vec<GitBranch>, String> {
         cmd.arg("branch").arg("-a").arg("--format")
             .arg("%(HEAD)%09%(refname)%09%(objectname:short)");
         let out = exec_git(&root, cmd)?;
-        let mut branches = Vec::new();
-        for line in out.lines() {
-            if line.trim().is_empty() {
-                continue;
-            }
-            let mut parts = line.splitn(3, '\t');
-            let head_mark = parts.next().unwrap_or("");
-            let name = parts.next().unwrap_or("").trim().to_string();
-            let _hash = parts.next().unwrap_or("");
-            if name.is_empty() || name == "HEAD" {
-                continue;
-            }
-            // refs/heads/x → 本地 x；refs/remotes/origin/x → 远程 origin/x（保留远程命名空间）
-            let (display, remote) = if let Some(rest) = name.strip_prefix("refs/remotes/") {
-                (rest.to_string(), true)
-            } else if let Some(rest) = name.strip_prefix("refs/heads/") {
-                (rest.to_string(), false)
-            } else {
-                (name, false) // branch -a 不出其他 ref；兜底当本地处理
-            };
-            branches.push(GitBranch {
-                name: display,
-                current: head_mark.trim() == "*",
-                remote,
-            });
-        }
-        Ok(branches)
+        Ok(parse_branches(&out))
     })
     .await
 }
@@ -1615,6 +1627,36 @@ filename a.py
         assert_eq!(rows[0].author, "Dev");
         assert_eq!(rows[0].summary, "init commit");
         assert_eq!(rows[0].time, 1700000000);
+    }
+
+    /// 分支列表剔除 `refs/remotes/origin/HEAD`（clone 建立的远程默认分支符号引用，
+    /// 非真实分支：列进面板是幻影条目，点击走 `checkout --track` 会 fatal）。
+    /// 复现数据取自本仓库实测的 `git branch -a --format` 输出。
+    #[test]
+    fn test_parse_branches_drops_remote_head_symref() {
+        let out = " \trefs/heads/master\t63916f7\n \trefs/remotes/origin/HEAD\t19b7baf\n \trefs/remotes/origin/master\t19b7baf\n";
+        let bs = parse_branches(out);
+        assert!(
+            !bs.iter().any(|b| b.name == "origin/HEAD"),
+            "origin/HEAD 是符号引用，应从分支列表剔除：实际={:?}",
+            bs.iter().map(|b| b.name.as_str()).collect::<Vec<_>>()
+        );
+        let master = bs.iter().find(|b| b.name == "origin/master").expect("真实远程分支 origin/master 被误删");
+        assert!(master.remote, "远程条目必须标 remote=true（否则混进本地组）");
+        assert!(!master.current);
+        assert_eq!(bs.len(), 2);
+    }
+
+    /// 解析常规输出：本地组 remote=false，当前分支由 `*` 标记（回归保护）。
+    #[test]
+    fn test_parse_branches_local_and_current() {
+        let out = "*\trefs/heads/master\t63916f7\n \trefs/heads/dev\t0000000\n";
+        let bs = parse_branches(out);
+        assert_eq!(bs.len(), 2);
+        assert_eq!(bs[0].name, "master");
+        assert!(bs[0].current && !bs[0].remote);
+        assert_eq!(bs[1].name, "dev");
+        assert!(!bs[1].current && !bs[1].remote);
     }
 
     /// 在临时目录初始化一个 git 仓库，便于端到端验证命令层（需要环境已安装 git）。

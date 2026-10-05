@@ -287,6 +287,9 @@ async function dispatchGit(cmd: string, args: Record<string, unknown>, repo: Git
         const remotes = full.startsWith("refs/remotes/");
         const heads = full.startsWith("refs/heads/");
         if (!remotes && !heads) return [];
+        // 与 Rust parse_branches 同构：剔除 <remote>/HEAD（clone 建立的远程默认分支
+        // 符号引用，非真实分支，不可检出）
+        if (remotes && full.slice("refs/remotes/".length).split("/").pop() === "HEAD") return [];
         return [{
           name: remotes ? full.slice("refs/remotes/".length) : full.slice("refs/heads/".length),
           current: head.trim() === "*",
