@@ -16,6 +16,9 @@ import { t } from "../../i18n";
 import { localizeBackendError } from "../../i18n/backendError";
 import { codicon, emptyState, errMsg, setBusy } from "../../util";
 import { flashError, flashSuccess } from "../feedback";
+import { openDevTools } from "../panel"; // A4 ③：响应 → 选择器测试 / 模型生成（直连 panel，避开 index↔builtin 循环）
+import { JSON2MODEL_TOOL_ID, setPendingJson2Model } from "./json2model";
+import { SELECTOR_TOOL_ID, setPendingSelectorHtml } from "./selector";
 import {
   HTTP_METHODS,
   beginSend,
@@ -236,7 +239,8 @@ export function mount(host: PanelHost): { dispose(): void } {
 
   const errEl = kit.errorSlot();
 
-  // 响应工具栏：复制 / 插入到编辑器（保存到磁盘留 v1.1，见交付记录——需新增写权限与 save 对话框通道）
+  // 响应工具栏：复制 / 插入到编辑器 / 测试选择器 / 生成模型
+  // （保存到磁盘留 v1.1，见交付记录——需新增写权限与 save 对话框通道）
   const insertBtn = kit.button(t("devtools.http.insertEditor"), "export");
   insertBtn.dataset.tip = t("devtools.http.insertEditorTip");
   insertBtn.addEventListener("click", () => {
@@ -248,7 +252,42 @@ export function mount(host: PanelHost): { dispose(): void } {
     if (host.insertToEditor(body)) flashSuccess(insertBtn, t("devtools.http.inserted"));
     else flashError(insertBtn, t("devtools.common.noFileOpen"));
   });
-  const respToolbar = kit.toolbar(kit.copyButton(() => state.lastResult?.body ?? ""), insertBtn);
+
+  // A4 ③：响应 → 另两个工具的两条出口。两条都**不做按响应类型动态显隐**——那会让工具栏
+  // 随每次响应抖动；改为点击时校验内容类型，不符就 flash 提示（与 insertBtn 同一范式）。
+  const toSelectorBtn = kit.button(t("devtools.http.toSelector"), "search");
+  toSelectorBtn.dataset.tip = t("devtools.http.toSelectorTip");
+  toSelectorBtn.addEventListener("click", () => {
+    const body = state.lastResult?.body ?? "";
+    if (body === "") {
+      flashError(toSelectorBtn, t("devtools.http.noBody"));
+      return;
+    }
+    // 不校验「像不像 HTML」：选择器工具自己会给「输入看起来不是 HTML」提示，这里拦一道
+    // 反而会挡住「拿 JSON 试 JSONPath 风格选择器」这类探索用法。
+    setPendingSelectorHtml(body);
+    openDevTools(SELECTOR_TOOL_ID);
+  });
+
+  const toModelBtn = kit.button(t("devtools.http.toModel"), "symbol-class");
+  toModelBtn.dataset.tip = t("devtools.http.toModelTip");
+  toModelBtn.addEventListener("click", () => {
+    const res = state.lastResult;
+    if (!res || res.body === "") {
+      flashError(toModelBtn, t("devtools.http.noBody"));
+      return;
+    }
+    const parsed = parseJsonBody(res);
+    if (!parsed.ok) {
+      flashError(toModelBtn, t("devtools.http.notJson"));
+      return;
+    }
+    // 传美化后的 JSON：json2model 的输入区可读，且字段顺序与响应一致
+    setPendingJson2Model(JSON.stringify(parsed.value, null, 2));
+    openDevTools(JSON2MODEL_TOOL_ID);
+  });
+
+  const respToolbar = kit.toolbar(kit.copyButton(() => state.lastResult?.body ?? ""), insertBtn, toSelectorBtn, toModelBtn);
 
   wrap.append(
     kit.row(methodSel, urlInput, sendBtn, cancelBtn),

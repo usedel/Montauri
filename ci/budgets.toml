@@ -43,6 +43,10 @@ styles_hotspots_max_lines = 60
 # styles/endpointSample.css（A5① 端点请求样例，2026-10-06 新增）：97 行。上限 125（余量 ~29%）。
 styles_endpointsample_max_lines = 125
 
+# styles/selector.css（A4 选择器测试，2026-10-06 新增）：132 行。上限 165（余量 ~25%）。
+#   新功能落新文件的纪律同 hotspots.css / endpointSample.css（不再往 style.css 里堆）。
+styles_selector_max_lines = 165
+
 # main.ts：2,897 → 2,312（第一刀）→ **2,094（2026-10-06 阶段二拆分第二刀，init 阶段化，−218 行）**。
 #   真实故事不是"UI 六批顺带拆了"（同期它是 +58，不是 -336），而是 tech-debt 记录的 TD-014
 #   拆分成果（~1,196）已被后续功能吃回 +1,701。
@@ -93,6 +97,18 @@ endpoint_view_ts_max_lines = 460
 #   DOM 查询带进单测（表现为「缺少元素 #git-detail-view」）。合回去之前先想清楚怎么测。
 ep_sample_ts_max_lines = 330
 ep_sample_core_ts_max_lines = 205
+
+# selectorCore.ts / selector.ts（A4 选择器测试，2026-10-06 新增）：379 / 394 行。上限 460 / 480（余量 ~21% / ~22%）。
+#   两层是刻意分的（同 epSample 那条教训）：Core 零 app 依赖（不 import state / i18n / util）→
+#   单测直接 import 即可，happy-dom 下跑得动；selector.ts 那层要 PanelHost / DOMPurify / 面板 DOM。
+#   合回去之前先想清楚单测怎么脱离应用外壳跑。
+selector_core_ts_max_lines = 460
+selector_ts_max_lines = 480
+
+# http.ts（B4 HTTP 工具；A4 ③ 起成为「响应 → 其他工具」的枢纽）：900 行。上限 980（余量 ~9%）。
+#   本文件此前未纳入预算，A4 ③ 首次登记（同 endpointView 的登记理由：工具面板会随功能长）。
+#   余量只给 9% 是有意的——它已经是内置工具里最长的文件，再长就该像 epSample 那样拆纯函数层。
+http_ts_max_lines = 980
 
 # git.ts：3,204，Git 迭代 0–6 交付后 44c85ea→HEAD **零变化**（既没涨也没拆）。保持观察。
 git_ts_max_lines = 3300

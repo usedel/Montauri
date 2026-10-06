@@ -32,6 +32,8 @@ import * as password from "./password";
 import * as textdiff from "./textdiff";
 // B4 批次（2026-10-05）：HTTP 请求工具（docs/toolbox_dev_plan.md §5 v2）
 import * as http from "./http";
+// A4 批次（2026-10-06）：爬虫工具箱 · 选择器测试（docs/improvement_and_roadmap_report.md §3 A4）
+import * as selector from "./selector";
 
 /** 内置工具模块表：entry 名 → 模块（对应第三方 manifest 的 entry 文件） */
 export const BUILTIN_TOOL_MODULES: Record<string, ToolModuleLike> = {
@@ -58,6 +60,8 @@ export const BUILTIN_TOOL_MODULES: Record<string, ToolModuleLike> = {
   "./textdiff.ts": textdiff as ToolModuleLike,
   // B4 批次
   "./http.ts": http as ToolModuleLike,
+  // A4 批次
+  "./selector.ts": selector as ToolModuleLike,
 };
 
 /** 工具模块契约（与第三方 ES module 导出同形；见 loader.ToolModule） */
@@ -255,6 +259,16 @@ export function buildBuiltinManifest(): PluginManifest {
         category: "网络",
         icon: "globe",
         entry: "./http.ts",
+      },
+      // ---------- A4 批次（2026-10-06，docs/improvement_and_roadmap_report.md §3 A4） ----------
+      // 无 inline：选择器测试要同时看 HTML 与选择器两侧，选中文本单独触发没有意义。
+      {
+        id: "selector",
+        title: t("devtools.tool.selector.title"),
+        description: t("devtools.tool.selector.desc"),
+        category: "提取",
+        icon: "search",
+        entry: "./selector.ts",
       },
     ],
   },

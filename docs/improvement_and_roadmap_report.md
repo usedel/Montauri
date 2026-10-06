@@ -61,6 +61,16 @@
 > **⚠ 口径（重要）**：probe 明确「**绝不 repr 值本身**」（`probe/README.md` 类型紧凑表示），trace 里只有 `type_label` 与 `shape`——**不存在"实际见过的字面取值"**。因此 A 类表原写的「常见值」在落地时收敛为「常见键 / 常见属性」（结构），文案与文档均**不得**暗示有字面值。这是本轮唯一对原描述的收紧，需在对外说明里保持。
 > **顺带修掉一个既有缺陷**：`trace.rs::load_args` 用 `ORDER BY fid`，而 SQLite 排序**不保证稳定**——同一函数的多条 `arg_types` 行会被打乱。**实测确已乱序**（`url, timeout, retries` 读成 `retries` 打头），而 A3① 的「位置参数前跳」正依赖该顺序。改为 `ORDER BY fid, rowid`（arg_types 无 fid 索引，排序本就发生，零额外代价），由 `trace_test.rs::arg_observation_order_is_insertion_order` 钉住。**教训**：凡依赖 SQL 行序的地方，必须显式给出决胜键。
 > 门禁：`tsc` 零错 · 前端单测 **100 文件 / 1240 不变**（A3 是 Rust 侧功能，未新增前端测试）· `cargo test` intel **60**（47 + 6 + 7；新增 15 例：参数补全 10 + hover 4 + 索引顺序 1）· 外壳 **319 passed / 2 ignored 不变** · e2e **全量 340/340**（串行 25.4m，含 `_probe`；触发字符改动未引入回归）· `budget-check` **二十七项全 PASS**（**首次纳入 intel crate 两个文件**：`completion.rs` 1632/1950 · `hover.rs` 392/470；命令 196/200 · 产物 5,013/5,120 均不变）· `audit_tokens.py` **98 项 0 FAIL**（本轮无新增 CSS）。
+> ⑮ **A4①+③ 爬虫工具箱「选择器测试」+ 响应→模型桥已交付（2026-10-06，用户选「A4 爬虫工具箱」→ 范围收在「①选择器测试器 + ③响应结构 → Pydantic 模型」、求值引擎选「前端浏览器 DOM」）**——差异化泳道第四件，也是**第一条把「抓下来的东西」与「写爬虫时的验证动作」放进同一个面板**的功能。
+> **范围裁决**：A4 三个子项里，②「请求回放」本轮不做——B4 HTTP 工具的历史区（最近 20 条点击回填）**已经是回放**，独立面板属重复建设，已降级登记。③ 的**本体早已存在**（`json2model.gen.ts` / `json2model.ts`，P1 库支持批次交付），本轮只补**桥**：HTTP 响应工具栏一键送进模型生成器。故真正的新件只有 ①。
+> **求值引擎裁决（本轮最重要的取舍）**：① 在**前端浏览器 DOM** 上求值（`DOMParser` + `querySelectorAll` / `document.evaluate`），**不走 `libEval` 求值桥**。理由：求值桥纪律（§2-5「求值统一走本模块」）管的是 **Python 求值**，而这里没有 Python 参与；换来的是输入即命中（150ms 防抖）、零新依赖、无解释器 / 无 venv 也能用。**代价是口径差异**——与 lxml / bs4 在「`<table>` 缺 `<tbody>` 时浏览器自动补一层」「畸形 HTML 的修复规则」「CSS 支持集（`:has()` / `:is()` 浏览器有，cssselect / soupsieve 未必）」上不同。故面板**常驻一行口径说明**（`devtools.sel.engineNote`：「…本面板用于验证选择器写法，**不等于爬虫实际结果**」），由 e2e **SEL-9 钉住不得删**。**Python 侧 lxml / bs4 引擎已降级登记**（要一致口径时再做）。
+> **① 求值层**（`selectorCore.ts`，零 app 依赖 → 单测可直接 import）：选择器类型自动识别（以 `/`、`.//`、`(//`、具名轴 `xxx::` 开头 → XPath；`a::before` 这类伪元素与 `a[href^='/p/']` 这类属性值斜杠**不误判**）；解析结果**按 HTML 缓存**（改选择器不重解析）；命中快照含 tag / id / class / 优先级排序属性（`href`·`src`·`title`·`data-*`…，跳过 id/class/style，受 `ATTR_LIMIT` 限条并另报 `attrTotal`）/ **直接文本**（`ownText`，与 `textContent` 分开——爬虫取的是前者）/ 简洁路径（`div.list > a.item:nth-of-type(2)`）。上限：命中 200 条（超出只计数）、HTML 2M 字符（超出拒绝并明说）、文本 120 字符。
+> **高亮与「当前命中」两条易错点**：求值前**必须先清上一次的高亮类**（否则选择器会看见自己打上的 `.sel-hit`）；**必须先取快照再打高亮**（反过来的话 `classes` 会把 `.sel-hit` 读进去、UI 每条命中都多显示一个类——本轮自测发现并修）。「当前命中」下标**跨「切列表 / 切预览」保留**、选择器一变即作废（否则下标会指向另一个元素）；命中数缩水到下标之外时不越界加 active。
+> **面板**（`selector.ts`）：单列布局——右侧面板默认仅 **360px**（下限 260），双栏必挤，故「命中列表 / 结构预览」用 `kit.radioGroup` 互斥切换。结构预览**先 DOMPurify 消毒再注入**，并 `FORBID_TAGS` 掉 `style` / `link` / `base` / `iframe` 等——**`<style>` 若不剥会重排整个 IDE**（CSS 是全局的，不随容器隔离）。预览明说「不是页面渲染效果」（页面 CSS 已剥离、应用样式仍会命中）。HTML 与选择器经 `host.storage` 持久化（**HTML > 64KB 不落盘**——避免写爆 localStorage 连带影响其它工具草稿）；面板实例缓存 `CACHE_MAX=5`，故持久化是必要的而非锦上添花。
+> **③ 响应 → 工具两座桥**（`http.ts` 响应工具栏 +2 按钮）：「选择器测试」（响应体 → 选择器工具，**不校验像不像 HTML**——选择器工具自己会给提示，硬拦反而挡住「拿 JSON 试选择器」这类探索用法）与「生成模型」（响应体须为 JSON，`parseJsonBody` 失败则 flash 明说，美化后送进 `json2model`）。两座桥都走**与 `setPendingRequest` 同构的投递**：工具已挂载 → 直投在线消费者；未挂载 → 暂存待下次 `mount` 消费（**两条路都要通**，否则会静默失效——同 `openHttpTool` 那条踩坑）。工具全局 id 一律经 `pluginToolId("opencharm.builtin", …)` 构造，不再手写字符串。
+> **口径红线（对外说明同样适用）**：本工具是**验证选择器写法**的辅助，不是「爬虫会看到什么」的模拟器。写内容/文档时不得表述为「所见即所得」或「比 lxml 准」。
+> 门禁：`tsc` 零错 · 前端单测 **101 文件 / 1271 用例**（新增 `selectorCore.test.ts` **31 例**）· intel `cargo test` **60 不变**（本轮无 Rust 改动）· 外壳 `cargo test` ⚠ **见下条环境故障** · e2e **tools 域 10/10**（全量见 §1.4）· `budget-check` **三十一项全 PASS**（新增 4 个上限：`selectorCore.ts` 379/460 · `selector.ts` 394/480 · `styles/selector.css` 132/165 · **首次纳入 `http.ts` 900/980**；命令 196/200 不变 · 产物 5,013 → **5,032** KB）· `audit_tokens.py` **98 项 0 FAIL**（新增 CSS 全 token，无白名单条目）。
+> **⚠ 环境故障（非本轮回归，须记录）**：外壳 `cargo test` 本轮 **318 passed / 1 failed / 2 ignored**，唯一失败是 `lib_cmds::tests::stdin_utf8_roundtrip_with_real_python`，报 Windows **`os error 231`（所有的管道范例都在使用中）**——失败点在 `run_with_timeout_bytes` 的 `Command::spawn()`（lib_cmds.rs:266），即**带管道 stdin 的原生子进程创建**被拒。判定为**会话沙箱环境问题**的证据链：① `git status` 证明本轮**零 Rust 改动**（该用例在 A3 轮次是过的，同机同代码）；② 同函数的 `Stdio::null()` 路径（`any_python` / `eval_timeout_branch`）全部通过，说明只差在 stdin 管道；③ 直接运行测试二进制（绕开 cargo）**同样复现**，排除 cargo 因素；④ Python 侧同类「三管道 spawn + communicate」**正常**。这与本项目已记录的「`spawnSync` 报 `EBUSY`、异步 `spawn` 却正常」属**同族**沙箱故障。**处置**：如实记录、不当作回归、不修改代码绕开；后续会话需复跑确认是否自愈。
 > v1.1 的规模数字取自 PowerShell `Get-Content $f | .Count`。在本机（PS 5.1，ANSI 代码页 **gb2312**）上，对**无 BOM 的 UTF-8 源文件**该写法会按 GBK 解码并**吞掉换行**——`style.css` 报 5,410 而真实 5,668（少 4.5%），`main.ts` 报 2,503 而真实 2,897（少 13%）。丢失比例随文件 CJK 密度而变、**逐文件不同**，因此这批数字是"看起来合理但系统性偏低"的。
 > 连带被推翻的结论（详见 §1.2）：**「巨型文件趋势已逆转」「UI 六批顺带把逻辑拆去了域模块」不成立**——`git.ts` / `lsp/client.ts` / `env_cmds.rs` / `fs_cmds.rs` / `git_cmds.rs` 在 `44c85ea → HEAD` 之间**一行未变**，`main.ts` 是 **+58**（不是 −336）。
 > 本版全部行数改由 `tools/stats/repo-stats.mjs` 重取，并新增两个防复发机制：取数脚本固化为代码 + 预算门禁（`ci/budgets.toml` / `shell/scripts/budget-check.mjs`）。
@@ -150,21 +160,22 @@
 
 ### 1.4 质量底座
 
-| 项 | 现状（门禁基线 · 2026-10-06 A3①+② 交付后刷新；规模类快照见 §1.1，仍锚 `bb32d77`） | 评价 |
+| 项 | 现状（门禁基线 · 2026-10-06 A4①+③ 交付后刷新；规模类快照见 §1.1，仍锚 `bb32d77`） | 评价 |
 |---|---|---|
-| 前端单测 | **100 个 `*.test.ts` / 1240 用例全绿**（A3 是 Rust 侧功能，未新增前端测试，数字与 A5① 后一致；2026-10-06 门禁）；v1.2 写的 1070、v1.3 写的 1215 均已过时 ✅ **`delivery-overview.md` 2026-10-06 已同步为 1240** | 强 |
-| Rust 单测 | `src-tauri` **321** 个 `#[test]`（含 2 个 `#[ignore]`，实跑 319）+ intel **60**（47 + 6 + 7）→ 合计 **381** 个（通过 **379**，与 `delivery-overview.md` §1 口径对齐） | 强 |
+| 前端单测 | **101 个 `*.test.ts` / 1271 用例全绿**（A4 新增 `devtools/builtin/__tests__/selectorCore.test.ts` **31 例**；2026-10-06 门禁）；v1.2 写的 1070、v1.3 写的 1215、v1.4 写的 1240 均已过时 ✅ **`delivery-overview.md` 2026-10-06 已同步为 1271** | 强 |
+| Rust 单测 | `src-tauri` **321** 个 `#[test]`（含 2 个 `#[ignore]`，实跑 319）+ intel **60**（47 + 6 + 7）→ 合计 **381** 个（通过 **379**，与 `delivery-overview.md` §1 口径对齐）。⚠ **A4 轮次实跑 318 passed / 1 failed**：唯一失败 `lib_cmds::tests::stdin_utf8_roundtrip_with_real_python` 是**会话沙箱环境故障**（Windows `os error 231`，带管道 stdin 的 `Command::spawn` 被拒；零 Rust 改动 + 同函数 `Stdio::null()` 路径全过 + 绕开 cargo 直接跑二进制同样复现 → 非回归），详见 §续记 ⑮ 末条 | 强（本轮 1 例环境故障待复跑） |
 | Python 单测 | probe **81** 个 pytest | 强 |
-| E2E（mock 层） | `shell/e2e/` **69 个 spec**（11,161 行）；`http/` 已不再是空占位（B4 落地，`01-devtools.spec.ts` 12 条），新增 `logs/`（11 条）与 `todo/`（7 条）；`ux/02-frameworks.spec.ts` 增 EP-S1~S5 五例（A5①） | 强 |
+| E2E（mock 层） | `shell/e2e/` **70 个 spec（不含 `_probe/`）/ 71 个（含）**，11,442 行；A4 新增 `tools/01-selector.spec.ts`（**10 条**，含 XPath 真实命中与「CSS 与 XPath 语义不同」的现场证据）；`http/` 12 条（B4）、`logs/` 11 条、`todo/` 7 条、`ux/02` EP-S1~S5（A5①）。**口径说明**：v1.4 写的「69 个 spec（11,161 行）」与 `delivery-overview.md` 的「70 spec」计数范围不同（前者不含 `_probe/`、后者含），本表起**两者都写清** | 强 |
 | E2E（真机层） | `shell/e2e-real/` **10 个 `.cjs`**（`db/debug/endpoints/multi-window/new-project-fastapi/ui/release` + probe 三支），手动执行；**`nightly.yml` 已编排 9 套串行，但无跑通证据** | **中**（编排有了，证据缺） |
-| 专项门禁脚本 | `tools/ui/audit_tokens.py`（98 项，**2026-10-04 起进 CI test job**）+ `gate-tests.mjs unit\|e2e\|e2e-ui` + `ui-baseline.mjs` + `budget-check.mjs`（**27 项** + `.ps1` 编码卫生；A3 首次纳入 intel crate 的 `completion.rs` / `hover.rs`） | 好实践；`budget-check.mjs` **已并入 `ci.yml` 的 `test` job**（2026-10-06，P0-1 子项 5）；**剩余缺环是 nightly 无跑通记录**（宿主错配，见本表 CI 行） |
+| 专项门禁脚本 | `tools/ui/audit_tokens.py`（98 项，**2026-10-04 起进 CI test job**）+ `gate-tests.mjs unit\|e2e\|e2e-ui` + `ui-baseline.mjs` + `budget-check.mjs`（**31 项** + `.ps1` 编码卫生；A4 新增 4 个上限，其中**首次纳入 `http.ts`**） | 好实践；`budget-check.mjs` **已并入 `ci.yml` 的 `test` job**（2026-10-06，P0-1 子项 5）；**剩余缺环是 nightly 无跑通记录**（宿主错配，见本表 CI 行） |
 | 分歧台账 | `e2e_divergence_ledger.md` D-001~D-007，含避坑速查 6 条 | 好实践，但资产未自动化 |
 | CI | **2 个 workflow**：`ci.yml`（`test` 4 矩阵 + `package-smoke`；push 分支已对齐 `[master, main]`，tags `v*`；含 `audit_tokens.py` **与 `budget-check.mjs`**）+ `nightly.yml`（`e2e-real` / `bench` / `budget` 三 job，`schedule` 每日 03:17 UTC，全部 `continue-on-error`） | **配置强 / 证据无 / ⚠ 宿主错配**：① `bench/reports/` 已有 `metrics-*.md`（本机跑的基线），但无 `budget-*.md`（CI 产物）；② **本仓远端只有 `gitee.com/usedel/opencharm`，Gitee 不执行 GitHub Actions** —— 两份 workflow 不会被调度，与"配置已交付"的记账直接冲突（详见 §0 缺口 1 与 §2 P0-1 子项 7） |
 | 版本锁定 | `ci/versions.toml`：tauri 2.11.5 / monaco 0.52.2 / pyrefly 1.3.1 / basedpyright 1.39.10 / ruff 0.16.1 / debugpy 1.8.21 / python 3.13.7 / uv 0.10.11 / rust 1.96.0 | 强 |
 
-> **口径提示（2026-10-06 A5① 交付后刷新）**：本表是**门禁基线**，数字已按当前 HEAD 实测刷新，**引用时以本表为准**。两点说明：
-> ① **`budget-check.mjs` 项数随版本增长**：10（v1.2）→ 12（P0-0 拆样式分文件）→ 17（阶段二第一刀）→ 20（A1）→ 25（A5①）→ **27（A3，含 `.ps1` 编码卫生共 27 条 PASS 行 = 24 个文件行数上限 + 命令数 + 产物体积 + 编码卫生；A3 首次纳入 intel crate 的 `completion.rs` / `hover.rs`）**。本文历史续记（各版本 ⑦~⑭ 条、§0 缺口表、阶段一/二回顾表）里出现的「十 / 十二 / 十七 / 二十 / 二十五 项」**是各时点写下的历史值，不再逐处改写**——它们记录的是"当时达标了"，不是"现在只有这么多项"；**凡表述为"当前 / 现状"的位置已就地更新为 27 项**。
-> ② **Rust 计数有两套口径**：本表按 `#[test]` **属性数**（`src-tauri` 321 = 319 实跑 + 2 `#[ignore]`），`delivery-overview.md` §1 按**通过数**（379 = 319 + intel 60）——同一事实的两种切法，非矛盾。
+> **口径提示（2026-10-06 A4①+③ 交付后刷新）**：本表是**门禁基线**，数字已按当前 HEAD 实测刷新，**引用时以本表为准**。三点说明：
+> ① **`budget-check.mjs` 项数随版本增长**：10（v1.2）→ 12（P0-0 拆样式分文件）→ 17（阶段二第一刀）→ 20（A1）→ 25（A5①）→ 27（A3，首次纳入 intel crate 的 `completion.rs` / `hover.rs`）→ **31（A4，含 `.ps1` 编码卫生共 31 条 PASS 行 = 28 个文件行数上限 + 命令数 + 产物体积 + 编码卫生；新增 `selectorCore.ts` / `selector.ts` / `styles/selector.css`，并首次纳入 `http.ts`）**。本文历史续记（各版本 ⑦~⑭ 条、§0 缺口表、阶段一/二回顾表）里出现的「十 / 十二 / 十七 / 二十 / 二十五 / 二十七 项」**是各时点写下的历史值，不再逐处改写**——它们记录的是"当时达标了"，不是"现在只有这么多项"；**凡表述为"当前 / 现状"的位置已就地更新为 31 项**。
+> ② **Rust 计数有两套口径**：本表按 `#[test]` **属性数**（`src-tauri` 321 = 319 实跑 + 2 `#[ignore]`），`delivery-overview.md` §1 按**通过数**（379 = 319 + intel 60）——同一事实的两种切法，非矛盾。**A4 轮次实跑只有 318 通过**，差的 1 例是沙箱环境故障（见 §续记 ⑮ 末条），不并入基线。
+> ③ **E2E spec 计数有两套范围**：`_probe/` 是探针脚本、不是验收用例，故「mock 层」只数它以外的（70 个）；含它则为 71 个。引用时**必须写清是否含 `_probe/`**。
 
 ### 1.5 已识别但未处理的存量债务
 
@@ -190,7 +201,7 @@
 
 ### P0-0 · 让预算回到绿灯，并给产物体积项加"dist 新鲜度"保障 —— ✅ 已关闭（2026-10-06 本轮）
 
-- ~~**事实（本机实测，HEAD `bb32d77`）**~~：~~`budget-check.mjs` 十项里 **1 项 FAIL**：`style.css` 5,987 / 5,850（超 137 行）~~ → **当前二十七项全 PASS**（`style.css` 5,750/5,850 · `styles/http.css` 102/125 · `styles/logView.css` 170/205 · `styles/hotspots.css` 44/60 · `styles/endpointSample.css` 97/125 · `intel/…/completion.rs` 1632/1950 · `intel/…/hover.rs` 392/470 · 产物 5,013/5,120 · 命令 196/200 · 其余同前）。
+- ~~**事实（本机实测，HEAD `bb32d77`）**~~：~~`budget-check.mjs` 十项里 **1 项 FAIL**：`style.css` 5,987 / 5,850（超 137 行）~~ → **当前三十一项全 PASS**（`style.css` 5,751/5,850 · `styles/http.css` 102/125 · `styles/logView.css` 170/205 · `styles/hotspots.css` 44/60 · `styles/endpointSample.css` 97/125 · `styles/selector.css` 132/165 · `devtools/builtin/selectorCore.ts` 379/460 · `devtools/builtin/selector.ts` 394/480 · `devtools/builtin/http.ts` 900/980 · `intel/…/completion.rs` 1632/1950 · `intel/…/hover.rs` 392/470 · 产物 5,032/5,120 · 命令 196/200 · 其余同前）。
 - **⚠ 顺带查出一个假警报机制（方法论级）**：首次跑 `budget-check.mjs` 时产物体积报 **7,065 / 5,120 FAIL**，看起来像 B4/B5 把体积撑爆了；实际原因是 **`shell/dist/` 是 2026-10-05 的陈旧产物**，里面还留着**已被取消的 mermaid/katex 分包**（约 2.09 MB：`cynefin` 654 KB + `wardleyDiagram` 640 KB + `katex` 261 KB + 其余 diagram 分包）。`npm run build` 重新构建后降到 **4,988 KB / PASS**，且 dist 里已无任何 mermaid/katex 分包（源码侧亦已无引用）。
   **结论：产物体积这项指标会随 `dist/` 陈旧度漂移 ±2 MB，若不处理，它会像 v1.1 的行数口径一样变成"看起来合理但系统性错误"的数字。**
 - **建议动作**（按性价比排序）：
@@ -383,7 +394,7 @@ A 类全部复用已有的 probe trace 数据或外壳基建，**别人抄不走
 | ~~A1~~ ✅ | **运行时热点视图**（**已交付 2026-10-06**，见 §续记 ⑫） | 侧栏新视图：按 `hits` 降序列出真实跑过的函数（带 stale「已改动」/ 异常观测徽章），下方列出「**未观测到运行**」的函数；点击任一行跳转声明 | 中（2~3d）→ **实际 ~1d** | ✅ 已落地：`intel_cmds.rs` 读 probe trace 库 + `fs_cmds::collect_files` 扫 `def` 做差集 | ① 口径**已裁决并落进文案**：一律写「未观测到运行」且显式否认"死代码"（可能原因含未被测试/入口覆盖、分支未走到、采样遗漏、进程外调用）；② 与 `inlineValues.ts` 的**通道重叠已规避**——本视图走独立命令 `scan_runtime_hotspots`，不碰 intel 补全通道 |
 | A2 | **轻量内置 Profiler** | probe 已挂 `sys.monitoring`，扩展采集调用耗时 → IDE 内函数级耗时视图 + Top-N 慢函数 + 点击跳转。对标 cProfile + snakeviz，但**零用户操作** | 中-大（5~8d） | PEP 669 事件扩展；开销预算需重新定（现红线 1.5x 是类型采样口径） | 开销上升；需新增"性能模式"开关，默认关 |
 | ~~A3~~ ✅ | **trace 驱动的签名补全与默认值提示**（**①调用处参数名补全 + ②hover 观测签名已交付 2026-10-06**，见 §续记 ⑭） | `arg_types` 已按参数位累加观测 → 调用处补全参数名（insertText `name=`，带观测类型 ×证据数）、hover 增「签名（观测）」+ 每条参数的**常见键 / 常见属性** | 小-中（2d）→ **实际 ~1d** | ✅ 已落地：intel `completion.rs` 第四条补全分支（前向扫描取最内层未闭合 `(` + 回溯 callee）+ `hover.rs`；`arg_types` 由 A1 那条 trace 通道供数 | ① 与静态补全排序竞争**已按预案解决**（沿用 `1xx` 段钉序，`CandidateKind::Param` → LSP `VARIABLE`）；② **原描述的"常见值"已收紧为"常见键 / 常见属性"**——probe 绝不 repr 值本身，trace 里没有字面取值，文案不得暗示有；③ 签名弹窗（`textDocument/signatureHelp`）与调用处 inlay hint **本轮不做，已降级登记** |
-| A4 | **爬虫场景工具箱**（画像强绑定） | 选择器测试面板（输入 HTML + CSS/XPath → 实时结果，复用 `libEval` 求值桥）、请求回放、响应结构 → Pydantic model 生成 | 中（3~5d） | `libEval` / `endpointView` / 运行历史 | 面窄但精准——用户画像是「FastAPI + 爬虫 + 小脚本」，这是**只有 OpenCharm 会做**的功能 |
+| ~~A4~~ ✅ | **爬虫场景工具箱**（画像强绑定）（**①选择器测试器 + ③响应→模型桥已交付 2026-10-06**，见 §续记 ⑮） | 选择器测试面板（输入 HTML + CSS/XPath → 实时命中 + 结构预览）、请求回放、响应结构 → Pydantic model 生成 | 中（3~5d）→ **实际 ~1d** | ✅ 已落地：新 devtools 内置工具「选择器测试」（`selectorCore.ts` 零 app 依赖求值层 + `selector.ts` 面板）+ HTTP 响应工具栏两座桥 | ① **求值引擎裁决为「前端浏览器 DOM」**（`DOMParser` + `querySelectorAll` / `document.evaluate`），**不走 `libEval` 求值桥**——求值桥纪律管的是 Python 求值，这里没有 Python 参与；换来实时命中 / 零依赖 / 无解释器可用，代价是与 lxml / bs4 的口径差异，已**常驻一行口径说明**并由 e2e SEL-9 钉住不得删（Python 侧引擎降级登记）；② ③ 的**本体早已交付**（`json2model.gen.ts`，P1 库支持批次），本轮只补桥；③ ②「请求回放」**不做**——B4 历史区（最近 20 条点击回填）已是回放，独立面板属重复建设，已降级登记 |
 | ~~A5~~ ✅ | **FastAPI 路由面板增强**（**①请求样例 + ②一键 curl 已交付 2026-10-06**，见 §续记 ⑬） | 已有 `endpointView.ts`；本轮交付：解析 handler 签名 + Pydantic 模型 → 参数表 / 请求体 JSON / cURL（复制 + 送进 B4 HTTP 工具） | 中（3d）→ **实际 ~1d** | ✅ 已落地：新命令 `scan_endpoint_sample`（`ep_sample_cmds.rs`）复用 `fs_cmds::pyd_collect_models`，不另造解析器 | ① **静态解析 vs 运行时导入已裁决为静态**——离线可用、不要求服务在跑、不装依赖；代价是 Flask 的 query / body 推不出来（已在 UI 与文案里**明说**而非假装能推）；② ③ handler→route 反向跳转（需 `codeVision.ts` 编辑器侧基建）与 ④ OpenAPI 面板内预览（需服务在跑）**本轮不做，留待下轮** |
 | A6 | **trace 驱动的 lint** | 用运行时观测反哺静态诊断：形参从未收到某类型却按该类型使用、函数从未被调用、`exc_types` 显示有异常路径却无 try | 中-大（5d） | 诊断合并管线 | 与四桶诊断的冲突消解规则；误报控制是成败关键 |
 
@@ -392,7 +403,7 @@ A 类全部复用已有的 probe trace 数据或外壳基建，**别人抄不走
 | # | 功能 | 说明 | 成本 | 备注 |
 |---|---|---|---|---|
 | B1 | **pytest 集成** ⚠️ **与现行裁决冲突，需先动裁决** | `pytest -q` / `--json` 结果解析 → 树形结果面板 + 失败点击跳转 + 重跑单测 | 中（3~4d） | **现行裁决不止 README**：`python_ide_dev_plan_v2.md:18`「明确不做 pytest 面板」· `pycharm_ux_review_and_proposal.md:393` F-1 **已于 2026-09-25 裁决「维持非目标」** · `python_library_support_research.md:325`「不复议」。**按文档约定铁律，动它必须先修订 `dev_plan_v2` §1.1**，本条不能按"候选"直接进阶段二。若裁决变更，建议边界照 `python_library_support_research.md` §8 划法：**不做测试发现/结果树**，只做"运行当前测试文件 → 摘要 + 失败行跳转"最小闭环 |
-| B2 | **REPL / Scratch 执行** | 选中代码 → 发送到长驻 Python 进程执行（复用 `libEval` 求值桥 + 终端 PTY）；或轻量 cell 模式 | 小-中（2d） | 与 A4 共享求值桥基建；对"小脚本"画像高频 |
+| B2 | **REPL / Scratch 执行** | 选中代码 → 发送到长驻 Python 进程执行（复用 `libEval` 求值桥 + 终端 PTY）；或轻量 cell 模式 | 小-中（2d） | 对"小脚本"画像高频；**本体走 `libEval` 求值桥**（A4 已明确**不走**该桥——它是前端 DOM 求值，勿引为先例） |
 | ~~B4~~ | ~~**HTTP Client**（`.http` 文件）~~ | ✅ **已交付**（2026-10-05，`2e5634b`，3 个 PR 闭环）。**落地形态与原议不同**：不是 `.http` 文件语言，而是 **devtools 面板驱动**（内核 `http_cmds.rs` reqwest + 发送/响应 + 变量/历史 + curl 导入 + 端点联动）；原 `.http` 语言注册整块取消，总量 7~9d → 4.5~6d。真源 `docs/toolbox_dev_plan.md` §5.9–5.11 | 已花 4.5~6d | 门禁 1145/1145 + `e2e/http/` 12 条 |
 | ~~B5~~ | ~~**日志/输出结构化视图**~~ | ✅ **已交付**（底部「运行日志」tab，3 个 PR 闭环：多播采集 + 级别过滤 + 字段折叠/导出）。真源 `docs/toolbox_dev_plan.md` §6.10–6.12 | 已花 4~5d | 门禁 1208/1208 + `e2e/logs/` 11 条（后续另有 2 个视觉修复） |
 | ~~B6~~ | ~~**TODO/任务与文档工具**~~ | ❌ **终止**（2026-10-06 裁决，`toolbox_dev_plan.md` §7.7）。**PR-B6-3 TODO 增强保留**（过滤 + 分组 + 跳转 + 计数，19 例单测 + `e2e/todo/` 7 条）；**Markdown 大纲与 Mermaid 取消**。状态"部分交付后终止，不得再排期" | 已花 0.5d | **终止理由直接引用 ADR-0010**：Mermaid 是唯一引入新依赖（约 2~3 MB min）且唯一带未验证项（CSP 无 `unsafe-eval` / DOMPurify 白名单 / 体积）的一项，"与性能与体积是一等目标直接冲突"。**这是定位变更后第一次真的砍掉一个已在清单里的功能——新方向有约束力，此为正面证据** |
@@ -443,7 +454,9 @@ A 类全部复用已有的 probe trace 数据或外壳基建，**别人抄不走
 | P1-1 可观测性三件套 | ★★★ | 中 | — | ★★★ |
 | B2 REPL / Scratch | ★★★ | 小 | 求值桥 | ★★★ |
 | P1-2 自动更新 | ★★★ | 小 | — | ★★★ |
-| A4 爬虫工具箱 | ★★★★（画像匹配） | 中 | 求值桥 | ★★★ |
+| ~~A4 爬虫工具箱~~ ✅ **①+③ 已交付（2026-10-06）** | ★★★★（画像匹配） | ~~中~~ **1d** | — | ✅ **已交付**（新 devtools 工具「选择器测试」+ HTTP 响应两座桥；前端单测 31 例 + e2e 10 例钉住） |
+| A4② 请求回放（独立面板） | ★ | 小 | — | ★（**与 B4 历史区重复**：最近 20 条点击回填已可回放，做前先想清楚增量是什么） |
+| A4-Py 选择器 Python 引擎（lxml / bs4 口径校验） | ★★ | 小-中 | 求值桥 + 第三方包探测 | ★★（**口径一致性的补完**：当前前端 DOM 口径与爬虫实际结果有差异，面板已明说；要一致时再做） |
 | A5③④ FastAPI 面板余项（反向跳转 / OpenAPI 预览） | ★★ | 中 | codeVision / 服务在跑 | ★★ |
 | P1-5 TD-021 五小项 | ★★ | 小 | — | ★★ |
 | A2 内置 Profiler | ★★★★ | 大 | 开销预算重定 | ★★（排后） |
@@ -453,7 +466,7 @@ A 类全部复用已有的 probe trace 数据或外壳基建，**别人抄不走
 | P2-1 UI 批 6+ 第二阶段 | ★★（可选） | 中 | 视觉六批已交付为前提 | ★（不排期） |
 | D 类生态长线 | — | 大 | — | 不排期 |
 | ~~P0-1 CI 主干触发 + nightly + bench 入 CI~~ | ★★★★★ | 极小 / 中 | — | ⏳ **配置已交付（含预算门禁入主门禁），但宿主错配 → 零跑通证据**（见 P0-1 子项 7） |
-| ~~P1-3 体积/性能预算断言~~ | ★★★ | 极小 | 搭 P0-1 | ✅ **已交付**；**当前二十七项全 PASS**（`style.css` 5,750/5,850）；**已并入 `ci.yml` test job** |
+| ~~P1-3 体积/性能预算断言~~ | ★★★ | 极小 | 搭 P0-1 | ✅ **已交付**；**当前三十一项全 PASS**（`style.css` 5,751/5,850）；**已并入 `ci.yml` test job** |
 | ~~B3 SQLite 工具~~ | — | — | — | ✅ **已交付 v1.4** |
 | ~~B4 HTTP 请求工具~~ | — | — | — | ✅ **已交付**（devtools 面板形态，非 `.http` 文件） |
 | ~~B5 结构化运行日志~~ | — | — | — | ✅ **已交付** |
@@ -479,7 +492,7 @@ A 类全部复用已有的 probe trace 数据或外壳基建，**别人抄不走
 | — | ✅ **附带已完成**：**P0-2 第二格**——真实项目 trace 采集跑通（`metawake/backend`：277 条 / 覆盖率 79% / 606 B 每条） | ✅ 已完成（约 0.3 人日） | `bench/reports/trace-stats.md` 换成真实项目样本；保留窗口建议 8,192 → 13,836 条；`STALE_HITS_DIVISOR` 维持 2（样本未达 1000） |
 | — | ⏳ **附带待办**：再采 1~2 个真实项目，把跨项目样本累计到 **≥1000 条**后复核降权参数 | ~0.3 人日/项目 | 累计 ≥1000 条；在此之前降权系数只作"建议值" |
 
-**阶段门**：~~`budget-check.mjs` 十项全绿~~ ✅（**当前二十七项全绿，且已并入 `ci.yml` 主门禁**）· ~~`bench/reports/metrics-*.md` 存在~~ ✅ · ~~D-7 已修并复核~~ ✅（D-6 / D-8 亦已修）· ~~CI 落点裁决~~ ✅ **已裁决（维持现状 + 文档标注）** · ~~P0-2 第一格~~ ⛔ **外部阻塞（本机无 PyCharm，2026-10-06 确认）** · ~~P0-2 第二格~~ ✅ 真实项目样本已取得（277 条 / 覆盖率 79%）。
+**阶段门**：~~`budget-check.mjs` 十项全绿~~ ✅（**当前三十一项全绿，且已并入 `ci.yml` 主门禁**）· ~~`bench/reports/metrics-*.md` 存在~~ ✅ · ~~D-7 已修并复核~~ ✅（D-6 / D-8 亦已修）· ~~CI 落点裁决~~ ✅ **已裁决（维持现状 + 文档标注）** · ~~P0-2 第一格~~ ⛔ **外部阻塞（本机无 PyCharm，2026-10-06 确认）** · ~~P0-2 第二格~~ ✅ 真实项目样本已取得（277 条 / 覆盖率 79%）。
 **§0 缺口 0 已关闭；缺口 1 降级为"待外部事件"（推 GitHub 时验）；缺口 2 从"零数据"变为"有真实样本但样本量不足 + 第一格外部阻塞"。**
 **✅ 阶段一判定：4 件小事中 3 件已完、第 2 格附带完成，第 4 件因外部条件阻塞（不是"没人做"）。→ 阶段一可以收口，阶段二可以开工。**
 **⚠ 进入阶段二前必须先记住的一条口径**：在横向对标落地之前，**对外叙事里"比 PyCharm 更准"是不可写的**（`CONTENT-SERIES.md:192`），可写的只有"在我们的样例集上 23/23"这类**自证**口径。
@@ -488,7 +501,7 @@ A 类全部复用已有的 probe trace 数据或外壳基建，**别人抄不走
 
 | 泳道 | 内容 |
 |---|---|
-| 差异化 | ~~A1 运行时热点~~ ✅ **已交付（2026-10-06）**（前置 P0-2 第二格 trace 采样已具备：metawake 277 条 / 覆盖率 79%）+ ~~A5① 端点请求样例 + 一键 curl~~ ✅ **已交付（2026-10-06）** + ~~A3①+② 调用实参补全 + hover 观测签名~~ ✅ **已交付（2026-10-06）** → **本泳道下一条候选：A4 爬虫工具箱（画像匹配，`json2model.gen.ts` 已是现成件）或 A3③ 签名弹窗（可复用 A3① 的 `(` 上下文解析）** |
+| 差异化 | ~~A1 运行时热点~~ ✅ **已交付（2026-10-06）**（前置 P0-2 第二格 trace 采样已具备：metawake 277 条 / 覆盖率 79%）+ ~~A5① 端点请求样例 + 一键 curl~~ ✅ **已交付（2026-10-06）** + ~~A3①+② 调用实参补全 + hover 观测签名~~ ✅ **已交付（2026-10-06）** + ~~A4①+③ 选择器测试器 + 响应→模型桥~~ ✅ **已交付（2026-10-06）** → **本泳道下一条候选：A3③ 签名弹窗（可复用 A3① 的 `(` 上下文解析）或 A2 内置 Profiler（★4，但开销预算需重定）** |
 | 基本功 | ~~D-6 / D-8 两个残留缺陷~~ ✅ 已修 · ✅ **`main.ts` 外提两刀已完成（2,919 → **2,099**，两刀 −825、A1 接线 +5；阈值 3,000 → 2,600 → **2,400**）** · **第三刀候选：`init()` 余下的启动编排（Monaco 装配段 / 各域事件接线段）继续外提** · `env_cmds.rs` 真拆（−49%，**阶段二候选、不设死线**；本轮的冻结线已在生效，行数不再增长即可） |
 
 **阶段门**：~~热点视图对"死代码"的误报率可接受~~ ✅ **已由口径消除**——视图不产出"死代码"断言，只陈述「未观测到运行」并列明可能原因（未覆盖 / 分支未走 / 采样遗漏 / 进程外调用），**因此不存在"误报"这一口径**；~~`env_cmds.rs` 状态**明确**~~ ✅ 已明确（**长期上限 + 冻结线**，见 P0-4 裁决）；✅ `delivery-overview.md` 已补录 B4 / B5 / A1 / A5① / A3 并升 **v1.4**；✅ 用例基线已刷新为 **1240**；✅ **`main.ts` 外提两刀已完成（−825 行，阈值降到 2,400）**；✅ **差异化泳道三件已落地（A1 · A5① · A3①+②）**。**本阶段的结构性必办已清空**——`init()` 仍可继续外提（第三刀候选），但余量（301 行）已回到健康区间，不再紧急。
@@ -499,7 +512,7 @@ A 类全部复用已有的 probe trace 数据或外壳基建，**别人抄不走
 
 | 泳道 | 内容 |
 |---|---|
-| 画像专项 | A4 爬虫工具箱（建议先做与当季实际工作最相关的那个）。**B4 HTTP 工具 + A5① 请求样例已交付，A4 现在有了现成基建可复用，成本比 v1.2 估的低**（响应 JSON → Pydantic model 已有 `json2model.gen.ts`） |
+| 画像专项 | ~~A4 爬虫工具箱~~ ✅ **①+③ 已交付（2026-10-06）**（B4 HTTP 工具 + A5① 请求样例 + `json2model.gen.ts` 三件现成基建都复用了；真正的新件只有选择器测试器）。**下一件建议从 A3③（签名弹窗）与 A2（Profiler）中选**——A4 余项（②请求回放 / Python 引擎）已降级登记、增量小 |
 | 可选 / 债务 | B2 REPL / Scratch + P1-4 真机覆盖补全（LSP 真引擎 / 运行真 `uv run` / 终端真 PTY / 插件真加载）+ P1-6 工作区级插件目录 |
 
 ### 阶段四 · 评估期（18 周后）
@@ -524,7 +537,7 @@ A 类全部复用已有的 probe trace 数据或外壳基建，**别人抄不走
 
 | 条款 | 现状 | 缺口 |
 |---|---|---|
-| 预算先行（`ci/budgets.toml`） | ✅ **二十七项全 PASS**（style.css 5,750/5,850，B4/B5/A1/A5① 各自拆文件并设上限，A3 首次纳入 intel crate 两个文件） | 已关闭（2026-10-06）；⚠ 产物体积项依赖 dist 新鲜度，STALE 判定已加 |
+| 预算先行（`ci/budgets.toml`） | ✅ **三十一项全 PASS**（style.css 5,751/5,850，B4/B5/A1/A5①/A4 各自拆文件并设上限，A3 首次纳入 intel crate 两个文件、A4 首次纳入 `http.ts`） | 已关闭（2026-10-06）；⚠ 产物体积项依赖 dist 新鲜度，STALE 判定已加 |
 | 运行时开销红线（probe < 1.5x，当前 1.35x） | 有历史实测，改采集路径的 bench 回归义务已写进规范 | 保持即可；**A2 Profiler 若立项须重定口径** |
 | 冷启动 < 1.5s / 空闲内存 ≤ 600MB | ✅ **首个基线已落盘** `bench/reports/metrics-20261006-091652.md`：冷启动 956 ms / 内存 339 MB，双红线 PASS（run1 2619ms 为冷缓存首跑，run2/3 = 117/132ms） | 本机基线有了；⏳ CI/nightly 尚未跑过（→ 缺口 1）。**对比后续实测时应剔除冷缓存首跑** |
 
@@ -652,5 +665,5 @@ A 类全部复用已有的 probe trace 数据或外壳基建，**别人抄不走
 | `docs/plugin_system_design.md` §10 | P1-6 / D 类的待决策点 |
 | `intel/README.md:47` / `:58` / `:59` | P0-2 的挂起项（P3-T10）——**三处状态戳仍均为 ⏳** |
 | `docs/debug_acceptance_record.md` §五 / `docs/run_acceptance_record.md` §四 | P0-3 的人工验收清单 |
-| `ci/budgets.toml` + `shell/scripts/budget-check.mjs` | P0-0 的预算真源与断言脚本（**当前二十七项全 PASS**；已并入 `ci.yml` test job） |
+| `ci/budgets.toml` + `shell/scripts/budget-check.mjs` | P0-0 的预算真源与断言脚本（**当前三十一项全 PASS**；已并入 `ci.yml` test job） |
 | `.github/workflows/ci.yml` / `nightly.yml` | P0-1 的配置证据（分支已对齐 `[master, main]`、`audit_tokens.py` 与 `budget-check.mjs` 均在 test job、nightly 三 job）——**⚠ 无宿主**：本仓远端只有 Gitee，Actions 不执行（详见 §9 取数禁则 5） |

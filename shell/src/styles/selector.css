@@ -1,0 +1,132 @@
+/* A4 · 爬虫工具箱「选择器测试」—— 新功能落新文件（与 style.css 拆分后的纪律一致：
+   新功能的样式不再往 style.css 里堆，避免"静默增长"重演）。
+   真源 docs/improvement_and_roadmap_report.md §3 A4；选择器命名空间 .sel-* / .sel-hit*。
+   本文件经 style.css 顶部 @import 内联进 bundle，门禁由 audit_tokens.py 的 @import 解析覆盖。
+   全部走语义 token（颜色 / 间距 / 字号），不硬编码。
+   窄面板适配：右侧面板默认 360px（下限 260）→ 单列，无并排区块。 */
+
+/* ---------- 选择器输入行 ---------- */
+
+/* 类型徽章（CSS / XPath）：自动识别结果，只做视觉标识，语义由 aria-live 摘要承担 */
+.sel-kind {
+  flex: none;
+  font-size: var(--text-xs);
+  line-height: 1.4;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-xs);
+  border: 1px solid currentColor;
+  color: var(--fg-dim);
+}
+.sel-kind[data-kind="xpath"] { color: var(--brand); }
+
+/* ---------- HTML 折叠输入区 ---------- */
+
+.sel-html { flex: none; }
+.sel-html > summary {
+  cursor: pointer;
+  font-size: var(--text-xs);
+  color: var(--fg-dim);
+  padding: var(--space-1) 0;
+  user-select: none;
+}
+.sel-html > summary:hover { color: var(--fg); }
+.sel-html-body { padding-top: var(--space-2); }
+/* HTML 区不该吃掉结果区的空间：给一个中等高度上限（textarea 本体样式沿用 .tool-textarea） */
+.sel-html-body .tool-textarea { max-height: calc(var(--space-10) * 3); }
+
+/* ---------- 摘要 / 口径说明 ---------- */
+
+.sel-summary {
+  flex: none;
+  font-size: var(--text-xs);
+  color: var(--fg-dim);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.sel-note {
+  flex: none;
+  font-size: var(--text-xs);
+  color: var(--fg-muted);
+  line-height: 1.5;
+}
+.sel-note--dim { color: var(--fg-dim); }
+
+/* ---------- 结果区（列表 / 预览 互斥切换） ---------- */
+
+.sel-pane {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+}
+
+/* ---------- 命中列表 ---------- */
+
+.sel-list { display: flex; flex-direction: column; }
+.sel-item {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-hairline);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.sel-item:last-child { border-bottom: none; }
+.sel-item:hover { background: var(--hover-subtle); }
+.sel-item.is-active { background: var(--selected); }
+.sel-item:focus-visible { outline: 2px solid transparent; box-shadow: inset 0 0 0 1px var(--focus-ring); }
+
+.sel-item-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+}
+.sel-item-tag { color: var(--accent); flex: none; }
+.sel-item-id { color: var(--brand); flex: none; overflow: hidden; text-overflow: ellipsis; }
+.sel-item-class { color: var(--fg-dim); flex: none; }
+.sel-item-nth { margin-left: auto; color: var(--fg-muted); flex: none; font-variant-numeric: tabular-nums; }
+
+.sel-item-text {
+  font-size: var(--text-xs);
+  color: var(--fg);
+  line-height: 1.5;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.sel-item-meta,
+.sel-item-path {
+  font-size: var(--text-xs);
+  color: var(--fg-dim);
+  font-family: var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- 结构预览 ---------- */
+
+.sel-preview-box { display: flex; flex-direction: column; min-height: 100%; }
+.sel-preview-box > .sel-note { padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--border-hairline); }
+/* 预览不是页面渲染：页面 CSS 已被剥离、应用样式仍会命中 → 只保证结构可读 */
+.sel-preview {
+  padding: var(--space-3);
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  word-break: break-word;
+  flex: 1;
+}
+.sel-preview img { max-width: 100%; height: auto; }
+.sel-preview table { border-collapse: collapse; }
+.sel-preview td,
+.sel-preview th { border: 1px solid var(--border-subtle); padding: 0 var(--space-2); }
+
+/* 命中高亮：outline 不参与布局（不改页面结构，也不触发回流错位） */
+.sel-hit { outline: 1px dashed var(--accent); outline-offset: 1px; background: var(--accent-faint); }
+.sel-hit--active { outline: 2px solid var(--brand); background: var(--accent-soft); }
