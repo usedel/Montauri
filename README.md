@@ -16,6 +16,7 @@
 | [`docs/delivery-overview.md`](docs/delivery-overview.md) | **交付总览（现行入口）**：20 个功能域 × 交付日期 × 计划真源 × 验收记录 × 状态、文档地图（按角色读）、已知文档不一致登记、门禁与复核命令、新会话上手路径 |
 | [`docs/python_ide_tech_plan_v3.md`](docs/python_ide_tech_plan_v3.md) | **技术方案 v3（现行）**：Tauri+Monaco 外壳架构 |
 | [`docs/python_ide_dev_plan_v2.md`](docs/python_ide_dev_plan_v2.md) | **开发计划 v2（现行）**：Phase 重排与当前进度 |
+| [`docs/runtime_profiler_dev_plan.md`](docs/runtime_profiler_dev_plan.md) | **内置 Profiler（A2）开发计划 v0.1（待裁决后开工）**：默认关的「性能模式」形态、PR 拆分 P1–P5、预算占位与口径红线；**立项前的开销门槛实验数据见 [`bench/reports/a2-overhead-lab.md`](bench/reports/a2-overhead-lab.md)** |
 | [`docs/python_debug_dev_plan.md`](docs/python_debug_dev_plan.md) | **调试功能开发计划 v1.3（已实施）**：DAP / debugpy 集成，D1–D5 |
 | [`docs/debug_acceptance_record.md`](docs/debug_acceptance_record.md) | 调试功能验收记录（D1–D5 / Gate E） |
 | [`docs/python_run_dev_plan.md`](docs/python_run_dev_plan.md) | **运行功能交互设计 v3.4（现行，已实施）**：脚本/项目运行 + 统一 PTY 控制台 |
