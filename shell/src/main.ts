@@ -14,13 +14,11 @@ import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-// @tauri-apps/api/window 的 ResizeDirection 未导出（上游类型导出缺失），本地声明同步。
-type ResizeDirection = "East" | "North" | "NorthEast" | "NorthWest" | "South" | "SouthEast" | "SouthWest" | "West";
 import { initLiveTemplates, type LiveTemplatesHandle } from "./live-templates";
 import * as ltUi from "./live-templates/ui/manager";
 import { registerKeywordCompletion, setKeywordCompletionEnabled } from "./completion/keywordCompletion"; // 零引擎关键字补全（无 LSP 引擎的语言）
 import { wireWordBasedSuggestions } from "./completion/wordBasedSuggestions"; // 文档词补全按语言开关
-import { initDevTools, openDevToolsPanel } from "./devtools"; // 工具菜单 / 命令面板的工具项数据源已随菜单外提到 menuItems.ts
+import { initDevTools } from "./devtools"; // 工具菜单 / 命令面板的工具项数据源已随菜单外提到 menuItems.ts
 // PR-2：插件域（plugin_system_design §9）——加载器 / facade 依赖注入 / inline 管线
 import { initPluginLoader, scanPlugins, schedulePluginRescan, listPluginRecords, setAppVersion } from "./extensions/loader";
 import { initInlineRunner } from "./extensions/inline";
@@ -31,9 +29,9 @@ import {
   renderQuickstartCards, renderTour, consumeWelcomeForce,
 } from "./welcomeGuide";
 import { formatPythonSource, optimizeImportsSource, registerRuffFormatter, setFormatErrorHandler } from "./format";
-import { runSearch, cancelSearch, resetSearch, setOpenMatchHandler, type SearchMatch, type SearchScope, type SearchScopeMode } from "./search";
+import { runSearch, resetSearch, setOpenMatchHandler, type SearchMatch, type SearchScope, type SearchScopeMode } from "./search";
 import { findUsagesAtCursor, renameSymbolAtCursor, resetFindUsages, setOpenRefHandler, queryAndRender, initFindUsagesAction, installCtrlShiftDblclickUsages } from "./findUsages";
-import { wireProblemsPanel, resetProblemsPanel, setOpenProblemHandler, setShowPanelHandler, renderProblemsChip, openProblemsPanel } from "./problemsPanel"; // 问题面板（对标 PyCharm Problems）
+import { wireProblemsPanel, resetProblemsPanel, setOpenProblemHandler, setShowPanelHandler, renderProblemsChip } from "./problemsPanel"; // 问题面板（对标 PyCharm Problems）
 import { initCodeVision, refreshCodeVision } from "./codeVision";
 import { initDslLens, openRegexTesterAtCursor } from "./dslLens"; // 库支持 PR-2：正则 lens/装饰/诊断/右键
 import { initJsonLiteral } from "./jsonLiteral"; // 库支持 P1 §7-3：JSON 字面量高亮/折叠/诊断/右键
@@ -46,15 +44,15 @@ import { installPasteJson } from "./pasteJson"; // PR-M（dx_features_backlog §
 import { initQuickFixActions, resetQuickFixCache } from "./quickFix"; // P4：D-1 缺失 import 兜底 + D-2 就地创建符号
 import { breakDownSaveErrors, saveErrorToastMessage, revealFirstError } from "./markerNavigation"; // 诊断导航 + 保存错误分类（F8 / 保存 toast 定位）
 import * as splitEditor from "./splitEditor"; // P4（C-4）：向右分屏（handlers 注入，防 settingsPanel 成环）
-import { recordClosedTab, reopenClosedTab, resetTabReopen, setTabReopenHandlers } from "./tabReopen"; // PR-A（dx_features_backlog §6.1）：重开关闭的标签
-import { registerSidebarView, setSidebarTab, activeView, restoreSidebarView } from "./views";
+import { recordClosedTab, resetTabReopen, setTabReopenHandlers } from "./tabReopen"; // PR-A（dx_features_backlog §6.1）：重开关闭的标签
+import { activeView } from "./views";
 import * as lsp from "./lsp/client";
 import * as kb from "./keybindings";
 import { appendOutputLine, clearOutput, setOutputLevelColorsEnabled, setOutputTracebackHandler, setOutputUrlHandler } from "./output";
 import { openConfirm } from "./dialog";
 import { app, $, lazyEl, outputEl, statusFileEl, type SaveOptions, type Tab } from "./state";
 import {
-  createFileInteractive, isDirExpanded, isTreeEmpty, refreshTree, reloadDir,
+  isDirExpanded, isTreeEmpty, refreshTree, reloadDir,
   renderCtxMenu, resetTreeState, scheduleFollowReveal, setFileTreeHandlers, wireFileTree, type CtxItem,
 } from "./fileTree";
 import {
@@ -64,19 +62,19 @@ import {
 } from "./git";
 import {
   disposeTerminal, openTerminalAt, resetOutputChannelUi, setBottomTab,
-  toggleBottomPanel, wireBottomPanel, wireTerminalEvents,
+  wireBottomPanel, wireTerminalEvents,
 } from "./termUi";
 import { addRunDataConsumer } from "./runDataBus"; // B5 §6.8：运行输出多播的消费方注册
 import { setTerminalLinkHandler, setTerminalUrlHandler } from "./terminal";
 import { setExternalUrlOpener } from "./termUi";
-import { loadSettings, saveSettings, applyFontStatus, openSettingsPanel, setSettingsPanelHandlers, wireSettingsPanel, buildEditorOptions, ensureEditorFontLoaded } from "./settingsPanel";
+import { loadSettings, saveSettings, applyFontStatus, setSettingsPanelHandlers, wireSettingsPanel, buildEditorOptions, ensureEditorFontLoaded } from "./settingsPanel";
 import { checkFirstRunStorage } from "./storagePanel";
 import { cancelPendingSessionSave, restoreSession, scheduleSessionSave, saveSessionNow, setSessionHandlers } from "./session"; // A-5 会话恢复
 import { wireResourcePanel } from "./resourcePanel"; // A-1 资源可观测
 import { basename, codicon, DisposableStore, emptyState, languageOf, normalizePath, parentDirOf, relativePathOrName, renderFileIcon, samePath, symbolIcon } from "./util";
 import { toast, toastFail } from "./toast";
 import { initI18n, onLocaleChange, t } from "./i18n"; // i18n 运行时：initI18n 首屏套用静态骨架，t 取动态文案
-import { restoreLayout, toggleSidebar, wireSplitters } from "./layout";
+import { restoreLayout, wireSplitters } from "./layout";
 import { motionDisabled, restoreReduceMotion } from "./anim";
 import { wireTooltip } from "./tooltip";
 import { renderEngineChip, setEngineBusy, setEngineChipHandlers, wireEngineChip } from "./engineChip";
@@ -88,19 +86,19 @@ import * as dap from "./dap/client";
 import {
   clearCurrentLine, loadBreakpoints, refreshDebugGutter, resetBreakpoints, setBreakpointMenuHandler, wireDebugGutter,
 } from "./debugGutter";
-import { initTodoView, refreshTodos, resetTodoView, setTodoViewHandlers } from "./todoView"; // P0：TODO 工具窗
-import { initEndpointView, refreshEndpoints, resetEndpointView, setEndpointViewHandlers } from "./endpointView"; // F1：端点工具窗
-import { initDbView, onDbViewShow, resetDbView, refreshDbWorkspace } from "./sqliteView"; // B3：SQLite 数据库侧栏（资源管理器）
+import { initTodoView, resetTodoView, setTodoViewHandlers } from "./todoView"; // P0：TODO 工具窗
+import { initEndpointView, resetEndpointView, setEndpointViewHandlers } from "./endpointView"; // F1：端点工具窗
+import { initDbView, resetDbView, refreshDbWorkspace } from "./sqliteView"; // B3：SQLite 数据库侧栏（资源管理器）
 import { setDbTabHandlers, presentDbTab, cleanupDbTab, dismissDbHost, dbTabLabel, dbTabIcon, invalidateDbTokens } from "./sqliteTabs"; // B3：SQLite 编辑器 Tab（表数据 / SQL 查询）
 import { initDebugView, renderDebugView, setDebugViewHandlers, wireDebugViewEvents } from "./debugView";
-import { closeRecentFiles, initRecentFiles, openRecentFiles, setRecentFilesHandlers } from "./recentFiles"; // P0：最近打开的文件（Ctrl+E）
+import { closeRecentFiles, initRecentFiles, setRecentFilesHandlers } from "./recentFiles"; // P0：最近打开的文件（Ctrl+E）
 // P1（PyCharm 调研）：Search Everywhere / 导航历史 / 本地历史 / 调试控制台
 import {
-  initQuickOpen, invalidateQuickOpenFiles, isQuickOpenOpen, openQuickOpen, closeQuickOpen,
+  initQuickOpen, invalidateQuickOpenFiles, openQuickOpen, closeQuickOpen,
   registerQuickOpenActions, setQuickOpenHandlers,
 } from "./quickOpen";
-import { goBack, goForward, noteOpen, pushCurrent, resetNavHistory, setNavHistoryHandlers } from "./navHistory";
-import { initLocalHistory, openLocalHistory, closeLocalHistory, setLocalHistoryHandlers } from "./localHistory";
+import { noteOpen, pushCurrent, resetNavHistory, setNavHistoryHandlers } from "./navHistory";
+import { initLocalHistory, closeLocalHistory, setLocalHistoryHandlers } from "./localHistory";
 import { initEditHistory } from "./editHistory"; // 低延迟编辑预测数据源 V1：行对采集
 // P2
 import {
@@ -111,13 +109,13 @@ import { initInlineValues } from "./inlineValues";
 import { lintActiveFile, resetRuffLint, scheduleRuffLint, setRuffLintHandlers } from "./ruffLint";
 import { applyPydanticMarkersOnOpen, initPydanticDiagnostics, resetPydanticDiagnostics, schedulePydanticRescan, setPydanticDiagnosticsHandlers } from "./pydanticDiagnostics";
 import { cleanupSaveContent } from "./saveCleanup"; // PR-C（dx_features_backlog §6.3）：保存清理
-import { initEditPoints, jumpToLastEdit, resetEditPoints } from "./editPoints"; // PR-D（dx_features_backlog §6.4）：最近编辑位置
+import { initEditPoints, resetEditPoints } from "./editPoints"; // PR-D（dx_features_backlog §6.4）：最近编辑位置
 import {
-  initBookmarks, loadBookmarks, openBookmarks, closeBookmarks, refreshBookmarkGutter,
-  resetBookmarks, setBookmarkHandlers, toggleBookmarkAtCursor,
+  initBookmarks, loadBookmarks, closeBookmarks, refreshBookmarkGutter,
+  resetBookmarks, setBookmarkHandlers,
 } from "./bookmarks";
 import {
-  addRunLifecycleListener, initRunHistory, openRunHistory, closeRunHistory, recordRunLines,
+  addRunLifecycleListener, initRunHistory, closeRunHistory, recordRunLines,
   resetRunHistory, setRunHistoryHandlers,
 } from "./runHistory";
 import { applyLogSettings, beginLogSession, endLogSession, initLogView, resetLogView, setLogViewHandlers } from "./logView"; // B5：结构化运行日志
@@ -152,10 +150,13 @@ import { gotoFromLink, setTracebackOpenFile } from "./tracebackLink";
 import { isRunning, scriptRunActive, runningPathsOf } from "./runState";
 import { installFindShortcut, setFindDiffEditorProvider } from "./editorFind";
 import { installBrowserKeyGuard } from "./browserKeys";
-import { onEvaluateShortcut, runDebug, runToCursorAtCursor, stopDebugSession } from "./debugEntry"; // 阶段二：调试入口域外提
+import { runDebug, stopDebugSession } from "./debugEntry"; // 阶段二：调试入口域外提
 import {
   buildQuickOpenActions, buildRunMenuItems, getMenuItems, setMenuItemsHandlers, showBreakpointMenu,
 } from "./menuItems"; // 阶段二：菜单 / 命令面板数据源外提（main 私有动作经 setMenuItemsHandlers 注入解环）
+import { setWindowKeyActions, wireWindowKeys } from "./windowKeys"; // 阶段二：全局键位路由外提（4 个 main 私有动作经 setWindowKeyActions 注入解环）
+import { wireWindowChrome } from "./windowChrome"; // 阶段二：自绘标题栏与窗口边缘外提（无 main 私有依赖）
+import { wireSidebarViews } from "./sidebarViews"; // 阶段二：侧栏视图注册表 + 活动栏外提（仅注入 refreshOutline）
 
 // ---------- 模块级状态（本层私有；TD-14 后运行态归 runState.ts / runFlow.ts） ----------
 
@@ -166,8 +167,6 @@ let searchUseRegex = false;
 let searchFileGlob = "";
 /** 文件监听防抖定时器 */
 let fsWatchTimer: number | undefined;
-/** P1：Double Shift 的判定窗口（ms）——两次 Shift 抬起间隔超过它就不算双击 */
-const DOUBLE_SHIFT_MS = 400;
 
 // ---------- DOM ----------
 // P2-6（2026-09-29 review）：顶层快照改惰性（铁律 1——模块加载期解析 DOM 会让
@@ -1727,95 +1726,15 @@ async function init(): Promise<void> {
     statusLspEl.replaceChildren(dot, map[s]);
   });
 
-  // window 级快捷键（保存 / 运行 / 全局搜索 / 调试五件套，PyCharm 风格）：经键位表实时匹配，可在设置中自定义
-  window.addEventListener("keydown", (e) => {
-    // 焦点在表单控件时不触发全局键（搜索框 / 提交框等）；
-    // Monaco 编辑器内部也是 textarea，经 .monaco-editor 判定排除
-    const ae = document.activeElement as HTMLElement | null;
-    const inMonaco = !!ae?.closest(".monaco-editor");
-    if (!inMonaco && ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA" || ae.tagName === "SELECT" || ae.isContentEditable)) return;
-    const id = kb.matchWindowBinding(e);
-    if (!id) return;
-    e.preventDefault();
-    if (id === "save") void saveActive();
-    else if (id === "run_script") void runScript();
-    else if (id === "run_project") void runProject();
-    else if (id === "stop") void stopRun();
-    else if (id === "global_search") setSidebarTab("search");
-    // P0：最近打开的文件（Ctrl+E）——后端数据早已在写，此前前端没有消费入口
-    else if (id === "recent_files") void openRecentFiles();
-    else if (id === "markdown_preview") mdPreview.togglePreview();
-    // 调试五件套（debug dev plan §6.6）：F5 启动/继续、Shift+F5 停止、F10/F11/Shift+F11 步进
-    else if (id === "debug") {
-      const phase = dap.currentPhase();
-      if (phase === "stopped") import("./dap/client").then((m) => void m.dapContinue(1));
-      else if (phase === "idle" || phase === "exited") void runDebug();
-    } else if (id === "debug_stop") void stopDebugSession();
-    else if (id === "debug_step_over") import("./dap/client").then((m) => void m.dapNext(1));
-    else if (id === "debug_step_into") import("./dap/client").then((m) => void m.dapStepIn(1));
-    else if (id === "debug_step_out") import("./dap/client").then((m) => void m.dapStepOut(1));
-    // P1：Search Everywhere 三入口 + 导航历史 + 本地历史 + 求值表达式
-    else if (id === "goto_file") void openQuickOpen("files");
-    else if (id === "goto_line") void openQuickOpen("line");
-    else if (id === "nav_back") void goBack();
-    else if (id === "nav_forward") void goForward();
-    else if (id === "local_history") void openLocalHistory();
-    else if (id === "debug_evaluate") void onEvaluateShortcut();
-    // P2：Run to Cursor / 书签 / 草稿 / 运行历史
-    else if (id === "debug_run_to_cursor") void runToCursorAtCursor();
-    else if (id === "bookmark_toggle") void toggleBookmarkAtCursor();
-    else if (id === "bookmark_list") void openBookmarks();
-    else if (id === "scratch_new") void newScratch();
-    else if (id === "run_history") openRunHistory();
-    // P1（UX 审查）：高频操作键位（关闭标签 / 新建文件 / 设置 / 侧栏 / 底部面板）
-    else if (id === "close_tab") { if (app.activeTab) void closeTab(app.activeTab); }
-    // 标签页循环切换（Ctrl+Tab / Ctrl+Shift+Tab）
-    else if (id === "next_tab") cycleTab(1);
-    else if (id === "prev_tab") cycleTab(-1);
-    else if (id === "new_file") void createFileInteractive();
-    else if (id === "open_settings") openSettingsPanel();
-    else if (id === "toggle_sidebar") toggleSidebar();
-    else if (id === "toggle_bottom") toggleBottomPanel();
-    // 问题面板（PyCharm Problems View 同款 Alt+0）
-    else if (id === "open_problems") openProblemsPanel();
-    // 命令面板直达（VS Code Ctrl+Shift+P 同款）：不注册时该组合会触发浏览器/系统「打印」
-    else if (id === "command_palette") void openQuickOpen("commands");
-    // PR-1：开发工具面板 + picker（Ctrl+Shift+T，toggle 语义）
-    else if (id === "open_devtools") openDevToolsPanel();
-    // PR-A（dx_features_backlog §6.1）：重开关闭的标签（Ctrl+Shift+Alt+T；Ctrl+Shift+T 已被 DevTools 占用）
-    else if (id === "reopen_tab") {
-      if (!reopenClosedTab()) toast(t("main.cmd.reopenNone"), "info");
-    }
-    // PR-D：最近编辑位置（Ctrl+Shift+Backspace，PyCharm Last Edit Location 同款）
-    else if (id === "recent_edit_locations") {
-      if (!jumpToLastEdit()) toast(t("main.cmd.noEarlierEdit"), "info");
-    }
+  // 全局键位路由（window 级 keydown + Double Shift）——阶段二外提到 windowKeys.ts；
+  // 4 个 main 私有动作经 setWindowKeyActions 注入解环
+  setWindowKeyActions({
+    saveActive: () => saveActive(),
+    newScratch: () => newScratch(),
+    closeTab: (tab) => closeTab(tab),
+    cycleTab: (dir) => cycleTab(dir),
   });
-
-  // P1：Double Shift → Search Everywhere（键位表无法表达双击手势，故固定在此）。
-  // 误触防护：两次 Shift 之间若按下过任何**其它**键（如打大写字母 A 的 Shift+A），
-  // 计时器立即作废——否则连续输入大写字母会被误判成双击 Shift。
-  // keydown 必须 capture：焦点在 Monaco 内时编辑器会 stopPropagation 非认领键，
-  // 冒泡阶段到不了 window——「Shift+End 选行后紧接着 Shift+F10 开右键菜单」会被误判成
-  // Double Shift（F10 keydown 被吞、reset 不发生，两次 Shift keyup 落进 400ms 窗口）。
-  let lastShiftUpAt = 0;
-  window.addEventListener(
-    "keydown",
-    (e) => {
-      if (e.key !== "Shift") lastShiftUpAt = 0;
-    },
-    { capture: true },
-  );
-  window.addEventListener("keyup", (e) => {
-    if (e.key !== "Shift") return;
-    const now = Date.now();
-    if (lastShiftUpAt > 0 && now - lastShiftUpAt < DOUBLE_SHIFT_MS) {
-      lastShiftUpAt = 0;
-      if (!isQuickOpenOpen()) void openQuickOpen("all");
-    } else {
-      lastShiftUpAt = now;
-    }
-  });
+  wireWindowKeys();
 
   // didChange 全量同步（200ms 防抖，技术方案 §2.4）
   app.editor.onDidChangeModelContent(() => {
@@ -1953,64 +1872,9 @@ async function init(): Promise<void> {
   wireMenuBar(getMenuItems); // TD-14：菜单机制在 menuBar.ts，菜单项数据仍由本层组装
   void checkFirstRunStorage(); // 首启数据落位提示（disk-space-plan.md P2-a；内部判断触发条件，多数启动为 no-op）
 
-  // 自绘标题栏（decorations: false）：窗口控制按钮 + 拖拽区 + 边缘 resize 兜底
-  const appWindow = getCurrentWindow();
-  const winMaxBtn = $("win-max") as HTMLButtonElement;
-  // UI-01：切换 codicon 类名而非覆盖 textContent——保住 HTML 里的 <i aria-hidden> 节点，
-  // 与最小化/关闭按钮（同为 codicon）风格一致，也不再依赖 "Segoe UI Symbol" 字体渲染裸字符。
-  const winMaxIcon = winMaxBtn.querySelector("i.codicon");
-  const syncMaxIcon = async (): Promise<void> => {
-    try {
-      const max = await appWindow.isMaximized();
-      winMaxIcon?.classList.toggle("codicon-chrome-maximize", !max);
-      winMaxIcon?.classList.toggle("codicon-chrome-restore", max);
-      // UI-09：与 index.html 的静态 data-tip 同轨。动态改写必须同时更新 aria-label——
-      // 只改 tip 的话，最大化后读屏仍会报「最大化」，与已切换成还原态的图标不符。
-      const label = max ? t("main.win.restore") : t("main.win.maximize");
-      winMaxBtn.dataset.tip = label;
-      winMaxBtn.setAttribute("aria-label", label);
-    } catch { /* 忽略 */ }
-  };
-  $("win-min").addEventListener("click", () => void appWindow.minimize());
-  winMaxBtn.addEventListener("click", () => {
-    void appWindow.toggleMaximize();
-    void syncMaxIcon();
-  });
-  $("win-close").addEventListener("click", () => void appWindow.close());
-  // 自绘标题栏：整个 menubar 的空白区可拖拽 / 双击最大化。
-  // 用 mousedown 手动接管（data-tauri-drag-region 会吞掉双击且只对直接元素生效），
-  // 交互元素（菜单按钮、引擎下拉、窗口控制按钮）不拦截。
-  ($("menubar") as HTMLElement).addEventListener("mousedown", (ev) => {
-    if (ev.buttons !== 1) return; // 仅响应左键
-    const target = ev.target as HTMLElement;
-    if (target.closest("button, select, input, #win-controls")) return;
-    if (ev.detail === 2) {
-      void appWindow.toggleMaximize();
-      void syncMaxIcon();
-    } else {
-      void appWindow.startDragging();
-    }
-  });
-  void syncMaxIcon();
-  // 尺寸变化（含 snap 吸附 / 拉伸）后刷新最大化/还原图标
-  void appWindow.onResized(() => void syncMaxIcon());
+  // 自绘标题栏与窗口边缘（窗口控制按钮 / 拖拽区 / resize 热区）——阶段二外提到 windowChrome.ts
+  wireWindowChrome();
 
-  // 边缘 resize 兜底：decorations:false 下部分 Windows 版本失去原生边缘缩放，
-  // 用透明热区 + startResizeDragging 手动接管。
-  const resizeEdges: Array<[ResizeDirection, string]> = [
-    ["North", "n"], ["South", "s"], ["East", "e"], ["West", "w"],
-    ["NorthEast", "ne"], ["NorthWest", "nw"], ["SouthEast", "se"], ["SouthWest", "sw"],
-  ];
-  for (const [dir, cls] of resizeEdges) {
-    const h = document.createElement("div");
-    h.className = `rs-handle rs-${cls}`;
-    h.addEventListener("mousedown", (ev) => {
-      if (ev.button !== 0) return; // 仅响应左键
-      ev.preventDefault();
-      void appWindow.startResizeDragging(dir);
-    });
-    document.body.appendChild(h);
-  }
   // 引擎 chip（C2）：状态栏身份展示 + 切换入口；真值已收敛到 app.settings.lsp_engine
   setEngineChipHandlers({ startLsp, saveSettings });
   wireEngineChip();
@@ -2114,91 +1978,9 @@ async function init(): Promise<void> {
   setDepInstallHandler((module) => installMissingPackage(module));
   setOutputTracebackHandler((line) => handleTracebackLine(line));
 
-  // 侧栏视图注册表（TD-001）：单根容器 + 生命周期钩子，切换只操作注册表根节点
-  registerSidebarView({
-    id: "files",
-    rootId: "view-files",
-    tabId: "tab-files",
-    onShow: () => { refreshOutline(); },
-  });
-  registerSidebarView({
-    id: "search",
-    rootId: "view-search",
-    tabId: "tab-search",
-    onShow: () => ($("search-input") as HTMLInputElement).focus(),
-    onHide: () => cancelSearch(),
-  });
-  // P0：TODO 工具窗——切到该视图才扫描（大仓库遍历不占用启动路径）
-  registerSidebarView({
-    id: "todo",
-    rootId: "view-todo",
-    tabId: "tab-todo",
-    onShow: () => void refreshTodos(),
-  });
-  // F1：端点工具窗——同 TODO：切到该视图才扫描
-  registerSidebarView({
-    id: "endpoints",
-    rootId: "view-endpoints",
-    tabId: "tab-endpoints",
-    onShow: () => void refreshEndpoints(),
-  });
-  registerSidebarView({
-    id: "git",
-    rootId: "view-git",
-    tabId: "tab-git",
-    onShow: () => {
-      refreshGitStatus().then(() => {
-        renderGitPanel();
-        void refreshBranchPanel();
-      });
-    },
-  });
-  registerSidebarView({
-    id: "debug",
-    rootId: "view-debug",
-    tabId: "tab-debug",
-    onShow: () => renderDebugView(),
-  });
-  // B3：数据库侧栏——同 TODO/端点：切到该视图才拉连接列表（不在启动路径上做 IO）
-  registerSidebarView({
-    id: "database",
-    rootId: "view-database",
-    tabId: "tab-database",
-    onShow: () => void onDbViewShow(),
-  });
+  // 侧栏视图注册表 + 活动栏 + 大纲折叠态——阶段二外提到 sidebarViews.ts
+  wireSidebarViews({ refreshOutline });
 
-  // Activity Bar 图标（FILES / SEARCH / GIT / DEBUG）
-  $("tab-files").addEventListener("click", () => setSidebarTab("files"));
-  $("tab-search").addEventListener("click", () => setSidebarTab("search"));
-  $("tab-todo").addEventListener("click", () => setSidebarTab("todo"));
-  $("tab-endpoints").addEventListener("click", () => setSidebarTab("endpoints"));
-  $("tab-git").addEventListener("click", () => setSidebarTab("git"));
-  $("tab-debug").addEventListener("click", () => setSidebarTab("debug"));
-  $("tab-database").addEventListener("click", () => setSidebarTab("database"));
-  // 大纲折叠 / 展开（OUTLINE 并入文件视图，TD-001 附带考虑）
-  // UI-16：disclosure 语义——aria-expanded 与 .collapsed 类同源切换（单一写入点），
-  // 并给这个可点击 div 补键盘激活（role=button + tabindex 已在 index.html 静态声明）
-  const outlineHeader = $("outline-header");
-  const toggleOutline = () => {
-    const collapsed = $("outline-section").classList.toggle("collapsed");
-    outlineHeader.setAttribute("aria-expanded", String(!collapsed));
-    try {
-      localStorage.setItem("opencharm.outline_collapsed", collapsed ? "1" : "0"); // B 批：写穿持久化
-    } catch {
-      // 存储不可用：本次会话内仍生效
-    }
-  };
-  outlineHeader.addEventListener("click", toggleOutline);
-  outlineHeader.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      toggleOutline();
-    }
-  });
-  // B 批：恢复上次的大纲折叠态（存 "1" 且默认展开 → 切一次即折叠）
-  if (localStorage.getItem("opencharm.outline_collapsed") === "1") toggleOutline();
-  // 初始化激活视图：优先恢复上次会话的选择（B 批持久化），无记录/非法值回退 files
-  restoreSidebarView("files");
   // Git 域 UI 接线（SCM 工具栏 / 历史 / diff / 提交 / 分支，TD-007）
   wireGitUI();
   // 第 2 步迁移：diff tab 生命周期回调（git.ts 的 showDiff/关闭链 → main 的 tab 统一路径）
