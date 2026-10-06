@@ -196,8 +196,9 @@ connect → initialize → attach({"justMyCode":true}) → [initialized 事件]
 
 | 编号 | 缺陷 | 证据 | 严重度 |
 |---|---|---|---|
-| **D-7** | 调试中「运行脚本」**菜单项未置灰**（按钮路径正确置灰）。`main.ts:1789` 的 `disabled` 只看 `scriptBusy`、漏了 `debugging`，而 `disabledReason` 却含"调试进行中"——自相矛盾。后果：菜单项可点 → 走 `runScript()` → 由 Rust `terminal.rs:339` 兜底报错 → 用户看到 toast + 终端红字，而非预期的置灰 | `e2e-real/debug-real.cjs` `R-REAL-10`（诊断项） | 中（体验不一致，非功能失效） |
-| **D-8** | 改键后**调试工具栏 tooltip 的键位副文本不刷新**。键位副文本只在 `renderToolbar()` 时更新（`debugView.ts:101` 注释已说明），而 `settingsPanel.ts:924-927` 保存后的刷新清单里没有调试工具栏。后果：`F5 → F6` 保存后，功能已生效（`R-REAL-12` 证明），但 tooltip 要等下一次 phase 变化才显示新键 | `R-REAL-11` detail：`落盘 F6` 但 `data-tip-key` 仍为 `F5` | 低（仅显示滞后） |
+| ~~**D-7**~~ | ✅ **已修（2026-10-06）· 真机复核通过**。原缺陷：调试中「运行脚本」**菜单项未置灰**（按钮路径正确置灰）。`main.ts` 的 `buildRunMenuItems` 里 `disabled` 只看 `scriptBusy`、漏了 `debugging`，而 `disabledReason` 却含"调试进行中"——自相矛盾。后果：菜单项可点 → 走 `runScript()` → 由 Rust `terminal.rs:339` 兜底报错 → 用户看到 toast + 终端红字，而非预期的置灰。**修法**：菜单不再自己写一遍置灰条件，改为复用 `computeRunWidget(s).runScript.disabled`（与工具栏按钮同一判定式），从根上消除两处分叉。**复核**：`e2e-real/debug-real.cjs` **14/14 PASS**，`R-REAL-10` 读到 `aria-disabled=true / .disabled=true / tip="调试进行中，请先停止调试"` 且与工具栏 tip **逐字一致**、点击无新 toast、仍停在断点；正对照 `R-REAL-13` 证明停止调试后该菜单项恢复可点（非恒真） | ~~`R-REAL-10`（诊断项）~~ → 现为**真断言**（原诊断项选择器写成 `.menu-item` 且菜单未展开恒返回 `not-found`，等于没验证；已改为真右键 gutter ▶ 展开后读 `.ctx-menu-item`） | 中（体验不一致，非功能失效）· **已关闭** |
+| **D-8** | 改键后**调试工具栏 tooltip 的键位副文本不刷新**。键位副文本只在 `renderToolbar()` 时更新（`debugView.ts:101` 注释已说明），而 `settingsPanel.ts` 保存后的刷新清单里没有调试工具栏。后果：`F5 → F6` 保存后，功能已生效（`R-REAL-12` 证明），但 tooltip 要等下一次 phase 变化才显示新键 | `R-REAL-11` detail：`落盘 F6` 但 `data-tip-key` 仍为 `F5`（**2026-10-06 真机复跑再次确认，仍未修**） | 低（仅显示滞后） |
+| **D-6** | SQLite 单元格详情面板无关闭按钮，打开后无法关闭（`sqliteTabs.ts` `showCellDetail()` 只 `append(head, body, copy)`，面板以 `hidden` 建立且无关闭路径） | `sqlite_tool_dev_plan.md` §17.8；真机手测 | 中（可用性）· **未修** |
 
 > 另两条 `#btn-debug` 调试中点击是**静默 no-op**（既不置灰也无提示，`main.ts:2676-2677`）、window 级 keydown 路由（`main.ts:2328-2340`）无调试态判定——这两点符合"三态互斥收窄裁决 10"的设计意图（项目实例放行），不算缺陷，但**菜单/快捷键路径的反馈与按钮路径不一致**（见 D-7）值得统一。
 
