@@ -22,7 +22,8 @@
 > ③ **P0-0 已关闭**：`style.css` 按 `budgets.toml` 既定路径拆出主题分文件——B4 HTTP → `styles/http.css`（102 行）、B5 运行日志 → `styles/logView.css`（170 行），`style.css` **5,987 → 5,748**（拆分 + D-6 新增 21 行），预算回到绿灯；两个分文件各设上限（125 / 205）防止静默增长在新文件重演。**配套：`audit_tokens.py` 新增 `@import` 解析**（`CssSource` + 行号映射，`--refs` 可换算回源文件）——**拆分不得缩小审计面**，否则与抬阈值同罪。
 > ④ **D-6 已修**（`sqliteTabs.ts`）：详情面板头部加 × + `Esc` 双通道关闭（Esc 监听模块级只注册一次，弹层打开时归弹层）；`e2e/db` **30/30**（含新增回归断言：按钮关 / Esc 关 / 菜单优先）。
 > ⑤ **性能基线首次落盘**：`bench/reports/metrics-20261006-091652.md`（release 重建后，`-Runs 3`）——冷启动 **956 ms**（红线 <1500）、内存 **339 MB**（主 23 + WebView2 315，红线 ≤600），双红线 PASS。⚠ run1 2619 ms 是首跑冷缓存（run2/3 = 117/132 ms），后续对比应看中位/剔除首跑。
-> 门禁复核：`tsc` 零错 · 单测 **98 文件 / 1214** · `budget-check.mjs` **十二项全 PASS** · `audit_tokens.py` **98 项 0 FAIL** · 真机 `debug-real.cjs` **14/14** · e2e db **30/30** · e2e http+logs+todo **30/30**。
+> ⑥ **D-8 已修**（`debugView.refreshToolbarTips()` 进 settingsPanel 保存清单 + 单测钉住可逆）——**P0-3 三个缺陷全部关闭**（D-8 真机断言待下次跑 debug-real 转口径）。
+> 门禁复核：`tsc` 零错 · 单测 **98 文件 / 1215** · `budget-check.mjs` **十二项全 PASS** · `audit_tokens.py` **98 项 0 FAIL** · 真机 `debug-real.cjs` **14/14** · e2e db **30/30** · e2e http+logs+todo **30/30**。
 >
 > **v1.2 修订（2026-10-03，纠正 v1.1 的一处系统性取数错误）**：
 > v1.1 的规模数字取自 PowerShell `Get-Content $f | .Count`。在本机（PS 5.1，ANSI 代码页 **gb2312**）上，对**无 BOM 的 UTF-8 源文件**该写法会按 GBK 解码并**吞掉换行**——`style.css` 报 5,410 而真实 5,668（少 4.5%），`main.ts` 报 2,503 而真实 2,897（少 13%）。丢失比例随文件 CJK 密度而变、**逐文件不同**，因此这批数字是"看起来合理但系统性偏低"的。
@@ -208,7 +209,7 @@
 - **建议动作**：
   1. ~~修 **D-7**~~ ✅ **已修并真机复核通过**（14/14，见上）；
   2. ~~修 **D-6**~~ ✅ **已修（2026-10-06）**：详情面板头部加 × + `Esc` 双通道关闭（Esc 监听模块级只注册一次，弹层打开时归弹层不顺手带走面板）；`e2e/db` **30/30**，DB-D-6 用例扩为回归钉（按钮关 / Esc 关 / 菜单优先）；
-  3. 修 **D-8**（`settingsPanel.ts` 保存后追加刷新调试工具栏）——**P0-3 最后一个未修项**，低优先级，可搭车下次设置面板改动；
+  3. ~~修 **D-8**~~ ✅ **已修（2026-10-06，最后一个）**：`debugView.ts` 新增 `refreshToolbarTips()`（按 `TOOLBAR_TIPS` 清单就地重写 data-tip / data-tip-key / aria-label，未初始化安全 no-op），`settingsPanel.ts` 保存清单在 `repaintRunWidget()` 后调用；新增单测钉住（改键 → refresh → `data-tip-key=F6` 且可逆）。**P0-3 三项全部关闭**（D-8 的真机 R-REAL-11 tooltip 断言待下次跑 debug-real 时转为 PASS 口径）。
   4. ~~出包阻塞~~ ✅ 已解决（VS Build Tools 2022 + `tools/msvc-env.ps1`；出包 → 安装 → `release-real.cjs` 7/7）。
 - **成本**：~~D-7 + D-6 合计约 0.5 人日~~ ✅ 已花（D-7 约 15 分钟 + D-6 约 0.3 人日）；**余 D-8 约 10 分钟**（一行级）。
 - **判断依据**（v1.3 修正论据）：在"再加 10 个功能"和"让已有 100 个功能被找到"之间，后者边际收益明显更高。~~尤其对单人自用场景，用户就是产品负责人本人~~——**该论据已随 ADR-0010 废止**。新论据更硬：**在"高性能 · 轻量"定位下，任何一个新功能都要同时付体积与维护成本，而修一个已知缺陷只减不增。**
@@ -357,7 +358,7 @@ A 类全部复用已有的 probe trace 数据或外壳基建，**别人抄不走
 | 　其中：产物体积加 dist 新鲜度校验 | ★★★ | 0.2d | — | ✅ **已完成**（STALE 判定） |
 | 　其中：`style.css` 拆出 B4/B5 样式分文件 + audit @import 解析 | ★★★★★ | 0.2d | — | ✅ **已完成** |
 | **P0-1 拿到 CI/nightly 首次跑通证据**（性能基线 ✅ 已落盘） | ★★★★★ | **极小（纯执行，push 即验证）** | 需产品负责人确认 push | ★★★★★ |
-| **P0-3 D-8**（D-7/D-6 已修） | ★★★ | **一行级（~10 分钟）** | — | ★★★☆ |
+| ~~**P0-3 D-6/D-7/D-8**~~ | ★★★★ | 0.5d | — | ✅ **全部关闭**（D-7 真机 14/14 · D-6 e2e 回归钉 · D-8 单测钉） |
 | P0-2 Gate D 两格 PENDING + trace 调参 | ★★★★★ | 中（载体与工具已就绪） | **纯人工操作** | ★★★★（**连续两版零进展，降级观察**） |
 | P0-4 `env_cmds.rs` 拆分（−49%） + `main.ts` 外提 | ★★★★ | 中（或 0.1d 选"接受现状"） | — | ★★★（**43 提交零动作，须先二选一裁决**） |
 | ~~P0-3 验收尾账 + onboarding 双源裁定~~ | ★★★★ | 中小 | — | ✅ **已交付**（**余 D-6/D-8 两个缺陷；D-7 已于 2026-10-06 修**） |
@@ -478,7 +479,7 @@ A 类全部复用已有的 probe trace 数据或外壳基建，**别人抄不走
 - ⏳ **probe/intel 的实际运行数据**——`tools/intel/trace_stats.py` 已落地，产出首个实测（56 函数 / 177 观测；stale 实验 30%）并落 `bench/reports/trace-stats.md`（**1 库 / 1 次运行 / 56 条观测**）。**⚠ v1.3 由"已补"改回 ⏳**：样本量距自定的 ≥1000 条门槛差一个数量级，`STALE_HITS_DIVISOR` 仍为 2，`intel/README.md` 三处状态戳仍 ⏳。**降权系数至今仍是"有据 + 未复核"，不是"已定"。**
 - ✅ **已补**（2026-10-03）：`shell/e2e-real/` 真机状态——`db-real.cjs` **按 v1.4 契约整体重写并实测 18/18 PASS**（旧 S10.x 侧栏态用例引用的 id 已被 v1.4 重设计整体移除，旧脚本在 v1.4 下根本跑不过，这是"真机待办"长期挂起的隐藏副作用）；`debug-real.cjs` **扩到 12/12 PASS**（新增 R-REAL-9/10 三态互斥、R-REAL-11/12 改键生效）。详见 `sqlite_tool_dev_plan.md` §17.8 与 `debug_acceptance_record.md` §五。
 - ✅ **已补**（2026-10-03）：**真安装包验收（调试 §五 第 8 项）** —— 阻塞已解决（VS Build Tools 2022 + `tools/msvc-env.ps1` 进程级环境装配），打出安装包 8.63 MB 并安装至 `D:\OpenCharm`，四项自研组件随包落地；`e2e-real/release-real.cjs` 对**安装后的程序**实测 **7/7 PASS**（含 debugpy 随包可用、运行脚本真实输出）。详见 `debug_acceptance_record.md` §5.1 与 `bench/reports/release-build-blocker.md`。
-- ⏳ **产品缺陷（v1.3 复核：三个全部未修 → 本轮修掉 1 个并真机复核）**：~~**D-7** 调试中「运行脚本」菜单项未置灰~~ ✅ **已修 + 真机复核通过**（复用 `computeRunWidget`；`debug-real.cjs` 14/14，`R-REAL-10` + 正对照 `R-REAL-13`）。**D-6** 单元格详情面板无关闭按钮、打开后无法关闭（`sqliteTabs.ts:383-397`，中，**剩余两项里优先**）；**D-8** 改键后调试工具栏 tooltip 键位副文本不刷新（`settingsPanel.ts` 保存后刷新清单缺 debugView，低；**2026-10-06 真机复跑再次确认 `data-tip-key` 仍为旧键 F5**）。
+- ✅ **产品缺陷 D-6 / D-7 / D-8 全部修复（2026-10-06，v1.3 复核时三个均未修）**：**D-7** 菜单复用 `computeRunWidget`（真机 14/14，`R-REAL-10` + 正对照 `R-REAL-13`）；**D-6** 详情面板 × + Esc 双通道（`e2e/db` 30/30 含回归钉：菜单优先语义也钉住了）；**D-8** `debugView.refreshToolbarTips()` 进 settingsPanel 保存清单（单测钉住改键/还原可逆）。详见 `debug_acceptance_record.md` §5.2（三条均已关闭）。
 - ⏳ **出包环境的两个易复发点**（已修但值得记住）：① VS Build Tools **必须管理员安装**，否则实例不入注册表、`vswhere` 查不到，cargo/cc 会静默回落 VS2015；② PowerShell 的 `$ErrorActionPreference="Stop"` 会把 cargo 的 stderr 进度行当致命错误（`build-release.ps1` 已用 `Invoke-Native` 兜住）。另：安装包 `/S` 静默安装在本机无效，验收需走"安装后程序 + CDP"。
 - ✅ **已补**：多窗口阶段 1/2 的真实完成度——`multi_window_dev_plan.md` v0.2 已按代码实测回填（后端 7 文件 22 处 `emit_to` + 前端 8 文件窗口级 `listen`）。
 - ✅ **打包产物的实际体积与冷启动/内存的实测值**（2026-10-06 本轮补齐）：产物体积 **4,989 KB / 上限 5,120 KB PASS**（此前 7,065 KB 是 `dist/` 陈旧产物混入已取消的 mermaid/katex 所致，`budget-check.mjs` 已加 STALE 判定）；**首个性能基线** `bench/reports/metrics-20261006-091652.md`（release 重建 + `-Runs 3`）：冷启动 **956 ms**（<1500 PASS）· 内存 **339 MB**（≤600 PASS）。⚠ run1 2619 ms 为冷缓存首跑（run2/3 = 117/132 ms），后续对比应剔除。⏳ 仍缺：CI/nightly 侧跑通（→ 缺口 1）；soak 长跑（-SoakMinutes 10，本轮 SKIP，建议随 nightly 首跑一起补）。
@@ -525,7 +526,7 @@ A 类全部复用已有的 probe trace 数据或外壳基建，**别人抄不走
 |---|---|---|
 | P0-4 `env_cmds.rs` 拆分 | ❌ 0 | 4,937 行未变 |
 | P0-2 Gate D 两格人工 | ❌ 0 | 工作单 23 行全 `☐`；`trace-stats.md` 仍 56 条观测；`STALE_HITS_DIVISOR` 仍 2 |
-| P0-3 修 D-6 / D-7 / D-8 | ⚠ 2/3 | **D-7 已修且真机复核通过**（14/14）；**D-6 已修**（× + Esc 双通道，e2e/db 30/30 含回归钉）；D-8 未动（2026-10-06 复跑再次确认仍存在） |
+| P0-3 修 D-6 / D-7 / D-8 | ✅ 3/3 | **D-7 真机复核通过**（14/14）· **D-6** × + Esc 双通道（e2e/db 30/30 含回归钉）· **D-8** `refreshToolbarTips()`（单测钉住可逆） |
 | P0-0 产物体积口径 + 预算回绿 | ✅ 2 | dist 新鲜度 STALE 判定；style.css 按主题拆分（5,987 → 5,748）+ audit_tokens 加 @import 解析 |
 | P0-1 性能基线 | ✅ 1（本版新增后即补） | `bench/reports/metrics-20261006-091652.md` 首个基线（冷启动 956ms / 内存 339MB）；CI 触发验证仍缺 |
 | P0-1 拿到 CI/nightly 跑通证据 | ❌ 0 | `bench/reports/` 无 `metrics-*.md` / `budget-*.md` |

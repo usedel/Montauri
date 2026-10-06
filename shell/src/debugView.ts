@@ -111,6 +111,18 @@ function applyToolbarTip(btn: HTMLElement, id: string): void {
   btn.setAttribute("aria-label", key ? `${tip} ${key}` : tip);
 }
 
+/** D-8（2026-10-06）：设置保存后刷新工具栏的键位副文本。
+ *  applyToolbarTip 只在「建按钮 / 渲染工具栏」时执行，而 settingsPanel 保存后的
+ *  刷新清单里原本没有调试工具栏——改键（如 F5→F6）后 tooltip 的 kbd 副文本要等
+ *  下一次 phase 变化才更新。此函数供 settingsPanel 保存路径显式调用；
+ *  按钮尚未创建（未 initDebugView）时安全 no-op。 */
+export function refreshToolbarTips(): void {
+  for (const id of Object.keys(TOOLBAR_TIPS)) {
+    const btn = document.getElementById(id);
+    if (btn) applyToolbarTip(btn, id);
+  }
+}
+
 function toolbarButton(id: string, icon: string, onClick: () => void): HTMLButtonElement {
   const btn = document.createElement("button");
   btn.id = id;

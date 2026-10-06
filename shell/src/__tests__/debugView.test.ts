@@ -10,6 +10,7 @@ import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { setLocale } from "../i18n";
 import type * as DebugViewModule from "../debugView";
 import { clearBreakpoints, getBreakpointLines, setBreakpointLines } from "../debugGutter";
+import { app } from "../state";
 
 let dv: typeof DebugViewModule;
 
@@ -66,6 +67,22 @@ describe("调试工具栏提示（UI-09：tooltip 单一轨 + 图标按钮可访
     // 正文是纯动作名：原先写成「继续 (F5)」，用户改键后提示就与实际键位不符
     expect(btn("debug-continue").dataset.tip).toBe("继续");
     expect(btn("debug-stop").dataset.tip).toBe("停止调试");
+  });
+
+  it("D-8：改键保存后 refreshToolbarTips 就地刷新 kbd 副文本（不再等下一次 phase 渲染）", () => {
+    const original = app.settings.keybindings.debug;
+    try {
+      app.settings.keybindings.debug = "F6";
+      dv.refreshToolbarTips();
+      expect(btn("debug-continue").dataset.tipKey).toBe("F6");
+      expect(btn("debug-continue").getAttribute("aria-label")).toContain("F6");
+      // 还原并确认可逆（设置面板「恢复默认」走同一路径）
+      app.settings.keybindings.debug = original;
+      dv.refreshToolbarTips();
+      expect(btn("debug-continue").dataset.tipKey).toBe(original);
+    } finally {
+      app.settings.keybindings.debug = original;
+    }
   });
 });
 

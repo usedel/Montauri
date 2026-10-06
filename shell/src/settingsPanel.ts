@@ -25,6 +25,7 @@ import { renderPluginsTab } from "./extensions/pluginsTab";
 import { lintActiveFile, normalizeSeverity } from "./ruffLint"; // D-4：映射保存后立即重查当前文件
 import { refreshPydanticDiagnostics } from "./pydanticDiagnostics"; // 阶段 4：开关保存后即时生效
 import { refreshSplitEditorOptions } from "./splitEditor"; // C-4：分屏编辑器参数同步（splitEditor 不 import 本模块，无环）
+import { refreshToolbarTips } from "./debugView"; // D-8：改键后调试工具栏 kbd 副文本同步（debugView 不 import 本模块，无环）
 import { refreshDbSqlOptions } from "./sqliteTabs"; // B3：数据库 SQL 编辑器参数同步（sqliteTabs 不 import 本模块，无环）
 // UI-26：主题选择改自绘预览色卡（原生 <option> 放不下色卡），值读写经 themePicker
 import { getSelectedTheme, setSelectedTheme, wireThemePicker } from "./themePicker";
@@ -960,6 +961,7 @@ async function commitSettingsPanel(closeAfter: boolean): Promise<boolean> {
   refreshSplitEditorOptions(); // C-4：分屏编辑器同源 options（字号/主题/连字等即时生效）
   refreshDbSqlOptions(); // B3：数据库 SQL 编辑器同源 options（同上；sqliteView 不 import 本模块，无环）
   repaintRunWidget(); // 改键后运行组 tooltip 副文本跟随新键位（window 级键位变化不走 renderTabs）
+  refreshToolbarTips(); // D-8：改键后调试工具栏 kbd 副文本同步（debugView 不 import 本模块，无环）
   // UI-25：欢迎页快捷键网格同理——保存路径不经 updateEditorOverlay，不显式刷就会留着旧键位
   renderWelcomeShortcuts();
   // PR-N：参数名提示开关 → 立即把 inlay 配置推给静态引擎（引擎侧 150ms 防抖，无需重启引擎）
