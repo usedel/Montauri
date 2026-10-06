@@ -4,7 +4,11 @@
 # 故两个 job 均跑 windows-latest。
 #
 # - test：4 个测试矩阵（前端 vitest + tsc 构建 / probe pytest / intel cargo test /
-#   shell LSP 桥 cargo test），每次 push 主干与 PR 自动跑——「CI 全绿才可合并」的护栏。
+#   shell LSP 桥 cargo test）+ 2 个门禁（UI token / 体积与规模预算），
+#   每次 push 主干与 PR 自动跑——「CI 全绿才可合并」的护栏。
+#   （预算门禁 2026-10-06 并入，improvement_and_roadmap_report.md §2 P0-1 子项 5：
+#   定位转「高性能 · 轻量」后体积是一等目标，破预算必须在 PR 阶段就红，
+#   而不是等 nightly 出一份没人看的 artifact。）
 #   注：主干分支名以 `git remote show origin` 的 HEAD 为准，本仓是 **master**
 #   （`origin/HEAD -> origin/master`）；此前此处写死 [main]，导致推主干零触发。
 # - package-smoke：打包（NSIS）+ bench 回归（冷启动 / 内存红线，红线断言语义见
@@ -64,6 +68,14 @@ jobs:
           npm ci
           npx vitest run
           npm run build
+
+      # 体积 / 规模预算门禁（P0-1 子项 5，阈值在 ci/budgets.toml）：
+      # 9 个超长文件行数 + 命令数信号线 + 产物体积 + .ps1 编码卫生，超限非零退出。
+      # 必须**紧跟 build 之后**：产物体积项带 dist 新鲜度校验（源码比 dist 新判 STALE
+      # 并 FAIL），未构建或陈旧构建会让这一项不可信（陈旧 dist 曾虚报约 2.08 MB 的
+      # 已取消 mermaid/katex 分包）。--no-write：报告落盘与归档由 nightly 的 budget job 负责。
+      - name: 体积与规模预算断言
+        run: node shell/scripts/budget-check.mjs --no-write
 
       # UI 视觉「高级感」专项门禁（docs/ui_premium_dev_plan.md §4 第 2 项）：
       # 98 项 token 判定（单色相 / accent 九面 / 表面阶梯 / 阴影纪律 / 抬升面文字…），

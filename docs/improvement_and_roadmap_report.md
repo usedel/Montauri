@@ -4,6 +4,7 @@
 > 性质：基于当前代码库与全部 `docs/` 文档的**现状评估 + 改进清单 + 未来功能候选池**，不是开发计划（不直接排期）。
 > 与既有文档的关系：本文件是**全局视角的评估与选题**，落地时仍需回到各专项计划（`python_ide_dev_plan_v2.md` / 各 `*_dev_plan.md`）写 PR 级方案。冲突时以 `docs/python_ide_dev_plan_v2.md` 为准并反馈修订本文件。
 > **取数时点**：2026-10-06，git HEAD `bb32d77`（v1.2 基线 `ccf9da2` 之后 **23 个提交**）。所有数字由 **`node tools/stats/repo-stats.mjs`** 产出（口径固化在脚本里，见 §9）。**引用本文数字前必须先核对 HEAD**。
+> **v1.3 第二轮补记（同日稍后）**：本轮收口时 HEAD 已到 `f33e5be`（`bb32d77` 之后 **5 个提交**，均为 D-6 / D-7 / D-8 修复与文档，**未触发 §9 的 ≥10 提交重取条件**）。§1.1 的规模表未全量重取；但**预算口径的数字已按 `budget-check.mjs` 实测刷新**（`main.ts` 2,914 → **2,919**、命令数 **194**、`style.css` **5,748**、产物 **4,989 KB**），引用这几项时以本行数字为准。
 >
 > **v1.3 修订（2026-10-06，定位变更 + 债务反查）**：本版不是数字刷新，**三个结论层面被推翻**：
 > ① **产品定位已变**：2026-10-05 `ADR-0010` 废止「单人自用」定位，转向「高性能 · 轻量 Python IDE」，**性能与体积升为一等目标**。本文 §6 整章（「单人项目最大的长期风险」）以及 §0 缺口 1 里「自用项目没人盯 CI」的论据**当场过期**——已登记 `docs/tech-debt.md` **TD-025** 复审清单（6 条，含 nightly 只告警 / 更新通道 / Inter 字体 / Watches localStorage / 插件沙箱 / HTTP 私网提示）。
@@ -24,6 +25,11 @@
 > ⑤ **性能基线首次落盘**：`bench/reports/metrics-20261006-091652.md`（release 重建后，`-Runs 3`）——冷启动 **956 ms**（红线 <1500）、内存 **339 MB**（主 23 + WebView2 315，红线 ≤600），双红线 PASS。⚠ run1 2619 ms 是首跑冷缓存（run2/3 = 117/132 ms），后续对比应看中位/剔除首跑。
 > ⑥ **D-8 已修**（`debugView.refreshToolbarTips()` 进 settingsPanel 保存清单 + 单测钉住可逆）——**P0-3 三个缺陷全部关闭**（D-8 真机断言待下次跑 debug-real 转口径）。
 > 门禁复核：`tsc` 零错 · 单测 **98 文件 / 1215** · `budget-check.mjs` **十二项全 PASS** · `audit_tokens.py` **98 项 0 FAIL** · 真机 `debug-real.cjs` **14/14** · e2e db **30/30** · e2e http+logs+todo **30/30**。
+>
+> **v1.3 落地续记 · 第二轮（同日稍后，P0 续推 3 件）**：
+> ⑦ **P0-1 子项 5 已完成**：`budget-check.mjs` 并入 `ci.yml` 的 `test` job——**紧跟 `npm run build` 之后**（产物体积项带 dist 新鲜度校验，未构建/陈旧构建会判 STALE 并 FAIL），`--no-write`（报告落盘与归档仍由 nightly 的 `budget` job 负责）。本机验证：`npm run build` 重建后十二项全 PASS（产物 4,989/5,120 · 命令 194/200 · `style.css` 5,748/5,850）。**"破预算"从此在 PR 阶段就红，而不是等 nightly 出一份没人看的 artifact。**
+> ⑧ **§1.5 的三条文档不一致已修**：`delivery-overview.md` 升 **v1.1**（§2 补录 B4/B5 两行含交付 commit 与门禁数字 · 用例基线 1070 → **1215** · §4 新登记 4 条）；`ci/budgets.toml` 的产物体积基线 4,918 → **4,989 KB** 并写明"随 `dist/` 新鲜度漂移"；`dev_plan_v2` §1.2.1 同步（并把"门禁策略本轮不改"更新为"规模/体积已进 PR 门禁、性能红线仍只告警"）。
+> ⑨ **⚠ P0-1 的根子问题本轮被查出（本版最重要的一条）**：本仓远端**只有** `gitee.com/usedel/opencharm`，**Gitee 不执行 GitHub Actions**。即 `.github/workflows/ci.yml` 与 `nightly.yml` 这两份"已交付"的配置，**跑在一个没有宿主的仓库里**——v1.2 把"配置写好了"记成 ✅、v1.3 又把它降档为"零跑通证据"，其实都还没摸到根因：**连"能跑"的前提都不存在**。因此 v1.3 阶段一第 3 项写的收口动作"push 一次 master 看 Actions 是否真的触发"**在现宿主下永远得不到证据**。已登记 `delivery-overview.md` §4 第 13 条**待裁决**（三种落点：① 加 GitHub 远端/镜像让 Actions 真跑；② 改写为 Gitee Go `.gitee/workflows/`；③ 明确"CI 不在本仓跑"，改用本机一键门禁落证据）。**裁决之前，§0 缺口 1 不能关闭。**
 >
 > **v1.2 修订（2026-10-03，纠正 v1.1 的一处系统性取数错误）**：
 > v1.1 的规模数字取自 PowerShell `Get-Content $f | .Count`。在本机（PS 5.1，ANSI 代码页 **gb2312**）上，对**无 BOM 的 UTF-8 源文件**该写法会按 GBK 解码并**吞掉换行**——`style.css` 报 5,410 而真实 5,668（少 4.5%），`main.ts` 报 2,503 而真实 2,897（少 13%）。丢失比例随文件 CJK 密度而变、**逐文件不同**，因此这批数字是"看起来合理但系统性偏低"的。
@@ -48,12 +54,15 @@
 | # | 缺口 | 证据 | 后果 |
 |---|---|---|---|
 | ~~**0**~~ | ~~**预算已破线，且性能红线至今无实测落盘**~~ ✅ **已关闭（2026-10-06 本轮）** | `style.css` 按主题拆出 `styles/http.css` / `styles/logView.css`，回到 **5,748 / 5,850**，预算十二项全 PASS；`budget-check.mjs` 加 dist 新鲜度 STALE 判定；性能基线首次落盘 `bench/reports/metrics-20261006-091652.md`（冷启动 956 ms / 内存 339 MB，双红线 PASS） | ~~唯一处于失败态的硬约束~~ **已消除**。遗留：CI 侧尚未跑过 budget/bench（→ 缺口 1） |
-| 1 | **门禁配置齐备，但零跑通证据**（v1.2 记为"待观察"，3 天后仍为待观察） | ✅ `ci.yml` push 分支已对齐 `[master, main]`、`audit_tokens.py` 已进 test job（`ci.yml:71-72`）、`nightly.yml` 三 job 齐备、`OC_JSON_OUT` 汇总、`v*` tag 触发。⏳ **`bench/reports/` 无 `budget-*.md` / `metrics-*.md`**，即 master push / nightly / tag smoke 三者的"首次实际跑通"**均无证据**。⏳ 「只告警不阻断」在新定位下论据过期，已进 TD-025 复审清单第 1 条 | 分歧台账 D-001/D-005/D-007 的根因都是**真机才暴露**的集成缺陷。护栏的硬件装好了，但从没通上电——**"配置交付"与"能力交付"是两件事**，本文 v1.2 把前者记成了后者 |
-| 2 | **差异化核心缺最后一格证据**（与 v1.2 同，零进展） | Gate D 确定性口径**已 PASS**（23/23 = 100%，红线 ≥85%）；两格仍 PENDING：PyCharm 人工横向（`gate-d-ab-worklist.md` 23 行**全为 `☐`**）+ 真实项目 trace（`bench/reports/trace-stats.md` 仅 **1 库 / 1 次运行 / 56 条观测**，门槛是 ≥1000）。`STALE_HITS_DIVISOR` 仍为 **2**（`completion.rs:32`） | 项目立身之本（运行时智能）目前只有"能用"的证据，没有"更好"的横向证据与数据驱动的降权参数；探针数据陈旧时体验会静默退化 |
+| 1 | **门禁配置齐备，但零跑通证据——根因是 CI 没有宿主**（v1.2 记"待观察"，v1.3 记"零证据"，**2026-10-06 第二轮查出真根因**） | ✅ `ci.yml` push 分支已对齐 `[master, main]`、`audit_tokens.py` 已进 test job、**`budget-check.mjs` 已并入 test job（子项 5）**、`nightly.yml` 三 job 齐备、`OC_JSON_OUT` 汇总、`v*` tag 触发。✅ 性能基线已落盘 `bench/reports/metrics-20261006-091652.md`。⏳ **本仓远端只有 `gitee.com/usedel/opencharm`，Gitee 不执行 GitHub Actions** —— 两份 workflow 无论怎么改都不会跑，"push 一次 master 看 Actions 触发"这条收口动作**在现宿主下永远拿不到证据**。⏳ 「只告警不阻断」在新定位下论据过期，已进 TD-025 复审清单第 1 条 | 分歧台账 D-001/D-005/D-007 的根因都是**真机才暴露**的集成缺陷。护栏的硬件装好了，但**从没接上电源——连插座都不在这栋楼里**：v1.2 把"配置交付"记成"能力交付"，v1.3 降档为"零证据"，直到本轮才查到"没有宿主"。✅ **已裁决（2026-10-06）：维持现状 + 文档标注**——`.github/workflows/` 定位为"将来推 GitHub 的预埋"。**缺口 1 由此从"待办"降级为"待外部事件"（迁移到 GitHub 后首次 push 的 run 记录），保持开启但不再消耗人力** |
+| 2 | **差异化核心缺最后一格证据**（第一格仍零进展；**第二格 2026-10-06 取得真实项目样本**） | Gate D 确定性口径**已 PASS**（23/23 = 100%，红线 ≥85%）；① **PyCharm 人工横向仍 PENDING**（`gate-d-ab-worklist.md` 23 行**全为 `☐`**）；② ~~真实项目 trace 仅 56 条~~ → **已在 `metawake/backend`（73 py / 350 def）上跑通采集：277 条函数观测、覆盖率 79%、hits p50 2 vs p99 56、606 B/条**，但距 ≥1000 门槛仍差 3.6 倍且**单项目已近饱和**（→ 需跨项目累计）。`STALE_HITS_DIVISOR` 仍为 **2**（`completion.rs:32`） | 项目立身之本（运行时智能）现有"能用"的证据 + **首个真实分布**，但**还没有"比 PyCharm 更好"的横向证据**；降权参数仍是"建议值"而非落值 |
 
 **v1.3 的自我校验位（务必先读这一条）**：v1.2 的结论是「**少做功能，多做证据；少堆清单，多守门禁**」。v1.2 入库之后的 19 个提交实际做了什么？**新功能 3 个（B4 / B5 / B6-3）**，而 `env_cmds.rs` 拆分 **0 行**（仍 4,937）、Gate D 两格人工 **0 格**、D-6/D-7/D-8 三个缺陷 **0 个被修**、CI/nightly **0 条跑通证据**、P1-1 可观测性 **0**。唯一践行新方向的是 **B6 主动终止**（取消 Mermaid，理由直接引 ADR-0010 体积条款）。**结论：报告本身没有被当作排期依据。** 因此 v1.3 不再新增候选条目，只做三件事——把「守门禁」落到**能在 CI 里红的那一项**（P0-0）、把 P0 项压到**一小时内能完成的粒度**、并把 §5 阶段一改成"只做 4 件小事"。
 
-据此，本报告的建议优先级排序是：**P0-0 让预算回到绿灯（并给产物体积项加 dist 新鲜度保障）→ P0-1 拿到 CI/nightly 首次跑通证据 + 建性能基线 → P0-3 先修 D-7（一行）→ P0-2 只差真人在 PyCharm 点 23 下 + 真实项目采一次数 → P0-4 `env_cmds.rs` 拆分（−49%，已挂两版，须先二选一裁决）→ 最后才谈新功能。**
+据此，本报告的建议优先级排序是：**P0-0 让预算回到绿灯（并给产物体积项加 dist 新鲜度保障）→ P0-1 建性能基线 + 把预算门禁放进主门禁 + **裁决 CI 落点** → P0-3 修 D-7/D-6/D-8 → P0-2 只差真人在 PyCharm 点 23 下 + 真实项目采一次数 → P0-4 `env_cmds.rs` 拆分（−49%，已挂两版，须先二选一裁决）→ 最后才谈新功能。**
+
+> **第二轮进度（2026-10-06 稍后，三个决定已拍板）**：P0-0 ✅ 已关闭 · P0-3 ✅ 已关闭 · **P0-1 七个子项全部完成**（CI 落点裁决为"维持现状 + 文档标注"，缺口 1 降级为**待外部事件**：迁移到 GitHub 时验）· **P0-4 已裁决为"折中：先冻结再择机拆"**（冻结线 + 上限改长期已落地）· **P0-2 第二格取得真实项目样本**（`metawake/backend` 277 条 / 覆盖率 79%），第一格仍是纯人工（PyCharm 点 23 下）。
+> **也就是说：P0 里"需要写代码"的活已经全部做完；剩下的只有两件事——① 真人在 PyCharm 里点 23 下（P0-2 第一格）；② 再采 1~2 个真实项目把样本量累计到 ≥1000（P0-2 第二格的收尾）。** 这两件都不可自动化替代，但都不阻塞阶段二开工。
 
 > 一句话给未来半年：**先把门禁通上电，再谈"高性能 · 轻量"这四个字值多少。**
 
@@ -80,7 +89,7 @@
 
 | 信号 | 数据（HEAD `bb32d77`） | 含义 |
 |---|---|---|
-| **巨型文件（P0-4 两版零进展）** | `env_cmds.rs` **4,937**（预算 5,050）· `fs_cmds.rs` **3,882** · `git.ts` **3,204** · `main.ts` **2,914**（预算 3,000）· `git_cmds.rs` **1,940** · `lsp/client.ts` **1,774** · `db_cmds.rs` 1,537 · `fileTree.ts` 1,332 · `settingsPanel.ts` 1,154 · `live-templates/ui/manager.ts` 1,128 | ⚠ **v1.3 复核**：`env_cmds.rs` / `fs_cmds.rs` / `git.ts` / `lsp/client.ts` 在 `ccf9da2 → bb32d77` 之间**仍是一行未变**；`main.ts` +17、`git_cmds.rs` +58。**P0-4 在 v1.2 与 v1.3 两版里连续被记为"待拆"，实际动作为零**——这类连续挂账项应改判为"要么拆，要么从清单里撤掉并接受它"，否则清单本身失去可信度。另：前十门槛出现三个新面孔（`fileTree.ts` / `settingsPanel.ts` / `live-templates/ui/manager.ts`），说明"大文件"正在从历史遗留向新模块扩散 |
+| **巨型文件（P0-4 两版零进展）** | `env_cmds.rs` **4,945**（预算 5,050 = 长期上限 + 冻结线）· `fs_cmds.rs` **3,882** · `git.ts` **3,204** · `main.ts` **2,919**（预算 3,000）· `git_cmds.rs` **1,940** · `lsp/client.ts` **1,774** · `db_cmds.rs` 1,537 · `fileTree.ts` 1,332 · `settingsPanel.ts` 1,154 · `live-templates/ui/manager.ts` 1,128 | ⚠ **v1.3 复核**：`env_cmds.rs` / `fs_cmds.rs` / `git.ts` / `lsp/client.ts` 在 `ccf9da2 → bb32d77` 之间**仍是一行未变**；`main.ts` +17、`git_cmds.rs` +58。**P0-4 在 v1.2 与 v1.3 两版里连续被记为"待拆"，实际动作为零**——这类连续挂账项应改判为"要么拆，要么从清单里撤掉并接受它"，否则清单本身失去可信度。另：前十门槛出现三个新面孔（`fileTree.ts` / `settingsPanel.ts` / `live-templates/ui/manager.ts`），说明"大文件"正在从历史遗留向新模块扩散 |
 | ~~**样式单点破线**~~ ✅ **已按既定路径拆分（2026-10-06）** | ~~`style.css` 5,987（超 5,850 上限）~~ → **5,748**（B4 → `styles/http.css` 102 行、B5 → `styles/logView.css` 170 行，各设上限 125/205） | 拆分走的是 `budgets.toml:25` 写死的既定路径，未抬任何阈值；`audit_tokens.py` 同步加 `@import` 解析保证审计面不缩水（98 项全绿）。**教训归档**：预算第一次被真实触发到关闭用了半天——门禁的价值正在于此（先红、再逼出结构性动作、而不是静默突破） |
 | **命令面膨胀** | 194 个 Tauri 命令（+2）；`git_cmds` 47 + `env_cmds` 32 + `fs_cmds` 28 = 107，仍占 **55%**；新增 `http_cmds.rs` | 单一进程承载过多职责。插件化（轨 B / OEP）未启动前，Rust 侧会继续膨胀；200 信号线尚有 6 个余量（超限只告警）。**ADR-0010「默认轻量」条款应在此处先产生作用：新增命令面须先论证"能不能复用已有命令"** |
 
@@ -114,14 +123,14 @@
 
 | 项 | 现状（HEAD `bb32d77`） | 评价 |
 |---|---|---|
-| 前端单测 | **98 个 `*.test.ts` / 1214 用例全绿**（`toolbox_dev_plan.md:1021`，2026-10-06 门禁）；v1.2 写的 1070 已过时，`delivery-overview.md:17` 仍写 1070（滞后待修） | 强 |
+| 前端单测 | **98 个 `*.test.ts` / 1215 用例全绿**（D-8 补 1 例后，2026-10-06 门禁）；v1.2 写的 1070 已过时 ✅ **`delivery-overview.md` 2026-10-06 已同步为 1215**（§1.5 第 ② 条关闭） | 强 |
 | Rust 单测 | `src-tauri` **306** 个 `#[test]` + intel **45** = 351 | 强 |
 | Python 单测 | probe **81** 个 pytest | 强 |
 | E2E（mock 层） | `shell/e2e/` **69 个 spec**（10,602 行）；`http/` 已不再是空占位（B4 落地，`01-devtools.spec.ts` 12 条），新增 `logs/`（11 条）与 `todo/`（7 条） | 强 |
 | E2E（真机层） | `shell/e2e-real/` **10 个 `.cjs`**（`db/debug/endpoints/multi-window/new-project-fastapi/ui/release` + probe 三支），手动执行；**`nightly.yml` 已编排 9 套串行，但无跑通证据** | **中**（编排有了，证据缺） |
 | 专项门禁脚本 | `tools/ui/audit_tokens.py`（98 项，**2026-10-04 起进 CI test job**）+ `gate-tests.mjs unit\|e2e\|e2e-ui` + `ui-baseline.mjs` + `budget-check.mjs`（9 项 + `.ps1` 编码卫生） | 好实践；**唯一缺环是 `budget-check.mjs` 不在 `ci.yml` 里**（只在 nightly，且 nightly 无跑通记录） |
 | 分歧台账 | `e2e_divergence_ledger.md` D-001~D-007，含避坑速查 6 条 | 好实践，但资产未自动化 |
-| CI | **2 个 workflow**：`ci.yml`（`test` 4 矩阵 + `package-smoke`；push 分支已对齐 `[master, main]`，tags `v*`；含 `audit_tokens.py`）+ `nightly.yml`（`e2e-real` / `bench` / `budget` 三 job，`schedule` 每日 03:17 UTC，全部 `continue-on-error`） | **配置强 / 证据无**：至今 `bench/reports/` 无任何 `metrics-*.md` 或 `budget-*.md`，首次触发与首次 nightly 均无落盘证据（详见 §0 缺口 1） |
+| CI | **2 个 workflow**：`ci.yml`（`test` 4 矩阵 + `package-smoke`；push 分支已对齐 `[master, main]`，tags `v*`；含 `audit_tokens.py` **与 `budget-check.mjs`**）+ `nightly.yml`（`e2e-real` / `bench` / `budget` 三 job，`schedule` 每日 03:17 UTC，全部 `continue-on-error`） | **配置强 / 证据无 / ⚠ 宿主错配**：① `bench/reports/` 已有 `metrics-*.md`（本机跑的基线），但无 `budget-*.md`（CI 产物）；② **本仓远端只有 `gitee.com/usedel/opencharm`，Gitee 不执行 GitHub Actions** —— 两份 workflow 不会被调度，与"配置已交付"的记账直接冲突（详见 §0 缺口 1 与 §2 P0-1 子项 7） |
 | 版本锁定 | `ci/versions.toml`：tauri 2.11.5 / monaco 0.52.2 / pyrefly 1.3.1 / basedpyright 1.39.10 / ruff 0.16.1 / debugpy 1.8.21 / python 3.13.7 / uv 0.10.11 / rust 1.96.0 | 强 |
 
 ### 1.5 已识别但未处理的存量债务
@@ -135,7 +144,8 @@
 - **onboarding 双源冲突** → ✅ **已消解**（2026-10-03）：`onboarding_dev_plan.md` 升 v1.3，按 PR 粒度回填真实状态——**PR-S1 / S2 / S4 已交付**（`welcomeGuide.ts` + `main.ts` 三处注入 + e2e `04-onboarding.spec.ts` OG-1..OG-9），S3（可选 P2）未开工、S5 登记不排期；`onboarding_guide.md` 补 v1.0 版本头 + `?raw` 打包机制说明。
 - **多窗口状态滞后** → ✅ **已回填**（2026-10-03）：`multi_window_dev_plan.md` 升 v0.2——阶段 0/1/2 **全部交付**（2026-09-28 实施 / 09-30 入库 `14164e4`），真机 `multi-window-real.cjs` **16/16 PASS**；阶段 0 清单勾选依据为代码实测（后端 7 文件 22 处 `emit_to` + 前端 8 文件窗口级 `listen`，与 §3.1/§3.2 表逐项对应）；DoD 四条逐项对账关闭（第 3 条以 v0.2 修订替代独立验收记录文件）。
 - **✅ 已交付（v1.2 轮）**：`docs/delivery-overview.md` 交付总览已建立——功能域 × 交付日期 × 计划真源 × 验收记录 × 状态，含文档地图（按角色读）、**已知文档不一致登记表**（本文 §1.5 各条已并入该表统一跟踪）、门禁与取数命令、新会话 15 分钟上手路径。§4 的 9 条不一致**全部已关闭**。
-- **⚠ v1.3 新发现的文档不一致（3 条，建议并入 `delivery-overview.md` §4 表）**：① **`delivery-overview.md` §2 功能域表未收录 B4 HTTP 工具与 B5 运行日志**（只在 §3.5 文字里提了一句；第 21 项已收录 B6 但标"部分交付后终止"，版本头仍 v1.0 · 2026-10-03 未升）；② **`delivery-overview.md:17` 的用例基线仍写 1070**，实测 1214 / 98 文件；③ **`ci/budgets.toml` 与 `dev_plan_v2` §1.2.1 仍把产物体积实测写作 4,918 KB**，重新构建后为 **4,988 KB**（且该指标受 `dist/` 新鲜度影响，见 §2 P0-0）。
+- **✅ v1.3 新发现的文档不一致（3 条）已全部修完（2026-10-06 第二轮）**：① **`delivery-overview.md` §2 补录 B4 HTTP 工具与 B5 运行日志**（新增第 22 / 23 行，含交付 commit `2e5634b` / `d497d2f` 与门禁数字；文档升 **v1.1**）；② **用例基线 1070 → 1215**（`delivery-overview.md` §1 与本文 §1.4 同步）；③ **产物体积实测 4,918 → 4,989 KB**（`ci/budgets.toml:64` 注释 + `dev_plan_v2` §1.2.1 同步，并写明"该数字随 `dist/` 新鲜度漂移，引用前先 `npm run build`"）。
+- **⚠ v1.3 第二轮新登记的文档不一致（1 条，`delivery-overview.md` §4 第 13 条，待裁决）**：**CI 宿主错配** —— 本仓远端只有 Gitee，而 `.github/workflows/` 是 GitHub Actions 的载体；文档里"CI 配置已交付 / 待观察触发"的记账与"没有宿主"的事实冲突。落点三选一见 §2 P0-1 子项 7。**这是本轮唯一新增的未闭环文档债。**
 - ~~未提交改动~~：v1.0 记录的 `README.md` / `shell/index.html` / `shell/src/style.css` 未提交改动**已全部入库**（收口于 `964ea7e` 等 20 个提交，工作区 clean）。本项从本版本移除。
 
 ---
@@ -171,10 +181,13 @@
 - **子项 4（✅）tag 触发**：`package-smoke` 的 `if` 由 `event_name == 'workflow_dispatch'` 放宽为 `|| startsWith(github.ref,'refs/tags/v')`，`on.push.tags` 加 `v*`。发布前门禁不再全靠人记得手动点。
 - **本机入口**：`shell/e2e-real/run-real-all.ps1`（一键全量跑批 + 合并汇总，套件清单与 nightly 一致；默认跳过 probe 压测三支；`-Strict` 才非零退出）。串行与端口约束在脚本里预检，占用即停。
 - **v1.3 复核（3 天后，零进展）**：`bench/reports/` 现有 16 个文件，**无任何 `metrics-*.md` / `budget-*.md` / `stats-*.md`**（CI 与 nightly 的产物名见 `nightly.yml:179/217-218`）。即 **master push 首次触发 / nightly 首次出汇总 / 首次 tag 触发 smoke 三者至今无一条落盘证据**。v1.2 把"配置写好了"记为 ✅，这是**把配置交付当成了能力交付**——本版改判为 ⏳。
-- **新增子项 5（v1.3）**：`budget-check.mjs` 目前**只在 nightly 的 `budget` job 里**，不在 `ci.yml` 主门禁。在「体积是一等目标」的定位下，建议把它并入 `ci.yml` 的 `test` job（构建后跑，可先只跑不依赖 dist 的 8 项），让"破预算"在 PR 阶段就能红。
-- **新增子项 6（v1.3）**：`bench/collect-metrics.ps1` 的冷启动/内存红线**至今无一次实测落盘**（`bench/reports/` 无 `metrics-*.md`）。ADR-0010 明确"数值维持现值不动，等方向稳定 + 拿到新实测再谈"——**没有实测就等于永远拿不到新实测**。建议：本机跑一次 `collect-metrics.ps1 -Runs 3` 并落 `bench/reports/metrics-<date>.md`，先把基线建立起来（约 0.3 人日，纯执行）。
-- **验收状态（v1.3）**：⏳ 配置齐备、证据为零。**最小闭环动作**：push 一次 master 看 Actions 是否真的触发（约 5 分钟）+ 本机跑一次 `collect-metrics.ps1` 建立性能基线（约 30 分钟）。**这两件事不做完，§0 缺口 1 无法关闭。**
-- **成本**：已投约 1 人日；**余量约 0.5 人日（且几乎全是等待与执行，不是写代码）**。
+- **新增子项 5（v1.3）** → ✅ **已完成（2026-10-06 第二轮）**：`budget-check.mjs` 并入 `ci.yml` 的 `test` job，位置**紧跟 `npm run build`**（产物体积项带 dist 新鲜度校验，未构建/陈旧构建会判 STALE 并 FAIL，故顺序不可调换），加 `--no-write`（落盘与归档交给 nightly）。本机验证：重建 dist 后十二项全 PASS。**效果：破预算在 PR 阶段即红**；这也是 ADR-0010「预算先行」第一次在**主门禁**里拥有否决权。
+- **新增子项 6（v1.3）** → ✅ **已完成**：`bench/reports/metrics-20261006-091652.md` 已落盘（冷启动 956 ms / 内存 339 MB）。⚠ 该基线是**本机**数据，CI 侧仍无对照（→ 子项 7）。
+- **新增子项 7（v1.3 第二轮，本轮查出的根子问题）** → ✅ **已裁决（2026-10-06，产品负责人选「维持现状，只在文档标注」）**：**CI 没有宿主。** 本仓 `git remote -v` 只有 `https://gitee.com/usedel/opencharm.git` 一个远端，**Gitee 不执行 GitHub Actions**——`ci.yml` / `nightly.yml` 写得再对也不会被调度。这让子项 1~6 里"配置已交付"的部分**全部悬空**：护栏装好了，插座不在。
+  **裁决与落点**：① 不加 GitHub 远端、不改写 Gitee Go、也不新增本机一键门禁脚本；② `.github/workflows/` 明确定位为**"将来推 GitHub 的预埋"**（与 2026-10-05 同口径：对外发布时主仓推 GitHub，配置零改动即可生效）；③ 本条与 `delivery-overview.md` §4 第 13 条**保持登记为 ⏳ 未闭环**（标注型关闭，非能力型关闭）。
+  **由此改写 P0-1 的剩余验收**：不再是"push 一次看 Actions 触发"（该动作在现宿主下语义不成立），而是**"迁移到 GitHub 后首次 push 的 Actions run 记录"**——触发条件外置，谁推谁验。**在迁移发生之前，§0 缺口 1 保持开启，但不再消耗人力**：它是"等待一个外部事件"，不是"等一个决定"。
+- **验收状态（v1.3 第二轮）**：子项 1~6 全部 ✅；⏳ **子项 7 待裁决**（这是 §0 缺口 1 的唯一未决项，且它决定了缺口 1 能不能关）。
+- **成本**：已投约 1.1 人日（子项 5 约 10 分钟）；**余量取决于裁决**：① 约 0.2 人日（加远端 + 推一次验证）· ② 约 0.5~1 人日（重写 workflow + 调 Gitee Go）· ③ 约 0.1 人日（改文档口径 + 本机跑一次落证据）。
 
 ### P0-2 · 兑现差异化核心：Gate D 两格 PENDING（工具已就绪，余纯人工）
 
@@ -187,13 +200,22 @@
   - 本机此前**根本没有 `traces/*.db`**（任何数据根下都没有）——这就是"拍脑袋值"长期存在的根本原因。用 IDE 同款注入 env（`run_env.rs:274-289` 的四件套）跑 `tools/ui/audit_tokens.py` 真实代码，产出 **56 函数 / 177 类型观测 / 56 KB**。
   - **stale 实验**（可复现）：构造 2 文件 × 2 函数，全量跑一次 → 改其中 1 个文件的 mtime → 只跑另一半，**stale 占比 30.0%（3/10）**。即在"改一个文件、只跑相关代码"这一常见编辑流下，**约 1/3 的运行时观测立刻变 stale**。按 `trace_stats.py` 的规则，30% 落在"建议降到 0.25"档。
   - **但没有直接改系数**：`completion.rs` 的 `f.hits / 2` 已从裸字面量提成具名常量 `STALE_HITS_DIVISOR`（值不变），并把上述实测写进注释。理由：唯一样本只有 10 条函数、来源是合成实验，不足以支撑改交互体感。**待真实项目跑出 ≥1000 条观测后用同一脚本复核再定值**——这条从"拍脑袋"变成了"有据 + 待复核"。
-- **v1.3 复核（零进展，逐项对账）**：① `bench/reports/gate-d-ab-worklist.md` 工作单仍在，OpenCharm 侧 23 点排名已自动填好，但 **PyCharm 列 23 行全为 `☐`**、小结空白；② `bench/reports/trace-stats.md`（2026-10-03）仍是 **1 库 / 1 次运行 / 56 条函数观测 / stale 0%**，**远低于自定的 ≥1000 条门槛**；③ `STALE_HITS_DIVISOR` **仍为 2**（`intel/crates/opencharm-intel/src/completion.rs:32`），具名常量已提、钉值单测已加，值未动；④ `intel/README.md:47 / :58 / :59` 三处状态戳**均仍为 ⏳**（`27e097c` 只补了现状表，未推进任何一格）。**工具在 v1.2 就已就绪，卡点从头到尾是人的两个动作。**
+- **v1.3 复核（零进展，逐项对账）**：① `bench/reports/gate-d-ab-worklist.md` 工作单仍在，OpenCharm 侧 23 点排名已自动填好，但 **PyCharm 列 23 行全为 `☐`**、小结空白；② ~~`bench/reports/trace-stats.md`（2026-10-03）仍是 **1 库 / 1 次运行 / 56 条函数观测 / stale 0%**~~ → **2026-10-06 已被真实项目样本取代（见下）**；③ `STALE_HITS_DIVISOR` **仍为 2**（`intel/crates/opencharm-intel/src/completion.rs:32`），具名常量已提、钉值单测已加，值未动；④ `intel/README.md:47 / :58 / :59` 三处状态戳**均仍为 ⏳**（`27e097c` 只补了现状表，未推进任何一格）。
+- **✅ 第二格取得真实项目样本（2026-10-06 第二轮，本轮最实的一格进展）**：在**真实项目 `metawake/backend`（FastAPI + SQLAlchemy，73 个 py / 350 个 def）**上跑通了完整采集链路——
+  - **怎么跑的**：probe 的 `project_root` 取自「被运行脚本所在目录」，故在 `backend/` 根**临时放**一个 runner（只负责拉起 pytest，**跑完即删**，未留下任何文件），挂 IDE 同款注入 env（`OPENCHARM_PROBE_AUTOSTART=1` + `PYTHONPATH=probe/src`）跑其 13 条测试；`pytest` / `httpx` 装在系统临时目录（`D:\tmp\oc-pytest`）而**未污染项目的 `.venv`**（它们是项目声明的 dev / 主依赖，只是当时没装）；trace 落在隔离的 `OPENCHARM_PROBE_HOME`，**未动真实数据根**。
+  - **结果**：**277 条函数观测 / 176 参数类型 / 277 返回类型 / 7 异常类型 / 164 KB**，13 条测试全绿（83~85 s），连跑 2 次（+1 次失败预演）用于看 hits 累积。
+  - **覆盖率**：**277 / 350 = 79%** —— 即"跑一遍测试"这一最常见的真实动作，能覆盖该项目**近八成**的函数定义。这本身是 A1（运行时热点视图）的正面证据。
+  - **hits 长尾首次有真实形状**：均值 4.3 / **p50 = 2** / p90 = 4 / **p99 = 56** / max 60 —— 中位数与 p99 差 **28 倍**，说明"按 hits 排热点"在真实代码上确实能分出冷热（此前只有 56 条、hits max 200 的合成样本，无法判断是不是噪声）。
+  - **每条观测 606 B**（此前 56 条样本测出 1,024 B）→ 保留窗口建议由 8,192 条改为 **13,836 条 / 8 MB**（同一脚本、同一规则，只是样本变了）。**这是"换样本就换结论"的活证据：参数是数据的函数，不是信念。**
+  - **stale 仍为 0%**：因为两次运行之间**没有编辑任何文件**（真实项目不能为了造数去改 mtime）。降权因此在本次样本里不触发——**与 2026-10-03 的合成实验（编辑后部分运行 → stale 30%）并不矛盾**，两者覆盖了不同的编辑流。**`STALE_HITS_DIVISOR` 维持 2 不改**，理由从"样本不足"升级为"两个样本分别覆盖'不编辑'与'编辑后部分运行'两种流，前者降权不触发（无害），后者 30% 落 0.25 档（有益）——但改值需要 ≥1000 条的真实样本支撑，现仍不足"。
+  - **⚠ 门槛未达**：277 条距自定的 **≥1000 条**仍差 3.6 倍；且**单项目已近饱和**（79%），意味着"跑到 1000"必须**跨多个项目累计**。**建议把门槛口径改成「跨 ≥2~3 个真实项目累计 ≥1000 条」**，并明确：在此之前 `STALE_HITS_DIVISOR` 与保留窗口都只作"建议值"，不落代码。
 - **建议动作**：
   1. ~~人工对标工作单~~ ✅ **已自动生成** `bench/reports/gate-d-ab-worklist.md`：设 `OC_GATE_D_WORKLIST=<路径>` 后跑 `cargo test -p opencharm-intel -- --nocapture runtime_completion_accuracy` 即导出——**OpenCharm 侧 23 点的实际排名已由测试填好**，人只需在 PyCharm 同一样例上勾"是否在 top-5"。避免了让人重新拼 23 个光标位置（既慢又必然与 cases 数组漂移）；
-  2. 在**一个真实项目**上跑 probe 采集，用 `trace_stats.py` 复核端到端口径与降权参数（这一步同时为第 3 项供真实样本）；
+  2. ~~在**一个真实项目**上跑 probe 采集~~ ✅ **已完成一次**（`metawake/backend`：277 条 / 覆盖率 79% / hits p50 2 vs p99 56 / 606 B 每条）；**下一步是累计样本量**——再采 1~2 个真实项目（建议 `cb_watcher/backend`，或你日常用 IDE 跑脚本时自然累积），达到跨项目 ≥1000 条后复核降权参数并考虑落值；
   3. 结论回写 `intel/README.md` 与 `dev_plan_v2` §7，把 ⚠️/PENDING 改成 ✅ 或明确记 ❌。
-- **成本**：余约 **0.5~1.5 人日**（工作单与工具已就绪，只剩真人在 PyCharm 里点 23 下 + 真实项目采一次数）。v1.0 估 3~5 人日。
-- **验收**：`gate-d-ab.md`（= 工作单填完 PyCharm 列）+ 降权参数在 ≥1000 条真实观测上复核 + 三处文档状态一致。
+- **成本**：第二格已花约 **0.3 人日**（含装隔离依赖、跑两遍、清理）；余约 **0.5~1 人日**（真人 PyCharm 点 23 下 + 再采 1~2 个真实项目）。v1.0 估 3~5 人日。
+- **验收**：`gate-d-ab.md`（= 工作单填完 PyCharm 列）+ 降权参数在**跨项目 ≥1000 条**真实观测上复核 + 三处文档状态一致。
+- **可复现命令**（下次采另一个项目时照抄，改三处路径即可）：`uv pip install --target D:\tmp\oc-pytest pytest httpx --python 3.13` → 在**项目根**放一个只做 `pytest.main([...])` 的 runner → `PYTHONPATH="D:\tmp\oc-pytest;<repo>\probe\src;<项目根>" OPENCHARM_PROBE_AUTOSTART=1 OPENCHARM_PROBE_SCRIPT=<runner 绝对路径> OPENCHARM_PROBE_HOME=D:\tmp\oc-trace-home <项目 venv python> <runner>` → `python tools/intel/trace_stats.py <db> --out bench/reports/trace-stats.md`。**两个纪律**：① runner 必须放在项目根（`project_root` 由脚本所在目录决定，放错目录就只采到那个子目录）；② 用隔离的 `OPENCHARM_PROBE_HOME`，别污染 IDE 的真实数据根。
 
 ### P0-3 · 收口人工验收清单 + 修 onboarding 双源冲突
 
@@ -214,18 +236,23 @@
 - **成本**：~~D-7 + D-6 合计约 0.5 人日~~ ✅ 已花（D-7 约 15 分钟 + D-6 约 0.3 人日）；**余 D-8 约 10 分钟**（一行级）。
 - **判断依据**（v1.3 修正论据）：在"再加 10 个功能"和"让已有 100 个功能被找到"之间，后者边际收益明显更高。~~尤其对单人自用场景，用户就是产品负责人本人~~——**该论据已随 ADR-0010 废止**。新论据更硬：**在"高性能 · 轻量"定位下，任何一个新功能都要同时付体积与维护成本，而修一个已知缺陷只减不增。**
 
-### P0-4 · 偿还结构性债（拆分）—— ⚠ v1.3：连续两版挂账、实际动作为零，需重新裁决
+### P0-4 · 偿还结构性债（拆分）—— ✅ **已裁决（2026-10-06）：折中路线「先冻结，再择机拆」**
 
-- **问题（v1.3 重估）**：`env_cmds.rs` **4,937** 行（Rust 侧最大单文件，32 个命令）；`fs_cmds.rs` 3,882 / `git.ts` 3,204 / `main.ts` **2,914** / `git_cmds.rs` 1,940。
+- **问题（v1.3 重估）**：`env_cmds.rs` **4,945** 行（Rust 侧最大单文件，32 个命令；2026-10-06 起带冻结线注释 8 行）；`fs_cmds.rs` 3,882 / `git.ts` 3,204 / `main.ts` **2,919** / `git_cmds.rs` 1,940。
 - **⚠ v1.3 新增判断**：`env_cmds.rs` / `fs_cmds.rs` / `git.ts` / `lsp/client.ts` 在 `ccf9da2 → bb32d77`（23 个提交）之间**仍是一行未变**；`main.ts` +17、`git_cmds.rs` +58。加上 v1.2 已确认的 `44c85ea → ccf9da2`（20 个提交）同样零变化——**这条建议已在两版报告里被写下、在 43 个提交里被执行 0 次**。
   **这不是"还没轮到"，而是"它被反复写进清单却从没排上"**：要么本轮真正排期，要么**显式裁决为"接受现状、从清单撤下"**并把 `budgets.toml` 的 `env_cmds_rs_max_lines` 从"拆分前防涨"的临时值改成长期值。第三种状态（挂着不动）只会持续消耗清单的可信度——这正是 §0 自我校验位要暴露的问题。
+- **✅ 裁决（2026-10-06，产品负责人选定「折中：先冻结再择机拆」）**——三选一里的中间路线，落点有三条，**全部已生效**：
+  1. **冻结线**：新增的 Python 环境类命令**一律落新文件**（如 `env_cmds_pkg.rs`），`env_cmds.rs` **只减不增**——纪律写在 `env_cmds.rs` 文件头（改的人第一眼就能看见）与 `ci/budgets.toml` 注释里。**记账**：为写这条纪律，本轮给 `env_cmds.rs` 新增 **8 行纯注释**（4,937 → 4,945），命令数不变；这是"只减不增"的唯一例外，且在此显式记账，不让它成为日后"注释也算涨"的口子；
+  2. **上限改长期**：`env_cmds_rs_max_lines = 5050` 由"拆分前的临时值"改为**长期值**，不再预期它下降（理由同时写进 `budgets.toml`：它是 Rust 侧文件，不进前端产物、不影响冷启动，与 ADR-0010 的两个一等目标无关）；
+  3. **拆分保持候选，排到阶段二、不设死线**：按解释器管理 / 包操作 / 版本探测切三块、目标 < 2,500（−49%）的工作量与风险不变，但不作为"必办"挂账。
+  **为什么不选另外两条**："真拆"要 3~4 人日且当前无可复用的痛点驱动；"接受现状"省事但等于放弃任何约束——冻结线是**唯一当下就生效、且不会再次失信**的选项：它把"拆或不拆"的二选一，换成了一条不需要排期也能执行的规则。
 - **建议动作**：
-  1. `env_cmds.rs` 按职责切三块（解释器管理 / 包操作 / 版本探测），Rust 侧测试已按文件聚合，拆分后测试随迁。**注意真实目标是从 4,937 砍到 <2,500，即 -49%**（v1.1 按错误行数以为只是 4,484→2,500，工作量被低估）；
-  2. `main.ts` **仍需安排拆分**（v1.1 曾判"不必拆"是基于错误数字）：现在 2,914，距 `budgets.toml` 的 3,000 上限只剩 86 行余量——**B4/B5 已各往里加过胶水，再进一个功能就会撞线**。至少把新功能外提；`git.ts` 保持观察（3,204，43 提交零变化）；
-  3. **新增（v1.3）**：给"连续两版挂账"的项设一个**二选一截止**——本阶段结束前，每个挂账项要么有 PR，要么显式标记「接受现状」并在 `budgets.toml` 里把临时上限改为长期上限（附理由）。
+  1. ~~`env_cmds.rs` 按职责切三块~~ → **降级为阶段二候选**（见上，裁决已定；本轮不再作为 P0 待办挂账）；
+  2. `main.ts` **仍需安排拆分**（v1.1 曾判"不必拆"是基于错误数字）：现在 **2,919**（D-8 +5），距 `budgets.toml` 的 3,000 上限只剩 **81 行**余量——**B4/B5 已各往里加过胶水，再进一个功能就会撞线**。至少把新功能外提；`git.ts` 保持观察（3,204，43 提交零变化）；
+  3. ~~**新增（v1.3）**：给"连续两版挂账"的项设一个**二选一截止**~~ ✅ **已执行**：本轮就是对 `env_cmds.rs` 执行这条规则的结果（裁决 + 冻结线 + 上限改长期，三处落点均已完成）。**这条规则今后继续适用于任何"连续两版挂账"的项**——包括 P0-2 第一格（PyCharm 人工对标）若下一版仍为零进展，同样应走"要么做、要么显式撤下"。
   4. ~~建 `docs/delivery-overview.md`（交付总览）~~ ✅ **已交付**；README 索引 ✅ 补齐 39 篇；`python_ide_dev_plan_v2.md` §7 状态表 ✅ 已回填；`onboarding_dev_plan.md` 与 `multi_window_dev_plan.md` ✅ 均已回填（v1.3 / v0.2）。
-- **成本**：约 **3~4 人日**（`env_cmds.rs` 要从 4,937 砍到 <2,500，即 −2,437 行 / −49%）。**v1.3 补充**：若选"接受现状"，成本为 **0.1 人日**（改 `budgets.toml` 注释 + 写清理由）——两条路的成本差 30 倍，这也是必须显式二选一的理由。
-- **验收**：`env_cmds.rs` < 2,500 行且 cargo test 全绿；`budget-check.mjs` 绿灯；`delivery-overview.md` 与实际一致。**或**：`budgets.toml` 已把该项改为长期上限并写明理由。
+- **成本**：本轮裁决的落地成本 **约 0.1 人日**（改 `budgets.toml` 注释 + `env_cmds.rs` 文件头纪律 + 报告口径）；真拆仍是 **3~4 人日**（保留为阶段二候选，不设死线）。
+- **验收**：✅ **已按"折中"路线关闭**——① 冻结线已写进 `env_cmds.rs` 文件头；② `budgets.toml` 已改为长期上限并附理由；③ 拆分已降级为阶段二候选。**校验方式（下次复核时看这个）**：`env_cmds.rs` 的行数**不再增长**（若涨了，说明冻结线没被当回事，应升级回"必拆"）。
 
 ---
 
@@ -283,7 +310,7 @@
 
 ### P2-1 · UI 视觉「批 6+」第二阶段（可选，非必需）
 
-v1.0 的 P0-3（视觉改造）在 `964ea7e` 已**全部交付**（六批 + ADR-0005 + 真机 32/32）；v1.2 后另有两处主题修复（修记 A 滚动条变红 / 修记 B 行号色死映射）。本项仅登记后续可能方向，**不排期**：材质细节再深化、`opencharm-dark/light` 语法色与外壳的进一步同色、字体副档（如无衬线 UI 字体随包，v1.0 已裁决不做）。若开，须沿用 `ui_premium_dev_plan.md` §6 的批次入口 + §4 门禁（`audit_tokens.py` **现已进 CI** + token 单测 + e2e computed-style 断言 + 截图比对），且**不得往 `main.ts`（现在 2,914 行，余量仅 86 行）堆逻辑**——**更不得往 `style.css` 堆**，它已破 5,850 上限（→ P0-0）。
+v1.0 的 P0-3（视觉改造）在 `964ea7e` 已**全部交付**（六批 + ADR-0005 + 真机 32/32）；v1.2 后另有两处主题修复（修记 A 滚动条变红 / 修记 B 行号色死映射）。本项仅登记后续可能方向，**不排期**：材质细节再深化、`opencharm-dark/light` 语法色与外壳的进一步同色、字体副档（如无衬线 UI 字体随包，v1.0 已裁决不做）。若开，须沿用 `ui_premium_dev_plan.md` §6 的批次入口 + §4 门禁（`audit_tokens.py` **现已进 CI** + token 单测 + e2e computed-style 断言 + 截图比对），且**不得往 `main.ts`（现在 2,919 行，余量仅 81 行）堆逻辑**——**更不得往 `style.css` 堆**，它已在 5,748 / 5,850（P0-0 拆分后回到绿灯），但拆出的 `styles/http.css`（102/125）与 `styles/logView.css`（170/205）各有上限，静默增长在新文件里同样会被拦。
 
 ### ~~P2-2 · 多窗口阶段 1/2 复核与收口~~ ✅ 已关闭（2026-10-03）
 
@@ -357,10 +384,12 @@ A 类全部复用已有的 probe trace 数据或外壳基建，**别人抄不走
 | **P0-0 预算回到绿灯** | ★★★★★（**定位变更后是硬约束**） | 0.4d | — | ✅ **已关闭** |
 | 　其中：产物体积加 dist 新鲜度校验 | ★★★ | 0.2d | — | ✅ **已完成**（STALE 判定） |
 | 　其中：`style.css` 拆出 B4/B5 样式分文件 + audit @import 解析 | ★★★★★ | 0.2d | — | ✅ **已完成** |
-| **P0-1 拿到 CI/nightly 首次跑通证据**（性能基线 ✅ 已落盘） | ★★★★★ | **极小（纯执行，push 即验证）** | 需产品负责人确认 push | ★★★★★ |
+| **P0-1 子项 7：裁决 CI 落点**（Gitee 不跑 Actions，护栏无宿主） | ★★★★★ | 0.1~1d（视落点） | **需产品负责人裁决**：GitHub 镜像 / Gitee Go / 不在本仓跑 | ★★★★★（**缺口 1 的唯一未决项**） |
+| 　其中：子项 5 预算门禁并入 `ci.yml`（✅ 已完成）+ 子项 6 性能基线（✅ 已落盘） | ★★★★★ | 极小 | — | ✅ **已关闭** |
 | ~~**P0-3 D-6/D-7/D-8**~~ | ★★★★ | 0.5d | — | ✅ **全部关闭**（D-7 真机 14/14 · D-6 e2e 回归钉 · D-8 单测钉） |
 | P0-2 Gate D 两格 PENDING + trace 调参 | ★★★★★ | 中（载体与工具已就绪） | **纯人工操作** | ★★★★（**连续两版零进展，降级观察**） |
-| P0-4 `env_cmds.rs` 拆分（−49%） + `main.ts` 外提 | ★★★★ | 中（或 0.1d 选"接受现状"） | — | ★★★（**43 提交零动作，须先二选一裁决**） |
+| ~~P0-4 `env_cmds.rs` 二选一裁决~~ | ★★★★ | ~~中~~ 0.1d（本轮） | — | ✅ **已裁决（折中：冻结线 + 上限改长期 + 拆分降级为阶段二候选）**；`main.ts` 外提仍是硬需求（余量 81 行） |
+| 　P0-1 子项 7 CI 落点裁决 | ★★★★★ | 0（本轮只做标注） | — | ✅ **已裁决（维持现状）**：`.github/workflows/` 定位为"将来推 GitHub 的预埋"，P0-1 余项转为"迁移后首次触发验证" |
 | ~~P0-3 验收尾账 + onboarding 双源裁定~~ | ★★★★ | 中小 | — | ✅ **已交付**（**余 D-6/D-8 两个缺陷；D-7 已于 2026-10-06 修**） |
 | A1 运行时热点 / 死代码视图 | ★★★★ | 中 | intel 索引（先核 inlineValues 重叠） | ★★★★☆ |
 | A3 trace 驱动签名提示 | ★★★ | 小 | arg_types | ★★★★ |
@@ -376,8 +405,8 @@ A 类全部复用已有的 probe trace 数据或外壳基建，**别人抄不走
 | A6 trace 驱动 lint | ★★★ | 大 | 误报控制 | ★（排后） |
 | P2-1 UI 批 6+ 第二阶段 | ★★（可选） | 中 | 视觉六批已交付为前提 | ★（不排期） |
 | D 类生态长线 | — | 大 | — | 不排期 |
-| ~~P0-1 CI 主干触发 + nightly + bench 入 CI~~ | ★★★★★ | 极小 / 中 | — | ⏳ **配置已交付，零跑通证据**（v1.3 由 ✅ 降档，见 P0-1） |
-| ~~P1-3 体积/性能预算断言~~ | ★★★ | 极小 | 搭 P0-1 | ✅ **已交付**；⚠ 当前 9/10 项 PASS，`style.css` FAIL（→ P0-0） |
+| ~~P0-1 CI 主干触发 + nightly + bench 入 CI~~ | ★★★★★ | 极小 / 中 | — | ⏳ **配置已交付（含预算门禁入主门禁），但宿主错配 → 零跑通证据**（见 P0-1 子项 7） |
+| ~~P1-3 体积/性能预算断言~~ | ★★★ | 极小 | 搭 P0-1 | ✅ **已交付**；**十二项全 PASS**（`style.css` 5,748/5,850）；**已并入 `ci.yml` test job** |
 | ~~B3 SQLite 工具~~ | — | — | — | ✅ **已交付 v1.4** |
 | ~~B4 HTTP 请求工具~~ | — | — | — | ✅ **已交付**（devtools 面板形态，非 `.http` 文件） |
 | ~~B5 结构化运行日志~~ | — | — | — | ✅ **已交付** |
@@ -397,20 +426,22 @@ A 类全部复用已有的 probe trace 数据或外壳基建，**别人抄不走
 |---|---|---|---|
 | 1 | 修 **D-7**：`main.ts::buildRunMenuItems` 改为复用 `computeRunWidget(s).runScript.disabled`（真源 `runFlow.ts:302`） | ✅ **已完成 + 真机复核 14/14** | 调试进行中，运行脚本菜单项与按钮一致置灰（已由 `R-REAL-10` + 正对照 `R-REAL-13` 证明） |
 | 2 | ~~**P0-0**：`style.css` 拆出 B4/B5 样式分文件~~ | ✅ **已完成**（5,987 → 5,748 + 两个分文件；预算十二项全绿；audit_tokens 加 @import 解析） | 十二项全绿 |
-| 3 | **P0-1**：~~跑一次 `collect-metrics.ps1 -Runs 3` 落 `metrics-*.md`~~ ✅ 已完成（冷启动 956ms / 内存 339MB，双红线 PASS）；**push 一次 master 看 Actions 是否真的触发**（需你确认，我不会自动推） | ~30 分钟（多为等待） | `bench/reports/metrics-20261006-091652.md` ✅ 已存在；⏳ Actions 有 run 记录 |
+| 3 | **P0-1**：~~跑一次 `collect-metrics.ps1`~~ ✅ 已完成（956ms / 339MB）；~~push 一次 master 看 Actions 触发~~ → ⛔ **作废**（本仓远端只有 Gitee，Actions 不会被调度）；✅ **CI 落点已裁决为「维持现状 + 文档标注」**（`.github/workflows/` = 将来推 GitHub 的预埋）；✅ 顺带完成子项 5：预算门禁并入 `ci.yml` | ✅ 已裁决（0 额外成本） | ⏳ **外置**：迁移到 GitHub 后首次 push 的 Actions run 记录（**触发条件外置，谁推谁验**；在此之前缺口 1 保持开启但不消耗人力） |
 | 4 | **P0-2 第一格**：在 PyCharm 里按 `gate-d-ab-worklist.md` 勾 23 点 → 产出 `gate-d-ab.md` | ~1 小时 | 工作单 PyCharm 列填满；`intel/README.md:47` 状态改为 ✅ 或 ❌ |
 | — | ✅ **附带已完成**：`budget-check.mjs` 加 dist 新鲜度校验（STALE 判定），消除产物体积的假警报 | ✅ 已完成 | 陈旧 dist 报 STALE 而非虚高数字 |
 
-**阶段门**：~~`budget-check.mjs` 十项全绿~~ ✅ · ~~`bench/reports/metrics-*.md` 存在~~ ✅ · ~~D-7 已修并复核~~ ✅（D-6 亦已修） · ⏳ Gate D 至少一格收敛 · ⏳ Actions 首次触发。**§0 缺口 0 已关闭；缺口 1 只剩 push 触发验证一件事。**
+**阶段门**：~~`budget-check.mjs` 十项全绿~~ ✅（**十二项全绿，且已并入 `ci.yml` 主门禁**）· ~~`bench/reports/metrics-*.md` 存在~~ ✅ · ~~D-7 已修并复核~~ ✅（D-6 / D-8 亦已修）· ~~CI 落点裁决~~ ✅ **已裁决（维持现状 + 文档标注）** · ⏳ **Gate D 第一格**（PyCharm 点 23 下）——**这是阶段一唯一未完成的动作，且是纯人工**。
+**§0 缺口 0 已关闭；缺口 1 从"待办"降级为"待外部事件"（推 GitHub 时验）；缺口 2 从"零数据"变为"有真实样本但样本量不足"。**
+**阶段一的 4 件小事：3 件已完、第 4 件（PyCharm 人工对标）是唯一剩余，且它不需要写代码。**
 
 ### 阶段二 · 深化期（约 6~10 周，2 条泳道）
 
 | 泳道 | 内容 |
 |---|---|
 | 差异化 | A1 运行时热点 + A3 签名提示（共用 intel 数据层）；**前置**：P0-2 第二格（真实项目采一次 trace，≥1000 条观测） |
-| 基本功 | D-6 / D-8 两个残留缺陷 + **P0-4 二选一裁决**（`env_cmds.rs` 真拆 −49%，或接受现状并把临时上限改长期上限）+ `main.ts` 外提（余量仅 86 行） |
+| 基本功 | ~~D-6 / D-8 两个残留缺陷~~ ✅ 已修 · **`main.ts` 外提（余量仅 81 行，B4/B5 已加过胶水，再进一个功能就撞线）** + `env_cmds.rs` 真拆（−49%，**阶段二候选、不设死线**；本轮的冻结线已在生效，行数不再增长即可） |
 
-**阶段门**：热点视图对"死代码"的误报率可接受；`env_cmds.rs` 状态**明确**（< 2,500 行 或 已改长期上限并附理由）；`delivery-overview.md` 补录 B4/B5 并升版；用例基线刷新为 1214。
+**阶段门**：热点视图对"死代码"的误报率可接受；~~`env_cmds.rs` 状态**明确**~~ ✅ 已明确（**长期上限 + 冻结线**，见 P0-4 裁决）；✅ `delivery-overview.md` 已补录 B4/B5 并升 v1.1；✅ 用例基线已刷新为 1215。**`main.ts` 外提成为本阶段唯一的结构性必办项。**
 
 ### 阶段三 · 画像期（约 10~18 周，2 条泳道）
 
@@ -476,7 +507,7 @@ A 类全部复用已有的 probe trace 数据或外壳基建，**别人抄不走
 
 ## 8. 待补充 / 本报告未覆盖
 
-- ⏳ **probe/intel 的实际运行数据**——`tools/intel/trace_stats.py` 已落地，产出首个实测（56 函数 / 177 观测；stale 实验 30%）并落 `bench/reports/trace-stats.md`（**1 库 / 1 次运行 / 56 条观测**）。**⚠ v1.3 由"已补"改回 ⏳**：样本量距自定的 ≥1000 条门槛差一个数量级，`STALE_HITS_DIVISOR` 仍为 2，`intel/README.md` 三处状态戳仍 ⏳。**降权系数至今仍是"有据 + 未复核"，不是"已定"。**
+- ⏳ **probe/intel 的实际运行数据**——`tools/intel/trace_stats.py` 已落地。首个样本（2026-10-03，合成/单文件）56 函数 / 177 观测；**2026-10-06 第二轮取得真实项目样本**：`metawake/backend` 跑其 13 条测试 → **277 函数观测 / 176 参数类型 / 277 返回类型 / 7 异常 / 164 KB**，**覆盖率 79%（277/350 def）**，hits 均值 4.3 / p50 2 / p99 56 / max 60，**606 B/条**（据此把保留窗口建议从 8,192 改为 13,836 条）。**⚠ 仍 ⏳ 的理由变了**：不再是"没有真实数据"，而是"**真实数据已有但样本量不足**"——277 条距 ≥1000 差 3.6 倍，且单项目已近饱和，须**跨 ≥2~3 个真实项目累计**。`STALE_HITS_DIVISOR` 仍为 2，`intel/README.md` 三处状态戳仍 ⏳。**降权系数是"有两个真实/合成样本支撑的建议值"，不是"已定"。**
 - ✅ **已补**（2026-10-03）：`shell/e2e-real/` 真机状态——`db-real.cjs` **按 v1.4 契约整体重写并实测 18/18 PASS**（旧 S10.x 侧栏态用例引用的 id 已被 v1.4 重设计整体移除，旧脚本在 v1.4 下根本跑不过，这是"真机待办"长期挂起的隐藏副作用）；`debug-real.cjs` **扩到 12/12 PASS**（新增 R-REAL-9/10 三态互斥、R-REAL-11/12 改键生效）。详见 `sqlite_tool_dev_plan.md` §17.8 与 `debug_acceptance_record.md` §五。
 - ✅ **已补**（2026-10-03）：**真安装包验收（调试 §五 第 8 项）** —— 阻塞已解决（VS Build Tools 2022 + `tools/msvc-env.ps1` 进程级环境装配），打出安装包 8.63 MB 并安装至 `D:\OpenCharm`，四项自研组件随包落地；`e2e-real/release-real.cjs` 对**安装后的程序**实测 **7/7 PASS**（含 debugpy 随包可用、运行脚本真实输出）。详见 `debug_acceptance_record.md` §5.1 与 `bench/reports/release-build-blocker.md`。
 - ✅ **产品缺陷 D-6 / D-7 / D-8 全部修复（2026-10-06，v1.3 复核时三个均未修）**：**D-7** 菜单复用 `computeRunWidget`（真机 14/14，`R-REAL-10` + 正对照 `R-REAL-13`）；**D-6** 详情面板 × + Esc 双通道（`e2e/db` 30/30 含回归钉：菜单优先语义也钉住了）；**D-8** `debugView.refreshToolbarTips()` 进 settingsPanel 保存清单（单测钉住改键/还原可逆）。详见 `debug_acceptance_record.md` §5.2（三条均已关闭）。
@@ -500,7 +531,8 @@ A 类全部复用已有的 probe trace 数据或外壳基建，**别人抄不走
 | 规模预算断言（超限非零退出） | `node shell/scripts/budget-check.mjs`（`--report` 只打印 / `--no-write` 不落盘） |
 | **产物体积断言前必须先构建** | `cd shell && npm run build`（否则 `dist/` 陈旧 → 体积项可能误报 ±2 MB，见禁则 4） |
 | 确认取数时点 | `git rev-parse --short HEAD`（本文数字对应 **`bb32d77`**） |
-| 性能红线实测（冷启动 / 内存） | `powershell -File bench\collect-metrics.ps1 -Runs 3`（**至今未跑过一次**，ADR-0010 后为必补基线） |
+| 性能红线实测（冷启动 / 内存） | `powershell -File bench\collect-metrics.ps1 -Runs 3`（✅ **2026-10-06 首次落盘** `bench/reports/metrics-20261006-091652.md`：956 ms / 339 MB；⚠ run1 为冷缓存首跑，对比看中位） |
+| **确认 CI 宿主（跑本节任何 CI 命令之前）** | `git remote -v` —— **无 GitHub 远端则 GitHub Actions 不会执行**（本仓当前只有 Gitee，见取数禁则 5） |
 | 门禁 | `node shell/scripts/gate-tests.mjs unit\|e2e\|e2e-ui`（**不要直接跑 `vitest`**，本机会被判为 watch 并杀进程） |
 | token 门禁 | `python tools\ui\audit_tokens.py`（98 项检查，退出码非 0 即失败） |
 | trace 库统计（Gate D 调参） | `python tools/intel/trace_stats.py`（只读；`--out <报告>`） |
@@ -515,7 +547,8 @@ A 类全部复用已有的 probe trace 数据或外壳基建，**别人抄不走
 2. **禁止用 `Measure-Object -Line`。** 它不计空行（`style.css` 上给 5,145，比真实值少 523）。
 3. **含中文的 `.ps1` 必须带 UTF-8 BOM。** 否则同样被 GBK 解码成乱码并**直接语法报错**（不是静默出错，是脚本跑不起来）。仓库既有约定：`bench/collect-metrics.ps1` 是唯一含中文的 `.ps1`，它就带 BOM。`budget-check.mjs` 已把这条做成门禁。
 4. **【v1.3 新增】跑产物体积断言前必须确认 `dist/` 是新的。** `budget-check.mjs` 的体积项数的是 `shell/dist/assets` 下 `.js + .css` 的字节和；`dist/` 陈旧时会把**已删除的依赖分包**继续算进去。实测：陈旧 dist 报 **7,065 KB（FAIL）**，`npm run build` 后 **4,988 KB（PASS）**——差额约 2.08 MB 全是**已被取消的 mermaid/katex 分包**（`cynefin` 654 KB + `wardleyDiagram` 640 KB + `katex` 261 KB + 其余 diagram 分包）。**这是与禁则 1 同类的"看起来合理但系统性错误"**：它不会报错，只会给出一个偏大的数字。修法见 P0-0 动作 1（给脚本加 dist 新鲜度校验）。
-5. **【v1.3 新增】不要把"配置/清单就位"记成"已交付"。** 判定交付以**证据文件是否存在**为准：CI 是否真的触发过 → 看 Actions run 与 `bench/reports/metrics-*.md` / `budget-*.md`；Gate D 是否推进 → 看 `gate-d-ab-worklist.md` 的 PyCharm 列是否被勾、降权常量是否被改；缺陷是否修 → 看代码行。**v1.2 就是因为把前两者记成 ✅，才在 19 个提交后发现三项零进展。**
+5. **【v1.3 第二轮新增】不要把"仓库里有 workflow"当作"CI 在跑"。** 判定 CI 是否成立必须**先确认宿主**：`git remote -v` 里有没有 GitHub 远端（Gitee / 自建 GitLab **不执行** `.github/workflows/`）。本仓 2026-10-06 查出只有 `gitee.com/usedel/opencharm`——此前两版报告里"CI 配置已交付 / 待观察首次触发"的记账全部建立在一个不存在的执行前提上。**顺序：先查宿主 → 再看配置 → 最后才谈证据。**
+6. **【v1.3 新增】不要把"配置/清单就位"记成"已交付"。** 判定交付以**证据文件是否存在**为准：CI 是否真的触发过 → 看 Actions run 与 `bench/reports/metrics-*.md` / `budget-*.md`；Gate D 是否推进 → 看 `gate-d-ab-worklist.md` 的 PyCharm 列是否被勾、降权常量是否被改；缺陷是否修 → 看代码行。**v1.2 就是因为把前两者记成 ✅，才在 19 个提交后发现三项零进展。**
 
 **复核触发条件**（满足任一即需重取数字并更新本文头部「取数时点」）：① HEAD 变动 ≥ 10 个提交；② 任一专项验收收口（debug / db / ui / run / toolbox）；③ 季度评审；④ 任何专项 `*_dev_plan.md` 状态从"未开工"转"已交付"；⑤ **【v1.3 新增】定位 / 铁律 / 预算发生任何变更**（如 ADR-0010 这类会改变评判坐标系的事件，**优先级高于 ①~④**）。**重取一律走 `tools/stats/repo-stats.mjs` + `budget-check.mjs`，不要手敲命令。**
 
@@ -524,12 +557,14 @@ A 类全部复用已有的 probe trace 数据或外壳基建，**别人抄不走
 
 | 建议 | 是否被执行 | 证据 |
 |---|---|---|
-| P0-4 `env_cmds.rs` 拆分 | ❌ 0 | 4,937 行未变 |
-| P0-2 Gate D 两格人工 | ❌ 0 | 工作单 23 行全 `☐`；`trace-stats.md` 仍 56 条观测；`STALE_HITS_DIVISOR` 仍 2 |
+| P0-4 `env_cmds.rs` 拆分 | ❌ 0 | 4,937 行未变（**该窗口内**） |
+| P0-4 二选一裁决（v1.3 第二轮补做） | ✅ 1 | 2026-10-06 裁决为**折中**：冻结线写进 `env_cmds.rs` 文件头、`budgets.toml` 上限改长期值、拆分降级为阶段二候选（不设死线） |
+| P0-2 Gate D 两格人工 | ⚠ 半格（第一格 ❌ / 第二格 ✅） | 第一格：工作单 23 行仍全 `☐`（纯人工，未做）；**第二格：`trace-stats.md` 已换成真实项目样本 277 条（覆盖率 79%，606 B/条）**；`STALE_HITS_DIVISOR` 仍 2（样本未达 1000，不改） |
 | P0-3 修 D-6 / D-7 / D-8 | ✅ 3/3 | **D-7 真机复核通过**（14/14）· **D-6** × + Esc 双通道（e2e/db 30/30 含回归钉）· **D-8** `refreshToolbarTips()`（单测钉住可逆） |
 | P0-0 产物体积口径 + 预算回绿 | ✅ 2 | dist 新鲜度 STALE 判定；style.css 按主题拆分（5,987 → 5,748）+ audit_tokens 加 @import 解析 |
 | P0-1 性能基线 | ✅ 1（本版新增后即补） | `bench/reports/metrics-20261006-091652.md` 首个基线（冷启动 956ms / 内存 339MB）；CI 触发验证仍缺 |
-| P0-1 拿到 CI/nightly 跑通证据 | ❌ 0 | `bench/reports/` 无 `metrics-*.md` / `budget-*.md` |
+| P0-1 拿到 CI/nightly 跑通证据 | ❌ 0（**本轮定性：不是"没跑"，是"没有宿主"**） | `bench/reports/` 无 `budget-*.md`（CI 产物）；根因为远端只有 Gitee → Actions 不执行。已改为待裁决（P0-1 子项 7） |
+| P0-1 子项 5 预算门禁并入 `ci.yml` | ✅ 1（本版第二轮新增后即补） | `ci.yml` test job 已加"体积与规模预算断言"步骤，本机重建 dist 后十二项全 PASS |
 | P1-1 可观测性三件套 | ❌ 0 | 无埋点模块 |
 | 非建议项（新功能 B4/B5/B6-3） | ✅ 3 | 均已交付（B6 后终止） |
 | 唯一践行"守门禁"的项 | ✅ 1 | **B6 因体积条款被终止**（ADR-0010） |
@@ -555,7 +590,7 @@ A 类全部复用已有的 probe trace 数据或外壳基建，**别人抄不走
 | `docs/sqlite_tool_dev_plan.md` v1.5 | B3 唯一真源（§17 交互方案 / §9 逐 PR 实施记录 / §10.3 v1.0 侧栏态真机 13/13 / §17.7 v1.4 真机待办） |
 | `bench/reports/gate-d-runtime-completion.md` | Gate D 确定性口径 base 数值（23/23）与两格 PENDING 的定义 |
 | `bench/reports/gate-d-ab-worklist.md` | P0-2 第一格的载体（OpenCharm 列已自动填好，**PyCharm 列 23 行仍全为 `☐`**） |
-| `bench/reports/trace-stats.md` | P0-2 第二格的首个样本（1 库 / 1 次运行 / **56 条观测**，门槛 ≥1000） |
+| `bench/reports/trace-stats.md` | P0-2 第二格的**当前样本**（2026-10-06 重取：真实项目 `metawake/backend`，1 库 / 3 次运行 / **277 条函数观测**，覆盖率 79%；门槛为**跨项目累计 ≥1000**） |
 | `docs/tech-debt.md` | 债务明细：**待处理 4 条** TD-021 / TD-022 / TD-024 / **TD-025**（「自用」论据失效复审清单，6 条） |
 | `docs/e2e_divergence_ledger.md` | P0-1 的论据（真机才暴露的缺陷） |
 | `docs/onboarding_dev_plan.md` / `docs/onboarding_guide.md` | P0-3 方案来源与**双源冲突实例** |
@@ -566,5 +601,5 @@ A 类全部复用已有的 probe trace 数据或外壳基建，**别人抄不走
 | `docs/plugin_system_design.md` §10 | P1-6 / D 类的待决策点 |
 | `intel/README.md:47` / `:58` / `:59` | P0-2 的挂起项（P3-T10）——**三处状态戳仍均为 ⏳** |
 | `docs/debug_acceptance_record.md` §五 / `docs/run_acceptance_record.md` §四 | P0-3 的人工验收清单 |
-| `ci/budgets.toml` + `shell/scripts/budget-check.mjs` | P0-0 的预算真源与断言脚本（**当前 9/10 项 PASS，`style.css` FAIL**） |
-| `.github/workflows/ci.yml` / `nightly.yml` | P0-1 的配置证据（分支已对齐 `[master, main]`、`audit_tokens.py` 在 test job、nightly 三 job）——**⚠ 无跑通证据** |
+| `ci/budgets.toml` + `shell/scripts/budget-check.mjs` | P0-0 的预算真源与断言脚本（**当前十二项全 PASS**；已并入 `ci.yml` test job） |
+| `.github/workflows/ci.yml` / `nightly.yml` | P0-1 的配置证据（分支已对齐 `[master, main]`、`audit_tokens.py` 与 `budget-check.mjs` 均在 test job、nightly 三 job）——**⚠ 无宿主**：本仓远端只有 Gitee，Actions 不执行（详见 §9 取数禁则 5） |
