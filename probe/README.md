@@ -72,7 +72,8 @@ uv run opencharm-probe check <script.py> [--expect file.json] [--uv] [--threshol
 >    地板——启动噪音在地板内免疫，主脚本 `<module>` 激活后由 `_active > 0` 接管保窗。
 >    回归：`test_sitecustomize_noise_does_not_close_window`。
 - **OR 语义**：全局+局部同开不双触发（实测确认），窗口外采集完全靠局部事件——库代码零派发。
-- **静音**：每函数调用数超限（默认 200）后清空其全部局部事件，此后零派发开销。
+- **静音**：每函数调用数超限（默认 200）后，**停类型观测与返回回调（清 PY_RETURN、保留 PY_START）**，hits 照旧累加、不再被上限钳住。
+  ⚠ 旧语义是"清空全部局部事件"（连 hits 一起停），会让 `functions.hits` 恒 ≤ 200——热点榜与 Profiler 的 Top-N 一到上限就分不出高下。改回旧语义等于放弃 hits 的一半用途，详见 `bench/reports/probe-overhead-caliber.md` §6。
 - **类型观测降采样**：每参数位/返回位最多 100 次类型观测（类型分布的边际价值递减）。
 
 ### 类型紧凑表示（P2-T03）

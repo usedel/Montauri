@@ -23,7 +23,7 @@
 限流（P2-T04）：
 - 模块过滤：仅采集项目根目录内的文件（venv/site-packages/标准库/探针自身排除）；
 - 模块白/黑名单：include/exclude_modules，相对项目根的 glob（黑名单优先）；
-- 每函数调用数上限：超限后清局部事件并静音（高频降采样）；
+- 每函数调用数上限：超限后静音（停类型观测与返回回调，hits 照旧累加）；
 - 调用栈深度上限：超限只计 hits 不记参数观测（静音兜底不受影响）；
 - 每参数位/返回位类型观测上限：边际价值递减，超限跳过 compact 计算。
 """
@@ -202,6 +202,13 @@ class Monitor:
     # -- 回调（性能关键路径，保持极简） -----------------------------------
 
     def _on_start(self, code: types.CodeType, offset: int):
+        # 静音判断置顶：被静音的函数只计 hits，越早返回越省。
+        # 不要把它放在 _maybe_close_window() 之后——实测（bench/profiler-overhead，
+        # E2 vs 落地首版）那样每次派发都要多付一次 perf_counter + 函数调用，
+        # 而 _active > 0 时窗口根本不会被关掉，这笔开销纯属白付（1.71x → 1.57x）。
+        if code in self._muted:
+            self._count_hit_only(code)
+            return None
         if self._in_window:
             self._quiet += 1
             self._maybe_close_window()
@@ -213,12 +220,12 @@ class Monitor:
                     self._quiet = 0  # 发现新项目函数：重置静默计数
             if not ok:
                 return None
-            if code in self._muted:
-                return None
             fid = self._fid(code)
             if self._sink.over_limit(fid, self._cfg.max_calls_per_func):
-                # 高频降采样：静音并清局部事件（此后零派发开销）
+                # 高频降采样：静音（保留 hits，停类型观测与返回回调）
                 self._mute(code)
+                # 触发静音的这次调用也要计数，否则每次静音会吞掉 1 次 hits
+                self._sink.add_hit(fid)
                 return None
             self._active += 1
             self._sink.add_hit(fid)
@@ -231,11 +238,10 @@ class Monitor:
                 self._armed.add(code)
             return None
         # 非窗口期：局部事件路径（仅项目内函数会走到这里）
-        if code in self._muted:
-            return None
         fid = self._fid(code)
         if self._sink.over_limit(fid, self._cfg.max_calls_per_func):
             self._mute(code)
+            self._sink.add_hit(fid)  # 触发静音的这次调用也要计数
             return None
         self._active += 1
         self._sink.add_hit(fid)
@@ -247,14 +253,31 @@ class Monitor:
         return None
 
     def _mute(self, code: types.CodeType) -> None:
-        """静音函数：清空其全部局部事件（此后该函数零派发开销）。"""
+        """静音：停类型观测与返回回调，但**保留 PY_START 继续累加 hits**。
+
+        旧行为是清掉全部局部事件（此后零派发开销），副作用是 `functions.hits`
+        被钳在 `max_calls_per_func` 上限——热点榜与 Profiler 的 Top-N 一到上限
+        就分不出高下（3 个真实项目里 hits max 恒为 200）。
+
+        新行为只清 PY_RETURN、保留 PY_START：静音后该函数的回调退化为一次
+        dict 查表 + 一次计数（见 `_count_hit_only`），省下的返回回调与
+        `compact_type` 成本正好抵消继续派发的成本——实测与旧行为开销持平：
+        S1 形状 1.57x vs 1.56x、S3 形状 1.08x vs 1.08x
+        （`bench/profiler-overhead/overhead_lab.py --decomp` 的 D0 vs E2）。
+
+        code 仍留在 `_armed` 里，好让 `stop()` 统一清理局部事件。
+        """
         self._muted.add(code)
         if code in self._armed:
             try:
-                sys.monitoring.set_local_events(self._tid, code, 0)
+                sys.monitoring.set_local_events(self._tid, code,
+                                                sys.monitoring.events.PY_START)
             except ValueError:
-                pass
-            self._armed.discard(code)
+                self._armed.discard(code)
+
+    def _count_hit_only(self, code: types.CodeType) -> None:
+        """静音函数的热路径：只累加 hits，不做分类/类型观测/深度检查。"""
+        self._sink.add_hit(self._fid(code))
 
     def _fid(self, code: types.CodeType) -> int:
         """按归一化 filename 取函数 id（P2-4：code 级缓存，热路径零 realpath）。"""

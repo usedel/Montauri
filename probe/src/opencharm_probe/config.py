@@ -22,7 +22,9 @@ class ProbeConfig:
     max_union_types: int = 3       # 容器元素类型联合上限（超出截断为 |...）
     sample_elems: int = 8          # 容器元素采样个数上限
     # 采样限流（P2-T04）
-    max_calls_per_func: int = 200  # 每函数记录调用数上限（超限静音，高频降采样）
+    # 每函数「类型观测」的调用数上限：超限后静音（停类型观测与返回回调），
+    # 但 hits 继续累加、不再被钳在本值（热点榜/Profiler 需要无上限的调用次数）。
+    max_calls_per_func: int = 200
     max_call_depth: int = 64       # 调用栈深度上限（更深只计 hits 不记参数观测；0 = 不限）
     max_type_obs_per_site: int = 100  # 每参数位/返回位类型观测上限（类型分布采样）
     # 模块白/黑名单：相对项目根的 POSIX 风格 glob（"tests" ≙ "tests/*"，* 跨目录）；

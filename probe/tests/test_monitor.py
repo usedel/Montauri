@@ -169,6 +169,11 @@ def test_module_filter_excludes_stdlib():
 
 
 def test_mute_after_limit():
+    """超限静音：停类型观测与返回回调，但 hits 继续累加（不被上限钳住）。
+
+    旧语义是「静音即清空全部局部事件」，副作用是 functions.hits 恒 ≤ 上限，
+    热点榜 / Profiler 的 Top-N 一到上限就分不出高下。
+    """
     cfg = ProbeConfig(max_calls_per_func=3)
     mon, sink = _new_monitor(cfg)
     mon.start()
@@ -181,7 +186,9 @@ def test_mute_after_limit():
     mon.stop()
     fids = _fids_by_suffix(sink, "hot")
     hits = [c for fid, c in sink.hits.items() if fid in fids]
-    assert hits == [3]  # 超限静音：只记 3 次
+    assert hits == [10]  # hits 无上限（旧行为会停在 3）
+    args = _args_of(sink, "hot")
+    assert sum(c for v in args.values() for c in v.values()) == 3  # 仅前 3 次有参数观测
 
 
 def test_stop_idempotent():
