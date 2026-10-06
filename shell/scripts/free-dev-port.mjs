@@ -7,7 +7,18 @@
  * vite 就变成**孤儿进程**继续占着 5173。之后再跑 `npm run tauri dev`，Tauri 的
  * `beforeDevCommand`（`npm run dev`）又会去起 vite，而 `vite.config.ts` 里
  * `strictPort: true` 不会退让端口 → 直接失败，报「5173 端口被占用」。
- * 本脚本就是 `npm run dev` 的前置一步：先把上一轮遗留的 vite 收掉。
+ * 本脚本是 `npm run dev` 的**前置一步**（2026-10-06 起已真正接进 `package.json` 的 `dev` 脚本：
+ * `node scripts/free-dev-port.mjs && vite`）：先把上一轮遗留的 vite 收掉。因为 Tauri 的
+ * `beforeDevCommand` 就是 `npm run dev`，这一步同时护住了 `npm run tauri dev`。
+ * 也可手动跑 `npm run e2e:clean`。
+ *
+ * 与 `e2e-launch.mjs` 的分工：**e2e 启动器负责回收「它自己起的」dev server**（正常退出 /
+ * Ctrl-C / 异常三条路径）；本脚本是**兜底**——覆盖启动器被 SIGKILL / 任务管理器强杀、
+ * 来不及收尾而留下的孤儿。
+ *
+ * ⚠ 2026-10-06 修：本脚本原先用 `spawnSync` 调 netstat/powershell/taskkill。本机
+ *   `spawnSync` 起子进程会**持续 EBUSY**（详见 `proc-util.mjs` 头部），于是三个调用全部
+ *   静默失败——**脚本会打印「已清理」而端口纹丝不动**。现已全部改走异步 `spawn`。
  *
  * 纪律：**只杀确认是本项目 vite dev server 的进程**——判定依据是进程命令行含
  * `vite`。拿不到命令行、或命令行不像 vite 的，一律**不杀**，退出码 1 并打印处置
@@ -18,10 +29,12 @@
  *   node scripts/free-dev-port.mjs --port 4173     # 清指定端口
  *   node scripts/free-dev-port.mjs --dry-run       # 只报告不杀（排查用）
  *
- * 退出码：0 = 端口可用（本来就空 / 已清理）；1 = 端口被非 vite 进程占用，已拒绝自动清理。
+ * 退出码：0 = 端口可用（本来就空 / 已清理并确认释放）；1 = 端口被非 vite 进程占用而拒绝清理，
+ *         或清理后端口仍未释放。
  */
 
-import { spawnSync } from "node:child_process";
+import { setTimeout as delay } from "node:timers/promises";
+import { commandLineOf, killTree, listeningPids } from "./proc-util.mjs";
 
 const argv = process.argv.slice(2);
 
@@ -34,85 +47,39 @@ function readPort() {
 
 const PORT = readPort();
 const DRY_RUN = argv.includes("--dry-run");
-const IS_WIN = process.platform === "win32";
-
-/** 监听该端口的 PID 列表（去重；`netstat` 对 IPv4/IPv6 会各出一行，同一个 PID） */
-function listeningPids(port) {
-  if (IS_WIN) {
-    const r = spawnSync("netstat", ["-ano", "-p", "tcp"], { encoding: "utf8" });
-    const out = `${r.stdout ?? ""}`;
-    const pids = new Set();
-    for (const line of out.split("\n")) {
-      const cols = line.trim().split(/\s+/);
-      // 形如：TCP  0.0.0.0:5173  0.0.0.0:0  LISTENING  3996
-      if (cols.length < 5) continue;
-      if (cols[0].toUpperCase() !== "TCP") continue;
-      if (cols[3].toUpperCase() !== "LISTENING") continue;
-      const localPort = cols[1].split(":").pop();
-      if (localPort !== String(port)) continue;
-      const pid = Number(cols[cols.length - 1]);
-      if (Number.isInteger(pid) && pid > 0) pids.add(pid);
-    }
-    return [...pids];
-  }
-  const r = spawnSync("lsof", ["-ti", `tcp:${port}`], { encoding: "utf8" });
-  return `${r.stdout ?? ""}`
-    .split("\n")
-    .map((s) => Number(s.trim()))
-    .filter((n) => Number.isInteger(n) && n > 0);
-}
-
-/**
- * 取进程命令行。Windows 上 `wmic` 已被系统精简掉，只能走 PowerShell；
- * 取不到时返回空串——空串会被判定为「不敢杀」，是安全的默认值。
- */
-function commandLineOf(pid) {
-  if (IS_WIN) {
-    const r = spawnSync(
-      "powershell",
-      [
-        "-NoProfile",
-        "-NonInteractive",
-        "-Command",
-        `(Get-CimInstance Win32_Process -Filter "ProcessId=${pid}").CommandLine`,
-      ],
-      { encoding: "utf8", windowsHide: true },
-    );
-    return `${r.stdout ?? ""}`.trim();
-  }
-  const r = spawnSync("ps", ["-p", String(pid), "-o", "args="], { encoding: "utf8" });
-  return `${r.stdout ?? ""}`.trim();
-}
 
 /** 是否本项目的 vite dev server：命令行里含 vite（node .../vite/bin/vite.js / npx vite 都命中） */
 function looksLikeVite(cmd) {
   return /vite/i.test(cmd);
 }
 
-function killTree(pid) {
-  if (IS_WIN) {
-    // /T 连子进程树一起收：vite 会带 esbuild 等子进程，只杀父进程会留下新孤儿
-    const r = spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { encoding: "utf8" });
-    return r.status === 0;
+/** 端口上的「外来」监听者（排除自己） */
+async function othersOnPort(port) {
+  return (await listeningPids(port)).filter((p) => p !== process.pid);
+}
+
+async function waitPortFree(port, deadlineMs) {
+  const until = Date.now() + deadlineMs;
+  while (Date.now() < until) {
+    if ((await othersOnPort(port)).length === 0) return true;
+    await delay(200);
   }
-  const r = spawnSync("kill", ["-9", String(pid)], { encoding: "utf8" });
-  return r.status === 0;
+  return (await othersOnPort(port)).length === 0;
 }
 
 // ---------- 主流程 ----------
 
-const pids = listeningPids(PORT);
+const pids = await othersOnPort(PORT);
 
 if (pids.length === 0) {
   process.exit(0); // 端口本来就空：静默放行，不拖慢 dev 启动
 }
 
-const verdicts = pids
-  .filter((pid) => pid !== process.pid)
-  .map((pid) => {
-    const cmd = commandLineOf(pid);
-    return { pid, cmd, isVite: looksLikeVite(cmd) };
-  });
+const verdicts = [];
+for (const pid of pids) {
+  const cmd = await commandLineOf(pid);
+  verdicts.push({ pid, cmd, isVite: looksLikeVite(cmd) });
+}
 
 const strangers = verdicts.filter((v) => !v.isVite);
 
@@ -132,7 +99,7 @@ if (DRY_RUN) {
 }
 
 for (const v of verdicts) {
-  const ok = killTree(v.pid);
+  const ok = await killTree(v.pid);
   console.log(
     ok
       ? `[free-dev-port] 已清理上一轮遗留的 dev server：PID ${v.pid}（端口 ${PORT}）`
@@ -140,5 +107,10 @@ for (const v of verdicts) {
   );
 }
 
-// 收完不等端口回收：调用方（vite）紧接着会 bind，此时端口应已释放
+// 等端口真正释放：调用方（vite）紧接着就会 bind，不留回收窗口会撞上「端口仍被占用」
+if (!(await waitPortFree(PORT, 3_000))) {
+  console.error(`[free-dev-port] 端口 ${PORT} 清理后仍未释放，请手动处理后再启动。`);
+  process.exit(1);
+}
+
 process.exit(0);

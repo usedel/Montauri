@@ -90,9 +90,14 @@ npm test                                      # 全量
 npm test -- src/__tests__/foo.test.ts        # 单文件
 npm test -- src/__tests__/foo.test.ts -t "用例名"   # 单用例
 
-# E2E（Playwright，testDir=shell/e2e，自动起 vite dev :5173 并复用已启动实例）
-npx playwright test                          # 全量（串行，workers=1）
-npx playwright test e2e/git/foo.spec.ts      # 单 spec
+# E2E（Playwright，testDir=shell/e2e）——**一律走 `npm run e2e`，别用裸 `npx playwright test`**：
+#   裸命令在 Windows 上会在用例跑完后挂住（playwright 的 webServer 关闭阶段卡死）；
+#   `npm run e2e` 先确保 5173 就绪再复用，且**退出时回收本轮自起的 dev server**
+#   （防孤儿 vite 占住 5173 → `npm run tauri dev` 因 strictPort 直接起不来）
+npm run e2e                                  # 全量（串行，workers=1）
+npm run e2e -- e2e/git/foo.spec.ts           # 单 spec（目录 / --grep / --reporter 均可）
+npm run e2e:clean                            # 兜底：清掉 5173 上遗留的 dev server
+                                             #（`npm run dev` 也会自动先清，故 tauri dev 同样自愈）
 
 # Rust 外壳
 cd shell/src-tauri && cargo build            # debug

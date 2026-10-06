@@ -877,7 +877,7 @@ mock 桩实际位置在 `e2e/mocks/tauri-mock.js` 的 `dbHandle()`（**纯 JS**�
 
 7. [x] id 前缀冲突检查**已完成**：`db-wide-panel` / `db-wide-placeholder` / `db-wide-splitter` / `db-wide-toggle` / `db-wide-exit` 在 `index.html` 与 `src/*.ts` 中零命中，可安全使用；
 8. [ ] **先读 §16.4.5 的两处顺序陷阱**（`setSidebarTab` 的 loop 早于 `onHide`；`exitDbWide()` 在 `activateTab` 里必须位于 diff 分支之前）——这是本迭代最容易写错的地方；
-9. [ ] 跑 mock e2e 前**先杀掉 5173 上的 vite**（D-008 陈旧 dev server 会让用例拿到第二个模块实例，症状是「点了没反应」这类假 bug）。
+9. [ ] 跑 mock e2e 前**先杀掉 5173 上的 vite**（D-008 陈旧 dev server 会让用例拿到第二个模块实例，症状是「点了没反应」这类假 bug）。**（2026-10-06 起已自动化：`npm run e2e` 退出时自回收 dev server，`npm run dev` 启动前自动先清；兜底命令 `npm run e2e:clean`。见 `docs/e2e_divergence_ledger.md` D-008。）**
 
 ---
 

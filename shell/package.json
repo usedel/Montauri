@@ -4,12 +4,13 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "node scripts/free-dev-port.mjs && vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "node scripts/vitest-launch.mjs",
     "tauri": "tauri",
-    "e2e": "node scripts/e2e-launch.mjs"
+    "e2e": "node scripts/e2e-launch.mjs",
+    "e2e:clean": "node scripts/free-dev-port.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",

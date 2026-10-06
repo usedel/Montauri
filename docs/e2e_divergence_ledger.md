@@ -112,3 +112,9 @@
 7. **改动 `src/` 后、重跑 mock 层 e2e 前，先杀掉 5173 上的 vite 进程**（D-008）。原因：Vite 在模块被 HMR 失效后会把 `?t=<时间戳>` 烘进**已转换模块的 import 语句**；而用例里的 `page.evaluate(() => import("/src/x.ts"))` 是**裸 URL（无查询串）** → 浏览器视为另一条模块记录 → 拿到**第二个实例**。于是模块级状态（`welcomeGuide` 的 `tourCollapsed`、`quickOpen` 的会话状态…）与应用持有的那份分叉，症状是「点了没反应 / 输入框没聚焦」这类**看起来像产品 bug、实为测试环境**的失败。实测：UX-9（`quick-open-input` 未聚焦）与 OG-7（巡礼标题行点击不展开）在陈旧 dev server 上**稳定复现**，杀掉 vite 重启后**立即全过**。
    `playwright.config.ts` 是 `reuseExistingServer: true`，**不会自动重启**旧实例，所以必须手动清：
    `Get-NetTCPConnection -LocalPort 5173 -State Listen | % { Stop-Process -Id $_.OwningProcess -Force }`（Playwright 下次运行会自行拉起干净的 dev server）。
+   **⚠ 2026-10-06 起此条已自动化，上面的手动命令只在兜底时用**：`npm run e2e` 现在会在退出时
+   回收**它自己起的** dev server（正常退出 / Ctrl-C / 异常三条路径都收），`npm run dev` 也会在
+   启动前先清 5173（`tauri dev` 的 `beforeDevCommand` 即 `npm run dev`，故一并自愈）。
+   手动兜底改用 `npm run e2e:clean`。**背景**：旧实现用 `spawnSync` 杀进程（本机持续 EBUSY）
+   且 `netstat -p tcp` 漏掉 IPv6 监听（vite 默认绑 `[::1]`）——两个缺陷叠加，导致清理脚本
+   「打印已清理、端口纹丝不动」，孤儿 vite 长期累积。详见 `shell/scripts/proc-util.mjs` 头部。
