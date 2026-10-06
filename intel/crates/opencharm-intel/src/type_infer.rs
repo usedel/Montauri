@@ -440,6 +440,22 @@ fn parse_shape(shape: &str, type_label: &str) -> Result<ParsedShape, serde_json:
     })
 }
 
+/// shape 顶层成员名（dict 键 / 实例属性名）；顶层为 list 时无键名 → 空。
+/// A3② hover 的「常见键 / 常见属性」展示复用（不重造 shape 解析）。
+pub(crate) fn shape_members(shape: &str, type_label: &str) -> Vec<String> {
+    match parse_shape(shape, type_label) {
+        // JSON 数组（旧格式 / 实例属性名）：保留 probe 的写入序
+        Ok(ParsedShape::Keys(v)) => v,
+        // 顶层 dict：HashMap 无序，排序后展示（保证 hover 文本稳定）
+        Ok(ParsedShape::Dict(m)) => {
+            let mut k: Vec<String> = m.keys().cloned().collect();
+            k.sort();
+            k
+        }
+        _ => Vec::new(),
+    }
+}
+
 /// 类型标签是否为序列容器（list/tuple/set/frozenset）——用于 shape `{"e"}` 歧义消除。
 fn is_sequence_label(label: &str) -> bool {
     matches!(

@@ -127,6 +127,21 @@ ep_sample_cmds_rs_max_lines = 1280
 #   新增 intel 类命令请**优先落新文件**（同 env_cmds.rs 的冻结线纪律），本文件只承载本视图的差集逻辑。
 intel_cmds_rs_max_lines = 600
 
+# —— intel crate（opencharm-intel 独立 LSP 包）——
+# 该 crate 此前**完全在预算面之外**；A3 首次让它显著增长（completion.rs 1,114 → 1,618）。
+# 按 endpointView.ts 的「首次登记」先例，本轮只登记增长的两个文件，其余（type_infer / server /
+# definition / diagnostics / inlay / main）待后续按同一口径补登——**不假装整个 crate 已覆盖**。
+# 注意：`trace.rs` 属另一个 crate（opencharm-intel-index），同样未纳入。
+#
+# completion.rs（A3① 调用实参补全 +519 行）：1,632 行。上限 1,950（余量 ~20%）。
+#   范围：符号 / 属性 / 下标 / 调用实参四类补全的统一入口 + 各自的上下文解析。
+#   A3③（intel 签名帮助）若开工，`(` 上下文解析可复用，但**先看这里的余量**。
+intel_completion_rs_max_lines = 1950
+
+# hover.rs（A3② 观测签名 + 常见键/属性 +106 行）：392 行。上限 470（余量 ~20%）。
+#   范围：函数 hover（args/rets/excs 观测聚合）与变量 hover（类型推断 + shape 字段）。
+intel_hover_rs_max_lines = 470
+
 # —— 命令面 ——
 # 196 个 #[tauri::command]（2026-10-06 实测；B4 新增 http_cmds，A1 新增 intel_cmds，
 # A5① 新增 ep_sample_cmds）。插件化启动前 Rust 侧会继续膨胀，200 是"必须先讨论插件化"

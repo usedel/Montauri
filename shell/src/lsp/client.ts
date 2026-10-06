@@ -405,7 +405,8 @@ export async function startIntel(workspaceRoot: string, rootUri: string): Promis
       initializationOptions: { traceDbPath: info.traceDbPath },
       capabilities: {
         textDocumentSync: 2,
-        completionProvider: { triggerCharacters: [".", "_"], resolveProvider: true },
+        // A3①：与服务端 initialize 声明保持一致（`(` / `,` → 调用实参补全）
+        completionProvider: { triggerCharacters: [".", "_", "(", ","], resolveProvider: true },
         hoverProvider: true,
         definitionProvider: true,
       },
@@ -646,7 +647,8 @@ export function registerLspCompletion(): MonacoApi.IDisposable {
   INSERT_AS_SNIPPET =
     ((monaco.languages as any).CompletionItemInsertTextRule?.InsertAsSnippet) ?? 4;
   return monaco.languages.registerCompletionItemProvider("python", {
-    triggerCharacters: [".", "_", "\"", "'", "["],
+    // A3①：`(` / `,` 让「调用实参补全」（intel 参数名候选）在打完 `(` 或 `,` 时即弹出
+    triggerCharacters: [".", "_", "\"", "'", "[", "(", ","],
     async provideCompletionItems(model: MonacoApi.editor.ITextModel, position: MonacoApi.Position) {
       if (engineStatus !== "ready") return { suggestions: [] };
       // 先冲刷未同步的文档变更，再发补全请求（顺序保证：await 同步帧写入后才发请求）

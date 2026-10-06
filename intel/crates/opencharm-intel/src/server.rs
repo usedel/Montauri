@@ -229,12 +229,15 @@ impl LanguageServer for Backend {
                     TextDocumentSyncKind::FULL,
                 )),
                 completion_provider: Some(CompletionOptions {
+                    // A3①：`(` / `,` 用于「调用实参补全」——打完 `(` 或 `,` 即给出参数名候选
                     trigger_characters: Some(vec![
                         ".".to_string(),
                         "_".to_string(),
                         "\"".to_string(),
                         "'".to_string(),
                         "[".to_string(),
+                        "(".to_string(),
+                        ",".to_string(),
                     ]),
                     resolve_provider: Some(true),
                     ..Default::default()
@@ -324,8 +327,11 @@ impl LanguageServer for Backend {
                 kind: Some(match c.kind {
                     CandidateKind::Function => CompletionItemKind::FUNCTION,
                     CandidateKind::Field => CompletionItemKind::FIELD,
+                    CandidateKind::Param => CompletionItemKind::VARIABLE,
                 }),
                 detail: Some(c.detail.clone()),
+                // A3①：实参候选插入 `name=`；其余候选无 insertText（客户端回落 label）
+                insert_text: c.insert_text.clone(),
                 sort_text: Some(format!("1{:03}", i)),
                 ..Default::default()
             })

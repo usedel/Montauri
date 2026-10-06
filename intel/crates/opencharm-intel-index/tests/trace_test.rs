@@ -156,6 +156,35 @@ fn by_last_segment_queries() {
     assert_eq!(pref[0].qualname, "A.foo");
 }
 
+/// A3①：同一函数的参数位顺序必须按**插入序**（probe `monitor._record_args` 按
+/// `co_varnames` 声明顺序逐位写入）。`ORDER BY fid` 在 fid 相同时不保序，会打乱
+/// 「位置参数前跳」的依据 —— 本用例钉住 `rowid` 决胜键。
+#[test]
+fn arg_observation_order_is_insertion_order() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("ord.db");
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(SCHEMA).unwrap();
+        conn.execute(
+            "INSERT INTO functions(filename,qualname,lineno,hits,stale) VALUES('o.py','O.f',1,1,0)",
+            [],
+        )
+        .unwrap();
+        for (i, name) in ["p0", "p1", "p2", "p3", "p4", "p5"].iter().enumerate() {
+            conn.execute(
+                "INSERT INTO arg_types(fid,arg,type_label,shape,count) VALUES(1,?1,'int','',?2)",
+                rusqlite::params![name, (i as i64) + 1],
+            )
+            .unwrap();
+        }
+    }
+    let idx = TraceIndex::open(&path).unwrap();
+    let f: Vec<_> = idx.by_qualname("O.f").collect();
+    let names: Vec<&str> = f[0].args.iter().map(|a| a.arg.as_str()).collect();
+    assert_eq!(names, vec!["p0", "p1", "p2", "p3", "p4", "p5"]);
+}
+
 /// CR-17：type_label 倒排观测查询（members/chain/first_shape 的查询路径）。
 #[test]
 fn observations_of_type_merges_args_and_rets() {

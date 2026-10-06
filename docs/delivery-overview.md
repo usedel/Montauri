@@ -1,6 +1,7 @@
 # OpenCharm 交付总览（Delivery Overview）
 
-> 版本：**v1.3** · 日期：2026-10-06 · 状态：**现行** · 取数时点：git HEAD `9003325`（`master`）
+> 版本：**v1.4** · 日期：2026-10-06 · 状态：**现行** · 取数时点：git HEAD `27825c3`（`master`）
+> **v1.4 修订（2026-10-06，同日稍后）**：① §2 补录 **A3 调用实参补全 + hover 观测签名（第 26 行）**；② §1 数字刷新：Rust **364 → 379**（外壳 319 不变 + **intel 45 → 60**）· 预算 **二十五项 → 二十七项**（首次纳入 intel crate 两个文件：`completion.rs` / `hover.rs`）· 前端用例 1240/100 **不变**（A3 是 Rust 侧功能，未新增前端测试）· 命令 196 **不变** · 产物 5,013 KB **不变**；③ §4 新登记第 17 条（`trace.rs` 的 `ORDER BY fid` 在 fid 相同时不保序，会打乱参数位顺序——A3① 依赖该顺序，已修）；④ §1「下一步」改为 A3 已交付、A4 / A3③④ 为下一候选。
 > **v1.3 修订（2026-10-06，同日稍后）**：① §2 补录 **A5① 端点请求样例**（第 25 行）；② §1 数字刷新：命令 **195 → 196** · 用例 **1223/99 → 1240/100** · Rust **355 → 364**（外壳 319 + intel 45）· 预算 **二十项 → 二十五项**（新增 4 个上限 + **首次纳入 `endpointView.ts`**）· `style.css` 5,749 → **5,750** · 产物 4,999 → **5,013 KB**；③ §4 新登记第 15 / 16 条（`openHttpTool` 传裸工具 id、http 面板两个 textarea 同类名，均已修）；④ §1「下一步」改为 A5① 已交付、A3 / A4 为下一候选。
 > **v1.2 修订（2026-10-06，同日稍后）**：① §2 补录 **A1 运行时热点视图**（阶段二差异化泳道首件，v1.1 之后唯一新增功能域）；② §1 数字刷新：命令 **194 → 195** · 用例 **1215/98 → 1223/99** · 预算 **十七项 → 二十项**（新增 `hotspotsView.ts` / `styles/hotspots.css` / `intel_cmds.rs` 三个上限）· `main.ts` 2,094 → **2,099** · 产物 4,990 → **4,999 KB** · e2e spec 69 → **70**；③ §4 新登记第 14 条（i18n 生成链的字体默认值漂移 + CRLF 污染，已修）；④ §5 补"`budget-check` 断言前必须先 `npm run build`"的既有纪律。
 > **v1.1 修订（2026-10-06）**：① §2 补录 **B4 HTTP 请求工具**与 **B5 结构化运行日志**两个 v1.0 之后交付的功能域（原只在 §3.5 提了一句）；② §1 用例基线 1070 → **1215 / 98 文件**（滞后两版，随 `improvement_and_roadmap_report.md` §1.5 第 ② 条一并修）；③ §4 新登记 4 条不一致（产物体积基线 4,918 → 4,989 KB · 用例基线 · B4/B5 未收录 · **CI 宿主错配**）并标注处置状态；④ §5 补体积/规模预算门禁命令。
@@ -17,11 +18,11 @@
 | 定位 | **高性能 · 轻量 Python IDE**（FastAPI + 爬虫 + 小脚本；2026-10-05 定位变更，ADR-0010；性能与体积为一等目标） |
 | 阶段 | **Phase 4 · 打磨期**（Phase 1/2/3 均已交付：外壳 / 语义引擎 / 运行时智能） |
 | 规模 | 约 93.8K 行自研代码 · **196** 个 Tauri 命令 · 39 篇 `docs/*.md` + 8 篇 ADR |
-| 质量底座 | 前端 **1240 用例 / 100 文件** · Rust **364 测试通过**（外壳 319 通过 = 321 个 `#[test]` − 2 `#[ignore]`；intel 45）· probe 81 pytest · e2e 70 spec（mock 层）+ 10 个真机脚本（**手动**） |
-| 预算 / 性能 | **`ci/budgets.toml` 二十五项全 PASS**（`style.css` 5,750/5,850 · `main.ts` **2,099/2,400**（阶段二两刀共 −825 行）· 外提/新增共 **14** 个文件各带上限 · 产物 5,013/5,120 KB · 命令 196/200）；性能基线已落盘 `bench/reports/metrics-20261006-091652.md`（冷启动 956 ms · 内存 339 MB） |
+| 质量底座 | 前端 **1240 用例 / 100 文件** · Rust **379 测试通过**（外壳 319 通过 = 321 个 `#[test]` − 2 `#[ignore]`；intel **60** = 47 + 6 + 7）· probe 81 pytest · e2e 70 spec（mock 层）+ 10 个真机脚本（**手动**） |
+| 预算 / 性能 | **`ci/budgets.toml` 二十七项全 PASS**（`style.css` 5,750/5,850 · `main.ts` **2,099/2,400**（阶段二两刀共 −825 行）· 外提/新增共 **16** 个文件各带上限 · 产物 5,013/5,120 KB · 命令 196/200）；性能基线已落盘 `bench/reports/metrics-20261006-091652.md`（冷启动 956 ms · 内存 339 MB） |
 | 版本锁定 | `ci/versions.toml` 锁 9 类依赖 |
 | 尚未闭环 | ① **CI 无宿主（已裁决维持现状）**：远端只有 `gitee.com/usedel/opencharm`，Gitee 不执行 GitHub Actions → 两份 workflow 是「将来推 GitHub 的预埋」，**首次跑通证据外置到迁移时验**（§4 第 13 条）② **Gate D 第一格 ⛔ 外部阻塞**：PyCharm 人工对标 23 点——**本机已无 PyCharm（2026-10-06 确认）**，死线 v1.4，届时未做则撤下并在 README 声明"未做横向对比"（**在此之前对外不得写"比 PyCharm 更准"**）；第二格 ✅ 已取得真实项目样本 277 条 / 覆盖率 79% ③ **SQLite v1.4 Tab 化真机手测 + 双主题截图**（§17.7）④ 依赖升级回归无自动化 ⑤ 真机 e2e 不进自动调度（10 个脚本手动，`nightly.yml` 已编排但同 ① 无宿主） |
-| 下一步 | 见 `docs/improvement_and_roadmap_report.md` **v1.3**（P0-0 / P0-3 已关闭 · P0-1 已裁决为"维持现状" · P0-4 已裁决为冻结线 · **P0-2 第一格外部阻塞 / 第二格已采**）→ **阶段一收口，阶段二进行中**：差异化泳道 **A1 已交付 · A5①（请求样例 + 一键 curl）已交付**，下一候选 **A3 签名提示**（与 A1/A5 共用 intel / Pydantic 解析基建）与 **A4 爬虫工具箱**（画像匹配，`json2model.gen.ts` 已是现成件）；基本功泳道 `main.ts` 外提两刀已完成（余量 301 行），第三刀为候选 |
+| 下一步 | 见 `docs/improvement_and_roadmap_report.md` **v1.3**（P0-0 / P0-3 已关闭 · P0-1 已裁决为"维持现状" · P0-4 已裁决为冻结线 · **P0-2 第一格外部阻塞 / 第二格已采**）→ **阶段一收口，阶段二进行中**：差异化泳道 **A1 已交付 · A5①（请求样例 + 一键 curl）已交付 · A3①+②（调用实参补全 + hover 观测签名）已交付**，下一候选 **A4 爬虫工具箱**（画像匹配，`json2model.gen.ts` 已是现成件）与 **A3③④**（intel 签名弹窗 / 调用处参数名 inlay hint，已降级登记）；基本功泳道 `main.ts` 外提两刀已完成（余量 301 行），第三刀为候选 |
 
 ---
 
@@ -56,6 +57,7 @@
 | 23 | **结构化运行日志（B5）** | **2026-10-05**（`d497d2f`） | `toolbox_dev_plan.md` **v1.5** §6.10–6.12 | 门禁 1208/1208 · `e2e/logs/` 11/11 | ✅ 底部「运行日志」tab（多播采集 + 级别过滤 + 字段折叠 / 导出 + JSON 展开） |
 | 24 | **运行时热点视图（A1）** | **2026-10-06** | `improvement_and_roadmap_report.md` **v1.3** §A 类 A1（**无独立专项计划**：方案即报告该行 + 本文件 §2） | `intel_cmds` 6/6 · `hotspotsView.test.ts` 8/8 · `e2e/ux/06-runtime-hotspots.spec.ts` 8/8（HS-1~HS-8） | ✅ 第 8 个侧栏视图：probe trace 库 × 项目 `def` 差集 → 「已观测（按 hits 降序，带 stale / 异常徽章）」+「未观测到运行」。⚠ **口径**：下半区**不是**死代码断言（可能原因含未覆盖 / 分支未走 / 采样遗漏 / 进程外调用），文案已显式否认并由 e2e HS-4 钉住 |
 | 25 | **端点请求样例（A5①）** | **2026-10-06** | `improvement_and_roadmap_report.md` **v1.3** §A 类 A5（范围裁决见 §续记 ⑬：只做 ①请求样例 + ②一键 curl） | `ep_sample_cmds` 9/9 · `epSample.test.ts` 17/17 · `e2e/ux/02-frameworks.spec.ts` EP-S1~S5 | ✅ 端点行第 3 个动作（`beaker`）→ 行内展开：参数表（path / query / header / cookie / body / skip 分类）/ 请求体 JSON（Pydantic 模型展开，`alias` 生效）/ cURL（复制 + 送进 B4 HTTP 工具，预填方法 / 请求体）。⚠ **口径**：静态推断，**识别不到就明说**——Flask 的 query / body 来自 `request` 对象故不推断、未识别类型填 `null` 不猜值、依赖注入与框架对象跳过并给原因。③反向跳转 / ④OpenAPI 预览本轮未做 |
+| 26 | **A3 调用实参补全 + hover 观测签名** | **2026-10-06** | `intel/README.md`（新增 **P3-T11** 节，方案即该节 + 本行）· `improvement_and_roadmap_report.md` §A 类 A3（范围裁决见续记 ⑭：只做 ①+②） | intel crate **47 单测**（新增 14：参数补全 10 + hover 4）· `opencharm-intel-index` 7（新增 1：参数位顺序）· e2e **全量 340/340**（shell `client.ts` 触发字符改动无回归） | ✅ **① 调用实参补全**：`foo(|` / `foo(a, |` → `arg_types` 参数位观测给出参数名候选（insertText `name=`，detail 带观测类型 ×证据数）；已写 keyword 排除、位置参数按参数位顺序前跳、类构造回落 `Cls.__init__`。**② hover 观测签名**：函数 hover 增「签名（观测）」行 + 每条参数观测附 shape 派生的常见键 / 常见属性。⚠ **口径**：probe **绝不 repr 值本身**，故只能展示结构（键 / 属性名），**不存在"实际见过的字面取值"**——文案写「常见键 / 常见属性」而非「常见值」。③签名弹窗 / ④调用处 inlay hint 本轮未做 |
 
 ---
 
@@ -127,8 +129,9 @@
 | 14 | **i18n 生成链三处静默污染**（A1 顺带发现）：① `extract_html.py` / `gen_locales.py` 文本模式写文件 → Windows 上产物整体 CRLF 化（前者因此让「已标记」检测失效、全文件标记被重复插一遍）；② `gen_locales.py` 不产出注释 → 手改生成文件的 UI-31 / UI-32 注释每次重生成都静默丢失；③ `data/html_dict.json` 与 `data/en_2.json` 的字体预设默认值停留在批 3 之前，与 `index.html` / `state.ts` 真值不符且每次重生成把错值写回 `core.ts` | `shell/tools/i18n/{extract_html,gen_locales,common}.py` · `data/{html_dict,en_2}.json` · `src/i18n/locales/*/core.ts` | ✅ 2026-10-06 已修（`newline=""` 按 LF 落盘 · 新增 `PINS_ZH`/`PINS_EN` 锚点登记 · 按真值修正两份数据）。**附纪律：`html_dict.json` 是冻结快照，不可随意重跑 `extract_html.py`**（会产生 18 条重复 key + 21 条缺英文，`gen_locales.py` 直接 exit 1），已写入 `improvement_and_roadmap_report.md` §9 取数禁则 |
 | 15 | **`openHttpTool` 传裸工具 id**（A5① 顺带发现）：内置工具的全局 id 是 `<pluginId>.<toolId>`（`dslLens.ts` / `jsonLiteral.ts` 都写全 id），而 `devtools/index.ts` 调的是 `openDevTools("http")` → `getDevTool` 返回 undefined → 静默回落到「最近使用」工具。**表现为「B4 PR-B4-3 的『端点 → HTTP 工具』联动从来没打开过 HTTP 工具」**，此前无 e2e 覆盖 | `shell/src/devtools/index.ts:28` | ✅ 2026-10-06 已修（改 `HTTP_TOOL_ID = "opencharm.builtin.http"` 并加注释说明回落陷阱）；由 e2e EP-S2 钉住 |
 | 16 | **http 面板两个 textarea 同类名**（A5① 顺带发现）：请求体与「环境变量」都用 `kit.textarea` → 各 1 个 `.tool-textarea`，e2e 选择器不唯一 | `shell/src/devtools/builtin/http.ts` | ✅ 2026-10-06 已修（请求体补 `.http-body` 专用类，同 `.http-url` 既有约定） |
+| 17 | **`arg_types` 加载顺序不确定**（A3① 顺带发现）：`trace.rs::load_args` 用 `ORDER BY fid`，而 SQLite 排序**不保证稳定**——同一函数的多条 `arg_types` 行会被打乱。probe 侧 `monitor._record_args` 按 `co_varnames`（**声明顺序**）逐参数位写入，故插入序 = 声明序，是该顺序的唯一依据；A3① 的「位置参数前跳」正依赖它。**实测确已乱序**（`url, timeout, retries` 读成 `retries` 打头） | `intel/crates/opencharm-intel-index/src/trace.rs::load_args` | ✅ 2026-10-06 已修（`ORDER BY fid` → `ORDER BY fid, rowid`，零额外代价：arg_types 无 fid 索引，排序本就发生）；由 `trace_test.rs::arg_observation_order_is_insertion_order` 钉住 |
 
-> **2026-10-06 收口**：10~12 三条已关闭；**第 13 条是本表唯一未闭环项，且它决定了 §0 缺口 1 能不能关**；第 14 条为 A1 交付时顺带发现的 i18n 生成链缺陷，第 15 / 16 条为 A5① 交付时顺带发现的两处静默失效，**均已修并沉淀成取数禁则 / 注释**。新增不一致请就地登记在此表，**发现即登记，登记即修**。
+> **2026-10-06 收口**：10~12 三条已关闭；**第 13 条是本表唯一未闭环项，且它决定了 §0 缺口 1 能不能关**；第 14 条为 A1 交付时顺带发现的 i18n 生成链缺陷，第 15 / 16 条为 A5① 交付时顺带发现的两处静默失效，第 17 条为 A3① 交付时顺带发现的索引层顺序缺陷，**均已修并沉淀成取数禁则 / 注释 / 单测**。新增不一致请就地登记在此表，**发现即登记，登记即修**。
 
 ---
 
@@ -143,7 +146,7 @@
 | UI 基线截图 | `shell\scripts\ui-baseline.mjs --tag X` → 系统 TEMP |
 | Rust | `cd shell\src-tauri && cargo test`（改 `src-tauri` 后必须 `cargo check` 通过再交付） |
 | probe | `cd probe && uv sync && uv run pytest`（零第三方依赖） |
-| intel | `cd intel && cargo build -p opencharm-intel`（联调前必须 build 而非 test） |
+| intel | 联调前必须 `cd intel && cargo build -p opencharm-intel`（**build 而非 test**——`cargo test` 只构建测试 harness，不刷新 shell 调用的 `.exe`）；单测 `cd intel && cargo test`（60 例 = 47 + 6 + 7） |
 | 依赖扫描性能红线 | `cd shell\src-tauri && cargo test --release bench_dep_scan -- --ignored --nocapture`（≤ 2s） |
 | **体积 / 规模预算断言**（超限非零退出） | `node shell/scripts/budget-check.mjs`（`--report` 只打印 / `--no-write` 不落盘）。**断言前必须先 `cd shell && npm run build`** —— 陈旧 `dist/` 会残留已删分包而虚报（曾虚报约 2.08 MB），脚本会判 **STALE** 并失败 |
 | 规模 / 命令数 / 文档数取数 | `node tools/stats/repo-stats.mjs`（`--no-write` 只打印）；口径见 `docs/improvement_and_roadmap_report.md` §9 **取数禁则** |

@@ -1,8 +1,11 @@
-//! P3-T03 运行时补全：符号补全 + 属性补全的统一入口。
+//! P3-T03 运行时补全：符号补全 + 属性补全 + 调用实参补全的统一入口。
 //!
 //! - **符号补全**（P3-T03）：`qualname` 是命名空间链，直接匹配 `mod.cls.member` / 顶级函数名；
 //! - **属性补全**（P3-T03b）：`x.` / `x.field` 时，经 `type_infer` 推断 `x` 的运行时类型，
 //!   再用 `members_for_type` 聚合该类型的 shape 字段（dict 键 / 实例属性名）为候选。
+//! - **调用实参补全**（A3①）：光标位于 `foo(|` / `foo(a, |` 内时，按 `arg_types` 的参数位观测
+//!   给出**参数名**候选（insertText `name=`），detail 附运行时观测类型与证据数；已写出的
+//!   keyword 参数被排除，位置参数按观测顺序前跳。
 //!
 //! 纯函数设计：不依赖 tower-lsp，便于单元测试（server.rs 负责 LSP 类型转换）。
 
@@ -38,12 +41,29 @@ pub struct Candidate {
     pub kind: CandidateKind,
     pub detail: String,
     pub score: i64,
+    /// A3①：调用实参候选插入 `name=`（其余候选为 `None`，由 server 层回落 label）。
+    pub insert_text: Option<String>,
+}
+
+impl Candidate {
+    /// 统一构造（`insert_text` 默认 `None`）——新增字段时只需改这一处。
+    fn new(label: impl Into<String>, kind: CandidateKind, detail: String, score: i64) -> Self {
+        Candidate {
+            label: label.into(),
+            kind,
+            detail,
+            score,
+            insert_text: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CandidateKind {
     Function,
     Field,
+    /// A3①：调用实参名（LSP `VARIABLE`）。
+    Param,
 }
 
 /// 统一补全入口：下标访问（dict 键）+ 符号补全 + 属性补全，去重后按证据强度（score）降序。
@@ -55,12 +75,12 @@ pub fn complete(index: &TraceIndex, text: &str, line: u32, character: u32) -> Ve
             let mut candidates = Vec::new();
             for (field, count) in member_keys {
                 if field.starts_with(&jm.prefix) {
-                    candidates.push(Candidate {
-                        label: field,
-                        kind: CandidateKind::Field,
-                        detail: format!("⟳ runtime · {} · {} obs", ty, count),
-                        score: count,
-                    });
+                    candidates.push(Candidate::new(
+                        field,
+                        CandidateKind::Field,
+                        format!("⟳ runtime · {} · {} obs", ty, count),
+                        count,
+                    ));
                 }
             }
             return dedup_sort_truncate(candidates);
@@ -76,18 +96,26 @@ pub fn complete(index: &TraceIndex, text: &str, line: u32, character: u32) -> Ve
             let mut candidates = Vec::new();
             for (field, count) in member_keys {
                 if field.starts_with(&sub.prefix) {
-                    candidates.push(Candidate {
-                        label: field,
-                        kind: CandidateKind::Field,
-                        detail: format!("⟳ runtime · {} · {} obs", ty, count),
-                        score: count,
-                    });
+                    candidates.push(Candidate::new(
+                        field,
+                        CandidateKind::Field,
+                        format!("⟳ runtime · {} · {} obs", ty, count),
+                        count,
+                    ));
                 }
             }
             return dedup_sort_truncate(candidates);
         }
         // 下标访问但推断不到 base 类型：不产生补全
         return Vec::new();
+    }
+
+    // 调用实参补全（A3①）：`foo(|` / `foo(a, |` → 该函数的参数名候选（带运行时观测类型）。
+    // callee **无运行时观测时不拦截**（`print(` 等内建）——返回 None 回落符号补全，保持既有行为。
+    if let Some(ctx) = call_ctx_at(text, line, character) {
+        if let Some(cands) = param_candidates(index, &ctx) {
+            return cands;
+        }
     }
 
     let Some(token) = dot_chain_at(text, line, character) else {
@@ -135,12 +163,12 @@ pub fn complete(index: &TraceIndex, text: &str, line: u32, character: u32) -> Ve
                 if !is_dict(&ty) {
                     for (field, count) in type_infer::members_for_type(index, &ty) {
                         if field.starts_with(&prefix) {
-                            candidates.push(Candidate {
-                                label: field,
-                                kind: CandidateKind::Field,
-                                detail: format!("⟳ runtime · {} · {} obs", ty, count),
-                                score: count,
-                            });
+                            candidates.push(Candidate::new(
+                                field,
+                                CandidateKind::Field,
+                                format!("⟳ runtime · {} · {} obs", ty, count),
+                                count,
+                            ));
                         }
                     }
                 }
@@ -149,6 +177,302 @@ pub fn complete(index: &TraceIndex, text: &str, line: u32, character: u32) -> Ve
     }
 
     dedup_sort_truncate(candidates)
+}
+
+// ---------- A3① 调用实参补全 ----------
+
+/// 调用实参上下文：光标位于某个调用的 `(` 与（尚未闭合的）`)` 之间。
+///
+/// 只做「够用」的静态判定（与 A5 `ep_sample_cmds` 同一条纪律：纯文本、零子进程、只读）：
+/// 前向扫描跟踪括号栈 + 字符串/注释，取**最内层**未闭合 `(`，再回溯取 callee 点链。
+#[derive(Debug, PartialEq, Eq)]
+struct CallCtx {
+    /// callee 点链（`foo` / `scraper.parse_page`）。
+    callee: String,
+    /// 已写出的 keyword 参数名（`foo(a=1, …)` 的 `a`）。
+    keywords: Vec<String>,
+    /// 已写出的位置参数个数（顶层逗号切分、无顶层 `=`、且不含光标所在段）。
+    positional: usize,
+    /// 光标所在段的 trim 结果（空串 = 刚打完 `(` 或 `,`）。
+    segment: String,
+}
+
+/// 调用实参补全：`arg_types` 的参数位观测 → 参数名候选（insertText `name=`）。
+/// callee 解析不到（无运行时观测）返回 `None`——调用方据此回落符号补全。
+fn param_candidates(index: &TraceIndex, ctx: &CallCtx) -> Option<Vec<Candidate>> {
+    let f = resolve_callee(index, &ctx.callee)?;
+    let mut out = Vec::new();
+    for (i, p) in param_observations(f).iter().enumerate() {
+        if ctx.keywords.iter().any(|k| k == &p.name) {
+            continue; // 已按 keyword 写出
+        }
+        if i < ctx.positional {
+            continue; // 已按位置写出（顺序取自观测首次出现序，见 param_observations）
+        }
+        if !p.name.starts_with(&ctx.segment) {
+            continue;
+        }
+        let mut cand = Candidate::new(
+            p.name.clone(),
+            CandidateKind::Param,
+            format!("⟳ runtime · {} · {} obs", p.type_label, p.count),
+            p.count,
+        );
+        cand.insert_text = Some(format!("{}=", p.name));
+        out.push(cand);
+    }
+    Some(dedup_sort_truncate(out))
+}
+
+/// 单个参数的观测聚合（同名参数的多条类型观测合并）。
+pub(crate) struct ParamObs {
+    pub name: String,
+    pub type_label: String,
+    pub count: i64,
+}
+
+/// 按 `arg_types` **首次出现顺序**聚合参数观测：同名参数取证据最高的类型，count 求和。
+///
+/// 顺序依据：probe 逐参数位记录类型观测，`arg_types` 的行序即参数位首次出现序
+/// （`TraceIndex::load_args` 按 fid 保持表内行序）。这是「位置参数前跳」的唯一依据，
+/// 属尽力而为——观测缺失的参数位不会出现在顺序里，此时前跳会偏保守（少跳）。
+pub(crate) fn param_observations(f: &Function) -> Vec<ParamObs> {
+    let mut order: Vec<String> = Vec::new();
+    // name -> (证据最高的类型, 该类型计数, 全部类型计数之和)
+    let mut agg: HashMap<String, (String, i64, i64)> = HashMap::new();
+    for a in &f.args {
+        let e = agg.entry(a.arg.clone()).or_insert_with(|| {
+            order.push(a.arg.clone());
+            (a.type_label.clone(), 0, 0)
+        });
+        if a.count > e.1 {
+            e.0 = a.type_label.clone();
+            e.1 = a.count;
+        }
+        e.2 += a.count;
+    }
+    order
+        .into_iter()
+        .filter_map(|n| {
+            agg.get(&n).map(|(t, _best, total)| ParamObs {
+                name: n.clone(),
+                type_label: t.clone(),
+                count: *total,
+            })
+        })
+        .collect()
+}
+
+/// callee → 函数：先按最后段匹配（与 hover 同口径），再试类构造 `Cls(...)` → `Cls.__init__`。
+fn resolve_callee<'a>(index: &'a TraceIndex, callee: &str) -> Option<&'a Function> {
+    if let Some(f) = best_function(index, callee) {
+        return Some(f);
+    }
+    index.by_qualname(&format!("{callee}.__init__")).next()
+}
+
+/// 取 qualname 最后段 == `name` 最后段的函数中 hits 最高者（非 stale 优先）。
+/// hover 模块复用（原 `hover::find_function` 内联了同一段比较）。
+pub(crate) fn best_function<'a>(index: &'a TraceIndex, name: &str) -> Option<&'a Function> {
+    let seg = name.rsplit('.').next().unwrap_or(name);
+    let mut best: Option<&Function> = None;
+    for f in index.by_last_segment(seg) {
+        if best.map_or(true, |b| (!f.stale, f.hits) > (!b.stale, b.hits)) {
+            best = Some(f);
+        }
+    }
+    best
+}
+
+/// 提取调用实参上下文；光标不在「调用的实参列表」内时返回 `None`（让位给其余补全分支）。
+fn call_ctx_at(text: &str, line: u32, character: u32) -> Option<CallCtx> {
+    // 廉价前置过滤：本行光标前没有 `(` 就不可能处于调用实参内（`,` 触发时挡住绝大多数行）
+    let line_text = text.lines().nth(line as usize)?;
+    let line_text = line_text.trim_end_matches('\r');
+    let byte = utf16_to_byte(line_text, character);
+    if !line_text.get(..byte)?.contains('(') {
+        return None;
+    }
+
+    let cursor = text_offset(text, line, character)?;
+    let bytes = text.as_bytes();
+
+    // 前向扫描：括号栈 + 字符串/注释跳过；光标落在字符串内 → 不出参数补全
+    let mut stack: Vec<usize> = Vec::new();
+    let mut i = 0usize;
+    while i < cursor {
+        match bytes[i] {
+            b'#' => {
+                while i < cursor && bytes[i] != b'\n' {
+                    i += 1;
+                }
+                continue;
+            }
+            b'"' | b'\'' => {
+                let end = scan_string_end(bytes, i);
+                if end > cursor {
+                    return None; // 光标在字符串内（如 `foo("a|`）—— 不补参数名
+                }
+                i = end;
+                continue;
+            }
+            b'(' | b'[' | b'{' => stack.push(i),
+            b')' | b']' | b'}' => {
+                stack.pop();
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+
+    let paren = *stack.last()?;
+    if bytes[paren] != b'(' {
+        return None; // 最内层是 `[` / `{` —— 由下标补全分支处理
+    }
+
+    // 回溯 callee 点链；空 / 首尾带点 → 不是调用（如分组括号 `(a + b`）
+    let mut s = paren;
+    while s > 0 && matches!(bytes[s - 1], b'0'..=b'9' | b'A'..=b'Z' | b'a'..=b'z' | b'_' | b'.') {
+        s -= 1;
+    }
+    let callee = &text[s..paren];
+    if callee.is_empty() || callee.starts_with('.') || callee.ends_with('.') {
+        return None;
+    }
+    // `def foo(` / `class Foo(` 是定义不是调用
+    let before = text[..s].trim_end();
+    let last_word = before
+        .rsplit(|c: char| !(c.is_alphanumeric() || c == '_'))
+        .next()
+        .unwrap_or("");
+    if last_word == "def" || last_word == "class" {
+        return None;
+    }
+
+    // 实参文本 → 顶层逗号切分；光标所在段必须是空或纯标识符（`b.` / `f(` 让位给其余分支）
+    let segs = split_top_level(&text[paren + 1..cursor]);
+    let last = segs.last().cloned().unwrap_or_default();
+    let last_trim = last.trim();
+    let segment = if last_trim.is_empty() {
+        String::new()
+    } else if is_identifier(last_trim) {
+        last_trim.to_string()
+    } else {
+        return None;
+    };
+
+    let mut keywords = Vec::new();
+    let mut positional = 0usize;
+    for seg in &segs[..segs.len().saturating_sub(1)] {
+        let t = seg.trim();
+        if t.is_empty() {
+            continue;
+        }
+        match top_level_eq(t) {
+            Some((lhs, _)) if is_identifier(lhs.trim()) => keywords.push(lhs.trim().to_string()),
+            _ => positional += 1,
+        }
+    }
+
+    Some(CallCtx {
+        callee: callee.to_string(),
+        keywords,
+        positional,
+        segment,
+    })
+}
+
+/// 顶层（相对实参列表）按逗号切分；括号/引号感知。空输入返回 `[""]`。
+fn split_top_level(s: &str) -> Vec<String> {
+    let bytes = s.as_bytes();
+    let mut out = Vec::new();
+    let mut start = 0usize;
+    let mut depth = 0i32;
+    let mut i = 0usize;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'"' | b'\'' => {
+                i = scan_string_end(bytes, i);
+                continue;
+            }
+            b'(' | b'[' | b'{' => depth += 1,
+            b')' | b']' | b'}' => depth -= 1,
+            b',' if depth == 0 => {
+                out.push(s[start..i].to_string());
+                start = i + 1;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    out.push(s[start..].to_string());
+    out
+}
+
+/// 顶层 `=` 切分（排除 `==` `!=` `<=` `>=` `:=` 与复合赋值），返回 `(lhs, rhs)`。
+fn top_level_eq(s: &str) -> Option<(&str, &str)> {
+    let bytes = s.as_bytes();
+    let mut depth = 0i32;
+    let mut i = 0usize;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'"' | b'\'' => {
+                i = scan_string_end(bytes, i);
+                continue;
+            }
+            b'(' | b'[' | b'{' => depth += 1,
+            b')' | b']' | b'}' => depth -= 1,
+            b'=' if depth == 0 => {
+                let prev = if i > 0 { bytes[i - 1] } else { 0 };
+                let next = bytes.get(i + 1).copied().unwrap_or(0);
+                // 排除 `==` 与复合赋值（`+=` / `:=` / `<=` …）：`=` 左侧紧邻这些字符即非关键字实参
+                let compound = b"=!<>:+-*/%&|^@".contains(&prev);
+                if next != b'=' && !compound {
+                    return Some((&s[..i], &s[i + 1..]));
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
+/// 从 `start`（引号位置）跳过整个字符串字面量，返回闭合引号**之后**的偏移。
+/// 支持 `"` / `'` 与三引号；未闭合返回 `bytes.len()`。转义按非 raw 处理（尽力而为）。
+fn scan_string_end(bytes: &[u8], start: usize) -> usize {
+    let q = bytes[start];
+    let triple = start + 2 < bytes.len() && bytes[start + 1] == q && bytes[start + 2] == q;
+    let mut i = if triple { start + 3 } else { start + 1 };
+    while i < bytes.len() {
+        if bytes[i] == b'\\' {
+            i += 2;
+            continue;
+        }
+        if bytes[i] == q {
+            if !triple {
+                return i + 1;
+            }
+            if i + 2 < bytes.len() && bytes[i + 1] == q && bytes[i + 2] == q {
+                return i + 3;
+            }
+        }
+        i += 1;
+    }
+    bytes.len()
+}
+
+/// `(line, character)` → 全文字节偏移（LSP 0 基 UTF-16 列）。
+fn text_offset(text: &str, line: u32, character: u32) -> Option<usize> {
+    let mut off = 0usize;
+    for (i, l) in text.split_inclusive('\n').enumerate() {
+        if i as u32 == line {
+            let l = l.trim_end_matches('\n').trim_end_matches('\r');
+            return Some(off + utf16_to_byte(l, character));
+        }
+        off += l.len();
+    }
+    None
 }
 
 /// 符号补全：qualname 命名空间链匹配。
@@ -177,12 +501,14 @@ fn symbol_candidates(index: &TraceIndex, parent: &[String], prefix: &str) -> Vec
             };
             // P3-T08 新鲜度：stale（代码已变更）函数降权 + 标注，仍可见但排后
             let stale_note = if f.stale { " · stale" } else { "" };
-            let cand = Candidate {
-                label: member.clone(),
-                kind: CandidateKind::Function,
-                detail: format!("⟳ runtime · {} · {} hits{}{}", f.qualname, f.hits, ret_suffix, stale_note),
-                score: if f.stale { f.hits / STALE_HITS_DIVISOR } else { f.hits },
-            };
+            let detail =
+                format!("⟳ runtime · {} · {} hits{}{}", f.qualname, f.hits, ret_suffix, stale_note);
+            let cand = Candidate::new(
+                member.clone(),
+                CandidateKind::Function,
+                detail,
+                if f.stale { f.hits / STALE_HITS_DIVISOR } else { f.hits },
+            );
             by_label
                 .entry(member)
                 .and_modify(|e| {
@@ -1111,5 +1437,196 @@ mod tests {
             .unwrap();
         }
         TraceIndex::open(&path).unwrap()
+    }
+
+    // ---------- A3① 调用实参补全 ----------
+
+    /// 调用实参测试索引：`scraper.parse_page(url, timeout, retries)`，
+    /// 参数位观测 url:str ×10 / timeout:int ×7 / retries:int ×4。
+    fn call_fixture() -> TraceIndex {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.db");
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(SCHEMA).unwrap();
+            conn.execute(
+                "INSERT INTO functions(filename,qualname,lineno,hits,stale) VALUES('scraper.py','scraper.parse_page',1,12,0)",
+                [],
+            )
+            .unwrap();
+            for (arg, ty, c) in [("url", "str", 10), ("timeout", "int", 7), ("retries", "int", 4)] {
+                conn.execute(
+                    "INSERT INTO arg_types(fid,arg,type_label,shape,count) VALUES(1,?1,?2,'',?3)",
+                    rusqlite::params![arg, ty, c],
+                )
+                .unwrap();
+            }
+            conn.execute(
+                "INSERT INTO ret_types(fid,type_label,shape,count) VALUES(1,'dict[str, int]','[\"title\"]',4)",
+                [],
+            )
+            .unwrap();
+        }
+        TraceIndex::open(&path).unwrap()
+    }
+
+    /// `foo(|` → 全部参数名候选，insertText 为 `name=`。
+    #[test]
+    fn completes_params_after_open_paren() {
+        let idx = call_fixture();
+        let doc = "scraper.parse_page(";
+        let cands = complete(&idx, doc, 0, doc.len() as u32);
+        let labels: Vec<&str> = cands.iter().map(|c| c.label.as_str()).collect();
+        assert_eq!(cands.len(), 3, "{cands:?}");
+        assert!(labels.contains(&"url") && labels.contains(&"timeout") && labels.contains(&"retries"));
+        for c in &cands {
+            assert_eq!(c.kind, CandidateKind::Param);
+            assert_eq!(c.insert_text.as_deref(), Some(format!("{}=", c.label).as_str()));
+            assert!(c.detail.contains("⟳ runtime"), "{}", c.detail);
+        }
+        // 证据数降序：url(10) > timeout(7) > retries(4)
+        assert_eq!(labels, vec!["url", "timeout", "retries"]);
+    }
+
+    /// 已按 keyword 写出的参数被排除（且字符串里的逗号不参与切分）。
+    #[test]
+    fn excludes_written_keyword_params() {
+        let idx = call_fixture();
+        let doc = r#"scraper.parse_page(url="a, b", "#;
+        let cands = complete(&idx, doc, 0, doc.len() as u32);
+        let labels: Vec<&str> = cands.iter().map(|c| c.label.as_str()).collect();
+        assert_eq!(labels.len(), 2, "{cands:?}");
+        assert!(!labels.contains(&"url"), "已写 keyword 应排除：{labels:?}");
+    }
+
+    /// 已按位置写出的参数按观测顺序前跳。
+    #[test]
+    fn skips_written_positional_params() {
+        let idx = call_fixture();
+        let doc = r#"scraper.parse_page("http://x", "#;
+        let cands = complete(&idx, doc, 0, doc.len() as u32);
+        let labels: Vec<&str> = cands.iter().map(|c| c.label.as_str()).collect();
+        // 位置参数已消耗 1 个（url），剩余按证据降序：timeout(7) > retries(4)
+        assert_eq!(labels, vec!["timeout", "retries"]);
+    }
+
+    /// 前缀过滤 + 只有「方法 + 括号」时不误伤：`foo(ur` → 只剩 url。
+    #[test]
+    fn filters_params_by_prefix() {
+        let idx = call_fixture();
+        let doc = "scraper.parse_page(ur";
+        let cands = complete(&idx, doc, 0, doc.len() as u32);
+        assert_eq!(cands.len(), 1, "{cands:?}");
+        assert_eq!(cands[0].label, "url");
+    }
+
+    /// 类构造：`Cls(` → `Cls.__init__` 的参数观测。
+    #[test]
+    fn completes_class_constructor_params() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.db");
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(SCHEMA).unwrap();
+            conn.execute(
+                "INSERT INTO functions(filename,qualname,lineno,hits,stale) VALUES('m.py','Scraper.__init__',1,6,0)",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO arg_types(fid,arg,type_label,shape,count) VALUES(1,'session','requests.Session','',6)",
+                [],
+            )
+            .unwrap();
+        }
+        let idx = TraceIndex::open(&path).unwrap();
+        let doc = "Scraper(";
+        let cands = complete(&idx, doc, 0, doc.len() as u32);
+        assert_eq!(cands.len(), 1, "{cands:?}");
+        assert_eq!(cands[0].label, "session");
+    }
+
+    /// 上下文判定：字符串内 / 分组括号 / 定义语句 / 非调用括号 → 不出参数补全。
+    #[test]
+    fn call_ctx_negative_cases() {
+        // 光标在字符串内
+        assert_eq!(call_ctx_at(r#"foo("a"#, 0, 6), None);
+        // 分组括号（前无标识符）
+        assert_eq!(call_ctx_at("x = (a + b", 0, 10), None);
+        // def / class 定义
+        assert_eq!(call_ctx_at("def foo(", 0, 8), None);
+        assert_eq!(call_ctx_at("class Foo(", 0, 10), None);
+        // 下标而非调用
+        assert_eq!(call_ctx_at("data[", 0, 5), None);
+        // 无括号
+        assert_eq!(call_ctx_at("foo", 0, 3), None);
+        // 正向：`foo(` 命中，callee 取到点链
+        let ctx = call_ctx_at("x = scraper.parse_page(", 0, 24).unwrap();
+        assert_eq!(ctx.callee, "scraper.parse_page");
+        assert_eq!(ctx.segment, "");
+        assert!(ctx.keywords.is_empty() && ctx.positional == 0);
+    }
+
+    /// 光标所在段是点链 / 嵌套调用时让位给其余补全分支。
+    #[test]
+    fn call_ctx_defers_on_non_ident_segment() {
+        // `foo(a.` → 交给点链（属性补全）
+        assert_eq!(call_ctx_at("foo(a.", 0, 6), None);
+        // `foo(bar(` → 最内层是 bar 的括号
+        let ctx = call_ctx_at("foo(bar(", 0, 8).unwrap();
+        assert_eq!(ctx.callee, "bar");
+    }
+
+    /// callee 无运行时观测时不拦截：回落符号补全（`print(` / 未跑过的函数）。
+    #[test]
+    fn untraced_callee_falls_back_to_symbols() {
+        let idx = symbol_fixture();
+        // `nope` 不在 trace 里 → 不产出参数候选，回落符号补全（`parse_p` 前缀命中两个）
+        let doc = "nope(parse_p";
+        let cands = complete(&idx, doc, 0, doc.len() as u32);
+        let labels: Vec<&str> = cands.iter().map(|c| c.label.as_str()).collect();
+        assert_eq!(labels, vec!["parse_page", "parse_pages"], "{cands:?}");
+        assert!(cands.iter().all(|c| c.kind == CandidateKind::Function));
+    }
+
+    /// `param_observations`：按首次出现顺序聚合，同名参数取证据最高的类型、count 求和。
+    #[test]
+    fn param_observations_orders_and_merges() {
+        use opencharm_intel_index::{Function, TypeObs};
+        let f = Function {
+            filename: "m.py".into(),
+            qualname: "m.f".into(),
+            lineno: 1,
+            hits: 3,
+            stale: false,
+            args: vec![
+                TypeObs { arg: "b".into(), type_label: "int".into(), shape: None, count: 2 },
+                TypeObs { arg: "a".into(), type_label: "str".into(), shape: None, count: 5 },
+                TypeObs { arg: "b".into(), type_label: "str".into(), shape: None, count: 9 },
+            ],
+            rets: vec![],
+            excs: vec![],
+        };
+        let obs = param_observations(&f);
+        // 顺序 = 首次出现序（b 先于 a）
+        assert_eq!(obs.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(), vec!["b", "a"]);
+        // b 的两条观测合并：类型取证据最高（str ×9），count 求和（2+9=11）
+        assert_eq!(obs[0].type_label, "str");
+        assert_eq!(obs[0].count, 11);
+        assert_eq!(obs[1].count, 5);
+    }
+
+    /// 顶层切分与 `=` 定位的边界（括号嵌套 / 引号 / 复合运算符）。
+    #[test]
+    fn split_and_eq_helpers() {
+        assert_eq!(split_top_level(""), vec![""]);
+        assert_eq!(split_top_level("a, b"), vec!["a", " b"]);
+        // 嵌套括号与字符串内的逗号不切分
+        assert_eq!(split_top_level(r#"f(1, 2), "x,y""#), vec!["f(1, 2)", r#" "x,y""#]);
+        assert_eq!(top_level_eq("a=1"), Some(("a", "1")));
+        assert_eq!(top_level_eq("a == 1"), None);
+        assert_eq!(top_level_eq("a := 1"), None);
+        assert_eq!(top_level_eq("f(x=1)"), None); // 嵌套内的 `=` 非顶层
+        assert_eq!(top_level_eq("a"), None);
     }
 }

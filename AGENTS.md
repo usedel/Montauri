@@ -106,6 +106,7 @@ cargo test
 # intel（运行时 LSP）——联调 shell 前必须 build 而非 test
 cd intel && cargo build -p opencharm-intel   # cargo test 不刷新 shell 调用的 exe
 cargo build -p opencharm-intel --release     # 打包/性能验收用
+cargo test                                   # 单测（intel workspace：60 例 = 47 + 6 + 7）
 
 # probe（运行时探针，Python 3.13.7，uv 管理）
 cd probe && uv sync

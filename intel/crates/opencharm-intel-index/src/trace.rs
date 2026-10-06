@@ -258,8 +258,12 @@ impl TraceIndex {
         functions: &mut [Function],
         fid_to_idx: &HashMap<i64, usize>,
     ) -> Result<(), TraceError> {
-        let mut stmt =
-            conn.prepare("SELECT fid, arg, type_label, shape, count FROM arg_types ORDER BY fid")?;
+        // A3①：`ORDER BY fid` 在 fid 相同时**不保序**（SQLite 排序非稳定）——同一函数的
+        // 参数位顺序会被打乱，而「位置参数前跳」正依赖该顺序。probe 侧 `monitor._record_args`
+        // 按 `co_varnames`（声明顺序）逐参数位写入，故插入序 = 声明序；这里补 `rowid` 作
+        // 决胜键把它固定下来（arg_types 无 fid 索引，排序本就发生，补 rowid 零额外代价）。
+        let sql = "SELECT fid, arg, type_label, shape, count FROM arg_types ORDER BY fid, rowid";
+        let mut stmt = conn.prepare(sql)?;
         let mut rows = stmt.query([])?;
         while let Some(row) = rows.next()? {
             let fid: i64 = row.get(0)?;

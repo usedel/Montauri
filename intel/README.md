@@ -45,6 +45,7 @@ cargo build --release  # P3-T02 性能验收用
 | P3-T08 | 类型推断补强（for 循环变量）+ stale 新鲜度降权 | 已完成（`type_infer` + 全链路降权） |
 | P3-T09 | 运行时层一键关闭全局开关 | 已完成（设置 `runtime_intel_enabled` + `stopIntel`） |
 | P3-T10 | bench 补全准确率评测 + Gate D 验收 | 确定性评测 23/23 通过（红线 ≥85%）；**人工对标工作单已自动生成**（`bench/reports/gate-d-ab-worklist.md`，OpenCharm 侧 23 点排名已由测试填好）；⏳ 只差真人在 PyCharm 里勾 23 点 + 真实项目端到端采数 |
+| P3-T11 | **A3 调用实参补全（①）+ hover 观测签名 / 常见键（②）** | 已完成（2026-10-06，见下） |
 
 ### P3-T10 现状（2026-10-03 更新）
 
@@ -59,8 +60,36 @@ cargo build --release  # P3-T02 性能验收用
 | 真实项目端到端 | ⏳ **待数据**：本机此前无任何 `traces/*.db`。用 IDE 同款注入 env（`run_env.rs:274-289` 四件套）跑真实代码产出库后，`python tools/intel/trace_stats.py` 出统计与建议 |
 | trace 库保留窗口 | ⏳ 现行无条数/体积上限；`probe clean --days N` **只删 runs 行、不删观测数据**（易被误读为保留窗口）。`trace_stats.py` 建议按 8 MB 预算设条数上限并已在报告中给出反推口径 |
 
-## 索引与并发模型（2026-09-10 整改后）
+### P3-T11 A3 调用实参补全 + hover 观测签名（2026-10-06）
 
+**① 调用实参补全**（`completion.rs`）：光标位于 `foo(|` / `foo(a, |` 时，按该函数的 `arg_types`
+参数位观测给出**参数名**候选，insertText 为 `name=`，detail 为 `⟳ runtime · <观测类型> · <证据数>`。
+
+- **上下文判定**：前向扫描（括号栈 + 字符串/注释跳过）取**最内层未闭合 `(`**，回溯取 callee 点链；
+  光标在字符串内、最内层是 `[` / `{`、`def` / `class` 定义、分组括号 → 一律不出参数补全（让位给
+  下标 / 属性 / 符号补全分支）。光标所在段不是「空或纯标识符」（如 `foo(a.`）时同样让位。
+- **排除已写**：已按 keyword 写出的参数名直接排除；已按位置写出的参数按**参数位顺序**前跳。
+  该顺序依赖 `arg_types` 的**插入序**（probe `monitor._record_args` 按 `co_varnames` 声明顺序逐位
+  写入）——`trace.rs` 因此把 `ORDER BY fid` 补成 `ORDER BY fid, rowid`（fid 相同时 SQLite 排序
+  不保序，会打乱顺序）。
+- **类构造**：`Cls(` 先按最后段匹配，未命中再试 `Cls.__init__`。
+- **已知边界**：只在**观测到过**的函数上工作（没跑过的函数没有 `arg_types`）；位置参数顺序对
+  「观测缺失的参数位」偏保守（少跳，不会错跳）；内建函数（`print(` 等）无观测 → 不产生候选。
+- **触发**：`(` `,` 加入补全 trigger characters（server `initialize` 声明 + shell
+  `registerLspCompletion` 同步）。
+
+**② hover 观测签名与常见键**（`hover.rs`）：函数 hover 新增「签名（观测）」行
+（`parse_page(resp: requests.Response)`，按参数位顺序合成），且每条参数观测附 shape 派生的
+**常见键**（dict）或**常见属性**（实例）。
+
+> ⚠️ **口径**：probe 明确「**绝不 repr 值本身**」（见 `probe/README.md` 类型紧凑表示），
+> 所以这里只能展示**结构**（键 / 属性名），**不存在"实际见过的字面取值"**。文案因此写
+> 「常见键 / 常见属性」而非「常见值」。
+
+**未做（A3③④，已降级登记在路线图优先级表）**：intel 侧 `textDocument/signatureHelp`
+（签名弹窗）与调用处参数名 inlay hint。
+
+## 索引与并发模型（2026-09-10 整改后）
 - **倒排索引**（`opencharm-intel-index/src/trace.rs`）：加载期预建 `by_qualname` / `by_location` / `by_file` / `by_last_segment`（qualname 最后段）/ `by_second_last_segment` / `by_type_label`（类型 → 观测定位）；消费端 7 处全量线性扫描全部改为索引查询，shape 解析带请求级缓存。
 - **只读打开**：`TraceIndex::open` 用 `SQLITE_OPEN_READ_ONLY` + 路径不存在直接报错（不创建垃圾 .db）+ `busy_timeout(2s)`。
 - **server.rs 并发**：`parking_lot::RwLock`（无中毒）+ `Option<Arc<TraceIndex>>` 快照（读锁内只 clone，重计算锁外）+ 补全/hover/definition/inlay/诊断全部 `spawn_blocking`；didChange 带 **version 校验**（旧版本后到不覆盖新文本）；索引加载失败**指数退避**（连续失败后按 2 的幂间隔重试，不再每键重试刷 stderr）。
@@ -74,6 +103,8 @@ cargo build --release  # P3-T02 性能验收用
 | `scraper.par` | 模块/类成员前缀补全 | `scraper.parse_page` |
 | `scraper.`（尾点） | 命名空间成员全量补全 | `scraper.*` |
 | `parse_p`（无点） | 运行过的函数名补全（跨文件） | 所有最后段以 `parse_p` 开头者 |
+
+**调用实参补全**（P3-T11 / A3①）：`foo(|` / `foo(a, |` → 参数名候选（insertText `name=`）——详见下文 P3-T11。
 
 - 候选 `label` = 成员名，`detail` = `⟳ runtime · <qualname> · <hits> hits · ret→<类型>`，`sortText` = `1xx`（hits 降序）；
 - 索引懒加载自 `initializationOptions.traceDbPath`；文档经 didOpen/didChange/didClose 全量同步。
@@ -90,7 +121,7 @@ cargo build --release  # P3-T02 性能验收用
 
 **Hover**（`hover.rs`，P3-T05）：悬停展示运行时观测（markdown）：
 
-- 悬停函数名 → `⟳ runtime · <qualname> · <hits> hits` + 参数/返回/异常观测（按 count 降序）；
+- 悬停函数名 → `⟳ runtime · <qualname> · <hits> hits` + **签名（观测）**（A3②）+ 参数/返回/异常观测（按 count 降序）；每条参数观测附 shape 派生的**常见键 / 常见属性**；
 - 悬停对象变量 → `⟳ runtime · <name> : <类型>` + shape 字段列表；
 - 复用 `type_infer` 的 receiver 定位与成员聚合，与补全共用一套推断语义。
 
