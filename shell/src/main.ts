@@ -81,7 +81,7 @@ import { restoreLayout, toggleSidebar, wireSplitters } from "./layout";
 import { motionDisabled, restoreReduceMotion } from "./anim";
 import { wireTooltip } from "./tooltip";
 import { renderEngineChip, setEngineBusy, setEngineChipHandlers, wireEngineChip } from "./engineChip";
-import { renderRunWidget, setRunWidgetHandlers, setRunWidgetRepaint, wireRunWidget, runWidgetHandlers } from "./runWidget";
+import { computeRunWidget, renderRunWidget, setRunWidgetHandlers, setRunWidgetRepaint, wireRunWidget, runWidgetHandlers } from "./runWidget";
 import { clearRunGutter, isRunGutterLine, refreshRunGutter, setRunGutterHandlers, wireRunGutter } from "./runGutter";
 import { clearGitGutter, refreshGitGutter, scheduleGitGutter, wireGitGutter } from "./gitGutter"; // 迭代 2 · P0-5
 import { wireGutterHover } from "./gutterHover";
@@ -1782,16 +1782,21 @@ function rootEntry(): Entry {
 
 /** gutter ▶ 右键菜单（v3.4 §8：对齐四控件——运行脚本 / 运行项目 / 停止 / 运行配置…）。
  *  从 runWidget 注入的 handlers + **即时状态**（runWidgetState 现算，不依赖渲染快照——
- *  菜单打开时刻的状态可能与上次渲染不同）派生，保证各入口动作一致。 */
+ *  菜单打开时刻的状态可能与上次渲染不同）派生，保证各入口动作一致。
+ *
+ *  ▶ 运行脚本的置灰**直接复用 `computeRunWidget`**（与工具栏按钮同一判定式），
+ *  不在菜单里另写一遍条件——此前两处各写一遍导致调试中"按钮置灰、菜单仍可点"
+ *  （`scriptDisabledReason` 已含 debugging，菜单只看了 `scriptBusy`，漏了调试态）。 */
 function buildRunMenuItems(): MenuItem[] {
   const h = runWidgetHandlers();
   const s = runWidgetState();
+  const computed = computeRunWidget(s);
   return [
     {
       label: t("main.run.script"),
       icon: "run",
       shortcut: kb.bindingLabel("run_script") || undefined,
-      disabled: !s.canRunScript || s.scriptBusy,
+      disabled: computed.runScript.disabled,
       disabledReason: s.scriptDisabledReason || t("main.run.preparingScript"),
       action: () => h?.runScript(),
     },
