@@ -75,7 +75,10 @@
 .sel-item:last-child { border-bottom: none; }
 .sel-item:hover { background: var(--hover-subtle); }
 .sel-item.is-active { background: var(--selected); }
-.sel-item:focus-visible { outline: 2px solid transparent; box-shadow: inset 0 0 0 1px var(--focus-ring); }
+/* 焦点环：走 outline 而非 box-shadow——① 裸 box-shadow 违反「阴影一律走 --elev-* / --shadow」
+   的 token 纪律（`audit_tokens.py` 第 87 项会报 FAIL）；② 命中列表在滚动容器内，外扩环会被
+   `overflow` 裁掉，`outline-offset: -1px` 与 `.todo-item` / `.db-tree-item` 同口径。 */
+.sel-item:focus-visible { outline: 1px solid var(--focus-ring); outline-offset: -1px; }
 
 .sel-item-head {
   display: flex;

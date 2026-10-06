@@ -158,6 +158,8 @@ addLine("shell/src-tauri/src/intel_cmds.rs", "intel_cmds_rs_max_lines");
 addLine("shell/src-tauri/src/ep_sample_cmds.rs", "ep_sample_cmds_rs_max_lines");
 addLine("intel/crates/opencharm-intel/src/completion.rs", "intel_completion_rs_max_lines");
 addLine("intel/crates/opencharm-intel/src/hover.rs", "intel_hover_rs_max_lines");
+addLine("intel/crates/opencharm-intel/src/signature.rs", "intel_signature_rs_max_lines");
+addLine("intel/crates/opencharm-intel/src/server.rs", "intel_server_rs_max_lines");
 addValue("命令数", "#[tauri::command]", countTauriCommands(), budget.max_tauri_commands, policy.commands_warn_only);
 {
   const b = bundleInfo();

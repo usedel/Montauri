@@ -98,3 +98,17 @@ test("诊断：缺失 import 点亮红波浪线错误提醒", async ({ page }) =
   const squiggly = page.locator("#editor .squiggly-error").first();
   await expect(squiggly).toBeVisible({ timeout: 10_000 });
 });
+
+test("签名帮助：输入 ( 弹出参数提示", async ({ page }) => {
+  // A3③：provider 改为「intel 优先、回落 static」。浏览器侧没有 intel 进程，
+  // 故此处走的是**回落静态引擎**这条真实路径（intel 分支需真实二进制，e2e 触达不到）。
+  const editor = page.locator("#editor .monaco-editor");
+  await editor.click();
+  await page.keyboard.press("Control+End");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("add_score(");
+
+  const widget = page.locator("#editor .parameter-hints-widget");
+  await expect(widget).toBeVisible({ timeout: 10_000 });
+  await expect(widget).toContainText("add_score(a, b)");
+});

@@ -28,6 +28,7 @@ use crate::definition;
 use crate::diagnostics;
 use crate::hover;
 use crate::inlay;
+use crate::signature;
 
 #[derive(Default)]
 struct Inner {
@@ -245,6 +246,13 @@ impl LanguageServer for Backend {
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 definition_provider: Some(OneOf::Left(true)),
                 inlay_hint_provider: Some(OneOf::Left(true)),
+                // A3③：`(` / `,` 触发签名弹窗；`,` 重触发（换参数位时刷新高亮）。
+                // 与 shell `registerLspSignatureHelp` 的 trigger/retrigger 字符一一对应。
+                signature_help_provider: Some(SignatureHelpOptions {
+                    trigger_characters: Some(vec!["(".to_string(), ",".to_string()]),
+                    retrigger_characters: Some(vec![",".to_string()]),
+                    ..Default::default()
+                }),
                 ..Default::default()
             },
             ..Default::default()
@@ -343,6 +351,62 @@ impl LanguageServer for Backend {
     async fn completion_resolve(&self, params: CompletionItem) -> Result<CompletionItem> {
         // 补全项信息已完整，原样返回（与 shell 桥的二段 resolve 调用兼容）。
         Ok(params)
+    }
+
+    /// A3③：签名帮助。与 `completion` 同一份上下文解析与参数位聚合（见 `signature.rs`），
+    /// 差别只在产出物——补全是候选列表，这里是「单条观测签名 + 当前参数位」。
+    async fn signature_help(&self, params: SignatureHelpParams) -> Result<Option<SignatureHelp>> {
+        let uri = params.text_document_position_params.text_document.uri.to_string();
+        let position = params.text_document_position_params.position;
+
+        let Some(text) = self.document_snapshot(&uri) else {
+            return Ok(None);
+        };
+
+        self.ensure_index_loaded().await;
+
+        let Some(index) = self.index_snapshot() else {
+            return Ok(None);
+        };
+        // CR-18：签名合成放 spawn_blocking（与补全 / hover / 跳转同口径）
+        let sig = tokio::task::spawn_blocking(move || {
+            signature::signature_help(&index, &text, position.line, position.character)
+        })
+        .await
+        .unwrap_or(None);
+        let Some(sig) = sig else {
+            return Ok(None);
+        };
+
+        let doc = signature::render_signature_doc(&sig);
+        let parameters: Vec<ParameterInformation> = sig
+            .params
+            .iter()
+            .map(|p| ParameterInformation {
+                // 字符串标签必须是签名 label 的子串；Python 不允许重名参数，故无歧义
+                label: ParameterLabel::Simple(p.name.clone()),
+                documentation: Some(Documentation::MarkupContent(MarkupContent {
+                    kind: MarkupKind::Markdown,
+                    value: signature::render_param_doc(p),
+                })),
+            })
+            .collect();
+
+        Ok(Some(SignatureHelp {
+            signatures: vec![SignatureInformation {
+                label: sig.label,
+                documentation: Some(Documentation::MarkupContent(MarkupContent {
+                    kind: MarkupKind::Markdown,
+                    value: doc,
+                })),
+                parameters: Some(parameters),
+                // 单一真源：只用外层 `active_parameter`（`SignatureInformation` 的那份
+                // 是 3.16 起、且要求客户端显式声明支持，填两处反而会打架）
+                active_parameter: None,
+            }],
+            active_signature: Some(0),
+            active_parameter: Some(sig.active_parameter),
+        }))
     }
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {

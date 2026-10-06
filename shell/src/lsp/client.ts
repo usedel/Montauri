@@ -409,6 +409,8 @@ export async function startIntel(workspaceRoot: string, rootUri: string): Promis
         completionProvider: { triggerCharacters: [".", "_", "(", ","], resolveProvider: true },
         hoverProvider: true,
         definitionProvider: true,
+        // A3③：与服务端 initialize 的 signature_help_provider 保持一致（`(` / `,` 触发）
+        signatureHelpProvider: { triggerCharacters: ["(", ","] },
       },
     });
     notifyEngine("intel", "initialized", {});
@@ -1264,7 +1266,26 @@ interface LspSignatureHelp {
   activeParameter?: number;
 }
 
-/** 注册签名帮助 provider：输入 ( 或 , 时触发参数提示 */
+/** 查询某引擎签名帮助（未就绪/失败返回 null）。
+ *  A3③：与 queryHover 同构——per-engine 就绪门控 + 失败静默（签名弹窗是高频路径，
+ *  某引擎未构建/未跑过不该打扰用户）。 */
+async function querySignatureHelp(engine: string, params: unknown): Promise<LspSignatureHelp | null> {
+  const s = session(engine);
+  if (s.status !== "ready") return null;
+  try {
+    return (await requestEngine(engine, "textDocument/signatureHelp", params)) as LspSignatureHelp | null;
+  } catch {
+    return null;
+  }
+}
+
+/** 注册签名帮助 provider：输入 ( 或 , 时触发参数提示。
+ *
+ *  A3③：**intel（运行时观测签名）优先**，无结果回落静态引擎。理由与补全 / hover 一致——
+ *  只有运行时侧知道「这个参数位实际见过什么类型」，且其参数位顺序与「调用实参补全」
+ *  同源（intel `signature.rs` 复用 `completion::param_observations`），
+ *  故弹窗高亮的参数位与补全首推的候选必然一致。静态引擎做兜底（覆盖面更广：
+ *  没跑过的函数 intel 无观测，答不出来）。 */
 export function registerLspSignatureHelp(): MonacoApi.IDisposable {
   return monaco.languages.registerSignatureHelpProvider("python", {
     signatureHelpTriggerCharacters: ["(", ","],
@@ -1272,36 +1293,34 @@ export function registerLspSignatureHelp(): MonacoApi.IDisposable {
     async provideSignatureHelp(model, position) {
       if (engineStatus !== "ready") return null;
       if (beforeCompletionHook) await beforeCompletionHook(model);
-      try {
-        const result: LspSignatureHelp | null = await request("textDocument/signatureHelp", {
-          textDocument: { uri: pathToFileUri(currentPath(model)) },
-          position: monacoPosToLsp(position),
-        });
-        if (!result || !result.signatures?.length) return null;
-        return {
-          value: {
-            signatures: result.signatures.map((sig) => ({
-              label: sig.label,
+      const params = {
+        textDocument: { uri: pathToFileUri(currentPath(model)) },
+        position: monacoPosToLsp(position),
+      };
+      const result =
+        (await querySignatureHelp("intel", params)) ?? (await querySignatureHelp("static", params));
+      if (!result || !result.signatures?.length) return null;
+      return {
+        value: {
+          signatures: result.signatures.map((sig) => ({
+            label: sig.label,
+            documentation:
+              typeof sig.documentation === "string"
+                ? sig.documentation
+                : sig.documentation?.value,
+            parameters: (sig.parameters ?? []).map((p) => ({
+              label: p.label,
               documentation:
-                typeof sig.documentation === "string"
-                  ? sig.documentation
-                  : sig.documentation?.value,
-              parameters: (sig.parameters ?? []).map((p) => ({
-                label: p.label,
-                documentation:
-                  typeof p.documentation === "string"
-                    ? p.documentation
-                    : p.documentation?.value,
-              })),
+                typeof p.documentation === "string"
+                  ? p.documentation
+                  : p.documentation?.value,
             })),
-            activeSignature: result.activeSignature ?? 0,
-            activeParameter: result.activeParameter ?? 0,
-          },
-          dispose: () => {},
-        };
-      } catch {
-        return null;
-      }
+          })),
+          activeSignature: result.activeSignature ?? 0,
+          activeParameter: result.activeParameter ?? 0,
+        },
+        dispose: () => {},
+      };
     },
   });
 }

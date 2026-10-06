@@ -8,6 +8,7 @@ mod diagnostics;
 mod hover;
 mod inlay;
 mod server;
+mod signature;
 mod type_infer;
 
 use tower_lsp::{LspService, Server};

@@ -7,6 +7,10 @@
 //!   给出**参数名**候选（insertText `name=`），detail 附运行时观测类型与证据数；已写出的
 //!   keyword 参数被排除，位置参数按观测顺序前跳。
 //!
+//! A3③（签名帮助，`signature.rs`）复用本模块的 `call_frame_at` / `written_args` /
+//! `resolve_callee` / `param_observations`——**上下文扫描与 callee 解析只有这一份**，
+//! 差别只在产出物（补全是候选列表，签名帮助是单条签名 + 当前参数位）。
+//!
 //! 纯函数设计：不依赖 tower-lsp，便于单元测试（server.rs 负责 LSP 类型转换）。
 
 use std::collections::HashMap;
@@ -229,6 +233,8 @@ pub(crate) struct ParamObs {
     pub name: String,
     pub type_label: String,
     pub count: i64,
+    /// A3③：该参数位**证据最高**那条观测的 shape（签名帮助据此给「常见键 / 常见属性」）。
+    pub shape: Option<String>,
 }
 
 /// 按 `arg_types` **首次出现顺序**聚合参数观测：同名参数取证据最高的类型，count 求和。
@@ -238,33 +244,37 @@ pub(crate) struct ParamObs {
 /// 属尽力而为——观测缺失的参数位不会出现在顺序里，此时前跳会偏保守（少跳）。
 pub(crate) fn param_observations(f: &Function) -> Vec<ParamObs> {
     let mut order: Vec<String> = Vec::new();
-    // name -> (证据最高的类型, 该类型计数, 全部类型计数之和)
-    let mut agg: HashMap<String, (String, i64, i64)> = HashMap::new();
+    // name -> (证据最高的类型, 该类型计数, 全部类型计数之和, 该类型观测的 shape)
+    let mut agg: HashMap<String, (String, i64, i64, Option<String>)> = HashMap::new();
     for a in &f.args {
         let e = agg.entry(a.arg.clone()).or_insert_with(|| {
             order.push(a.arg.clone());
-            (a.type_label.clone(), 0, 0)
+            (a.type_label.clone(), 0, 0, a.shape.clone())
         });
         if a.count > e.1 {
             e.0 = a.type_label.clone();
             e.1 = a.count;
+            // A3③：shape 与「证据最高的类型」取自同一条观测，不混搭
+            e.3 = a.shape.clone();
         }
         e.2 += a.count;
     }
     order
         .into_iter()
         .filter_map(|n| {
-            agg.get(&n).map(|(t, _best, total)| ParamObs {
+            agg.get(&n).map(|(t, _best, total, shape)| ParamObs {
                 name: n.clone(),
                 type_label: t.clone(),
                 count: *total,
+                shape: shape.clone(),
             })
         })
         .collect()
 }
 
 /// callee → 函数：先按最后段匹配（与 hover 同口径），再试类构造 `Cls(...)` → `Cls.__init__`。
-fn resolve_callee<'a>(index: &'a TraceIndex, callee: &str) -> Option<&'a Function> {
+/// A3③（签名帮助）复用同一份解析，保证「补全给谁参数名」与「签名弹窗显示谁」始终一致。
+pub(crate) fn resolve_callee<'a>(index: &'a TraceIndex, callee: &str) -> Option<&'a Function> {
     if let Some(f) = best_function(index, callee) {
         return Some(f);
     }
@@ -284,8 +294,23 @@ pub(crate) fn best_function<'a>(index: &'a TraceIndex, name: &str) -> Option<&'a
     best
 }
 
-/// 提取调用实参上下文；光标不在「调用的实参列表」内时返回 `None`（让位给其余补全分支）。
-fn call_ctx_at(text: &str, line: u32, character: u32) -> Option<CallCtx> {
+/// 调用栈帧：光标位于某次调用的 `(` 与（尚未闭合的）`)` 之间时的**原始**信息。
+///
+/// A3①（调用实参补全）与 A3③（签名帮助）共用同一次扫描——括号栈 / 字符串跳过 / callee 回溯
+/// 只此一份，避免两处逻辑各自漂移。补全在其上再叠「光标段必须是空或纯标识符」的额外约束
+/// （见 `call_ctx_at`），签名帮助不需要（光标落在 `foo(a + |` 里也照样该显示签名）。
+pub(crate) struct CallFrame {
+    /// callee 点链（`foo` / `scraper.parse_page`）。
+    pub callee: String,
+    /// 顶层逗号切分后的实参段；**末段含光标所在段**（未闭合，可能不完整）。
+    pub segments: Vec<String>,
+}
+
+/// 提取调用栈帧；光标不在「某次调用的实参列表」内时返回 `None`。
+///
+/// 只做「够用」的静态判定（与 A5 `ep_sample_cmds` 同一条纪律：纯文本、零子进程、只读）：
+/// 前向扫描跟踪括号栈 + 字符串/注释，取**最内层**未闭合 `(`，再回溯取 callee 点链。
+pub(crate) fn call_frame_at(text: &str, line: u32, character: u32) -> Option<CallFrame> {
     // 廉价前置过滤：本行光标前没有 `(` 就不可能处于调用实参内（`,` 触发时挡住绝大多数行）
     let line_text = text.lines().nth(line as usize)?;
     let line_text = line_text.trim_end_matches('\r');
@@ -297,7 +322,7 @@ fn call_ctx_at(text: &str, line: u32, character: u32) -> Option<CallCtx> {
     let cursor = text_offset(text, line, character)?;
     let bytes = text.as_bytes();
 
-    // 前向扫描：括号栈 + 字符串/注释跳过；光标落在字符串内 → 不出参数补全
+    // 前向扫描：括号栈 + 字符串/注释跳过；光标落在字符串内 → 不是调用实参上下文
     let mut stack: Vec<usize> = Vec::new();
     let mut i = 0usize;
     while i < cursor {
@@ -311,7 +336,7 @@ fn call_ctx_at(text: &str, line: u32, character: u32) -> Option<CallCtx> {
             b'"' | b'\'' => {
                 let end = scan_string_end(bytes, i);
                 if end > cursor {
-                    return None; // 光标在字符串内（如 `foo("a|`）—— 不补参数名
+                    return None; // 光标落在**已闭合**字符串内（如 `foo("a|b")`）
                 }
                 i = end;
                 continue;
@@ -349,21 +374,17 @@ fn call_ctx_at(text: &str, line: u32, character: u32) -> Option<CallCtx> {
         return None;
     }
 
-    // 实参文本 → 顶层逗号切分；光标所在段必须是空或纯标识符（`b.` / `f(` 让位给其余分支）
-    let segs = split_top_level(&text[paren + 1..cursor]);
-    let last = segs.last().cloned().unwrap_or_default();
-    let last_trim = last.trim();
-    let segment = if last_trim.is_empty() {
-        String::new()
-    } else if is_identifier(last_trim) {
-        last_trim.to_string()
-    } else {
-        return None;
-    };
+    Some(CallFrame {
+        callee: callee.to_string(),
+        segments: split_top_level(&text[paren + 1..cursor]),
+    })
+}
 
+/// 已写出的实参 → `(keyword 参数名, 位置参数个数)`；只看**除末段外**的段（末段是光标所在段）。
+pub(crate) fn written_args(segments: &[String]) -> (Vec<String>, usize) {
     let mut keywords = Vec::new();
     let mut positional = 0usize;
-    for seg in &segs[..segs.len().saturating_sub(1)] {
+    for seg in &segments[..segments.len().saturating_sub(1)] {
         let t = seg.trim();
         if t.is_empty() {
             continue;
@@ -373,9 +394,28 @@ fn call_ctx_at(text: &str, line: u32, character: u32) -> Option<CallCtx> {
             _ => positional += 1,
         }
     }
+    (keywords, positional)
+}
+
+/// 提取调用实参上下文；光标不在「调用的实参列表」内时返回 `None`（让位给其余补全分支）。
+fn call_ctx_at(text: &str, line: u32, character: u32) -> Option<CallCtx> {
+    let frame = call_frame_at(text, line, character)?;
+
+    // 光标所在段必须是空或纯标识符（`b.` / `f(` 让位给其余补全分支）
+    let last = frame.segments.last().cloned().unwrap_or_default();
+    let last_trim = last.trim();
+    let segment = if last_trim.is_empty() {
+        String::new()
+    } else if is_identifier(last_trim) {
+        last_trim.to_string()
+    } else {
+        return None;
+    };
+
+    let (keywords, positional) = written_args(&frame.segments);
 
     Some(CallCtx {
-        callee: callee.to_string(),
+        callee: frame.callee,
         keywords,
         positional,
         segment,

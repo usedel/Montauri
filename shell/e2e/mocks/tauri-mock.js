@@ -622,20 +622,33 @@
       var raw = lines[i];
       var indent = raw.length - raw.replace(/^\s+/, "").length;
       var code = raw.replace(/^\s+/, "");
-      var m = /^(def|class)\s+([A-Za-z_][A-Za-z0-9_]*)/.exec(code);
+      var m = /^(def|class)\s+([A-Za-z_][A-Za-z0-9_]*)\s*(\([^)]*\))?/.exec(code);
       if (m) {
         var kind = m[1];
         var name = m[2];
         var doc = lspDocstring(lines, i);
+        // 签名帮助用：从 def 行抽形参名（剥 `*` / 默认值 / 类型标注，mock 够用即可）
+        var params = (m[3] || "")
+          .replace(/^\(|\)$/g, "")
+          .split(",")
+          .map(function (s) {
+            var t = s.trim().replace(/^\*+/, "");
+            var eq = t.indexOf("=");
+            if (eq >= 0) t = t.slice(0, eq);
+            var colon = t.indexOf(":");
+            if (colon >= 0) t = t.slice(0, colon);
+            return t.trim();
+          })
+          .filter(Boolean);
         if (kind === "class") {
           currentClass = name;
           classMembers[name] = [];
-          lspSymbols.set(name, { uri: uri, line: i + 1, doc: doc });
+          lspSymbols.set(name, { uri: uri, line: i + 1, doc: doc, params: params });
         } else if (indent > 0 && currentClass) {
           classMembers[currentClass].push([name, doc || ""]);
         } else {
           currentClass = null;
-          lspSymbols.set(name, { uri: uri, line: i + 1, doc: doc });
+          lspSymbols.set(name, { uri: uri, line: i + 1, doc: doc, params: params });
         }
       } else if (indent === 0 && code.trim() !== "") {
         currentClass = null;
@@ -728,6 +741,35 @@
       }
     }
     return null;
+  }
+
+  /** 签名帮助：光标前最内层未闭合 `(` 的 callee → 该 def 的形参表（纯静态，无运行时观测） */
+  function lspSignatureHelp(uri, pos) {
+    var doc = lspDoc(uri);
+    if (!doc) return null;
+    var line = doc.lines[pos.line] || "";
+    var before = line.slice(0, pos.character);
+    var open = before.lastIndexOf("(");
+    if (open < 0) return null;
+    var callee = /([A-Za-z_][A-Za-z0-9_.]*)\s*$/.exec(before.slice(0, open));
+    if (!callee) return null;
+    var name = callee[1].split(".").pop();
+    var sym = lspSymbols.get(name);
+    if (!sym || !sym.params || !sym.params.length) return null;
+    // 顶层逗号计数（mock 不做括号/引号感知，够断言用）
+    var active = before.slice(open + 1).split(",").length - 1;
+    return {
+      signatures: [
+        {
+          label: name + "(" + sym.params.join(", ") + ")",
+          parameters: sym.params.map(function (p) {
+            return { label: p };
+          }),
+        },
+      ],
+      activeSignature: 0,
+      activeParameter: Math.max(0, Math.min(active, sym.params.length - 1)),
+    };
   }
 
   /** 跳转定义：返回该行第一个全局已知符号的定义位置（自身定义处恒不再跳） */
@@ -939,6 +981,10 @@
       } else if (method0 === "textDocument/hover") {
         var td1 = params0.textDocument || {};
         result0 = lspHover(td1.uri, params0.position || { line: 0, character: 0 });
+      } else if (method0 === "textDocument/signatureHelp") {
+        // A3③：mock 只答静态口径的签名（浏览器侧无 intel 进程 → shell 的 intel 分支必回落此处）
+        var td8 = params0.textDocument || {};
+        result0 = lspSignatureHelp(td8.uri, params0.position || { line: 0, character: 0 });
       } else if (method0 === "textDocument/definition") {
         var td2 = params0.textDocument || {};
         result0 = lspDefinition(td2.uri, params0.position || { line: 0, character: 0 });

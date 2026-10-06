@@ -46,6 +46,7 @@ cargo build --release  # P3-T02 性能验收用
 | P3-T09 | 运行时层一键关闭全局开关 | 已完成（设置 `runtime_intel_enabled` + `stopIntel`） |
 | P3-T10 | bench 补全准确率评测 + Gate D 验收 | 确定性评测 23/23 通过（红线 ≥85%）；**人工对标工作单已自动生成**（`bench/reports/gate-d-ab-worklist.md`，OpenCharm 侧 23 点排名已由测试填好）；⏳ 只差真人在 PyCharm 里勾 23 点 + 真实项目端到端采数 |
 | P3-T11 | **A3 调用实参补全（①）+ hover 观测签名 / 常见键（②）** | 已完成（2026-10-06，见下） |
+| P3-T12 | **A3③ intel 签名帮助（`textDocument/signatureHelp`）** | 已完成（2026-10-06，见下） |
 
 ### P3-T10 现状（2026-10-03 更新）
 
@@ -86,8 +87,45 @@ cargo build --release  # P3-T02 性能验收用
 > 所以这里只能展示**结构**（键 / 属性名），**不存在"实际见过的字面取值"**。文案因此写
 > 「常见键 / 常见属性」而非「常见值」。
 
-**未做（A3③④，已降级登记在路线图优先级表）**：intel 侧 `textDocument/signatureHelp`
-（签名弹窗）与调用处参数名 inlay hint。
+**未做（A3④，已降级登记在路线图优先级表）**：调用处参数名 inlay hint（A3③ 签名弹窗已于
+2026-10-06 交付，见 P3-T12）。
+
+### P3-T12 A3③ 签名帮助（2026-10-06）
+
+**`(` / `,` 触发**：光标位于某次调用的实参列表内时，弹出该函数的**观测签名**并高亮当前参数位。
+
+- **与 A3① 共用一份上下文**（这是本项最关键的实现选择）：上下文扫描 `completion::call_frame_at`
+  （括号栈 + 字符串/注释跳过 + callee 回溯）、callee 解析 `resolve_callee`（最后段匹配 +
+  `Cls(` → `Cls.__init__` 回落）、参数位聚合 `param_observations` 全部复用；`signature.rs` 只负责
+  「合成签名 label + 算当前参数位 + 出说明文本」。⇒ **弹窗高亮的参数位与补全首推的候选必然是同一个**，
+  不会出现「补全让你填 `timeout`、弹窗高亮 `url`」的矛盾。为此 `call_frame_at` / `written_args` /
+  `param_observations` / `resolve_callee` 从 `completion.rs` 提为 `pub(crate)`。
+- **签名 label** 用**最后段短名**（`parse_page(url: str, timeout: int, retries: int)`），与 hover 的
+  「签名（观测）」同口径；**只给一条签名**（`activeSignature=0`）——Python 无重载，`resolve_callee`
+  已按「hits 最高、非 stale 优先」取唯一实现，列同名候选只会变噪声。
+- **当前参数位**：观测顺序下**第一个尚未写出**的参数位；「已写出」判据与 A3① 逐字一致（已按
+  keyword 写出的名字 + 已按位置写出的前 N 个）。参数填满时**钳到末位**而非回 0（回 0 更误导）。
+- **参数说明**：`<观测类型> ×<证据数>` + shape 派生的**常见键**（dict）/ **常见属性**（实例）；
+  shape 与「证据最高的类型」取自**同一条观测**，不混搭。
+- **与 A3① 的一处有意差异**：补全要求「光标所在段是空或纯标识符」才出候选，签名帮助**不要求**——
+  写 `foo(1 + |` 时补全让位（交给表达式/点链补全），但签名弹窗仍应显示（你确实在填第一个参数）。
+  该差异由单测 `signature_survives_non_ident_segment` 钉住。
+- **三处 `None`**（都不弹空窗）：不在调用实参内 / callee 无运行时观测 / 该函数无参数观测。
+- **触发字符两处同步**：server `initialize` 的 `signature_help_provider`（trigger `(` `,` +
+  retrigger `,`）与 shell `startIntel` 的 client capability、`registerLspSignatureHelp` 的
+  trigger/retrigger 字符。
+
+> ⚠️ **口径**（同 A3②）：probe 只记录 `type_label` + `shape`，**绝不 repr 值本身**。故签名里
+> **没有默认值**（trace 不记默认值）、参数说明只能给结构（常见键 / 常见属性）。签名级说明文本
+> 已显式写「**不含默认值**；probe 不记录字面取值」，由单测 `signature_doc_states_no_defaults` 钉住。
+
+**shell 侧接线**（`shell/src/lsp/client.ts`）：`provideSignatureHelp` 原为**只问静态引擎**；
+A3③ 改为**intel 优先、无结果回落 static**（`querySignatureHelp(engine, params)` 与 `queryHover`
+同构：per-engine 就绪门控 + 失败静默）。理由与补全 / hover 的合并口径一致——只有运行时侧知道
+「这个参数位实际见过什么类型」，静态引擎做覆盖面兜底（没跑过的函数 intel 无观测）。
+
+**已知边界**：与补全 / hover 共享 `engineStatus === "ready"` 门控——**静态引擎未就绪时整条
+intel 链路都不出结果**（既有设计，非本项引入）；若要让 intel 独立可用，须三项一起改。
 
 ## 索引与并发模型（2026-09-10 整改后）
 - **倒排索引**（`opencharm-intel-index/src/trace.rs`）：加载期预建 `by_qualname` / `by_location` / `by_file` / `by_last_segment`（qualname 最后段）/ `by_second_last_segment` / `by_type_label`（类型 → 观测定位）；消费端 7 处全量线性扫描全部改为索引查询，shape 解析带请求级缓存。
@@ -124,6 +162,9 @@ cargo build --release  # P3-T02 性能验收用
 - 悬停函数名 → `⟳ runtime · <qualname> · <hits> hits` + **签名（观测）**（A3②）+ 参数/返回/异常观测（按 count 降序）；每条参数观测附 shape 派生的**常见键 / 常见属性**；
 - 悬停对象变量 → `⟳ runtime · <name> : <类型>` + shape 字段列表；
 - 复用 `type_infer` 的 receiver 定位与成员聚合，与补全共用一套推断语义。
+
+**签名帮助**（`signature.rs`，A3③ / P3-T12）：`(` / `,` 触发 → 观测签名 + 当前参数位高亮；
+上下文与参数位聚合**复用补全**（`call_frame_at` / `param_observations`），详见 P3-T12。
 
 **跳转**（`definition.rs`，P3-T04）：光标落函数名时，按 qualname 最后段匹配 trace 函数，返回其 `(filename, lineno)`（probe 记下的 def 行）；同名函数返回多个、按 hits 降序（最常运行的实现排前）；server 层经 `Url::from_file_path` 转 file URI。
 
