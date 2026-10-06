@@ -6,9 +6,17 @@
  * R-REAL-9/10/11/12 为 2026-10-03 补，覆盖 `docs/debug_acceptance_record.md` §五
  * 人工清单里 mock 层零覆盖的两项（第 5 项三态互斥、第 7 项改键生效）：
  *   9  调试暂停中「运行脚本」按钮应 aria-disabled + 提示"调试进行中"，点击被静默拦截
- *   10 诊断：菜单项路径的 disabled 判定（与按钮路径对比，见验收记录 D-7）
+ *   10 同上，但走 **gutter ▶ 右键菜单**路径（与按钮路径对比，见验收记录 D-7）
  *   11 设置面板改键 UI → 保存 → settings.json 落盘 → 工具栏 tooltip 副文本同步
  *   12 改键后新键 F6 能启动调试、旧键 F5 失效
+ *
+ * R-REAL-10 / 13 为 2026-10-06 重写：原 R-REAL-10 是**诊断项（恒 true）**——选择器写成
+ * `.menu-item, [role="menuitem"]`（真实类名是 `.ctx-menu-item`），且菜单未展开时根本读不到节点，
+ * 实测恒返回 `not-found(menu-collapsed)`，等于没验证。本轮：
+ *   - 真正**右键 gutter ▶** 展开菜单（`buildRunMenuItems` 的唯一入口）后读菜单项状态；
+ *   - 10 断言「调试中菜单项置灰 + 提示与工具栏一致 + 点击被静默拦截」；
+ *   - **13 为正对照**：停止调试后同一菜单项必须恢复可点，证明 10 不是恒真。
+ *   D-7 修复方式（菜单复用 computeRunWidget）决定了这两条现在都应 PASS。
  *
  * 与 e2e/（浏览器 + Tauri mock）分层：本脚本驱动 **真实 Tauri 应用 + 真实 debugpy**
  * （tauri dev 模式），验证 mock 层验证不了的链路：
@@ -108,6 +116,68 @@ async function waitFrameText(page, line, timeoutMs) {
   }
 }
 
+/**
+ * 右键 gutter ▶ 展开运行组菜单（buildRunMenuItems 在当前 UI 下的**唯一**入口：
+ * 「运行目标 ▾」下拉已在 §17-1/§17-2 删除，只剩 __main__ 守卫行的 glyph 右键）。
+ *
+ * 定位用装饰元素 `.gutter-run` **自身的包围盒**，不用 `(line-1)*lineHeight`——
+ * 引用计数 CodeLens 会在 def/class 上方插 view zone 改变行的视口位置，按行高算坐标
+ * 会点进 zone（Monaco 判为非 GUTTER_GLYPH_MARGIN，菜单静默不弹）；用渲染后的装饰元素
+ * 对该竞态免疫。
+ */
+async function openRunGutterMenu(page) {
+  const glyph = page.locator('.monaco-editor .gutter-run').first();
+  await glyph.waitFor({ state: 'visible', timeout: 20000 });
+  const box = await glyph.boundingBox().catch(() => null);
+  if (!box) throw new Error('gutter ▶ 装饰无包围盒（未渲染或被滚动出视口）');
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { button: 'right' });
+  await page.locator('#ctx-menu .ctx-menu-item').first().waitFor({ timeout: 10000 });
+}
+
+/** 读菜单里「运行脚本」那一项的置灰态与原因文案（menu.ts::renderItem：
+ *  disabled → class `disabled` + `aria-disabled="true"` + `data-tip = disabledReason`） */
+async function readRunScriptMenuItem(page) {
+  return page
+    .evaluate(() => {
+      const items = [...document.querySelectorAll('#ctx-menu .ctx-menu-item')];
+      const it = items.find((el) => {
+        const l = el.querySelector('.mi-label');
+        return !!l && /运行脚本|Run Script/i.test(l.textContent || '');
+      });
+      if (!it) {
+        return {
+          found: false,
+          labels: items.map((e) => ((e.querySelector('.mi-label') || {}).textContent || e.textContent || '').trim()).slice(0, 12),
+        };
+      }
+      return {
+        found: true,
+        disabledClass: it.classList.contains('disabled'),
+        ariaDisabled: it.getAttribute('aria-disabled'),
+        tip: it.dataset.tip || '',
+      };
+    })
+    .catch((e) => ({ found: false, error: String(e).split('\n')[0] }));
+}
+
+async function closeMenu(page) {
+  await page.keyboard.press('Escape').catch(() => {});
+  await sleep(400);
+}
+
+/**
+ * 当前可见 toast 的文本集合。
+ * ⚠ 不能用「toast 数量相等」表达「没新弹 toast」——toast 会自动消失：
+ * 上一步遗留的 toast 到期就会让计数从 1 掉到 0，被误判成"新弹了一个"。
+ * 实测踩过：R-REAL-10 首轮 toast 1→0 而菜单点击其实被正确拦下。
+ * 故一律按**文本集合**判新增。
+ */
+async function toastTexts(page) {
+  return page
+    .evaluate(() => [...document.querySelectorAll('.toast')].map((e) => (e.textContent || '').trim()))
+    .catch(() => []);
+}
+
 /** 订阅原始 dap-message 事件（Rust → 前端），供 R-REAL-5 失败时核对 debugpy 真实响应 */
 async function installDapLogger(page) {
   const reg = await page
@@ -133,7 +203,7 @@ async function installDapLogger(page) {
   console.log(`[诊断] DAP 流量监听注册: ${reg}`);
 }
 
-async function runChecks(page, dataRoot) {
+async function runChecks(page, dataRoot, workspace) {
   // R-REAL-1 工作区自动恢复（隔离数据根 + 预置 recent-workspaces）
   await dismissBlockingModals(page);
   try {
@@ -141,6 +211,31 @@ async function runChecks(page, dataRoot) {
     record('R-REAL-1', '隔离数据根下工作区自动恢复（文件树可见）', true);
   } catch (e) {
     record('R-REAL-1', '隔离数据根下工作区自动恢复（文件树可见）', false, String(e).split('\n')[0]);
+    return;
+  }
+
+  // R-REAL-0 **护栏**（2026-10-06 新增）：确认驱动的是**本次**实例。
+  // 已知坑：上一轮残留的 WebView2 孤儿进程会继续占着同一个 CDP 端口，
+  // `connectOverCDP` 于是连到**旧会话**——端口预检通过、CDP 也连得上，
+  // 但页面属于上一次运行（文件树 / 断点 map 的路径落在上一轮的临时目录），
+  // 于是后续断言以一种极具误导性的方式连环失败（实测：断点 map 有 6/9 但红点 0 个、
+  // 真 debugpy 命不中断点）。**光看 R-REAL-1「文件树可见」是发现不了这个的**，
+  // 因为旧会话的文件树同样有 script.py。故在此断言路径归属，fail fast。
+  const treePath = await page
+    .evaluate(() => {
+      const el = [...document.querySelectorAll('#tree .tree-item')].find(
+        (e) => (((e.querySelector('.name') || {}).textContent) || '').trim() === 'script.py',
+      );
+      return el ? el.dataset.path || '' : '';
+    })
+    .catch(() => '');
+  const norm = (p) => String(p || '').replace(/\\/g, '/').toLowerCase();
+  const inThisRun = !!treePath && !!workspace && norm(treePath).startsWith(norm(workspace));
+  record('R-REAL-0', '护栏：驱动的是本次实例（文件树路径落在本轮临时工作区内，非上一轮残留孤儿 webview）',
+    inThisRun, `tree=${treePath || '(未取到)'} | 期望前缀=${workspace || '(未传入)'}`);
+  if (!inThisRun) {
+    console.error('[护栏] 疑似连到旧会话（残留 WebView2 占了 CDP 端口）。'
+      + '请先按命令行含 remote-debugging-port 清理 WebView2 孤儿进程、等端口释放后重跑。');
     return;
   }
 
@@ -210,7 +305,15 @@ async function runChecks(page, dataRoot) {
   await page.locator('#debug-continue').click();
   try {
     await waitFrameText(page, 9, 30000);
-    const rows = await page.locator('#debug-vars .debug-var-row').count();
+    // 变量行是**异步**渲染的（DAP variables 请求 → 回包 → renderVarRow），停点到达
+    // 与变量上屏之间有间隔。单次 count() 会与渲染竞态——实测出现过
+    // 「rows=0 而同一时刻 #debug-vars.innerText 已是 a 11 b 22」的假失败。
+    // 故改为轮询等行出现（与 §7 记忆里的 waitReferencesStable 同一思路）。
+    let rows = 0;
+    for (let i = 0; i < 24 && rows < 2; i++) {
+      rows = await page.locator('#debug-vars .debug-var-row').count().catch(() => 0);
+      if (rows < 2) await sleep(250);
+    }
     const hasAB = await page.evaluate(() => {
       const t = (document.getElementById('debug-vars') || {}).innerText || '';
       return t.includes('a') && t.includes('b');
@@ -230,36 +333,74 @@ async function runChecks(page, dataRoot) {
   const runDisabled = await runBtn.getAttribute('aria-disabled').catch(() => null);
   const runTip = (await runBtn.getAttribute('data-tip').catch(() => '')) || '';
   const runIsDisabled = await runBtn.evaluate((el) => el.classList.contains('is-disabled')).catch(() => false);
-  // 点击应被前端守卫静默拦下（无 toast、无状态变化）
-  const toastBefore = await page.locator('.toast').count();
+  // 点击应被前端守卫静默拦下（无新 toast、无状态变化）
+  const toastBefore = await toastTexts(page);
   await runBtn.click({ force: true }).catch(() => {});
   await sleep(1200);
-  const toastAfter = await page.locator('.toast').count();
+  const toastAfter = await toastTexts(page);
+  const newToasts9 = toastAfter.filter((t) => !toastBefore.includes(t));
   const stillStopped = await page
     .locator('#debug-stack .debug-stack-frame.active')
     .count()
     .then((n) => n > 0)
     .catch(() => false);
-  record('R-REAL-9', '三态互斥：调试暂停中「运行脚本」按钮 aria-disabled=true 且提示「调试进行中」，点击被静默拦截（无 toast、调试态不变）',
+  record('R-REAL-9', '三态互斥：调试暂停中「运行脚本」按钮 aria-disabled=true 且提示「调试进行中」，点击被静默拦截（无新 toast、调试态不变）',
     runDisabled === 'true' && runIsDisabled && /调试进行中/.test(runTip)
-      && toastAfter === toastBefore && stillStopped,
-    `aria-disabled=${runDisabled} is-disabled=${runIsDisabled} tip="${runTip.trim()}" toast ${toastBefore}→${toastAfter} 仍在断点=${stillStopped}`);
+      && newToasts9.length === 0 && stillStopped,
+    `aria-disabled=${runDisabled} is-disabled=${runIsDisabled} tip="${runTip.trim()}" toast ${toastBefore.length}→${toastAfter.length} 新增=${JSON.stringify(newToasts9)} 仍在断点=${stillStopped}`);
 
-  // R-REAL-10 反向不对称：菜单项 / 快捷键路径未被前端拦截（疑缺陷，见验收记录 D-7）
-  // main.ts:1789 菜单项 disabled 只看 scriptBusy（漏 debugging），故菜单里「运行脚本」在
-  // 调试中仍可点 → 走 runScript() → Rust terminal.rs:339 拒 → toast + 终端红字。
-  // ⚠ 本条是**诊断项**且本次未取到值：菜单需先展开才能读到菜单项的 disabled 态，
-  // 而展开菜单会引入额外时序。代码级证据已足够，故以 main.ts:1789 为准，运行时留待人工核。
-  const menuDisabled = await page
-    .evaluate(() => {
-      const it = [...document.querySelectorAll('.menu-item, [role="menuitem"]')]
-        .find((el) => (el.textContent || '').includes('运行脚本'));
-      if (!it) return 'not-found(menu-collapsed)';
-      return String(it.classList.contains('is-disabled') || it.getAttribute('aria-disabled') === 'true');
-    })
-    .catch(() => 'eval-failed');
-  record('R-REAL-10', '（诊断·非断言）菜单项「运行脚本」的 disabled 判定与按钮路径对比（代码级疑点：main.ts:1789 漏 debugging）',
-    true, `菜单项 disabled=${menuDisabled}；期望结论以源码为准：菜单路径未拦、由 Rust 兜底报「已有调试会话在运行」`);
+  // R-REAL-10 同一互斥的**菜单路径**（D-7 的落点）：gutter ▶ 右键菜单里的「运行脚本」
+  // 必须与工具栏 ▶ 同一判定。缺陷形态（2026-10-06 修复前）：菜单 disabled 只看 scriptBusy，
+  // 漏了 debugging → 按钮置灰、菜单仍可点 → 走 runScript() 由 Rust 兜底报「已有调试会话」。
+  // 修复后菜单复用 computeRunWidget(s).runScript.disabled，两处不可能再分叉。
+  // 断言口径：aria-disabled=true + .disabled 类 + data-tip 含「调试进行中」
+  // + 提示文案与工具栏按钮**完全一致** + 点击被静默拦截（无 toast、仍停在断点）。
+  let menu10 = { found: false };
+  let menuOpenErr = '';
+  try {
+    await openRunGutterMenu(page);
+  } catch (e) {
+    menuOpenErr = String(e).split('\n')[0];
+  }
+  let toast10Before = await toastTexts(page);
+  if (!menuOpenErr) {
+    menu10 = await readRunScriptMenuItem(page);
+    if (menu10.found) {
+      // 点击应无反应（disabled 项只有 stopPropagation，无 action）
+      await page
+        .locator('#ctx-menu .ctx-menu-item')
+        .filter({ hasText: /运行脚本|Run Script/ })
+        .first()
+        .click({ force: true })
+        .catch(() => {});
+      await sleep(1200);
+    }
+  }
+  const toast10After = await toastTexts(page);
+  const newToasts10 = toast10After.filter((t) => !toast10Before.includes(t));
+  const stillStopped10 = await page
+    .locator('#debug-stack .debug-stack-frame.active')
+    .count()
+    .then((n) => n > 0)
+    .catch(() => false);
+  const menu10Ok =
+    !menuOpenErr &&
+    menu10.found &&
+    menu10.ariaDisabled === 'true' &&
+    menu10.disabledClass === true &&
+    /调试进行中/.test(menu10.tip) &&
+    menu10.tip.trim() === runTip.trim() &&
+    newToasts10.length === 0 &&
+    stillStopped10;
+  record('R-REAL-10', 'D-7 · 菜单路径与按钮路径一致：调试暂停中 gutter ▶ 右键菜单「运行脚本」置灰（aria-disabled + 提示与工具栏一致），点击被静默拦截',
+    menu10Ok,
+    menuOpenErr
+      ? `菜单未展开：${menuOpenErr}`
+      : `found=${menu10.found} aria-disabled=${menu10.ariaDisabled} .disabled=${menu10.disabledClass} tip="${(menu10.tip || '').trim()}"`
+        + ` | 工具栏 tip="${runTip.trim()}" 一致=${(menu10.tip || '').trim() === runTip.trim()}`
+        + ` toast ${toast10Before.length}→${toast10After.length} 新增=${JSON.stringify(newToasts10)} 仍在断点=${stillStopped10}`
+        + (menu10.labels ? ` | 菜单项: ${JSON.stringify(menu10.labels)}` : ''));
+  await closeMenu(page);
 
   // R-REAL-8 停止清场 + 进程树无残留（D5 真机口径）
   await page.locator('#debug-stop').click();
@@ -273,6 +414,26 @@ async function runChecks(page, dataRoot) {
   record('R-REAL-8', '停止后 UI 清场 + python 进程树无残留',
     cleared && noResidue,
     `current-line 清除=${cleared} python 进程 ${pyBefore} -> ${pyAfter}${clearDetail ? '；' + clearDetail : ''}`);
+
+  // R-REAL-13 **正对照**（R-REAL-10 的反面）：停止调试后同一菜单项必须恢复可点。
+  // 没有这条，R-REAL-10 可能因「菜单项恒置灰 / 选择器恒读不到」而假通过 —— 正对照把
+  // 10 从"单向观察"变成"双向判定"。
+  let menu13 = { found: false };
+  let err13 = '';
+  try {
+    await openRunGutterMenu(page);
+    menu13 = await readRunScriptMenuItem(page);
+  } catch (e) {
+    err13 = String(e).split('\n')[0];
+  }
+  const menu13Ok =
+    !err13 && menu13.found && menu13.ariaDisabled !== 'true' && menu13.disabledClass === false;
+  record('R-REAL-13', '正对照：停止调试后 gutter ▶ 右键菜单「运行脚本」恢复可点（证明 R-REAL-10 非恒真）',
+    menu13Ok,
+    err13
+      ? `菜单未展开：${err13}`
+      : `found=${menu13.found} aria-disabled=${menu13.ariaDisabled} .disabled=${menu13.disabledClass} tip="${(menu13.tip || '').trim()}"`);
+  await closeMenu(page);
 
   // ── §5 第 7 项：设置面板改键后调试快捷键生效（全链路，真机） ──
   // 覆盖路径：设置面板 UI 改键 → 保存 → settings.json 落盘 → 工具栏 tooltip 副文本刷新
@@ -368,6 +529,6 @@ runWithRealApp(
     },
   },
   async (s) => {
-    await runChecks(s.page, s.dataRoot);
+    await runChecks(s.page, s.dataRoot, s.workspace);
   },
 );
