@@ -11,6 +11,10 @@
 //   node shell/scripts/budget-check.mjs --no-write   # 不落盘报告文件
 //
 // 产物：bench/reports/budget-<date>.md（人读格式，与 collect-metrics.ps1 同惯例）
+//
+// 产物体积项带**新鲜度校验**：源码比 dist 新时判 STALE（不算 PASS、断言模式非零退出）。
+// 原因：陈旧 dist 会残留已删除的依赖分包（实测曾虚报约 2.08 MB 的 mermaid/katex），
+// 属"不报错、只给偏大数字"的系统性失真。断言前请先 `cd shell && npm run build`。
 import { execSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
@@ -69,16 +73,48 @@ function countTauriCommands() {
   return n;
 }
 
-/** dist 产物（JS + CSS，未压缩原始体积）。dist 不存在返回 null（跳过，不判失败）。 */
-function bundleKb() {
+/** 源码侧最新 mtime —— 决定 dist 是否过期。
+ *  只看会进产物的输入（index.html / 配置 / shell/src 下的源码），
+ *  排除 `__tests__` 与 `*.test.ts`（改测试不影响产物，不该判陈旧）。 */
+function newestSourceMtime() {
+  let newest = 0;
+  const bump = (p) => { try { const m = statSync(p).mtimeMs; if (m > newest) newest = m; } catch { /* 不存在则跳过 */ } };
+  for (const rel of ["shell/index.html", "shell/package.json", "shell/vite.config.ts", "shell/tsconfig.json"]) {
+    bump(join(ROOT, rel));
+  }
+  const walk = (dir, depth = 0) => {
+    if (depth > 8 || !existsSync(dir)) return;
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      if (e.name === "node_modules" || e.name === "__tests__" || e.name.startsWith(".")) continue;
+      const p = join(dir, e.name);
+      if (e.isDirectory()) { walk(p, depth + 1); continue; }
+      if (e.name.endsWith(".test.ts")) continue;
+      if (/\.(ts|tsx|js|css|html)$/.test(e.name)) bump(p);
+    }
+  };
+  walk(join(ROOT, "shell", "src"));
+  return newest;
+}
+
+/** dist 产物（JS + CSS，未压缩原始体积）+ 新鲜度。dist 不存在返回 null（跳过，不判失败）。
+ *
+ *  为什么要查新鲜度：`dist/` 陈旧时会把**已删除的依赖分包**继续算进体积。
+ *  实测（2026-10-06）：陈旧 dist 报 7,065 KB（FAIL），其中约 2.08 MB 是**已被取消的
+ *  mermaid/katex 分包**；`npm run build` 后为 4,988 KB（PASS）。
+ *  这类"不报错、只给偏大数字"的失真与 v1.1 的 `Get-Content .Count` 行数错误同类，
+ *  故陈旧时判 **STALE（不算 PASS，断言模式非零退出）**，提示先构建再断言。 */
+function bundleInfo() {
   const assets = join(ROOT, "shell", "dist", "assets");
   if (!existsSync(assets)) return null;
   let bytes = 0;
+  let distNewest = 0;
   for (const f of readdirSync(assets)) {
     if (!/\.(js|css)$/.test(f)) continue;
-    bytes += statSync(join(assets, f)).size;
+    const st = statSync(join(assets, f));
+    bytes += st.size;
+    if (st.mtimeMs > distNewest) distNewest = st.mtimeMs;
   }
-  return Math.round(bytes / 1024);
+  return { kb: Math.round(bytes / 1024), distMtimeMs: distNewest, srcMtimeMs: newestSourceMtime() };
 }
 
 const checks = [];
@@ -88,10 +124,10 @@ function addLine(relPath, limitKey) {
   if (actual == null) { checks.push({ kind: "行数", name: relPath, actual: null, limit, note: "文件不存在，跳过" }); return; }
   checks.push({ kind: "行数", name: relPath, actual, limit, over: actual > limit });
 }
-function addValue(kind, name, actual, limit, warnOnly) {
+function addValue(kind, name, actual, limit, warnOnly, staleNote) {
   if (actual == null) { checks.push({ kind, name, actual: null, limit, note: "未构建/不可测，跳过" }); return; }
   const over = actual > limit;
-  checks.push({ kind, name, actual, limit, over, warnOnly: warnOnly || undefined });
+  checks.push({ kind, name, actual, limit, over, warnOnly: warnOnly || undefined, staleNote: staleNote || undefined });
 }
 
 addLine("shell/src/style.css", "style_css_max_lines");
@@ -102,7 +138,19 @@ addLine("shell/src-tauri/src/env_cmds.rs", "env_cmds_rs_max_lines");
 addLine("shell/src-tauri/src/fs_cmds.rs", "fs_cmds_rs_max_lines");
 addLine("shell/src-tauri/src/git_cmds.rs", "git_cmds_rs_max_lines");
 addValue("命令数", "#[tauri::command]", countTauriCommands(), budget.max_tauri_commands, policy.commands_warn_only);
-addValue("产物体积(KB)", "shell/dist/assets (JS+CSS)", bundleKb(), budget.max_bundle_kb, false);
+{
+  const b = bundleInfo();
+  addValue(
+    "产物体积(KB)",
+    "shell/dist/assets (JS+CSS)",
+    b ? b.kb : null,
+    budget.max_bundle_kb,
+    false,
+    b && b.srcMtimeMs > b.distMtimeMs
+      ? `dist 陈旧（源码比产物新），体积数字不可信——请先在 shell/ 下跑 npm run build 再断言`
+      : undefined,
+  );
+}
 
 // —— 编码卫生：含中文的 .ps1 必须带 UTF-8 BOM ——
 //
@@ -130,8 +178,10 @@ const ps1Hygiene = (() => {
   return bad;
 })();
 
-const breaches = checks.filter((c) => c.over && !c.warnOnly);
-const warns = checks.filter((c) => c.over && c.warnOnly);
+// STALE 与 breaches 互斥：数字不可信时不再判超限（避免把陈旧产物里的已删分包当成真的破线）
+const stales = checks.filter((c) => c.staleNote);
+const breaches = checks.filter((c) => c.over && !c.warnOnly && !c.staleNote);
+const warns = checks.filter((c) => c.over && c.warnOnly && !c.staleNote);
 const head = (() => { try { return execSync("git rev-parse --short HEAD", { cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(); } catch { return "?"; } })();
 
 const hygieneOk = ps1Hygiene.length === 0;
@@ -141,14 +191,14 @@ lines.push(`# 预算门禁报告 ${new Date().toISOString()}`);
 lines.push("");
 lines.push(`- HEAD：\`${head}\``);
 lines.push(`- 阈值来源：\`ci/budgets.toml\`（抬高预算须显式 PR + 理由）`);
-lines.push(`- 判定：**${breaches.length || !hygieneOk ? "FAIL" : "PASS"}**（超限 ${breaches.length} 项${warns.length ? `，告警 ${warns.length} 项` : ""}${!hygieneOk ? `，编码卫生 ${ps1Hygiene.length} 项违规` : ""}）`);
+lines.push(`- 判定：**${breaches.length || stales.length || !hygieneOk ? "FAIL" : "PASS"}**（超限 ${breaches.length} 项${warns.length ? `，告警 ${warns.length} 项` : ""}${stales.length ? `，陈旧 ${stales.length} 项` : ""}${!hygieneOk ? `，编码卫生 ${ps1Hygiene.length} 项违规` : ""}）`);
 lines.push("");
 lines.push("| 项 | 类别 | 实测 | 上限 | 余量 | 判定 |");
 lines.push("|---|---|---|---|---|---|");
 for (const c of checks) {
   if (c.actual == null) { lines.push(`| ${c.name} | ${c.kind} | — | ${c.limit ?? "—"} | — | 跳过（${c.note}） |`); continue; }
   const slack = c.limit - c.actual;
-  const verdict = !c.over ? "PASS" : c.warnOnly ? "**WARN**" : "**FAIL**";
+  const verdict = c.staleNote ? "**STALE**" : !c.over ? "PASS" : c.warnOnly ? "**WARN**" : "**FAIL**";
   lines.push(`| ${c.name} | ${c.kind} | ${c.actual} | ${c.limit} | ${slack >= 0 ? `+${slack}` : slack} | ${verdict} |`);
 }
 lines.push("");
@@ -164,7 +214,16 @@ if (warns.length) {
   for (const c of warns) lines.push(`- **${c.name}**：${c.actual} > ${c.limit}（超 ${c.actual - c.limit}）——已越信号线，应讨论架构对策而非继续涨。`);
   lines.push("");
 }
+if (stales.length) {
+  lines.push("## 陈旧项（不算 PASS，需先重新构建）");
+  lines.push("");
+  for (const c of stales) {
+    lines.push(`- **${c.name}**：${c.staleNote}。当前实测 ${c.actual} / 上限 ${c.limit} —— **该数字仅供参考，不可用于判定。**`);
+  }
+  lines.push("");
+}
 lines.push("> 口径：行数按换行切分计数（含空行）；产物体积为 dist/assets 下 JS+CSS 的未压缩原始体积。");
+lines.push("> 产物体积带**新鲜度校验**：源码（index.html / 配置 / shell/src 下非测试源码）比 dist 新时判 **STALE** —— 陈旧 dist 会残留已删除的依赖分包（实测曾虚报约 2.08 MB 的 mermaid/katex），属系统性失真，故不算 PASS。");
 lines.push("");
 lines.push(`## 编码卫生：含中文的 .ps1 必须带 UTF-8 BOM —— ${hygieneOk ? "PASS" : "**FAIL**"}`);
 lines.push("");
@@ -182,8 +241,8 @@ const report = lines.join("\r\n");
 console.log(`\n[budget] HEAD=${head}`);
 for (const c of checks) {
   if (c.actual == null) { console.log(`  跳过  ${c.name}（${c.note}）`); continue; }
-  const tag = !c.over ? "PASS" : c.warnOnly ? "WARN" : "FAIL";
-  console.log(`  ${tag.padEnd(4)}  ${c.name.padEnd(38)} ${String(c.actual).padStart(6)} / ${c.limit}`);
+  const tag = c.staleNote ? "STALE" : !c.over ? "PASS" : c.warnOnly ? "WARN" : "FAIL";
+  console.log(`  ${tag.padEnd(5)} ${c.name.padEnd(38)} ${String(c.actual).padStart(6)} / ${c.limit}`);
 }
 console.log(`  ${hygieneOk ? "PASS" : "FAIL"}  ${".ps1 编码卫生（中文需 BOM）".padEnd(38)} ${ps1Hygiene.length === 0 ? "无违规" : ps1Hygiene.length + " 个违规"}`);
 
@@ -197,6 +256,11 @@ if (!NO_WRITE) {
 }
 
 if (REPORT_ONLY) { console.log('[budget] --report 模式，不改退出码'); process.exit(0); }
+if (stales.length) {
+  console.error(`\n[budget] 陈旧 ${stales.length} 项，FAIL（数字不可信，先重新构建再断言）：`);
+  for (const c of stales) console.error(`  - ${c.name}：${c.staleNote}`);
+  process.exit(1);
+}
 if (breaches.length) {
   console.error(`\n[budget] 超限 ${breaches.length} 项，FAIL`);
   process.exit(1);
