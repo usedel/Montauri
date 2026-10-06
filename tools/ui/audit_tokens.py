@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from dataclasses import dataclass
@@ -35,6 +36,54 @@ for _stream in (sys.stdout, sys.stderr):
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CSS = REPO_ROOT / "shell" / "src" / "style.css"
+
+
+class CssSource:
+    """audit 的 CSS 输入：入口文件 + 已内联本地 @import 的合成源。
+
+    为什么要有它（P0-0 主题拆分配套，2026-10-06）：style.css 拆出 styles/http.css /
+    styles/logView.css 后，若门禁仍只读 style.css，等于**静默缩小审计面**——
+    「拆分让门禁变绿」与「抬阈值」一样是不可接受的退让。故解析 @import 把分文件
+    内联进来一起审。接口兼容 `Path.read_text`（既有 gate 函数零改动），`str()`
+    仍是入口文件路径，报告口径不变；line_map 供 --refs 把合成行号换算回源文件。
+    """
+
+    def __init__(self, origin: Path, text: str, line_map: list[tuple[Path, int]]):
+        self.origin = origin
+        self._text = text
+        self.line_map = line_map
+
+    def read_text(self, encoding: str = "utf-8") -> str:
+        return self._text
+
+    def __fspath__(self) -> str:
+        return str(self.origin)
+
+    def __str__(self) -> str:
+        return str(self.origin)
+
+
+def load_css_source(path: Path, _seen: set[Path] | None = None) -> CssSource:
+    """读 CSS 并递归内联本地 `@import "./x.css"`，返回合成源（含行号映射）。"""
+    seen = _seen if _seen is not None else set()
+    resolved = path.resolve()
+    seen.add(resolved)
+    lines_out: list[str] = []
+    line_map: list[tuple[Path, int]] = []
+    for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(keepends=True), start=1):
+        m = re.match(r'\s*@import\s+(?:url\(\s*)?["\']([^"\']+)["\']\s*\)?\s*;', line)
+        if m and not re.match(r"^(https?:)?//", m.group(1)) and m.group(1).endswith(".css"):
+            child = (resolved.parent / m.group(1)).resolve()
+            if child in seen:  # 环引用：跳过（本项目不存在，防御性）
+                continue
+            sub = load_css_source(child, seen)
+            for cl, orig in zip(sub._text.splitlines(keepends=True), sub.line_map):
+                lines_out.append(cl)
+                line_map.append(orig)
+            continue
+        lines_out.append(line)
+        line_map.append((path, lineno))
+    return CssSource(path, "".join(lines_out), line_map)
 
 AA_TEXT = 4.5          # WCAG 2.1 AA 正文阈值
 HUE_TOLERANCE = 15.0   # 单色相轴容差（度）
@@ -142,12 +191,14 @@ class Ref:
     selector: str
     prop: str
     scope: str  # 规则所在的作用域（@media / @supports 之类），无则空串
+    file: str = ""  # 来自哪个文件（@import 内联后合成行号 → 源文件；空 = 入口文件）
 
 
-def scan_refs(css_path: Path, token: str) -> list[Ref]:
+def scan_refs(css_path: Path | CssSource, token: str) -> list[Ref]:
     """列出 `var(--token)` 的全部引用点（选择器级）。
     token 自带 `--` 前缀；用于批 2a 的旧 token 拆分与批 2b 的抬升面审计
-    （方案 §7 门禁 6 / 18 都要求「选择器级扫描」，token 计数不足以判定）。"""
+    （方案 §7 门禁 6 / 18 都要求「选择器级扫描」，token 计数不足以判定）。
+    传 CssSource 时行号经 line_map 换算回源文件（file 字段标明归属）。"""
     raw_lines = css_path.read_text(encoding="utf-8").splitlines()
     # 注释剥离要保持行号，故逐行处理：把注释内容替换成等长空白
     lines: list[str] = []
@@ -205,16 +256,32 @@ def scan_refs(css_path: Path, token: str) -> list[Ref]:
         cut = max(head.rfind(";"), head.rfind("{"), head.rfind("}"))
         prop = head[cut + 1:].split(":", 1)[0].strip() or "?"
         refs.append(Ref(line=idx, selector=selector, prop=prop, scope=scope))
+    if isinstance(css_path, CssSource):  # 合成行号 → 源文件行号
+        refs = [
+            Ref(
+                line=css_path.line_map[r.line - 1][1],
+                selector=r.selector,
+                prop=r.prop,
+                scope=r.scope,
+                file=str(css_path.line_map[r.line - 1][0]),
+            )
+            for r in refs
+        ]
     return refs
 
 
-def print_refs(css_path: Path, token: str) -> int:
+def print_refs(css_path: Path | CssSource, token: str) -> int:
     refs = scan_refs(css_path, token)
     print(f"var({token}) 引用 {len(refs)} 处 —— {css_path}\n")
     width = max((len(r.selector) for r in refs), default=10)
     for r in refs:
         scope = f"  @{r.scope}" if r.scope else ""
-        print(f"  L{r.line:<5} {r.selector:<{min(width, 58)}}  {r.prop}{scope}")
+        where = ""
+        if r.file:
+            rel = os.path.relpath(r.file, REPO_ROOT)
+            if rel != os.path.relpath(str(css_path), REPO_ROOT):
+                where = f"  ({rel})"
+        print(f"  L{r.line:<5} {r.selector:<{min(width, 58)}}  {r.prop}{scope}{where}")
     return len(refs)
 
 
@@ -905,10 +972,10 @@ def main() -> int:
         return 2
 
     if args.refs:
-        print_refs(css_path, args.refs if args.refs.startswith("--") else f"--{args.refs}")
+        print_refs(load_css_source(css_path), args.refs if args.refs.startswith("--") else f"--{args.refs}")
         return 0
 
-    report = audit(css_path)
+    report = audit(load_css_source(css_path))
 
     if args.out:
         payload = {"css": str(css_path), "fails": report.fails, "warns": report.warns,

@@ -23,7 +23,17 @@
 # style.css：设计系统本体，UI 视觉六批全落在这里。5,050（44c85ea）→ 5,668（HEAD）= +618，
 #   是**唯一在 UI 六批期间显著增长的文件**。上限 5,850（余量 182 行 / 3.2%）。
 #   批 6+ 若开工，须先按主题拆出分文件，而不是抬这一项。
+#   ↳ **2026-10-06 已按此路径拆分**（P0-0）：B4 HTTP → styles/http.css（102 行）、
+#     B5 运行日志 → styles/logView.css（170 行），style.css 降至 5,727。分文件经
+#     style.css 顶部 @import 内联进 bundle，audit_tokens.py 已支持 @import 解析
+#     （拆分不得缩小审计面）；两个分文件各自设上限，防止静默增长在新文件重演。
 style_css_max_lines = 5850
+
+# styles/http.css（B4 HTTP 请求工具，P0-0 拆出）：102 行。上限 125（余量 ~22%）。
+styles_http_max_lines = 125
+
+# styles/logView.css（B5 结构化运行日志，P0-0 拆出）：170 行。上限 205（余量 ~20%）。
+styles_logview_max_lines = 205
 
 # main.ts：2,897。真实故事不是"UI 六批顺带拆了"（同期它是 +58，不是 -336），
 #   而是 tech-debt 记录的 TD-014 拆分成果（~1,196）已被后续功能吃回 +1,701。

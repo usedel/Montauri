@@ -1,0 +1,102 @@
+/* B4 · HTTP 请求工具 —— 自 style.css 拆出（P0-0 主题拆分，2026-10-06）。
+   真源 docs/toolbox_dev_plan.md §5；选择器命名空间 .http-* 与 .json-node*（http.ts
+   私有 JSON 树，见原 5975 行注记）。本文件经 style.css 顶部 @import 内联进 bundle，
+   token 门禁由 tools/ui/audit_tokens.py 的 @import 解析覆盖（拆分不得缩小审计面）。 */
+
+/* ---------- B4：HTTP 请求工具（2026-10-05 批次，docs/toolbox_dev_plan.md §5.7） ---------- */
+.http-method {
+  flex: none;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-sm);
+  font-family: var(--mono);
+}
+.http-method:focus { border-color: var(--accent); outline: none; }
+.http-url { flex: 1; min-width: 0; font-family: var(--mono); }
+/* 环境下拉（PR-B4-3）：与 .http-method 同族，宽度按内容 */
+.http-env {
+  flex: none;
+  max-width: calc(var(--space-4) * 12);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-sm);
+}
+.http-env:focus { border-color: var(--accent); outline: none; }
+/* 发送中：顶部 2px 细进度条（§5.7.2：不用 spinner、不用遮罩；形态对齐 .rx-progress） */
+.http-progress { flex: none; height: 2px; border-radius: 1px; background: var(--border); overflow: hidden; }
+.http-progress::after {
+  content: ""; display: block; width: 40%; height: 100%; background: var(--accent);
+  animation: http-progress-slide 1.1s var(--ease-in-out) infinite;
+}
+@keyframes http-progress-slide { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+/* 双通道压制（style.css 的 .rx-progress 曾漏压应用内开关，返工过一次）：应用内 + 系统偏好都要压 */
+html[data-reduce-motion] .http-progress::after { animation: none; width: 100%; opacity: .5; }
+@media (prefers-reduced-motion: reduce) { .http-progress::after { animation: none; width: 100%; opacity: .5; } }
+.http-status { flex: none; min-height: 16px; font-size: var(--text-sm); color: var(--fg-muted); }
+.http-status--idle { color: var(--fg-dim); }
+.http-status--pending { color: var(--fg-muted); }
+.http-status--ok { color: var(--fg); }
+.http-status--degraded { color: var(--warn); }
+.http-status--err { color: var(--danger); }
+.http-section { flex: none; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.http-section > summary {
+  cursor: pointer;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--fg-muted);
+  user-select: none;
+}
+.http-section-body { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-2) var(--space-3) var(--space-3); }
+.http-header-list { display: flex; flex-direction: column; gap: var(--space-2); }
+.http-header-row { display: flex; align-items: center; gap: var(--space-2); }
+.http-header-row .tool-input:first-child { flex: 0 0 36%; }
+.http-header-row .tool-input:nth-child(2) { flex: 1; min-width: 0; }
+/* 响应区：flex:1 独立滚动；发送中整体灰显但**不清空**（§5.7.2） */
+.http-response { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: var(--space-3); }
+.http-response.is-stale { opacity: .55; }
+.http-resp-status { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); font-size: var(--text-sm); }
+.http-code { font-family: var(--mono); }
+.http-code--ok, .http-history-code--ok { color: var(--fg); }
+.http-code--degraded, .http-history-code--degraded { color: var(--warn); }
+.http-code--err, .http-history-code--err { color: var(--danger); }
+.http-history-code { flex: none; font-family: var(--mono); }
+.http-meta { color: var(--fg-muted); }
+.http-hint { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-xs); }
+.http-hint--warn { color: var(--warn); }
+.http-hint--dim { color: var(--fg-dim); }
+.http-headers-table { gap: var(--space-2); font-size: var(--text-xs); }
+.http-header-cell { display: flex; gap: var(--space-3); }
+.http-header-name { flex: 0 0 38%; color: var(--fg-muted); font-family: var(--mono); }
+.http-header-value { flex: 1; min-width: 0; font-family: var(--mono); word-break: break-all; }
+.http-text { margin: 0; font-family: var(--mono); font-size: var(--text-xs); white-space: pre-wrap; word-break: break-all; }
+.http-image { max-width: 100%; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+/* 历史列表（PR-B4-3）：状态码 + 方法 + URL 单行截断 */
+.http-history { max-height: calc(var(--space-4) * 30); overflow: auto; }
+.http-history-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--text-xs);
+}
+.http-history-row:hover { background: var(--hover-subtle); }
+.http-history-method { flex: none; color: var(--fg-muted); font-family: var(--mono); }
+.http-history-url { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); }
+/* JSON 折叠树（<details> 原生可访问；层级用左侧细线表达） */
+.json-node > summary { cursor: pointer; font-size: var(--text-xs); color: var(--fg-muted); user-select: none; }
+.json-children { margin-left: var(--space-3); padding-left: var(--space-3); border-left: 1px solid var(--border-soft); }
+.json-leaf { font-family: var(--mono); font-size: var(--text-xs); }
+.json-key { color: var(--fg-muted); margin-right: var(--space-2); }
+.json-value--string { color: var(--ok); }
+.json-value--number { color: var(--warn); }
+.json-value--boolean { color: var(--meta); }
+.json-value--null { color: var(--fg-dim); }
+.json-value--other { color: var(--fg); }
