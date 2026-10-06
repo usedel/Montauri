@@ -9,7 +9,7 @@ import { $ } from "../state";
 import { onLocaleChange } from "../i18n"; // 第十七批 i18n：语言切换重注册内置工具（刷新 manifest 展示文案）
 import { createToolHost, type DevToolsHostDeps } from "./host";
 import { initDevToolsPanel, openDevTools } from "./panel";
-import { setPendingHttpUrl } from "./builtin/http";
+import { setPendingRequest, type PendingRequest } from "./builtin/http";
 import { registerBuiltinPlugin } from "../extensions/loader";
 import { buildBuiltinManifest, BUILTIN_TOOL_MODULES } from "./builtin";
 
@@ -18,14 +18,22 @@ export { listDevTools } from "./registry";
 export { groupToolsByCategory, PRESET_CATEGORIES, categoryLabel } from "./types";
 
 /**
- * 打开 HTTP 工具并预填 URL（B4 PR-B4-3 端点视图联动）。
+ * 内置 HTTP 工具的**全局 id**：`openDevTools` 收的是 `<pluginId>.<toolId>` 形态
+ * （同 dslLens.ts 的 `opencharm.builtin.regex` / jsonLiteral.ts 的 `...jsonpath`）。
+ * 传裸 `"http"` 会让 `getDevTool` 返回 undefined → 静默回落到「最近使用」工具，
+ * 表现为「面板开了但打开的是别的工具」——2026-10-06 由 e2e EP-S2 抓到并修。
+ */
+const HTTP_TOOL_ID = "opencharm.builtin.http";
+
+/**
+ * 打开 HTTP 工具并预填请求（B4 PR-B4-3 端点视图联动；A5① 起可带方法与请求体）。
  * 预填值经模块级 pending 传递：工具可能是**首次挂载**（读 pending）也可能已在实例缓存中
  * （此时 `openDevTools` 只切显示，pending 会留在下一次挂载才消费——已知取舍，避免为一次
  * 联动给 panel 加跨模块回调）。
  */
-export function openHttpTool(url: string): void {
-  setPendingHttpUrl(url);
-  openDevTools("http");
+export function openHttpTool(url: string, preset?: Omit<PendingRequest, "url">): void {
+  setPendingRequest({ url, ...preset });
+  openDevTools(HTTP_TOOL_ID);
 }
 
 /** 语言切换重注册只挂一次（重复调用 registerBuiltinTools 不重复订阅） */

@@ -55,19 +55,28 @@ import {
 } from "./httpRequest";
 
 /**
- * 端点视图联动：待填 URL。
+ * 端点视图联动：待填请求。
  * 工具**已挂载**（devtools 有实例缓存，切走不 dispose）时直接投递给在线消费者；
  * 否则先存起来，等下次 mount 消费——两条路都要通，否则"工具已开着再点端点"会静默失效。
+ *
+ * A5① 起 `method` / `body` 可选带上（端点视图的请求样例可直接落到方法选择与请求体框）；
+ * 只给 `url` 时行为与旧版 `setPendingHttpUrl` 完全一致。
  */
-let pendingHttpUrl: string | null = null;
-const pendingConsumers = new Set<(url: string) => void>();
+export interface PendingRequest {
+  url: string;
+  method?: string;
+  body?: string;
+}
 
-export function setPendingHttpUrl(url: string): void {
+let pendingRequest: PendingRequest | null = null;
+const pendingConsumers = new Set<(r: PendingRequest) => void>();
+
+export function setPendingRequest(r: PendingRequest): void {
   if (pendingConsumers.size > 0) {
-    for (const cb of pendingConsumers) cb(url);
+    for (const cb of pendingConsumers) cb(r);
     return;
   }
-  pendingHttpUrl = url;
+  pendingRequest = r;
 }
 
 /** 取消中间态最长等待（ms）：超时强制回落 idle，不弹错误（§5.7.3） */
@@ -169,6 +178,9 @@ export function mount(host: PanelHost): { dispose(): void } {
   const bodySummary = document.createElement("summary");
   bodySummary.textContent = t("devtools.http.bodySection");
   const bodyInput = kit.textarea({ placeholder: t("devtools.http.bodyPh"), rows: 4 });
+  // 专用类名（同 urlInput 的 .http-url 约定）：面板里有两个 .tool-textarea（请求体 / 环境变量），
+  // 无类名时 e2e 选择器不唯一——EP-S2 的「送进 HTTP 工具预填请求体」断言需要它。
+  bodyInput.classList.add("http-body");
   const bodyBody = document.createElement("div");
   bodyBody.className = "http-section-body";
   bodyBody.appendChild(bodyInput);
@@ -810,13 +822,16 @@ export function mount(host: PanelHost): { dispose(): void } {
 
   // 端点视图联动（devtools/index.ts 的 openHttpTool）：注册在线消费者 + 消费挂起值。
   // 两条路都要通——工具已挂载（实例缓存）时走前者，首次挂载走后者。
-  const applyPendingUrl = (url: string): void => {
-    urlInput.value = url;
+  const applyPending = (r: PendingRequest): void => {
+    urlInput.value = r.url;
+    // 方法只在 HTTP_METHODS 内才写入（WS 等端点不适用，避免 select 落到空值）
+    if (r.method && (HTTP_METHODS as readonly string[]).includes(r.method)) methodSel.value = r.method;
+    if (r.body !== undefined) bodyInput.value = r.body;
   };
-  pendingConsumers.add(applyPendingUrl);
-  if (pendingHttpUrl !== null) {
-    applyPendingUrl(pendingHttpUrl);
-    pendingHttpUrl = null;
+  pendingConsumers.add(applyPending);
+  if (pendingRequest !== null) {
+    applyPending(pendingRequest);
+    pendingRequest = null;
   }
 
   renderEnvOptions();
@@ -833,7 +848,7 @@ export function mount(host: PanelHost): { dispose(): void } {
       stopTicker();
       if (cancelTimer !== undefined) window.clearTimeout(cancelTimer);
       unsubProgress();
-      pendingConsumers.delete(applyPendingUrl);
+      pendingConsumers.delete(applyPending);
       // 在途请求必须取消：回包到达时本实例的 DOM 已卸载（§5.6 边界 1）
       if (state.phase === "sending" || state.phase === "cancelling") {
         void host.http.cancel(currentOpId).catch(() => {});

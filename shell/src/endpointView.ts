@@ -4,7 +4,9 @@
 // 本模块只负责渲染与动作（照 todoView.ts 先例）：
 // - 按 HTTP 方法分组（GET / POST / … / WS，组序见 METHOD_ORDER），点击跳转声明；
 // - F2：行内「浏览器打开」= lastServiceBaseUrl() + route（无 base 提示先运行）+ 复制 URL；
-// - F4：工具条固定入口 /docs 与 /openapi.json（FastAPI 自带，复用 open_external，零新依赖）。
+// - F4：工具条固定入口 /docs 与 /openapi.json（FastAPI 自带，复用 open_external，零新依赖）；
+// - A5①：行内「请求样例」= epSample.ts（Rust `scan_endpoint_sample` 解析 handler 签名 +
+//   Pydantic 模型 → 参数表 / 请求体 JSON / cURL），懒加载 + 单例展开。
 
 import { invoke } from "@tauri-apps/api/core";
 import { app, $ } from "./state";
@@ -14,6 +16,7 @@ import { localizeBackendError } from "./i18n/backendError";
 import { fullEndpointUrl } from "./frameworks";
 import { lastServiceBaseUrl } from "./termUi";
 import { openHttpTool } from "./devtools"; // B4 PR-B4-3：端点 → HTTP 工具联动
+import { resetEndpointSample, toggleEndpointSample } from "./epSample"; // A5①：请求样例
 import { toast, toastFail } from "./toast";
 
 export interface EndpointMatch {
@@ -146,6 +149,7 @@ export function resetEndpointView(): void {
   epToken++;
   results = [];
   loading = false;
+  resetEndpointSample();
   renderEndpointPanel();
 }
 
@@ -154,7 +158,8 @@ export function renderEndpointPanel(error?: string): void {
   const list = document.getElementById("ep-results");
   const summary = document.getElementById("ep-summary");
   if (!list) return;
-
+  // 列表即将整体重建：展开中的样例块与缓存一并作废（行号可能已变，见 epSample.ts）
+  resetEndpointSample();
   if (summary) {
     if (error) summary.textContent = t("endpoints.scanFailedShort");
     else if (loading) summary.textContent = t("endpoints.scanning");
@@ -314,7 +319,37 @@ function buildEndpointRow(m: EndpointMatch): HTMLElement {
     }
   });
 
-  row.append(route, loc, open, copy, send);
+  // A5①：请求样例（handler 签名 + Pydantic 模型 → 参数表 / 请求体 JSON / cURL）
+  const sample = document.createElement("span");
+  sample.className = "ep-action";
+  sample.setAttribute("role", "button");
+  sample.tabIndex = 0;
+  sample.setAttribute("aria-label", t("endpoints.sampleAction"));
+  sample.dataset.tip = t("endpoints.sampleAction");
+  sample.appendChild(codicon("beaker"));
+  const toggleSample = (): void => {
+    toggleEndpointSample(row, {
+      framework: m.framework,
+      method: m.method,
+      route: m.route,
+      file: m.file,
+      line: m.line,
+      handler: m.handler,
+    });
+  };
+  sample.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    toggleSample();
+  });
+  sample.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter" || ev.key === " ") {
+      ev.preventDefault();
+      ev.stopPropagation();
+      toggleSample();
+    }
+  });
+
+  row.append(route, loc, open, copy, sample, send);
   // UI-16：可点击行补 button 语义 + 键盘激活（跳转声明是主动作）
   row.setAttribute("role", "button");
   row.tabIndex = 0;

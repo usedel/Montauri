@@ -40,6 +40,9 @@ styles_logview_max_lines = 205
 #   小文件按**绝对行数**给余量（+36%）而非固定百分比——20% 只剩 9 行，改两条规则就破线。
 styles_hotspots_max_lines = 60
 
+# styles/endpointSample.css（A5① 端点请求样例，2026-10-06 新增）：97 行。上限 125（余量 ~29%）。
+styles_endpointsample_max_lines = 125
+
 # main.ts：2,897 → 2,312（第一刀）→ **2,094（2026-10-06 阶段二拆分第二刀，init 阶段化，−218 行）**。
 #   真实故事不是"UI 六批顺带拆了"（同期它是 +58，不是 -336），而是 tech-debt 记录的 TD-014
 #   拆分成果（~1,196）已被后续功能吃回 +1,701。
@@ -80,6 +83,17 @@ sidebar_views_ts_max_lines = 130
 #   口径：下半区一律写「未观测到运行」并显式否认"死代码"，改动文案前先看文件头红线。
 hotspots_view_ts_max_lines = 350
 
+# endpointView.ts（F1 端点视图；A5① 请求样例 +35 行）：366 行。上限 460（余量 ~26%）。
+#   本文件此前未纳入预算，A5① 首次登记——视图层会随功能长，纳入后每次增长都必须显式改这一行。
+endpoint_view_ts_max_lines = 460
+
+# epSample.ts / epSampleCore.ts（A5① 端点请求样例前端，2026-10-06 新增）：265 / 163 行。
+#   两层是刻意分的：Core 零 app 依赖（只依赖 i18n）→ 单测可直接 import；epSample.ts 那层要拿
+#   workspaceRoot / lastServiceBaseUrl / devtools，一 import 就把 git.ts→termUi.ts 的模块级
+#   DOM 查询带进单测（表现为「缺少元素 #git-detail-view」）。合回去之前先想清楚怎么测。
+ep_sample_ts_max_lines = 330
+ep_sample_core_ts_max_lines = 205
+
 # git.ts：3,204，Git 迭代 0–6 交付后 44c85ea→HEAD **零变化**（既没涨也没拆）。保持观察。
 git_ts_max_lines = 3300
 
@@ -97,10 +111,16 @@ lsp_client_ts_max_lines = 1850
 #   清单可信度，不如换成一条当下就可执行、且不会再次失信的规则。
 env_cmds_rs_max_lines = 5050
 
-# fs_cmds.rs / git_cmds.rs：3,882 / 1,940（git_cmds 同期 +58），同样防涨。
+# fs_cmds.rs / git_cmds.rs：3,885 / 1,940（fs_cmds 因 A5① 放开 5 处可见性 +3 行），同样防涨。
 #   git_cmds 余量仅 10 行，再增长须先拆或显式抬阈值并写理由。
 fs_cmds_rs_max_lines = 4000
 git_cmds_rs_max_lines = 1950
+
+# ep_sample_cmds.rs（A5① 端点请求样例数据层，2026-10-06 新增）：1,024 行（impl 737 + 单测 287）。
+#   上限 1,280（余量 ~25%）。范围：解析 handler 签名（跨行 / 括号与引号感知的顶层切分）+
+#   复用 fs_cmds::pyd_collect_models 展开请求体字段；只读命令，不写任何文件。
+#   新增端点类命令优先落新文件（同 intel_cmds / env_cmds 的冻结线纪律）。
+ep_sample_cmds_rs_max_lines = 1280
 
 # intel_cmds.rs（A1 运行时热点数据层，2026-10-06 新增）：472 行。上限 600（余量 ~27%）。
 #   范围：只读 trace 库（`SQLITE_OPEN_READ_ONLY`）+ 扫项目 def 做差集；只读命令，不写任何库与项目文件。
@@ -108,8 +128,9 @@ git_cmds_rs_max_lines = 1950
 intel_cmds_rs_max_lines = 600
 
 # —— 命令面 ——
-# 195 个 #[tauri::command]（2026-10-06 实测；B4 新增 http_cmds，A1 新增 intel_cmds）。插件化启动前
-# Rust 侧会继续膨胀，200 是"必须先讨论插件化"的信号线（超限只告警，见 [policy]）。余量仅 5 个。
+# 196 个 #[tauri::command]（2026-10-06 实测；B4 新增 http_cmds，A1 新增 intel_cmds，
+# A5① 新增 ep_sample_cmds）。插件化启动前 Rust 侧会继续膨胀，200 是"必须先讨论插件化"
+# 的信号线（超限只告警，见 [policy]）。余量仅 4 个。
 max_tauri_commands = 200
 
 # —— 前端产物 ——

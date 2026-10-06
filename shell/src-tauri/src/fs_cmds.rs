@@ -988,7 +988,7 @@ fn try_push_match(
 
 /// 读取文件为文本；二进制或非 UTF-8 返回 None。
 /// 先读前 8KB 探测：含 \0 即判二进制直接放弃，避免把大二进制文件整个读进内存（性能关键）。
-fn read_text_file(path: &Path) -> Option<String> {
+pub(crate) fn read_text_file(path: &Path) -> Option<String> {
     use std::io::Read;
     let mut file = fs::File::open(path).ok()?;
     let mut head = [0u8; 8192];
@@ -1785,25 +1785,27 @@ fn scan_endpoints_impl(root: &str) -> Result<Vec<EndpointInfo>, String> {
 // - 类型检查只做字面量名义等价（"str" vs int / 1 vs str）；复杂表达式静默跳过。
 
 /// 解析出的 Pydantic 字段（单文件内）
+/// 可见性放宽到 crate：A5 的端点请求样例（`ep_sample_cmds.rs`）复用本解析器生成
+/// 请求体样例，不另造第二套 Pydantic 解析。
 #[derive(Debug, Clone, PartialEq)]
-struct PydField {
-    name: String,
+pub(crate) struct PydField {
+    pub(crate) name: String,
     /// 类型标注文本（如 "int" / "Optional[str]"）；用于字面量名义比对
-    type_text: Option<String>,
+    pub(crate) type_text: Option<String>,
     /// 是否必填（无默认值）
-    required: bool,
+    pub(crate) required: bool,
     /// Field(alias="...") 的别名（构造处可用别名传参）；has_alias 时校验按别名放行
-    alias: Option<String>,
+    pub(crate) alias: Option<String>,
 }
 
 /// 解析出的 Pydantic 模型（BaseModel 子类，含同文件继承合并后的字段）
 #[derive(Debug, Clone)]
-struct PydModel {
-    name: String,
+pub(crate) struct PydModel {
+    pub(crate) name: String,
     /// 类声明所在文件绝对路径（正斜杠）
     file: String,
     /// 合并后字段（继承在前、自有覆盖在后）
-    fields: Vec<PydField>,
+    pub(crate) fields: Vec<PydField>,
 }
 
 /// 单文件类解析中间结构（尚未判定是否 Pydantic 模型、未合并继承）
@@ -2013,7 +2015,7 @@ fn pyd_resolve_fields(cls: &PydClassInfo, classes: &[PydClassInfo], depth: usize
 }
 
 /// 工作区扫描收集全部 Pydantic 模型（单文件解析 + 同文件继承合并；跨文件继承不合并）
-fn pyd_collect_models(root: &Path) -> Vec<PydModel> {
+pub(crate) fn pyd_collect_models(root: &Path) -> Vec<PydModel> {
     let mut out: Vec<PydModel> = Vec::new();
     for path in collect_files(root) {
         if let Ok(meta) = fs::metadata(&path) {

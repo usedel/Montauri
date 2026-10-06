@@ -46,6 +46,13 @@
 > **顺带修掉的 i18n 生成链缺陷**（都会造成"看起来正常"的静默污染）：① `extract_html.py` 与 `gen_locales.py` 均以文本模式写文件，在 Windows 上把产物 CRLF 化——`extract_html.py` 因此让 `collect` 的「已标记」检测失效（全文件标记被重复插一遍），`gen_locales.py` 则让整个 `core.ts` 显示为改动；统一改 `newline=""` 按 LF 落盘。② `gen_locales.py` 不产出注释，两处刻意的分组标题注释（UI-31 / UI-32）**手改生成文件后每次重生成都会静默丢失**——新增 `PINS_ZH` / `PINS_EN` 锚点登记，生成结果从此可复现。③ `data/html_dict.json` 与 `data/en_2.json` 的字体预设默认值停留在"批 3 随包 JetBrains Mono"之前（`默认（Consolas / Cascadia / JetBrains）`），与 `index.html` / `state.ts` 的真值不符，且每次重生成都会把错误值写回 `core.ts`——已按真值修正。
 > **⚠ 取数禁则（新增第 7 条）**：`data/html_dict.json` 是**冻结快照**，**不可随意重跑 `extract_html.py`**——重跑会产出 18 条与 `manual_zh.json` 重复的 key + 21 条缺英文，`gen_locales.py` 直接 exit 1（本轮实测）。要改词条请直接改 `html_dict.json` / `manual_zh.json`。
 > 门禁：`tsc` 零错 · 单测 **99 文件 / 1223**（A1 新增 `hotspotsView.test.ts` 8 例，含 e2e 触达不到的三条空态分支）· `cargo test` 通过（外壳 310 / 含 `intel_cmds` 6 例）· e2e **ux 37/37**（A1 8 例 HS-1~HS-8）· `budget-check` **二十项全 PASS**（新增 `hotspotsView.ts` 282/350 · `styles/hotspots.css` 44/60 · `intel_cmds.rs` 472/600；命令 194 → **195**/200 · 产物 4,999/5,120 · `main.ts` 2,099/2,400）· `audit_tokens.py` **98 项 0 FAIL**（新 CSS 经 `@import` 进审计面，已用"注入裸阴影"正对照验证确实被抓）。
+> ⑬ **A5① 端点请求样例已交付（2026-10-06，用户选「A5 FastAPI 面板增强」→ 范围收在「①请求样例 + ②一键 curl」）**——差异化泳道第二件，也是**第一条把「静态解析」与「运行时观测」接在同一处**的功能（请求体样例直接吃 A1 那条 trace 通道的 `arg_types` 只是时间问题，本轮先做纯静态版）。
+> **范围裁决**：A5 的四个子项里，③ handler→route 反向跳转（需 `codeVision.ts` 编辑器侧基建）与 ④ OpenAPI 面板内预览（需服务在跑才有数据）本轮不做——①②离线可用、不要求服务运行，日常使用频率最高；③④留待下轮。
+> **数据层** `src-tauri/src/ep_sample_cmds.rs`（新文件，1,024 行 = impl 737 + 单测 287）：解析 handler 签名（**跨行拼接** + 括号/引号感知的顶层切分）把参数分成 `path / query / header / cookie / body / skip`，再复用 `fs_cmds::pyd_collect_models`（只放开可见性，不另造第二套 Pydantic 解析）展开请求体字段 → 产出可直接复制的 JSON 样例。**只读命令，不写任何文件**；「识别不到」一律走 `Ok` + `notes` 码（文件读不到 / def 行对不上 / 模型不在工作区 / 类型未识别），**不猜值**（未识别类型填 `null`）。
+> **样例值口径**：`int→0` · `float→0.0` · `str→"string"` · `bool→true` · `datetime→ISO` · `list/dict→[]/{}` · 未知 → `null`；`Optional[X]` / `Annotated[X, ...]` / `X | None` 逐层剥壳；嵌套模型展开深度 ≤3 且带环保护。JSON 手写渲染而非 `serde_json`——后者默认按 key 字典序输出，会把字段声明顺序打乱，而样例的价值一半在「顺序与模型声明一致」。
+> **前端** 刻意分两层：`src/epSampleCore.ts`（163 行，**零 app 依赖**，只依赖 i18n）+ `src/epSample.ts`（265 行，取数与渲染）。分层的唯一理由是单测——合并后一 import 就把 `git.ts → termUi.ts` 的模块级 DOM 查询带进来，单测必然报「缺少元素 `#git-detail-view`」。UI 为端点行第 3 个动作（`beaker` 图标）→ 行内展开：参数表 / 请求体 JSON / cURL 三段，各带复制；cURL 在前端拼（要用运行中服务的 base URL，那是前端状态）。展开态单例 + 缓存，`renderEndpointPanel` 重建列表时一并作废。
+> **顺带修掉两个既有缺陷**（都是「看着正常」的静默失效）：① `openHttpTool` 调 `openDevTools("http")` 传了**裸 id**，而内置工具的全局 id 是 `<pluginId>.<toolId>`（`dslLens.ts` / `jsonLiteral.ts` 都写全 id）→ `getDevTool` 返回 undefined，静默回落到「最近使用」工具，**B4 PR-B4-3 的「端点 → HTTP 工具」联动从来没打开过 HTTP 工具**；② http 面板的请求体 textarea 与环境变量 textarea 同类名（各 1 个 `.tool-textarea`），补 `.http-body` 专用类（同 `.http-url` 既有约定）。
+> 门禁：`tsc` 零错 · 单测 **100 文件 / 1240**（A5① 新增 `epSample.test.ts` 17 例）· `cargo test` 通过（`ep_sample_cmds` 9 例）· e2e **ux 42/42**（A5① 5 例 EP-S1~S5）· `budget-check` **二十五项全 PASS**（新增 `epSample.ts` 265/330 · `epSampleCore.ts` 163/205 · `styles/endpointSample.css` 97/125 · `ep_sample_cmds.rs` 1024/1280 · **首次纳入 `endpointView.ts` 366/460**；命令 195 → **196**/200 · 产物 5,013/5,120 · `fs_cmds.rs` 3,882 → 3,885 仅因放开 5 处可见性）· `audit_tokens.py` **98 项 0 FAIL**（新 CSS 同样用"注入裸阴影"正对照验证被抓）。
 > v1.1 的规模数字取自 PowerShell `Get-Content $f | .Count`。在本机（PS 5.1，ANSI 代码页 **gb2312**）上，对**无 BOM 的 UTF-8 源文件**该写法会按 GBK 解码并**吞掉换行**——`style.css` 报 5,410 而真实 5,668（少 4.5%），`main.ts` 报 2,503 而真实 2,897（少 13%）。丢失比例随文件 CJK 密度而变、**逐文件不同**，因此这批数字是"看起来合理但系统性偏低"的。
 > 连带被推翻的结论（详见 §1.2）：**「巨型文件趋势已逆转」「UI 六批顺带把逻辑拆去了域模块」不成立**——`git.ts` / `lsp/client.ts` / `env_cmds.rs` / `fs_cmds.rs` / `git_cmds.rs` 在 `44c85ea → HEAD` 之间**一行未变**，`main.ts` 是 **+58**（不是 −336）。
 > 本版全部行数改由 `tools/stats/repo-stats.mjs` 重取，并新增两个防复发机制：取数脚本固化为代码 + 预算门禁（`ci/budgets.toml` / `shell/scripts/budget-check.mjs`）。
@@ -61,7 +68,7 @@
 
 **OpenCharm 已经从"做一个 IDE"走到了"做一个什么样的 IDE"。这个问题在 2026-10-03 有了一个答案（视觉身份），在 2026-10-05 又被改了一次——"高性能 · 轻量"，且这次改的是定位本身（`ADR-0010`）。**
 
-功能广度上它仍在扩张：编辑增强、Git（六迭代）、调试（DAP/debugpy）、运行（PTY + 多实例）、终端、依赖健康、库特别支持、SQLite 工具、插件切片、国际化、UI 视觉身份，**以及 v1.2 之后新增的 HTTP 请求工具（B4）与结构化运行日志视图（B5）**，全部有验收记录与 E2E 兜底。工程底座（**194 个 Tauri 命令、1214 个前端用例 / 98 文件、351 个 Rust 测试、版本锁定 + 2 个 workflow**）持续走强。**UI 视觉六批已全部落地并通过真机验收，"像没贴牌的 VS Code"这个诊断在批 4 之后已不成立。**
+功能广度上它仍在扩张：编辑增强、Git（六迭代）、调试（DAP/debugpy）、运行（PTY + 多实例）、终端、依赖健康、库特别支持、SQLite 工具、插件切片、国际化、UI 视觉身份，**以及 v1.2 之后新增的 HTTP 请求工具（B4）、结构化运行日志视图（B5）、运行时热点视图（A1）与端点请求样例（A5①）**，全部有验收记录与 E2E 兜底。工程底座（**196 个 Tauri 命令、1240 个前端用例 / 100 文件、366 个 Rust 测试（321 外壳 + 45 intel）、版本锁定 + 2 个 workflow**）持续走强。**UI 视觉六批已全部落地并通过真机验收，"像没贴牌的 VS Code"这个诊断在批 4 之后已不成立。**
 
 但 2026-10-05 的定位变更改变了评判坐标系：过去"够用就行"的地方（体积、告警是否有人看、性能是否实测）现在都是**一等目标**。按新坐标系重排，缺口从 v1.2 的两条变成三条：
 
@@ -135,17 +142,21 @@
 
 ### 1.4 质量底座
 
-| 项 | 现状（HEAD `bb32d77`） | 评价 |
+| 项 | 现状（门禁基线 · 2026-10-06 A5① 交付后刷新；规模类快照见 §1.1，仍锚 `bb32d77`） | 评价 |
 |---|---|---|
-| 前端单测 | **98 个 `*.test.ts` / 1215 用例全绿**（D-8 补 1 例后，2026-10-06 门禁）；v1.2 写的 1070 已过时 ✅ **`delivery-overview.md` 2026-10-06 已同步为 1215**（§1.5 第 ② 条关闭） | 强 |
-| Rust 单测 | `src-tauri` **306** 个 `#[test]` + intel **45** = 351 | 强 |
+| 前端单测 | **100 个 `*.test.ts` / 1240 用例全绿**（A5① 补 `epSample.test.ts` 17 例后，2026-10-06 门禁）；v1.2 写的 1070、v1.3 写的 1215 均已过时 ✅ **`delivery-overview.md` 2026-10-06 已同步为 1240** | 强 |
+| Rust 单测 | `src-tauri` **321** 个 `#[test]`（含 2 个 `#[ignore]`，实跑 319）+ intel **45** → 合计 **366** 个（通过 **364**，与 `delivery-overview.md` §1 口径对齐） | 强 |
 | Python 单测 | probe **81** 个 pytest | 强 |
-| E2E（mock 层） | `shell/e2e/` **69 个 spec**（10,602 行）；`http/` 已不再是空占位（B4 落地，`01-devtools.spec.ts` 12 条），新增 `logs/`（11 条）与 `todo/`（7 条） | 强 |
+| E2E（mock 层） | `shell/e2e/` **69 个 spec**（11,161 行）；`http/` 已不再是空占位（B4 落地，`01-devtools.spec.ts` 12 条），新增 `logs/`（11 条）与 `todo/`（7 条）；`ux/02-frameworks.spec.ts` 增 EP-S1~S5 五例（A5①） | 强 |
 | E2E（真机层） | `shell/e2e-real/` **10 个 `.cjs`**（`db/debug/endpoints/multi-window/new-project-fastapi/ui/release` + probe 三支），手动执行；**`nightly.yml` 已编排 9 套串行，但无跑通证据** | **中**（编排有了，证据缺） |
-| 专项门禁脚本 | `tools/ui/audit_tokens.py`（98 项，**2026-10-04 起进 CI test job**）+ `gate-tests.mjs unit\|e2e\|e2e-ui` + `ui-baseline.mjs` + `budget-check.mjs`（9 项 + `.ps1` 编码卫生） | 好实践；**唯一缺环是 `budget-check.mjs` 不在 `ci.yml` 里**（只在 nightly，且 nightly 无跑通记录） |
+| 专项门禁脚本 | `tools/ui/audit_tokens.py`（98 项，**2026-10-04 起进 CI test job**）+ `gate-tests.mjs unit\|e2e\|e2e-ui` + `ui-baseline.mjs` + `budget-check.mjs`（**25 项** + `.ps1` 编码卫生） | 好实践；`budget-check.mjs` **已并入 `ci.yml` 的 `test` job**（2026-10-06，P0-1 子项 5）；**剩余缺环是 nightly 无跑通记录**（宿主错配，见本表 CI 行） |
 | 分歧台账 | `e2e_divergence_ledger.md` D-001~D-007，含避坑速查 6 条 | 好实践，但资产未自动化 |
 | CI | **2 个 workflow**：`ci.yml`（`test` 4 矩阵 + `package-smoke`；push 分支已对齐 `[master, main]`，tags `v*`；含 `audit_tokens.py` **与 `budget-check.mjs`**）+ `nightly.yml`（`e2e-real` / `bench` / `budget` 三 job，`schedule` 每日 03:17 UTC，全部 `continue-on-error`） | **配置强 / 证据无 / ⚠ 宿主错配**：① `bench/reports/` 已有 `metrics-*.md`（本机跑的基线），但无 `budget-*.md`（CI 产物）；② **本仓远端只有 `gitee.com/usedel/opencharm`，Gitee 不执行 GitHub Actions** —— 两份 workflow 不会被调度，与"配置已交付"的记账直接冲突（详见 §0 缺口 1 与 §2 P0-1 子项 7） |
 | 版本锁定 | `ci/versions.toml`：tauri 2.11.5 / monaco 0.52.2 / pyrefly 1.3.1 / basedpyright 1.39.10 / ruff 0.16.1 / debugpy 1.8.21 / python 3.13.7 / uv 0.10.11 / rust 1.96.0 | 强 |
+
+> **口径提示（2026-10-06 A5① 交付后刷新）**：本表是**门禁基线**，数字已按当前 HEAD 实测刷新，**引用时以本表为准**。两点说明：
+> ① **`budget-check.mjs` 项数随版本增长**：10（v1.2）→ 12（P0-0 拆样式分文件）→ 17（阶段二第一刀）→ 20（A1）→ **25（A5①，含 `.ps1` 编码卫生共 25 条 PASS 行 = 22 个文件行数上限 + 命令数 + 产物体积 + 编码卫生）**。本文历史续记（各版本 ⑦~⑬ 条、§0 缺口表、阶段一/二回顾表）里出现的「十 / 十二 / 十七 / 二十 项」**是各时点写下的历史值，不再逐处改写**——它们记录的是"当时达标了"，不是"现在只有这么多项"；**凡表述为"当前 / 现状"的位置已就地更新为 25 项**。
+> ② **Rust 计数有两套口径**：本表按 `#[test]` **属性数**（`src-tauri` 321 = 319 实跑 + 2 `#[ignore]`），`delivery-overview.md` §1 按**通过数**（364 = 319 + intel 45）——同一事实的两种切法，非矛盾。
 
 ### 1.5 已识别但未处理的存量债务
 
@@ -171,7 +182,7 @@
 
 ### P0-0 · 让预算回到绿灯，并给产物体积项加"dist 新鲜度"保障 —— ✅ 已关闭（2026-10-06 本轮）
 
-- ~~**事实（本机实测，HEAD `bb32d77`）**~~：~~`budget-check.mjs` 十项里 **1 项 FAIL**：`style.css` 5,987 / 5,850（超 137 行）~~ → **当前十二项全 PASS**（`style.css` 5,748/5,850 · `styles/http.css` 102/125 · `styles/logView.css` 170/205 · 产物 4,989/5,120 · 命令 194/200 · 其余同前）。
+- ~~**事实（本机实测，HEAD `bb32d77`）**~~：~~`budget-check.mjs` 十项里 **1 项 FAIL**：`style.css` 5,987 / 5,850（超 137 行）~~ → **当前二十五项全 PASS**（`style.css` 5,750/5,850 · `styles/http.css` 102/125 · `styles/logView.css` 170/205 · `styles/hotspots.css` 44/60 · `styles/endpointSample.css` 97/125 · 产物 5,013/5,120 · 命令 196/200 · 其余同前）。
 - **⚠ 顺带查出一个假警报机制（方法论级）**：首次跑 `budget-check.mjs` 时产物体积报 **7,065 / 5,120 FAIL**，看起来像 B4/B5 把体积撑爆了；实际原因是 **`shell/dist/` 是 2026-10-05 的陈旧产物**，里面还留着**已被取消的 mermaid/katex 分包**（约 2.09 MB：`cynefin` 654 KB + `wardleyDiagram` 640 KB + `katex` 261 KB + 其余 diagram 分包）。`npm run build` 重新构建后降到 **4,988 KB / PASS**，且 dist 里已无任何 mermaid/katex 分包（源码侧亦已无引用）。
   **结论：产物体积这项指标会随 `dist/` 陈旧度漂移 ±2 MB，若不处理，它会像 v1.1 的行数口径一样变成"看起来合理但系统性错误"的数字。**
 - **建议动作**（按性价比排序）：
@@ -334,7 +345,7 @@
 
 ### P2-1 · UI 视觉「批 6+」第二阶段（可选，非必需）
 
-v1.0 的 P0-3（视觉改造）在 `964ea7e` 已**全部交付**（六批 + ADR-0005 + 真机 32/32）；v1.2 后另有两处主题修复（修记 A 滚动条变红 / 修记 B 行号色死映射）。本项仅登记后续可能方向，**不排期**：材质细节再深化、`opencharm-dark/light` 语法色与外壳的进一步同色、字体副档（如无衬线 UI 字体随包，v1.0 已裁决不做）。若开，须沿用 `ui_premium_dev_plan.md` §6 的批次入口 + §4 门禁（`audit_tokens.py` **现已进 CI** + token 单测 + e2e computed-style 断言 + 截图比对），且**不得往 `main.ts`（现在 2,094 行，预算 2,400、余量 306 行）堆逻辑**——**更不得往 `style.css` 堆**，它已在 5,748 / 5,850（P0-0 拆分后回到绿灯），但拆出的 `styles/http.css`（102/125）与 `styles/logView.css`（170/205）各有上限，静默增长在新文件里同样会被拦。
+v1.0 的 P0-3（视觉改造）在 `964ea7e` 已**全部交付**（六批 + ADR-0005 + 真机 32/32）；v1.2 后另有两处主题修复（修记 A 滚动条变红 / 修记 B 行号色死映射）。本项仅登记后续可能方向，**不排期**：材质细节再深化、`opencharm-dark/light` 语法色与外壳的进一步同色、字体副档（如无衬线 UI 字体随包，v1.0 已裁决不做）。若开，须沿用 `ui_premium_dev_plan.md` §6 的批次入口 + §4 门禁（`audit_tokens.py` **现已进 CI** + token 单测 + e2e computed-style 断言 + 截图比对），且**不得往 `main.ts`（现在 2,099 行，预算 2,400、余量 301 行）堆逻辑**——**更不得往 `style.css` 堆**，它已在 5,750 / 5,850（P0-0 拆分后回到绿灯），但拆出的 `styles/http.css`（102/125）与 `styles/logView.css`（170/205）各有上限，静默增长在新文件里同样会被拦。
 
 ### ~~P2-2 · 多窗口阶段 1/2 复核与收口~~ ✅ 已关闭（2026-10-03）
 
@@ -365,7 +376,7 @@ A 类全部复用已有的 probe trace 数据或外壳基建，**别人抄不走
 | A2 | **轻量内置 Profiler** | probe 已挂 `sys.monitoring`，扩展采集调用耗时 → IDE 内函数级耗时视图 + Top-N 慢函数 + 点击跳转。对标 cProfile + snakeviz，但**零用户操作** | 中-大（5~8d） | PEP 669 事件扩展；开销预算需重新定（现红线 1.5x 是类型采样口径） | 开销上升；需新增"性能模式"开关，默认关 |
 | A3 | **trace 驱动的签名补全与默认值提示** | `arg_types` 已按参数位累加观测 → 调用处补全参数名、hover 显示"实际见过的类型与常见值" | 小-中（2d） | intel `arg_types` | 与静态补全排序竞争（沿用 `1xx` 段钉序即可） |
 | A4 | **爬虫场景工具箱**（画像强绑定） | 选择器测试面板（输入 HTML + CSS/XPath → 实时结果，复用 `libEval` 求值桥）、请求回放、响应结构 → Pydantic model 生成 | 中（3~5d） | `libEval` / `endpointView` / 运行历史 | 面窄但精准——用户画像是「FastAPI + 爬虫 + 小脚本」，这是**只有 OpenCharm 会做**的功能 |
-| A5 | **FastAPI 路由面板增强** | 已有 `endpointView.ts`；扩展 OpenAPI/Schema 预览、路由 ↔ handler 双向跳转、一键生成 curl（反向已有 `curl2python`）与请求样例 | 中（3d） | `frameworks.ts` / `endpointView.ts` | 需决定是静态解析还是运行时导入（运行时更准但需装依赖） |
+| ~~A5~~ ✅ | **FastAPI 路由面板增强**（**①请求样例 + ②一键 curl 已交付 2026-10-06**，见 §续记 ⑬） | 已有 `endpointView.ts`；本轮交付：解析 handler 签名 + Pydantic 模型 → 参数表 / 请求体 JSON / cURL（复制 + 送进 B4 HTTP 工具） | 中（3d）→ **实际 ~1d** | ✅ 已落地：新命令 `scan_endpoint_sample`（`ep_sample_cmds.rs`）复用 `fs_cmds::pyd_collect_models`，不另造解析器 | ① **静态解析 vs 运行时导入已裁决为静态**——离线可用、不要求服务在跑、不装依赖；代价是 Flask 的 query / body 推不出来（已在 UI 与文案里**明说**而非假装能推）；② ③ handler→route 反向跳转（需 `codeVision.ts` 编辑器侧基建）与 ④ OpenAPI 面板内预览（需服务在跑）**本轮不做，留待下轮** |
 | A6 | **trace 驱动的 lint** | 用运行时观测反哺静态诊断：形参从未收到某类型却按该类型使用、函数从未被调用、`exc_types` 显示有异常路径却无 try | 中-大（5d） | 诊断合并管线 | 与四桶诊断的冲突消解规则；误报控制是成败关键 |
 
 ### B 类 · 补齐 IDE 基本功
@@ -414,15 +425,16 @@ A 类全部复用已有的 probe trace 数据或外壳基建，**别人抄不走
 | P0-2 Gate D + trace 调参 | ★★★★★ | 中（载体与工具已就绪） | 第二格 ✅ 已采（真实项目 277 条）；**第一格 ⛔ 外部阻塞（本机无 PyCharm）** | ★★★★ · **第一格设死线：v1.4 仍无 → 撤下并改在 README 声明"未做横向对比"** |
 | ~~P0-4 `env_cmds.rs` 二选一裁决~~ | ★★★★ | ~~中~~ 0.1d（本轮） | — | ✅ **已裁决（折中：冻结线 + 上限改长期 + 拆分降级为阶段二候选）**；`main.ts` 外提仍是硬需求（余量 81 行） |
 | 　P0-1 子项 7 CI 落点裁决 | ★★★★★ | 0（本轮只做标注） | — | ✅ **已裁决（维持现状）**：`.github/workflows/` 定位为"将来推 GitHub 的预埋"，P0-1 余项转为"迁移后首次触发验证" |
-| **`main.ts` 外提（阶段二）** | ★★★★ | 1d | — | ✅ **两刀已完成**：2,919 → **2,094**（−825 行）；第一刀 `debugEntry.ts` / `menuItems.ts`，第二刀 `init()` 阶段化 `windowKeys.ts` / `windowChrome.ts` / `sidebarViews.ts`；阈值 3,000 → 2,600 → **2,400** |
-| ~~P0-3 验收尾账 + onboarding 双源裁定~~ | ★★★★ | 中小 | — | ✅ **已交付**（**余 D-6/D-8 两个缺陷；D-7 已于 2026-10-06 修**） |
+| **`main.ts` 外提（阶段二）** | ★★★★ | 1d | — | ✅ **两刀已完成**：2,919 → **2,099**（两刀 −825 行，A1 接线 +5）；第一刀 `debugEntry.ts` / `menuItems.ts`，第二刀 `init()` 阶段化 `windowKeys.ts` / `windowChrome.ts` / `sidebarViews.ts`；阈值 3,000 → 2,600 → **2,400** |
+| ~~P0-3 验收尾账 + onboarding 双源裁定~~ | ★★★★ | 中小 | — | ✅ **已交付**（**D-6 / D-7 / D-8 三个缺陷已全部修完**，2026-10-06） |
 | ~~A1 运行时热点视图~~ ✅ **已交付（2026-10-06）** | ★★★★ | ~~中~~ **1d** | — | ✅ **已交付**（`intel_cmds.rs` + `hotspotsView.ts`；e2e ux 8 例 / 单测 8 例钉住） |
+| ~~A5 FastAPI 面板增强~~ ✅ **①+② 已交付（2026-10-06）** | ★★★ | ~~中~~ **1d** | — | ✅ **已交付**（`ep_sample_cmds.rs` + `epSample{Core,}.ts`；e2e ux 5 例 / 单测 17 例钉住）。③④ 留待下轮 |
 | A3 trace 驱动签名提示 | ★★★ | 小 | arg_types | ★★★★ |
 | P1-1 可观测性三件套 | ★★★ | 中 | — | ★★★ |
 | B2 REPL / Scratch | ★★★ | 小 | 求值桥 | ★★★ |
-| A5 FastAPI 面板增强 | ★★★ | 中 | endpointView | ★★★ |
 | P1-2 自动更新 | ★★★ | 小 | — | ★★★ |
 | A4 爬虫工具箱 | ★★★★（画像匹配） | 中 | 求值桥 | ★★★ |
+| A5③④ FastAPI 面板余项（反向跳转 / OpenAPI 预览） | ★★ | 中 | codeVision / 服务在跑 | ★★ |
 | P1-5 TD-021 五小项 | ★★ | 小 | — | ★★ |
 | A2 内置 Profiler | ★★★★ | 大 | 开销预算重定 | ★★（排后） |
 | C 类 AI 三项 | ★★（**与 §1.1 冲突**） | 小-中 | 修订定位裁决 | ★（待裁决） |
@@ -431,7 +443,7 @@ A 类全部复用已有的 probe trace 数据或外壳基建，**别人抄不走
 | P2-1 UI 批 6+ 第二阶段 | ★★（可选） | 中 | 视觉六批已交付为前提 | ★（不排期） |
 | D 类生态长线 | — | 大 | — | 不排期 |
 | ~~P0-1 CI 主干触发 + nightly + bench 入 CI~~ | ★★★★★ | 极小 / 中 | — | ⏳ **配置已交付（含预算门禁入主门禁），但宿主错配 → 零跑通证据**（见 P0-1 子项 7） |
-| ~~P1-3 体积/性能预算断言~~ | ★★★ | 极小 | 搭 P0-1 | ✅ **已交付**；**十二项全 PASS**（`style.css` 5,748/5,850）；**已并入 `ci.yml` test job** |
+| ~~P1-3 体积/性能预算断言~~ | ★★★ | 极小 | 搭 P0-1 | ✅ **已交付**；**当前二十五项全 PASS**（`style.css` 5,750/5,850）；**已并入 `ci.yml` test job** |
 | ~~B3 SQLite 工具~~ | — | — | — | ✅ **已交付 v1.4** |
 | ~~B4 HTTP 请求工具~~ | — | — | — | ✅ **已交付**（devtools 面板形态，非 `.http` 文件） |
 | ~~B5 结构化运行日志~~ | — | — | — | ✅ **已交付** |
@@ -457,7 +469,7 @@ A 类全部复用已有的 probe trace 数据或外壳基建，**别人抄不走
 | — | ✅ **附带已完成**：**P0-2 第二格**——真实项目 trace 采集跑通（`metawake/backend`：277 条 / 覆盖率 79% / 606 B 每条） | ✅ 已完成（约 0.3 人日） | `bench/reports/trace-stats.md` 换成真实项目样本；保留窗口建议 8,192 → 13,836 条；`STALE_HITS_DIVISOR` 维持 2（样本未达 1000） |
 | — | ⏳ **附带待办**：再采 1~2 个真实项目，把跨项目样本累计到 **≥1000 条**后复核降权参数 | ~0.3 人日/项目 | 累计 ≥1000 条；在此之前降权系数只作"建议值" |
 
-**阶段门**：~~`budget-check.mjs` 十项全绿~~ ✅（**十二项全绿，且已并入 `ci.yml` 主门禁**）· ~~`bench/reports/metrics-*.md` 存在~~ ✅ · ~~D-7 已修并复核~~ ✅（D-6 / D-8 亦已修）· ~~CI 落点裁决~~ ✅ **已裁决（维持现状 + 文档标注）** · ~~P0-2 第一格~~ ⛔ **外部阻塞（本机无 PyCharm，2026-10-06 确认）** · ~~P0-2 第二格~~ ✅ 真实项目样本已取得（277 条 / 覆盖率 79%）。
+**阶段门**：~~`budget-check.mjs` 十项全绿~~ ✅（**当前二十五项全绿，且已并入 `ci.yml` 主门禁**）· ~~`bench/reports/metrics-*.md` 存在~~ ✅ · ~~D-7 已修并复核~~ ✅（D-6 / D-8 亦已修）· ~~CI 落点裁决~~ ✅ **已裁决（维持现状 + 文档标注）** · ~~P0-2 第一格~~ ⛔ **外部阻塞（本机无 PyCharm，2026-10-06 确认）** · ~~P0-2 第二格~~ ✅ 真实项目样本已取得（277 条 / 覆盖率 79%）。
 **§0 缺口 0 已关闭；缺口 1 降级为"待外部事件"（推 GitHub 时验）；缺口 2 从"零数据"变为"有真实样本但样本量不足 + 第一格外部阻塞"。**
 **✅ 阶段一判定：4 件小事中 3 件已完、第 2 格附带完成，第 4 件因外部条件阻塞（不是"没人做"）。→ 阶段一可以收口，阶段二可以开工。**
 **⚠ 进入阶段二前必须先记住的一条口径**：在横向对标落地之前，**对外叙事里"比 PyCharm 更准"是不可写的**（`CONTENT-SERIES.md:192`），可写的只有"在我们的样例集上 23/23"这类**自证**口径。
@@ -466,10 +478,10 @@ A 类全部复用已有的 probe trace 数据或外壳基建，**别人抄不走
 
 | 泳道 | 内容 |
 |---|---|
-| 差异化 | ~~A1 运行时热点~~ ✅ **已交付（2026-10-06）**（前置 P0-2 第二格 trace 采样已具备：metawake 277 条 / 覆盖率 79%）+ A3 签名提示（共用 intel 数据层） |
-| 基本功 | ~~D-6 / D-8 两个残留缺陷~~ ✅ 已修 · ✅ **`main.ts` 外提两刀已完成（2,919 → **2,094**，−825 行；阈值 3,000 → 2,600 → **2,400**）** · **第三刀候选：`init()` 余下的启动编排（Monaco 装配段 / 各域事件接线段）继续外提** · `env_cmds.rs` 真拆（−49%，**阶段二候选、不设死线**；本轮的冻结线已在生效，行数不再增长即可） |
+| 差异化 | ~~A1 运行时热点~~ ✅ **已交付（2026-10-06）**（前置 P0-2 第二格 trace 采样已具备：metawake 277 条 / 覆盖率 79%）+ ~~A5① 端点请求样例 + 一键 curl~~ ✅ **已交付（2026-10-06）** + A3 签名提示（共用 intel 数据层）→ **本泳道下一条候选：A3（小）或 A4 爬虫工具箱（画像匹配，`json2model.gen.ts` 已是现成件）** |
+| 基本功 | ~~D-6 / D-8 两个残留缺陷~~ ✅ 已修 · ✅ **`main.ts` 外提两刀已完成（2,919 → **2,099**，两刀 −825、A1 接线 +5；阈值 3,000 → 2,600 → **2,400**）** · **第三刀候选：`init()` 余下的启动编排（Monaco 装配段 / 各域事件接线段）继续外提** · `env_cmds.rs` 真拆（−49%，**阶段二候选、不设死线**；本轮的冻结线已在生效，行数不再增长即可） |
 
-**阶段门**：~~热点视图对"死代码"的误报率可接受~~ ✅ **已由口径消除**——视图不产出"死代码"断言，只陈述「未观测到运行」并列明可能原因（未覆盖 / 分支未走 / 采样遗漏 / 进程外调用），**因此不存在"误报"这一口径**；~~`env_cmds.rs` 状态**明确**~~ ✅ 已明确（**长期上限 + 冻结线**，见 P0-4 裁决）；✅ `delivery-overview.md` 已补录 B4/B5 并升 v1.1；✅ 用例基线已刷新为 **1223**；✅ **`main.ts` 外提两刀已完成（−825 行，阈值降到 2,400）**。**本阶段的结构性必办已清空**——`init()` 仍可继续外提（第三刀候选），但余量（306 行）已回到健康区间，不再紧急。
+**阶段门**：~~热点视图对"死代码"的误报率可接受~~ ✅ **已由口径消除**——视图不产出"死代码"断言，只陈述「未观测到运行」并列明可能原因（未覆盖 / 分支未走 / 采样遗漏 / 进程外调用），**因此不存在"误报"这一口径**；~~`env_cmds.rs` 状态**明确**~~ ✅ 已明确（**长期上限 + 冻结线**，见 P0-4 裁决）；✅ `delivery-overview.md` 已补录 B4 / B5 / A1 / A5① 并升 **v1.3**；✅ 用例基线已刷新为 **1240**；✅ **`main.ts` 外提两刀已完成（−825 行，阈值降到 2,400）**；✅ **差异化泳道两件已落地（A1 · A5①）**。**本阶段的结构性必办已清空**——`init()` 仍可继续外提（第三刀候选），但余量（301 行）已回到健康区间，不再紧急。
 
 ### 阶段三 · 画像期（约 10~18 周，2 条泳道）
 
@@ -477,7 +489,7 @@ A 类全部复用已有的 probe trace 数据或外壳基建，**别人抄不走
 
 | 泳道 | 内容 |
 |---|---|
-| 画像专项 | A4 爬虫工具箱 或 A5 FastAPI 增强（建议先做与当季实际工作最相关的那个）。**B4 HTTP 工具已交付，A4/A5 现在有了现成基建可复用，成本比 v1.2 估的低** |
+| 画像专项 | A4 爬虫工具箱（建议先做与当季实际工作最相关的那个）。**B4 HTTP 工具 + A5① 请求样例已交付，A4 现在有了现成基建可复用，成本比 v1.2 估的低**（响应 JSON → Pydantic model 已有 `json2model.gen.ts`） |
 | 可选 / 债务 | B2 REPL / Scratch + P1-4 真机覆盖补全（LSP 真引擎 / 运行真 `uv run` / 终端真 PTY / 插件真加载）+ P1-6 工作区级插件目录 |
 
 ### 阶段四 · 评估期（18 周后）
@@ -502,7 +514,7 @@ A 类全部复用已有的 probe trace 数据或外壳基建，**别人抄不走
 
 | 条款 | 现状 | 缺口 |
 |---|---|---|
-| 预算先行（`ci/budgets.toml`） | ✅ **十二项全 PASS**（style.css 5,748/5,850，B4/B5 已拆分文件并各设上限） | 已关闭（2026-10-06）；⚠ 产物体积项依赖 dist 新鲜度，STALE 判定已加 |
+| 预算先行（`ci/budgets.toml`） | ✅ **二十五项全 PASS**（style.css 5,750/5,850，B4/B5/A1/A5① 各自拆文件并设上限） | 已关闭（2026-10-06）；⚠ 产物体积项依赖 dist 新鲜度，STALE 判定已加 |
 | 运行时开销红线（probe < 1.5x，当前 1.35x） | 有历史实测，改采集路径的 bench 回归义务已写进规范 | 保持即可；**A2 Profiler 若立项须重定口径** |
 | 冷启动 < 1.5s / 空闲内存 ≤ 600MB | ✅ **首个基线已落盘** `bench/reports/metrics-20261006-091652.md`：冷启动 956 ms / 内存 339 MB，双红线 PASS（run1 2619ms 为冷缓存首跑，run2/3 = 117/132ms） | 本机基线有了；⏳ CI/nightly 尚未跑过（→ 缺口 1）。**对比后续实测时应剔除冷缓存首跑** |
 
@@ -541,7 +553,7 @@ A 类全部复用已有的 probe trace 数据或外壳基建，**别人抄不走
 - ✅ **产品缺陷 D-6 / D-7 / D-8 全部修复（2026-10-06，v1.3 复核时三个均未修）**：**D-7** 菜单复用 `computeRunWidget`（真机 14/14，`R-REAL-10` + 正对照 `R-REAL-13`）；**D-6** 详情面板 × + Esc 双通道（`e2e/db` 30/30 含回归钉：菜单优先语义也钉住了）；**D-8** `debugView.refreshToolbarTips()` 进 settingsPanel 保存清单（单测钉住改键/还原可逆）。详见 `debug_acceptance_record.md` §5.2（三条均已关闭）。
 - ⏳ **出包环境的两个易复发点**（已修但值得记住）：① VS Build Tools **必须管理员安装**，否则实例不入注册表、`vswhere` 查不到，cargo/cc 会静默回落 VS2015；② PowerShell 的 `$ErrorActionPreference="Stop"` 会把 cargo 的 stderr 进度行当致命错误（`build-release.ps1` 已用 `Invoke-Native` 兜住）。另：安装包 `/S` 静默安装在本机无效，验收需走"安装后程序 + CDP"。
 - ✅ **已补**：多窗口阶段 1/2 的真实完成度——`multi_window_dev_plan.md` v0.2 已按代码实测回填（后端 7 文件 22 处 `emit_to` + 前端 8 文件窗口级 `listen`）。
-- ✅ **打包产物的实际体积与冷启动/内存的实测值**（2026-10-06 本轮补齐）：产物体积 **4,989 KB / 上限 5,120 KB PASS**（此前 7,065 KB 是 `dist/` 陈旧产物混入已取消的 mermaid/katex 所致，`budget-check.mjs` 已加 STALE 判定）；**首个性能基线** `bench/reports/metrics-20261006-091652.md`（release 重建 + `-Runs 3`）：冷启动 **956 ms**（<1500 PASS）· 内存 **339 MB**（≤600 PASS）。⚠ run1 2619 ms 为冷缓存首跑（run2/3 = 117/132 ms），后续对比应剔除。⏳ 仍缺：CI/nightly 侧跑通（→ 缺口 1）；soak 长跑（-SoakMinutes 10，本轮 SKIP，建议随 nightly 首跑一起补）。
+- ✅ **打包产物的实际体积与冷启动/内存的实测值**（2026-10-06 本轮补齐，数字随交付漂移，**当前值以 §1.4 为准**）：产物体积 **5,013 KB / 上限 5,120 KB PASS**（首测 4,989 KB；此前 7,065 KB 是 `dist/` 陈旧产物混入已取消的 mermaid/katex 所致，`budget-check.mjs` 已加 STALE 判定）；**首个性能基线** `bench/reports/metrics-20261006-091652.md`（release 重建 + `-Runs 3`）：冷启动 **956 ms**（<1500 PASS）· 内存 **339 MB**（≤600 PASS）。⚠ run1 2619 ms 为冷缓存首跑（run2/3 = 117/132 ms），后续对比应剔除。⏳ 仍缺：CI/nightly 侧跑通（→ 缺口 1）；soak 长跑（-SoakMinutes 10，本轮 SKIP，建议随 nightly 首跑一起补）。
 - ⏳ **真机层的"告警没人看"问题**：nightly 只告警不阻断，护栏依赖人主动看 artifact。彻底解法是接通知渠道（Windows 通知 / 邮件），本轮未做。**v1.3 补充：这条的原论据是"自用项目没人盯 CI"，该论据已被 ADR-0010 废止，复审登记为 TD-025 第 1 条**——若产品走向对外分发，它不再是"可选优化"而是分发可信度问题。
 - ⏳ **对外分发策划待拍板**：根目录 `CONTENT-SERIES.md`（v1.0 · 2026-10-04，《造 IDE 的 45 天》十篇连载，公众号 + 视频号）状态为"待你拍板"，**不在 `docs/` 下，未被任何交付文档引用**。若拍板对外发布，会连锁抬高 TD-025 第 1/2 条（告警通知 / 更新通道）与本条之上的性能基线需求——**建议在阶段一就先给个结论，否则后续排期会在"自用"与"对外"两套标准之间反复横跳。**
 
@@ -630,5 +642,5 @@ A 类全部复用已有的 probe trace 数据或外壳基建，**别人抄不走
 | `docs/plugin_system_design.md` §10 | P1-6 / D 类的待决策点 |
 | `intel/README.md:47` / `:58` / `:59` | P0-2 的挂起项（P3-T10）——**三处状态戳仍均为 ⏳** |
 | `docs/debug_acceptance_record.md` §五 / `docs/run_acceptance_record.md` §四 | P0-3 的人工验收清单 |
-| `ci/budgets.toml` + `shell/scripts/budget-check.mjs` | P0-0 的预算真源与断言脚本（**当前十二项全 PASS**；已并入 `ci.yml` test job） |
+| `ci/budgets.toml` + `shell/scripts/budget-check.mjs` | P0-0 的预算真源与断言脚本（**当前二十五项全 PASS**；已并入 `ci.yml` test job） |
 | `.github/workflows/ci.yml` / `nightly.yml` | P0-1 的配置证据（分支已对齐 `[master, main]`、`audit_tokens.py` 与 `budget-check.mjs` 均在 test job、nightly 三 job）——**⚠ 无宿主**：本仓远端只有 Gitee，Actions 不执行（详见 §9 取数禁则 5） |

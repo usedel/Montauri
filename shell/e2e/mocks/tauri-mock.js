@@ -1027,6 +1027,26 @@
       if (cmd === "get_project_run") return window.__E2E_PROJECT_RUN__ || null;
       if (cmd === "set_project_run") { window.__E2E_PROJECT_RUN__ = args.config || null; return null; }
     }
+    // 4.65c) A5① 端点请求样例（形状对齐 ep_sample_cmds.rs::EndpointSample）——
+    //        测试经 window.__E2E_EP_SAMPLE__ 预置：直接给一份样例，或给
+    //        { byKey: { "<file>:<line>": sample } } 按端点分发；
+    //        __E2E_EP_SAMPLE_FAIL__ 非空 → 抛错（走失败分支，验错误文案）。
+    //        未预置 → 返回 def_not_found 空态（真实语义：没找到处理函数定义）。
+    if (cmd === "scan_endpoint_sample") {
+      if (window.__E2E_EP_SAMPLE_FAIL__) throw new Error(String(window.__E2E_EP_SAMPLE_FAIL__));
+      var ep = window.__E2E_EP_SAMPLE__;
+      if (ep && typeof ep === "object" && ep.byKey) {
+        ep = ep.byKey[String(args.file) + ":" + String(args.line)] || null;
+      }
+      if (!ep) {
+        return {
+          handler: String(args.handler || ""),
+          params: [], body_model: null, body_fields: [], body_json: null,
+          notes: ["def_not_found"],
+        };
+      }
+      return JSON.parse(JSON.stringify(ep));
+    }
     // 4.65b) A1 运行时热点（形状对齐 intel_cmds.rs::RuntimeHotspots）——
     //        测试经 window.__E2E_HOTSPOTS_PRESET__ 预置；未预置返回「无运行记录」态。
     //        __E2E_HOTSPOTS_FAIL__ 非空 → 抛错（走 error 分支，验错误态与文案）。

@@ -2,6 +2,7 @@ mod dap;
 mod db_cmds;
 mod edit_history;
 mod env_cmds;
+mod ep_sample_cmds;
 mod file_ops;
 mod fs_cmds;
 mod git_cmds;
@@ -205,6 +206,8 @@ pub fn run() {
             env_cmds::detect_pydantic_stack,
             // 端点扫描（F1：FastAPI / Flask 静态路由，docs/pycharm_framework_support_report.md §8.3）
             fs_cmds::scan_endpoints,
+            // 端点请求样例（A5①：handler 签名 + Pydantic 模型 → 可复制的 JSON 样例）
+            ep_sample_cmds::scan_endpoint_sample,
             // 运行时热点（A1：probe trace 库 + 项目函数定义差集，docs/improvement_and_roadmap_report.md §3）
             intel_cmds::scan_runtime_hotspots,
             // Pydantic 语义层（阶段 4：构造校验诊断 + rename 传播补充，docs/pyrefly_pydantic_support_plan.md §3.4）

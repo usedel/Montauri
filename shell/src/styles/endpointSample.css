@@ -1,0 +1,97 @@
+/* A5① · 端点请求样例 —— 新功能落新文件（纪律同 B4/B5/A1：新样式不再往 style.css 里堆）。
+   真源 docs/improvement_and_roadmap_report.md §3 A5；数据来自 ep_sample_cmds.rs，
+   渲染在 epSample.ts。命名空间 .ep-sample*，与 endpointView 的 .ep-* 区分层级。
+   本文件经 style.css 顶部 @import 内联进 bundle，门禁由 audit_tokens.py 的 @import 解析覆盖。
+   全部走语义 token（颜色/间距/字号），不硬编码；阴影只用 --shadow。 */
+
+.ep-sample {
+  border-left: 2px solid var(--accent);
+  background: var(--bg-alt);
+  padding: var(--space-4) var(--space-6) var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* 头部：标题 + 动作按钮（标题占满剩余宽度，动作不换行） */
+.ep-sample-head { display: flex; align-items: center; gap: var(--space-4); }
+.ep-sample-title {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-sm);
+  font-family: var(--mono);
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ep-sample-acts { display: flex; align-items: center; gap: var(--space-2); flex: none; }
+.ep-sample-acts .btn { margin-left: 0; }
+
+/* 分组小节 */
+.ep-sample-block { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.ep-sample-label {
+  font-size: var(--text-xs);
+  color: var(--fg-dim);
+  text-transform: none;
+  letter-spacing: 0.02em;
+}
+
+/* 提示行：框架级说明（note）/ 空态（muted）/ 加载（loading）/ 失败（error） */
+.ep-sample-hint {
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-xs);
+}
+.ep-sample-hint--note { color: var(--fg-muted); background: var(--surface-3); }
+.ep-sample-hint--muted { color: var(--fg-dim); padding-left: 0; }
+.ep-sample-hint--loading { color: var(--fg-dim); padding-left: 0; }
+.ep-sample-hint--error { color: var(--danger); background: var(--surface-3); }
+
+/* 参数表：等宽 + 数字列右对齐由 tabular-nums 兜住，窄栏不换行 */
+.ep-sample-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-xs);
+  table-layout: fixed;
+}
+.ep-sample-table th,
+.ep-sample-table td {
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-soft);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ep-sample-table th { color: var(--fg-dim); font-weight: 500; }
+.ep-sample-table td { color: var(--fg); }
+/* 列宽：名称 / 位置 / 类型 / 必填 / 默认值 / 样例 */
+.ep-sample-table th:nth-child(1) { width: 18%; }
+.ep-sample-table th:nth-child(2) { width: 10%; }
+.ep-sample-table th:nth-child(3) { width: 22%; }
+.ep-sample-table th:nth-child(4) { width: 8%; }
+.ep-sample-table th:nth-child(5) { width: 20%; }
+.ep-sample-table th:nth-child(6) { width: 22%; }
+.ep-sample-table td:nth-child(3),
+.ep-sample-table td:nth-child(5),
+.ep-sample-table td:nth-child(6) { font-family: var(--mono); }
+/* 跳过的参数整体压暗，一眼区分「能填的」与「框架自己管的」 */
+.ep-sample-row--skip td { color: var(--fg-dim); }
+
+/* 代码块（请求体 JSON / cURL） */
+.ep-sample-json,
+.ep-sample-curl {
+  margin: 0;
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--fg);
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  line-height: 1.55;
+  overflow-x: auto;
+  white-space: pre;
+}
