@@ -379,13 +379,27 @@ function renderResultArea(
   syncPager(view, result, st.querying);
 }
 
-/** 单元格详情面板（两视图各一个；显示当前拿到的完整值——后端已按 200 字符截断） */
+/** 单元格详情面板（两视图各一个；显示当前拿到的完整值——后端已按 200 字符截断）。
+ *
+ *  D-6（2026-10-06 修复）：面板此前**没有任何关闭路径**——以 `hidden` 建立、
+ *  showCellDetail 只开不关，一点单元格就永久占住网格底部。现给两条出路：
+ *  ① 头部 × 按钮；② Esc（见 ensureCellDetailDismiss）。 */
 function showCellDetail(container: HTMLElement, column: string, row: number, d: { kind: string; full: string }): void {
+  ensureCellDetailDismiss();
   container.textContent = "";
   container.classList.remove("hidden");
   const head = document.createElement("div");
   head.className = "db-cell-detail-head";
-  head.textContent = `${column} · #${row}`;
+  const headLabel = document.createElement("span");
+  headLabel.textContent = `${column} · #${row}`;
+  head.appendChild(headLabel);
+  const close = document.createElement("button");
+  close.className = "db-cell-detail-close";
+  close.dataset.tip = t("common.close");
+  close.setAttribute("aria-label", t("common.close"));
+  close.appendChild(codicon("close"));
+  close.addEventListener("click", () => hideCellDetail(container));
+  head.appendChild(close);
   const body = document.createElement("div");
   body.className = "db-cell-detail-body";
   body.textContent = d.kind === "null" ? t("database.null") : d.full;
@@ -395,6 +409,26 @@ function showCellDetail(container: HTMLElement, column: string, row: number, d: 
   copy.addEventListener("click", () => void copyText(d.full));
   container.append(head, body, copy);
 }
+
+function hideCellDetail(container?: HTMLElement | null): void {
+  (container ?? document.querySelector<HTMLElement>(".db-cell-detail:not(.hidden)"))?.classList.add("hidden");
+}
+
+/** Esc 关闭详情面板（模块级只注册一次，随 app 生命周期存在——逐 tab 注册会泄漏）。
+ *  弹层优先：菜单 / 模态框打开时 Esc 归它们，不顺手带走面板。 */
+function ensureCellDetailDismiss(): void {
+  if (cellDetailDismissWired) return;
+  cellDetailDismissWired = true;
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape" || e.defaultPrevented) return;
+    const layerOpen =
+      !!document.querySelector("#ctx-menu:not(.hidden), #menu-dropdown:not(.hidden), #menu-submenu:not(.hidden)") ||
+      [...document.querySelectorAll(".modal-card")].some((el) => el.getClientRects().length > 0);
+    if (layerOpen) return;
+    hideCellDetail();
+  });
+}
+let cellDetailDismissWired = false;
 
 async function copyText(text: string): Promise<void> {
   try {

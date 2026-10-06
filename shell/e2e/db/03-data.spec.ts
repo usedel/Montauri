@@ -170,11 +170,33 @@ test("DB-D-6：NULL 与空串视觉可分；单元格详情显示完整值并可
   await expect(detail.locator(".db-cell-detail-head")).toContainText("id");
   await expect(detail.locator(".db-cell-detail-head")).toContainText("#2");
   await expect(detail.locator(".db-cell-detail-body")).toHaveText("2");
-  await detail.locator("button").click();
+  await detail.locator("button.btn--sm").click();
   const copied = await page.evaluate(
     () => (window as unknown as { __E2E_COPIED__?: string[] }).__E2E_COPIED__ ?? [],
   );
   expect(copied).toContain("2");
+
+  // D-6 修复回归（2026-10-06）：面板此前无任何关闭路径，一点单元格就永久占住网格底部。
+  // 两条出路都必须可用：① 头部 ×；② Esc（弹层打开时 Esc 归弹层，不得顺带关面板）。
+  await detail.locator(".db-cell-detail-close").click();
+  await expect(detail).toBeHidden();
+
+  await cell.click();
+  await expect(detail).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(detail).toBeHidden();
+
+  await cell.click();
+  await expect(detail).toBeVisible();
+  await page.locator("#ctx-menu").waitFor({ state: "hidden" }).catch(() => {});
+  await cell.click({ button: "right" });
+  const ctx = page.locator("#ctx-menu");
+  await expect(ctx).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(ctx).toBeHidden();
+  await expect(detail).toBeVisible(); // 菜单优先：Esc 关菜单，不顺手带走详情面板
+  await page.keyboard.press("Escape");
+  await expect(detail).toBeHidden();
 });
 
 test("DB-D-7：单元格右键可复制整行为 JSON / CSV", async ({ page }) => {
