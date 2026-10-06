@@ -36,10 +36,23 @@ styles_http_max_lines = 125
 # styles/logView.css（B5 结构化运行日志，P0-0 拆出）：170 行。上限 205（余量 ~20%）。
 styles_logview_max_lines = 205
 
-# main.ts：2,897。真实故事不是"UI 六批顺带拆了"（同期它是 +58，不是 -336），
-#   而是 tech-debt 记录的 TD-014 拆分成果（~1,196）已被后续功能吃回 +1,701。
-#   上限 3,000：新功能不得再往里堆，净增长需外提。
-main_ts_max_lines = 3000
+# main.ts：2,897 → **2,312（2026-10-06 阶段二拆分第一刀，−601 行）**。真实故事不是
+#   "UI 六批顺带拆了"（同期它是 +58，不是 -336），而是 tech-debt 记录的 TD-014 拆分成果
+#   （~1,196）已被后续功能吃回 +1,701。
+#   **上限由 3,000 下调到 2,600**（拆分后即降阈值，是 budgets.toml 顶部纪律第 3 条）：
+#   调试入口域 → `debugEntry.ts`（171 行）、菜单与命令面板数据源 → `menuItems.ts`（570 行），
+#   两个新文件各自设上限（见下），防止"静默增长在新文件里重演"——这是 style.css 拆分
+#   时的同一条教训。余量 288 行：新功能仍不得往 main.ts 里堆。
+main_ts_max_lines = 2600
+
+# debugEntry.ts（阶段二拆分第一刀新增，2026-10-06）：171 行。上限 205（余量 ~20%）。
+#   范围：F5 调试入口链路（启动 / 停止 / Run to Cursor / 求值）。
+debug_entry_ts_max_lines = 205
+
+# menuItems.ts（阶段二拆分第一刀新增，2026-10-06）：570 行。上限 690（余量 ~21%）。
+#   范围：顶部菜单项 / Search Everywhere 动作表 / 断点右键菜单 / 运行 gutter 菜单的**数据源**
+#   （机制分别在 menuBar.ts / quickOpen.ts / menu.ts）。main 私有动作经 setMenuItemsHandlers 注入解环。
+menu_items_ts_max_lines = 690
 
 # git.ts：3,204，Git 迭代 0–6 交付后 44c85ea→HEAD **零变化**（既没涨也没拆）。保持观察。
 git_ts_max_lines = 3300

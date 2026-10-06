@@ -20,15 +20,15 @@ import { initLiveTemplates, type LiveTemplatesHandle } from "./live-templates";
 import * as ltUi from "./live-templates/ui/manager";
 import { registerKeywordCompletion, setKeywordCompletionEnabled } from "./completion/keywordCompletion"; // 零引擎关键字补全（无 LSP 引擎的语言）
 import { wireWordBasedSuggestions } from "./completion/wordBasedSuggestions"; // 文档词补全按语言开关
-import { initDevTools, openDevTools, openDevToolsPanel, listDevTools, groupToolsByCategory, categoryLabel } from "./devtools";
+import { initDevTools, openDevToolsPanel } from "./devtools"; // 工具菜单 / 命令面板的工具项数据源已随菜单外提到 menuItems.ts
 // PR-2：插件域（plugin_system_design §9）——加载器 / facade 依赖注入 / inline 管线
 import { initPluginLoader, scanPlugins, schedulePluginRescan, listPluginRecords, setAppVersion } from "./extensions/loader";
-import { initInlineRunner, listInlineEntries, runInline, inlineCommandLabel } from "./extensions/inline";
+import { initInlineRunner } from "./extensions/inline";
 import { initInlineSelectionMenu } from "./extensions/inlineMenu"; // P2：编辑器右键「变换选区 ▸」子菜单
-import { setPluginsTabHandlers, openGuide } from "./extensions/pluginsTab";
+import { setPluginsTabHandlers } from "./extensions/pluginsTab";
 import {
-  openOnboardingGuide, wireWelcomeGuide, isWelcomeForced, setWelcomeOverlayRefresh, setWelcomeGuideHandlers,
-  renderQuickstartCards, renderTour, showWelcomeOverlay, dismissWelcomeOverlay, consumeWelcomeForce,
+  wireWelcomeGuide, isWelcomeForced, setWelcomeOverlayRefresh, setWelcomeGuideHandlers,
+  renderQuickstartCards, renderTour, consumeWelcomeForce,
 } from "./welcomeGuide";
 import { formatPythonSource, optimizeImportsSource, registerRuffFormatter, setFormatErrorHandler } from "./format";
 import { runSearch, cancelSearch, resetSearch, setOpenMatchHandler, type SearchMatch, type SearchScope, type SearchScopeMode } from "./search";
@@ -51,17 +51,16 @@ import { registerSidebarView, setSidebarTab, activeView, restoreSidebarView } fr
 import * as lsp from "./lsp/client";
 import * as kb from "./keybindings";
 import { appendOutputLine, clearOutput, setOutputLevelColorsEnabled, setOutputTracebackHandler, setOutputUrlHandler } from "./output";
-import { openAlert, openConfirm, openPrompt } from "./dialog";
-import { app, $, lazyEl, outputEl, statusFileEl, type Entry, type SaveOptions, type Tab } from "./state";
+import { openConfirm } from "./dialog";
+import { app, $, lazyEl, outputEl, statusFileEl, type SaveOptions, type Tab } from "./state";
 import {
-  createDirAt, createFileInteractive, isDirExpanded, isTreeEmpty, refreshTree, reloadDir,
+  createFileInteractive, isDirExpanded, isTreeEmpty, refreshTree, reloadDir,
   renderCtxMenu, resetTreeState, scheduleFollowReveal, setFileTreeHandlers, wireFileTree, type CtxItem,
 } from "./fileTree";
 import {
-  cleanupDiffTabState, commitAll, currentDiffEditor, discardAllChanges, dismissDiffHost, gitInitRepo, gitRemoteOp, gitStash, gitStashPop,
-  presentDiffHost, refreshBranchPanel, refreshDiffIfViewing, refreshDiffOnActivate, refreshGitStatus,
-  renderGitPanel, resetGitState, setDiffTabHandlers, setGitEditorBridge, setGitOpenFileHandler, setGitReloadHandler, stageAllChanges,
-  toggleBranchList, toggleHistory, wireGitUI,
+  cleanupDiffTabState, currentDiffEditor, dismissDiffHost, presentDiffHost, refreshBranchPanel,
+  refreshDiffIfViewing, refreshDiffOnActivate, refreshGitStatus, renderGitPanel, resetGitState,
+  setDiffTabHandlers, setGitEditorBridge, setGitOpenFileHandler, setGitReloadHandler, wireGitUI,
 } from "./git";
 import {
   disposeTerminal, openTerminalAt, resetOutputChannelUi, setBottomTab,
@@ -81,27 +80,24 @@ import { restoreLayout, toggleSidebar, wireSplitters } from "./layout";
 import { motionDisabled, restoreReduceMotion } from "./anim";
 import { wireTooltip } from "./tooltip";
 import { renderEngineChip, setEngineBusy, setEngineChipHandlers, wireEngineChip } from "./engineChip";
-import { computeRunWidget, renderRunWidget, setRunWidgetHandlers, setRunWidgetRepaint, wireRunWidget, runWidgetHandlers } from "./runWidget";
+import { renderRunWidget, setRunWidgetHandlers, setRunWidgetRepaint, wireRunWidget } from "./runWidget";
 import { clearRunGutter, isRunGutterLine, refreshRunGutter, setRunGutterHandlers, wireRunGutter } from "./runGutter";
 import { clearGitGutter, refreshGitGutter, scheduleGitGutter, wireGitGutter } from "./gitGutter"; // 迭代 2 · P0-5
 import { wireGutterHover } from "./gutterHover";
 import * as dap from "./dap/client";
 import {
-  breakpointKind, clearCurrentLine, getBreakpointSpec, isBreakpointEnabled, loadBreakpoints, pushAllBreakpoints,
-  refreshDebugGutter, removeBreakpoint, resetBreakpoints, setBreakpointEnabled, setBreakpointMenuHandler, toggleBreakpoint,
-  updateBreakpoint, wireDebugGutter,
+  clearCurrentLine, loadBreakpoints, refreshDebugGutter, resetBreakpoints, setBreakpointMenuHandler, wireDebugGutter,
 } from "./debugGutter";
-import { showMenu, type MenuItem } from "./menu";
 import { initTodoView, refreshTodos, resetTodoView, setTodoViewHandlers } from "./todoView"; // P0：TODO 工具窗
 import { initEndpointView, refreshEndpoints, resetEndpointView, setEndpointViewHandlers } from "./endpointView"; // F1：端点工具窗
-import { initDbView, onDbViewShow, resetDbView, refreshDbWorkspace, addConnection } from "./sqliteView"; // B3：SQLite 数据库侧栏（资源管理器）
-import { setDbTabHandlers, presentDbTab, cleanupDbTab, dismissDbHost, dbTabLabel, dbTabIcon, invalidateDbTokens, openQueryTabForActive } from "./sqliteTabs"; // B3：SQLite 编辑器 Tab（表数据 / SQL 查询）
-import { initDebugView, notifyDepFound, renderDebugView, runToCursor as runToCursorIn, setDebugViewHandlers, wireDebugViewEvents } from "./debugView";
+import { initDbView, onDbViewShow, resetDbView, refreshDbWorkspace } from "./sqliteView"; // B3：SQLite 数据库侧栏（资源管理器）
+import { setDbTabHandlers, presentDbTab, cleanupDbTab, dismissDbHost, dbTabLabel, dbTabIcon, invalidateDbTokens } from "./sqliteTabs"; // B3：SQLite 编辑器 Tab（表数据 / SQL 查询）
+import { initDebugView, renderDebugView, setDebugViewHandlers, wireDebugViewEvents } from "./debugView";
 import { closeRecentFiles, initRecentFiles, openRecentFiles, setRecentFilesHandlers } from "./recentFiles"; // P0：最近打开的文件（Ctrl+E）
 // P1（PyCharm 调研）：Search Everywhere / 导航历史 / 本地历史 / 调试控制台
 import {
   initQuickOpen, invalidateQuickOpenFiles, isQuickOpenOpen, openQuickOpen, closeQuickOpen,
-  registerQuickOpenActions, setQuickOpenHandlers, type QuickOpenAction,
+  registerQuickOpenActions, setQuickOpenHandlers,
 } from "./quickOpen";
 import { goBack, goForward, noteOpen, pushCurrent, resetNavHistory, setNavHistoryHandlers } from "./navHistory";
 import { initLocalHistory, openLocalHistory, closeLocalHistory, setLocalHistoryHandlers } from "./localHistory";
@@ -110,7 +106,7 @@ import { initEditHistory } from "./editHistory"; // 低延迟编辑预测数据�
 import {
   initBreadcrumbs, invalidateBreadcrumbs, resetBreadcrumbs, scheduleBreadcrumbs, setBreadcrumbHandlers,
 } from "./breadcrumbs";
-import { initDebugConsole, clearDebugConsole, notifyNotPaused, openEvaluatePrompt } from "./debugConsole";
+import { initDebugConsole, clearDebugConsole } from "./debugConsole";
 import { initInlineValues } from "./inlineValues";
 import { lintActiveFile, resetRuffLint, scheduleRuffLint, setRuffLintHandlers } from "./ruffLint";
 import { applyPydanticMarkersOnOpen, initPydanticDiagnostics, resetPydanticDiagnostics, schedulePydanticRescan, setPydanticDiagnosticsHandlers } from "./pydanticDiagnostics";
@@ -135,7 +131,7 @@ import {
   resetEnvPanelState, openEnvPanel, onEnvPanelOpened, refreshPackagesIfOpen, repaintPkgBadgesIfOpen,
 } from "./envPanel";
 import { openNewProjectPanel, wireNewProject } from "./newProject";
-import { openCloneTab, wireCloneRepository } from "./cloneRepository";
+import { wireCloneRepository } from "./cloneRepository";
 import {
   handleTracebackLine, runOpenWorkspaceCheck, resetDepHealth, initDepHealth,
   setDepInstallHandler, wireDepHealthEvents,
@@ -144,19 +140,22 @@ import {
   initDepHealthPanel, renderDepHealth, resetDepHealthPanel, handleScanComplete, setHealthStatus,
   expandDepDetail,
 } from "./depHealthPanel";
-import { wireMenuBar, type MenuEntry } from "./menuBar";
+import { wireMenuBar } from "./menuBar";
 import {
-  initRunEvents, isRunBusy,
-  maybeSuggestFramework, prepareRun,
+  initRunEvents, maybeSuggestFramework,
   resetRunSessionState, runScript, runProject, stopAllRuns,
   runSelection, runWidgetState, setRunFlowHandlers, stopRun, wireRunFlow,
   clearRunProfilesCache, rerunRecord,
 } from "./runFlow";
 import { openRunConfig, wireRunConfigPanel } from "./runConfigPanel";
 import { gotoFromLink, setTracebackOpenFile } from "./tracebackLink";
-import { isRunning, scriptRunActive, runningPathsOf, type RunConfig } from "./runState";
+import { isRunning, scriptRunActive, runningPathsOf } from "./runState";
 import { installFindShortcut, setFindDiffEditorProvider } from "./editorFind";
 import { installBrowserKeyGuard } from "./browserKeys";
+import { onEvaluateShortcut, runDebug, runToCursorAtCursor, stopDebugSession } from "./debugEntry"; // 阶段二：调试入口域外提
+import {
+  buildQuickOpenActions, buildRunMenuItems, getMenuItems, setMenuItemsHandlers, showBreakpointMenu,
+} from "./menuItems"; // 阶段二：菜单 / 命令面板数据源外提（main 私有动作经 setMenuItemsHandlers 注入解环）
 
 // ---------- 模块级状态（本层私有；TD-14 后运行态归 runState.ts / runFlow.ts） ----------
 
@@ -1308,132 +1307,6 @@ async function reloadFileFromDisk(path: string, force = false): Promise<void> {
 // 运行域（prepareRun / runScript / runProject / runSelection /
 // stopRun / runWidgetState / 输出事件流）→ runFlow.ts；运行态真值 → runState.ts。
 
-// ---------- 调试（debug dev plan §6.7：调试运行入口） ----------
-
-/** 调试运行入口：prepareRun 复用 → debug_detect（debugpy 定位 + 依赖提示）→
- * debug_start（后端拉起 debugpy + TCP）→ DAP 握手（initialize → setBreakpoints →
- * configurationDone）→ 切调试侧栏 + 终端承载 stdout。 */
-async function runDebug(): Promise<void> {
-  if (!app.activeTab) return;
-  const path = app.activeTab.path;
-  if (!path.endsWith(".py") && !path.endsWith(".pyw")) {
-    toast(t("main.debug.notPython", { name: basename(path) }), "info");
-    return;
-  }
-  // 调试态与运行态互斥（后端强制）：正在运行/准备时提示先停止
-  if (isRunBusy()) {
-    toast(t("main.debug.runBusy"), "info");
-    return;
-  }
-  const phase = dap.currentPhase();
-  if (phase === "starting" || phase === "running" || phase === "stopped") {
-    toast(t("main.debug.sessionBusy"), "info");
-    return;
-  }
-  // P1-13（2026-09-29 review）：phase 门控到 startDebug 内部才置 starting——prepareRun /
-  // get_run_config / debug_detect 多个 await 期间双击 F5 可并发穿透，第二个失败调用的
-  // resetDebugState 会把第一会话的 phase 踩回 idle。这里在首个 await 前同步置位，
-  // 失败路径由下面的 catch / 各早退点统一复位。
-  // 复核补丁（2026-09-30）：markStarting 之后的代码若出现未预期异常（各早退点已复位，
-  // 但 prepareRun / appendOutputLine 等 throw 时无人收口），phase 会永卡 starting——
-  // F5 被门控拒死。包 try/catch 兜底；`sessionEstablished` 在 startDebug 握手成功的
-  // 那一刻置位，其后 phase 归状态机接管，兜底不再触发（避免误清已建立的后端会话，
-  // 同 P1-12 场景）。
-  dap.markStarting();
-  let sessionEstablished = false;
-  try {
-    await runDebugInner(path, () => { sessionEstablished = true; });
-  } catch (e) {
-    appendOutputLine(outputEl, t("main.debug.startError", { msg: String(e) }), "stderr", gotoFromLink, "debug");
-    toastFail(t("main.debug.start"), e);
-  } finally {
-    if (!sessionEstablished) dap.resetDebugState();
-  }
-}
-
-/** runDebug 的主体（markStarting 已由外层置位；异常统一在外层兜底复位）。
- *  `onEstablished` 在 startDebug 握手成功时回调（此后异常不复位 phase）。 */
-async function runDebugInner(path: string, onEstablished: () => void): Promise<void> {
-  // prepareRun 复用（自动保存 / 依赖预检 / 读运行配置；stdin=file 场景由后端 fail fast）
-  const prep = await prepareRun(path);
-  if (!prep) {
-    dap.resetDebugState(); // markStarting 早退复位（P1-13）
-    return;
-  }
-
-  // P1：调试复用运行配置——后端 debug_start 直读 run_configs（参数 / env / 工作目录），
-  // 这里把「用上了什么」显式回显，避免用户以为调试是完全独立的一套配置。
-  if (app.workspaceRoot) {
-    const rc = await invoke<Partial<RunConfig>>("get_run_config", { workspaceRoot: app.workspaceRoot, scriptPath: path })
-      .catch(() => ({} as Partial<RunConfig>));
-    const parts: string[] = [];
-    if (rc.args?.trim()) parts.push(t("main.debug.argsLine", { args: rc.args.trim() }));
-    if (rc.env?.length) parts.push(t("main.debug.envLine", { n: rc.env.length }));
-    if (parts.length) {
-      appendOutputLine(outputEl, t("main.debug.reuseConfig", { parts: parts.join("，") }), "hint", gotoFromLink, "debug");
-    }
-  }
-
-  // debug_detect：debugpy 定位 + 依赖声明提示（§5.1.6：提示性质，不阻断）
-  interface DebugDetectResult { debugpyOk: boolean; debugpyDir: string | null; depFound: boolean; depFiles: string[] }
-  let detect: DebugDetectResult;
-  try {
-    detect = await invoke<DebugDetectResult>("debug_detect", { workspaceRoot: app.workspaceRoot });
-  } catch (e) {
-    appendOutputLine(outputEl, t("main.debug.detectError", { msg: String(e) }), "stderr", gotoFromLink, "debug");
-    toastFail(t("main.debug.detect"), e);
-    dap.resetDebugState(); // markStarting 早退复位（P1-13）
-    return;
-  }
-  if (!detect.debugpyOk) {
-    // E 类（长指导走 openAlert 对话框，非输出面板 stderr；附可复制命令）
-    void openAlert({
-      title: t("main.debug.noDebugpyTitle"),
-      message:
-        t("main.debug.noDebugpyBody1") +
-        t("main.debug.noDebugpyBody2") +
-        "powershell -ExecutionPolicy Bypass -File tools/fetch-debugpy.ps1",
-      okLabel: t("main.debug.gotIt"),
-    });
-    dap.resetDebugState(); // markStarting 早退复位（P1-13）
-    return;
-  }
-  // §3.5：依赖清单命中 → 输出面板一次性提示（自带副本不冲突），不弹窗不阻断
-  if (detect.depFound) {
-    notifyDepFound(detect.depFiles);
-    appendOutputLine(
-      outputEl,
-      t("main.debug.depHint", { files: detect.depFiles.join("、") }),
-      "hint",
-      gotoFromLink,
-    );
-  }
-
-  appendOutputLine(outputEl, `> [debug] ${basename(path)}  (${path})`, "cmd", gotoFromLink, "debug");
-  try {
-    await dap.startDebug(path, app.workspaceRoot, pushAllBreakpoints);
-    onEstablished(); // 握手成功：phase 归状态机接管，外层兜底从此不触发
-  } catch (e) {
-    appendOutputLine(outputEl, t("main.debug.startFailed", { msg: String(e) }), "stderr", gotoFromLink, "debug");
-    toastFail(t("main.debug.start"), e);
-    // P1-12（2026-09-29 review）：startDebug 中途失败（握手超时 / 断点异常 / debug_start
-    // 后任一步失败）时，后端 DEBUG 槽仍持有 adapter——只复位前端 phase 会让下次启动被
-    // 「已有调试会话在运行」永久卡住。先停后端会话再复位（stopDebug 对未启动场景幂等）。
-    await dap.stopDebug();
-    dap.resetDebugState();
-    return;
-  }
-  // 切到调试侧栏（§6.7）；终端 tab 承载调试进程 stdout（后端已落 PTY）
-  setSidebarTab("debug");
-}
-
-/** 停止调试（Shift+F5 / 工具栏停止 / 调试态下的停止按钮路由） */
-async function stopDebugSession(): Promise<void> {
-  await dap.stopDebug();
-  dap.resetDebugState();
-  clearCurrentLine();
-}
-
 /**
  * P2：新建草稿文件（PyCharm Ctrl+Alt+Shift+Insert Scratch 同款）。
  * 草稿落在数据根的 scratches/ 目录（**不在工作区里**——不入库、不污染项目），
@@ -1447,29 +1320,6 @@ async function newScratch(): Promise<void> {
   } catch (e) {
     toastFail(t("main.scratch.failAction"), e);
   }
-}
-
-/** Alt+F9 Run to Cursor：跑到光标所在行（临时断点 + 继续，命中断点后自动撤掉） */
-async function runToCursorAtCursor(): Promise<void> {
-  const tab = app.activeTab;
-  if (!tab) return;
-  const line = app.editor.getPosition()?.lineNumber;
-  if (!line) return;
-  if (dap.currentPhase() !== "stopped") {
-    toast(t("main.debug.runToCursorHint"), "info");
-    return;
-  }
-  await runToCursorIn(tab.path, line);
-}
-
-/** Alt+F8 求值表达式：非暂停态给明确指引，暂停态切到调试侧栏并弹输入框 */
-async function onEvaluateShortcut(): Promise<void> {
-  if (dap.currentPhase() !== "stopped") {
-    await notifyNotPaused();
-    return;
-  }
-  setSidebarTab("debug");
-  await openEvaluatePrompt();
 }
 
 /**
@@ -1511,234 +1361,6 @@ function buildPluginFacadeDeps() {
   };
 }
 
-/**
- * 工具菜单（PR-1，plugin_system_design §9.8）：按 category 分组 → flyout 子菜单。
- * groupToolsByCategory 处理预置有序集 + 自定义追加；空 category 归「其他」。
- */
-function buildToolsMenu(): MenuEntry[] {
-  const groups = groupToolsByCategory(listDevTools());
-  const entries: MenuEntry[] = groups.map(([cat, tools]) => ({
-    // 第十七批 i18n：预置分组展示名走语言包（标识串仍为中文原文，排序恒定）
-    label: categoryLabel(cat),
-    submenu: () => tools.map((t) => ({
-      label: t.title,
-      detail: t.description,
-      action: () => openDevTools(t.id),
-    })),
-  }));
-  // §9.8：尾部固定「插件管理…」入口（设置页插件 tab）
-  if (groups.length > 0) entries.push({ label: "", sep: true });
-  entries.push({ label: t("main.cmd.plugins"), action: () => openSettingsPanel("plugins") });
-  return entries;
-}
-
-/**
- * P1：Search Everywhere 的「命令」数据源。
- * 键位表里已有的动作直接用其 id——hint 会自动跟随用户在设置里改过的键位
- * （同 debugView 工具栏提示的处理，避免硬编码 "F5" 这类会失真的文案）；
- * 无键位的动作用显式 hint（如内建的 Shift+Alt+F）或留空。
- */
-function buildQuickOpenActions(): QuickOpenAction[] {
-  return [
-    { id: "save", label: t("main.cmd.save"), run: () => void saveActive() },
-    // v3.4 §8（M3-3.4）：命令面板对齐四控件运行组
-    { id: "run_script", label: t("main.run.script"), run: () => { if (app.activeTab) void runScript(app.activeTab.path); } },
-    { id: "run_project", label: t("main.run.project"), run: () => void runProject() },
-    { id: "stop", label: t("main.run.stop"), run: () => void stopRun() },
-    { id: "debug", label: t("main.cmd.debugStart"), run: () => void runDebug() },
-    { id: "debug_stop", label: t("main.cmd.debugStop"), run: () => void stopDebugSession() },
-    { id: "debug_evaluate", label: t("main.cmd.evaluate"), run: () => void onEvaluateShortcut() },
-    { id: "debug_run_to_cursor", label: t("main.cmd.runToCursor"), run: () => void runToCursorAtCursor() },
-    { id: "bookmark_toggle", label: t("main.cmd.bookmarkToggle"), run: () => void toggleBookmarkAtCursor() },
-    { id: "bookmark_list", label: t("main.cmd.bookmarkList"), run: () => void openBookmarks() },
-    { id: "scratch_new", label: t("main.cmd.scratchNew"), run: () => void newScratch() },
-    { id: "split_editor", label: t("main.cmd.splitRight"), run: () => splitEditor.toggleSplit() }, // P4（C-4）
-    // PR-A（dx_features_backlog §6.1）：键位补齐组的命令面板入口（id 对齐键位表，hint 自动跟随改键；
-    // run 复用键位 handler——review 建议 5：与 keybindings.ts 的命令 id 手写两份会漂移）
-    { id: "delete_line", label: t("main.cmd.deleteLine"), run: () => kb.triggerEditorKeybindingAction("delete_line") },
-    { id: "fold_all", label: t("main.cmd.foldAll"), run: () => kb.triggerEditorKeybindingAction("fold_all") },
-    { id: "unfold_all", label: t("main.cmd.unfoldAll"), run: () => kb.triggerEditorKeybindingAction("unfold_all") },
-    { id: "jump_to_bracket", label: t("main.cmd.jumpBracket"), run: () => kb.triggerEditorKeybindingAction("jump_to_bracket") },
-    { id: "reopen_tab", label: t("main.cmd.reopenTab"), run: () => { if (!reopenClosedTab()) toast(t("main.cmd.reopenNone"), "info"); } },
-    { id: "recent_edit_locations", label: t("main.cmd.lastEdit"), run: () => { if (!jumpToLastEdit()) toast(t("main.cmd.noEarlierEdit"), "info"); } },
-    { id: "run_history", label: t("main.cmd.runHistory"), run: () => openRunHistory() },
-    { id: "goto_file", label: t("main.cmd.gotoFile"), run: () => void openQuickOpen("files") },
-    { id: "goto_symbol", label: t("main.cmd.gotoSymbol"), run: () => kb.triggerEditorKeybindingAction("goto_symbol") },
-    // PR-J：触发补全建议备选键（Ctrl+Space 被中文 IME 吞键，人工验证；handler 在 keybindings.ts）
-    { id: "trigger_suggest", label: t("main.cmd.triggerSuggest"), run: () => kb.triggerEditorKeybindingAction("trigger_suggest") },
-    { id: "goto_line", label: t("main.cmd.gotoLine"), run: () => void openQuickOpen("line") },
-    { id: "goto_definition", label: t("main.cmd.gotoDef"), run: () => void lsp.gotoDefinitionAtCursor(app.editor) },
-    { id: "global_search", label: t("main.cmd.globalSearch"), run: () => setSidebarTab("search") },
-    { id: "recent_files", label: t("main.cmd.recentFiles"), run: () => void openRecentFiles() },
-    { id: "optimize_imports", label: t("main.cmd.optimizeImports"), run: () => void optimizeImportsActive() },
-    { id: "local_history", label: t("main.cmd.localHistory"), run: () => void openLocalHistory() },
-    { id: "template_palette", label: t("main.cmd.ltPalette"), run: () => liveTemplatesHandle?.openPalette() },
-    { id: "surround", label: t("main.cmd.surround"), run: () => liveTemplatesHandle?.openSurround() },
-    { id: "markdown_preview", label: t("main.cmd.mdPreview"), run: () => mdPreview.togglePreview() },
-    { id: "format_document", label: t("main.cmd.formatDoc"), hint: "Shift+Alt+F", run: () => void app.editor.getAction("editor.action.formatDocument")?.run() },
-    { id: "open_settings", label: t("main.cmd.openSettings"), run: () => openSettingsPanel() },
-    // PR-S1/S2（onboarding plan §3.1）：新手指南 + 欢迎页 force-show 进命令面板
-    { id: "onboarding_guide", label: t("main.cmd.guide"), run: () => void openOnboardingGuide() },
-    { id: "welcome_page", label: t("main.cmd.welcome"), run: () => { if (isWelcomeForced()) dismissWelcomeOverlay(); else showWelcomeOverlay(); } },
-    { id: "new_project", label: t("main.cmd.newProject"), run: () => openNewProjectPanel() },
-    { id: "git_clone", label: t("cloneRepository.cmdLabel"), run: () => openCloneTab() },
-    { id: "git_panel", label: t("main.cmd.gitPanel"), run: () => setSidebarTab("git") },
-    // P0-1：git 高频操作进命令面板（对标 VS Code Git: * 命令族）——
-    // 此前仅 git_panel 一条，键盘流用户完全不可达（报告 D9）
-    { id: "git_init", label: t("main.cmd.gitInit"), run: () => void gitInitRepo() },
-    { id: "git_stage_all", label: t("main.cmd.gitStageAll"), run: () => void stageAllChanges() },
-    { id: "git_discard_all", label: t("main.cmd.gitDiscardAll"), run: () => void discardAllChanges() },
-    { id: "git_commit", label: t("main.cmd.gitCommit"), run: () => { setSidebarTab("git"); ($("git-commit-msg") as HTMLTextAreaElement).focus(); } },
-    { id: "git_commit_all", label: t("main.cmd.gitCommitAll"), run: () => void commitAll() },
-    { id: "git_fetch", label: t("main.cmd.gitFetch"), run: () => void gitRemoteOp("fetch") },
-    { id: "git_pull", label: t("main.cmd.gitPull"), run: () => void gitRemoteOp("pull") },
-    { id: "git_push", label: t("main.cmd.gitPush"), run: () => void gitRemoteOp("push") },
-    { id: "git_stash", label: t("main.cmd.gitStash"), run: () => void gitStash() },
-    { id: "git_stash_pop", label: t("main.cmd.gitStashPop"), run: () => void gitStashPop() },
-    { id: "git_history", label: t("main.cmd.gitHistory"), run: () => { setSidebarTab("git"); toggleHistory(); } },
-    { id: "git_branches", label: t("main.cmd.gitBranches"), run: () => { setSidebarTab("git"); toggleBranchList(); } },
-    // 迭代 3：高级工作流进命令面板（cherry-pick/reset 等历史操作走历史条目右键）
-    { id: "git_sync_status", label: t("main.cmd.gitSyncStatus"), run: () => { setSidebarTab("git"); toast(t("main.cmd.syncUpdated"), "info"); void refreshBranchPanel(); } },
-    { id: "todo_panel", label: t("main.cmd.todoPanel"), run: () => setSidebarTab("todo") },
-    // B3：数据库工具窗（引擎在 Rust db_cmds.rs；侧栏见 sqliteView.ts，Tab 见 sqliteTabs.ts）
-    { id: "db_add_connection", label: t("database.cmdOpen"), run: () => { setSidebarTab("database"); void addConnection(); } },
-    { id: "db_new_query", label: t("database.cmdNewQuery"), run: () => { setSidebarTab("database"); openQueryTabForActive(); } },
-    // PR-S2 巡礼（onboarding plan §3.2b）：open_devtools 此前只有键位（Ctrl+Shift+T）与
-    // keybindings.ts 分发，命令面板查不到——巡礼「试一下」挂注册表 id，一并补上可发现性
-    { id: "open_devtools", label: t("main.cmd.devtools"), run: () => openDevToolsPanel() },
-    // P1（UX 审查）：高频操作进命令面板（id 对齐键位表 → 提示自动跟随改键）
-    { id: "close_tab", label: t("main.cmd.closeTab"), run: () => { if (app.activeTab) void closeTab(app.activeTab); } },
-    { id: "new_file", label: t("main.cmd.newFile"), run: () => void createFileInteractive() },
-    { id: "toggle_sidebar", label: t("main.cmd.toggleSidebar"), run: () => toggleSidebar() },
-    { id: "toggle_bottom", label: t("main.cmd.toggleBottom"), run: () => toggleBottomPanel() },
-    // 问题面板（PyCharm Problems View 同位；hint 跟随键位表改键，run 直接调域入口）
-    { id: "open_problems", label: t("main.cmd.problems"), run: () => openProblemsPanel() },
-    // PR-1（plugin_system_design §9.9）：注册表中的工具统一以「工具: <title>」前缀进命令面板
-    ...listDevTools().map((tool) => ({
-      id: `tool_${tool.id}`,
-      label: t("main.cmd.toolPrefix", { title: tool.title }), // 参数名避开 t（i18n 取词函数，踩坑 ⑤）
-      run: () => openDevTools(tool.id),
-    })),
-    // PR-2：插件 inline 变换入口（§9.15：命令面板「工具: <inline.label>」）
-    ...listInlineEntries(listPluginRecords(), true).map((e) => ({
-      id: `inline_${e.toolId}`,
-      label: inlineCommandLabel(e),
-      run: () => void runInline(e.toolId),
-    })),
-  ];
-}
-
-// ---------- 断点右键菜单（P0：条件断点 / 命中次数 / Logpoint） ----------
-
-/**
- * 断点 gutter 右键菜单（对标 PyCharm 右键断点）。
- * 三个字段均为 DAP `SourceBreakpoint` 原生能力（见 dap/client.ts::BreakpointSpec），
- * 本函数只负责「录入 + 落库 + 重绘」，协议透传与同步由 debugGutter 负责。
- *
- * 录入口径：openPrompt 返回 null = 取消（保持原值）；空串 = 清空该字段。
- */
-async function showBreakpointMenu(path: string, line: number, x: number, y: number): Promise<void> {
-  const spec = getBreakpointSpec(path, line);
-  const has = spec !== null;
-  const kind = breakpointKind(spec);
-  const apply = (next: Parameters<typeof updateBreakpoint>[2]): void => {
-    updateBreakpoint(path, line, next);
-    refreshDebugGutter();
-  };
-
-  showMenu(
-    [
-      {
-        label: has ? t("main.bp.editCondition") : t("main.bp.addCondition"),
-        icon: "debug-breakpoint-conditional",
-        // 条件为真才断下——爬虫循环「第 N 次迭代才断」场景刚需
-        detail: spec?.condition ? t("main.bp.current", { value: spec.condition }) : undefined,
-        action: () => {
-          void openPrompt({
-            title: t("main.bp.conditionTitle", { name: basename(path), line: line }),
-            label: t("main.bp.conditionLabel"),
-            value: spec?.condition ?? "",
-            placeholder: "i > 10",
-          }).then((v) => {
-            if (v === null) return; // 取消：保持原值
-            apply({ ...spec, condition: v || undefined });
-          });
-        },
-      },
-      {
-        label: t("main.bp.hitCount"),
-        icon: "debug-breakpoint-function",
-        detail: spec?.hitCondition ? t("main.bp.current", { value: spec.hitCondition }) : undefined,
-        action: () => {
-          void openPrompt({
-            title: t("main.bp.hitTitle", { name: basename(path), line: line }),
-            label: t("main.bp.hitLabel"),
-            value: spec?.hitCondition ?? "",
-            placeholder: ">3",
-          }).then((v) => {
-            if (v === null) return;
-            apply({ ...spec, hitCondition: v || undefined });
-          });
-        },
-      },
-      {
-        label: has && spec?.logMessage ? t("main.bp.editLog") : t("main.bp.setLogpoint"),
-        icon: "debug-breakpoint-log",
-        detail: spec?.logMessage ? t("main.bp.current", { value: spec.logMessage }) : undefined,
-        action: () => {
-          void openPrompt({
-            title: t("main.bp.logTitle", { name: basename(path), line: line }),
-            label: t("main.bp.logLabel"),
-            value: spec?.logMessage ?? "",
-            placeholder: "i={i}, url={url}",
-          }).then((v) => {
-            if (v === null) return;
-            apply({ ...spec, logMessage: v || undefined });
-          });
-        },
-      },
-      {
-        label: t("main.bp.toPlain"),
-        icon: "debug-breakpoint",
-        disabled: kind === "plain",
-        disabledReason: t("main.bp.alreadyPlain"),
-        action: () => apply(null),
-      },
-      {
-        // B-6：启用/禁用（禁用 = 保留断点与全部属性，但不下发 debugger；gutter 灰点）
-        label: has && isBreakpointEnabled(spec) ? t("main.bp.disable") : t("main.bp.enable"),
-        icon: "eye-closed",
-        disabled: !has,
-        disabledReason: t("main.bp.noBpHere"),
-        action: () => {
-          setBreakpointEnabled(path, line, !isBreakpointEnabled(spec));
-          refreshDebugGutter();
-        },
-      },
-      { sep: true },
-      has
-        ? {
-            label: t("main.bp.remove"),
-            icon: "trash",
-            danger: true,
-            action: () => {
-              removeBreakpoint(path, line);
-              refreshDebugGutter();
-            },
-          }
-        : {
-            label: t("main.bp.addHere"),
-            icon: "debug-breakpoint",
-            action: () => {
-              toggleBreakpoint(path, line);
-              refreshDebugGutter();
-            },
-          },
-    ],
-    { x, y },
-  );
-}
-
 // ---------- LSP ----------
 
 export async function startLsp(): Promise<void> {
@@ -1772,250 +1394,6 @@ function setMarkers(path: string, markers: MonacoApi.editor.IMarkerData[], owner
   // tab.path 可能是反斜杠——精确 === 会全程失配（2026-09-29 复核修复）
   const tab = app.tabs.find((t) => samePath(t.path, path));
   if (tab) app.monaco.editor.setModelMarkers(tab.model, owner, markers);
-}
-
-// ---------- 菜单栏（TD-14：机制已迁至 menuBar.ts，此处仅保留菜单项数据源 getMenuItems） ----------
-
-function rootEntry(): Entry {
-  return { name: basename(app.workspaceRoot ?? ""), path: app.workspaceRoot ?? "", is_dir: true };
-}
-
-/** gutter ▶ 右键菜单（v3.4 §8：对齐四控件——运行脚本 / 运行项目 / 停止 / 运行配置…）。
- *  从 runWidget 注入的 handlers + **即时状态**（runWidgetState 现算，不依赖渲染快照——
- *  菜单打开时刻的状态可能与上次渲染不同）派生，保证各入口动作一致。
- *
- *  ▶ 运行脚本的置灰**直接复用 `computeRunWidget`**（与工具栏按钮同一判定式），
- *  不在菜单里另写一遍条件——此前两处各写一遍导致调试中"按钮置灰、菜单仍可点"
- *  （`scriptDisabledReason` 已含 debugging，菜单只看了 `scriptBusy`，漏了调试态）。 */
-function buildRunMenuItems(): MenuItem[] {
-  const h = runWidgetHandlers();
-  const s = runWidgetState();
-  const computed = computeRunWidget(s);
-  return [
-    {
-      label: t("main.run.script"),
-      icon: "run",
-      shortcut: kb.bindingLabel("run_script") || undefined,
-      disabled: computed.runScript.disabled,
-      disabledReason: s.scriptDisabledReason || t("main.run.preparingScript"),
-      action: () => h?.runScript(),
-    },
-    {
-      label: t("main.run.project"),
-      icon: "run-all",
-      shortcut: kb.bindingLabel("run_project") || undefined,
-      disabled: !s.canRunProject || s.projectPreparing,
-      disabledReason: s.projectDisabledReason || t("main.run.preparingProject"),
-      action: () => h?.runProject(),
-    },
-    { sep: true },
-    {
-      label: t("main.run.stop"),
-      icon: "debug-stop",
-      shortcut: kb.bindingLabel("stop") || undefined,
-      disabled: !s.debugging && !s.stopTarget,
-      disabledReason: t("main.run.noneRunning"),
-      action: () => h?.stop(),
-    },
-    {
-      label: t("main.run.config"),
-      icon: "gear",
-      disabled: !s.canOpenConfig,
-      disabledReason: t("main.run.needWorkspace"),
-      action: () => h?.openRunConfig(),
-    },
-  ];
-}
-
-function getMenuItems(menu: string): MenuEntry[] {
-  switch (menu) {
-    case "file": return [
-      { label: t("menu.file.newProject"), action: () => openNewProjectPanel() },
-      { label: t("menu.file.cloneRepository"), action: () => openCloneTab() },
-      // P1（UX 审查）：改走 createFileInteractive——目标目录跟随活动文件（原固定为工作区根），
-      // 且键位标签与键位系统同源
-      { label: t("menu.file.newFile"), shortcut: kb.bindingLabel("new_file") || undefined, action: () => void createFileInteractive() },
-      { label: t("menu.file.newFolder"), action: () => { if (app.workspaceRoot) void createDirAt(rootEntry()); } },
-      { sep: true, label: "" },
-      { label: t("menu.file.openWorkspace"), shortcut: "Ctrl+K Ctrl+O", action: () => void openFolderFromToolbar() },
-      { label: t("menu.file.openWorkspaceInNewWindow"), action: () => void openFolderInNewWindow() },
-      { label: t("menu.file.save"), shortcut: kb.bindingLabel("save") || undefined, action: () => void saveActive() },
-      { sep: true, label: "" },
-      {
-        label: t("menu.file.recentWorkspaces"),
-        submenu: async () => {
-          const recents = await getRecentWorkspaces();
-          if (recents.length === 0) return [{ label: t("menu.file.noRecentWorkspaces") }];
-          const items: MenuEntry[] = recents.map((p) => ({
-            label: basename(p),
-            detail: p,
-            action: () => openWorkspace(p).catch(console.error),
-          }));
-          items.push({ sep: true, label: "" });
-          items.push({ label: t("menu.file.clearRecentWorkspaces"), action: () => void clearRecentWorkspaces() });
-          return items;
-        },
-      },
-      // MB-12：「最近的文件」自「视图」迁入（与「最近的工作区」同区，属文件范畴）
-      { label: t("menu.file.openRecentFiles"), shortcut: kb.bindingLabel("recent_files") || undefined, action: () => void openRecentFiles() },
-      { sep: true, label: "" },
-      { label: t("menu.file.closeWorkspace"), action: () => void closeWorkspace() },
-      // MB-12：偏好设置归「文件」（VS Code File→Preferences / PyCharm File→Settings 同位），
-      // 自「视图」迁入；Live Templates 本就是设置面板 templates 分类
-      { sep: true, label: "" },
-      {
-        label: t("menu.file.preferences"),
-        submenu: () => [
-          { label: t("menu.file.settings"), shortcut: kb.bindingLabel("open_settings") || undefined, action: () => openSettingsPanel() },
-          { label: "Live Templates", action: () => openSettingsPanel("templates") },
-        ],
-      },
-    ];
-    case "edit": return [
-      { label: t("menu.edit.undo"), shortcut: "Ctrl+Z", action: () => { app.editor.trigger("menu", "undo", null); } },
-      { label: t("menu.edit.redo"), shortcut: "Ctrl+Shift+Z", action: () => { app.editor.trigger("menu", "redo", null); } },
-      { sep: true, label: "" },
-      // MB-15：注释切换（Monaco 内建，PyCharm Ctrl+/ 同款高频项）
-      { label: t("menu.edit.toggleComment"), shortcut: "Ctrl+/", action: () => { app.editor.trigger("menu", "editor.action.commentLine", null); } },
-      { sep: true, label: "" },
-      { label: t("menu.edit.find"), shortcut: "Ctrl+F", action: () => { app.editor.trigger("menu", "actions.find", null); } },
-      { label: t("menu.edit.replace"), shortcut: "Ctrl+H", action: () => { app.editor.trigger("menu", "editor.action.startFindReplaceAction", null); } },
-      // MB-15：全局搜索入口（复用 global_search 键位；搜索侧栏目前无替换 UI，「在文件中查找/替换」
-      // 落地为切侧栏 + 聚焦，与 Ctrl+Shift+F 行为一致——侧栏补替换框属另一条独立需求）
-      { label: t("menu.edit.findInFiles"), shortcut: kb.bindingLabel("global_search") || undefined, action: () => { setSidebarTab("search"); ($("search-input") as HTMLInputElement).focus(); } },
-      { sep: true, label: "" },
-      { label: t("menu.edit.formatDocument"), shortcut: "Shift+Alt+F", action: () => { void app.editor.getAction("editor.action.formatDocument")?.run(); } },
-      // P0：Optimize Imports（PyCharm「编辑 → Optimize Imports」同位置）
-      {
-        label: t("menu.edit.optimizeImports"),
-        shortcut: kb.bindingLabel("optimize_imports") || undefined,
-        action: () => void optimizeImportsActive(),
-      },
-    ];
-    case "view": return [
-      { label: t("menu.view.fileTree"), action: () => setSidebarTab("files") },
-      { label: t("menu.view.search"), shortcut: kb.bindingLabel("global_search") || undefined, action: () => setSidebarTab("search") },
-      // P2：本地历史是工具窗入口，归属「视图」（MB-11 口径：布局开关 + 工具窗）
-      { label: t("menu.view.localHistory"), shortcut: kb.bindingLabel("local_history") || undefined, action: () => void openLocalHistory() },
-      { sep: true, label: "" },
-      // P2：书签 / 运行历史
-      { label: t("menu.view.bookmarkList"), shortcut: kb.bindingLabel("bookmark_list") || undefined, action: () => void openBookmarks() },
-      { sep: true, label: "" },
-      { label: t("menu.view.markdownPreview"), shortcut: kb.bindingLabel("markdown_preview") || undefined, action: () => mdPreview.togglePreview() },
-      // P1（UX 审查）：面板开关 + 设置补键位标签，菜单与快捷键同源（改键后自动跟随）
-      { label: t("menu.view.toggleSidebar"), shortcut: kb.bindingLabel("toggle_sidebar") || undefined, action: () => toggleSidebar() },
-      { label: t("menu.view.toggleBottomPanel"), shortcut: kb.bindingLabel("toggle_bottom") || undefined, action: () => toggleBottomPanel() },
-      // 问题面板（PyCharm Problems View 同位，Alt+0）
-      { label: t("menu.view.problemsPanel"), shortcut: kb.bindingLabel("open_problems") || undefined, action: () => openProblemsPanel() },
-    ];
-    // MB-11：前往（Go）——收编原「视图」的导航/跳转类命令（VS Code Go / PyCharm Navigate 同位）。
-    // 口径：命令面板 / Search Everywhere 属「搜索式导航」，归此处而非 VS Code View 菜单
-    case "go": return [
-      { label: t("menu.go.gotoFile"), shortcut: kb.bindingLabel("goto_file") || undefined, action: () => void openQuickOpen("files") },
-      // PR-G：文件内符号（PyCharm Navigate → File Structure 同位；与命令面板同走键位 handler）
-      { label: t("menu.go.gotoSymbolInFile"), shortcut: kb.bindingLabel("goto_symbol") || undefined, action: () => kb.triggerEditorKeybindingAction("goto_symbol") },
-      { label: t("menu.go.gotoLine"), shortcut: kb.bindingLabel("goto_line") || undefined, action: () => void openQuickOpen("line") },
-      { label: "Search Everywhere", shortcut: "Double Shift", action: () => void openQuickOpen("all") },
-      { label: t("menu.go.commandPalette"), shortcut: kb.bindingLabel("command_palette") || undefined, action: () => void openQuickOpen("commands") },
-      { sep: true, label: "" },
-      { label: t("menu.go.back"), shortcut: kb.bindingLabel("nav_back") || undefined, action: () => void goBack() },
-      { label: t("menu.go.forward"), shortcut: kb.bindingLabel("nav_forward") || undefined, action: () => void goForward() },
-    ];
-    // MB-10：运行——运行 + 调试合并为一级菜单（裁决 2026-09-21）。运行区 / 调试区 / 收尾三分区，
-    // action 全部复用既有函数（与命令面板 / 标题栏图标同源）；单步三命令走命令面板同款动态导入
-    case "run": return [
-      { label: t("menu.run.runScript"), shortcut: kb.bindingLabel("run_script") || undefined, action: () => { if (app.activeTab) void runScript(app.activeTab.path); } },
-      { label: t("menu.run.runProject"), shortcut: kb.bindingLabel("run_project") || undefined, action: () => void runProject() },
-      { label: t("menu.run.runConfig"), action: () => openRunConfig() },
-      { label: t("menu.run.stop"), shortcut: kb.bindingLabel("stop") || undefined, action: () => void stopRun() },
-      { sep: true, label: "" },
-      { label: t("menu.run.startDebug"), shortcut: kb.bindingLabel("debug") || undefined, action: () => void runDebug() },
-      { label: t("menu.run.stopDebug"), shortcut: kb.bindingLabel("debug_stop") || undefined, action: () => void stopDebugSession() },
-      { label: t("menu.run.stepOver"), shortcut: kb.bindingLabel("debug_step_over") || undefined, action: () => void import("./dap/client").then((m) => m.dapNext(1)) },
-      { label: t("menu.run.stepInto"), shortcut: kb.bindingLabel("debug_step_into") || undefined, action: () => void import("./dap/client").then((m) => m.dapStepIn(1)) },
-      { label: t("menu.run.stepOut"), shortcut: kb.bindingLabel("debug_step_out") || undefined, action: () => void import("./dap/client").then((m) => m.dapStepOut(1)) },
-      { label: t("menu.run.runToCursor"), shortcut: kb.bindingLabel("debug_run_to_cursor") || undefined, action: () => void runToCursorAtCursor() },
-      { label: t("menu.run.evaluateExpression"), shortcut: kb.bindingLabel("debug_evaluate") || undefined, action: () => void onEvaluateShortcut() },
-      { sep: true, label: "" },
-      { label: t("menu.run.runHistory"), shortcut: kb.bindingLabel("run_history") || undefined, action: () => openRunHistory() },
-    ];
-    // PR-1（plugin_system_design §9.8）：工具菜单按 category 分组 flyout 子菜单，
-    // 渲染走 menuBar.ts 既有 submenu 机制（悬停延时展开 + →/← 键盘导航），此处只组装数据
-    case "tools": return buildToolsMenu();
-    // MB-13：帮助菜单（裁决 2026-09-21）——关于走 openAlert 轻量档；日志/数据目录复用设置页
-    // 既有 invoke 命令；作者指南复用插件 tab 的 openGuide（同一份指南文档，导出复用）。
-    // PR-S1/S2（onboarding plan）：新增「新手指南」（指南落盘打开）与「欢迎页」（force-show toggle，
-    // 收掉 MB-13「欢迎页一期不纳入」登记）。
-    case "help": return [
-      {
-        label: t("menu.help.onboardingGuide"),
-        action: () => void openOnboardingGuide(),
-      },
-      {
-        label: t("menu.help.welcomePage"),
-        action: () => {
-          // toggle（方案 §3.2c 关闭途径 ①）：force 态再点一次解除；否则置位显示完整版覆盖层
-          if (isWelcomeForced()) dismissWelcomeOverlay();
-          else showWelcomeOverlay();
-        },
-      },
-      { sep: true, label: "" },
-      {
-        label: t("menu.help.about"),
-        action: () => {
-          void getVersion()
-            .then((v) => {
-              void openAlert({
-                title: t("main.about.title"),
-                message: t("main.about.body", { version: v }),
-                okLabel: t("main.tab.close"),
-              });
-            })
-            .catch((e) => toastFail(t("main.about.versionFail"), e));
-        },
-      },
-      { sep: true, label: "" },
-      { label: t("menu.help.authorGuide"), action: () => void openGuide() },
-      { sep: true, label: "" },
-      { label: t("menu.help.openLogDir"), action: () => invoke("open_log_dir").catch((e) => toastFail(t("main.about.openLogDir"), e)) },
-      { label: t("menu.help.openDataDir"), action: () => invoke("open_data_dir").catch((e) => toastFail(t("main.about.openDataDir"), e)) },
-    ];
-    // P0-2：Git 一级菜单（报告 D10）——此前 git 操作只能从侧栏「更多操作」二级菜单触达
-    case "git": return [
-      { label: t("menu.git.initRepo"), action: () => void gitInitRepo() },
-      { sep: true, label: "" },
-      { label: t("menu.git.stageAll"), action: () => void stageAllChanges() },
-      { label: t("menu.git.discardAll"), action: () => void discardAllChanges() },
-      {
-        label: t("menu.git.commit"),
-        action: () => { setSidebarTab("git"); ($("git-commit-msg") as HTMLTextAreaElement).focus(); },
-      },
-      { label: t("menu.git.commitAll"), action: () => void commitAll() },
-      { sep: true, label: "" },
-      // MB-14：同步 / 贮藏归组子菜单（原 5 项平铺 → 2 个父项），视觉长度减半；action 原样迁移
-      {
-        label: t("menu.git.sync"),
-        submenu: () => [
-          { label: t("menu.git.fetch"), action: () => void gitRemoteOp("fetch") },
-          { label: t("menu.git.pull"), action: () => void gitRemoteOp("pull") },
-          { label: t("menu.git.push"), action: () => void gitRemoteOp("push") },
-        ],
-      },
-      {
-        label: t("menu.git.stash"),
-        submenu: () => [
-          { label: t("menu.git.stashChanges"), action: () => void gitStash() },
-          { label: t("menu.git.stashPop"), action: () => void gitStashPop() },
-        ],
-      },
-      { sep: true, label: "" },
-      { label: t("menu.git.switchBranch"), action: () => { setSidebarTab("git"); toggleBranchList(); } },
-      { label: t("menu.git.commitHistory"), action: () => { setSidebarTab("git"); toggleHistory(); } },
-      { sep: true, label: "" },
-      { label: t("menu.git.openGitPanel"), action: () => setSidebarTab("git") },
-    ];
-    default: return [];
-  }
 }
 
 // Monaco standalone 无文件系统：Ctrl+hover 定义预览（goToDefinitionAtPosition）会 createModelReference
@@ -2069,6 +1447,21 @@ async function init(): Promise<void> {
   setRunFlowHandlers({ openFile, activateTab, renderTabs, saveActive, saveTab });
   setFileTreeHandlers({ openFile, renderTabs, closeTabSilent, insertHeaderTemplate, runScript: (p) => void runScript(p) });
   setSettingsPanelHandlers({ startLsp });
+
+  // 菜单 / 命令面板数据源（menuItems.ts）：本层私有动作经注入解环，避免 main ⇄ menuItems 静态成环
+  setMenuItemsHandlers({
+    saveActive: () => saveActive(),
+    optimizeImportsActive: () => optimizeImportsActive(),
+    newScratch: () => newScratch(),
+    closeTab: (tab) => closeTab(tab),
+    openFolderFromToolbar: () => openFolderFromToolbar(),
+    openFolderInNewWindow: () => openFolderInNewWindow(),
+    getRecentWorkspaces: () => getRecentWorkspaces(),
+    clearRecentWorkspaces: () => clearRecentWorkspaces(),
+    openWorkspace: (root) => openWorkspace(root),
+    closeWorkspace: () => closeWorkspace(),
+    liveTemplates: () => liveTemplatesHandle,
+  });
   // 阶段 4：Pydantic 诊断 handlers 必须先于 openWorkspace（autoOpenRecentWorkspace 在
   // init 更深处才走到这里之前已可能触发首次扫描——扫描完成时 handlers 为 null 会被静默丢弃，
   // marker 永远挂不上；与 setRuffLintHandlers 不同，ruff 首扫由用户编辑触发无此时序问题）

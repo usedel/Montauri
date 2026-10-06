@@ -134,6 +134,8 @@ addLine("shell/src/style.css", "style_css_max_lines");
 addLine("shell/src/styles/http.css", "styles_http_max_lines");
 addLine("shell/src/styles/logView.css", "styles_logview_max_lines");
 addLine("shell/src/main.ts", "main_ts_max_lines");
+addLine("shell/src/debugEntry.ts", "debug_entry_ts_max_lines");
+addLine("shell/src/menuItems.ts", "menu_items_ts_max_lines");
 addLine("shell/src/git.ts", "git_ts_max_lines");
 addLine("shell/src/lsp/client.ts", "lsp_client_ts_max_lines");
 addLine("shell/src-tauri/src/env_cmds.rs", "env_cmds_rs_max_lines");

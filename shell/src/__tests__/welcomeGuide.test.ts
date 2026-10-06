@@ -4,9 +4,11 @@
 //   巡礼策展数据卫生（quickOpenId 在命令注册表、keybindingId 在键位表——防两侧改名后静默失效）·
 //   完成态 localStorage 读写/容错/计数 · runTourAction id 查不到降级。
 //
-// quickOpenId 存在性验证方式：main.ts::buildQuickOpenActions 是模块私有且 main.ts import 即
-// 执行 init，不可直接引入——改用读 main.ts 源码文本提取 `{ id: "..." }` 清单做静态断言
-//（id 字符串改名必然改动源码文本，同样能锁漂移）。
+// quickOpenId 存在性验证方式：命令注册表由 buildQuickOpenActions 组装，而承载它的模块
+// import 即拉起整条初始化链（不可直接引入）——改用读源码文本提取 `{ id: "..." }` 清单做
+// 静态断言（id 字符串改名必然改动源码文本，同样能锁漂移）。
+// 真源位置 2026-10-06 变更：菜单 / 命令面板数据源自 main.ts 外提到 **menuItems.ts**
+//（阶段二 main.ts 拆分第一刀）。**两个文件都扫**，将来再挪动也不用改这条用例。
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -30,13 +32,20 @@ import {
 } from "../welcomeGuide";
 
 // happy-dom 环境下 import.meta.url 是 http scheme，fileURLToPath 会抛错——
-// vitest 的 cwd 即 vite root（shell/），用 process.cwd() 定位 main.ts。
-const MAIN_TS = resolve(join(process.cwd(), "src", "main.ts"));
-/** 从 main.ts 提取命令注册表静态 id（`{ id: "xxx", label:` 形态；动态前缀条目不在巡礼清单内） */
-function quickOpenIdsInMain(): Set<string> {
-  const src = readFileSync(MAIN_TS, "utf8");
+// vitest 的 cwd 即 vite root（shell/），用 process.cwd() 定位源码。
+// 命令注册表真源：menuItems.ts::buildQuickOpenActions（2026-10-06 自 main.ts 外提）。
+// 两个文件都扫——真源再挪位置时这条用例不需要跟着改。
+const REGISTRY_FILES = [
+  resolve(join(process.cwd(), "src", "menuItems.ts")),
+  resolve(join(process.cwd(), "src", "main.ts")),
+];
+/** 提取命令注册表静态 id（`{ id: "xxx", label:` 形态；动态前缀条目不在巡礼清单内） */
+function quickOpenIdsInRegistry(): Set<string> {
   const ids = new Set<string>();
-  for (const m of src.matchAll(/\{ id: "([a-z0-9_]+)", label:/g)) ids.add(m[1]);
+  for (const f of REGISTRY_FILES) {
+    const src = readFileSync(f, "utf8");
+    for (const m of src.matchAll(/\{ id: "([a-z0-9_]+)", label:/g)) ids.add(m[1]);
+  }
   return ids;
 }
 
@@ -112,10 +121,10 @@ describe("巡礼策展数据卫生（单一数据源锁定，方案 §6 决策 6
     expect(TOUR_ITEMS.length).toBeLessThanOrEqual(12);
   });
 
-  it("quickOpenId 唯一且存在于命令注册表（main.ts 静态提取；改名即红）", () => {
+  it("quickOpenId 唯一且存在于命令注册表（menuItems.ts / main.ts 静态提取；改名即红）", () => {
     const ids = new Set(TOUR_ITEMS.map((t) => t.quickOpenId));
     expect(ids.size).toBe(TOUR_ITEMS.length);
-    const registered = quickOpenIdsInMain();
+    const registered = quickOpenIdsInRegistry();
     for (const t of TOUR_ITEMS) {
       expect(registered.has(t.quickOpenId), `quickOpenId "${t.quickOpenId}" 不在命令注册表`).toBe(true);
     }
