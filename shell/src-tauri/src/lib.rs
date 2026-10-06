@@ -8,6 +8,7 @@ mod git_cmds;
 mod git_status;
 mod history;
 mod http_cmds;
+mod intel_cmds;
 mod lib_cmds;
 mod logging;
 mod lsp;
@@ -204,6 +205,8 @@ pub fn run() {
             env_cmds::detect_pydantic_stack,
             // 端点扫描（F1：FastAPI / Flask 静态路由，docs/pycharm_framework_support_report.md §8.3）
             fs_cmds::scan_endpoints,
+            // 运行时热点（A1：probe trace 库 + 项目函数定义差集，docs/improvement_and_roadmap_report.md §3）
+            intel_cmds::scan_runtime_hotspots,
             // Pydantic 语义层（阶段 4：构造校验诊断 + rename 传播补充，docs/pyrefly_pydantic_support_plan.md §3.4）
             fs_cmds::scan_pydantic_issues,
             fs_cmds::scan_pydantic_ctor_refs,

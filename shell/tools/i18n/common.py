@@ -165,10 +165,17 @@ class Collector(HTMLParser):
         if sig in self.seen: return
         self.seen.add(sig)
         item = {"tag": tag, "id": d.get("id"), "attrs": d, "text": text}
-        ns = ctx_of(stack)
-        key = self.alloc.alloc(ns, local_of(item, stack), text)
+        # 已有对应 data-i18n* 标记：复用其 key 且**不再插入**（保证跨运行幂等——此前只按
+        # (行,列,属性) 去重，重复执行会把全文件标记再插一遍，2026-10-06 踩）。
+        # 词条仍要收集（key → 当前中文原文），否则 html_dict 会随重复执行丢词条。
+        existing = d.get(attr)
+        if existing:
+            key, pre = existing, True
+        else:
+            ns = ctx_of(stack)
+            key, pre = self.alloc.alloc(ns, local_of(item, stack), text), False
         self.hits.append({"line": pos[0], "col": pos[1], "tag": tag,
-                          "attr": attr, "key": key, "text": text.strip()})
+                          "attr": attr, "key": key, "text": text.strip(), "pre": pre})
 
 
 def collect(src):

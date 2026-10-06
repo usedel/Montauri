@@ -88,6 +88,7 @@ import {
 } from "./debugGutter";
 import { initTodoView, resetTodoView, setTodoViewHandlers } from "./todoView"; // P0：TODO 工具窗
 import { initEndpointView, resetEndpointView, setEndpointViewHandlers } from "./endpointView"; // F1：端点工具窗
+import { initHotspotsView, resetHotspotsView, setHotspotsViewHandlers } from "./hotspotsView"; // A1：运行时热点
 import { initDbView, resetDbView, refreshDbWorkspace } from "./sqliteView"; // B3：SQLite 数据库侧栏（资源管理器）
 import { setDbTabHandlers, presentDbTab, cleanupDbTab, dismissDbHost, dbTabLabel, dbTabIcon, invalidateDbTokens } from "./sqliteTabs"; // B3：SQLite 编辑器 Tab（表数据 / SQL 查询）
 import { initDebugView, renderDebugView, setDebugViewHandlers, wireDebugViewEvents } from "./debugView";
@@ -225,6 +226,7 @@ function resetWorkspaceUiState(): void {
   resetFindUsages();            // 查找引用结果面板 + 行缓存
   resetTodoView();              // P0：TODO 列表 + 作废在途扫描
   resetEndpointView();          // F1：端点列表 + 作废在途扫描
+  resetHotspotsView();          // A1：运行时热点结果 + 作废在途扫描
   resetDbView();                // B3：数据库连接态 / 对象树 / 结果 + 作废在途请求
   invalidateDbTokens();         // B3 v1.4：db Tab 的在途查询响应一并作废
   resetNavHistory();            // P1：导航历史（跨工作区的历史没有意义）
@@ -1860,6 +1862,9 @@ async function init(): Promise<void> {
   // F1：端点工具窗（渲染与动作见 endpointView.ts；扫描在 Rust fs_cmds::scan_endpoints）
   initEndpointView();
   setEndpointViewHandlers({ openFile: (path, line) => void openFile(path, line) });
+  // A1：运行时热点视图（渲染与动作见 hotspotsView.ts；扫描在 Rust intel_cmds::scan_runtime_hotspots）
+  initHotspotsView();
+  setHotspotsViewHandlers({ openFile: (path, line) => void openFile(path, line) });
   // B3：数据库工具窗（侧栏资源管理器见 sqliteView.ts；编辑器 Tab 见 sqliteTabs.ts；引擎在 Rust db_cmds.rs）
   initDbView();
   setDbTabHandlers({ activateTab, buildOptions: () => buildEditorOptions(app.settings) });

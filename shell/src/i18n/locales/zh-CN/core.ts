@@ -8,6 +8,7 @@ export const core = {
   "activity.tabEndpoints": "端点（FastAPI / Flask 路由）",
   "activity.tabFiles": "资源管理器",
   "activity.tabGit": "源代码管理",
+  "activity.tabRuntime": "运行时热点（真实跑过的函数）",
   "activity.tabSearch": "搜索",
   "activity.tabTodo": "待办标记（TODO / FIXME）",
   // ---- clipboardDiff ----

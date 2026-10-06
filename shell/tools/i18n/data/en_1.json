@@ -137,5 +137,6 @@
   "dialog.confirmOk": "OK",
   "dialog.confirmCancel": "Cancel",
   "dialog.promptOk": "OK",
-  "dialog.promptCancel": "Cancel"
+  "dialog.promptCancel": "Cancel",
+  "activity.tabRuntime": "Runtime Hotspots (Functions That Actually Ran)"
 }

@@ -9,6 +9,7 @@ import { registerSidebarView, setSidebarTab, restoreSidebarView } from "./views"
 import { cancelSearch } from "./search";
 import { refreshTodos } from "./todoView";
 import { refreshEndpoints } from "./endpointView";
+import { refreshHotspots } from "./hotspotsView";
 import { refreshBranchPanel, refreshGitStatus, renderGitPanel } from "./git";
 import { renderDebugView } from "./debugView";
 import { onDbViewShow } from "./sqliteView";
@@ -71,6 +72,13 @@ export function wireSidebarViews(deps: SidebarViewDeps): void {
     tabId: "tab-database",
     onShow: () => void onDbViewShow(),
   });
+  // A1：运行时热点——同 TODO/端点：切到该视图才读 trace 库并扫工作区
+  registerSidebarView({
+    id: "runtime",
+    rootId: "view-runtime",
+    tabId: "tab-runtime",
+    onShow: () => void refreshHotspots(),
+  });
 
   // Activity Bar 图标（FILES / SEARCH / GIT / DEBUG）
   $("tab-files").addEventListener("click", () => setSidebarTab("files"));
@@ -80,6 +88,7 @@ export function wireSidebarViews(deps: SidebarViewDeps): void {
   $("tab-git").addEventListener("click", () => setSidebarTab("git"));
   $("tab-debug").addEventListener("click", () => setSidebarTab("debug"));
   $("tab-database").addEventListener("click", () => setSidebarTab("database"));
+  $("tab-runtime").addEventListener("click", () => setSidebarTab("runtime"));
   // 大纲折叠 / 展开（OUTLINE 并入文件视图，TD-001 附带考虑）
   // UI-16：disclosure 语义——aria-expanded 与 .collapsed 类同源切换（单一写入点），
   // 并给这个可点击 div 补键盘激活（role=button + tabindex 已在 index.html 静态声明）

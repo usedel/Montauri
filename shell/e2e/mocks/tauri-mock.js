@@ -1027,6 +1027,26 @@
       if (cmd === "get_project_run") return window.__E2E_PROJECT_RUN__ || null;
       if (cmd === "set_project_run") { window.__E2E_PROJECT_RUN__ = args.config || null; return null; }
     }
+    // 4.65b) A1 运行时热点（形状对齐 intel_cmds.rs::RuntimeHotspots）——
+    //        测试经 window.__E2E_HOTSPOTS_PRESET__ 预置；未预置返回「无运行记录」态。
+    //        __E2E_HOTSPOTS_FAIL__ 非空 → 抛错（走 error 分支，验错误态与文案）。
+    if (cmd === "scan_runtime_hotspots") {
+      if (window.__E2E_HOTSPOTS_FAIL__) throw new Error(String(window.__E2E_HOTSPOTS_FAIL__));
+      var hp = window.__E2E_HOTSPOTS_PRESET__;
+      if (!hp) {
+        return { has_data: false, runs: 0, last_run: null, trace_db: "", observed: [], unobserved: [], total_defined: 0, truncated: false };
+      }
+      return {
+        has_data: !!hp.has_data,
+        runs: hp.runs || 0,
+        last_run: hp.last_run === undefined ? null : hp.last_run,
+        trace_db: hp.trace_db || "",
+        observed: Array.isArray(hp.observed) ? JSON.parse(JSON.stringify(hp.observed)) : [],
+        unobserved: Array.isArray(hp.unobserved) ? JSON.parse(JSON.stringify(hp.unobserved)) : [],
+        total_defined: hp.total_defined || 0,
+        truncated: !!hp.truncated,
+      };
+    }
     // 4.6) 调试 DAP mock（E2E 专用，无真实 debugpy）：模拟 stdio adapter 架构时序与步进推演
     var dh = handleDebugCommand(cmd, args);
     if (dh !== "__unhandled__") return dh;

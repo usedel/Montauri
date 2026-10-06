@@ -23,7 +23,20 @@ def esc(s):
     return s.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
 
 
-def emit(pairs, head):
+# 生成器不产出注释，但有两处「分组标题」注释（说明分组为何存在）是刻意保留的。
+# 直接手改生成文件会在下次生成时静默丢失 → 在这里登记锚点，保证生成结果可复现（2026-10-06 踩）。
+PINS_ZH = {
+    "settings.group.appearanceFont": "UI-31：设置面板分类内分组标题（编辑器 20+ 项复选框墙 → 四组，其余密集分类同步分组）",
+    "settings.kb.group.debug": "UI-32：快捷键分区的功能分组标题",
+}
+PINS_EN = {
+    "settings.group.appearanceFont": "UI-31: group titles inside settings categories",
+    "settings.kb.group.debug": "UI-32: keymap group titles",
+}
+
+
+def emit(pairs, head, pins=None):
+    pins = pins or {}
     out = list(head)
     last = None
     for k in sorted(pairs):
@@ -31,6 +44,8 @@ def emit(pairs, head):
         if ns != last:
             out.append(f"  // ---- {ns} ----")
             last = ns
+        if k in pins:
+            out.append(f"  // {pins[k]}")
         out.append(f'  "{k}": "{esc(pairs[k])}",')
     out.append("};")
     return "\n".join(out) + "\n"
@@ -72,19 +87,21 @@ def main():
         "// 简体中文语言包「core 域」（真源）：key 来自 index.html 的 data-i18n* 标记与壳层通用 t() 引用。",
         "// 由 tools/i18n/gen_locales.py 生成；改动请回到 HTML / data/manual_zh.json，不要手改本文件。",
         "export const core = {",
-    ])
+    ], PINS_ZH)
     en_txt = emit(en, [
         "// English (US) 语言包「core 域」：与 zh-CN/core.ts 一一对应，由 Record<CoreKey, string> 校验。",
         'import type { CoreKey } from "../zh-CN/core";',
         "",
         "export const core: Record<CoreKey, string> = {",
-    ])
+    ], PINS_EN)
     os.makedirs(os.path.dirname(OUT_ZH), exist_ok=True)
     os.makedirs(os.path.dirname(OUT_EN), exist_ok=True)
-    open(OUT_ZH, "w", encoding="utf-8").write(
+    # newline=""：Windows 文本模式会把 "\n" 写成 "\r\n"，让整个文件在 git 里显示为改动
+    # （2026-10-06 踩：与 extract_html.py 同一坑，统一按 LF 落盘）。
+    open(OUT_ZH, "w", encoding="utf-8", newline="").write(
         zh_txt + "\n/** 本域文案 key：en-US/core.ts 的 Record<CoreKey, string> 由它派生。 */\nexport type CoreKey = keyof typeof core;\n"
     )
-    open(OUT_EN, "w", encoding="utf-8").write(en_txt)
+    open(OUT_EN, "w", encoding="utf-8", newline="").write(en_txt)
     print(f"已生成 core 域 {len(zh)} 条 → src/i18n/locales/{{zh-CN,en-US}}/core.ts")
 
 

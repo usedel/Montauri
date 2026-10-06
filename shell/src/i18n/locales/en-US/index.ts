@@ -16,6 +16,7 @@ import { env } from "./env";
 import { ext } from "./ext";
 import { filetree } from "./filetree";
 import { git } from "./git";
+import { hotspots } from "./hotspots";
 import { ide } from "./ide";
 import { logs } from "./logs";
 import { lt } from "./lt";
@@ -28,4 +29,4 @@ import { storage } from "./storage";
 import { welcome } from "./welcome";
 import { workbench } from "./workbench";
 
-export const enUS: Record<TKey, string> = { ...core, ...git, ...debug, ...filetree, ...run, ...env, ...storage, ...dep, ...settings, ...newproject, ...welcome, ...search, ...workbench, ...editor, ...ide, ...lt, ...logs, ...devtools, ...ext, ...endpoints, ...database, ...main, ...cloneRepository };
+export const enUS: Record<TKey, string> = { ...core, ...git, ...hotspots, ...debug, ...filetree, ...run, ...env, ...storage, ...dep, ...settings, ...newproject, ...welcome, ...search, ...workbench, ...editor, ...ide, ...lt, ...logs, ...devtools, ...ext, ...endpoints, ...database, ...main, ...cloneRepository };

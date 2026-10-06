@@ -16,6 +16,7 @@ import { env } from "./env";
 import { ext } from "./ext";
 import { filetree } from "./filetree";
 import { git } from "./git";
+import { hotspots } from "./hotspots";
 import { ide } from "./ide";
 import { logs } from "./logs";
 import { lt } from "./lt";
@@ -29,10 +30,10 @@ import { welcome } from "./welcome";
 import { workbench } from "./workbench";
 
 /** 全量中文词条（真源）：英文包的 Record<TKey, string> 以它为基准做同构校验。 */
-export const zhCN = { ...core, ...git, ...debug, ...filetree, ...run, ...env, ...storage, ...dep, ...settings, ...newproject, ...welcome, ...search, ...workbench, ...editor, ...ide, ...lt, ...logs, ...devtools, ...ext, ...endpoints, ...database, ...main, ...cloneRepository };
+export const zhCN = { ...core, ...git, ...hotspots, ...debug, ...filetree, ...run, ...env, ...storage, ...dep, ...settings, ...newproject, ...welcome, ...search, ...workbench, ...editor, ...ide, ...lt, ...logs, ...devtools, ...ext, ...endpoints, ...database, ...main, ...cloneRepository };
 
 /** 各域原始表（spread 前的独立视图）：spread 会把跨域同名 key 静默覆盖，单测扫这里才能发现重复。 */
-export const zhDomains: Record<string, Record<string, string>> = { core, git, debug, filetree, run, env, storage, dep, settings, newproject, welcome, search, workbench, editor, ide, lt, logs, devtools, ext, endpoints, database, main, cloneRepository };
+export const zhDomains: Record<string, Record<string, string>> = { core, git, hotspots, debug, filetree, run, env, storage, dep, settings, newproject, welcome, search, workbench, editor, ide, lt, logs, devtools, ext, endpoints, database, main, cloneRepository };
 
 /** 全部文案 key：en-US 的 `Record<TKey, string>` 与 `t()` 的入参类型都从这里派生。 */
 export type TKey = keyof typeof zhCN;

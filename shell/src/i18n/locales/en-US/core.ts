@@ -9,6 +9,7 @@ export const core: Record<CoreKey, string> = {
   "activity.tabEndpoints": "Endpoints (FastAPI / Flask Routes)",
   "activity.tabFiles": "Explorer",
   "activity.tabGit": "Source Control",
+  "activity.tabRuntime": "Runtime Hotspots (Functions That Actually Ran)",
   "activity.tabSearch": "Search",
   "activity.tabTodo": "TODO Marks (TODO / FIXME)",
   // ---- clipboardDiff ----

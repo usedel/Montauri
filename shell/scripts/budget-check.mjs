@@ -133,17 +133,20 @@ function addValue(kind, name, actual, limit, warnOnly, staleNote) {
 addLine("shell/src/style.css", "style_css_max_lines");
 addLine("shell/src/styles/http.css", "styles_http_max_lines");
 addLine("shell/src/styles/logView.css", "styles_logview_max_lines");
+addLine("shell/src/styles/hotspots.css", "styles_hotspots_max_lines");
 addLine("shell/src/main.ts", "main_ts_max_lines");
 addLine("shell/src/debugEntry.ts", "debug_entry_ts_max_lines");
 addLine("shell/src/menuItems.ts", "menu_items_ts_max_lines");
 addLine("shell/src/windowKeys.ts", "window_keys_ts_max_lines");
 addLine("shell/src/windowChrome.ts", "window_chrome_ts_max_lines");
 addLine("shell/src/sidebarViews.ts", "sidebar_views_ts_max_lines");
+addLine("shell/src/hotspotsView.ts", "hotspots_view_ts_max_lines");
 addLine("shell/src/git.ts", "git_ts_max_lines");
 addLine("shell/src/lsp/client.ts", "lsp_client_ts_max_lines");
 addLine("shell/src-tauri/src/env_cmds.rs", "env_cmds_rs_max_lines");
 addLine("shell/src-tauri/src/fs_cmds.rs", "fs_cmds_rs_max_lines");
 addLine("shell/src-tauri/src/git_cmds.rs", "git_cmds_rs_max_lines");
+addLine("shell/src-tauri/src/intel_cmds.rs", "intel_cmds_rs_max_lines");
 addValue("命令数", "#[tauri::command]", countTauriCommands(), budget.max_tauri_commands, policy.commands_warn_only);
 {
   const b = bundleInfo();

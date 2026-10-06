@@ -100,6 +100,8 @@
             <button data-i18n-aria="activity.tabDebug" data-i18n-tip="activity.tabDebug" id="tab-debug" class="activity-item" role="tab" aria-selected="false" aria-controls="view-debug" aria-label="调试" data-tip="调试"><i class="codicon codicon-debug-alt" aria-hidden="true"></i></button>
             <!-- B3：SQLite 数据库工具窗（docs/sqlite_tool_dev_plan.md §6.2） -->
             <button data-i18n-aria="activity.tabDatabase" data-i18n-tip="activity.tabDatabase" id="tab-database" class="activity-item" role="tab" aria-selected="false" aria-controls="view-database" aria-label="数据库（SQLite）" data-tip="数据库（SQLite）"><i class="codicon codicon-database" aria-hidden="true"></i></button>
+            <!-- A1：运行时热点（probe trace 库 × 项目函数定义差集，docs/improvement_and_roadmap_report.md §3） -->
+            <button data-i18n-aria="activity.tabRuntime" data-i18n-tip="activity.tabRuntime" id="tab-runtime" class="activity-item" role="tab" aria-selected="false" aria-controls="view-runtime" aria-label="运行时热点（真实跑过的函数）" data-tip="运行时热点（真实跑过的函数）"><i class="codicon codicon-pulse" aria-hidden="true"></i></button>
           </div>
           <div id="view-container">
             <!-- TD-001：每个视图单一根节点，切换只操作根（见 src/views.ts 注册表） -->
@@ -171,6 +173,8 @@
             <!-- 数据库工具窗（B3 v1.4 Tab 化）：侧栏只承载「资源管理器」（连接 + 对象树），
                  数据面在编辑器区 #db-tab-panel（见 sqliteTabs.ts） -->
             <div id="view-database" class="sidebar-view hidden" role="tabpanel" aria-labelledby="tab-database"></div>
+            <!-- 运行时热点（A1）：内容由 hotspotsView.ts::initHotspotsView 构建 -->
+            <div id="view-runtime" class="sidebar-view hidden" role="tabpanel" aria-labelledby="tab-runtime"></div>
             <div id="view-git" class="sidebar-view hidden" role="tabpanel" aria-labelledby="tab-git">
               <div id="git-panel">
                 <div id="git-branch-bar">

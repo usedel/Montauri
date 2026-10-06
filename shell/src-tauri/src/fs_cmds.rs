@@ -888,7 +888,8 @@ fn search_workspace_impl(
 }
 
 /// ignore 遍历收集候选文件：尊重 .gitignore/全局 git 排除，跳过隐藏项与常见噪声目录。
-fn collect_files(root: &Path) -> Vec<PathBuf> {
+/// `pub(crate)`：`intel_cmds`（A1 运行时热点）复用同一遍历口径，避免第二套 .gitignore 语义。
+pub(crate) fn collect_files(root: &Path) -> Vec<PathBuf> {
     collect_files_glob(root, None).unwrap_or_default()
 }
 

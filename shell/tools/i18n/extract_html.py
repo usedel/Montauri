@@ -27,6 +27,8 @@ def main():
     hits = C.collect(src)
     lines = src.split("\n")
     for h in sorted(hits, key=lambda x: (x["line"], x["col"]), reverse=True):
+        if h.get("pre"):
+            continue  # 该位置已有 data-i18n* 标记：只收词条，不重复插入（跨运行幂等）
         ln = h["line"] - 1
         s = lines[ln]
         if s[h["col"]] != "<":
@@ -34,11 +36,13 @@ def main():
             sys.exit(1)
         ins = h["col"] + 1 + len(h["tag"])
         lines[ln] = s[:ins] + f' {h["attr"]}="{h["key"]}"' + s[ins:]
-    open(HTML, "w", encoding="utf-8").write("\n".join(lines))
+    # newline=""：Windows 文本模式默认把 "\n" 转成 "\r\n"，会把 index.html 的行尾整体改掉
+    # （2026-10-06 踩：CRLF 化后本脚本的 collect 检测失效，全文件标记被重复插入一遍）。
+    open(HTML, "w", encoding="utf-8", newline="").write("\n".join(lines))
     d = {}
     for h in hits:
         d.setdefault(h["key"], h["text"])
-    json.dump(d, open(DICT_OUT, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    json.dump(d, open(DICT_OUT, "w", encoding="utf-8", newline=""), ensure_ascii=False, indent=1)
     print(f"打标 {len(hits)} 处，词条 {len(d)} 条 → {os.path.relpath(DICT_OUT, os.path.join(HERE, '..', '..'))}")
 
 

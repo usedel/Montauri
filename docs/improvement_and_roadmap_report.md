@@ -39,6 +39,13 @@
 > **第一刀**：调试入口域 → `src/debugEntry.ts`（171）、菜单与命令面板数据源 → `src/menuItems.ts`（570，main 私有动作经 `setMenuItemsHandlers` 注入解环）。
 > **第二刀（`init()` 阶段化）**：全局键位路由 → `src/windowKeys.ts`（147，仅 4 个 main 私有动作经 `setWindowKeyActions` 注入）、自绘标题栏与窗口边缘 → `src/windowChrome.ts`（73，**零 main 私有依赖**）、侧栏视图注册表 + 活动栏 → `src/sidebarViews.ts`（107，仅注入 `refreshOutline`）。
 > **阈值逐刀下调：3,000 → 2,600 → 2,400**，五个新文件各设上限（205 / 690 / 180 / 90 / 130）——拆分后不降阈值，省下的余量会被下一个功能吃掉。门禁：`tsc` 零错 · 单测 **1215/1215** · `budget-check` **十七项全 PASS** · e2e ux 29 / p3 5 / dx 65 / db 32 / debug 16 全过 · `npm run build` 通过。**第三刀候选：`init()` 余下的启动编排（Monaco 装配 / 各域事件接线）继续按阶段外提。**
+> ⑫ **A1 运行时热点视图已交付（2026-10-06，用户选「A1」）**——阶段二差异化泳道的首件，也是 §A 类里第一条真正落地的"别人抄不走"功能。
+> **数据层** `src-tauri/src/intel_cmds.rs`（新文件，472 行）：只读打开 `<data_root>/traces/<project_hash>.db`（`SQLITE_OPEN_READ_ONLY`，不写不建），读 `functions(fid, filename, qualname, lineno, hits, stale)` 与 `exc_types`；对齐键 = **(归一化绝对路径, 定义行号)**；项目侧用 `fs_cmds::collect_files`（尊重 .gitignore）逐行识别 `def` / `async def` 做差集。条目 `file` 输出**绝对正斜杠路径**（对齐 `scan_endpoints` 先例：前端 `openFile → read_file` 直读，相对路径相对进程 cwd 必失败）；trace 库存的是 `normcase` 小写绝对路径，**借静态扫描结果还原展示大小写**。
+> **口径红线（本件的核心裁决）**：`unobserved` 只在**项目确有运行记录**时产出（否则无信息量，直接 `has_data=false` 返回空）；语义一律是「**未观测到运行**」——可能原因含未被测试/入口覆盖、条件分支未走到、采样遗漏、进程外调用，**UI 与文档均不得写成"死代码"断言**（`hotspots.unobservedHint` 逐字否认，e2e HS-4 钉住 title）。trace 库里的 `<module>`（模块级）与类体**不是函数**，回读源码行确认后才保留 def。
+> **前端** `src/hotspotsView.ts`（第 8 个侧栏视图，`#view-runtime` / `#tab-runtime`）：上半「已观测（按调用次数）」带 stale「已改动」与异常 `⚠ n` 徽章，下半「未观测到运行」；概要为「观测 N 个函数 · 覆盖 X%」。**惰性加载**——扫描只挂视图 `onShow`，不在启动路径上做 IO（e2e HS-6 用 invoke 流水钉住）。新样式落 `src/styles/hotspots.css`（新功能不往 `style.css` 堆，纪律同 B4/B5）。
+> **顺带修掉的 i18n 生成链缺陷**（都会造成"看起来正常"的静默污染）：① `extract_html.py` 与 `gen_locales.py` 均以文本模式写文件，在 Windows 上把产物 CRLF 化——`extract_html.py` 因此让 `collect` 的「已标记」检测失效（全文件标记被重复插一遍），`gen_locales.py` 则让整个 `core.ts` 显示为改动；统一改 `newline=""` 按 LF 落盘。② `gen_locales.py` 不产出注释，两处刻意的分组标题注释（UI-31 / UI-32）**手改生成文件后每次重生成都会静默丢失**——新增 `PINS_ZH` / `PINS_EN` 锚点登记，生成结果从此可复现。③ `data/html_dict.json` 与 `data/en_2.json` 的字体预设默认值停留在"批 3 随包 JetBrains Mono"之前（`默认（Consolas / Cascadia / JetBrains）`），与 `index.html` / `state.ts` 的真值不符，且每次重生成都会把错误值写回 `core.ts`——已按真值修正。
+> **⚠ 取数禁则（新增第 7 条）**：`data/html_dict.json` 是**冻结快照**，**不可随意重跑 `extract_html.py`**——重跑会产出 18 条与 `manual_zh.json` 重复的 key + 21 条缺英文，`gen_locales.py` 直接 exit 1（本轮实测）。要改词条请直接改 `html_dict.json` / `manual_zh.json`。
+> 门禁：`tsc` 零错 · 单测 **99 文件 / 1223**（A1 新增 `hotspotsView.test.ts` 8 例，含 e2e 触达不到的三条空态分支）· `cargo test` 通过（外壳 310 / 含 `intel_cmds` 6 例）· e2e **ux 37/37**（A1 8 例 HS-1~HS-8）· `budget-check` **二十项全 PASS**（新增 `hotspotsView.ts` 282/350 · `styles/hotspots.css` 44/60 · `intel_cmds.rs` 472/600；命令 194 → **195**/200 · 产物 4,999/5,120 · `main.ts` 2,099/2,400）· `audit_tokens.py` **98 项 0 FAIL**（新 CSS 经 `@import` 进审计面，已用"注入裸阴影"正对照验证确实被抓）。
 > v1.1 的规模数字取自 PowerShell `Get-Content $f | .Count`。在本机（PS 5.1，ANSI 代码页 **gb2312**）上，对**无 BOM 的 UTF-8 源文件**该写法会按 GBK 解码并**吞掉换行**——`style.css` 报 5,410 而真实 5,668（少 4.5%），`main.ts` 报 2,503 而真实 2,897（少 13%）。丢失比例随文件 CJK 密度而变、**逐文件不同**，因此这批数字是"看起来合理但系统性偏低"的。
 > 连带被推翻的结论（详见 §1.2）：**「巨型文件趋势已逆转」「UI 六批顺带把逻辑拆去了域模块」不成立**——`git.ts` / `lsp/client.ts` / `env_cmds.rs` / `fs_cmds.rs` / `git_cmds.rs` 在 `44c85ea → HEAD` 之间**一行未变**，`main.ts` 是 **+58**（不是 −336）。
 > 本版全部行数改由 `tools/stats/repo-stats.mjs` 重取，并新增两个防复发机制：取数脚本固化为代码 + 预算门禁（`ci/budgets.toml` / `shell/scripts/budget-check.mjs`）。
@@ -354,7 +361,7 @@ A 类全部复用已有的 probe trace 数据或外壳基建，**别人抄不走
 
 | # | 功能 | 说明 | 成本 | 依赖 | 风险 |
 |---|---|---|---|---|---|
-| A1 | **运行时热点视图** | 侧栏新视图：按 `hits` 排序列出真实跑过的函数，标注"从未运行"的可疑函数（死代码候选）+ 异常观测 `exc_types` 标记 | 中（2~3d） | intel 索引已有 `hits` / `exc_types` | ① 需定义"从未运行"的置信口径（受采样与覆盖范围影响），避免误报成噪音；② **开工前先核对与已交付 `inlineValues.ts`（行内值，同为 trace 驱动）的基建重叠面**，避免两套 trace→UI 通道 |
+| ~~A1~~ ✅ | **运行时热点视图**（**已交付 2026-10-06**，见 §续记 ⑫） | 侧栏新视图：按 `hits` 降序列出真实跑过的函数（带 stale「已改动」/ 异常观测徽章），下方列出「**未观测到运行**」的函数；点击任一行跳转声明 | 中（2~3d）→ **实际 ~1d** | ✅ 已落地：`intel_cmds.rs` 读 probe trace 库 + `fs_cmds::collect_files` 扫 `def` 做差集 | ① 口径**已裁决并落进文案**：一律写「未观测到运行」且显式否认"死代码"（可能原因含未被测试/入口覆盖、分支未走到、采样遗漏、进程外调用）；② 与 `inlineValues.ts` 的**通道重叠已规避**——本视图走独立命令 `scan_runtime_hotspots`，不碰 intel 补全通道 |
 | A2 | **轻量内置 Profiler** | probe 已挂 `sys.monitoring`，扩展采集调用耗时 → IDE 内函数级耗时视图 + Top-N 慢函数 + 点击跳转。对标 cProfile + snakeviz，但**零用户操作** | 中-大（5~8d） | PEP 669 事件扩展；开销预算需重新定（现红线 1.5x 是类型采样口径） | 开销上升；需新增"性能模式"开关，默认关 |
 | A3 | **trace 驱动的签名补全与默认值提示** | `arg_types` 已按参数位累加观测 → 调用处补全参数名、hover 显示"实际见过的类型与常见值" | 小-中（2d） | intel `arg_types` | 与静态补全排序竞争（沿用 `1xx` 段钉序即可） |
 | A4 | **爬虫场景工具箱**（画像强绑定） | 选择器测试面板（输入 HTML + CSS/XPath → 实时结果，复用 `libEval` 求值桥）、请求回放、响应结构 → Pydantic model 生成 | 中（3~5d） | `libEval` / `endpointView` / 运行历史 | 面窄但精准——用户画像是「FastAPI + 爬虫 + 小脚本」，这是**只有 OpenCharm 会做**的功能 |
@@ -409,7 +416,7 @@ A 类全部复用已有的 probe trace 数据或外壳基建，**别人抄不走
 | 　P0-1 子项 7 CI 落点裁决 | ★★★★★ | 0（本轮只做标注） | — | ✅ **已裁决（维持现状）**：`.github/workflows/` 定位为"将来推 GitHub 的预埋"，P0-1 余项转为"迁移后首次触发验证" |
 | **`main.ts` 外提（阶段二）** | ★★★★ | 1d | — | ✅ **两刀已完成**：2,919 → **2,094**（−825 行）；第一刀 `debugEntry.ts` / `menuItems.ts`，第二刀 `init()` 阶段化 `windowKeys.ts` / `windowChrome.ts` / `sidebarViews.ts`；阈值 3,000 → 2,600 → **2,400** |
 | ~~P0-3 验收尾账 + onboarding 双源裁定~~ | ★★★★ | 中小 | — | ✅ **已交付**（**余 D-6/D-8 两个缺陷；D-7 已于 2026-10-06 修**） |
-| A1 运行时热点 / 死代码视图 | ★★★★ | 中 | intel 索引（先核 inlineValues 重叠） | ★★★★☆ |
+| ~~A1 运行时热点视图~~ ✅ **已交付（2026-10-06）** | ★★★★ | ~~中~~ **1d** | — | ✅ **已交付**（`intel_cmds.rs` + `hotspotsView.ts`；e2e ux 8 例 / 单测 8 例钉住） |
 | A3 trace 驱动签名提示 | ★★★ | 小 | arg_types | ★★★★ |
 | P1-1 可观测性三件套 | ★★★ | 中 | — | ★★★ |
 | B2 REPL / Scratch | ★★★ | 小 | 求值桥 | ★★★ |
@@ -459,10 +466,10 @@ A 类全部复用已有的 probe trace 数据或外壳基建，**别人抄不走
 
 | 泳道 | 内容 |
 |---|---|
-| 差异化 | A1 运行时热点 + A3 签名提示（共用 intel 数据层）；**前置**：P0-2 第二格（真实项目采一次 trace，≥1000 条观测） |
+| 差异化 | ~~A1 运行时热点~~ ✅ **已交付（2026-10-06）**（前置 P0-2 第二格 trace 采样已具备：metawake 277 条 / 覆盖率 79%）+ A3 签名提示（共用 intel 数据层） |
 | 基本功 | ~~D-6 / D-8 两个残留缺陷~~ ✅ 已修 · ✅ **`main.ts` 外提两刀已完成（2,919 → **2,094**，−825 行；阈值 3,000 → 2,600 → **2,400**）** · **第三刀候选：`init()` 余下的启动编排（Monaco 装配段 / 各域事件接线段）继续外提** · `env_cmds.rs` 真拆（−49%，**阶段二候选、不设死线**；本轮的冻结线已在生效，行数不再增长即可） |
 
-**阶段门**：热点视图对"死代码"的误报率可接受；~~`env_cmds.rs` 状态**明确**~~ ✅ 已明确（**长期上限 + 冻结线**，见 P0-4 裁决）；✅ `delivery-overview.md` 已补录 B4/B5 并升 v1.1；✅ 用例基线已刷新为 1215；✅ **`main.ts` 外提两刀已完成（−825 行，阈值降到 2,400）**。**本阶段的结构性必办已清空**——`init()` 仍可继续外提（第三刀候选），但余量（306 行）已回到健康区间，不再紧急。
+**阶段门**：~~热点视图对"死代码"的误报率可接受~~ ✅ **已由口径消除**——视图不产出"死代码"断言，只陈述「未观测到运行」并列明可能原因（未覆盖 / 分支未走 / 采样遗漏 / 进程外调用），**因此不存在"误报"这一口径**；~~`env_cmds.rs` 状态**明确**~~ ✅ 已明确（**长期上限 + 冻结线**，见 P0-4 裁决）；✅ `delivery-overview.md` 已补录 B4/B5 并升 v1.1；✅ 用例基线已刷新为 **1223**；✅ **`main.ts` 外提两刀已完成（−825 行，阈值降到 2,400）**。**本阶段的结构性必办已清空**——`init()` 仍可继续外提（第三刀候选），但余量（306 行）已回到健康区间，不再紧急。
 
 ### 阶段三 · 画像期（约 10~18 周，2 条泳道）
 
@@ -561,7 +568,7 @@ A 类全部复用已有的 probe trace 数据或外壳基建，**别人抄不走
 | 真机层（本机一键全量） | `powershell -File shell\e2e-real\run-real-all.ps1`（串行；`-Only` / `-Skip` / `-Strict`） |
 | 真机层（单套件） | `cd shell && set "OC_JSON_OUT=<路径>" && node e2e-real\<name>.cjs` |
 
-### ⚠ 取数禁则（前三条是 v1.2 踩过的坑，后两条是 v1.3 新增）
+### ⚠ 取数禁则（前三条是 v1.2 踩过的坑，后四条是 v1.3 新增，其中 5~7 为第二轮）
 
 1. **禁止用 `Get-Content $f`（不带 `-Encoding`）统计行数。** 本机 PS 5.1 的 ANSI 代码页是 **gb2312**；对**无 BOM 的 UTF-8 源文件**它会按 GBK 解码并**吞掉换行**——实测 `style.css` 报 5,410（真实 5,668，少 4.5%）、`main.ts` 报 2,503（真实 2,897，少 13%）。丢失比例随 CJK 密度而变、**逐文件不同**，所以这批数字"看起来合理但系统性偏低"，极难自查。
    正确写法任选其一（三者对同一文件必然同值）：`Get-Content -Encoding UTF8 $f` · `[System.IO.File]::ReadAllLines($abs)` · `node -e "..."`（按 `\r?\n` 切分）。
@@ -570,6 +577,7 @@ A 类全部复用已有的 probe trace 数据或外壳基建，**别人抄不走
 4. **【v1.3 新增】跑产物体积断言前必须确认 `dist/` 是新的。** `budget-check.mjs` 的体积项数的是 `shell/dist/assets` 下 `.js + .css` 的字节和；`dist/` 陈旧时会把**已删除的依赖分包**继续算进去。实测：陈旧 dist 报 **7,065 KB（FAIL）**，`npm run build` 后 **4,988 KB（PASS）**——差额约 2.08 MB 全是**已被取消的 mermaid/katex 分包**（`cynefin` 654 KB + `wardleyDiagram` 640 KB + `katex` 261 KB + 其余 diagram 分包）。**这是与禁则 1 同类的"看起来合理但系统性错误"**：它不会报错，只会给出一个偏大的数字。修法见 P0-0 动作 1（给脚本加 dist 新鲜度校验）。
 5. **【v1.3 第二轮新增】不要把"仓库里有 workflow"当作"CI 在跑"。** 判定 CI 是否成立必须**先确认宿主**：`git remote -v` 里有没有 GitHub 远端（Gitee / 自建 GitLab **不执行** `.github/workflows/`）。本仓 2026-10-06 查出只有 `gitee.com/usedel/opencharm`——此前两版报告里"CI 配置已交付 / 待观察首次触发"的记账全部建立在一个不存在的执行前提上。**顺序：先查宿主 → 再看配置 → 最后才谈证据。**
 6. **【v1.3 新增】不要把"配置/清单就位"记成"已交付"。** 判定交付以**证据文件是否存在**为准：CI 是否真的触发过 → 看 Actions run 与 `bench/reports/metrics-*.md` / `budget-*.md`；Gate D 是否推进 → 看 `gate-d-ab-worklist.md` 的 PyCharm 列是否被勾、降权常量是否被改；缺陷是否修 → 看代码行。**v1.2 就是因为把前两者记成 ✅，才在 19 个提交后发现三项零进展。**
+7. **【v1.3 第二轮新增】i18n 的 `data/html_dict.json` 是"冻结快照"，禁止随手重跑 `extract_html.py`。** 该脚本会按当前 `index.html` 重建整份词条表，而 `index.html` 长期是超前于它的（词条已在 `manual_zh.json` 里登记过）——实测重跑产出 **18 条与 `manual_zh.json` 重复的 key + 21 条缺英文**，`gen_locales.py` 直接 `exit 1`。要改词条请**直接改 `html_dict.json` / `manual_zh.json`**。**同族的坑：`extract_html.py` / `gen_locales.py` 原先都以文本模式写文件**，在 Windows 上把产物整体 CRLF 化——`extract_html.py` 因此让"该位置是否已有标记"的检测失效（全文件标记被重复插一遍），`gen_locales.py` 则让整个 `core.ts` 显示为改动。**凡生成器写文件一律 `open(..., newline="")`。** 另：生成器不产出注释，手改生成文件的注释会在下次重生成时静默丢失——`gen_locales.py` 已加 `PINS_ZH` / `PINS_EN` 锚点登记，新增此类注释请登记进去而不是手改产物。
 
 **复核触发条件**（满足任一即需重取数字并更新本文头部「取数时点」）：① HEAD 变动 ≥ 10 个提交；② 任一专项验收收口（debug / db / ui / run / toolbox）；③ 季度评审；④ 任何专项 `*_dev_plan.md` 状态从"未开工"转"已交付"；⑤ **【v1.3 新增】定位 / 铁律 / 预算发生任何变更**（如 ADR-0010 这类会改变评判坐标系的事件，**优先级高于 ①~④**）。**重取一律走 `tools/stats/repo-stats.mjs` + `budget-check.mjs`，不要手敲命令。**
 

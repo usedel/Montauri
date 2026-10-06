@@ -5,6 +5,7 @@
    前置内联不改变层叠结果；audit_tokens.py 会解析这里的 @import 保持审计面完整。 */
 @import "./styles/http.css";
 @import "./styles/logView.css";
+@import "./styles/hotspots.css";
 
 /* ---------- 随包等宽字体（ui_premium §5.3-3b · 批 3）----------
    JetBrains Mono 随应用分发：文件在 public/fonts/（**入库**），版本与 sha256 锁在

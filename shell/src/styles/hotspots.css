@@ -1,0 +1,44 @@
+/* A1 · 运行时热点 —— 新功能落新文件（2026-10-06，与 style.css 拆分后的纪律一致：
+   新功能的样式不再往 style.css 里堆，避免"静默增长"重演）。
+   真源 docs/improvement_and_roadmap_report.md §3 A1；选择器命名空间 #hp-* / .hp-*。
+   本文件经 style.css 顶部 @import 内联进 bundle，门禁由 audit_tokens.py 的 @import 解析覆盖。
+   全部走语义 token（颜色/间距/字号），不硬编码。 */
+
+#hp-toolbar { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); }
+#hp-toolbar .btn { margin-left: 0; flex: none; }
+#hp-summary { font-size: var(--text-sm); color: var(--fg-dim); margin-right: auto; }
+#hp-results { overflow-y: auto; flex: 1; }
+
+/* 元信息行（运行次数 / 末次运行 / 截断提示） */
+.hp-meta { padding: var(--space-1) var(--space-3); font-size: var(--text-xs); color: var(--fg-dim); }
+
+/* 分组标题沿用 .todo-group-header，仅标签加粗以便与计数区分 */
+.hp-section-label { font-weight: 600; }
+
+/* 条目：复用 .todo-item 的 flex 行，但徽章/计数需垂直居中对齐 */
+.hp-item { align-items: center; gap: var(--space-2); }
+.hp-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hp-hits {
+  flex-shrink: 0;
+  font-size: var(--text-xs);
+  color: var(--fg-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 徽章：stale（文件已改动）与 exc（观测到异常） */
+.hp-badge {
+  flex-shrink: 0;
+  font-size: var(--text-xs);
+  line-height: 1.4;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-xs);
+  border: 1px solid currentColor;
+}
+.hp-badge--stale { color: var(--warn); }
+.hp-badge--exc { color: var(--danger); }

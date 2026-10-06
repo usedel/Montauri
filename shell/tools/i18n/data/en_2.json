@@ -97,7 +97,7 @@
   "settings.appearance.sectionAppearanceLabel": "Font Size",
   "settings.appearance.sectionAppearanceLabel2": "Font Family",
   "settings.appearance.fontFamilyPreset": "Common monospace fonts",
-  "settings.appearance.fontFamilyPreset.default": "Default (Consolas / Cascadia / JetBrains)",
+  "settings.appearance.fontFamilyPreset.default": "Default (JetBrains Mono, bundled)",
   "settings.appearance.fontFamilyPreset.custom": "Custom…",
   "settings.appearance.fontFamily": "Custom font stack",
   "settings.appearance.fontFamily2": "Font stack (comma separated)",
