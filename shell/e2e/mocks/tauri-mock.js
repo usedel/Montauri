@@ -586,6 +586,9 @@
     dict: [["keys", "Return a view of keys."], ["values", "Return a view of values."], ["items", "Return a view of (key, value) pairs."], ["get", "Return value for key or default."], ["pop", "Remove key and return value."], ["setdefault", "Return value or set default."], ["update", "Update from another mapping."], ["clear", "Remove all items."], ["copy", "Return a shallow copy."]]
   };
 
+  // P0-B 夹具状态：记录「慢响应」已作用于哪个预设对象（预设对象换掉即可重新武装）
+  var lspStaleArmedFor = null;
+
   var lspDocs = new Map();        // uri → { text, lines }
   var lspSymbols = new Map();     // name → { uri, line, doc }
   var lspClassMembers = new Map(); // uri → { className → [ [method, doc] ] }
@@ -693,20 +696,42 @@
     });
   }
 
-  /** 属性补全：`name.` → 返回 name 对应类型的成员 */
+  /**
+   * 属性补全：`name.` → 返回 name 对应类型的成员；`name.pre` → **按前缀过滤**（P0-B 需要）。
+   *
+   * 前缀过滤是真实引擎的服务端行为（basedpyright 系在 retrigger 时按当前词下发收窄后的列表）。
+   * 补它的原因：Monaco 只在存在 incomplete provider 时才在继续输入时重新请求 provider，
+   * 若 mock 对 `name.pre` 一律返回空，retrigge r后的面板必然为空、测不出「过期结果覆盖」。
+   */
   function lspComplete(uri, pos) {
     var doc = lspDoc(uri);
     if (!doc) return [];
     var line = doc.lines[pos.line] || "";
     var before = line.slice(0, pos.character);
-    var attr = /([A-Za-z_][A-Za-z0-9_]*)\s*\.$/.exec(before);
+    var attr = /([A-Za-z_][A-Za-z0-9_]*)\s*\.\s*([A-Za-z0-9_]*)$/.exec(before);
     if (attr) {
       var name = attr[1];
+      var prefix = attr[2] || "";
+      var members = null;
+      var detail = "";
       var type = lspVarType(uri, name);
-      if (type && LSP_MEMBERS[type]) return lspMembersToItems(LSP_MEMBERS[type], type + " method");
-      var cls = (lspClassMembers.get(uri) || {})[name];
-      if (cls && cls.length) return lspMembersToItems(cls, "method");
-      return [];
+      if (type && LSP_MEMBERS[type]) {
+        members = LSP_MEMBERS[type];
+        detail = type + " method";
+      } else {
+        var cls = (lspClassMembers.get(uri) || {})[name];
+        if (cls && cls.length) {
+          members = cls;
+          detail = "method";
+        }
+      }
+      if (!members) return [];
+      if (!prefix) return lspMembersToItems(members, detail);
+      // 子串匹配（同真实引擎的收窄口径：`pl` 命中 `split` / `replace`）
+      return lspMembersToItems(
+        members.filter(function (m) { return m[0].indexOf(prefix) >= 0; }),
+        detail,
+      );
     }
     return [];
   }
@@ -976,11 +1001,34 @@
     if (cmd === "lsp_send_request") {
       var eng0 = args.engine, rid = args.id, method0 = args.method, params0 = args.params || {};
       var result0 = null;
+      var delayMs = 0; // P0-B：慢引擎延迟（仅补全分支会置位）
       if (method0 === "initialize") {
         result0 = { capabilities: { textDocumentSync: 2, completionProvider: { triggerCharacters: [".", "_"], resolveProvider: true }, hoverProvider: true, definitionProvider: true, referencesProvider: true, documentSymbolProvider: true, renameProvider: { prepareProvider: true } } };
       } else if (method0 === "textDocument/completion") {
         var td0 = params0.textDocument || {};
-        result0 = { isIncomplete: false, items: lspComplete(td0.uri, params0.position || { line: 0, character: 0 }) };
+        // P0-B 测试夹具：window.__E2E_LSP_PRESET__（页面侧 addInitScript 注入，模式同 __E2E_CLONE_PRESET__）
+        //   completionIsIncomplete?: boolean  响应声明 isIncomplete（Monaco 只在存在 incomplete provider
+        //                                      时才会在继续输入时重新请求，否则仅本地过滤）
+        //   staleDelayMs?: number             慢引擎延迟；只作用于本预设生效后的**第一条**补全请求
+        //   staleItems?: string[]             被延迟那条请求返回的过期候选（省略则沿用正常结果）
+        var lp = window.__E2E_LSP_PRESET__ || null;
+        var items0 = lspComplete(td0.uri, params0.position || { line: 0, character: 0 });
+        if (lp && lp.staleDelayMs > 0) {
+          // 第一条请求标记为「慢」：延迟返回 + 换成过期候选 → 构造「旧响应后到」时序
+          if (lspStaleArmedFor !== lp) {
+            lspStaleArmedFor = lp;
+            delayMs = lp.staleDelayMs;
+            if (Array.isArray(lp.staleItems)) {
+              items0 = lp.staleItems.map(function (lb) {
+                return { label: lb, kind: LSP_KIND_METHOD, detail: "stale", sortText: "0" + lb };
+              });
+            }
+          }
+        }
+        result0 = {
+          isIncomplete: !!(lp && lp.completionIsIncomplete),
+          items: items0,
+        };
       } else if (method0 === "completionItem/resolve") {
         result0 = params0; // 补全项本身已含 documentation/detail，resolve 原样返回
       } else if (method0 === "textDocument/hover") {
@@ -1006,11 +1054,16 @@
         var td7 = params0.textDocument || {};
         result0 = lspRename(td7.uri, params0.position || { line: 0, character: 0 }, String(params0.newName ?? ""));
       }
-      emitEvent("lsp-message", { engine: eng0, id: rid, result: result0 });
-      // 诊断用：记录 LSP 请求方法 + 结果（供 E2E 调试读取 window.__OPENCHARM_LSP_LOG__）
-      window.__OPENCHARM_LSP_LOG__ = window.__OPENCHARM_LSP_LOG__ || [];
-      window.__OPENCHARM_LSP_LOG__.push({ m: method0, params: params0, r: result0 });
-      if (window.__OPENCHARM_LSP_LOG__.length > 60) window.__OPENCHARM_LSP_LOG__.shift();
+      // P0-B：延迟分支包 setTimeout，模拟慢引擎「在用户已继续输入之后才落地」的响应
+      var emitLsp = function () {
+        emitEvent("lsp-message", { engine: eng0, id: rid, result: result0 });
+        // 诊断用：记录 LSP 请求方法 + 结果（供 E2E 调试读取 window.__OPENCHARM_LSP_LOG__）
+        window.__OPENCHARM_LSP_LOG__ = window.__OPENCHARM_LSP_LOG__ || [];
+        window.__OPENCHARM_LSP_LOG__.push({ m: method0, params: params0, r: result0 });
+        if (window.__OPENCHARM_LSP_LOG__.length > 60) window.__OPENCHARM_LSP_LOG__.shift();
+      };
+      if (delayMs > 0) setTimeout(emitLsp, delayMs);
+      else emitLsp();
       return null;
     }
     if (cmd === "lsp_send_notification") {

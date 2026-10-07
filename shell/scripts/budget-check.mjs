@@ -158,6 +158,7 @@ addLine("shell/src/devtools/builtin/selector.ts", "selector_ts_max_lines");
 addLine("shell/src/devtools/builtin/http.ts", "http_ts_max_lines");
 addLine("shell/src/git.ts", "git_ts_max_lines");
 addLine("shell/src/lsp/client.ts", "lsp_client_ts_max_lines");
+addLine("shell/src/completion/lspCompletion.ts", "completion_lsp_ts_max_lines");
 addLine("shell/src-tauri/src/env_cmds.rs", "env_cmds_rs_max_lines");
 addLine("shell/src-tauri/src/run_config.rs", "run_config_rs_max_lines");
 addLine("shell/src-tauri/src/dep_health.rs", "dep_health_rs_max_lines");

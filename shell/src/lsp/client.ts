@@ -12,6 +12,13 @@ import { depActionsForLine, latestDiff, toWorkspaceRelative } from "../depHealth
 import { isSuppressedEngineAction } from "../quickFix";
 import { t } from "../i18n"; // i18n 复核修复：hover 调试段与 quickfix 标题走语言包
 import { libsHoverAt } from "../dslLens"; // 库支持 PR-2/PR-3（R-1）：hover 合并管线的自研追加段
+import {
+  type LspCompletionItem,
+  type LspCompletionList,
+  emptyCompletionList,
+  mapAdditionalTextEdits,
+  normalizeCompletionList,
+} from "../completion/lspCompletion"; // P0-A2/P0-D：补全解析/映射外迁为纯函数（client.ts 不可单测）
 
 // Monaco 实例注入（配合 main.ts 动态加载；providers 注册前必须先注入）
 let monaco: typeof MonacoApi;
@@ -27,19 +34,7 @@ interface LspRange { start: LspPosition; end: LspPosition }
 interface LspLocation { uri: string; range: LspRange }
 interface LspDiagnostic { range: LspRange; severity?: number; message: string; source?: string; code?: string | number }
 
-interface LspCompletionItem {
-  label: string;
-  kind?: number;
-  detail?: string;
-  documentation?: string | { value: string };
-  insertText?: string;
-  insertTextFormat?: number; // 1 = plain, 2 = snippet
-  sortText?: string;
-  filterText?: string;
-  data?: unknown; // 引擎用于 completionItem/resolve 标识的不透明数据
-  labelDetails?: { detail?: string; description?: string };
-  additionalTextEdits?: Array<{ range: LspRange; newText: string }>;
-}
+// LspCompletionItem 已外迁至 completion/lspCompletion.ts（P0-A2：可单测的纯模块），此处 import。
 
 interface LspHover { contents: unknown }
 
@@ -613,13 +608,27 @@ async function flushBeforeSemantic(): Promise<void> {
   if (beforeSemanticHook) await beforeSemanticHook();
 }
 
-/** 查询某引擎的补全项（引擎未就绪返回空数组） */
-async function queryCompletion(engine: string, params: unknown): Promise<LspCompletionItem[]> {
+/**
+ * 查询某引擎的补全响应（引擎未就绪返回空列表）。
+ *
+ * P0-A2：返回**完整响应**而非仅 items——`isIncomplete` 必须透传给 Monaco，否则客户端会把
+ * 被引擎截断的列表当「可本地过滤的完整集合」，第 51 名以后的候选永远补不出来。
+ */
+async function queryCompletion(engine: string, params: unknown): Promise<LspCompletionList> {
   const s = session(engine);
-  if (s.status !== "ready") return [];
+  if (s.status !== "ready") return emptyCompletionList();
   const result = await requestEngine(engine, "textDocument/completion", params);
-  return Array.isArray(result) ? result : (result?.items ?? []);
+  return normalizeCompletionList(result);
 }
+
+/**
+ * 补全请求世代号（P0-B）：每次 `provideCompletionItems` 进入即自增，慢引擎的迟到响应
+ * 在落地前比对世代号，过期即静默丢弃，避免「先显示旧成员列表再跳变」的面板闪跳。
+ *
+ * 作用域是 **LSP provider 模块级**，只守 LSP 这一路；autoImport/alias/模板/关键字各 provider
+ * 互不干扰（它们要么同步返回，要么自带 token 检查）。
+ */
+let completionGen = 0;
 
 /** LSP 补全项 → Monaco 补全项（附引擎标识 __engine，供 resolve 回源） */
 function toMonacoItem(
@@ -651,10 +660,24 @@ export function registerLspCompletion(): MonacoApi.IDisposable {
   return monaco.languages.registerCompletionItemProvider("python", {
     // A3①：`(` / `,` 让「调用实参补全」（intel 参数名候选）在打完 `(` 或 `,` 时即弹出
     triggerCharacters: [".", "_", "\"", "'", "[", "(", ","],
-    async provideCompletionItems(model: MonacoApi.editor.ITextModel, position: MonacoApi.Position) {
+    /**
+     * P0-B：签名取**四参**形态——`token` 是第 4 个参数（第 3 个是 `CompletionContext`）。
+     * 写成第 3 个会把 context 当 token，`token.isCancellationRequested` 恒 undefined，取消静默失效
+     * （先例见 autoImport.ts 的 `provideCompletionItems(model, position, _ctx, token)`）。
+     */
+    async provideCompletionItems(
+      model: MonacoApi.editor.ITextModel,
+      position: MonacoApi.Position,
+      _context: MonacoApi.languages.CompletionContext,
+      token: MonacoApi.CancellationToken,
+    ) {
+      // **先取号再 await**：保证 flush/请求期间新触发的调用也能作废旧请求（P0-B）
+      const gen = ++completionGen;
+      if (token?.isCancellationRequested) return { suggestions: [] };
       if (engineStatus !== "ready") return { suggestions: [] };
       // 先冲刷未同步的文档变更，再发补全请求（顺序保证：await 同步帧写入后才发请求）
       if (beforeCompletionHook) await beforeCompletionHook(model);
+      if (token?.isCancellationRequested || gen !== completionGen) return { suggestions: [] };
       const word = model.getWordUntilPosition(position);
       const range = {
         startLineNumber: position.lineNumber,
@@ -667,21 +690,26 @@ export function registerLspCompletion(): MonacoApi.IDisposable {
         position: monacoPosToLsp(position),
       };
 
-      const [staticItems, intelItems] = await Promise.all([
-        queryCompletion("static", params).catch(() => [] as LspCompletionItem[]),
-        queryCompletion("intel", params).catch(() => [] as LspCompletionItem[]),
+      const [staticRes, intelRes] = await Promise.all([
+        queryCompletion("static", params).catch(() => emptyCompletionList()),
+        queryCompletion("intel", params).catch(() => emptyCompletionList()),
       ]);
+      // 慢引擎迟到即弃（P0-B）：此期间用户已继续输入，旧结果再落地只会让面板闪跳
+      if (token?.isCancellationRequested || gen !== completionGen) return { suggestions: [] };
+
+      // P0-A2：任一路声明截断即整体声明——Monaco 据此在继续输入时重新请求而非本地过滤
+      const incomplete = staticRes.isIncomplete || intelRes.isIncomplete;
 
       const suggestions: MonacoApi.languages.CompletionItem[] = [];
       let si = 0;
-      for (const it of staticItems) {
+      for (const it of staticRes.items) {
         suggestions.push(toMonacoItem(it, "2" + String(si++).padStart(3, "0"), range, "static"));
       }
-      for (const it of intelItems) {
+      for (const it of intelRes.items) {
         // intel 自带 sortText（"1xx"，hits/obs 降序）；缺失则兜底放到段尾
         suggestions.push(toMonacoItem(it, it.sortText ?? "1" + String(998), range, "intel"));
       }
-      return { suggestions };
+      return { suggestions, incomplete };
     },
     /**
      * 二段补全（P1-BUG-001 修复）：Monaco 选中候选项时调用 completionItem/resolve，
@@ -706,14 +734,8 @@ export function registerLspCompletion(): MonacoApi.IDisposable {
           item.insertTextRules = resolved.insertTextFormat === 2 ? INSERT_AS_SNIPPET : undefined;
         }
         if (resolved.additionalTextEdits?.length) {
-          item.additionalTextEdits = resolved.additionalTextEdits.map((e) => {
-            const s = lspPosToMonaco(e.range.start);
-            const en = lspPosToMonaco(e.range.end);
-            return {
-              range: new monaco.Range(s.lineNumber, s.column, en.lineNumber, en.column),
-              text: e.newText,
-            };
-          });
+          // P0-D：映射外迁为纯函数（返回 plain range，Monaco additionalTextEdits 接受）
+          item.additionalTextEdits = mapAdditionalTextEdits(resolved.additionalTextEdits);
         }
       } catch { /* resolve 失败保持原样 */ }
       return item;
