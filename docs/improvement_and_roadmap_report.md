@@ -432,7 +432,7 @@
      - **实测**：`PASS T14-0 造数：3 表 1 视图 1 索引 + 万行主表 + 8 列宽表 + 3 行日志表`（断言前提逐条校验：3 表/1 视图/1 索引、users 10000 行、`id>9900`=100 行、`LIKE '%user_004%'`=100 行、logs 3 行、wide 8 列）。
   3. ✅ **启动失败不可见（已修，2026-10-07）**：新增 `waitCdpReadyWatched()`（`lib/real-env.cjs`）——**盯子进程 exit + 扫日志致命信号**（Rust panic / 编译失败 / `BeforeDevCommand 执行失败` / `npm ERR!`），宽限期 15s（给正常编译输出留余地），命中即抛错；替换原先"只盯 CDP 端口"的等待。接线面：`runWithRealApp`（debug / endpoints / multi-window / ui / probe-watch-multiwin 五套共享）+ `db-real` + `release-real` + `new-project-fastapi-real`。顺带把 `release-real` / `db-real` 的日志由 append 改 **truncate**（append 会把上一轮 panic 残留带进本轮，让看门狗误判）。
      - **实测**：db-real **5s**、endpoints-real **3s** 快速失败（原为 1500s）；三条路径单测式验证：子进程退出 2s 命中、日志 panic 15s 命中、**正常编译日志 20s 不误判**。
-     - **未接线**：`probe-real-lag` / `probe-mw-lag`（自实现等待，默认 `-Skip`）——登记，下轮统一。
+     - **未接线（已于 2026-10-07 补上，见下「两个 probe 已接线」）**：`probe-real-lag` / `probe-mw-lag`（自实现等待，默认 `-Skip`）。
 - **本次收口结论**：真机层从"跑不起来也不知道"变成"**几十秒内明确报出为什么跑不起来**"。**剩下的是环境阻断（第 1 条）——须在用户终端跑**，不是代码问题。
 
 #### 首轮真机基线结果（2026-10-07 16:35，用户终端 · HEAD `3ba7076`）
@@ -482,7 +482,7 @@
 - **合计 6 套 / 95 项全绿**（`probe-*` 三支默认 `-Skip`），全量约 **8 分钟**——真机层从"配置齐备但零跑通证据"变成"**有全绿基线、失败能自解释**"。
 - **修复链条（四轮，同一根因族）**：① 起不来也不知道（干等 1500s）→ 加看门狗；② db-real 不可复现（脚本未入库 + `spawnSync` EBUSY）→ 内联 + 异步；③ 两个自实现套件不落 JSON + **中断被当成功（假绿）** + 5173 预检失效 → 补齐 + TCP 双栈；④ D-6 回归（宽选择器 strict 冲突）→ 精确化；⑤ 我自己的选择器嵌套写错 → 修正。
 - **共同根因**：这些缺陷全部**因"真机层长期没人跑"而累积**——脚本存在 ≠ 覆盖存在。`nightly.yml` 里那 9 套编排至今**零 CI 执行**（无 GitHub 宿主），本机也从未全量跑过；本轮是它**第一次真正通电**。
-- **仍未接线**：`probe-real-lag` / `probe-mw-lag` 两个自实现脚本的启动看门狗（默认 Skip，下轮统一）。
+- ~~**仍未接线**~~ ✅ **已接线（2026-10-07）**：`probe-real-lag` / `probe-mw-lag` 的启动看门狗 + 存活看门狗 + TCP 双栈端口探测，实测启动失败 6.7s / 5.1s 结束。
 
 #### 收尾一：触发点绑定（C，2026-10-07，已完成）
 
@@ -513,7 +513,8 @@
 - **⚠ 更正一条既有判断**：此前记的「`release-real` 不经 vite dev，可在会话里跑」**不成立**——它能起，但 WebView 约 20s 后必死，**会话里同样跑不出结论**。⇒ **真机全量（含 `-PreRelease`）只能在用户自己的终端跑**，这一条对 release-real 与开发链路 6 套**同样适用**。
 - ⏳ **合并 7 套基线已产出（见下条 ✅）**：`powershell -File shell\e2e-real\run-real-all.ps1 -PreRelease -Strict`。
 - **新增第 7 条：套件输出不能经过 PowerShell 格式化器（2026-10-07 用户终端两次实测，根因已定位）**。第一次崩在 `Write-Host : 索引超出了数组界限`（PS 点名 `run-real-all.ps1:112 + } | Write-Host`）；**去掉 Write-Host 后第二次崩在 `out-lineoutput : 索引超出了数组界限`（默认输出格式化器）**——两次同一行（db-real T14-9 那条「长行 + 全角字符」的 detail），证明根因不是某个 cmdlet，而是**「子进程输出经过 PowerShell」这件事本身**：格式化器对每行做折行/显示宽度计算时越界，且是**终止性异常**（局部 `EAP=Continue` 拦不住），整轮跑批当场退出、不写 SUMMARY。**修法**：`Invoke-RealSuite` 改用 `ProcessStartInfo` + `RedirectStandard*=false`，子进程**继承控制台句柄**，PowerShell 完全不碰输出——三重收益：没有格式化折行、**没有 stderr→ErrorRecord 包装（前面那条「原生 stderr 终止整轮」的坑一并消失）**、仍是实时流式。代价：输出不再经过 PS 管道，外层 `Tee` 抓不到。
-- **新增第 8 条（同一批）：中文全乱码**。node 在 Windows 恒写 UTF-8，而中文 Windows 控制台默认 **936(GBK)** → 真机脚本的中文输出全是 `鏁版嵁` 这类乱码。**修法**：运行期 `chcp 65001` + `Console.OutputEncoding=UTF8`，收尾恢复原代码页。**本会话实测（代码页同为 936）**：修复前 `鏁版嵁 Tab 瀵煎嚭 CSV...`、修复后 `造数：3 表 1 视图 1 索引 + 万行主表 + 8 列宽表 + 3 行日志表`，7 套全部走完、SUMMARY 落盘（55s）。**遗留（纯显示，不影响结论）**：用户终端上 **PS 自己的几行**（表头/汇总）出现 CJK 双写（`汇汇总总`、`（（39 项项`），ASCII 不受影响；套件输出（占绝大多数）正常。结论一律以 `SUMMARY.md` 为准，该显示问题不阻塞使用。
+- **新增第 8 条（同一批）：中文全乱码——最终结论是「不需要切代码页」**。乱码根因是「node 输出**经过 PowerShell**」：PS 用 `[Console]::OutputEncoding`（本机 936）去解码 node 的 UTF-8 字节 → 全变 `鏁版嵁`。**`Invoke-RealSuite` 改成继承控制台句柄后，node 的 stdout 是真 TTY，libuv 在 Windows 对 TTY 走 `WriteConsoleW`（宽字符 API），与代码页无关地正确显示** —— 乱码在"绕开 PS"这一步就已根治。中途曾叠加 `chcp 65001` + `Console.OutputEncoding=UTF8`，结果让 **PS 自身**的表头/汇总行在真实终端出现 CJK 双写（`汇汇总总`、`（（39 项项`，ASCII 不受影响）→ **已全部移除**，`run-real-all.ps1` 不再动控制台代码页。**已知副作用（可接受）**：把整轮输出重定向到文件时，node 侧（非 TTY → UTF-8 字节）与 PS 侧（936 字节）会写进同一文件两种编码；结论以始终 UTF-8 的 `SUMMARY.md` 为准。
+- **两个 probe 已接线（2026-10-07，② 收尾）**：`probe-real-lag` / `probe-mw-lag` 原先自实现了一套等待，缺两个关键保护——现在改用共享基建 `waitCdpReadyWatched`（启动挂了不再干等 300s / 600s）+ `startAppWatchdog`（应用中途死亡即中止落盘），并把它们 HTTP 版 `portInUse`（判 5173 无效）换成 TCP 双栈。**实测**：两脚本启动失败分别在 **6.7s / 5.1s** 结束（原 300s / 600s）。至此真机层 11 个脚本**全部**接上两个看门狗，**「仍未接线」项清空**。
 - **⚠ 新增第 9 条：门禁会验错对象（假信心，比崩溃更危险）**。`release-real` 的 `resolveExe()` **优先取注册表安装位**，而本机 `D:\OpenCharm\` 里躺着一个 **10-04 08:14** 的旧安装（21.5 MB），用户 **18:29** 刚构建的产物（`target/release`，25.8 MB）**根本没被验到**——那两次「7/7 PASS」是**旧包的成绩**，且报告里完全看不出来（JSON 当时连 `exe` 字段都不落盘）。已修三处：① **`-PreRelease` 显式把 `OC_RELEASE_EXE` 指向构建产物**（发布前验收的语义是"我刚构建出来的包能不能干活"，不是"机器上某个旧安装能不能干活"）；② **JSON 落 `exe` / `exeMtime`**（"验的是哪个产物"必须可查）；③ 解析到的 exe 若不是构建产物且更旧 → 启动即黄字告警 + 写进 REL-1 detail。
 - **看门狗补进程树回收**：看门狗走 `process.exit(1)` 会跳过正常清理 → 残留应用占住 5173/9223，**下一轮跑批直接卡在端口预检**（本轮实测踩到）。已在 `fire()` 里先尽力 `taskkill /T /F`。
 - **✅ 第二轮真机跑（2026-10-07 18:06，HEAD `3552012`）：`http-real` 10/10 PASS（36s）**——就绪判据修复生效。关键证据全部来自**服务端观测**（不是 UI 自说自话）：HR-1 `ua=OpenCharm/0.1`（请求确实出自应用内核的 reqwest）、HR-3 服务端收到 `method=POST / token=t-123 / body={"a":1}`、HR-4 服务端路径序列 `["/redirect","/json"]`（真实 302 跟随）、HR-6 `HttpTimeout:请求超时（3000ms 内未完成）`（真实 reqwest 超时）、**HR-7 服务端断流 = true**（取消是真的断开连接，不是只改前端状态）、HR-9 `5.0 MB` 截断、HR-10 `localhost` 真实解析。报告入库 `shell/real-reports/20261007-180638/`。

@@ -6,9 +6,16 @@
 const { chromium } = require('@playwright/test');
 const { spawn, execSync } = require('child_process');
 const { mkdtempSync, mkdirSync, writeFileSync, openSync } = require('fs');
-const http = require('http');
 const os = require('os');
 const path = require('path');
+// 共享基建（2026-10-07 接线，此前本脚本自实现了一套，缺两个关键保护）：
+//   - waitCdpReadyWatched：启动挂了（Rust panic / BeforeDevCommand 失败）几十秒内失败，
+//     而不是在 CDP 端口上干等 CDP_TIMEOUT（本脚本默认 300s）
+//   - startAppWatchdog：应用中途死亡（CDP 消失 / 进程退出）即中止并落盘——否则
+//     Playwright 的 page.evaluate 没有超时参数，会**永久挂住**（实测同类脚本挂死 8m39s）
+//   - portInUse：改 TCP 双栈探测（原来的 HTTP `/json/version` 判 5173 无效——vite 无该端点，
+//     且本机 vite 只绑 `[::1]`）
+const { waitCdpReadyWatched, startAppWatchdog, portInUse, sleep } = require('./lib/real-env.cjs');
 
 const ENGINE = process.argv[2] || 'basedpyright';
 const CDP_PORT = Number(process.env.OC_CDP_PORT || 9227);
@@ -19,27 +26,6 @@ const PROJECT = 'D:\\hema\\hermes-fika\\hermes-agent';
 const FILE = 'cli.py';
 const TRIGGER = 'time'; // 输入 `time.` 触发标准库成员补全
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-function httpGet(url) {
-  return new Promise((resolve, reject) => {
-    const req = http.get(url, (res) => {
-      let body = '';
-      res.on('data', (c) => (body += c));
-      res.on('end', () => resolve({ status: res.statusCode, body }));
-    });
-    req.on('error', reject);
-    req.setTimeout(3000, () => { req.destroy(new Error('timeout')); });
-  });
-}
-const portInUse = (port) => httpGet(`http://127.0.0.1:${port}/json/version`).then(() => true, () => false);
-async function waitCdpReady(port, timeoutMs) {
-  const t0 = Date.now();
-  for (;;) {
-    try { const r = await httpGet(`http://127.0.0.1:${port}/json/version`); if (r.status === 200) return; } catch { /* 未就绪 */ }
-    if (Date.now() - t0 > timeoutMs) throw new Error('CDP 未就绪');
-    await sleep(1500);
-  }
-}
 function allPages(browser) {
   const out = [];
   for (const ctx of browser.contexts()) for (const p of ctx.pages()) out.push(p);
@@ -76,10 +62,12 @@ async function dismissBlockingModals(page) {
   });
 
   let browser = null;
+  let stopWatchdog = null;
   const t0 = Date.now();
   try {
-    await waitCdpReady(CDP_PORT, CDP_TIMEOUT_MS);
+    await waitCdpReadyWatched(CDP_PORT, CDP_TIMEOUT_MS, { child, logPath });
     browser = await chromium.connectOverCDP(`http://127.0.0.1:${CDP_PORT}`);
+    stopWatchdog = startAppWatchdog({ child, cdpPort: CDP_PORT, suite: 'probe-real-lag' });
     const main = allPages(browser).find((p) => p.url().includes(DEV_URL_HOST)) || allPages(browser)[0];
     await dismissBlockingModals(main);
 
@@ -134,6 +122,7 @@ async function dismissBlockingModals(page) {
   } catch (e) {
     console.error('[运行中断]', e.message || e);
   } finally {
+    if (stopWatchdog) stopWatchdog();
     if (browser) await browser.close().catch(() => {});
     console.log('[清理] taskkill...');
     try { execSync(`taskkill /PID ${child.pid} /T /F`, { stdio: 'ignore' }); } catch { /* 已退出 */ }

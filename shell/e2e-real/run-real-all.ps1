@@ -102,18 +102,15 @@ $wrapperErr = @{}
 $NodeExe = $null
 try { $NodeExe = (Get-Command node -ErrorAction Stop).Source } catch { $NodeExe = $null }
 
-# 控制台编码：node 在 Windows 上恒写 UTF-8，而中文 Windows 控制台默认 936(GBK)
-# → 真机脚本的中文输出全是乱码（2026-10-07 用户两次反馈）。运行期切 65001，收尾恢复。
-$prevCodePage = $null
-try { $prevCodePage = ((chcp) -join '') -replace '\D', '' } catch { $prevCodePage = $null }
-if ($prevCodePage -ne '65001') {
-  try {
-    chcp 65001 > $null
-    [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false
-  } catch {
-    Write-Host "⚠ 控制台切 UTF-8 失败（中文可能乱码）：$($_.Exception.Message)" -ForegroundColor Yellow
-  }
-}
+# —— 刻意**不**切控制台代码页 ——
+# 曾经的乱码根因是「node 输出经过 PowerShell」：PS 用 `[Console]::OutputEncoding`（本机 936）
+# 去解码 node 的 UTF-8 字节 → 全变 `鏁版嵁`。而 Invoke-RealSuite 改成继承控制台句柄后，
+# node 的 stdout 是真 TTY，**libuv 在 Windows 上对 TTY 走 `WriteConsoleW`（宽字符 API）**，
+# 与代码页无关地正确显示——所以乱码已被"绕开 PS"这一步根治。
+# 反过来，再叠加 `chcp 65001` + `Console.OutputEncoding=UTF8` 会让 **PS 自身**的表头/汇总行
+# 在真实终端里出现 CJK 双写（`汇汇总总`、`（（39 项项`，ASCII 不受影响）。故一律不切。
+# 副作用（已知、可接受）：把整轮输出重定向到文件时，node 侧是非 TTY → 写 UTF-8 字节，
+# 而 PS 侧写 936 字节 → 同一文件两种编码。看结论请以 SUMMARY.md（始终 UTF-8）为准。
 
 # 发布前验收：release-real 默认优先取注册表安装位，会**默默验到机器上遗留的旧安装**
 # （2026-10-07 实测：本机 D:\OpenCharm 躺着 10-04 的旧包，用户 18:29 刚构建的产物根本没被验到）。
@@ -233,11 +230,6 @@ Write-Host "=========================================================="
 Write-Host " 汇总：$($Scripts.Count) 套件 / $totalCases 项 / 失败 $totalFailed 项 / 套件失败 $fail"
 Write-Host " 报告：$reportPath"
 Write-Host "=========================================================="
-
-# 恢复控制台代码页（运行期切过 65001）
-if ($prevCodePage -and $prevCodePage -ne '65001') {
-  try { chcp $prevCodePage > $null } catch { /* 恢复失败不影响结论 */ }
-}
 
 if ($Strict -and $fail -gt 0) { exit 1 }
 exit 0

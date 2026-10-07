@@ -7,9 +7,11 @@
 const { chromium } = require('@playwright/test');
 const { spawn, execSync } = require('child_process');
 const { mkdtempSync, mkdirSync, writeFileSync, openSync } = require('fs');
-const http = require('http');
 const os = require('os');
 const path = require('path');
+// 共享基建（2026-10-07 接线，理由同 probe-real-lag.cjs）：启动看门狗 + 应用存活看门狗
+// + TCP 双栈 portInUse（原 HTTP `/json/version` 判 5173 无效）。
+const { waitCdpReadyWatched, startAppWatchdog, portInUse, sleep } = require('./lib/real-env.cjs');
 
 const ENGINE = process.argv[2] || 'basedpyright';
 const CDP_PORT = Number(process.env.OC_CDP_PORT || 9226);
@@ -39,33 +41,6 @@ const TEST_PY = [
   'x6 = Thing()',
   'x7 = Thing()',
 ].join('\n');
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-function httpGet(url) {
-  return new Promise((resolve, reject) => {
-    const req = http.get(url, (res) => {
-      let body = '';
-      res.on('data', (c) => (body += c));
-      res.on('end', () => resolve({ status: res.statusCode, body }));
-    });
-    req.on('error', reject);
-    req.setTimeout(3000, () => { req.destroy(new Error('timeout')); });
-  });
-}
-const portInUse = (port) => httpGet(`http://127.0.0.1:${port}/json/version`).then(() => true, () => false);
-
-async function waitCdpReady(port, timeoutMs) {
-  const t0 = Date.now();
-  for (;;) {
-    try {
-      const r = await httpGet(`http://127.0.0.1:${port}/json/version`);
-      if (r.status === 200) return;
-    } catch { /* 未就绪 */ }
-    if (Date.now() - t0 > timeoutMs) throw new Error('CDP 未就绪');
-    await sleep(1500);
-  }
-}
 
 function allPages(browser) {
   const out = [];
@@ -114,9 +89,11 @@ async function dismissBlockingModals(page) {
   });
 
   let browser = null;
+  let stopWatchdog = null;
   try {
-    await waitCdpReady(CDP_PORT, CDP_TIMEOUT_MS);
+    await waitCdpReadyWatched(CDP_PORT, CDP_TIMEOUT_MS, { child, logPath });
     browser = await chromium.connectOverCDP(`http://127.0.0.1:${CDP_PORT}`);
+    stopWatchdog = startAppWatchdog({ child, cdpPort: CDP_PORT, suite: 'probe-mw-lag' });
     let pages = allPages(browser);
     const main = pages.find((p) => p.url().includes(DEV_URL_HOST)) || pages[0];
     await dismissBlockingModals(main);
@@ -189,6 +166,7 @@ async function dismissBlockingModals(page) {
   } catch (e) {
     console.error('[运行中断]', e.message || e);
   } finally {
+    if (stopWatchdog) stopWatchdog();
     if (browser) await browser.close().catch(() => {});
     console.log('[清理] taskkill...');
     try { execSync(`taskkill /PID ${child.pid} /T /F`, { stdio: 'ignore' }); } catch { /* 已退出 */ }
