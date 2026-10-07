@@ -372,5 +372,7 @@
  "history.historyRefresh": "刷新",
  "history.historyClear": "清空历史",
  "history.historyRevert": "回滚到该版本",
- "surround.surroundTitle": "环绕模板"
+ "surround.surroundTitle": "环绕模板",
+ "settings.editor.sectionEditorLabel21": "补全接受键附加语义（. / ( 跟随字符）",
+ "settings.editor.sectionEditorDiv2": "开启后用 . 或 ( 接受补全会同时补出该字符；部分引擎的函数候选已自带括号，开启可能双括号。"
 }

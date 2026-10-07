@@ -147,5 +147,7 @@
   "settings.resetConfirm": "Restore all settings in this panel to factory defaults? You still need to click Save to persist them.",
   "settings.resetDone": "Restored to defaults; click Save to apply",
   "settings.resetOk": "Restore",
-  "settings.searchClear": "Clear search"
+  "settings.searchClear": "Clear search",
+  "settings.editor.sectionEditorLabel21": "Completion commit characters (append . / ( on accept)",
+  "settings.editor.sectionEditorDiv2": "When on, accepting a completion with . or ( also inserts that character; some engines already include parentheses in function candidates, which can produce doubled brackets."
 }

@@ -17,6 +17,7 @@ import {
   type LspCompletionList,
   emptyCompletionList,
   mapAdditionalTextEdits,
+  mapLspTextEdit,
   normalizeCompletionList,
 } from "../completion/lspCompletion"; // P0-A2/P0-D：补全解析/映射外迁为纯函数（client.ts 不可单测）
 
@@ -347,6 +348,11 @@ export async function startEngine(engine: string, rootUri: string, interpreter: 
       // 声明后才会返回层次化 DocumentSymbol[]。
       textDocument: {
         documentSymbol: { hierarchicalDocumentSymbolSupport: true },
+        // P1-B（补全交互层 §4）：声明 commitCharacters 支持后，pyright 系引擎才可能下发
+        // 接受键附加语义（`(` / `.` 接受候选并跟随字符）。声明是静态的；是否透传给 Monaco
+        // 由设置 completion_commit_characters 门控（默认关——防 insertText 已含括号的
+        // 引擎候选双括号）。⚠spike 待实证：pyrefly/basedpyright 是否真下发该字段。
+        completion: { completionItem: { commitCharactersSupport: true } },
       },
     },
   });
@@ -637,17 +643,28 @@ function toMonacoItem(
   range: { startLineNumber: number; endLineNumber: number; startColumn: number; endColumn: number },
   engine: string,
 ) {
+  // P1-A：LSP textEdit（含 InsertReplaceEdit 双 range）优先——引擎下发的精确替换范围此前
+  // 整体被丢弃，两键行为无区分；无 textEdit 回落 word range（现状不变）。
+  const te = mapLspTextEdit(it);
   return {
     label: it.label,
     kind: KIND_MAP[it.kind ?? 0] ?? monaco.languages.CompletionItemKind.Text,
     detail: it.detail ?? it.labelDetails?.detail,
     documentation:
       typeof it.documentation === "string" ? it.documentation : it.documentation?.value,
-    insertText: it.insertText ?? it.label,
+    insertText: te?.insertText ?? it.insertText ?? it.label,
     insertTextRules: it.insertTextFormat === 2 ? INSERT_AS_SNIPPET : undefined,
     sortText,
     filterText: it.filterText,
-    range,
+    // P1-A：双 range 形态 Monaco 原生支持（Enter 用 insert / Tab=替换模式用 replace）
+    range: te ? te.range : range,
+    // §8-1：引擎建议预选该项（与 live-template provider 的 preselect 同语义；P0-C 兜底的前置）
+    ...(it.preselect === true ? { preselect: true } : {}),
+    // P1-B：接受键附加语义——设置门控（默认关，防 insertText 已含括号的引擎候选双括号）；
+    // 设置在补全时即时读取，开关后无需重注册 provider
+    ...(app.settings.completion_commit_characters === true && it.commitCharacters?.length
+      ? { commitCharacters: it.commitCharacters }
+      : {}),
     __lspItem: it,
     __engine: engine,
   } as MonacoApi.languages.CompletionItem;

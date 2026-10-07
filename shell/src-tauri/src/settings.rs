@@ -50,6 +50,8 @@ fn default_keybindings() -> HashMap<String, String> {
     m.insert("run_history".into(), "Ctrl+Shift+R".into());
     // Markdown 预览开关（markdown preview dev plan §5-T4；与前端 KEYBINDING_META / DEFAULT_SETTINGS 三处同步）
     m.insert("markdown_preview".into(), "Ctrl+Shift+V".into());
+    // P1-A（补全交互层 §4）：替换模式接受建议（与前端 KEYBINDING_META / DEFAULT_SETTINGS 三处同步）
+    m.insert("accept_suggestion_replace".into(), "Tab".into());
     // P1（UX 审查）：高频操作补键位（与前端 KEYBINDING_META / DEFAULT_SETTINGS 三处同步）
     m.insert("close_tab".into(), "Ctrl+F4".into());
     // 标签页循环切换（VS Code 同款；与前端 KEYBINDING_META / DEFAULT_SETTINGS 三处同步）
@@ -217,6 +219,9 @@ pub struct Settings {
     pub http_follow_redirects: bool,
     /// B4：环境变量（可能含 token）是否落盘。前端据此决定写不写 storage（§5.6 边界 3）
     pub http_save_tokens: bool,
+    /// P1-B（补全交互层 §4）：commitCharacters 接受键附加语义开关。默认关（双括号风险，
+    /// 见前端 state.ts 接口注释）；须与前端 DEFAULT_SETTINGS 同步
+    pub completion_commit_characters: bool,
 }
 
 impl Default for Settings {
@@ -294,6 +299,8 @@ impl Default for Settings {
             http_timeout_ms: 30000,
             http_follow_redirects: true,
             http_save_tokens: true,
+            // P1-B（补全交互层 §4）：与前端 DEFAULT_SETTINGS.completion_commit_characters 保持同步
+            completion_commit_characters: false,
         }
     }
 }

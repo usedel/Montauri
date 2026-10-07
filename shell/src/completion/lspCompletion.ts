@@ -1,15 +1,20 @@
 // LSP 补全响应的解析/映射（P0-A2 / P0-D / P1-A 共用）。
-//
-// 存在理由：`lsp/client.ts` 顶层 import `invoke` / monaco / `state` 的 `app`，**不是可直接单测的纯模块**
-// （`shell/src/__tests__/` 里没有它的测试文件，原因即在此）。本模块把可剥离的解析与映射逻辑搬出来，
-// 形态同 `keywordCompletion.ts`——零 monaco / 零 tauri 依赖，vitest 直接 import 即可。
-//
-// 边界：不新增进程 / worker / 依赖，纯函数（符合零 worker 与开销红线）。
+// 存在理由：`lsp/client.ts` 顶层 import `invoke` / monaco / `state` 的 `app`，**不是可直接单测的纯模块**；
+// 把可剥离的解析与映射搬到这里（形态同 `keywordCompletion.ts`），零 monaco / 零 tauri 依赖。
+// 边界：纯函数、不新增进程 / worker / 依赖（符合零 worker 与开销红线）。
 
 /** 与 LSP `Range` 同构（不引用 Monaco 类型，便于纯函数单测） */
 export interface LspRangeLike {
   start: { line: number; character: number };
   end: { line: number; character: number };
+}
+
+/** LSP TextEdit（单 range）/ InsertReplaceEdit（insert/replace 双 range）的并集形态 */
+export interface LspTextEditLike {
+  range?: LspRangeLike;
+  insert?: LspRangeLike;
+  replace?: LspRangeLike;
+  newText: string;
 }
 
 export interface LspCompletionItem {
@@ -24,6 +29,7 @@ export interface LspCompletionItem {
   data?: unknown; // 引擎用于 completionItem/resolve 标识的不透明数据
   labelDetails?: { detail?: string; description?: string };
   additionalTextEdits?: Array<{ range: LspRangeLike; newText: string }>;
+  textEdit?: LspTextEditLike;
   /** §8-1（批次 3 与 P0-C 同批接线）：引擎建议预选该项 */
   preselect?: boolean;
   /** P1-B（批次 4 接线）：接受键附加语义，需在 initialize 里声明 commitCharactersSupport */
@@ -79,6 +85,18 @@ function lspPosToMonaco(p: { line: number; character: number }): {
   return { lineNumber: p.line + 1, column: p.character + 1 };
 }
 
+/** LSP Range → Monaco IRange 同构（plain 对象，不引用 Monaco 命名空间） */
+function lspRangeToMonaco(r: LspRangeLike): MonacoRangeLike {
+  const s = lspPosToMonaco(r.start);
+  const en = lspPosToMonaco(r.end);
+  return {
+    startLineNumber: s.lineNumber,
+    startColumn: s.column,
+    endLineNumber: en.lineNumber,
+    endColumn: en.column,
+  };
+}
+
 /**
  * LSP `additionalTextEdits` → Monaco `additionalTextEdits`（P0-D 外迁，便于单测）。
  *
@@ -89,17 +107,44 @@ export function mapAdditionalTextEdits(
   edits: Array<{ range: LspRangeLike; newText: string }> | undefined,
 ): Array<{ range: MonacoRangeLike; text: string }> {
   if (!edits?.length) return [];
-  return edits.map((e) => {
-    const s = lspPosToMonaco(e.range.start);
-    const en = lspPosToMonaco(e.range.end);
+  return edits.map((e) => ({
+    range: lspRangeToMonaco(e.range),
+    text: e.newText,
+  }));
+}
+
+// ---------- P1-A：textEdit 映射（Enter=插入 / Tab=替换） ----------
+
+/** Monaco 双 range 形态（`CompletionItem.range` 原生支持）：Enter 用 insert、Tab 用 replace */
+export interface InsertReplaceRangeLike {
+  insert: MonacoRangeLike;
+  replace: MonacoRangeLike;
+}
+
+export interface LspTextEditResult {
+  range: MonacoRangeLike | InsertReplaceRangeLike;
+  insertText: string;
+}
+
+/**
+ * LSP `textEdit` → Monaco range + insertText。
+ *
+ * · TextEdit（单 `{range, newText}`）→ 直接用之（引擎下发的精确替换范围，此前整体被丢弃）；
+ * · InsertReplaceEdit（`{insert, replace, newText}`）→ Monaco 双 range 形态：
+ *   `Enter`（insert 模式）保留光标右侧文本、`Tab`（replace 模式）整词替换；
+ * · 无 `textEdit` → 返回 `null`，调用方回落 word range（现状不变）。
+ * `insertTextRules`（snippet 规则）不在本函数处理——沿用 `it.insertTextFormat` 由调用方算。
+ */
+export function mapLspTextEdit(it: LspCompletionItem): LspTextEditResult | null {
+  const te = it.textEdit;
+  if (!te || typeof te.newText !== "string") return null;
+  // InsertReplaceEdit：insert / replace 双 range 同时存在
+  if (te.insert && te.replace) {
     return {
-      range: {
-        startLineNumber: s.lineNumber,
-        startColumn: s.column,
-        endLineNumber: en.lineNumber,
-        endColumn: en.column,
-      },
-      text: e.newText,
+      range: { insert: lspRangeToMonaco(te.insert), replace: lspRangeToMonaco(te.replace) },
+      insertText: te.newText,
     };
-  });
+  }
+  if (te.range) return { range: lspRangeToMonaco(te.range), insertText: te.newText };
+  return null;
 }

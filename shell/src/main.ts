@@ -1512,6 +1512,8 @@ async function init(): Promise<void> {
     lightbulb: { enabled: app.monaco.editor.ShowLightbulbIconMode.Off }, // 关闭快速修复灯泡图标（保留 Ctrl+. 菜单）
     wordBasedSuggestions: "off", // 踩坑 #3
     quickSuggestions: { other: true, comments: false, strings: false },
+    // P1-A（补全交互层 §4）：显式写出 0.52 默认值，给「Tab=替换模式接受」一个稳定基准
+    suggest: { insertMode: "insert" },
   });
   // A-5：光标移动同样刷新会话快照（防抖），恢复时才落回原处
   app.editor.onDidChangeCursorPosition(() => scheduleSessionSave());

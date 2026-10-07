@@ -88,6 +88,8 @@ const settingsFinalNewlineEl = lazyEl<HTMLInputElement>("settings-final-newline"
 const settingsNewFileTemplateEl = lazyEl<HTMLInputElement>("settings-new-file-template");
 // PR-M（dx_features_backlog §6.6）：粘贴 JSON 自动转 Python 字面量
 const settingsPasteJsonEl = lazyEl<HTMLInputElement>("settings-paste-json");
+// P1-A（补全交互层 §4）：commitCharacters 接受键附加语义（默认关，见 state.ts 注释）
+const settingsCommitCharactersEl = lazyEl<HTMLInputElement>("settings-commit-characters");
 // B-3（PyCharm 调研）：调试只步进我的代码
 const settingsDebugJmcEl = lazyEl<HTMLInputElement>("settings-debug-jmc");
 // 库特别支持 PR-2：编辑器工具 lens / 正则高亮与测试器
@@ -722,6 +724,8 @@ function fillForm(settings: Settings): void {
   settingsNewFileTemplateEl.checked = settings.new_file_template ?? DEFAULT_SETTINGS.new_file_template;
   // PR-M：默认开，旧配置缺字段兜底开（!== false 惯例）
   settingsPasteJsonEl.checked = settings.paste_json_to_python !== false;
+  // P1-A：默认关，旧配置缺字段时兜底关（与 DEFAULT_SETTINGS 同向）
+  settingsCommitCharactersEl.checked = settings.completion_commit_characters ?? DEFAULT_SETTINGS.completion_commit_characters;
   settingsDebugJmcEl.checked = settings.debug_just_my_code !== false; // B-3
   // 库特别支持 PR-2：默认开，旧配置缺字段兜底开（!== false 惯例）
   settingsLibsEditorLensEl.checked = settings.libs_editor_lens !== false;
@@ -858,6 +862,7 @@ async function commitSettingsPanel(closeAfter: boolean): Promise<boolean> {
   const finalNewline = settingsFinalNewlineEl.checked;
   const newFileTemplate = settingsNewFileTemplateEl.checked; // PR-K
   const pasteJson = settingsPasteJsonEl.checked; // PR-M
+  const commitCharacters = settingsCommitCharactersEl.checked; // P1-A
   const autosave = settingsAutosaveEl.value;
   const probeEnabled = settingsProbeEl.checked;
   const probePerfEnabled = settingsProbePerfEl.checked; // A2 性能模式
@@ -897,6 +902,7 @@ async function commitSettingsPanel(closeAfter: boolean): Promise<boolean> {
     final_newline: finalNewline,
     new_file_template: newFileTemplate, // PR-K
     paste_json_to_python: pasteJson, // PR-M
+    completion_commit_characters: commitCharacters, // P1-A
     debug_just_my_code: settingsDebugJmcEl.checked, // B-3
     libs_editor_lens: settingsLibsEditorLensEl.checked, // 库支持 PR-2
     libs_regex: settingsLibsRegexEl.checked, // 库支持 PR-2

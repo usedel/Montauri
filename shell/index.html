@@ -905,6 +905,14 @@
                       <div data-i18n="settings.editor.sectionEditorDiv" class="settings-row-desc">为 JSON / YAML / SQL / Rust 等无引擎语言补全关键字（Python 不受影响）。</div>
                     </div>
                   </div>
+                  <!-- P1-A（补全交互层 §4）：commitCharacters 接受键附加语义，默认关（双括号风险） -->
+                  <div class="settings-row">
+                    <label data-i18n="settings.editor.sectionEditorLabel21" for="settings-commit-characters">补全接受键附加语义（. / ( 跟随字符）</label>
+                    <div class="settings-field">
+                      <input id="settings-commit-characters" type="checkbox" />
+                      <div data-i18n="settings.editor.sectionEditorDiv2" class="settings-row-desc">开启后用 . 或 ( 接受补全会同时补出该字符；部分引擎的函数候选已自带括号，开启可能双括号。</div>
+                    </div>
+                  </div>
                   <!-- C-6（PyCharm 调研）：可读性配置，默认开（「默认就对」——PyCharm 出厂即有缩进线） -->
                   <div class="settings-row">
                     <label data-i18n="settings.editor.sectionEditorLabel6" for="settings-indent-guides">缩进参考线</label>

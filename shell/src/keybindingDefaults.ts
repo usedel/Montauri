@@ -78,6 +78,9 @@ export type KeybindingId =
   // PR-J（dx_features_backlog §6.6）：触发补全建议的可配置备选键——Ctrl+Space 是 Monaco 内建
   // 固定键，实测被 Windows 中文输入法切换热键吞掉（2026-09-27 人工验证），Alt+/ 保底
   | "trigger_suggest"
+  // P1-A（补全交互层计划 §4）：替换模式接受建议（Enter=插入 / Tab=替换）。
+  // 前置：suggest.insertMode="insert"（main.ts create 块）+ LSP textEdit 双 range 映射
+  | "accept_suggestion_replace"
   // 库特别支持 PR-2（python_library_support_dev_plan §4.2）：正则测试器（editor 级，需焦点；
   // Ctrl+Alt+R 与既有 56 项无冲突，2026-09-27 核对）
   | "open_regex_tester"
@@ -96,6 +99,12 @@ export interface KeybindingMeta {
   def: string;
   /** window = 全局生效；editor = 仅编辑器聚焦时生效 */
   scope: "window" | "editor";
+  /**
+   * Monaco when 子句（P1-A 扩展；缺省 "editorTextFocus"）。
+   * 需要比默认更窄的场景才写——如 accept_suggestion_replace 限定「补全面板可见」，
+   * 否则会在面板关闭时吞掉正常缩进。
+   */
+  when?: string;
 }
 
 export const KEYBINDING_META: KeybindingMeta[] = [
@@ -186,6 +195,18 @@ export const KEYBINDING_META: KeybindingMeta[] = [
   // PR-J：触发补全建议（Alt+/，editor 级）——Ctrl+Space 被中文 IME 吞键（人工验证），此为可配置保底；
   // handler 在 keybindings.ts（纯 app.editor.trigger，无循环依赖），命令面板同走该 handler
   { id: "trigger_suggest", label: "触发补全建议", def: "Alt+/", scope: "editor" },
+  // P1-A：替换模式接受建议（Enter=插入 / Tab=replace）。when 限定「补全面板可见」——
+  // 否则面板关闭时按 Tab 会吞掉正常缩进；suggestWidgetVisible 上下文键 standalone Monaco
+  // 可用（suggestWidget.js:216 绑定，show 置 true / hide reset）。
+  // ⚠spike 待真机确认：本动态规则与 Monaco 内建 Tab→acceptSelectedSuggestion 的优先级；
+  // 最坏情况是回退为内建的插入式接受（同样只在面板可见时接管 Tab，无缩进破坏）。
+  {
+    id: "accept_suggestion_replace",
+    label: "替换模式接受建议（Tab）",
+    def: "Tab",
+    scope: "editor",
+    when: "editorTextFocus && suggestWidgetVisible",
+  },
   // 库特别支持 PR-2：正则测试器（editor 级）
   { id: "open_regex_tester", label: "在正则测试器中打开", def: "Ctrl+Alt+R", scope: "editor" },
   // 诊断导航（PyCharm 同款 F8 / Shift+F8）：下一个 / 上一个错误（error+warning 序列，循环回绕）
@@ -230,6 +251,7 @@ export const KEYBINDING_GROUP: Record<KeybindingId, KeybindingGroup> = {
   unfold_all: "edit",
   jump_to_bracket: "edit",
   trigger_suggest: "edit",
+  accept_suggestion_replace: "edit",
   open_regex_tester: "edit",
   // 导航与搜索
   goto_definition: "navigate",

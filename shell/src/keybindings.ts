@@ -303,6 +303,12 @@ export function initKeybindingCommands(monaco: MonacoModule): void {
   setKeybindingHandler("trigger_suggest", () => {
     app.editor.trigger("keybindings", "editor.action.triggerSuggest", null);
   });
+  // P1-A：替换模式接受建议（Enter=插入 / Tab=replace 两键区分的 Tab 侧）。
+  // Monaco 0.52 命令 id 无 .action 前缀（suggestController.js:727）；
+  // 命令自带 precondition（面板可见 + 有聚焦项），面板关闭时触发是 no-op。
+  setKeybindingHandler("accept_suggestion_replace", () => {
+    app.editor.trigger("keybindings", "acceptAlternativeSelectedSuggestion", null);
+  });
   // 诊断导航（PyCharm 同款 F8 / Shift+F8）：下一个 / 上一个 error/warning marker（循环回绕）
   setKeybindingHandler("goto_next_problem", () => gotoMarker(1));
   setKeybindingHandler("goto_prev_problem", () => gotoMarker(-1));
@@ -354,7 +360,12 @@ export function applyEditorKeybindings(): void {
     if (!p) continue;
     const kb = toMonacoKeybinding(monaco, p);
     if (kb === null) continue;
-    rules.push({ keybinding: kb, command: COMMAND_PREFIX + m.id, when: "editorTextFocus" });
+    // P1-A：META 可声明更窄的 when（如「补全面板可见」才接管 Tab），缺省仍是编辑器聚焦
+    rules.push({
+      keybinding: kb,
+      command: COMMAND_PREFIX + m.id,
+      when: m.when ?? "editorTextFocus",
+    });
   }
   if (rules.length > 0) rulesDisposable = monaco.editor.addKeybindingRules(rules);
 }

@@ -134,6 +134,9 @@ export interface Settings {
   http_follow_redirects: boolean;
   /** B4：是否把环境变量（可能含 token）落盘。**关闭时只存活于本次会话**（§5.6 边界 3） */
   http_save_tokens: boolean;
+  /** P1-B（补全交互层 §4）：commitCharacters 接受键附加语义（`.` / `(` 接受候选并跟随字符）。
+   *  默认关——部分引擎的函数候选 insertText 已含括号，开启会双括号；须与 Rust settings.rs 同步 */
+  completion_commit_characters: boolean;
 }
 
 /** 从单一来源（keybindingDefaults.ts）派生出厂键位表，避免三处手写漂移（tech-debt #6） */
@@ -269,6 +272,8 @@ export const DEFAULT_SETTINGS: Settings = {
   http_timeout_ms: 30000,
   http_follow_redirects: true,
   http_save_tokens: true,
+  // P1-B（补全交互层 §4）：默认关——防「insertText 已含括号」的引擎候选双括号（见接口注释）
+  completion_commit_characters: false,
 };
 
 export interface AppState {
