@@ -315,8 +315,13 @@ export function registerAutoImportCompletion(monaco: typeof MonacoApi): MonacoAp
   });
 }
 
-/** 模块头部插入行（复用 quickFix 的 findImportInsertLine 逻辑；延迟取 model 文本） */
-function findImportInsertLineForModel(model: MonacoApi.editor.ITextModel): number {
+/**
+ * 模块头部插入行（复用 quickFix 的 findImportInsertLine 逻辑；延迟取 model 文本）。
+ *
+ * P0-D：改 `export` 只为让它进单测——`additionalTextEdits` 的行号全靠它算，
+ * 「头部插入 + 光标处插入」叠加时的 off-by-one 必须有测试守护（见 `__tests__/autoImport.test.ts`）。
+ */
+export function findImportInsertLineForModel(model: MonacoApi.editor.ITextModel): number {
   // 与 quickFix.findImportInsertLine 同口径：最后一条顶层 import 的下一行，否则模块头之后
   const lines = model.getValue().split(/\r?\n/);
   let lastImport = -1;

@@ -143,3 +143,52 @@ describe("autoImportItems", () => {
     expect(autoImportItems("data", many, "")).toHaveLength(5);
   });
 });
+
+// ---------- findImportInsertLineForModel（P0-D：additionalTextEdits 行号真源） ----------
+//
+// 接受一个 auto-import 候选会叠加两处编辑：头部插 import（行号由本函数算）+ 光标处插主文本。
+// 「头部插入行」与「光标行」相邻 / 重合时的坐标归一是 off-by-one 高发区，这里把边界钉死。
+// fake model 桩只暴露本函数真正用到的 `getValue()`（先例：keywordCompletion.test.ts 的最小桩）。
+
+import { findImportInsertLineForModel } from "../autoImport";
+
+const fakeModel = (src: string) => ({ getValue: () => src }) as never;
+
+describe("findImportInsertLineForModel（P0-D）", () => {
+  it("无 import → 落在模块头之后（首行代码的上一行 = 第 1 行）", () => {
+    const src = "x = 1\n\ndump_json(x)\n";
+    expect(findImportInsertLineForModel(fakeModel(src))).toBe(1);
+  });
+
+  it("有 import → 最后一条顶层 import 的下一行再空一行之后", () => {
+    const src = "import os\n\nx = 1\n";
+    expect(findImportInsertLineForModel(fakeModel(src))).toBe(2);
+  });
+
+  it("import 在文件末尾 → 插入行越过末行（追加语义，不覆写已有代码）", () => {
+    const src = "x = 1\nimport os";
+    // 2 行文件，插入行 = 3（文件末尾之后）
+    expect(findImportInsertLineForModel(fakeModel(src))).toBe(3);
+  });
+
+  it("首行即补全：插入行与光标行重合（off-by-one 高发区）→ 仍取第 1 行", () => {
+    const src = "dump_json(x)\ny = 2\n";
+    expect(findImportInsertLineForModel(fakeModel(src))).toBe(1);
+  });
+
+  it("单行 docstring 模块头 → 插入行在其后", () => {
+    const src = '"""Doc."""\n\nx = 1\n';
+    expect(findImportInsertLineForModel(fakeModel(src))).toBe(2);
+  });
+
+  it("多行 docstring 模块头 → 跳过整个 docstring 再落一行", () => {
+    const src = '"""Doc\nline2\nend."""\n\nx = 1\n';
+    // docstring 占 1–3 行，插入行 = 4（紧随其后）
+    expect(findImportInsertLineForModel(fakeModel(src))).toBe(4);
+  });
+
+  it("注释/空行开头的文件头 → 跳过注释块", () => {
+    const src = "# -*- coding: utf-8 -*-\n\nx = 1\n";
+    expect(findImportInsertLineForModel(fakeModel(src))).toBe(3);
+  });
+});

@@ -1011,6 +1011,11 @@
         //                                      时才会在继续输入时重新请求，否则仅本地过滤）
         //   staleDelayMs?: number             慢引擎延迟；只作用于本预设生效后的**第一条**补全请求
         //   staleItems?: string[]             被延迟那条请求返回的过期候选（省略则沿用正常结果）
+        //   completionExtraItems?: object[]   追加到每条补全结果尾部的候选（可带 LSP additionalTextEdits，
+        //                                     P0-D 附加编辑落地用）
+        //   resolveOnlyLabel?: string         该 label 的候选「初始列表不带 additionalTextEdits、
+        //                                     resolve 时才补」——钉「accept 前是否一定等 resolve」
+        //   resolveDelayMs?: number           completionItem/resolve 响应延迟（构造「accept 先于 resolve」时序）
         var lp = window.__E2E_LSP_PRESET__ || null;
         var items0 = lspComplete(td0.uri, params0.position || { line: 0, character: 0 });
         if (lp && lp.staleDelayMs > 0) {
@@ -1025,12 +1030,38 @@
             }
           }
         }
+        if (lp && Array.isArray(lp.completionExtraItems) && lp.completionExtraItems.length) {
+          items0 = items0.concat(
+            lp.resolveOnlyLabel
+              ? lp.completionExtraItems.map(function (it) {
+                  // resolve-only：初始列表剥掉 additionalTextEdits（真实引擎的常见下发时机）
+                  if (it.label === lp.resolveOnlyLabel && it.additionalTextEdits) {
+                    var clone = {};
+                    for (var k in it) { if (k !== "additionalTextEdits") clone[k] = it[k]; }
+                    return clone;
+                  }
+                  return it;
+                })
+              : lp.completionExtraItems,
+          );
+        }
         result0 = {
           isIncomplete: !!(lp && lp.completionIsIncomplete),
           items: items0,
         };
       } else if (method0 === "completionItem/resolve") {
         result0 = params0; // 补全项本身已含 documentation/detail，resolve 原样返回
+        // P0-D：resolve-only 候选此刻才补 additionalTextEdits；resolveDelayMs 构造慢 resolve
+        var lp1 = window.__E2E_LSP_PRESET__ || null;
+        if (lp1 && lp1.resolveOnlyLabel && params0 && params0.label === lp1.resolveOnlyLabel) {
+          var src0 = (lp1.completionExtraItems || []).filter(function (x) {
+            return x.label === lp1.resolveOnlyLabel;
+          })[0];
+          if (src0 && src0.additionalTextEdits) {
+            result0 = Object.assign({}, params0, { additionalTextEdits: src0.additionalTextEdits });
+          }
+        }
+        if (lp1 && lp1.resolveDelayMs > 0) delayMs = lp1.resolveDelayMs;
       } else if (method0 === "textDocument/hover") {
         var td1 = params0.textDocument || {};
         result0 = lspHover(td1.uri, params0.position || { line: 0, character: 0 });
