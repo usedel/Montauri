@@ -145,14 +145,58 @@ function startServer() {
 
 // ---------- 面板驱动 ----------
 
+/**
+ * 首启弹窗若挡住 init（工具链引导 `maybePromptToolchain` 是 `await openConfirm`，
+ * 会卡在 `openInitialWorkspace()` 之前 → 文件树永不出现），先点掉它。
+ * **刻意避开「立即安装」**：真机上点它会真的开始装 uv/pyrefly（长、需联网），
+ * 不是本脚本想要的副作用——共享的 `dismissBlockingModals` 会点所有按钮，故这里另写一个。
+ */
+async function dismissFirstRunModals(page) {
+  for (let i = 0; i < 5; i++) {
+    const modal = page.locator('.modal-card:visible').first();
+    if ((await modal.count().catch(() => 0)) === 0) return;
+    const btns = modal.locator('.modal-actions button');
+    const n = await btns.count().catch(() => 0);
+    let clicked = false;
+    for (let j = 0; j < n; j++) {
+      const txt = ((await btns.nth(j).textContent().catch(() => '')) || '').trim();
+      if (/稍后|later|取消|cancel|跳过|skip|关闭|close/i.test(txt)) {
+        await btns.nth(j).click({ force: true, timeout: 2000 }).catch(() => {});
+        clicked = true;
+        break;
+      }
+    }
+    if (!clicked) return; // 只有破坏性按钮（如「立即安装」）→ 不点，留给调用方报错
+    await sleep(400);
+  }
+}
+
 /** 打开 devtools 面板并切到 HTTP 工具（picker 搜索 → Enter） */
 async function openHttpTool(page) {
-  if ((await page.locator('#right-panel:not(.hidden)').count()) > 0) {
-    await page.locator('#devtools-close').click().catch(() => {});
-    await sleep(250);
+  // —— 就绪判据（首轮真机跑暴露，2026-10-07 17:51）——
+  // mock 层等的是 `__TAURI_MOCK_INVOKE_LOG__` 里的 `list_plugin_dirs`；真机没有这个钩子。
+  // 可用的 DOM 信号：`wireWindowKeys()`（main.ts:1745，装 Ctrl+Shift+T 的 window keydown）
+  // 在 `openInitialWorkspace()`（main.ts:~2109）**之前**，故「文件树出现」⇒ 全局键位已可用。
+  // 首轮就是因为按得太早（init 还没走到 1745 行）→ picker 一直 hidden。
+  await dismissFirstRunModals(page);
+  await page.locator('#tree .tree-item').first().waitFor({ timeout: 60_000 }).catch(() => {});
+
+  // 仍保留重试兜底：工作区为空 / 键位被自定义时，重试能兜住，不把脚本钉死在内部时序上
+  let opened = false;
+  for (let attempt = 0; attempt < 10 && !opened; attempt++) {
+    if ((await page.locator('#right-panel:not(.hidden)').count()) > 0) {
+      await page.locator('#devtools-close').click().catch(() => {});
+      await sleep(250);
+    }
+    await page.keyboard.press('Control+Shift+T');
+    opened = await page.locator('#devtools-picker')
+      .waitFor({ state: 'visible', timeout: 2500 }).then(() => true, () => false);
+    if (!opened) await sleep(1000);
   }
-  await page.keyboard.press('Control+Shift+T');
-  await page.locator('#devtools-picker').waitFor({ state: 'visible', timeout: 10_000 });
+  if (!opened) {
+    throw new Error('Ctrl+Shift+T 连按 10 次仍未打开 devtools picker'
+      + '（键位未接线 / 窗口未聚焦 / 首启弹窗仍在挡 init——看 real-reports 截图与 #tree 是否为空）');
+  }
   await page.locator('#devtools-picker-search').fill('HTTP 请求');
   await page.keyboard.press('Enter');
   await page.locator(`${ROOT} .http-url`).waitFor({ state: 'visible', timeout: 10_000 });
