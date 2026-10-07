@@ -98,6 +98,23 @@ $missing = @()
 # 包装层异常（≠ 套件断言失败）：记录后继续下一套，绝不因此丢掉整轮报告
 $wrapperErr = @{}
 
+# node 可执行文件（ProcessStartInfo 不解析 PATH 里的 .cmd/shim，故先解析一次）
+$NodeExe = $null
+try { $NodeExe = (Get-Command node -ErrorAction Stop).Source } catch { $NodeExe = $null }
+
+# 控制台编码：node 在 Windows 上恒写 UTF-8，而中文 Windows 控制台默认 936(GBK)
+# → 真机脚本的中文输出全是乱码（2026-10-07 用户两次反馈）。运行期切 65001，收尾恢复。
+$prevCodePage = $null
+try { $prevCodePage = ((chcp) -join '') -replace '\D', '' } catch { $prevCodePage = $null }
+if ($prevCodePage -ne '65001') {
+  try {
+    chcp 65001 > $null
+    [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false
+  } catch {
+    Write-Host "⚠ 控制台切 UTF-8 失败（中文可能乱码）：$($_.Exception.Message)" -ForegroundColor Yellow
+  }
+}
+
 # 发布前验收：release-real 默认优先取注册表安装位，会**默默验到机器上遗留的旧安装**
 # （2026-10-07 实测：本机 D:\OpenCharm 躺着 10-04 的旧包，用户 18:29 刚构建的产物根本没被验到）。
 # -PreRelease 的语义是「我刚构建出来的包能不能干活」，故显式把 OC_RELEASE_EXE 指向构建产物。
@@ -111,26 +128,36 @@ if ($PreRelease) {
   }
 }
 
-# 跑一个套件，且**不让它的 stderr 中断整轮跑批**。
+# 跑一个套件：**把 node 的字节直接交给控制台**，不让 PowerShell 的格式化器经手。
 #
-# 为什么需要这个包装（与 build-release.ps1 的 Invoke-Native 同源、同一个坑）：
-# PowerShell 5.1 会把 native 命令写到 stderr 的内容包成 NativeCommandError；本脚本顶部
-# `$ErrorActionPreference = "Stop"`，于是**任一真机脚本往 stderr 写一行**（真机脚本在
-# 失败/中断路径上必然 console.error）就会终止整个 run-real-all —— 表现为「跑到一半
-# 整脚本退出、不写 SUMMARY」，最坏情况是外层管道捕获（`... | Tee-Object`）时必现。
-# 2026-10-07 实测：db-real 中断 → stderr → 跑批在第 2 套件直接退出，前 1 套件的结论丢失。
-# 局部把 EAP 降为 Continue，并把 ErrorRecord 渲染成纯文本（否则会带 "cmd : ... + CategoryInfo" 噪声）。
-#
-# ⚠ **绝不要写成 `... | Write-Host`**（2026-10-07 用户终端实测踩坑）：管道绑定进 Write-Host
-# 会在真实控制台下抛 `IndexOutOfRangeException`（"索引超出了数组界限"），且这是**终止性异常**
-# ——局部 EAP=Continue 也拦不住，整轮跑批当场死在 db-real、不写 SUMMARY。
-# 输出直接留在管道里即可（默认就走控制台，且外层 `| Tee-Object` 能捕获）；仓库里
-# build-release.ps1 也是避开该写法（它用 `Out-String` 后再 `Write-Host $text` 语句式调用）。
+# 为什么不能用 `& node ... | ForEach-Object {...}`（2026-10-07 用户终端两次踩坑）：
+# PowerShell 的格式化器会对**每一行**做折行/显示宽度计算，遇到「长行 + 全角字符」时抛
+# `IndexOutOfRangeException`（"索引超出了数组界限"），且是**终止性异常**——局部
+# EAP=Continue 拦不住，整轮跑批当场退出、不写 SUMMARY。实测先后打死两条路径：
+#   ① `... | Write-Host`（WriteHostCommand）
+#   ② 默认输出格式化（out-lineoutput）——把 Write-Host 去掉后它接着炸，证明根因在
+#      「输出经过 PowerShell」这件事本身，而不是某个 cmdlet。
+# 改为 `ProcessStartInfo` + `RedirectStandard*=false`：子进程**继承控制台句柄**，
+# 字节直达控制台。收益是三重的：没有格式化折行、没有 stderr→ErrorRecord 包装
+# （原生 stderr 陷阱一并消失）、没有中间缓冲（仍是实时流式）。
+# 代价：输出不再经过 PowerShell 管道，外层 `| Tee-Object` 抓不到（要看输出请直接看控制台）。
 function Invoke-RealSuite([string]$scriptPath) {
-    $ErrorActionPreference = "Continue"
-    & node $scriptPath 2>&1 | ForEach-Object {
-        if ($_ -is [System.Management.Automation.ErrorRecord]) { $_.ToString() } else { $_ }
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    if ($NodeExe -and $NodeExe -like '*.exe') {
+        $psi.FileName = $NodeExe
+        $psi.Arguments = '"' + $scriptPath + '"'
+    } else {
+        # node 是 .cmd / 无扩展名 shim（如某些托管运行时）→ 交给 cmd 解析
+        $psi.FileName = 'cmd.exe'
+        $psi.Arguments = '/c node "' + $scriptPath + '"'
     }
+    $psi.WorkingDirectory = $ShellDir
+    $psi.UseShellExecute = $false
+    $psi.RedirectStandardOutput = $false
+    $psi.RedirectStandardError = $false
+    $proc = [System.Diagnostics.Process]::Start($psi)
+    $proc.WaitForExit()
+    return $proc.ExitCode
 }
 
 foreach ($s in $Scripts) {
@@ -142,8 +169,7 @@ foreach ($s in $Scripts) {
   $sw = [System.Diagnostics.Stopwatch]::StartNew()
   Push-Location $ShellDir
   try {
-    Invoke-RealSuite $cjs
-    $code = $LASTEXITCODE
+    $code = Invoke-RealSuite $cjs
   } catch {
     # 兜底：包装层自身出错（控制台/宿主异常等）也只损失这一套，报告照出
     $code = 1
@@ -207,6 +233,11 @@ Write-Host "=========================================================="
 Write-Host " 汇总：$($Scripts.Count) 套件 / $totalCases 项 / 失败 $totalFailed 项 / 套件失败 $fail"
 Write-Host " 报告：$reportPath"
 Write-Host "=========================================================="
+
+# 恢复控制台代码页（运行期切过 65001）
+if ($prevCodePage -and $prevCodePage -ne '65001') {
+  try { chcp $prevCodePage > $null } catch { /* 恢复失败不影响结论 */ }
+}
 
 if ($Strict -and $fail -gt 0) { exit 1 }
 exit 0

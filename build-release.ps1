@@ -134,6 +134,9 @@ if ($Verify) {
     if (-not (Test-Path $realAll)) { Fail "run-real-all.ps1 not found: $realAll" }
     # 用独立 powershell 进程跑：run-real-all.ps1 会逐套件起 node/tauri dev，需要干净的
     # $LASTEXITCODE 语义；本脚本的 $ErrorActionPreference=Stop 不适用于子脚本。
+    # 注意：run-real-all 把 node 的输出**直接交给控制台**（绕过 PowerShell 格式化器，见其
+    # Invoke-RealSuite 注释），故这里 Invoke-Native 捕获到的只有 run-real-all 自身的几行；
+    # 套件实时输出仍在控制台上，最终结论以 shell/real-reports/<stamp>/SUMMARY.md 为准。
     Invoke-Native powershell -NoProfile -ExecutionPolicy Bypass -File $realAll -PreRelease -Strict
     if ($LASTEXITCODE -ne 0) {
         Fail "Pre-release real E2E failed (see shell/real-reports/<stamp>/SUMMARY.md)"
