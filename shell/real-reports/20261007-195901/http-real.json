@@ -1,0 +1,76 @@
+{
+  "schema": "opencharm-e2e-real-summary/1",
+  "suite": "http-real",
+  "at": "2026-10-07T12:03:47.365Z",
+  "ok": true,
+  "total": 10,
+  "failed": 0,
+  "error": null,
+  "durationMs": 30810,
+  "headCommit": "57e3404",
+  "cdpPort": 9223,
+  "exe": null,
+  "exeMtime": null,
+  "cases": [
+    {
+      "id": "HR-1",
+      "desc": "GET JSON：真实 reqwest 打通本机服务（服务端观测到 UA=OpenCharm/0.1）+ JSON 树渲染",
+      "ok": true,
+      "detail": "code=\"200 OK\" meta=\"· 19 ms · 67 B\" 服务端观测={\"path\":\"/json\",\"ua\":\"OpenCharm/0.1\"} 叶子=[\"ok:true\",\"0:1\",\"1:2\",\"2:3\",\"tag:\\\"r1\\\"\",\"note:\\\"opencharm-http-real\\\"\"]"
+    },
+    {
+      "id": "HR-2",
+      "desc": "真实响应头到达并列出（content-type / content-length 来自服务端实发）",
+      "ok": true,
+      "detail": "摘要=\"响应头（5）\" 头名=[\"content-type\",\"content-length\",\"date\",\"connection\",\"keep-alive\"]"
+    },
+    {
+      "id": "HR-3",
+      "desc": "POST + 自定义头 + 请求体：服务端收到 method/token/body 并回显进前端",
+      "ok": true,
+      "detail": "服务端观测={\"method\":\"POST\",\"token\":\"t-123\",\"body\":\"{\\\"a\\\":1}\"} 叶子=[\"method:\\\"POST\\\"\",\"token:\\\"t-123\\\"\",\"tag:\\\"r3\\\"\",\"body:\\\"{\\\"a\\\":1}\\\"\"]"
+    },
+    {
+      "id": "HR-4",
+      "desc": "302 重定向真实跟随：最终 200 且服务端收到 /redirect → /json 两次请求",
+      "ok": true,
+      "detail": "code=\"200 OK\" 服务端路径序列=[\"/redirect\",\"/json\"]"
+    },
+    {
+      "id": "HR-5",
+      "desc": "404 不是错误态：状态码降级配色，无错误提示",
+      "ok": true,
+      "detail": "code=\"404 Not Found\" codeClass=\"http-code http-code--degraded\" statusClass=\"http-status http-status--degraded\" err=\"\""
+    },
+    {
+      "id": "HR-6",
+      "desc": "真实超时：3000ms 内未完成即报错（reqwest timeout 真链路）",
+      "ok": true,
+      "detail": "statusClass=\"http-status http-status--err\" status=\"HttpTimeout:请求超时（3000ms 内未完成）\" err=\"HttpTimeout:请求超时（3000ms 内未完成）\""
+    },
+    {
+      "id": "HR-7",
+      "desc": "取消在分块边界生效：中间态「正在取消…」→ 回落 idle 不报错，且服务端观测到断流",
+      "ok": true,
+      "detail": "发送态=\"已用 1 ms\" 取消态=\"正在取消…（请求可能仍在服务端执行）\" 终态=\"http-status http-status--idle\" err=\"\" 服务端断流=true（累计 1）"
+    },
+    {
+      "id": "HR-8",
+      "desc": "二进制响应体（application/octet-stream）：给二进制提示且不渲染 JSON 树",
+      "ok": true,
+      "detail": "code=\"200 OK\" 提示=[\"\",\"目标是本机或内网地址\",\"二进制响应体（12 B），未内联显示\"] 叶子数=0"
+    },
+    {
+      "id": "HR-9",
+      "desc": "响应体超过 5 MB 上限被截断：出「响应已截断」提示，字节数按截断后计（5 MB）",
+      "ok": true,
+      "detail": "code=\"200 OK\" meta=\"· 81 ms · 5.0 MB\" 提示=[\"\",\"目标是本机或内网地址\",\"响应已截断（超过 5 MB）\",\"二进制响应体（5.0 MB），未内联显示\"]"
+    },
+    {
+      "id": "HR-10",
+      "desc": "主机名解析：http://localhost:<port> 真实解析并连通（非仅 IP 字面量）",
+      "ok": true,
+      "detail": "code=\"200 OK\" 叶子=[\"ok:true\",\"0:1\",\"1:2\",\"2:3\",\"tag:\\\"r10\\\"\",\"note:\\\"opencharm-http-real\\\"\"]"
+    }
+  ]
+}

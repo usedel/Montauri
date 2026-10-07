@@ -1,0 +1,40 @@
+{
+  "schema": "opencharm-e2e-real-summary/1",
+  "suite": "new-project-fastapi-real",
+  "at": "2026-10-07T12:07:50.913Z",
+  "ok": true,
+  "total": 4,
+  "failed": 0,
+  "error": null,
+  "durationMs": 201308,
+  "headCommit": "57e3404",
+  "cdpPort": 9224,
+  "exe": null,
+  "exeMtime": null,
+  "cases": [
+    {
+      "id": "NP-REAL-1",
+      "desc": "新建项目面板：类型下拉存在，默认 script，含 fastapi 选项",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "NP-REAL-2",
+      "desc": "创建落盘：FastAPI 模板 + pyproject 依赖（C:\\Users\\tom\\AppData\\Local\\Temp\\oc-np-real-1791374669783\\demo-api-real）",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "NP-REAL-3",
+      "desc": "依赖安装无类型错误（interpreter: null 契约）",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "NP-REAL-4",
+      "desc": "uv add 实际完成（uv.lock=true venv含fastapi=false）",
+      "ok": true,
+      "detail": null
+    }
+  ]
+}
