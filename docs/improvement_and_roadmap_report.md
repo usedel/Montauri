@@ -461,7 +461,16 @@
 
 - **这两条印证了同一件事**：真机层与 mock 层是**两套独立断言**，改一处只可能被其中一层发现。D-6 加关闭按钮时 mock 层有回归钉（`e2e/db` 30/30 全绿），真机脚本没跟上——而真机层当时跑不起来，**这一漏就是 6 天**。这正是「没人跑 = 覆盖等于不存在」的活证据。
 - **修正上一轮的一处误判**：new-project 并非"卡在预检"（当时无 JSON 只能猜），它**跑到了收尾**，只是结果没进报告。
-- 重跑确认命令：`powershell -File shell\e2e-real\run-real-all.ps1 -Only db-real,new-project-fastapi-real`（看 db-real 是否 18 项全绿、new-project 的 FAIL 明细——它要联网装 fastapi，best-effort 边界待人工判定）。
+#### 第三轮（HEAD `993c0b0`）——new-project ✅ 通过；db-real 暴露**本轮修复自身的选择器写错**
+
+| 套件 | 结果 | 说明 |
+|---|---|---|
+| new-project-fastapi-real | ✅ **4/4 PASS**（206s） | results 口径修好，报告恢复；含联网装 fastapi 的 best-effort 检查项 |
+| db-real | ❌ 7 项后中断（92s） | 上一轮修的选择器**写错了**：`detail.locator('.db-cell-detail button:not(...)')` 里 `detail` 本身已是 `.db-cell-detail` → 拼成后代选择器（要求面板内再套一层面板）→ **永远匹配不到**，30s 超时 |
+
+- **已修**：`copyBtn` 改为 `detail.locator('button:not(.db-cell-detail-close)')`；并保留 `btnCount === 2` 断言——数量再变会**断言失败**（可读），而不是 strict 模式抛错（中断）。
+- **教训（值得记）**：真机脚本**无法在本机验证选择器**（需真机 DOM），所以改选择器时要**逐字核对是否与 mock 层一致**——mock 层 `e2e/db/03-data.spec.ts` 用的正是 `.db-cell-detail-close`（作为 `detail.locator(...)` 的单类后代查询），照抄即可，不要自行拼类名。
+- 重跑：`powershell -File shell\e2e-real\run-real-all.ps1 -Only db-real`（约 3~4 分钟）。
 
 ### P1-5 · 偿还 TD-021 五小项
 

@@ -550,7 +550,9 @@ function killWebviewLeftovers(port) {
     // Playwright strict mode 直接抛错中断（2026-10-07 真机跑批才发现：mock 层有 DB-D-6 回归钉，
     // 真机层脚本没跟上）。这里精确到各自的按钮，并把「有 × 且能关掉」也钉住（真机层原先缺这一钉）。
     const closeBtn = detail.locator('.db-cell-detail-close');
-    const copyBtn = detail.locator('.db-cell-detail button:not(.db-cell-detail-close)');
+    // 注意：detail 本身已是 .db-cell-detail，这里**不能**再写 `.db-cell-detail button`——
+    // 那会变成后代选择器（要求面板里再套一层面板）→ 永远匹配不到（2026-10-07 实测踩到）
+    const copyBtn = detail.locator('button:not(.db-cell-detail-close)');
     const btnText = (await copyBtn.textContent().catch(() => '')) || '';
     const btnCount = await detail.locator('button').count();
     const closeTip = (await closeBtn.getAttribute('data-tip').catch(() => '')) || '';
