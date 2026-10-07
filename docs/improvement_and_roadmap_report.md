@@ -452,7 +452,16 @@
 5. ✅ **运行中断被当成成功（假绿，本轮最严重的一条）**：db-real 的 `catch` 只打印「[运行中断]」，**不设失败计数** → `failed = 0` → 退出码 **0** → 跑批汇总报「失败 0 个套件」。**即首轮 SUMMARY 的"全绿"是假象**（db-real 其实中断了）。已改：中断记 `runError`，退出码非 0。
 6. ✅ **5173 预检形同虚设**：`portInUse()` 用 HTTP `GET /json/version` 判占用，而 **vite 不提供该端点** → 对 5173 永远返回 false（只对 CDP 端口有效）。实测本机 vite **只绑 `[::1]`**，旧实现双重漏检。已改 **TCP 双栈探测**（`net.connect` 探 127.0.0.1 + ::1）——实测：vite 未起 false、起后 **true**（旧实现此时仍是 false）。
 
-**待查（重跑即可定位）**：db-real 在用户环境里 tauri dev **编译成功、应用已启动**（日志到 `Running opencharm-shell.exe`），但随后中断——中断原因现在会落进 JSON 的 `error`；new-project 连 `.tauri-dev-np.log` 都没生成 → **卡在预检**（具体哪条预检，重跑即见）。重跑命令：`powershell -File shell\e2e-real\run-real-all.ps1 -Only db-real,new-project-fastapi-real`。
+#### 第二轮（`-Only db-real,new-project-fastapi-real`，HEAD `32bbdce`）——两条原因都拿到，均为真缺陷
+
+| 套件 | 报告 | 真实原因 | 处置 |
+|---|---|---|---|
+| db-real | 7 项后中断（32s） | **D-6 修复的回归**：T14-7 用宽选择器 `detail.locator('button')`，而 D-6（2026-10-06）给详情面板加了 × 关闭按钮 → 命中 2 个元素 → Playwright strict mode 直接抛错中断 | ✅ **已修**：选择器精确到各自按钮（`.db-cell-detail-close` / `button:not(.db-cell-detail-close)`），断言改为「按钮数=2 · 复制出 toast · × 可关闭」，并恢复现场供 T14-8 使用——**真机层补上 mock 层 `DB-D-6` 的那一钉** |
+| new-project | 0 项 / 205s / FAIL | **JSON 口径错位**：脚本自带一份 `results`，而 `writeJsonSummary` 读的是 real-env 的 `results` → 报告永远 0 项，**真实用例结果被丢掉**（它其实跑完了，且有 FAIL） | ✅ **已修**：`record` / `results` / `printSummary` 统一用共享层 |
+
+- **这两条印证了同一件事**：真机层与 mock 层是**两套独立断言**，改一处只可能被其中一层发现。D-6 加关闭按钮时 mock 层有回归钉（`e2e/db` 30/30 全绿），真机脚本没跟上——而真机层当时跑不起来，**这一漏就是 6 天**。这正是「没人跑 = 覆盖等于不存在」的活证据。
+- **修正上一轮的一处误判**：new-project 并非"卡在预检"（当时无 JSON 只能猜），它**跑到了收尾**，只是结果没进报告。
+- 重跑确认命令：`powershell -File shell\e2e-real\run-real-all.ps1 -Only db-real,new-project-fastapi-real`（看 db-real 是否 18 项全绿、new-project 的 FAIL 明细——它要联网装 fastapi，best-effort 边界待人工判定）。
 
 ### P1-5 · 偿还 TD-021 五小项
 

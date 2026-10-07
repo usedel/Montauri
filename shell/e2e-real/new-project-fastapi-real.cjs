@@ -35,7 +35,11 @@ const net = require('net');
 const os = require('os');
 const path = require('path');
 // 只借启动看门狗：exe / tauri dev 起不来时快速失败，不干等 cdpTimeout
-const { waitCdpReadyWatched, writeJsonSummary, gitHead } = require('./lib/real-env.cjs');
+// record/results/printSummary 一律用共享层：本脚本原先自带一份 results，
+// 而 writeJsonSummary 读的是 real-env 的 results → JSON 永远 total=0（2026-10-07 踩到）
+const {
+  waitCdpReadyWatched, writeJsonSummary, gitHead, record, printSummary,
+} = require('./lib/real-env.cjs');
 
 const CDP_PORT = Number(process.env.OC_CDP_PORT || 9224);
 const CDP_TIMEOUT_MS = Number(process.env.OC_CDP_TIMEOUT || 600) * 1000;
@@ -43,12 +47,6 @@ const KEEP_APP = process.env.OC_KEEP_APP === '1';
 const SKIP_INSTALL = process.env.OC_SKIP_INSTALL === '1';
 const DEV_URL_HOST = 'localhost:5173';
 const PROJ_NAME = 'demo-api-real';
-
-const results = [];
-function record(id, desc, ok, detail) {
-  results.push({ id, desc, ok, detail });
-  console.log(`${ok ? 'PASS' : 'FAIL'}  ${id}  ${desc}${detail ? '\n      -> ' + detail : ''}`);
-}
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
@@ -286,13 +284,8 @@ async function runChecks(page, projRoot) {
     }
   }
 
-  console.log('\n========== 真机 CDP 验收结果 ==========');
-  for (const r of results) {
-    console.log(`${r.ok ? 'PASS' : 'FAIL'}  ${r.id}  ${r.desc}`);
-  }
-  const failed = results.filter((r) => !r.ok).length;
-  console.log(`--------------------------------------`);
-  console.log(`共 ${results.length} 项，失败 ${failed} 项${KEEP_APP ? '（应用保留运行中）' : ''}`);
+  // 用共享层的 printSummary：它读的就是 writeJsonSummary 读的同一份 results
+  const failed = printSummary('新建 FastAPI 项目真机验收（NP-REAL）', KEEP_APP);
   writeJsonSummary({ ...suiteMeta, durationMs: Date.now() - t0, error: runError });
   process.exit(exitCode || (failed > 0 ? 1 : 0));
 })();

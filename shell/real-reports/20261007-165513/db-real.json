@@ -1,0 +1,56 @@
+{
+  "schema": "opencharm-e2e-real-summary/1",
+  "suite": "db-real",
+  "at": "2026-10-07T08:55:52.839Z",
+  "ok": false,
+  "total": 7,
+  "failed": 0,
+  "error": "locator.click: Error: strict mode violation: locator('#db-data-view').locator('.db-cell-detail').locator('button') resolved to 2 elements:\n    1) <button data-tip=\"关闭\" aria-label=\"关闭\" class=\"db-cell-detail-close\">…</button> aka locator('#db-data-view').getByRole('button', { name: '关闭' })\n    2) <button class=\"btn btn--sm\">复制</button> aka getByRole('button', { name: '复制' })\n\nCall log:\n\u001b[2m  - waiting for locator('#db-data-view').locator('.db-cell-detail').locator('button')\u001b[22m\n",
+  "durationMs": 32262,
+  "headCommit": "32bbdce",
+  "cdpPort": 9223,
+  "cases": [
+    {
+      "id": "T14-0",
+      "desc": "造数：3 表 1 视图 1 索引 + 万行主表 + 8 列宽表 + 3 行日志表",
+      "ok": true,
+      "detail": "C:\\Users\\tom\\AppData\\Local\\Temp\\oc-db-real-N3srF0\\charm.db"
+    },
+    {
+      "id": "T14-1",
+      "desc": "＋预置连接自动打开：3 表 1 视图 1 索引、万行表行数正确",
+      "ok": true,
+      "detail": "表 (3) | 视图 (1) | 索引 (1)"
+    },
+    {
+      "id": "T14-2",
+      "desc": "单击表节点展开列（名 + 类型 + PK/NN），索引节点无子项",
+      "ok": true,
+      "detail": "可见=true col0=\"idINTEGER PK NN\" col1=\"nameTEXT NN\" 索引无列=true"
+    },
+    {
+      "id": "T14-3",
+      "desc": "双击表节点 → 编辑器区数据 Tab（宿主可见 / 与 #editor 互斥 / 标题=表名 / 全列渲染 / 200 行每页 / 状态条含只读）",
+      "ok": true,
+      "detail": "标题=\"users\" tab=\"db-data:db-e527e9d95d5ee5fd:users\" 列头=#,id,name,email,age,score,active,created_at,note 行数=200 状态=\"200/10000 行 · 5 ms · 只读\" #editor隐藏=true"
+    },
+    {
+      "id": "T14-4",
+      "desc": "列头排序三态（升→降→无，aria-sort 正确）且数据真按 id 升降序、每次翻回第 1 页",
+      "ok": true,
+      "detail": "三态序列=[\"ascending\",\"descending\",null] 升序首行 id=1 降序首行 id=10000 页码=\"第 1/50 页\" 首行号=1"
+    },
+    {
+      "id": "T14-5",
+      "desc": "筛选回车应用（id > 9900 → 100 行 / 第 1/1 页），Esc 清除输入并恢复 200/10000",
+      "ok": true,
+      "detail": "筛选后行数=100 页码=\"第 1/1 页\" 状态=\"100/100 行 · 2 ms · 只读\" 清除后行数=200 输入已清=true 状态=\"200/10000 行 · 4 ms · 只读\""
+    },
+    {
+      "id": "T14-6",
+      "desc": "数据 Tab 分页：下一页行号 201…400 连续；每页行数改 100 后行数与页数同步（100 行 / 100 页）",
+      "ok": true,
+      "detail": "原首行=1 翻页首=201 末=400 共=200 翻页状态=\"200/10000 行 · 5 ms · 只读\" 改100后行数=100 页码=\"第 1/100 页\" 状态=\"100/10000 行 · 4 ms · 只读\""
+    }
+  ]
+}

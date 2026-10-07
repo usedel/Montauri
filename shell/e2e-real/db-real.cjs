@@ -546,17 +546,29 @@ function killWebviewLeftovers(port) {
     await detail.waitFor({ state: 'visible', timeout: 8000 });
     const dHead = (await detail.locator('.db-cell-detail-head').textContent().catch(() => '')) || '';
     const dBody = (await detail.locator('.db-cell-detail-body').textContent().catch(() => '')) || '';
-    const copyBtn = detail.locator('button');
+    // D-6（2026-10-06）给面板加了 × 关闭按钮后，宽选择器 `button` 会命中 2 个元素——
+    // Playwright strict mode 直接抛错中断（2026-10-07 真机跑批才发现：mock 层有 DB-D-6 回归钉，
+    // 真机层脚本没跟上）。这里精确到各自的按钮，并把「有 × 且能关掉」也钉住（真机层原先缺这一钉）。
+    const closeBtn = detail.locator('.db-cell-detail-close');
+    const copyBtn = detail.locator('.db-cell-detail button:not(.db-cell-detail-close)');
     const btnText = (await copyBtn.textContent().catch(() => '')) || '';
     const btnCount = await detail.locator('button').count();
+    const closeTip = (await closeBtn.getAttribute('data-tip').catch(() => '')) || '';
     await copyBtn.click();
     await sleep(500);
     const copyToast = await page.locator('.toast.toast--success').first().textContent().catch(() => '');
     const stillOpen = await detail.isVisible().catch(() => false);
-    record('T14-7', '点击单元格 → 详情面板显示（列名 + 行号 + 值）+ 复制值按钮出成功 toast',
+    await closeBtn.click();
+    await sleep(400);
+    const closedByX = !(await detail.isVisible().catch(() => false));
+    // 恢复「面板开着」的现场（T14-8 的右键菜单用例在原状态下执行）
+    await cell.click();
+    await detail.waitFor({ state: 'visible', timeout: 8000 });
+    record('T14-7', '点击单元格 → 详情面板（列名 + 行号 + 值）+ 复制值出 toast + × 关闭（D-6）',
       /id/.test(dHead) && /#2/.test(dHead) && dBody.trim() === '2'
-        && btnCount === 1 && /复制/.test(btnText) && !!copyToast && stillOpen,
-      `head="${dHead.trim().slice(0, 60)}" body="${dBody.trim().slice(0, 40)}" 按钮数=${btnCount} 按钮="${btnText.trim()}" toast="${(copyToast || '').trim().slice(0, 30)}" 面板仍在=${stillOpen}（无关闭按钮，见 D-6）`);
+        && btnCount === 2 && /复制/.test(btnText) && !!copyToast && stillOpen
+        && !!closeTip && closedByX,
+      `head="${dHead.trim().slice(0, 60)}" body="${dBody.trim().slice(0, 40)}" 按钮数=${btnCount} 复制="${btnText.trim()}" 关闭tip="${closeTip}" toast="${(copyToast || '').trim().slice(0, 30)}" 复制后面板仍在=${stillOpen} ×可关闭=${closedByX}`);
 
     // ── T14-8 右键复制整行（JSON / CSV），各出成功 toast ──
     const rcCell = dataView(page).locator('.db-tab-grid tbody tr').nth(0).locator('td').nth(1);
