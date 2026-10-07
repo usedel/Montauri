@@ -1,6 +1,6 @@
 # A2 内置 Profiler 开发计划
 
-> 版本：**v0.6** · 日期：2026-10-07 · HEAD `31e0617` · 状态：**PR-A2-P1 ~ P5 已完成，下一步 P6（依验收记录决定是否扩大视图：Top-N 慢函数、perf 视角 hover 等）**
+> 版本：**v0.7** · 日期：2026-10-07 · HEAD `31e0617` · 状态：**PR-A2-P0 ~ P5 已完成并收口（P6 裁决：不扩大视图，见 §9）——进入验收维护态**
 > 上级：`docs/improvement_and_roadmap_report.md` 候选池 **A2**（用户 2026-10-06 选定为阶段二下一步）
 > 证据：**`bench/reports/a2-overhead-lab.md`**（开销门槛实验 v1.0）——**本文所有倍率均出自该报告，引用前先核对 HEAD**
 > 相关合约：`docs/adr/0010-performance-lightweight-charter.md`（性能/体积一等目标）· `probe/README.md`（类型紧凑表示、零第三方依赖）
@@ -73,14 +73,16 @@
 3. **样本完整度必须可见**：UI 必须明示本次有多少次调用被计时（与类型观测的"已饱和"提示同款），避免用户对着 602/6000 的样本做判断。
 4. probe 铁律延续：**零第三方依赖**；绝不以任何形式 repr 值本身（Profiler 也只落数值聚合）。
 
-## 6. 验收清单（阶段门）
+## 6. 验收清单（阶段门）—— ✅ 全项通过（2026-10-07 收口）
 
-- [ ] 默认路径（性能模式关）overhead 与 HEAD 无回归，**Gate C 有 PASS 余量**；
-- [ ] 性能模式满足 §3.3 红线，且加盖印到 `bench/reports/a2-overhead-lab.md`（同一脚本出数）；
-- [ ] probe `uv run pytest` 全绿 + 新增 `perf_mode` 用例（开与关两路、默认路径零影响）；
-- [ ] `cargo test` 外壳 + intel 绿；e2e ux / tools / db 定向绿；
-- [ ] `budget-check.mjs` 全 PASS（**新 CSS 文件必须同步登记上限**）；`audit_tokens.py` 0 FAIL（**新 CSS 落地后必须复跑取实测值**，不得以"本轮无 CSS 改动"推断）；
-- [ ] `delivery-overview.md` 登记 A2；`intel/README.md` 与本报告 §8 同步。
+- [x] 默认路径（性能模式关）overhead 与 HEAD 无回归，**Gate C 有 PASS 余量**；—— 证据 `bench/reports/a2-overhead-lab.md` v1.0（默认形态与基准对齐，逐字不动）
+- [x] 性能模式满足 §3.3 红线，且加盖印到 `bench/reports/a2-overhead-lab.md`（同一脚本出数）；—— perf 形态 **3.02x ≤ cProfile 5.45x**（P1 盖印）
+- [x] probe `uv run pytest` 全绿 + 新增 `perf_mode` 用例（开与关两路、默认路径零影响）；—— **89/89**（P1 起含 `perf_mode` 开/关两路用例）
+- [x] `cargo test` 外壳 + intel 绿；e2e ux / tools / db 定向绿；—— 外壳 **320 passed / 2 ignored** + intel **72**；e2e ux 域 **10/10** + settings 域 **4/4** + tools/db 定向（P2~P4 各 PR 附带，全绿）
+- [x] `budget-check.mjs` 全 PASS（**新 CSS 文件必须同步登记上限**）；`audit_tokens.py` 0 FAIL（**新 CSS 落地后必须复跑取实测值**，不得以"本轮无 CSS 改动"推断）；—— **33 项全 PASS**（`hotspots.css` 48/60 已登记）+ `audit_tokens.py` **0 FAIL**
+- [x] `delivery-overview.md` 登记 A2；`intel/README.md` 与本报告 §8 同步。—— `delivery-overview.md` **v1.7 §2 第 29 行**登记 A2；`intel/README.md` 同步项 **N/A**（A2 全程未动 intel 代码，§8 引用表无新增条目）
+
+收口验收记录：`docs/profiler_acceptance_record.md`（2026-10-07）。
 
 ## 7. 待裁决 —— ✅ 已全部裁决（2026-10-07）
 
@@ -99,3 +101,14 @@
 | `docs/adr/0010-performance-lightweight-charter.md` | 开销红线为何是一等目标 |
 | `docs/improvement_and_roadmap_report.md` §3 候选池 A2 | 本项目的来源与优先级 |
 | `probe/README.md` | probe 侧铁律：类型紧凑表示、零第三方依赖、wheel 必须含 `sitecustomize.py` |
+
+## 9. 收口记录 —— P6 裁决：不扩大视图（2026-10-07）
+
+**裁决**：A2 范围即 PR-A2-P0 ~ P5，**不再扩大热点视图**（不做 Top-N 慢函数榜 / perf 视角 hover / 火焰图 / 行级耗时——§4.2 已证伪项一并维持否决）。
+
+**理由**：
+1. P4 已交付最小闭环（调用次数 ⇄ 平均耗时排序 + 样本数可见 + 无 perf 数据提示），满足 profiler 定位「找出最慢的 N 个函数」的核心诉求；
+2. `hotspotsView.ts` 350/350 已到预算上限，扩大视图必然触线（P6 起该文件不得增行）；
+3. 性能模式默认关，用户按需开启——低频功能不再加码投入，符合「默认轻量」章程。
+
+**收口态维护约定**：不再开发新功能；后续只受理——探针开销回归（bench 复跑）、trace 库迁移（schema 变更）、预算违约修复。验收记录见 `docs/profiler_acceptance_record.md`。
