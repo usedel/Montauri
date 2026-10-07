@@ -70,8 +70,24 @@ pub enum CandidateKind {
     Param,
 }
 
-/// 统一补全入口：下标访问（dict 键）+ 符号补全 + 属性补全，去重后按证据强度（score）降序。
-pub fn complete(index: &TraceIndex, text: &str, line: u32, character: u32) -> Vec<Candidate> {
+/// 补全结果：候选列表 + 是否因 `MAX_CANDIDATES` 截断。
+///
+/// P0-A1：`truncated` 供 LSP 响应声明 `is_incomplete`——截断时客户端继续输入会重新请求，
+/// 否则可能被当作「可本地过滤的完整集合」，导致第 51 名以后的运行时符号永远补不出来。
+#[derive(Debug, Default, Clone)]
+pub struct CompletionOutcome {
+    pub candidates: Vec<Candidate>,
+    /// `true` = 候选数超过 `MAX_CANDIDATES`，列表被截断（语义是「被截断」而非「暂无数据」）。
+    pub truncated: bool,
+}
+
+/// 统一补全入口（带截断元信息）：下标访问（dict 键）+ 符号补全 + 属性补全，去重后按证据强度（score）降序。
+pub fn complete_with_meta(
+    index: &TraceIndex,
+    text: &str,
+    line: u32,
+    character: u32,
+) -> CompletionOutcome {
     // jmespath 路径补全：`jmespath.search("data.diff[0].co", data)` 字符串内补字段
     if let Some(jm) = jmespath_ctx_at(text, line, character) {
         if let Some(ty) = type_infer::infer_receiver_type(index, text, &jm.data_var, line) {
@@ -87,9 +103,10 @@ pub fn complete(index: &TraceIndex, text: &str, line: u32, character: u32) -> Ve
                     ));
                 }
             }
-            return dedup_sort_truncate(candidates);
+            let (candidates, truncated) = dedup_sort_truncate(candidates);
+            return CompletionOutcome { candidates, truncated };
         }
-        return Vec::new();
+        return CompletionOutcome::default();
     }
 
     // 下标访问补全（dict 键 / list 元素）：`data["prefix` / `data["key"]["prefix` / `rows[0]["prefix`
@@ -108,25 +125,26 @@ pub fn complete(index: &TraceIndex, text: &str, line: u32, character: u32) -> Ve
                     ));
                 }
             }
-            return dedup_sort_truncate(candidates);
+            let (candidates, truncated) = dedup_sort_truncate(candidates);
+            return CompletionOutcome { candidates, truncated };
         }
         // 下标访问但推断不到 base 类型：不产生补全
-        return Vec::new();
+        return CompletionOutcome::default();
     }
 
     // 调用实参补全（A3①）：`foo(|` / `foo(a, |` → 该函数的参数名候选（带运行时观测类型）。
     // callee **无运行时观测时不拦截**（`print(` 等内建）——返回 None 回落符号补全，保持既有行为。
     if let Some(ctx) = call_ctx_at(text, line, character) {
-        if let Some(cands) = param_candidates(index, &ctx) {
-            return cands;
+        if let Some((cands, truncated)) = param_candidates(index, &ctx) {
+            return CompletionOutcome { candidates: cands, truncated };
         }
     }
 
     let Some(token) = dot_chain_at(text, line, character) else {
-        return Vec::new();
+        return CompletionOutcome::default();
     };
     if token.is_empty() {
-        return Vec::new();
+        return CompletionOutcome::default();
     }
 
     let ends_with_dot = token.ends_with('.');
@@ -137,7 +155,7 @@ pub fn complete(index: &TraceIndex, text: &str, line: u32, character: u32) -> Ve
         .map(str::to_owned)
         .collect();
     if segs.is_empty() {
-        return Vec::new();
+        return CompletionOutcome::default();
     }
 
     let parent: Vec<String>;
@@ -180,7 +198,17 @@ pub fn complete(index: &TraceIndex, text: &str, line: u32, character: u32) -> Ve
         }
     }
 
-    dedup_sort_truncate(candidates)
+    let (candidates, truncated) = dedup_sort_truncate(candidates);
+    CompletionOutcome { candidates, truncated }
+}
+
+/// 统一补全入口（无截断元信息）：委托 [`complete_with_meta`]，测试与既有调用点沿用此签名。
+///
+/// `#[allow(dead_code)]`：产物只经 `server.rs` 的 `complete_with_meta`，本函数在当前 bin 里
+/// 仅测试使用——保留它是为了让 30+ 个既有测试（以及未来只想拿候选的调用点）零改动。
+#[allow(dead_code)]
+pub fn complete(index: &TraceIndex, text: &str, line: u32, character: u32) -> Vec<Candidate> {
+    complete_with_meta(index, text, line, character).candidates
 }
 
 // ---------- A3① 调用实参补全 ----------
@@ -202,8 +230,8 @@ struct CallCtx {
 }
 
 /// 调用实参补全：`arg_types` 的参数位观测 → 参数名候选（insertText `name=`）。
-/// callee 解析不到（无运行时观测）返回 `None`——调用方据此回落符号补全。
-fn param_candidates(index: &TraceIndex, ctx: &CallCtx) -> Option<Vec<Candidate>> {
+/// 返回 `(候选, 是否截断)`；callee 解析不到（无运行时观测）返回 `None`——调用方据此回落符号补全。
+fn param_candidates(index: &TraceIndex, ctx: &CallCtx) -> Option<(Vec<Candidate>, bool)> {
     let f = resolve_callee(index, &ctx.callee)?;
     let mut out = Vec::new();
     for (i, p) in param_observations(f).iter().enumerate() {
@@ -563,7 +591,9 @@ fn symbol_candidates(index: &TraceIndex, parent: &[String], prefix: &str) -> Vec
 }
 
 /// 同 label 去重（保留 score 高者）→ score 降序 → 截断。
-fn dedup_sort_truncate(cands: Vec<Candidate>) -> Vec<Candidate> {
+///
+/// 返回 `(候选项, 是否发生截断)`：截断标记在 truncate 前取，供 LSP `is_incomplete` 声明（P0-A1）。
+fn dedup_sort_truncate(cands: Vec<Candidate>) -> (Vec<Candidate>, bool) {
     let mut map: HashMap<String, Candidate> = HashMap::new();
     for c in cands {
         map.entry(c.label.clone())
@@ -576,8 +606,9 @@ fn dedup_sort_truncate(cands: Vec<Candidate>) -> Vec<Candidate> {
     }
     let mut v: Vec<Candidate> = map.into_values().collect();
     v.sort_by(|a, b| b.score.cmp(&a.score).then_with(|| a.label.cmp(&b.label)));
+    let truncated = v.len() > MAX_CANDIDATES;
     v.truncate(MAX_CANDIDATES);
-    v
+    (v, truncated)
 }
 
 /// 光标前「点链 token」提取：回溯 `[A-Za-z0-9_.]`，允许以点结尾（成员补全信号）。
@@ -1032,6 +1063,90 @@ mod tests {
             !cands4.iter().any(|c| c.label == "title"),
             "data. 不应补 dict 键 title，实际 {cands4:?}"
         );
+    }
+
+    /// P0-A1：截断元信息 —— 候选数超过 `MAX_CANDIDATES` 时 `truncated == true`。
+    ///
+    /// 修复前：intel 实际在截断（`v.truncate(MAX_CANDIDATES)`）却从不声明，客户端把列表
+    /// 当「可本地过滤的完整集合」，第 51 名以后的运行时符号永远补不出来。
+    #[test]
+    fn reports_truncation_when_over_max_candidates() {
+        // 60 个同前缀键 → 必定超过 MAX_CANDIDATES(50)
+        let shape = format!(
+            "[{}]",
+            (0..60)
+                .map(|i| format!("\"k{:02}\"", i))
+                .collect::<Vec<_>>()
+                .join(",")
+        );
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.db");
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(SCHEMA).unwrap();
+            conn.execute(
+                "INSERT INTO functions(filename,qualname,lineno,hits,stale) VALUES('m.py','get_big',1,10,0)",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO ret_types(fid,type_label,shape,count) VALUES(1,'dict[str, int]',?1,7)",
+                rusqlite::params![shape],
+            )
+            .unwrap();
+        }
+        let idx = TraceIndex::open(&path).unwrap();
+
+        let doc = "d = get_big()\ny = d[\"k";
+        let line_len = doc.lines().nth(1).unwrap().len() as u32;
+        let outcome = complete_with_meta(&idx, doc, 1, line_len);
+        assert_eq!(
+            outcome.candidates.len(),
+            MAX_CANDIDATES,
+            "应截断到 MAX_CANDIDATES 条，实际 {}",
+            outcome.candidates.len()
+        );
+        assert!(
+            outcome.truncated,
+            "60 个候选必须声明 truncated=true（否则客户端不会重新请求）"
+        );
+        // 排序契约不破：score 降序 + label 决胜
+        assert_eq!(outcome.candidates[0].label, "k00");
+        // 原 `complete()` 委托不丢行为
+        assert_eq!(complete(&idx, doc, 1, line_len).len(), MAX_CANDIDATES);
+    }
+
+    /// P0-A1：候选数未超上限 → `truncated == false`（不得把「少」误报成「被截断」）。
+    #[test]
+    fn reports_no_truncation_when_under_max_candidates() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.db");
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(SCHEMA).unwrap();
+            conn.execute(
+                "INSERT INTO functions(filename,qualname,lineno,hits,stale) VALUES('m.py','get_small',1,10,0)",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO ret_types(fid,type_label,shape,count) VALUES(1,'dict[str, int]','[\"title\",\"url\"]',7)",
+                [],
+            )
+            .unwrap();
+        }
+        let idx = TraceIndex::open(&path).unwrap();
+
+        let doc = "d = get_small()\ny = d[\"";
+        let line_len = doc.lines().nth(1).unwrap().len() as u32;
+        let outcome = complete_with_meta(&idx, doc, 1, line_len);
+        assert_eq!(outcome.candidates.len(), 2);
+        assert!(!outcome.truncated, "2 个候选不得声明截断");
+
+        // 索引无数据（空候选）同样不得声明截断——语义是「暂无数据」不是「被截断」
+        let empty = complete_with_meta(&idx, "z = nosuch.", 0, 12);
+        assert!(empty.candidates.is_empty());
+        assert!(!empty.truncated, "空候选不得声明截断");
     }
 
     /// 多层链式 + list 索引下标补全（`quotes["data"]["diff"][0]["`）。

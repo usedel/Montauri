@@ -23,7 +23,7 @@ use tower_lsp::{Client, LanguageServer};
 
 use opencharm_intel_index::TraceIndex;
 
-use crate::completion::{complete, CandidateKind};
+use crate::completion::{complete_with_meta, CandidateKind, CompletionOutcome};
 use crate::definition;
 use crate::diagnostics;
 use crate::hover;
@@ -206,6 +206,39 @@ impl Backend {
     }
 }
 
+/// 补全候选 → LSP 响应（P0-A1）。
+///
+/// 截断时声明 `is_incomplete`，让客户端在继续输入时**重新请求**而不是拿截断列表本地过滤
+/// ——否则第 `MAX_CANDIDATES + 1` 名以后的运行时符号永远补不出来。
+///
+/// 非目标：索引未加载/加载中返回空候选**不**标 `is_incomplete`（那是「暂无数据」不是「被截断」）。
+fn to_completion_response(outcome: CompletionOutcome) -> CompletionResponse {
+    let items = outcome
+        .candidates
+        .iter()
+        .enumerate()
+        .map(|(i, c)| CompletionItem {
+            label: c.label.clone(),
+            kind: Some(match c.kind {
+                CandidateKind::Function => CompletionItemKind::FUNCTION,
+                CandidateKind::Field => CompletionItemKind::FIELD,
+                CandidateKind::Param => CompletionItemKind::VARIABLE,
+            }),
+            detail: Some(c.detail.clone()),
+            // A3①：实参候选插入 `name=`；其余候选无 insertText（客户端回落 label）
+            insert_text: c.insert_text.clone(),
+            // 段位契约：`1xx` 段，按 score 降序固化（ADR-0009 六段合并真源）
+            sort_text: Some(format!("1{:03}", i)),
+            ..Default::default()
+        })
+        .collect::<Vec<_>>();
+
+    CompletionResponse::List(CompletionList {
+        is_incomplete: outcome.truncated,
+        items,
+    })
+}
+
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
     async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
@@ -322,30 +355,13 @@ impl LanguageServer for Backend {
             return Ok(None);
         };
         // CR-18：补全计算放 spawn_blocking（原持读锁在 async worker 同步跑全量扫描）
-        let candidates = tokio::task::spawn_blocking(move || {
-            complete(&index, &text, position.line, position.character)
+        let outcome = tokio::task::spawn_blocking(move || {
+            complete_with_meta(&index, &text, position.line, position.character)
         })
         .await
         .unwrap_or_default();
-        let items = candidates
-            .iter()
-            .enumerate()
-            .map(|(i, c)| CompletionItem {
-                label: c.label.clone(),
-                kind: Some(match c.kind {
-                    CandidateKind::Function => CompletionItemKind::FUNCTION,
-                    CandidateKind::Field => CompletionItemKind::FIELD,
-                    CandidateKind::Param => CompletionItemKind::VARIABLE,
-                }),
-                detail: Some(c.detail.clone()),
-                // A3①：实参候选插入 `name=`；其余候选无 insertText（客户端回落 label）
-                insert_text: c.insert_text.clone(),
-                sort_text: Some(format!("1{:03}", i)),
-                ..Default::default()
-            })
-            .collect::<Vec<_>>();
 
-        Ok(Some(CompletionResponse::Array(items)))
+        Ok(Some(to_completion_response(outcome)))
     }
 
     async fn completion_resolve(&self, params: CompletionItem) -> Result<CompletionItem> {
@@ -523,6 +539,72 @@ impl LanguageServer for Backend {
             Ok(None)
         } else {
             Ok(Some(hints))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::completion::{Candidate, CandidateKind};
+
+    /// 测试用候选（绕开 `Candidate::new` 的 crate 私有可见性）。
+    fn cand(label: &str) -> Candidate {
+        Candidate {
+            label: label.to_string(),
+            kind: CandidateKind::Field,
+            detail: "⟳ runtime · dict[str, int] · 1 obs".to_string(),
+            score: 1,
+            insert_text: None,
+        }
+    }
+
+    /// P0-A1：截断 → `CompletionResponse::List` 且 `is_incomplete == true`；
+    /// 段位契约不破（sort_text 仍为 `1000..1049` 连续段）。
+    #[test]
+    fn declares_is_incomplete_when_truncated() {
+        let outcome = CompletionOutcome {
+            candidates: (0..50).map(|i| cand(&format!("k{:02}", i))).collect(),
+            truncated: true,
+        };
+        match to_completion_response(outcome) {
+            CompletionResponse::List(list) => {
+                assert!(list.is_incomplete, "截断必须声明 is_incomplete=true");
+                assert_eq!(list.items.len(), 50);
+                // 段位契约：`1xx` 段按 score 降序连续编号（ADR-0009）
+                assert_eq!(list.items[0].sort_text.as_deref(), Some("1000"));
+                assert_eq!(list.items[49].sort_text.as_deref(), Some("1049"));
+            }
+            other => panic!("截断应返回 CompletionResponse::List，实际 {other:?}"),
+        }
+    }
+
+    /// P0-A1：未截断 → `is_incomplete == false`（形态仍为 List，客户端两种形态都兼容）。
+    #[test]
+    fn no_is_incomplete_when_not_truncated() {
+        let outcome = CompletionOutcome {
+            candidates: vec![cand("title"), cand("url")],
+            truncated: false,
+        };
+        match to_completion_response(outcome) {
+            CompletionResponse::List(list) => {
+                assert!(!list.is_incomplete, "未截断不得声明 is_incomplete");
+                assert_eq!(list.items.len(), 2);
+                assert_eq!(list.items[0].sort_text.as_deref(), Some("1000"));
+            }
+            other => panic!("应返回 CompletionResponse::List，实际 {other:?}"),
+        }
+    }
+
+    /// 空候选（索引未加载等「暂无数据」场景）→ List + `is_incomplete == false`。
+    #[test]
+    fn empty_outcome_is_complete_list() {
+        match to_completion_response(CompletionOutcome::default()) {
+            CompletionResponse::List(list) => {
+                assert!(list.items.is_empty());
+                assert!(!list.is_incomplete, "空候选不得声明截断");
+            }
+            other => panic!("应返回 CompletionResponse::List，实际 {other:?}"),
         }
     }
 }
