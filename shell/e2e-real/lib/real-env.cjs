@@ -219,6 +219,44 @@ async function waitCdpReadyWatched(port, timeoutMs, opts = {}) {
 
 function tail(text, n) { return text.length <= n ? text : '...' + text.slice(-n); }
 
+/**
+ * 应用存活看门狗（**所有真机套件通用**）。
+ *
+ * 为什么必须有它（2026-10-07 实测）：release exe 在本会话里能起来、CDP 也监听了，
+ * 但 WebView 进程约 20s 后自己死掉——**外壳进程还活着、CDP 端口消失、前端从未加载**。
+ * 此时 Playwright 的 `page.evaluate` **没有超时参数**，会永久挂住：release-real 实测
+ * 挂死 8 分 39 秒、不写任何报告（比"失败"更糟——人看不出发生了什么）。
+ *
+ * 判定：CDP 就绪后每 3s 检查 ① 子进程已退出；② CDP 端口**连续 2 次**探不到
+ * （要 2 次是防抖动；只看子进程不够——`tauri dev` 的 child 是 cmd，应用死了它不死）。
+ * 命中即**直接落盘汇总并退出**，不试图继续（后续断言必然全崩且可能再次挂住）。
+ *
+ * @returns stop() —— 正常收尾前务必调用
+ */
+function startAppWatchdog({ child = null, cdpPort, suite }) {
+  let stopped = false;
+  let misses = 0;
+  const t0 = Date.now();
+  const fire = (why) => {
+    if (stopped) return;
+    stopped = true;
+    clearInterval(timer);
+    console.error(`\n[看门狗] ${why} —— 直接收尾（此时 Playwright 调用可能已永久挂起）`);
+    record('WATCHDOG-1', '验收过程中应用死亡（进程退出 / CDP 消失），中止本轮', false, why);
+    printSummary('真机 CDP 验收结果（看门狗中止）', false);
+    writeJsonSummary({ suite, durationMs: Date.now() - t0, error: `看门狗中止：${why}` });
+    process.exit(1);
+  };
+  const timer = setInterval(async () => {
+    if (stopped) return;
+    if (child && child.exitCode !== null) return fire(`应用进程已退出（exit=${child.exitCode}）`);
+    if (await portInUse(cdpPort)) { misses = 0; return; }
+    misses += 1;
+    if (misses >= 2) fire(`CDP ${cdpPort} 连续 ${misses} 次探测不到（WebView 进程已死，外壳可能仍在）`);
+  }, 3000);
+  return () => { stopped = true; clearInterval(timer); };
+}
+
 /** 当前 git HEAD 短哈希，写进 JSON 汇总便于把失败结果对应到具体提交（取不到即 null） */
 function gitHead() {
   try {
@@ -386,11 +424,14 @@ async function runWithRealApp(options, checks) {
   let exitCode = 0;
   let browser = null;
   let runError = null;
+  let stopWatchdog = null;
   try {
     // 盯进程 + 盯日志地等：启动挂了要在几十秒内失败，不要干等到 cdpTimeout
     const waited = await waitCdpReadyWatched(o.cdpPort, o.cdpTimeoutMs, { child, logPath });
     console.log(`[就绪] CDP 已监听（等待 ${Math.round(waited / 1000)}s），连接…`);
     browser = await chromium.connectOverCDP(`http://127.0.0.1:${o.cdpPort}`);
+    // CDP 就绪后再起存活看门狗：应用中途死亡时不要挂死在无超时的 Playwright 调用上
+    stopWatchdog = startAppWatchdog({ child, cdpPort: o.cdpPort, suite: suiteMeta.suite });
 
     const pages = allPages(browser);
     const main = pages.find((p) => p.url().includes(DEV_URL_HOST)) || pages[0];
@@ -428,6 +469,7 @@ async function runWithRealApp(options, checks) {
     } catch { /* 日志可能尚未生成 */ }
     exitCode = 1;
   } finally {
+    if (stopWatchdog) stopWatchdog();
     if (browser) await browser.close().catch(() => {});
     if (!o.keepApp) {
       console.log('\n[清理] taskkill 进程树…');
@@ -453,6 +495,7 @@ module.exports = {
   portInUse,
   waitCdpReady,
   waitCdpReadyWatched,
+  startAppWatchdog,
   scanDevFatal,
   tail,
   gitHead,

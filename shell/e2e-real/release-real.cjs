@@ -39,6 +39,7 @@ const {
   dismissBlockingModals,
   projectHash,
   waitCdpReadyWatched,
+  startAppWatchdog,
   portInUse,
   results,
 } = require('./lib/real-env.cjs');
@@ -139,7 +140,9 @@ async function main() {
   });
 
   let browser = null;
+  let stopWatchdog = null;
   const cleanup = () => {
+    if (stopWatchdog) stopWatchdog();
     try { if (browser) browser.close(); } catch { /* 忽略 */ }
     try { execSync(`taskkill /PID ${child.pid} /T /F`, { stdio: 'ignore' }); } catch { /* 已退出 */ }
   };
@@ -148,6 +151,9 @@ async function main() {
   try {
     // 盯进程 + 盯日志：exe 起不来时几十秒内失败，不干等 cdpTimeout
     await waitCdpReadyWatched(CDP_PORT, CDP_TIMEOUT_MS, { child, logPath });
+    // 存活看门狗（2026-10-07 实测必需）：release exe 会出现「外壳活着、WebView 死、CDP 消失」，
+    // 此时 page.evaluate 无超时 → 挂死（实测 8m39s 不写报告）。看门狗命中即落盘并退出。
+    stopWatchdog = startAppWatchdog({ child, cdpPort: CDP_PORT, suite: 'release-real' });
     const { chromium } = require(path.join(REPO, 'shell', 'node_modules', 'playwright-core'));
     browser = await chromium.connectOverCDP(`http://127.0.0.1:${CDP_PORT}`);
     const ctx = browser.contexts()[0];
