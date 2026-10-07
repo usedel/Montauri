@@ -127,6 +127,76 @@ async function waitCdpReady(port, timeoutMs) {
   }
 }
 
+/**
+ * tauri dev 日志里的致命信号。命中任意一条即判定「启动已失败」——
+ * 2026-10-07 实测：`npm run tauri dev` 的 BeforeDevCommand panic 后，脚本仍在 CDP 端口上
+ * 干等 `OC_CDP_TIMEOUT`（默认 1500s），单套白等 13 分钟、6 套串行就是 2 小时起步。
+ */
+const DEV_FATAL_PATTERNS = [
+  { re: /panicked at/i, label: 'Rust panic' },
+  { re: /failed to run [`'"]?npm run dev[`'"]?/i, label: 'BeforeDevCommand 执行失败' },
+  { re: /error: could not compile/i, label: 'Rust 编译失败' },
+  { re: /error\[E\d+\]/, label: 'Rust 编译错误' },
+  { re: /failed to build app/i, label: '应用构建失败' },
+  { re: /npm ERR!/, label: 'npm 报错' },
+];
+
+/** 扫日志尾部找致命信号：命中返回 { label, snippet }，否则 null（日志不可读一律当未命中） */
+function scanDevFatal(logPath, bytes = 8192) {
+  try {
+    const fs = require('fs');
+    const fd = fs.openSync(logPath, 'r');
+    try {
+      const size = fs.fstatSync(fd).size;
+      const len = Math.min(bytes, size);
+      if (len <= 0) return null;
+      const buf = Buffer.alloc(len);
+      fs.readSync(fd, buf, 0, len, size - len);
+      const text = buf.toString('utf8');
+      for (const p of DEV_FATAL_PATTERNS) {
+        if (p.re.test(text)) {
+          return { label: p.label, snippet: tail(text.replace(/\s+/g, ' ').trim(), 400) };
+        }
+      }
+      return null;
+    } finally { fs.closeSync(fd); }
+  } catch { return null; }
+}
+
+/**
+ * 等 CDP 就绪，但**同时盯着启动链路**（而不是只盯端口）：
+ *   ① 子进程已退出 → 立即失败；
+ *   ② 宽限期（默认 15s，给 cargo/vite 正常输出留余地）后日志出现致命信号 → 立即失败；
+ *   ③ 兜底仍是超时失败。
+ * 这样「启动挂了」会在几十秒内被看见，而不是等满 cdpTimeout。
+ */
+async function waitCdpReadyWatched(port, timeoutMs, opts = {}) {
+  const { child = null, logPath = null, graceMs = 15000 } = opts;
+  const t0 = Date.now();
+  let dead = null;
+  if (child) child.once('exit', (code, signal) => { dead = { code, signal }; });
+  for (;;) {
+    try {
+      const r = await httpGet(`http://127.0.0.1:${port}/json/version`);
+      if (r.status === 200) return Date.now() - t0;
+    } catch { /* 未就绪继续等 */ }
+    const waited = Date.now() - t0;
+    if (dead) {
+      throw new Error(
+        `tauri dev 进程在 ${Math.round(waited / 1000)}s 时退出（code=${dead.code} signal=${dead.signal || '-'}）——启动失败，不再等 CDP`,
+      );
+    }
+    if (logPath && waited > graceMs) {
+      const fatal = scanDevFatal(logPath);
+      if (fatal) throw new Error(`tauri dev 启动失败（${fatal.label}）: ${fatal.snippet}`);
+    }
+    if (waited > timeoutMs) {
+      throw new Error(`CDP ${port} 在 ${Math.round(timeoutMs / 1000)}s 内未就绪（可能仍在编译，见日志尾部）`);
+    }
+    await sleep(1500);
+  }
+}
+
 function tail(text, n) { return text.length <= n ? text : '...' + text.slice(-n); }
 
 /** 当前 git HEAD 短哈希，写进 JSON 汇总便于把失败结果对应到具体提交（取不到即 null） */
@@ -297,7 +367,8 @@ async function runWithRealApp(options, checks) {
   let browser = null;
   let runError = null;
   try {
-    const waited = await waitCdpReady(o.cdpPort, o.cdpTimeoutMs);
+    // 盯进程 + 盯日志地等：启动挂了要在几十秒内失败，不要干等到 cdpTimeout
+    const waited = await waitCdpReadyWatched(o.cdpPort, o.cdpTimeoutMs, { child, logPath });
     console.log(`[就绪] CDP 已监听（等待 ${Math.round(waited / 1000)}s），连接…`);
     browser = await chromium.connectOverCDP(`http://127.0.0.1:${o.cdpPort}`);
 
@@ -361,6 +432,8 @@ module.exports = {
   httpGet,
   portInUse,
   waitCdpReady,
+  waitCdpReadyWatched,
+  scanDevFatal,
   tail,
   gitHead,
   countPythonProcs,

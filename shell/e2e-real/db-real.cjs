@@ -15,7 +15,7 @@
  */
 'use strict';
 
-const { spawn, spawnSync, execSync } = require('child_process');
+const { spawn, execSync } = require('child_process');
 const { mkdtempSync, mkdirSync, writeFileSync, existsSync, openSync, readFileSync } = require('fs');
 const os = require('os');
 const path = require('path');
@@ -28,7 +28,66 @@ const CDP_PORT = Number(process.env.OC_CDP_PORT || 9223);
 const CDP_TIMEOUT = Number(process.env.OC_CDP_TIMEOUT || 600) * 1000;
 const OUT_DIR = path.join(__dirname, '..', '..', 'scripts', '_tmp');
 
-const { record, sleep, portInUse, waitCdpReady, dismissBlockingModals, printSummary } = env;
+/**
+ * 造数脚本（**内联**，运行前写出到 OUT_DIR）。
+ *
+ * 原先依赖一个从未入库的 `scripts/_tmp/make_db_fixture.py`：clone 后该目录不存在，
+ * 造数必失败（报错「造数失败: undefined」），db-real 因此**不可复现**（2026-10-07 发现）。
+ * 内联后脚本自足；规格 = T14-0：3 表 1 视图 1 索引 + 万行 users + 8 列 wide + 3 行 logs。
+ */
+const MAKE_DB_FIXTURE_PY = `#!/usr/bin/env python3
+"""OpenCharm db-real fixture：3 表 1 视图 1 索引（规格见 db-real.cjs T14-0）。"""
+import sqlite3
+import sys
+
+db = sys.argv[1]
+con = sqlite3.connect(db)
+cur = con.cursor()
+
+# users：万行主表。首列 id INTEGER PK NN（T14-2 断言 PK），次列 name TEXT NN（断言 NN）
+cur.execute(
+    "CREATE TABLE users ("
+    "id INTEGER PRIMARY KEY NOT NULL, "
+    "name TEXT NOT NULL, "
+    "email TEXT, age INTEGER, score REAL, active INTEGER, created_at TEXT, note TEXT)"
+)
+cur.executemany(
+    "INSERT INTO users (id, name, email, age, score, active, created_at, note) VALUES (?,?,?,?,?,?,?,?)",
+    [
+        (i, "user_%05d" % i, "user_%05d@example.com" % i, 20 + (i % 50),
+         round(i * 0.5, 2), i % 2, "2026-01-%02d" % ((i % 28) + 1), "note %d" % i)
+        for i in range(1, 10001)
+    ],
+)
+cur.execute("CREATE INDEX idx_users_name ON users(name)")
+
+# wide：8 列宽表（T14-9/T14-10 用到，只要求存在且列全）
+cur.execute(
+    "CREATE TABLE wide (id INTEGER PRIMARY KEY NOT NULL, "
+    "c1 TEXT, c2 TEXT, c3 TEXT, c4 TEXT, c5 TEXT, c6 TEXT, c7 TEXT)"
+)
+cur.executemany(
+    "INSERT INTO wide VALUES (?,?,?,?,?,?,?,?)",
+    [(i, "c1-%d" % i, "c2-%d" % i, "c3-%d" % i, "c4-%d" % i, "c5-%d" % i, "c6-%d" % i, "c7-%d" % i)
+     for i in range(1, 51)],
+)
+
+# logs：3 行（T14-13 的 DELETE FROM logs 需影响 3 行；预置 SQL 取 name WHERE id = 1）
+cur.execute("CREATE TABLE logs (id INTEGER PRIMARY KEY NOT NULL, name TEXT, level TEXT, message TEXT)")
+cur.executemany(
+    "INSERT INTO logs (id, name, level, message) VALUES (?,?,?,?)",
+    [(1, "boot", "INFO", "started"), (2, "cron", "WARN", "slow"), (3, "api", "ERROR", "failed")],
+)
+
+# 视图 1 个（T14-1 断言「视图 (1)」）
+cur.execute("CREATE VIEW v_active_users AS SELECT id, name FROM users WHERE active = 1")
+
+con.commit()
+con.close()
+print("ok")
+`;
+
+const { record, sleep, portInUse, waitCdpReadyWatched, dismissBlockingModals, printSummary } = env;
 
 // ———————————————— conn_id 复现（Rust DefaultHasher = SipHash-1-3, keys 0,0） ————————————————
 
@@ -169,8 +228,41 @@ async function rowNumbers(page) {
   return activeView(page).locator('.db-tab-grid tbody .db-rowno').allTextContents();
 }
 
+/**
+ * 异步跑外部命令，返回 { status, stdout, stderr, error }。
+ *
+ * **不要用 `spawnSync`**：本机（Windows + 会话沙箱）上它会 `EBUSY` 静默失败——
+ * `status=null`、`stdout/stderr` 全空、`error.message` 才写着 EBUSY，
+ * 表现为「造数失败: (无输出)」这类无从排查的报错（2026-10-07 实测）。
+ */
+function runCmd(cmd, args, { timeoutMs = 0, cwd } = {}) {
+  return new Promise((resolve) => {
+    let out = '';
+    let err = '';
+    let done = false;
+    const finish = (r) => { if (!done) { done = true; resolve(r); } };
+    let p;
+    try {
+      p = spawn(cmd, args, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], ...(cwd ? { cwd } : {}) });
+    } catch (e) {
+      finish({ status: null, stdout: '', stderr: '', error: e });
+      return;
+    }
+    const timer = timeoutMs > 0
+      ? setTimeout(() => {
+        try { p.kill(); } catch { /* 已退出 */ }
+        finish({ status: null, stdout: out, stderr: err, error: new Error(`timeout ${timeoutMs}ms`) });
+      }, timeoutMs)
+      : null;
+    p.stdout.on('data', (c) => { out += String(c); });
+    p.stderr.on('data', (c) => { err += String(c); });
+    p.on('error', (e) => { if (timer) clearTimeout(timer); finish({ status: null, stdout: out, stderr: err, error: e }); });
+    p.on('close', (code) => { if (timer) clearTimeout(timer); finish({ status: code, stdout: out, stderr: err, error: null }); });
+  });
+}
+
 /** 原生对话框 SendKeys（尽力而为） */
-function sendKeysToNativeDialog(text) {
+async function sendKeysToNativeDialog(text) {
   const ps = path.join(OUT_DIR, '_native_keys.ps1');
   writeFileSync(
     ps,
@@ -186,16 +278,17 @@ function sendKeysToNativeDialog(text) {
     ].join('\r\n'),
     'utf8',
   );
-  const r = spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ps], {
-    timeout: 20_000,
-    encoding: 'utf8',
+  const r = await runCmd('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ps], {
+    timeoutMs: 20_000,
   });
+  if (r.error) console.log(`[提示] SendKeys 未执行成功: ${r.error.message}`);
   return r.status === 0;
 }
 
 /** 应用启动（独立实现以支持第二轮重启复用同一数据根） */
 function startApp(dataRoot, logPath) {
-  const logFd = openSync(logPath, 'a');
+  // 'w' 而非 'a'：append 会把上一轮的 panic 残留带进本轮，让启动看门狗（scanDevFatal）误判
+  const logFd = openSync(logPath, 'w');
   const child = spawn('cmd.exe', ['/c', 'npm', 'run', 'tauri', 'dev'], {
     cwd: path.join(__dirname, '..'),
     windowsHide: true,
@@ -209,8 +302,9 @@ function startApp(dataRoot, logPath) {
   return child;
 }
 
-async function connectPage() {
-  await waitCdpReady(CDP_PORT, CDP_TIMEOUT);
+/** child/logPath 传入后走「盯进程 + 盯日志」的等待：启动挂了几十秒内失败，不干等 cdpTimeout */
+async function connectPage(child, logPath) {
+  await waitCdpReadyWatched(CDP_PORT, CDP_TIMEOUT, { child, logPath });
   const browser = await chromium.connectOverCDP(`http://127.0.0.1:${CDP_PORT}`);
   // WebView2 先起 about:blank 再导航到 devUrl：轮询等真实应用页面就绪
   const t0 = Date.now();
@@ -269,10 +363,15 @@ function killWebviewLeftovers(port) {
   mkdirSync(path.join(dataRoot, 'config'), { recursive: true });
   mkdirSync(workspace, { recursive: true });
   const dbPath = path.join(tmp, 'charm.db');
+  // 造数脚本内联写出（原先依赖未入库的 scripts/_tmp/make_db_fixture.py → 不可复现）
+  mkdirSync(OUT_DIR, { recursive: true });
   const pyScript = path.join(OUT_DIR, 'make_db_fixture.py');
-  const py = spawnSync(PYTHON, ['-X', 'utf8', pyScript, dbPath], { encoding: 'utf8' });
+  writeFileSync(pyScript, MAKE_DB_FIXTURE_PY, 'utf8');
+  const py = await runCmd(PYTHON, ['-X', 'utf8', pyScript, dbPath]);
   if (py.status !== 0 || !existsSync(dbPath)) {
-    console.error('[预检失败] 造数失败: ' + (py.stderr || py.stdout));
+    console.error('[预检失败] 造数失败: ' + (py.error
+      ? `进程未能启动（${py.error.message}）`
+      : (py.stderr || py.stdout || '(无输出)')));
     process.exit(2);
   }
   record('T14-0', '造数：3 表 1 视图 1 索引 + 万行主表 + 8 列宽表 + 3 行日志表', true, dbPath);
@@ -303,7 +402,7 @@ function killWebviewLeftovers(port) {
   mkdirSync(path.dirname(exportCsvPath), { recursive: true });
 
   try {
-    const conn1 = await connectPage();
+    const conn1 = await connectPage(child, logPath);
     browser = conn1.browser;
     const page = conn1.page;
     console.log(`[连接] 页面: ${page.url()}`);
@@ -471,7 +570,7 @@ function killWebviewLeftovers(port) {
     let detail9 = '';
     for (let attempt = 0; attempt < 3 && !csvOk; attempt++) {
       await db(page, 'db-data-export').click();
-      const keysOk = sendKeysToNativeDialog(exportCsvPath);
+      const keysOk = await sendKeysToNativeDialog(exportCsvPath);
       for (let i = 0; i < 20 && !existsSync(exportCsvPath); i++) await sleep(500);
       if (existsSync(exportCsvPath)) {
         const buf = readFileSync(exportCsvPath);
@@ -485,7 +584,7 @@ function killWebviewLeftovers(port) {
         break;
       } else {
         detail9 = `第 ${attempt + 1} 次尝试未产出文件（SendKeys=${keysOk ? '已发送' : '失败'}）`;
-        sendKeysToNativeDialog('{ESC}');
+        await sendKeysToNativeDialog('{ESC}');
         await sleep(800);
       }
     }
@@ -618,7 +717,7 @@ function killWebviewLeftovers(port) {
     for (let i = 0; i < 20 && (await portInUse(CDP_PORT)); i++) await sleep(500);
     console.log('[重启] 第二轮启动（同一数据根）…');
     child = startApp(dataRoot, logPath);
-    const conn2 = await connectPage();
+    const conn2 = await connectPage(child, logPath);
     browser = conn2.browser;
     const page2 = conn2.page;
     await dismissBlockingModals(page2);

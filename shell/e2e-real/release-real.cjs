@@ -38,7 +38,7 @@ const {
   countPythonProcs,
   dismissBlockingModals,
   projectHash,
-  waitCdpReady,
+  waitCdpReadyWatched,
   portInUse,
   results,
 } = require('./lib/real-env.cjs');
@@ -122,7 +122,9 @@ async function main() {
 
   fs.mkdirSync(OUT_DIR, { recursive: true });
   const logPath = path.join(__dirname, '.release-real.log');
-  const out = fs.openSync(logPath, 'a');
+  // 用 'w' 截断（与其余真机脚本一致）：append 会把上一次的 panic 残留带进本次，
+  // 让启动看门狗（scanDevFatal）把旧日志误判成当前启动失败。
+  const out = fs.openSync(logPath, 'w');
 
   // ---------- 启动 release exe（不经 npm/vite） ----------
   console.log('[启动] release exe + CDP …');
@@ -144,7 +146,8 @@ async function main() {
   process.on('exit', cleanup);
 
   try {
-    await waitCdpReady(CDP_PORT, CDP_TIMEOUT_MS);
+    // 盯进程 + 盯日志：exe 起不来时几十秒内失败，不干等 cdpTimeout
+    await waitCdpReadyWatched(CDP_PORT, CDP_TIMEOUT_MS, { child, logPath });
     const { chromium } = require(path.join(REPO, 'shell', 'node_modules', 'playwright-core'));
     browser = await chromium.connectOverCDP(`http://127.0.0.1:${CDP_PORT}`);
     const ctx = browser.contexts()[0];

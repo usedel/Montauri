@@ -33,6 +33,8 @@ const { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync, openSyn
 const http = require('http');
 const os = require('os');
 const path = require('path');
+// 只借启动看门狗：exe / tauri dev 起不来时快速失败，不干等 cdpTimeout
+const { waitCdpReadyWatched } = require('./lib/real-env.cjs');
 
 const CDP_PORT = Number(process.env.OC_CDP_PORT || 9224);
 const CDP_TIMEOUT_MS = Number(process.env.OC_CDP_TIMEOUT || 600) * 1000;
@@ -63,18 +65,6 @@ function httpGet(url) {
 
 function portInUse(port) {
   return httpGet(`http://127.0.0.1:${port}/json/version`).then(() => true, () => false);
-}
-
-async function waitCdpReady(port, timeoutMs) {
-  const t0 = Date.now();
-  for (;;) {
-    try {
-      const r = await httpGet(`http://127.0.0.1:${port}/json/version`);
-      if (r.status === 200) return Date.now() - t0;
-    } catch { /* 未就绪继续等 */ }
-    if (Date.now() - t0 > timeoutMs) throw new Error(`CDP ${port} 在 ${timeoutMs / 1000}s 内未就绪（tauri dev 可能编译失败，见日志尾部）`);
-    await sleep(1500);
-  }
 }
 
 function tail(text, n) { return text.length <= n ? text : '...' + text.slice(-n); }
@@ -247,7 +237,7 @@ async function runChecks(page, projRoot) {
   let exitCode = 0;
   let browser = null;
   try {
-    const waited = await waitCdpReady(CDP_PORT, CDP_TIMEOUT_MS);
+    const waited = await waitCdpReadyWatched(CDP_PORT, CDP_TIMEOUT_MS, { child, logPath });
     console.log(`[就绪] CDP 已监听（等待 ${Math.round(waited / 1000)}s），连接…`);
     browser = await chromium.connectOverCDP(`http://127.0.0.1:${CDP_PORT}`);
 

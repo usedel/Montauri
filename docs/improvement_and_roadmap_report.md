@@ -126,7 +126,7 @@
 > 　**收口后的状态**：P0-0 / P0-1 / P0-2 / P0-3 / P0-4 **无一挂账**；§0 缺口 2 收敛为「有真实样本但样本量未达门槛」，且该门槛已裁定**改为日常 IDE 使用自然累积**（`bench/reports/trace-sample-threshold.md` §4）、不再消耗人力。**阶段一第 4 件至此关闭**（不是"做完了"，而是"按规则撤了"——这正是二选一截止规则要的效果：清单里不再有"永远挂着"的项）。
 > **㉕ P1-4 复核：整项不立项，收窄为 B4 真机一刀（2026-10-07）**。原议「补 LSP 真引擎 / 运行真 `uv run` / 终端真 PTY / 插件真加载」四域，经代码核对：**LSP 真引擎早已交付**（`shell/e2e/lsp/02-pyrefly-real.spec.ts`，真 spawn `pyrefly lsp`）、**运行 + 终端已被 `release-real.cjs` REL-5 部分覆盖**、**插件无跨进程价值（不排）**，真空白只剩 **B4 HTTP 的 reqwest 真实链路**。→ 整项 2~4 人日**不立项**，只留 B4 一刀（0.5~1 人日），**先决条件是绑定触发点**（真机层无 CI 宿主：远端只有 Gitee，9 套脚本至今零跑通证据；建议绑**发布前验收**而非 nightly）。**本次是报告失真（把已交付写成建议补），不是"建议没被执行"**——与 v1.3 那类"挂账未做"性质不同，处置也不同：前者改文档，后者要排期。
 > 　**前置动作已尝试、未跑通（⛔ 环境阻断）**：全量跑批（`shell/e2e-real/run-real-all.ps1`，默认 6 套 / 跳过 probe 三支）在本会话环境下起不来——`npm run tauri dev` 稳定 panic `failed to run 'npm run dev'`，而同一终端裸 `npm run dev` 正常（详见 §2 P1-4）。**真机层至今仍是"零全量跑通记录"**。
-> 　**但这次尝试已经产出价值——暴露 3 条**（此前无人发现，正因为没人跑过）：① **db-real 不可复现**（依赖未入库的 `shell/scripts/_tmp/make_db_fixture.py`）；② **启动失败不可见**（tauri dev 挂了不报错，只在 CDP 上干等 25 min × 6 套）；③ 会话环境跑真机本身不可行（须在用户终端跑）。**结论：真机层当前的最大缺口不是"域不够"，而是"没人跑 + 跑不起来也没人知道"**——修 ①② 的优先级高于新增任何域。
+> 　**但这次尝试已经产出价值——暴露 3 条，其中 2 条当场修掉**（此前无人发现，正因为没人跑过）：① ✅ **db-real 不可复现已修**（内联造数脚本；**并顺带挖出第二个根因——`spawnSync` 在本机 EBUSY 静默失败**，改异步 `runCmd`；实测 T14-0 PASS）；② ✅ **启动失败不可见已修**（`waitCdpReadyWatched`：盯进程 exit + 扫日志 panic，实测 db-real 5s / endpoints-real 3s 失败，原为 1500s）；③ ⛔ 会话环境跑真机不可行（须在用户终端跑，属外部条件）。**结论：真机层当前的最大缺口不是"域不够"，而是"没人跑 + 跑不起来也没人知道"**——后半句本轮已解决，前半句（谁跑）仍需你在终端跑一次全量。
 > v1.1 的规模数字取自 PowerShell `Get-Content $f | .Count`。在本机（PS 5.1，ANSI 代码页 **gb2312**）上，对**无 BOM 的 UTF-8 源文件**该写法会按 GBK 解码并**吞掉换行**——`style.css` 报 5,410 而真实 5,668（少 4.5%），`main.ts` 报 2,503 而真实 2,897（少 13%）。丢失比例随文件 CJK 密度而变、**逐文件不同**，因此这批数字是"看起来合理但系统性偏低"的。
 > 连带被推翻的结论（详见 §1.2）：**「巨型文件趋势已逆转」「UI 六批顺带把逻辑拆去了域模块」不成立**——`git.ts` / `lsp/client.ts` / `env_cmds.rs` / `fs_cmds.rs` / `git_cmds.rs` 在 `44c85ea → HEAD` 之间**一行未变**，`main.ts` 是 **+58**（不是 −336）。
 > 本版全部行数改由 `tools/stats/repo-stats.mjs` 重取，并新增两个防复发机制：取数脚本固化为代码 + 预算门禁（`ci/budgets.toml` / `shell/scripts/budget-check.mjs`）。
@@ -422,10 +422,16 @@
 
 - **成本**：整项 ~~2~4 人日~~ → **收窄后 0.5~1 人日（B4 一刀）+ 基线跑批 0.2~0.5 人日**。
 - **跑真机前的环境预检**：① 端口 5173 / 9223 必须空闲（脚本共用，**必须串行**）；② 确认 `http-divert-proxy` 未运行——开着会让本地浏览器自动化 `net::ERR_PROXY_CONNECTION_FAILED` 直接挂（判据：25378 / 18080 / 8888 是否在监听）；③ 默认解释器 `D:\py\python.exe`（可用 `OC_REAL_PYTHON` 覆盖）。
-- **⛔ 首次跑批尝试（2026-10-07）：未跑通，且暴露两个真机层缺陷（均未修，登记在此）**：
-  1. **环境阻断（会话侧）**：`npm run tauri dev` 稳定 panic `failed to run 'npm run dev'`（tauri-cli BeforeDevCommand）；同一终端里裸 `npm run dev` 正常、把系统 nodejs 目录前置 PATH 也无效 → 卡在 **tauri-cli 的子进程执行环节**，非端口/非 npm 本身。**真机基线须在用户自己的终端里跑**：`powershell -File shell\e2e-real\run-real-all.ps1`（6 套串行，约 30~60 min）。
-  2. **db-real 不可复现（仓库侧，真缺陷）**：依赖 `shell/scripts/_tmp/make_db_fixture.py`，该文件**从未入库且目录已不存在** → clone 后跑必预检失败「造数失败: undefined」。**修法**：把造数逻辑内联进 `db-real.cjs`（同一脚本已对 `_native_keys.ps1` 用 `writeFileSync` 生成，照此办理）；规格见 T14-0：3 表 1 视图 1 索引 + 万行 `users`（`id INTEGER PK NN` + `name`，`idx_users_name` 建在 name 上）+ 8 列宽表 + 3 行 `logs`（T14-13 `DELETE FROM logs` 需影响 3 行）。
-  3. **启动失败不可见（基建缺陷）**：tauri dev 启动失败时脚本**不报错**，只在 CDP 9223 上干等 `OC_CDP_TIMEOUT`（默认 1500s = 25 min）——实测白等 13 分钟才由人工发现，6 套串行就是 **2 小时起步**。**修法**：启动后 30~60s 内检测进程存活 / 日志出现 `panicked` 即快速失败（此项边际价值最高，先修它再谈新增域）。
+- **⛔ 首次跑批尝试（2026-10-07）：未跑通，但暴露 3 条并已修掉其中 2 条**：
+  1. **环境阻断（会话侧，未修·属外部）**：`npm run tauri dev` 稳定 panic `failed to run 'npm run dev'`（tauri-cli BeforeDevCommand）；同一终端里裸 `npm run dev` 正常、把系统 nodejs 目录前置 PATH 也无效 → 卡在 **tauri-cli 的子进程执行环节**，非端口/非 npm 本身。**真机基线须在用户自己的终端里跑**：`powershell -File shell\e2e-real\run-real-all.ps1`（6 套串行，约 30~60 min）。
+  2. ✅ **db-real 不可复现（已修，2026-10-07）**——**两个根因，第二个是修的过程中才暴露的**：
+     - ① **依赖未入库脚本**：原引 `scripts/_tmp/make_db_fixture.py`（从未入库）→ 改为**内联**（`db-real.cjs` 里 `MAKE_DB_FIXTURE_PY` 常量 + 运行前写出），规格照 T14-0：3 表 1 视图 1 索引 + 万行 `users`（`id INTEGER PK NN` + `name`，`idx_users_name` 建在 name 上）+ 8 列 `wide` + 3 行 `logs`；
+     - ② **`spawnSync` 在本机 EBUSY 静默失败**（`status=null`、`stdout/stderr` 全空，报错只有「造数失败: (无输出)」——即使脚本存在也跑不通）→ 新增异步 `runCmd()` 替换（**与既有纪律一致：本机杀进程/起子进程不用 `spawnSync`**）。同处另一处 `spawnSync`（原生 SendKeys）一并改异步。
+     - **实测**：`PASS T14-0 造数：3 表 1 视图 1 索引 + 万行主表 + 8 列宽表 + 3 行日志表`（断言前提逐条校验：3 表/1 视图/1 索引、users 10000 行、`id>9900`=100 行、`LIKE '%user_004%'`=100 行、logs 3 行、wide 8 列）。
+  3. ✅ **启动失败不可见（已修，2026-10-07）**：新增 `waitCdpReadyWatched()`（`lib/real-env.cjs`）——**盯子进程 exit + 扫日志致命信号**（Rust panic / 编译失败 / `BeforeDevCommand 执行失败` / `npm ERR!`），宽限期 15s（给正常编译输出留余地），命中即抛错；替换原先"只盯 CDP 端口"的等待。接线面：`runWithRealApp`（debug / endpoints / multi-window / ui / probe-watch-multiwin 五套共享）+ `db-real` + `release-real` + `new-project-fastapi-real`。顺带把 `release-real` / `db-real` 的日志由 append 改 **truncate**（append 会把上一轮 panic 残留带进本轮，让看门狗误判）。
+     - **实测**：db-real **5s**、endpoints-real **3s** 快速失败（原为 1500s）；三条路径单测式验证：子进程退出 2s 命中、日志 panic 15s 命中、**正常编译日志 20s 不误判**。
+     - **未接线**：`probe-real-lag` / `probe-mw-lag`（自实现等待，默认 `-Skip`）——登记，下轮统一。
+- **本次收口结论**：真机层从"跑不起来也不知道"变成"**几十秒内明确报出为什么跑不起来**"。**剩下的是环境阻断（第 1 条）——须在用户终端跑**，不是代码问题。
 
 ### P1-5 · 偿还 TD-021 五小项
 
