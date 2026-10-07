@@ -69,10 +69,32 @@ function resolveExe() {
   return hit || candidates[0];
 }
 const EXE = resolveExe();
+/** 刚构建的产物（发布前验收的目标）：-PreRelease 会通过 OC_RELEASE_EXE 指向它 */
+const BUILD_EXE = path.join(REPO, 'shell', 'src-tauri', 'target', 'release', 'opencharm-shell.exe');
 const CDP_PORT = Number(process.env.OC_CDP_PORT || 9223);
 const CDP_TIMEOUT_MS = Number(process.env.OC_CDP_TIMEOUT || 180) * 1000;
 const OUT_DIR = path.join(REPO, 'scripts', '_tmp', 'release-real-shots');
 const REAL_PYTHON = process.env.OC_REAL_PYTHON || 'D:\\py\\python.exe';
+
+function mtimeOf(p) {
+  try { return fs.statSync(p).mtime.toISOString(); } catch { return null; }
+}
+
+/**
+ * 「验的是哪个产物」——必须显式告警，否则门禁会给出**假信心**。
+ * 2026-10-07 实测：`resolveExe()` 优先取注册表安装位，而本机 `D:\OpenCharm\` 里躺着一个
+ * 10-04 的旧安装 → release-real 默默验了旧包（7/7 PASS），而用户 18:29 刚构建的产物
+ * 根本没被验到；报告里还看不出来（当时 JSON 连 exe 字段都不落盘）。
+ */
+function staleTargetWarning() {
+  if (EXE === BUILD_EXE) return null;
+  const b = mtimeOf(BUILD_EXE);
+  if (!b) return null;
+  const e = mtimeOf(EXE);
+  if (e && new Date(b) <= new Date(e)) return null;
+  return `验的是 ${EXE}（mtime=${e}），而刚构建的产物是 ${BUILD_EXE}（mtime=${b}，更新）`
+    + '——发布前验收请用 run-real-all.ps1 -PreRelease（它把 OC_RELEASE_EXE 指向构建产物）';
+}
 
 const SCRIPT_PY = [
   'def compute(x):',
@@ -118,8 +140,13 @@ async function main() {
   presetInterpreter(dataRoot, workspace, REAL_PYTHON);
   presetRecentWorkspaces(dataRoot, [workspace]);
   console.log(`[环境] exe: ${EXE}`);
+  console.log(`[环境] exe mtime: ${mtimeOf(EXE)}`);
   console.log(`[环境] 工作区: ${workspace}`);
   console.log(`[环境] 数据根: ${dataRoot}`);
+  const staleWarn = staleTargetWarning();
+  if (staleWarn) {
+    console.warn(`\n⚠ [警告] ${staleWarn}\n`);
+  }
 
   fs.mkdirSync(OUT_DIR, { recursive: true });
   const logPath = path.join(__dirname, '.release-real.log');
@@ -180,7 +207,7 @@ async function main() {
       head: (document.body && document.body.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 200),
     })).catch((e) => ({ err: String(e).split('\n')[0] }));
     record('REL-1', 'release exe 启动并加载主界面（不经 vite dev）', brand,
-      `exe mtime=${fs.statSync(EXE).mtime.toISOString().slice(0, 16)} 菜单栏可见=${brand} ${JSON.stringify(bodyInfo)}`);
+      `exe=${EXE} mtime=${mtimeOf(EXE)} 菜单栏可见=${brand}${staleWarn ? ' ⚠ ' + staleWarn : ''} ${JSON.stringify(bodyInfo)}`);
 
     await dismissBlockingModals(page);
 
@@ -292,8 +319,9 @@ async function main() {
     const failed = printSummary('Release 模式真机验收（安装包技术实质替代）', process.env.OC_KEEP_APP === '1');
     writeJsonSummary({
       suite: 'release-real',
-      head: gitHead(),
+      headCommit: gitHead(),
       exe: EXE,
+      exeMtime: mtimeOf(EXE),
       workspace,
       dataRoot,
       cdpPort: CDP_PORT,

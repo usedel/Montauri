@@ -95,6 +95,21 @@ foreach ($port in @(5173, 9223)) {
 $env:OC_CDP_TIMEOUT = "$CdpTimeoutSec"
 $fail = 0
 $missing = @()
+# 包装层异常（≠ 套件断言失败）：记录后继续下一套，绝不因此丢掉整轮报告
+$wrapperErr = @{}
+
+# 发布前验收：release-real 默认优先取注册表安装位，会**默默验到机器上遗留的旧安装**
+# （2026-10-07 实测：本机 D:\OpenCharm 躺着 10-04 的旧包，用户 18:29 刚构建的产物根本没被验到）。
+# -PreRelease 的语义是「我刚构建出来的包能不能干活」，故显式把 OC_RELEASE_EXE 指向构建产物。
+$buildExe = Join-Path $ShellDir "src-tauri\target\release\opencharm-shell.exe"
+if ($PreRelease) {
+  if (Test-Path $buildExe) {
+    $env:OC_RELEASE_EXE = $buildExe
+    Write-Host " release-real 目标：构建产物 $buildExe" -ForegroundColor DarkCyan
+  } else {
+    Write-Host "⚠ 未找到构建产物 $buildExe —— release-real 将回落到注册表安装位（可能不是刚构建的包）" -ForegroundColor Yellow
+  }
+}
 
 # 跑一个套件，且**不让它的 stderr 中断整轮跑批**。
 #
@@ -105,11 +120,17 @@ $missing = @()
 # 整脚本退出、不写 SUMMARY」，最坏情况是外层管道捕获（`... | Tee-Object`）时必现。
 # 2026-10-07 实测：db-real 中断 → stderr → 跑批在第 2 套件直接退出，前 1 套件的结论丢失。
 # 局部把 EAP 降为 Continue，并把 ErrorRecord 渲染成纯文本（否则会带 "cmd : ... + CategoryInfo" 噪声）。
+#
+# ⚠ **绝不要写成 `... | Write-Host`**（2026-10-07 用户终端实测踩坑）：管道绑定进 Write-Host
+# 会在真实控制台下抛 `IndexOutOfRangeException`（"索引超出了数组界限"），且这是**终止性异常**
+# ——局部 EAP=Continue 也拦不住，整轮跑批当场死在 db-real、不写 SUMMARY。
+# 输出直接留在管道里即可（默认就走控制台，且外层 `| Tee-Object` 能捕获）；仓库里
+# build-release.ps1 也是避开该写法（它用 `Out-String` 后再 `Write-Host $text` 语句式调用）。
 function Invoke-RealSuite([string]$scriptPath) {
     $ErrorActionPreference = "Continue"
     & node $scriptPath 2>&1 | ForEach-Object {
         if ($_ -is [System.Management.Automation.ErrorRecord]) { $_.ToString() } else { $_ }
-    } | Write-Host
+    }
 }
 
 foreach ($s in $Scripts) {
@@ -123,6 +144,11 @@ foreach ($s in $Scripts) {
   try {
     Invoke-RealSuite $cjs
     $code = $LASTEXITCODE
+  } catch {
+    # 兜底：包装层自身出错（控制台/宿主异常等）也只损失这一套，报告照出
+    $code = 1
+    $wrapperErr[$s] = $_.Exception.Message
+    Write-Host ">>> $s 包装层异常（已记录并继续）：$($_.Exception.Message)" -ForegroundColor Red
   } finally {
     Pop-Location
   }
@@ -139,15 +165,21 @@ $totalCases = 0
 $totalFailed = 0
 foreach ($s in $Scripts) {
   $j = Join-Path $OutDir "$s.json"
+  $wErr = if ($wrapperErr.ContainsKey($s)) { "包装层异常：$($wrapperErr[$s])" } else { $null }
   if (-not (Test-Path $j)) {
-    $verdict = if ($missing -contains $s) { "跳过（脚本不存在）" } else { "无报告（未启动？）" }
+    $verdict = if ($missing -contains $s) { "跳过（脚本不存在）" }
+      elseif ($wErr) { $wErr }
+      else { "无报告（未启动？）" }
     $rows += "| $s | — | — | — | — | $verdict |"
     continue
   }
   $data = Get-Content $j -Raw -Encoding UTF8 | ConvertFrom-Json
   $totalCases += $data.total
   $totalFailed += $data.failed
-  $verdict = if ($data.ok) { "PASS" } elseif ($data.error) { "ENV（$($data.error)）" } else { "FAIL" }
+  $verdict = if ($wErr) { $wErr }
+    elseif ($data.ok) { "PASS" }
+    elseif ($data.error) { "ENV（$($data.error)）" }
+    else { "FAIL" }
   $dur = if ($data.durationMs) { "$([int]($data.durationMs / 1000))s" } else { "—" }
   $rows += "| $s | $($data.total - $data.failed) | $($data.failed) | $($data.total) | $dur | $verdict |"
 }

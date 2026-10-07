@@ -82,8 +82,12 @@ function writeJsonSummary(meta) {
     failed,
     error,
     durationMs: meta.durationMs ?? null,
-    headCommit: meta.headCommit || null,
+    headCommit: meta.headCommit || meta.head || null,
     cdpPort: meta.cdpPort ?? null,
+    // 「验的是哪个产物」必须落盘（2026-10-07：release-real 曾默默验了机器上遗留的旧安装，
+    // 报告里却看不出——只有 exe 字段能回答这个问题）
+    exe: meta.exe || null,
+    exeMtime: meta.exeMtime || null,
     cases: results.map((r) => ({ id: r.id, desc: r.desc, ok: r.ok, detail: r.detail || null })),
   };
   try {
@@ -242,6 +246,11 @@ function startAppWatchdog({ child = null, cdpPort, suite }) {
     stopped = true;
     clearInterval(timer);
     console.error(`\n[看门狗] ${why} —— 直接收尾（此时 Playwright 调用可能已永久挂起）`);
+    // 尽力回收进程树：process.exit 会跳过正常清理路径，残留应用会占住 5173/9223，
+    // 让**下一轮跑批**直接卡在端口预检（2026-10-07 实测踩到）。
+    if (child && child.pid) {
+      try { execSync(`taskkill /PID ${child.pid} /T /F`, { stdio: 'ignore' }); } catch { /* 已退出 */ }
+    }
     record('WATCHDOG-1', '验收过程中应用死亡（进程退出 / CDP 消失），中止本轮', false, why);
     printSummary('真机 CDP 验收结果（看门狗中止）', false);
     writeJsonSummary({ suite, durationMs: Date.now() - t0, error: `看门狗中止：${why}` });
