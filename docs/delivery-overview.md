@@ -1,6 +1,7 @@
 # OpenCharm 交付总览（Delivery Overview）
 
-> 版本：**v1.14** · 日期：2026-10-07 · 状态：**现行** · 取数依据：A5③④ 交付 + P0-2 第一格撤下收口（`master`，工作区含交付与收口文档未提交）
+> 版本：**v1.15** · 日期：2026-10-07 · 状态：**现行** · 取数依据：A5③④ 交付 + P0-2 第一格撤下 + P1-4 收尾（`master`，工作区含真机层修复与文档未提交）
+> **v1.15 修订（2026-10-07，维护态）**：**P1-4 收尾**（roadmap ㉖）——① **触发点已绑**：`build-release.ps1 -Verify` 在打包后自动跑 `run-real-all.ps1 -PreRelease -Strict`（release-real + 开发链路 6 套，约 12 min，失败即非零退出）；不加 `-Verify` 时打印黄字提示。跑批新增「模式」行与 **divert 代理预检**（25378/18080/8888 在监听即告警）。② **B4 HTTP 真机一刀已交付**：新增 `shell/e2e-real/http-real.cjs`（HR-1..HR-11，补 reqwest 真实链路这个唯一真空白——TCP / 响应头 / 302 跟随 / 真实超时 / **取消的服务端断流证据** / 二进制 / 5 MB 截断 / 主机名解析），真机脚本 **10 → 11 个**。③ **顺带修掉跑批自身一条缺陷**：PS 5.1 把 native stderr 包成 `NativeCommandError`，配 `$ErrorActionPreference="Stop"` 会让任一真机脚本的 stderr **终止整轮跑批**（实测第 2 套件即退出、不写 SUMMARY）——已按 `build-release.ps1::Invoke-Native` 同法加包装并实测修复。④ 本表 §5 真机层入口由陈旧的 `run-*.bat` 更正为 `run-real-all.ps1` / `-Verify`；⏳ `http-real` 的真机结论待用户终端跑一次。
 > **v1.14 修订（2026-10-07，维护态）**：**P0-2 第一格按 v1.4 死线撤下**（roadmap ㉔）——PyCharm 同场景人工横向对标（23 点）因本机无 PyCharm 撤项，**README「已知边界」改为定稿声明「未与 PyCharm 做过横向对比」**；`intel/README.md` 三处 ⏳ 状态戳全部关闭（P3-T10 行 + 现状表「人工横向对标」/「真实项目端到端」两行）；`bench/reports/gate-d-ab-worklist.md` 加撤下头注转为存档（OpenCharm 侧 23 点排名保留，将来换对照组可复用但结论须改写为「对 X」）。第二格同步为收口口径：跨 **3 个真实项目 / 497 条函数观测**，未达「≥1000 条」门槛 → 改为日常 IDE 使用自然累积（真源 `bench/reports/trace-sample-threshold.md`）。**P0 至此全部关闭**（P0-0/1/2/3/4 无一挂账）。数字无变化（v1.13 基准）。
 > **v1.13 修订（2026-10-07，维护态）**：**A5③④ FastAPI 端点面板余项破例立项并交付**（roadmap ㉓，`.trae/documents/a5-3-4-endpoint-panel-plan.md` 批准实施）——**③ handler→route 反向跳转**（路由定义行 CodeLens「端点 N」+ 弹层 + 复制 URL + 端点视图点选高亮，`epJump.ts`/`epJumpCore.ts`）与 **④ OpenAPI 面板内预览**（`fetch_openapi` 命令 + `openapi_cmds.rs` + `openApiPanel.ts`/`openApiCore.ts`，懒加载展开块 + 错误形态原样透传）。数字刷新：命令 **196 → 197** · Rust **392 → 402**（外壳 320 → **330**，新增 7 例 openapi 单测；intel 72 不变）· 前端 **1271/101 → 1291/104** · e2e spec **72/71 → 73/72**（新增 `e2e/ux/07-endpoint-lens-openapi.spec.ts` 4 例 EP-J1/J2/P1/P2）· 预算 **36 → 43 项全 PASS**（新增 6 个文件上限）· 产物 5,035 → **5,048/5,120 KB**。⚠ **实证调整 4 处**：CodeLens 首扫 `await ensureIndex()`（不依赖补刷新时序链）、弹层关闭监听 `setTimeout(0)` 延后注册（同步注册会被打开弹层的同一次 mousedown 命中）、端点高亮改 pending 模式（切 tab 重扫清空列表）、e2e 点击 `> a` 精确定位（`.codelens-decoration` 是整行容器）。
 > **v1.12 修订（2026-10-07，维护态）**：**P1-5 收口**——①③④⑤ ✅ 已修（roadmap ㉑/㉒）；**② 裁决不处理**（session.ts `restoring` 布尔非令牌，场景罕见，维持 tech-debt 登记备查，roadmap P1-5 标注收口、优先级表同刷新）。P1-5 整项从候选清单移除。
@@ -28,10 +29,10 @@
 | 定位 | **高性能 · 轻量 Python IDE**（FastAPI + 爬虫 + 小脚本；2026-10-05 定位变更，ADR-0010；性能与体积为一等目标） |
 | 阶段 | **Phase 4 · 打磨期**（Phase 1/2/3 均已交付：外壳 / 语义引擎 / 运行时智能） |
 | 规模 | 约 93.8K 行自研代码 · **197** 个 Tauri 命令 · 39 篇 `docs/*.md` + 8 篇 ADR |
-| 质量底座 | 前端 **1291 用例 / 104 文件** · Rust **402 测试通过**（外壳 330 通过 = 332 个 `#[test]` − 2 `#[ignore]`；intel **72** = 59 + 6 + 7）· probe 89 pytest · e2e **73 spec（含 `_probe/`）/ 72（mock 层）** + 10 个真机脚本（**手动**） |
+| 质量底座 | 前端 **1291 用例 / 104 文件** · Rust **402 测试通过**（外壳 330 通过 = 332 个 `#[test]` − 2 `#[ignore]`；intel **72** = 59 + 6 + 7）· probe 89 pytest · e2e **73 spec（含 `_probe/`）/ 72（mock 层）** + **11 个真机脚本**（手动；发布前验收已绑 `build-release.ps1 -Verify`） |
 | 预算 / 性能 | **`ci/budgets.toml` 四十三项全 PASS**（= 40 项文件行数上限 + 命令数 + 产物体积 + `.ps1` 编码卫生；`style.css` 5,751/5,850 · `main.ts` **2,099/2,400**（阶段二两刀共 −825 行）· **`env_cmds.rs` 2026-10-07 拆分四文件**（4,945 → 1,374 + `run_config` 674 + `dep_health` 1,044 + `dep_fix` 1,968，命令面 32 个零变化）· 产物 5,048/5,120 KB · 命令 197/200）；性能基线已落盘 `bench/reports/metrics-20261006-091652.md`（冷启动 956 ms · 内存 339 MB） |
 | 版本锁定 | `ci/versions.toml` 锁 9 类依赖 |
-| 尚未闭环 | ① **CI 无宿主（已裁决维持现状）**：远端只有 `gitee.com/usedel/opencharm`，Gitee 不执行 GitHub Actions → 两份 workflow 是「将来推 GitHub 的预埋」，**首次跑通证据外置到迁移时验**（§4 第 13 条）② **Gate D 第一格 ⛔ 外部阻塞**：PyCharm 人工对标 23 点——**本机已无 PyCharm（2026-10-06 确认）**，死线 v1.4，届时未做则撤下并在 README 声明"未做横向对比"（**在此之前对外不得写"比 PyCharm 更准"**）；第二格 ✅ 已取得真实项目样本 277 条 / 覆盖率 79% ③ **SQLite v1.4 Tab 化真机手测 + 双主题截图**（§17.7）④ 依赖升级回归无自动化 ⑤ 真机 e2e 不进自动调度（10 个脚本手动，`nightly.yml` 已编排但同 ① 无宿主） |
+| 尚未闭环 | ① **CI 无宿主（已裁决维持现状）**：远端只有 `gitee.com/usedel/opencharm`，Gitee 不执行 GitHub Actions → 两份 workflow 是「将来推 GitHub 的预埋」，**首次跑通证据外置到迁移时验**（§4 第 13 条）② **Gate D 第一格 ⛔ 外部阻塞**：PyCharm 人工对标 23 点——**本机已无 PyCharm（2026-10-06 确认）**，死线 v1.4，届时未做则撤下并在 README 声明"未做横向对比"（**在此之前对外不得写"比 PyCharm 更准"**）；第二格 ✅ 已取得真实项目样本 277 条 / 覆盖率 79% ③ **SQLite v1.4 Tab 化真机手测 + 双主题截图**（§17.7）④ 依赖升级回归无自动化 ⑤ 真机 e2e 不进自动调度（11 个脚本手动，`nightly.yml` 已编排但同 ① 无宿主）——**缓解**：已绑发布前验收（`build-release.ps1 -Verify`），出包时自动跑 release-real + 6 套开发链路 |
 | 下一步 | 见 `docs/improvement_and_roadmap_report.md` **v1.4**（P0-0 / P0-3 已关闭 · P0-1 已裁决为"维持现状" · **P0-4 已拆分执行（2026-10-07 切四块）** · **P0-2 第一格外部阻塞 / 第二格已采**）→ **阶段二 ✅ 已收口，进入维护态**：差异化泳道 **A1 · A5① · A3①+② · A4①+③ · A3③ · A2（内置 Profiler）· A5③④（端点 CodeLens 反向跳转 + OpenAPI 面板内预览）均已交付**（A2 收口见 `docs/profiler_acceptance_record.md`；A5③④ 交付记录见 roadmap ㉓）；阶段二剩余候选 **A3④ · A4② · A4-Py** 已按覆盖 / 既有裁决全部关闭不立项（2026-10-07 收口记录见 roadmap ⑳终，`improvement_and_roadmap_report.md` L108-113）；维护态运行侧只受理开销回归 / trace 迁移 / 预算违约修复，工具箱侧只受理缺陷修复与既有工具打磨，后续候选批次待用户另行裁决；基本功泳道 `main.ts` 外提两刀已完成（余量 301 行），第三刀为候选 |
 
 ---
@@ -157,7 +158,7 @@
 |---|---|
 | 前端单测 | `shell\scripts\gate-tests.mjs unit`（**不要直接跑 `vitest`** —— 本机会被判为 watch 并杀进程） |
 | E2E（mock 层） | `shell\scripts\gate-tests.mjs e2e` / `e2e-ui`（9 spec 快档） |
-| 真机层 | `shell\e2e-real\run-*.bat`（CDP 9223 + 隔离数据根） |
+| 真机层 | `powershell -File shell\e2e-real\run-real-all.ps1`（CDP 9223 + 隔离数据根；**必须串行**）· 发布前验收 `build-release.ps1 -Verify`（自动带 `-PreRelease -Strict`）· 报告落 `shell\real-reports\<stamp>\`（入库作证） |
 | UI token 门禁 | `tools\ui\audit_tokens.py`（98 项检查，退出码非 0 即失败） |
 | UI 基线截图 | `shell\scripts\ui-baseline.mjs --tag X` → 系统 TEMP |
 | Rust | `cd shell\src-tauri && cargo test`（改 `src-tauri` 后必须 `cargo check` 通过再交付） |

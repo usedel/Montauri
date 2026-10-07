@@ -114,6 +114,14 @@ uv run pytest                                # 全量；单测：uv run pytest t
 
 # 一键打包（根目录执行；自动 intel release 构建 → npm install → Tauri 打包）
 powershell -File .\build-release.ps1 -SkipNpmInstall
+# 发布前验收（**发布时用这个**）：打包完自动跑真机全量（release-real + 6 套开发链路，约 12 min，失败即非零退出）
+powershell -File .\build-release.ps1 -SkipNpmInstall -Verify
+
+# 真机 e2e（shell/e2e-real，CDP 9223；**必须串行**，共用 5173/9223；跑前确认 divert 代理未开）
+powershell -File shell\e2e-real\run-real-all.ps1              # 日常跑批（6 套，跳过 release/probe 三支，约 8 min）
+powershell -File shell\e2e-real\run-real-all.ps1 -PreRelease -Strict   # 发布前验收（含 release-real）
+powershell -File shell\e2e-real\run-real-all.ps1 -Only http-real       # 单套件
+# 报告落 shell/real-reports/<stamp>/（SUMMARY.md + 各套件 JSON；**入库作证**，勿忽略）
 
 # dep_scan 性能红线回放（bench 大仓样例，红线 ≤ 2s）
 cd shell/src-tauri && cargo test --release bench_dep_scan -- --ignored --nocapture

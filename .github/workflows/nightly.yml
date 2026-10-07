@@ -10,7 +10,7 @@
 #   "卡住合并"；真出问题时它会留下 artifacts 可查。
 #
 # 三个 job：
-#   e2e-real —— 9 个真机脚本逐个跑，每个出一份 JSON 汇总（schema 见 real-env.cjs）
+#   e2e-real —— 10 个真机脚本逐个跑，每个出一份 JSON 汇总（schema 见 real-env.cjs）
 #   bench    —— 打包 + 冷启动 / 内存红线（与 package-smoke 同脚本，-Runs 3 取均值）
 #   budget   —— 体积与规模预算断言（P1-3，阈值在 ci/budgets.toml）
 #
@@ -85,7 +85,7 @@ jobs:
           New-Item -ItemType Directory -Force nightly-reports | Out-Null
           $scripts = @(
             'db-real.cjs', 'debug-real.cjs', 'endpoints-real.cjs',
-            'multi-window-real.cjs', 'new-project-fastapi-real.cjs',
+            'http-real.cjs', 'multi-window-real.cjs', 'new-project-fastapi-real.cjs',
             'probe-real-lag.cjs', 'probe-mw-lag.cjs', 'probe-watch-multiwin.cjs',
             'ui-real.cjs'
           )

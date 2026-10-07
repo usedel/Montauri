@@ -1,8 +1,15 @@
-# OpenCharm release packaging script (NSIS installer only).
+﻿# OpenCharm release packaging script (NSIS installer only).
 # Runs the full pipeline: clean -> build opencharm-intel (release) -> npm install -> tauri build.
 # Usage (from repo root):
 #   powershell -File .\build-release.ps1                  # full build
 #   powershell -File .\build-release.ps1 -SkipNpmInstall  # skip npm install
+#   powershell -File .\build-release.ps1 -Verify          # build + 发布前真机验收（推荐发布时用）
+#
+# -Verify 会在打包完成后跑 `shell/e2e-real/run-real-all.ps1 -PreRelease -Strict`：
+#   release-real（验构建产物）+ 开发链路 6 套，约 12 分钟，任一套失败即非零退出。
+#   这是真机层唯一有明确触发点的入口——nightly 无 CI 宿主（远端只有 Gitee），
+#   光靠"配置已编排"等于没跑（P1-4 结论：脚本存在 ≠ 覆盖存在）。
+#   前置：5173 / 9223 空闲；http-divert-proxy 未运行；D:\py\python.exe 存在（或设 OC_REAL_PYTHON）。
 #
 # Requires: Rust toolchain (cargo) and Node.js (npm), see ci/versions.toml for pinned versions.
 # Note: uv / pyrefly are managed at user runtime, not needed for packaging.
@@ -11,7 +18,8 @@
 #       Bundle target is fixed to NSIS (tauri.conf.json bundle.targets = "nsis").
 
 param(
-    [switch]$SkipNpmInstall
+    [switch]$SkipNpmInstall,
+    [switch]$Verify
 )
 
 $ErrorActionPreference = "Stop"
@@ -118,7 +126,26 @@ try {
     Pop-Location
 }
 
-# ---------- 5. done ----------
+# ---------- 5. pre-release real E2E verification (opt-in) ----------
+# 发布前验收：release-real（验刚产出的 exe）+ 开发链路套件。失败即非零退出（-Strict）。
+if ($Verify) {
+    Step "Pre-release real E2E (shell/e2e-real/run-real-all.ps1 -PreRelease -Strict)"
+    $realAll = Join-Path $Root "shell\e2e-real\run-real-all.ps1"
+    if (-not (Test-Path $realAll)) { Fail "run-real-all.ps1 not found: $realAll" }
+    # 用独立 powershell 进程跑：run-real-all.ps1 会逐套件起 node/tauri dev，需要干净的
+    # $LASTEXITCODE 语义；本脚本的 $ErrorActionPreference=Stop 不适用于子脚本。
+    Invoke-Native powershell -NoProfile -ExecutionPolicy Bypass -File $realAll -PreRelease -Strict
+    if ($LASTEXITCODE -ne 0) {
+        Fail "Pre-release real E2E failed (see shell/real-reports/<stamp>/SUMMARY.md)"
+    }
+} else {
+    Write-Host ""
+    Write-Host "==> 跳过发布前真机验收（未加 -Verify）" -ForegroundColor Yellow
+    Write-Host "    发布前请跑：powershell -File .\build-release.ps1 -Verify" -ForegroundColor Yellow
+    Write-Host "    （release-real + 6 套开发链路，约 12 分钟；真机层唯一有触发点的入口）" -ForegroundColor DarkGray
+}
+
+# ---------- 6. done ----------
 Step "Done"
 Write-Host "Bundle output: shell/src-tauri/target/release/bundle/nsis/"
 Write-Host "opencharm-intel.exe and probe/src are bundled as resources (see shell/src-tauri/tauri.conf.json bundle.resources)"

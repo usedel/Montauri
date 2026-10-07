@@ -128,6 +128,7 @@
 > 　**前置动作已尝试、未跑通（⛔ 环境阻断）**：全量跑批（`shell/e2e-real/run-real-all.ps1`，默认 6 套 / 跳过 probe 三支）在本会话环境下起不来——`npm run tauri dev` 稳定 panic `failed to run 'npm run dev'`，而同一终端裸 `npm run dev` 正常（详见 §2 P1-4）。**真机层至今仍是"零全量跑通记录"**。
 > 　**但这次尝试已经产出价值——暴露 3 条，其中 2 条当场修掉**（此前无人发现，正因为没人跑过）：① ✅ **db-real 不可复现已修**（内联造数脚本；**并顺带挖出第二个根因——`spawnSync` 在本机 EBUSY 静默失败**，改异步 `runCmd`；实测 T14-0 PASS）；② ✅ **启动失败不可见已修**（`waitCdpReadyWatched`：盯进程 exit + 扫日志 panic，实测 db-real 5s / endpoints-real 3s 失败，原为 1500s）；③ ⛔ 会话环境跑真机不可行（须在用户终端跑，属外部条件）。**结论：真机层当前的最大缺口不是"域不够"，而是"没人跑 + 跑不起来也没人知道"**——后半句本轮已解决。
 > 　**✅ 首轮真机基线已出（2026-10-07 16:35，用户终端）**：`debug-real 14/14 · endpoints-real 4/4 · multi-window-real 16/16 · ui-real 39/39` = **73/73 PASS，合计仅 3 分钟**（原估 30~60 min 偏高，修正为 **10 min 量级**）。**但 db-real / new-project 显示「无报告」又暴露 3 条，均当场修掉**：④ 两个自实现套件**从不落 JSON**（分不清"没跑"与"跑了失败"）；⑤ **运行中断被当成成功（假绿）**——db-real 的 `catch` 不设失败计数 → 退出码 0 → 跑批报"失败 0 个套件"，**首轮"全绿"因此是假象**；⑥ **5173 预检形同虚设**（`portInUse` 用 HTTP `/json/version`，而 vite 不提供该端点；实测 vite 只绑 `[::1]`）→ 已改 TCP 双栈探测。**最终（第四轮，HEAD `80d9fe8`）：6 套 / 95 项全绿，db-real 18/18，全量约 8 分钟**——真机层至此有了可复现的全绿基线（详见 §2 P1-4 四轮小节）。
+> **㉖ P1-4 收尾：触发点已绑 + B4 真机一刀已交付（2026-10-07）**。① **C 触发点（先决条件，已完成）**：真机层最大的问题是"没人跑"（`nightly.yml` 编排了脚本但本仓远端只有 Gitee、Actions 不执行），现绑到**发布前验收**——`build-release.ps1 -Verify` 在打包后自动跑 `run-real-all.ps1 -PreRelease -Strict`（release-real + 开发链路 6 套，约 12 min，失败即非零退出）；不加 `-Verify` 时打印黄字提示，使"忘了跑"在出包输出里可见。跑批新增「模式」行与 **divert 代理预检**（25378/18080/8888 在监听即告警——它走驱动层，开着会让整套 `ERR_PROXY_CONNECTION_FAILED`，环境变量与 `--no-proxy-server` 都躲不掉）。② **B B4 HTTP 真机一刀已交付**（`shell/e2e-real/http-real.cjs`，HR-1..HR-11，覆盖 reqwest 真实链路：TCP / 响应头 / 重定向 / 超时 / 取消分块边界 / 二进制 / 5MB 截断 / 主机名解析；服务端记录到 `User-Agent: OpenCharm/0.1` 是跨进程硬证据）。③ **顺带修掉跑批自身一条缺陷**：PS 5.1 把 native stderr 包成 `NativeCommandError`，配 `$ErrorActionPreference="Stop"` 会**让任一真机脚本的 stderr 终止整轮跑批**（实测第 2 套件即整脚本退出、不写 SUMMARY）——与 `build-release.ps1::Invoke-Native` 同一个坑，已按同法加包装并实测修复（7 套全部跑完）。⏳ B 的真机结论待用户终端跑一次（会话环境起不来 tauri dev）。
 > v1.1 的规模数字取自 PowerShell `Get-Content $f | .Count`。在本机（PS 5.1，ANSI 代码页 **gb2312**）上，对**无 BOM 的 UTF-8 源文件**该写法会按 GBK 解码并**吞掉换行**——`style.css` 报 5,410 而真实 5,668（少 4.5%），`main.ts` 报 2,503 而真实 2,897（少 13%）。丢失比例随文件 CJK 密度而变、**逐文件不同**，因此这批数字是"看起来合理但系统性偏低"的。
 > 连带被推翻的结论（详见 §1.2）：**「巨型文件趋势已逆转」「UI 六批顺带把逻辑拆去了域模块」不成立**——`git.ts` / `lsp/client.ts` / `env_cmds.rs` / `fs_cmds.rs` / `git_cmds.rs` 在 `44c85ea → HEAD` 之间**一行未变**，`main.ts` 是 **+58**（不是 −336）。
 > 本版全部行数改由 `tools/stats/repo-stats.mjs` 重取，并新增两个防复发机制：取数脚本固化为代码 + 预算门禁（`ci/budgets.toml` / `shell/scripts/budget-check.mjs`）。
@@ -405,7 +406,7 @@
 
 ### P1-4 · 补齐真机 e2e 覆盖的关键路径
 
-现有 **10 个 `.cjs`** 已覆盖 debug / db / endpoints / multi-window / new-project / ui / release / probe 三支（nightly 编排其中 9 套串行）。原议按功能域继续补齐四域：**LSP 真引擎（pyrefly 裸会话）/ 运行真 `uv run` / 终端真 PTY / 插件真加载**，优先补**跨进程链路**类。
+现有 **11 个 `.cjs`** 已覆盖 debug / db / endpoints / http / multi-window / new-project / ui / release / probe 三支（nightly 编排其中 10 套串行）。原议按功能域继续补齐四域：**LSP 真引擎（pyrefly 裸会话）/ 运行真 `uv run` / 终端真 PTY / 插件真加载**，优先补**跨进程链路**类。
 
 > **✅ 2026-10-07 复核结论（见续记 ㉕）：整项不立项，收窄为一刀。** 四域里**两域已不成立**——本次是**报告失真**（把已交付的写成"建议补"），不是"建议没被执行"：
 
@@ -422,7 +423,7 @@
 3. **前置动作（先做这个，再谈新增）**：跑一次现有真机全量，出**真机层基线报告**——先回答"真机层能不能稳定跑通 / flaky 多少"，这比新增域更基础。
 
 - **成本**：整项 ~~2~4 人日~~ → **收窄后 0.5~1 人日（B4 一刀）+ 基线跑批 0.2~0.5 人日**。
-- **跑真机前的环境预检**：① 端口 5173 / 9223 必须空闲（脚本共用，**必须串行**）；② 确认 `http-divert-proxy` 未运行——开着会让本地浏览器自动化 `net::ERR_PROXY_CONNECTION_FAILED` 直接挂（判据：25378 / 18080 / 8888 是否在监听）；③ 默认解释器 `D:\py\python.exe`（可用 `OC_REAL_PYTHON` 覆盖）。
+- **跑真机前的环境预检**：① 端口 5173 / 9223 必须空闲（脚本共用，**必须串行**）；② 确认 `http-divert-proxy` 未运行——开着会让本地浏览器自动化 `net::ERR_PROXY_CONNECTION_FAILED` 直接挂（判据：25378 / 18080 / 8888 是否在监听）。**②已自动化**：跑批自带该探测，命中即黄字告警；③ 默认解释器 `D:\py\python.exe`（可用 `OC_REAL_PYTHON` 覆盖）。
 - **⛔ 首次跑批尝试（2026-10-07）：未跑通，但暴露 3 条并已修掉其中 2 条**：
   1. **环境阻断（会话侧，未修·属外部）**：`npm run tauri dev` 稳定 panic `failed to run 'npm run dev'`（tauri-cli BeforeDevCommand）；同一终端里裸 `npm run dev` 正常、把系统 nodejs 目录前置 PATH 也无效 → 卡在 **tauri-cli 的子进程执行环节**，非端口/非 npm 本身。**真机基线须在用户自己的终端里跑**：`powershell -File shell\e2e-real\run-real-all.ps1`（6 套串行，约 30~60 min）。
   2. ✅ **db-real 不可复现（已修，2026-10-07）**——**两个根因，第二个是修的过程中才暴露的**：
@@ -482,6 +483,31 @@
 - **修复链条（四轮，同一根因族）**：① 起不来也不知道（干等 1500s）→ 加看门狗；② db-real 不可复现（脚本未入库 + `spawnSync` EBUSY）→ 内联 + 异步；③ 两个自实现套件不落 JSON + **中断被当成功（假绿）** + 5173 预检失效 → 补齐 + TCP 双栈；④ D-6 回归（宽选择器 strict 冲突）→ 精确化；⑤ 我自己的选择器嵌套写错 → 修正。
 - **共同根因**：这些缺陷全部**因"真机层长期没人跑"而累积**——脚本存在 ≠ 覆盖存在。`nightly.yml` 里那 9 套编排至今**零 CI 执行**（无 GitHub 宿主），本机也从未全量跑过；本轮是它**第一次真正通电**。
 - **仍未接线**：`probe-real-lag` / `probe-mw-lag` 两个自实现脚本的启动看门狗（默认 Skip，下轮统一）。
+
+#### 收尾一：触发点绑定（C，2026-10-07，已完成）
+
+真机层最大的问题不是"域不够"而是"**没人跑**"。现在绑到**发布前验收**这个有明确触发点的环节：
+
+| 落点 | 内容 |
+|---|---|
+| `build-release.ps1 -Verify` | 打包完成后自动跑 `run-real-all.ps1 -PreRelease -Strict`（release-real + 开发链路 6 套，约 12 min），任一套失败即**非零退出**；不加 `-Verify` 时打印黄字"发布前请跑 …"，让"忘了跑"在出包输出里可见（不是靠记性） |
+| `run-real-all.ps1 -PreRelease` | 把 `release-real`（验构建产物）纳入跑批并**置于首位**；默认跑批仍跳过它——开发检出常无 release 产物，跑了只会报 ENV |
+| 报告 | `SUMMARY.md` 增「模式」行（日常跑批 / 发布前验收），产物落 `shell/real-reports/<stamp>/` 并**入库作证**（与 `bench/reports/` 同性质，不加 ignore） |
+| 预检 | 新增 **divert 代理探测**：25378(PAC) / 18080(本地) / 8888(上游 Fiddler) 有监听即黄字告警。它走 WinDivert **驱动层**透明拦截，开着会让整套 `ERR_PROXY_CONNECTION_FAILED`，而环境变量与 `--no-proxy-server` 都躲不掉——**提前 10 秒告警胜过白跑 10 分钟** |
+
+- **实测（本会话干跑 `-PreRelease`）**：7 套件按序跑完、模式行正确、SUMMARY 落盘（`release-real` 因本机 release 产物是 dev 味（加载 `localhost:5173`）而 FAIL，其余 6 套因会话环境起不来 tauri dev 判 ENV——**均为环境所致，非脚本缺陷**）。
+- **顺带修掉跑批自身一条缺陷（本次实测暴露）**：`run-real-all.ps1` 顶部 `$ErrorActionPreference = "Stop"`，而 PS 5.1 会把 native 命令的 stderr 包成 `NativeCommandError` → **任一真机脚本往 stderr 写一行（失败/中断路径必然写）就终止整轮跑批**，表现为"跑到第 2 套件整脚本退出、不写 SUMMARY"（外层管道捕获如 `| Tee-Object` 时必现）。这与 `build-release.ps1::Invoke-Native` 是**同一个坑**（那边早有注释），已按同法加 `Invoke-RealSuite` 包装（局部降 EAP + ErrorRecord 渲染成纯文本）。**实测**：修复前在第 2 套件（db-real）退出；修复后 7 套全部跑完。
+
+#### 收尾二：B4 HTTP 真机一刀（B，2026-10-07 已交付，待真机验证）
+
+`shell/e2e-real/http-real.cjs`（**HR-1..HR-11**）——补上 reqwest 真实链路这个**唯一真空白**：
+
+- **设计**：脚本内起一个**本机 Node HTTP 服务**（`127.0.0.1` + 随机端口，**全程离线**），前端发真实请求、服务端**记录并回显**收到的请求 → 一条请求被**两端同时观测**。服务端记到的 **`User-Agent: OpenCharm/0.1`** 直接证明请求出自应用内核的 reqwest，而非任何 mock。
+- **覆盖（mock 层全盲的部分）**：真实 TCP 连通 + JSON 树 / 真实响应头（content-type、content-length）/ POST + 自定义头 + 体的**服务端回显** / **302 真实跟随**（服务端可见 `/redirect → /json` 两次请求）/ 404 非错误态 / **真实超时**（预置 `http_timeout_ms=3000` 打 10s 慢端点）/ **取消在分块边界生效**（服务端每 400ms 吐一块；除 UI 回落 idle 外，**还断言服务端观测到连接被提前断开**——`res.on('close')` 且 `writableEnded === false`，证明"取消"是真的断流而非只改前端状态）/ 二进制判定（`application/octet-stream`）/ **响应体 >5 MB 截断** / **主机名解析**（`localhost`）/（可选）**公网 DNS+TLS**（`OC_HTTP_REAL_NET=1`，属已知边界）。
+- **两条工程决定**（都写进了脚本注释）：① 截断用例用**二进制**体（`ct=bin`）——前端对文本体是直接塞进 `<pre>` 的且**无渲染上限**，5 MB 文本会卡住 WebView 拖垮后续用例；二进制分支不渲染体，验的是同一条后端 `stopped_early` 路径。② 每次发送先**等服务端真的收到本次请求**（按 pathname 比对）再等 UI 落定——真机没有 mock 那种 `__E2E_HTTP_LAST_REQ__` 直读通道，只盯 UI 会读到上一条响应的旧状态（连续两次 200 必然误判）。
+- **口径**：默认 10 条 + 1 条可选；已加入 `run-real-all.ps1` 默认清单与 `nightly.yml` 脚本清单（**两处必须同步**，脚本头注释已写明）。
+- **本机已验的部分**：脚本内那个 Node 服务被**单独抽出跑过一轮端点自测**（10/10 PASS：`/json` `/echo` `/redirect` `/missing` `/bytes` `/big`(两种 ct) `/slow`(确认真的慢) `/stream`(断流计数) + 服务端观测），故服务端半边的行为是确定的；**未验的是 UI 半边**（需真机 DOM）。
+- ⏳ **待用户终端跑一次**（会话环境起不来 tauri dev）→ 结论以 `shell/real-reports/<stamp>/http-real.json` 为准；预期全量由 6 套 / 95 项变为 **7 套 / ~105 项**。
 
 ### P1-5 · 偿还 TD-021 五小项
 
@@ -647,7 +673,7 @@ A 类全部复用已有的 probe trace 数据或外壳基建，**别人抄不走
 | 泳道 | 内容 |
 |---|---|
 | 画像专项 | ~~A4 爬虫工具箱~~ ✅ **①+③ 已交付（2026-10-06）**（B4 HTTP 工具 + A5① 请求样例 + `json2model.gen.ts` 三件现成基建都复用了；真正的新件只有选择器测试器）。**A2 内置 Profiler 已交付并收口**（2026-10-07，`profiler_acceptance_record.md`）；余项（A3④ 调用处 inlay hint / A4② 请求回放 / A4-Py Python 引擎）已全部关闭不立项（2026-10-07 收口，见 ⑳终） |
-| 可选 / 债务 | B2 REPL / Scratch + **P1-4 已收窄：只做 B4 HTTP 真机一刀（reqwest 跨进程链路；LSP 真引擎已交付 / 运行+终端已被 release-real 覆盖 / 插件无跨进程价值不排），且须先绑触发点（建议绑发布前验收）** + P1-6 工作区级插件目录 |
+| 可选 / 债务 | B2 REPL / Scratch + **P1-4 已收尾：触发点已绑（`build-release.ps1 -Verify`）+ B4 HTTP 真机一刀已交付（`http-real.cjs` HR-1..HR-11，待真机跑一次）** + P1-6 工作区级插件目录 |
 
 ### 阶段四 · 评估期（18 周后）
 
