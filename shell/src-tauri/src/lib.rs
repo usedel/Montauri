@@ -1,5 +1,7 @@
 mod dap;
 mod db_cmds;
+mod dep_health;
+mod dep_fix;
 mod edit_history;
 mod env_cmds;
 mod ep_sample_cmds;
@@ -17,6 +19,7 @@ mod plugin_cmds;
 mod per_window;
 mod plugin_pkg;
 mod proc_stats;
+mod run_config;
 mod run_env;
 mod sessions;
 mod settings;
@@ -192,12 +195,12 @@ pub fn run() {
             env_cmds::interpreter_version,
             env_cmds::has_pyproject,
             env_cmds::init_pyproject,
-            env_cmds::get_run_config,
-            env_cmds::set_run_config,
-            env_cmds::sweep_run_configs,
-            env_cmds::get_project_run,
-            env_cmds::set_project_run,
-            env_cmds::detect_project_entry,
+            run_config::get_run_config,
+            run_config::set_run_config,
+            run_config::sweep_run_configs,
+            run_config::get_project_run,
+            run_config::set_project_run,
+            run_config::detect_project_entry,
             // 框架探针表（P1：Django / Flask / FastAPI，docs/pycharm_framework_support_report.md §8.2）
             env_cmds::detect_framework,
             env_cmds::set_framework_hint_disabled,
@@ -222,14 +225,14 @@ pub fn run() {
             // Python 求值桥（库特别支持 PR-1：正则/格式串/参数表单的受控脚本求值）
             lib_cmds::py_eval,
             // 依赖健康（dep health M1，docs/dep_health_dev_plan.md）
-            env_cmds::dep_style,
-            env_cmds::dep_scan,
-            env_cmds::dep_env_snapshot,
-            // 依赖健康 M3：修复动作（§5.1 矩阵）+ 忽略清单（§5.3/R9）
-            env_cmds::dep_fix,
-            env_cmds::dep_ignore_list,
-            env_cmds::dep_ignore_add,
-            env_cmds::dep_ignore_remove,
+            dep_health::dep_style,
+            // dep 域后半段（dep_fix.rs）：dep_scan / 环境快照 / 修复动作 / 忽略清单
+            dep_fix::dep_scan,
+            dep_fix::dep_env_snapshot,
+            dep_fix::dep_fix,
+            dep_fix::dep_ignore_list,
+            dep_fix::dep_ignore_add,
+            dep_fix::dep_ignore_remove,
             // 全局设置（P25-T08/T09）
             settings::get_settings,
             settings::set_settings,

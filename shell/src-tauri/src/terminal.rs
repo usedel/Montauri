@@ -350,7 +350,7 @@ pub fn run_in_terminal(
     let (entry, script_abs, script_dir, fname, run_config) = match kind.as_str() {
         "project" => {
             let root = workspace_root.clone().ok_or("运行项目需先打开一个工作区")?;
-            let prof = crate::env_cmds::read_project_run(&root)
+            let prof = crate::run_config::read_project_run(&root)
                 .ok_or("项目未配置入口：请先在「运行配置 → 项目配置」中设置入口，或让自动探测（首次运行项目时）为您生成")?;
             if prof.entry.kind == "module" && !prof.entry.is_module() {
                 return Err("项目配置选择了模块入口，但模块名为空".into());
@@ -380,7 +380,7 @@ pub fn run_in_terminal(
             };
             let rc = workspace_root
                 .as_deref()
-                .map(|r| crate::env_cmds::read_run_config(r, &path))
+                .map(|r| crate::run_config::read_run_config(r, &path))
                 .unwrap_or_default();
             (rc.entry.clone(), abs, Some(dir), fname, rc)
         }

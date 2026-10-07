@@ -336,7 +336,7 @@ fn assemble_debug_session(
 
     // ---- 3. 解释器与运行配置 ----
     let run_config = workspace_root
-        .map(|r| crate::env_cmds::read_run_config(r, path))
+        .map(|r| crate::run_config::read_run_config(r, path))
         .unwrap_or_default();
     // P1-I：解释器解析（配置级覆盖 > 工作区配置 > .venv 自动检测）
     let profile_interpreter = run_config.interpreter.trim().to_string();
@@ -539,7 +539,7 @@ pub async fn debug_attach_debuggee(
 
     let run_config = workspace_root
         .as_deref()
-        .map(|r| crate::env_cmds::read_run_config(r, &path))
+        .map(|r| crate::run_config::read_run_config(r, &path))
         .unwrap_or_default();
     // P1-I：解释器解析（配置级覆盖 > 工作区配置）
     let profile_interpreter = run_config.interpreter.trim().to_string();

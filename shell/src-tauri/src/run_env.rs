@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 
 use tauri::AppHandle;
 
-use crate::env_cmds::{RunEntry, RunProfile};
+use crate::run_config::{RunEntry, RunProfile};
 use crate::tool_paths::{tool_command, ENV_UV};
 use crate::util::resource_candidates;
 
@@ -420,7 +420,7 @@ pub(crate) fn resolve_run_cwd(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::env_cmds::{EnvVar, RunEntry};
+    use crate::run_config::{EnvVar, RunEntry};
 
     const SCRIPT: &str = if cfg!(windows) { "F:\\proj\\main.py" } else { "/proj/main.py" };
 

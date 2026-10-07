@@ -1243,7 +1243,7 @@ fn scan_import_aliases_impl(root: &str) -> Result<Vec<ImportAliasHit>, String> {
     // 增量扫描（边界③）：上次每文件 (mtime,size) 签名 + 绑定缓存，签名一致则跳过
     // 该文件的读取与解析，只重建聚合。缓存损坏 / 版本不符 → 整体作废走全量
     // （首次扫描无缓存 = 全量，语义与旧实现一致）。
-    let prev_cache: HashMap<String, AliasScanCacheFile> = crate::env_cmds::load_config(root)
+    let prev_cache: HashMap<String, AliasScanCacheFile> = crate::run_config::load_config(root)
         .get(ALIAS_SCAN_CACHE_KEY)
         .and_then(|x| serde_json::from_value::<AliasScanCache>(x.clone()).ok())
         .filter(|c| c.v == ALIAS_SCAN_CACHE_VERSION)
@@ -1361,7 +1361,7 @@ const IMPORT_ALIASES_KEY: &str = "import_aliases";
 /// 学习别名 + 增量扫描缓存落盘（同一次 load/save 写两个键）；空清单移除别名键
 /// 保持配置精简（同 dep_ignored 先例），缓存始终覆盖写（作为下次扫描的增量基线）
 fn save_import_aliases(root: &str, hits: &[ImportAliasHit], scan_cache: &Value) -> Result<(), String> {
-    let mut v = crate::env_cmds::load_config(root);
+    let mut v = crate::run_config::load_config(root);
     let obj = v.as_object_mut().ok_or("工作区配置格式非法")?;
     if hits.is_empty() {
         obj.remove(IMPORT_ALIASES_KEY);
@@ -1372,7 +1372,7 @@ fn save_import_aliases(root: &str, hits: &[ImportAliasHit], scan_cache: &Value) 
         );
     }
     obj.insert(ALIAS_SCAN_CACHE_KEY.into(), scan_cache.clone());
-    crate::env_cmds::save_config(root, &v)
+    crate::run_config::save_config(root, &v)
 }
 
 /// 从工作区配置读缓存（字段缺失 / 类型错误 / 条目损坏 → None，绝不 panic，同 load_config 口径）
@@ -1384,7 +1384,7 @@ fn import_aliases_from_config(v: &Value) -> Option<Vec<ImportAliasHit>> {
 /// 读学习别名缓存（前端打开工作区先展示缓存，后台重扫刷新；同步纯 fs，零子进程）
 #[tauri::command]
 pub fn read_import_aliases(root: String) -> Option<Vec<ImportAliasHit>> {
-    import_aliases_from_config(&crate::env_cmds::load_config(&root))
+    import_aliases_from_config(&crate::run_config::load_config(&root))
 }
 
 /// 解析 import 语句文本中的别名绑定，kind 0 = module（`import X as Y`）、1 = member
@@ -3269,10 +3269,10 @@ mod tests {
         assert_eq!(r1.iter().find(|h| h.target == "pandas").unwrap().count, 1);
 
         // 哨兵验证：不动文件、直接改写缓存绑定 → 重扫命中缓存复用哨兵（证明未重读文件）
-        let mut cfg = crate::env_cmds::load_config(&root_str);
+        let mut cfg = crate::run_config::load_config(&root_str);
         cfg["import_aliases_scan_cache"]["files"]["a.py"]["bindings"] =
             json!([[0, "pandas", "sentinel"]]);
-        crate::env_cmds::save_config(&root_str, &cfg).unwrap();
+        crate::run_config::save_config(&root_str, &cfg).unwrap();
         let r2 = scan_import_aliases_impl(&root_str).unwrap();
         assert!(r2.iter().any(|h| h.target == "pandas" && h.alias == "sentinel"));
         assert!(!r2.iter().any(|h| h.target == "pandas" && h.alias == "pd"));
@@ -3303,14 +3303,14 @@ mod tests {
         let base = tmpdir("import-alias-garbage");
         fs::write(base.join("a.py"), "import pandas as pd\n").unwrap();
         let root_str = base.to_string_lossy().to_string();
-        let mut cfg = crate::env_cmds::load_config(&root_str);
+        let mut cfg = crate::run_config::load_config(&root_str);
         cfg["import_aliases_scan_cache"] = json!("not-an-object");
-        crate::env_cmds::save_config(&root_str, &cfg).unwrap();
+        crate::run_config::save_config(&root_str, &cfg).unwrap();
         // 缓存损坏 → 整体作废走全量，结果正确
         let r = scan_import_aliases_impl(&root_str).unwrap();
         assert!(r.iter().any(|h| h.target == "pandas" && h.alias == "pd"));
         // 重扫后缓存被健康结构覆盖写
-        let cfg2 = crate::env_cmds::load_config(&root_str);
+        let cfg2 = crate::run_config::load_config(&root_str);
         assert_eq!(cfg2["import_aliases_scan_cache"]["v"], json!(1));
         fs::remove_dir_all(&base).unwrap();
     }
