@@ -127,7 +127,7 @@
 > **㉕ P1-4 复核：整项不立项，收窄为 B4 真机一刀（2026-10-07）**。原议「补 LSP 真引擎 / 运行真 `uv run` / 终端真 PTY / 插件真加载」四域，经代码核对：**LSP 真引擎早已交付**（`shell/e2e/lsp/02-pyrefly-real.spec.ts`，真 spawn `pyrefly lsp`）、**运行 + 终端已被 `release-real.cjs` REL-5 部分覆盖**、**插件无跨进程价值（不排）**，真空白只剩 **B4 HTTP 的 reqwest 真实链路**。→ 整项 2~4 人日**不立项**，只留 B4 一刀（0.5~1 人日），**先决条件是绑定触发点**（真机层无 CI 宿主：远端只有 Gitee，9 套脚本至今零跑通证据；建议绑**发布前验收**而非 nightly）。**本次是报告失真（把已交付写成建议补），不是"建议没被执行"**——与 v1.3 那类"挂账未做"性质不同，处置也不同：前者改文档，后者要排期。
 > 　**前置动作已尝试、未跑通（⛔ 环境阻断）**：全量跑批（`shell/e2e-real/run-real-all.ps1`，默认 6 套 / 跳过 probe 三支）在本会话环境下起不来——`npm run tauri dev` 稳定 panic `failed to run 'npm run dev'`，而同一终端裸 `npm run dev` 正常（详见 §2 P1-4）。**真机层至今仍是"零全量跑通记录"**。
 > 　**但这次尝试已经产出价值——暴露 3 条，其中 2 条当场修掉**（此前无人发现，正因为没人跑过）：① ✅ **db-real 不可复现已修**（内联造数脚本；**并顺带挖出第二个根因——`spawnSync` 在本机 EBUSY 静默失败**，改异步 `runCmd`；实测 T14-0 PASS）；② ✅ **启动失败不可见已修**（`waitCdpReadyWatched`：盯进程 exit + 扫日志 panic，实测 db-real 5s / endpoints-real 3s 失败，原为 1500s）；③ ⛔ 会话环境跑真机不可行（须在用户终端跑，属外部条件）。**结论：真机层当前的最大缺口不是"域不够"，而是"没人跑 + 跑不起来也没人知道"**——后半句本轮已解决。
-> 　**✅ 首轮真机基线已出（2026-10-07 16:35，用户终端）**：`debug-real 14/14 · endpoints-real 4/4 · multi-window-real 16/16 · ui-real 39/39` = **73/73 PASS，合计仅 3 分钟**（原估 30~60 min 偏高，修正为 **10 min 量级**）。**但 db-real / new-project 显示「无报告」又暴露 3 条，均当场修掉**：④ 两个自实现套件**从不落 JSON**（分不清"没跑"与"跑了失败"）；⑤ **运行中断被当成成功（假绿）**——db-real 的 `catch` 不设失败计数 → 退出码 0 → 跑批报"失败 0 个套件"，**首轮"全绿"因此是假象**；⑥ **5173 预检形同虚设**（`portInUse` 用 HTTP `/json/version`，而 vite 不提供该端点；实测 vite 只绑 `[::1]`）→ 已改 TCP 双栈探测。详见 §2 P1-4 首轮基线小节。
+> 　**✅ 首轮真机基线已出（2026-10-07 16:35，用户终端）**：`debug-real 14/14 · endpoints-real 4/4 · multi-window-real 16/16 · ui-real 39/39` = **73/73 PASS，合计仅 3 分钟**（原估 30~60 min 偏高，修正为 **10 min 量级**）。**但 db-real / new-project 显示「无报告」又暴露 3 条，均当场修掉**：④ 两个自实现套件**从不落 JSON**（分不清"没跑"与"跑了失败"）；⑤ **运行中断被当成成功（假绿）**——db-real 的 `catch` 不设失败计数 → 退出码 0 → 跑批报"失败 0 个套件"，**首轮"全绿"因此是假象**；⑥ **5173 预检形同虚设**（`portInUse` 用 HTTP `/json/version`，而 vite 不提供该端点；实测 vite 只绑 `[::1]`）→ 已改 TCP 双栈探测。**最终（第四轮，HEAD `80d9fe8`）：6 套 / 95 项全绿，db-real 18/18，全量约 8 分钟**——真机层至此有了可复现的全绿基线（详见 §2 P1-4 四轮小节）。
 > v1.1 的规模数字取自 PowerShell `Get-Content $f | .Count`。在本机（PS 5.1，ANSI 代码页 **gb2312**）上，对**无 BOM 的 UTF-8 源文件**该写法会按 GBK 解码并**吞掉换行**——`style.css` 报 5,410 而真实 5,668（少 4.5%），`main.ts` 报 2,503 而真实 2,897（少 13%）。丢失比例随文件 CJK 密度而变、**逐文件不同**，因此这批数字是"看起来合理但系统性偏低"的。
 > 连带被推翻的结论（详见 §1.2）：**「巨型文件趋势已逆转」「UI 六批顺带把逻辑拆去了域模块」不成立**——`git.ts` / `lsp/client.ts` / `env_cmds.rs` / `fs_cmds.rs` / `git_cmds.rs` 在 `44c85ea → HEAD` 之间**一行未变**，`main.ts` 是 **+58**（不是 −336）。
 > 本版全部行数改由 `tools/stats/repo-stats.mjs` 重取，并新增两个防复发机制：取数脚本固化为代码 + 预算门禁（`ci/budgets.toml` / `shell/scripts/budget-check.mjs`）。
@@ -470,7 +470,18 @@
 
 - **已修**：`copyBtn` 改为 `detail.locator('button:not(.db-cell-detail-close)')`；并保留 `btnCount === 2` 断言——数量再变会**断言失败**（可读），而不是 strict 模式抛错（中断）。
 - **教训（值得记）**：真机脚本**无法在本机验证选择器**（需真机 DOM），所以改选择器时要**逐字核对是否与 mock 层一致**——mock 层 `e2e/db/03-data.spec.ts` 用的正是 `.db-cell-detail-close`（作为 `detail.locator(...)` 的单类后代查询），照抄即可，不要自行拼类名。
-- 重跑：`powershell -File shell\e2e-real\run-real-all.ps1 -Only db-real`（约 3~4 分钟）。
+#### 第四轮（HEAD `80d9fe8`）—— ✅ **真机层首个全绿基线**
+
+| 套件 | 结果 | 用时 |
+|---|---|---|
+| **db-real** | ✅ **18/18 PASS** | 64s |
+| new-project-fastapi-real | ✅ 4/4 PASS | 206s |
+| debug-real · endpoints-real · multi-window-real · ui-real | ✅ 14/14 · 4/4 · 16/16 · 39/39（首轮） | ≈3 min |
+
+- **合计 6 套 / 95 项全绿**（`probe-*` 三支默认 `-Skip`），全量约 **8 分钟**——真机层从"配置齐备但零跑通证据"变成"**有全绿基线、失败能自解释**"。
+- **修复链条（四轮，同一根因族）**：① 起不来也不知道（干等 1500s）→ 加看门狗；② db-real 不可复现（脚本未入库 + `spawnSync` EBUSY）→ 内联 + 异步；③ 两个自实现套件不落 JSON + **中断被当成功（假绿）** + 5173 预检失效 → 补齐 + TCP 双栈；④ D-6 回归（宽选择器 strict 冲突）→ 精确化；⑤ 我自己的选择器嵌套写错 → 修正。
+- **共同根因**：这些缺陷全部**因"真机层长期没人跑"而累积**——脚本存在 ≠ 覆盖存在。`nightly.yml` 里那 9 套编排至今**零 CI 执行**（无 GitHub 宿主），本机也从未全量跑过；本轮是它**第一次真正通电**。
+- **仍未接线**：`probe-real-lag` / `probe-mw-lag` 两个自实现脚本的启动看门狗（默认 Skip，下轮统一）。
 
 ### P1-5 · 偿还 TD-021 五小项
 
