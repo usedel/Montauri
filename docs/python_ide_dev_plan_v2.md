@@ -121,7 +121,7 @@ open-charm/
 
 ## 7. Phase 4 · 打磨期（第 41 周起，持续）
 
-> 进度（**2026-10-03 回填**，上一版 2026-08-24）：Phase 3（opencharm-intel）P3-T01~T09 已交付，仅剩 **P3-T10 的两格 PENDING**——「≥ PyCharm 同场景人工横向对标」+「真实项目 trace 端到端」（确定性口径已 PASS：`bench/reports/gate-d-runtime-completion.md` 23/23 = 100%，红线 ≥85%）。项目已实际进入本阶段。
+> 进度（**2026-10-07 回填**，上一版 2026-10-03）：Phase 3（opencharm-intel）P3-T01~T09 已交付；**P3-T10 的两格 PENDING 已全部关闭**（2026-10-07）——①「≥ PyCharm 同场景人工横向对标」❌ **按二选一截止规则撤下**（本机无 PyCharm，roadmap v1.4 死线到期），README「已知边界」已定稿声明「未与 PyCharm 做过横向对比」，工作单 `bench/reports/gate-d-ab-worklist.md` 转存档；②「真实项目 trace 端到端」✅ **已采并收口**（跨 3 个真实项目 / 7 次运行 / **497 条函数观测**，未达「≥1000 条」门槛 → 改为日常 IDE 使用自然累积，真源 `bench/reports/trace-sample-threshold.md`）。确定性口径已 PASS：`bench/reports/gate-d-runtime-completion.md` 23/23 = 100%，红线 ≥85%。项目已实际进入本阶段。
 > **逐功能域的交付日期 · 计划真源 · 验收记录 · 状态，见 [`docs/delivery-overview.md`](delivery-overview.md)（20 个功能域总表）**；本表只保留打磨期任务与后续功能域的粗粒度状态。全局改进优先级见 `docs/improvement_and_roadmap_report.md` v1.2。
 
 | 任务 | 说明 | 状态 |
@@ -132,7 +132,7 @@ open-charm/
 | 打包发布 + 首次启动环境引导 | 自研组件（`opencharm-intel`、`probe/src`）随 NSIS 安装包分发（`bundle.resources`，运行时按 `locate_*` 查找资源目录）；外部命令（uv/pyrefly/ruff/git）统一经 `shell/src-tauri/src/tool_paths.rs` 解析（环境变量 → `~/.opencharm/bin`/`~/.local/bin` → 系统 PATH）；全新系统缺 uv/pyrefly 时由 `toolchain.rs` 探测、前端弹「环境引导」一键安装到用户目录；`build-release.ps1` 一键打包（清理 → intel release 构建 → 前端依赖 → `tauri build` nsis） | ✅ 已交付（Phase 4 第 1~4 步） |
 | 调试评估 | debugpy DAP 集成是否立项（Phase 3 后裁决） | ✅ 已立项并交付最小闭环（`docs/python_debug_dev_plan.md` v1.3：debugpy 1.8.21 随包分发 + DAP 桥 + 断点/步进/调用栈/变量；验收记录 `docs/debug_acceptance_record.md`，人工验收清单待办） |
 | 运行交互重构 | 「两种运行 + 统一运行控制台」（`docs/python_run_dev_plan.md` v3.4：脚本/项目运行 + PTY 终端控制台 + 多实例并行 + 运行历史按实例归属；probe 运行路径开启并实测 1.35x < 1.5x） | ✅ 已交付（迁移计划 M1-M4 全部完成；验收记录 `docs/run_acceptance_record.md`） |
-| trace 新鲜度优化 | 基于真实使用数据调整降权/清理策略 | 🔄 **已取得首个实测依据**（2026-10-03）：`tools/intel/trace_stats.py`（只读分析器）已落地；本机此前无任何 `traces/*.db`，用 IDE 同款注入 env 跑真实代码产出 56 函数 / 177 观测；**stale 实验（改 1/2 文件后只跑另一半）测得 stale 占比 30.0%**；`completion.rs` 的 `f.hits / 2` 已提成具名常量 `STALE_HITS_DIVISOR`（值不变）+ 注释记录依据 + 新增单测钉住降权行为（33/33）。⏳ 系数最终值待真实项目 ≥1000 条观测后复核；人工对标工作单 `bench/reports/gate-d-ab-worklist.md` 已自动生成（OpenCharm 列已填好），⏳ 只差真人在 PyCharm 里勾 23 点 |
+| trace 新鲜度优化 | 基于真实使用数据调整降权/清理策略 | 🔄 **已取得首个实测依据**（2026-10-03）：`tools/intel/trace_stats.py`（只读分析器）已落地；本机此前无任何 `traces/*.db`，用 IDE 同款注入 env 跑真实代码产出 56 函数 / 177 观测；**stale 实验（改 1/2 文件后只跑另一半）测得 stale 占比 30.0%**；`completion.rs` 的 `f.hits / 2` 已提成具名常量 `STALE_HITS_DIVISOR`（值不变）+ 注释记录依据 + 新增单测钉住降权行为（33/33）。→ **2026-10-07 已跨 3 个真实项目累计 497 条函数观测**（742 B/条，stale 仍 0.0%，真源 `bench/reports/trace-stats-cumulative.md`）。⏳ 系数最终值待「≥1000 条函数观测」后复核（现 497/1000），已裁定**不再为凑数专门采样、改为日常 IDE 使用自然累积**（`bench/reports/trace-sample-threshold.md` §4）；**人工对标工作单 ❌ 已撤下**（本机无 PyCharm，roadmap P0-2 二选一截止到期；工作单保留归档，换对照组时须改写为"对 X"） |
 | 边角修复 | 产品负责人日常使用反馈驱动 | 🔄 持续中 |
 | 边角修复 · live template 上下文位置轴 | 模板上下文从「容器单轴」升级为「容器 × 位置 × 词法」三维（`docs/live_templates上下文轴修订稿.md` v1.1）；缺省位置 = statement+expression（排除 name），根治 `main` 撞函数名误触发 | ✅ 相位 A + 相位 B（PyCharm `<context>` 导入映射 + 管理面板适用环境多选）均已交付（2026-09-25，注记见修订稿 §8/§9） |
 | 库特别支持 | `re` 三件套 / 格式串 / JSON / 求值桥 / 脚本参数表单（`docs/python_library_support_dev_plan.md` v1.3） | ✅ 已交付（P0 四件套 + P1 五件套，2026-09-28） |

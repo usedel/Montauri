@@ -34,7 +34,7 @@
 > ⑨ **⚠ P0-1 的根子问题本轮被查出（本版最重要的一条）**：本仓远端**只有** `gitee.com/usedel/opencharm`，**Gitee 不执行 GitHub Actions**。即 `.github/workflows/ci.yml` 与 `nightly.yml` 这两份"已交付"的配置，**跑在一个没有宿主的仓库里**——v1.2 把"配置写好了"记成 ✅、v1.3 又把它降档为"零跑通证据"，其实都还没摸到根因：**连"能跑"的前提都不存在**。因此 v1.3 阶段一第 3 项写的收口动作"push 一次 master 看 Actions 是否真的触发"**在现宿主下永远得不到证据**。**已裁决（用户选「维持现状 + 文档标注」）**：`.github/workflows/` 定位为"将来推 GitHub 的预埋"，余项转为**外置触发条件**——迁移到 GitHub 后首次 push 的 Actions run 记录（**谁推谁验**）。**缺口 1 由此从"待办"降级为"待外部事件"，保持开启但不再消耗人力。**
 >
 >
-> ⑩ **P0-2 第一格改为「外部阻塞」（2026-10-06 用户确认）**：**本机已无 PyCharm**，23 点人工横向对标**暂时无法执行**——它不再是"等一个动作"，而是"等一个外部条件"。按本报告 §P0-4 确立的**二选一截止**规则给它设死线：**若到 v1.4 仍未拿到对标，就把它从 P0 撤下**，并在 README「已知边界」显式写明"**未与 PyCharm 做过横向对比**"。**在新证据出现之前，对外一律不得出现"比 PyCharm 更准"的表述**（与 `CONTENT-SERIES.md:192` 的写作纪律一致，可写的只有"在我们的样例集上 23/23"这种自证口径）。**至此，P0 里所有"能靠写代码解决"的项已全部关闭，剩下的都是外部条件。**
+> ⑩ **P0-2 第一格改为「外部阻塞」（2026-10-06 用户确认）**：**本机已无 PyCharm**，23 点人工横向对标**暂时无法执行**——它不再是"等一个动作"，而是"等一个外部条件"。按本报告 §P0-4 确立的**二选一截止**规则给它设死线：**若到 v1.4 仍未拿到对标，就把它从 P0 撤下**，并在 README「已知边界」显式写明"**未与 PyCharm 做过横向对比**"。**在新证据出现之前，对外一律不得出现"比 PyCharm 更准"的表述**（与 `CONTENT-SERIES.md:192` 的写作纪律一致，可写的只有"在我们的样例集上 23/23"这种自证口径）。**至此，P0 里所有"能靠写代码解决"的项已全部关闭，剩下的都是外部条件。** → ✅ **2026-10-07 该死线到期，第一格已按规则撤下**（见续记 ㉔）：README 已知边界改为定稿声明、`intel/README.md` 三处 ⏳ 关闭、工作单转存档。**P0 至此全部关闭**（P0-0/1/2/3/4 无一挂账）。
 > **v1.2 修订（2026-10-03，纠正 v1.1 的一处系统性取数错误）**：
 > ⑪ **阶段二开工（2026-10-06，用户选「main.ts 外提」）**：`main.ts` **2,919 → 2,312（第一刀，−601 行）→ 2,094（第二刀，−218 行）**，五块外提都是**纯位移**（函数体逐字未改，只改所在文件）。
 > **第一刀**：调试入口域 → `src/debugEntry.ts`（171）、菜单与命令面板数据源 → `src/menuItems.ts`（570，main 私有动作经 `setMenuItemsHandlers` 注入解环）。
@@ -121,6 +121,9 @@
 > - **③**：`epJumpCore.ts` 纯函数核（`buildHandlerIndex` / `findMatches`，NUL 分隔复合键）+ `epJump.ts` CodeLens provider——`def` 行上方「端点 N」lens（同 handler 多 route 合并计数），点击弹 content widget（`.oc-epj-popup`，行 = 方法徽章 + route + 定位 + 复制 URL），行点击激活端点面板并高亮该 route 条目（`ep-highlight` 1.2s 自消）。**实证调整 1（刷新机制）**：首次 provideCodeLenses 返回空、依赖「ensureIndex 完成 → notify → Monaco onDidChange 补刷新」实测 flaky（Monaco 的 onDidChange 补刷新在部分时序下不触发）——改为 `await ensureIndex()` 首扫完成才出 lens + codeVision 同款多路刷新触发器。**实证调整 2（弹层时序）**：showEpPopup 同步执行时直接注册 document mousedown 会被「打开弹层的同一次 mousedown」在冒泡阶段命中（事件派发到 document 时监听已注册）→ 弹层创建即关——改 `setTimeout(0)` 延后注册（queueMicrotask 在 Playwright 事件时序下仍会提前，实测不可靠）。**实证调整 3（跳转高亮）**：端点视图 onShow = 每次切 tab 都重扫，`setSidebarTab` 后同步遍历列表必然扑空（列表已被清空）——高亮改为「记 pending → renderEndpointPanel 重建完成后再应用」。**实证调整 4（e2e 点击）**：`.codelens-decoration` 是整行容器（Monaco 同行为多 provider 各渲染一个 `> a`），点击容器中心会落到引用 lens 弹出 cv 弹层——e2e 必须定位 `> a` 按文本过滤。
 > - **④**：Rust `openapi_cmds.rs::fetch_openapi`（命令面 **196 → 197/200**；错误形态 `HttpInvalidUrl:{detail}` / `HttpStatus:{code}` / `HttpParse:{detail}`，zh 界面原样返回）+ `openApiCore.ts`（`findScanMatch` path 全等 + method 交集 / `sortOps` 方法档位排序）+ `openApiPanel.ts` 懒加载展开块（`.ep-preview`，方法/路径/summary/tags 行，行点击匹配静态扫描结果跳源码；无 base 提示先运行）。**实证调整（测试）**：serde_json Map 默认 BTreeMap 字典序遍历，Rust 单测断言不得依赖数组顺序，改 `find_op` 按 (method, path) 显式查找。
 > - **验证**：cargo test 外壳新增 7 例 openapi 单测（其中 1 例断言改为按 (method, path) 显式查找，不依赖数组顺序）· vitest **1291**（新增 epJumpCore / openApiCore 纯函数单测）· tsc/build ✓ · budget **43 项全 PASS**（新增 6 项上限：epJump 380 / epJumpCore 110 / openApiPanel 220 / openApiCore 110 / endpointJump.css 175 / openapi_cmds.rs 320；**实证偏差**：epJump.ts 349/380、endpointJump.css 144/175，未触线）· e2e ux 域 **48/48**（新增 `e2e/ux/07-endpoint-lens-openapi.spec.ts` 4 例：EP-J1/J2/P1/P2）· audit_tokens 0 FAIL。附注：OpenAPI 预览需服务运行中（拉 /openapi.json），是「运行态联查」，静态扫描识别不到的端点照实不匹配（绝不臆测）。
+> **㉔ P0-2 第一格已按 v1.4 死线撤下（2026-10-07）——P0 至此全部关闭**。⑩ 设的二选一截止到期执行：本机无 PyCharm，23 点人工横向对标**从 P0 撤下，不再挂账**。三处落点：① **README「已知边界」**由"⏳ 阻塞中的待办"改为**定稿口径**——「**未与 PyCharm 做过横向对比**」是显式声明而非待办语气，并同步第二格最新数据（3 个真实项目 / **497 条函数观测** / 742 B 每条 + `trace-sample-threshold.md` 的收口处置）；② **`intel/README.md`** 三处 ⏳ 状态戳关闭——P3-T10 行改为「第一格 ❌ 撤下 / 第二格 ✅ 已采收口」，现状表「人工横向对标」→ ❌ 撤下（含复用条件与"结论须改写为对 X"的纪律）、「真实项目端到端」→ ✅ 3 项目 497 条；**「trace 库保留窗口」一行仍 ⏳，那是真待办**（代码里确实没有条数/体积上限，`probe clean --days N` 只删 runs 行），本轮只补上"建议 ≤11,309 条 / 8 MB，仍是建议值未落代码"；③ **`bench/reports/gate-d-ab-worklist.md`** 加撤下头注（OpenCharm 侧 23 点排名**保留归档**，将来换对照组可直接复用，但结论必须写成"对 X"，不得冒充原命题）。
+> 　**对外口径从此定稿**：可写的只有「在自有样例集上 23/23」这类**自证**表述，「比 PyCharm 更准」仍不可写（`CONTENT-SERIES.md:192` 同口径）。
+> 　**收口后的状态**：P0-0 / P0-1 / P0-2 / P0-3 / P0-4 **无一挂账**；§0 缺口 2 收敛为「有真实样本但样本量未达门槛」，且该门槛已裁定**改为日常 IDE 使用自然累积**（`bench/reports/trace-sample-threshold.md` §4）、不再消耗人力。**阶段一第 4 件至此关闭**（不是"做完了"，而是"按规则撤了"——这正是二选一截止规则要的效果：清单里不再有"永远挂着"的项）。
 > v1.1 的规模数字取自 PowerShell `Get-Content $f | .Count`。在本机（PS 5.1，ANSI 代码页 **gb2312**）上，对**无 BOM 的 UTF-8 源文件**该写法会按 GBK 解码并**吞掉换行**——`style.css` 报 5,410 而真实 5,668（少 4.5%），`main.ts` 报 2,503 而真实 2,897（少 13%）。丢失比例随文件 CJK 密度而变、**逐文件不同**，因此这批数字是"看起来合理但系统性偏低"的。
 > 连带被推翻的结论（详见 §1.2）：**「巨型文件趋势已逆转」「UI 六批顺带把逻辑拆去了域模块」不成立**——`git.ts` / `lsp/client.ts` / `env_cmds.rs` / `fs_cmds.rs` / `git_cmds.rs` 在 `44c85ea → HEAD` 之间**一行未变**，`main.ts` 是 **+58**（不是 −336）。
 > 本版全部行数改由 `tools/stats/repo-stats.mjs` 重取，并新增两个防复发机制：取数脚本固化为代码 + 预算门禁（`ci/budgets.toml` / `shell/scripts/budget-check.mjs`）。
@@ -144,7 +147,7 @@
 |---|---|---|---|
 | ~~**0**~~ | ~~**预算已破线，且性能红线至今无实测落盘**~~ ✅ **已关闭（2026-10-06 本轮）** | `style.css` 按主题拆出 `styles/http.css` / `styles/logView.css`，回到 **5,748 / 5,850**，预算十二项全 PASS；`budget-check.mjs` 加 dist 新鲜度 STALE 判定；性能基线首次落盘 `bench/reports/metrics-20261006-091652.md`（冷启动 956 ms / 内存 339 MB，双红线 PASS） | ~~唯一处于失败态的硬约束~~ **已消除**。遗留：CI 侧尚未跑过 budget/bench（→ 缺口 1） |
 | 1 | **门禁配置齐备，但零跑通证据——根因是 CI 没有宿主**（v1.2 记"待观察"，v1.3 记"零证据"，**2026-10-06 第二轮查出真根因**） | ✅ `ci.yml` push 分支已对齐 `[master, main]`、`audit_tokens.py` 已进 test job、**`budget-check.mjs` 已并入 test job（子项 5）**、`nightly.yml` 三 job 齐备、`OC_JSON_OUT` 汇总、`v*` tag 触发。✅ 性能基线已落盘 `bench/reports/metrics-20261006-091652.md`。⏳ **本仓远端只有 `gitee.com/usedel/opencharm`，Gitee 不执行 GitHub Actions** —— 两份 workflow 无论怎么改都不会跑，"push 一次 master 看 Actions 触发"这条收口动作**在现宿主下永远拿不到证据**。⏳ 「只告警不阻断」在新定位下论据过期，已进 TD-025 复审清单第 1 条 | 分歧台账 D-001/D-005/D-007 的根因都是**真机才暴露**的集成缺陷。护栏的硬件装好了，但**从没接上电源——连插座都不在这栋楼里**：v1.2 把"配置交付"记成"能力交付"，v1.3 降档为"零证据"，直到本轮才查到"没有宿主"。✅ **已裁决（2026-10-06）：维持现状 + 文档标注**——`.github/workflows/` 定位为"将来推 GitHub 的预埋"。**缺口 1 由此从"待办"降级为"待外部事件"（迁移到 GitHub 后首次 push 的 run 记录），保持开启但不再消耗人力** |
-| 2 | **差异化核心缺最后一格证据**（第一格仍零进展；**第二格 2026-10-06 取得真实项目样本**） | Gate D 确定性口径**已 PASS**（23/23 = 100%，红线 ≥85%）；① **PyCharm 人工横向 ⛔ 外部阻塞**（2026-10-06 用户确认：**本机已无 PyCharm**，工作单 23 行仍全 `☐`）——**死线：到 v1.4 仍未拿到则按 §P0-4 的二选一规则撤下该项**，并在 README 已知边界写明"未与 PyCharm 做过横向对比"；在此之前对外不得出现"比 PyCharm 更准"的表述；② ~~真实项目 trace 仅 56 条~~ → **已在 `metawake/backend`（73 py / 350 def）上跑通采集：277 条函数观测、覆盖率 79%、hits p50 2 vs p99 56、606 B/条**，但距 ≥1000 门槛仍差 3.6 倍且**单项目已近饱和**（→ 需跨项目累计）。→ **2026-10-07 已跨 3 个真实项目累计到 497 函数观测**（+`pylume/probe` 187 +`cb_watcher/backend` 33，7 次运行 / 742 B 每条；另见 §8 的两条新发现：hits 被静音截断在 200、stale 仍 0%），**项目数已达标，口径歧义待定**（函数观测 497/1000，类型观测合计 1032 已过）。`STALE_HITS_DIVISOR` 仍为 **2**（`completion.rs:32`） | 项目立身之本（运行时智能）现有"能用"的证据 + **首个真实分布**，但**还没有"比 PyCharm 更好"的横向证据**；降权参数仍是"建议值"而非落值 |
+| 2 | **差异化核心缺最后一格证据**（第一格仍零进展；**第二格 2026-10-06 取得真实项目样本**） | Gate D 确定性口径**已 PASS**（23/23 = 100%，红线 ≥85%）；① **PyCharm 人工横向 ❌ 已按死线撤下（2026-10-07，见续记 ㉔）**（本机已无 PyCharm，工作单 23 行仍全 `☐`）→ 二选一截止到期即撤项，**README 已知边界已写明"未与 PyCharm 做过横向对比"**（定稿口径，不再是待办语气）；工作单保留归档，将来换对照组须改写为"对 X"。**"比 PyCharm 更准"仍是不可写表述**（改为永久纪律，不再挂"在此之前"的期限）；② ~~真实项目 trace 仅 56 条~~ → **已在 `metawake/backend`（73 py / 350 def）上跑通采集：277 条函数观测、覆盖率 79%、hits p50 2 vs p99 56、606 B/条**，但距 ≥1000 门槛仍差 3.6 倍且**单项目已近饱和**（→ 需跨项目累计）。→ **2026-10-07 已跨 3 个真实项目累计到 497 函数观测**（+`pylume/probe` 187 +`cb_watcher/backend` 33，7 次运行 / 742 B 每条；另见 §8 的两条新发现：hits 被静音截断在 200、stale 仍 0%），**项目数已达标，口径歧义待定**（函数观测 497/1000，类型观测合计 1032 已过）。`STALE_HITS_DIVISOR` 仍为 **2**（`completion.rs:32`） | 项目立身之本（运行时智能）现有"能用"的证据 + **首个真实分布**，但**还没有"比 PyCharm 更好"的横向证据**；降权参数仍是"建议值"而非落值 |
 
 **v1.3 的自我校验位（务必先读这一条）**：v1.2 的结论是「**少做功能，多做证据；少堆清单，多守门禁**」。v1.2 入库之后的 19 个提交实际做了什么？**新功能 3 个（B4 / B5 / B6-3）**，而 `env_cmds.rs` 拆分 **0 行**（仍 4,937）、Gate D 两格人工 **0 格**、D-6/D-7/D-8 三个缺陷 **0 个被修**、CI/nightly **0 条跑通证据**、P1-1 可观测性 **0**。唯一践行新方向的是 **B6 主动终止**（取消 Mermaid，理由直接引 ADR-0010 体积条款）。**结论：报告本身没有被当作排期依据。** 因此 v1.3 不再新增候选条目，只做三件事——把「守门禁」落到**能在 CI 里红的那一项**（P0-0）、把 P0 项压到**一小时内能完成的粒度**、并把 §5 阶段一改成"只做 4 件小事"。
 
@@ -205,7 +208,7 @@
 | **HTTP 请求工具（B4）** | `devtools/builtin/http.ts` / `httpRequest.ts` + Rust `http_cmds.rs`（reqwest） | ✅ **v1.2 之后新交付**（2026-10-05，3 个 PR 闭环）。⚠ **形态与原候选不同**：原议是 `.http` 文件语言，落地改为 **devtools 面板驱动**（发送 / 响应 / 变量 / 历史 / curl 导入 / 端点联动）；原 `.http` 语言注册整块取消。真源 `docs/toolbox_dev_plan.md` §5.9–5.11（门禁 1145/1145 + e2e 12/12） |
 | **结构化运行日志（B5）** | `logView.ts` / `logStore.ts` / `logParse.ts` / `editorInsert.ts` | ✅ **v1.2 之后新交付**（底部「运行日志」tab：多播采集 + 级别过滤 + 字段折叠/导出）。真源 `docs/toolbox_dev_plan.md` §6.10–6.12（门禁 1208/1208 + e2e 9/9） |
 | **TODO 增强（B6-3）** | `todoView.ts` | ✅ 2026-10-04 交付（过滤 + 按文件分组 + 跳转 + 计数，19 例单测 + `e2e/todo/` 7 条）。**B6 整体已终止**——大纲与 Mermaid 取消（§7.7），状态"部分交付后终止" |
-| 运行时智能 | `probe/` + `intel/` | ✅ P3-T01~T09 交付 + **P3-T11（A3①+② 调用实参补全 / hover 观测签名）2026-10-06 交付**；**P3-T10 人工横向对标仍挂起**（P0-2，`intel/README.md` 三处仍 ⏳） |
+| 运行时智能 | `probe/` + `intel/` | ✅ P3-T01~T09 交付 + **P3-T11（A3①+② 调用实参补全 / hover 观测签名）2026-10-06 交付**；**P3-T10 两格已全部关闭**（2026-10-07，见续记 ㉔）：第一格 ❌ 按 v1.4 死线撤下（本机无 PyCharm）· 第二格 ✅ 已采并收口（3 真实项目 / 497 条函数观测；`intel/README.md` 三处 ⏳ 已同步关闭） |
 | 多窗口 | Rust `per_window.rs` / `window_mgr.rs` | ✅ 阶段 0/1/2 全部交付（`multi_window_dev_plan.md` v0.2；真机 `multi-window-real.cjs` 16/16 PASS）；#4~#6 依赖健康缓存经拍板暂缓 |
 
 ### 1.4 质量底座
@@ -305,11 +308,11 @@
   - **⚠ 门槛未达**：277 条距自定的 **≥1000 条**仍差 3.6 倍；且**单项目已近饱和**（79%），意味着"跑到 1000"必须**跨多个项目累计**。**建议把门槛口径改成「跨 ≥2~3 个真实项目累计 ≥1000 条」**，并明确：在此之前 `STALE_HITS_DIVISOR` 与保留窗口都只作"建议值"，不落代码。
 - **建议动作**：
   1. ~~人工对标工作单~~ ✅ **已自动生成** `bench/reports/gate-d-ab-worklist.md`：设 `OC_GATE_D_WORKLIST=<路径>` 后跑 `cargo test -p opencharm-intel -- --nocapture runtime_completion_accuracy` 即导出——**OpenCharm 侧 23 点的实际排名已由测试填好**，人只需在 PyCharm 同一样例上勾"是否在 top-5"。避免了让人重新拼 23 个光标位置（既慢又必然与 cases 数组漂移）。
-     **⛔ 2026-10-06 状态变更：外部阻塞**——**本机已无 PyCharm**，该动作暂时无法执行。三个出口（请择一，不要让它继续"挂着不动"）：① **装 PyCharm Community（免费）后再做**（约 0.5h 安装 + 1h 勾点）；② **换成能做得到的对照组**（如 VS Code + Pylance），但**对标结论必须改写为"对 X"而非"对 PyCharm"**，不能拿它冒充原命题；③ **撤下**——按本报告 §P0-4 的二选一规则，若 **v1.4 仍无对标**就默认走这条，同时在 README「已知边界」写明"未与 PyCharm 做过横向对比"。**无论哪条，在新证据出现前"比 PyCharm 更准"都是不可写的表述**（口径纪律见 `CONTENT-SERIES.md:192`）；
+     **⛔ 2026-10-06 状态变更：外部阻塞**——**本机已无 PyCharm**，该动作暂时无法执行。三个出口（请择一，不要让它继续"挂着不动"）：① **装 PyCharm Community（免费）后再做**（约 0.5h 安装 + 1h 勾点）；② **换成能做得到的对照组**（如 VS Code + Pylance），但**对标结论必须改写为"对 X"而非"对 PyCharm"**，不能拿它冒充原命题；③ **撤下**——按本报告 §P0-4 的二选一规则，若 **v1.4 仍无对标**就默认走这条，同时在 README「已知边界」写明"未与 PyCharm 做过横向对比"。**无论哪条，在新证据出现前"比 PyCharm 更准"都是不可写的表述**（口径纪律见 `CONTENT-SERIES.md:192`）。**→ ✅ 出口 ③ 已于 2026-10-07 执行**（v1.4 死线到期，见续记 ㉔）：README 已知边界改为定稿声明、`intel/README.md` 三处 ⏳ 关闭、`gate-d-ab-worklist.md` 加撤下头注；
   2. ~~在**一个真实项目**上跑 probe 采集~~ ✅ **已完成一次**（`metawake/backend`：277 条 / 覆盖率 79% / hits p50 2 vs p99 56 / 606 B 每条）；**✅ 累计已完成并收口（2026-10-07）**：再采了 **`pylume/probe`（187）** 与 **`cb_watcher/backend`（33）** → 合计 **3 项目 / 7 次运行 / 497 函数观测**（742 B 每条）。**门槛口径已定死为函数观测 → 497/1000 未达**，但**项目数已达标**；本机采样源经两轮扫描确认触顶（`D:\PycharmProjects` 8 个项目无一可用），故**停止专门采样，改为日常 IDE 使用自然累积**。详见 `bench/reports/trace-sample-threshold.md`；
   3. 结论回写 `intel/README.md` 与 `dev_plan_v2` §7，把 ⚠️/PENDING 改成 ✅ 或明确记 ❌。
 - **成本**：第二格已花约 **0.3 人日**（含装隔离依赖、跑两遍、清理）；第一格 **0.5~1.5 人日但受外部条件阻塞**（需先有 PyCharm）；第二格收尾（再采 1~2 个项目）约 **0.3 人日/项目**。v1.0 估 3~5 人日。
-- **验收**：`gate-d-ab.md`（= 工作单填完 PyCharm 列，**⛔ 当前不可执行**）+ 降权参数在**跨项目 ≥1000 条函数观测**上复核（**现 497，未达 → `STALE_HITS_DIVISOR` 维持 2，且 stale 真实证据仍为 0**；收口口径与复核触发条件见 `bench/reports/trace-sample-threshold.md`）+ 三处文档状态一致。**第一格的替代验收（若走"撤下"）**：README 已知边界出现"未与 PyCharm 做过横向对比"的显式声明。
+- **验收**：`gate-d-ab.md`（= 工作单填完 PyCharm 列，**⛔ 当前不可执行**）+ 降权参数在**跨项目 ≥1000 条函数观测**上复核（**现 497，未达 → `STALE_HITS_DIVISOR` 维持 2，且 stale 真实证据仍为 0**；收口口径与复核触发条件见 `bench/reports/trace-sample-threshold.md`）+ 三处文档状态一致。**第一格的替代验收（若走"撤下"）**：~~README 已知边界出现"未与 PyCharm 做过横向对比"的显式声明~~ ✅ **已完成（2026-10-07，见续记 ㉔）**——README「已知边界」改为定稿口径（`未与 PyCharm 做过横向对比`），`intel/README.md` 三处 ⏳ 同步关闭，工作单转存档。
 - **可复现命令**（下次采另一个项目时照抄，改三处路径即可）：`uv pip install --target D:\tmp\oc-pytest pytest httpx --python 3.13` → 在**项目根**放一个只做 `pytest.main([...])` 的 runner → `PYTHONPATH="D:\tmp\oc-pytest;<repo>\probe\src;<项目根>" OPENCHARM_PROBE_AUTOSTART=1 OPENCHARM_PROBE_SCRIPT=<runner 绝对路径> OPENCHARM_PROBE_HOME=D:\tmp\oc-trace-home <项目 venv python> <runner>` → `python tools/intel/trace_stats.py <db> --out bench/reports/trace-stats.md`。**两个纪律**：① runner 必须放在项目根（`project_root` 由脚本所在目录决定，放错目录就只采到那个子目录）；② 用隔离的 `OPENCHARM_PROBE_HOME`，别污染 IDE 的真实数据根。
 
 ### P0-3 · 收口人工验收清单 + 修 onboarding 双源冲突
@@ -493,7 +496,7 @@ A 类全部复用已有的 probe trace 数据或外壳基建，**别人抄不走
 | **P0-1 子项 7：裁决 CI 落点**（Gitee 不跑 Actions，护栏无宿主） | ★★★★★ | 0.1~1d（视落点） | **需产品负责人裁决**：GitHub 镜像 / Gitee Go / 不在本仓跑 | ★★★★★（**缺口 1 的唯一未决项**） |
 | 　其中：子项 5 预算门禁并入 `ci.yml`（✅ 已完成）+ 子项 6 性能基线（✅ 已落盘） | ★★★★★ | 极小 | — | ✅ **已关闭** |
 | ~~**P0-3 D-6/D-7/D-8**~~ | ★★★★ | 0.5d | — | ✅ **全部关闭**（D-7 真机 14/14 · D-6 e2e 回归钉 · D-8 单测钉） |
-| P0-2 Gate D + trace 调参 | ★★★★★ | 中（载体与工具已就绪） | 第二格 ✅ 已采（真实项目 277 条）；**第一格 ⛔ 外部阻塞（本机无 PyCharm）** | ★★★★ · **第一格设死线：v1.4 仍无 → 撤下并改在 README 声明"未做横向对比"** |
+| ~~P0-2 Gate D + trace 调参~~ ❌ **第一格已撤下 / 第二格已收口（2026-10-07，见续记 ㉔）** | ★★★★★ | 中（载体与工具已就绪） | 第二格 ✅ 已采并收口（3 真实项目 / 497 条函数观测，未达 ≥1000 门槛 → 改日常累积）；**第一格 ❌ 已按 v1.4 死线撤下**（本机无 PyCharm） | ✅ **已关闭**：README 已知边界定稿声明 `未与 PyCharm 做过横向对比`；`intel/README.md` 三处 ⏳ 关闭；工作单转存档（换对照组时须改写为"对 X"） |
 | ~~P0-4 `env_cmds.rs` 二选一裁决~~ | ★★★★ | ~~中~~ 0.1d（本轮） | — | ✅ **已裁决（折中：冻结线 + 上限改长期 + 拆分降级为阶段二候选）**；`main.ts` 外提仍是硬需求（余量 81 行） |
 | 　P0-1 子项 7 CI 落点裁决 | ★★★★★ | 0（本轮只做标注） | — | ✅ **已裁决（维持现状）**：`.github/workflows/` 定位为"将来推 GitHub 的预埋"，P0-1 余项转为"迁移后首次触发验证" |
 | **`main.ts` 外提（阶段二）** | ★★★★ | 1d | — | ✅ **两刀已完成**：2,919 → **2,099**（两刀 −825 行，A1 接线 +5）；第一刀 `debugEntry.ts` / `menuItems.ts`，第二刀 `init()` 阶段化 `windowKeys.ts` / `windowChrome.ts` / `sidebarViews.ts`；阈值 3,000 → 2,600 → **2,400** |
@@ -539,15 +542,15 @@ A 类全部复用已有的 probe trace 数据或外壳基建，**别人抄不走
 | 1 | 修 **D-7**：`main.ts::buildRunMenuItems` 改为复用 `computeRunWidget(s).runScript.disabled`（真源 `runFlow.ts:302`） | ✅ **已完成 + 真机复核 14/14** | 调试进行中，运行脚本菜单项与按钮一致置灰（已由 `R-REAL-10` + 正对照 `R-REAL-13` 证明） |
 | 2 | ~~**P0-0**：`style.css` 拆出 B4/B5 样式分文件~~ | ✅ **已完成**（5,987 → 5,748 + 两个分文件；预算十二项全绿；audit_tokens 加 @import 解析） | 十二项全绿 |
 | 3 | **P0-1**：~~跑一次 `collect-metrics.ps1`~~ ✅ 已完成（956ms / 339MB）；~~push 一次 master 看 Actions 触发~~ → ⛔ **作废**（本仓远端只有 Gitee，Actions 不会被调度）；✅ **CI 落点已裁决为「维持现状 + 文档标注」**（`.github/workflows/` = 将来推 GitHub 的预埋）；✅ 顺带完成子项 5：预算门禁并入 `ci.yml` | ✅ 已裁决（0 额外成本） | ⏳ **外置**：迁移到 GitHub 后首次 push 的 Actions run 记录（**触发条件外置，谁推谁验**；在此之前缺口 1 保持开启但不消耗人力） |
-| 4 | **P0-2 第一格**：在 PyCharm 里按 `gate-d-ab-worklist.md` 勾 23 点 → 产出 `gate-d-ab.md` | ~1 小时（**⛔ 外部阻塞：本机已无 PyCharm**） | 工作单 PyCharm 列填满；`intel/README.md:47` 状态改为 ✅ 或 ❌。**死线：v1.4 前仍未拿到 → 按二选一规则撤下，并改在 README 已知边界声明"未做横向对比"** |
+| 4 | ~~**P0-2 第一格**：在 PyCharm 里按 `gate-d-ab-worklist.md` 勾 23 点 → 产出 `gate-d-ab.md`~~ | ~~1 小时~~（**⛔ 外部阻塞：本机已无 PyCharm** → **❌ 2026-10-07 按死线撤下**，见续记 ㉔） | ~~工作单 PyCharm 列填满~~ → **替代关闭条件已达成**：`intel/README.md:47` 状态改为 ❌（撤下）+ README 已知边界出现定稿声明"未与 PyCharm 做过横向对比" + 工作单加撤下头注 |
 | — | ✅ **附带已完成**：`budget-check.mjs` 加 dist 新鲜度校验（STALE 判定），消除产物体积的假警报 | ✅ 已完成 | 陈旧 dist 报 STALE 而非虚高数字 |
 | — | ✅ **附带已完成**：**P0-2 第二格**——真实项目 trace 采集跑通（`metawake/backend`：277 条 / 覆盖率 79% / 606 B 每条） | ✅ 已完成（约 0.3 人日） | `bench/reports/trace-stats.md` 换成真实项目样本；保留窗口建议 8,192 → 13,836 条；`STALE_HITS_DIVISOR` 维持 2（样本未达 1000） |
 | — | ⏳ **附带待办**：再采 1~2 个真实项目，把跨项目样本累计到 **≥1000 条**后复核降权参数 | ~0.3 人日/项目 | 累计 ≥1000 条；在此之前降权系数只作"建议值" |
 
-**阶段门**：~~`budget-check.mjs` 十项全绿~~ ✅（**当前三十一项全绿，且已并入 `ci.yml` 主门禁**）· ~~`bench/reports/metrics-*.md` 存在~~ ✅ · ~~D-7 已修并复核~~ ✅（D-6 / D-8 亦已修）· ~~CI 落点裁决~~ ✅ **已裁决（维持现状 + 文档标注）** · ~~P0-2 第一格~~ ⛔ **外部阻塞（本机无 PyCharm，2026-10-06 确认）** · ~~P0-2 第二格~~ ✅ 真实项目样本已取得（277 条 / 覆盖率 79%）。
+**阶段门**：~~`budget-check.mjs` 十项全绿~~ ✅（**当前三十一项全绿，且已并入 `ci.yml` 主门禁**）· ~~`bench/reports/metrics-*.md` 存在~~ ✅ · ~~D-7 已修并复核~~ ✅（D-6 / D-8 亦已修）· ~~CI 落点裁决~~ ✅ **已裁决（维持现状 + 文档标注）** · ~~P0-2 第一格~~ ❌ **已按 v1.4 死线撤下（2026-10-07，见续记 ㉔；本机无 PyCharm）** · ~~P0-2 第二格~~ ✅ 真实项目样本已取得并收口（3 项目 / **497 条函数观测** / 门槛口径见 `trace-sample-threshold.md`）。
 **§0 缺口 0 已关闭；缺口 1 降级为"待外部事件"（推 GitHub 时验）；缺口 2 从"零数据"变为"有真实样本但样本量不足 + 第一格外部阻塞"。**
-**✅ 阶段一判定：4 件小事中 3 件已完、第 2 格附带完成，第 4 件因外部条件阻塞（不是"没人做"）。→ 阶段一可以收口，阶段二可以开工。**
-**⚠ 进入阶段二前必须先记住的一条口径**：在横向对标落地之前，**对外叙事里"比 PyCharm 更准"是不可写的**（`CONTENT-SERIES.md:192`），可写的只有"在我们的样例集上 23/23"这类**自证**口径。
+**✅ 阶段一判定（2026-10-07 更新）：4 件小事全部关闭**——3 件做完、第 2 件（第二格）附带完成并收口、**第 4 件（第一格）按二选一截止规则撤下**（不是"没人做"，也不是"还在等"，而是规则执行完毕）。→ 阶段一**完全收口**，阶段二可开工（实际已收口，见 ⑳终）。**校验意义**：这份清单里从此没有"永远挂着"的项——这正是 §P0-4 那条二选一截止规则要的效果。
+**⚠ 进入阶段二前必须先记住的一条口径（2026-10-07 更新为永久纪律：横向对标已撤下，不再是"暂时"）**：**对外叙事里"比 PyCharm 更准"是不可写的**（`CONTENT-SERIES.md:192`），可写的只有"在我们的样例集上 23/23"这类**自证**口径。
 
 ### 阶段二 · 深化期（约 6~10 周，2 条泳道）
 
@@ -622,7 +625,7 @@ A 类全部复用已有的 probe trace 数据或外壳基建，**别人抄不走
 
 ## 8. 待补充 / 本报告未覆盖
 
-- ⏳ **probe/intel 的实际运行数据**——`tools/intel/trace_stats.py` 已落地。首个样本（2026-10-03，合成/单文件）56 函数 / 177 观测；**2026-10-06 第二轮取得真实项目样本**：`metawake/backend` 跑其 13 条测试 → **277 函数观测 / 176 参数类型 / 277 返回类型 / 7 异常 / 164 KB**，**覆盖率 79%（277/350 def）**，hits 均值 4.3 / p50 2 / p99 56 / max 60，**606 B/条**（据此把保留窗口建议从 8,192 改为 13,836 条）。**⚠ 仍 ⏳ 的理由变了**：不再是"没有真实数据"，而是"**真实数据已有但样本量不足**"——277 条距 ≥1000 差 3.6 倍，且单项目已近饱和，须**跨 ≥2~3 个真实项目累计**。`STALE_HITS_DIVISOR` 仍为 2，`intel/README.md` 三处状态戳仍 ⏳。**降权系数是"有两个真实/合成样本支撑的建议值"，不是"已定"。**
+- ⏳ **probe/intel 的实际运行数据**——`tools/intel/trace_stats.py` 已落地。首个样本（2026-10-03，合成/单文件）56 函数 / 177 观测；**2026-10-06 第二轮取得真实项目样本**：`metawake/backend` 跑其 13 条测试 → **277 函数观测 / 176 参数类型 / 277 返回类型 / 7 异常 / 164 KB**，**覆盖率 79%（277/350 def）**，hits 均值 4.3 / p50 2 / p99 56 / max 60，**606 B/条**（据此把保留窗口建议从 8,192 改为 13,836 条）。**⚠ 仍 ⏳ 的理由变了**：不再是"没有真实数据"，而是"**真实数据已有但样本量不足**"——277 条距 ≥1000 差 3.6 倍，且单项目已近饱和，须**跨 ≥2~3 个真实项目累计**。`STALE_HITS_DIVISOR` 仍为 2；~~`intel/README.md` 三处状态戳仍 ⏳~~ ✅ **2026-10-07 已全部关闭**（第一格 ❌ 按死线撤下 / 第二格 ✅ 已采并收口，见续记 ㉔）。**降权系数是"有两个真实/合成样本支撑的建议值"，不是"已定"。**
 　**✅ 2026-10-07 已跨 3 个真实项目累计（`bench/reports/trace-stats-cumulative.md`）：3 库 / 7 次运行 / 497 函数观测 / 360 KB，742 B 每条，hits 均值 6.9 / p50 2 / p90 14 / p99 121 / max 200，stale 仍 0.0%。** 新增两个项目：`pylume/probe`（跑其 81 条 pytest → **187 函数 / 500 类型观测**）与 `cb_watcher/backend`（跑 `cb check` + `stats` + `calc-clause` 三条离线命令 → 33 函数）。**⚠ 由此带出两个新发现**：① **hits max 恒为 200——被 `max_calls_per_func` 静音截断**，即热点榜与 Profiler 的 Top-N **到 200 就分不出高下**（与 Gate C 归因里的"静音节流"是同一根因的第二后果）；② **stale 在 3 个项目 / 7 次运行里仍是 0%**，因为采样期间从未编辑过文件——降权参数的真实证据仍只有 2026-10-03 那次合成实验（30%）。**✅ 门槛口径已定死并收口（2026-10-07，`bench/reports/trace-sample-threshold.md`）**：「≥1000 条」= **函数观测**（与 `trace_stats` 的每条字节、降权系数、stale 判定同为函数级口径；类型观测按 (fid, 参数位, 类型标签) 去重且受 `max_type_obs_per_site` 饱和上限约束，用它计数会把"一个函数反复调用"误算成样本充分）。→ **函数观测 497/1000 = 49.7%，未达**；**项目数 3 个已达标**。处置：**不再为凑数专门采样**（本机采样源已确认触顶：`D:\PycharmProjects` 8 个项目无一可用——可离线的 3 个 venv 全指向已删除的 `D:\Python38`（3.8），其余全为联网爬虫类），改为**日常 IDE 使用自然累积**（`run_env.rs` 自动注入）。⚠ 由此另立一项议题：**hits 上限恒为 200**（静音同时停掉 hits），热点榜与 Profiler Top-N 到 200 就分不出高下。
 - ✅ **已补**（2026-10-03）：`shell/e2e-real/` 真机状态——`db-real.cjs` **按 v1.4 契约整体重写并实测 18/18 PASS**（旧 S10.x 侧栏态用例引用的 id 已被 v1.4 重设计整体移除，旧脚本在 v1.4 下根本跑不过，这是"真机待办"长期挂起的隐藏副作用）；`debug-real.cjs` **扩到 12/12 PASS**（新增 R-REAL-9/10 三态互斥、R-REAL-11/12 改键生效）。详见 `sqlite_tool_dev_plan.md` §17.8 与 `debug_acceptance_record.md` §五。
 - ✅ **已补**（2026-10-03）：**真安装包验收（调试 §五 第 8 项）** —— 阻塞已解决（VS Build Tools 2022 + `tools/msvc-env.ps1` 进程级环境装配），打出安装包 8.63 MB 并安装至 `D:\OpenCharm`，四项自研组件随包落地；`e2e-real/release-real.cjs` 对**安装后的程序**实测 **7/7 PASS**（含 debugpy 随包可用、运行脚本真实输出）。详见 `debug_acceptance_record.md` §5.1 与 `bench/reports/release-build-blocker.md`。
@@ -676,7 +679,7 @@ A 类全部复用已有的 probe trace 数据或外壳基建，**别人抄不走
 |---|---|---|
 | P0-4 `env_cmds.rs` 拆分 | ❌ 0 | 4,937 行未变（**该窗口内**） |
 | P0-4 二选一裁决（v1.3 第二轮补做） | ✅ 1 | 2026-10-06 裁决为**折中**：冻结线写进 `env_cmds.rs` 文件头、`budgets.toml` 上限改长期值、拆分降级为阶段二候选（不设死线） |
-| P0-2 Gate D 两格人工 | ⚠ 半格（第一格 ⛔ / 第二格 ✅） | 第一格：工作单 23 行仍全 `☐`，**⛔ 2026-10-06 确认为外部阻塞（本机无 PyCharm）**；**第二格：`trace-stats.md` 已换成真实项目样本 277 条（覆盖率 79%，606 B/条）**；`STALE_HITS_DIVISOR` 仍 2（样本未达 1000，不改） |
+| P0-2 Gate D 两格人工 | ⚠→✅ 两格均已关闭（第一格 ❌ 撤下 / 第二格 ✅ 收口） | **第一格：2026-10-07 按 v1.4 死线撤下**（工作单 23 行仍全 `☐`，本机无 PyCharm）→ README 已知边界定稿声明 + `intel/README.md` 三处 ⏳ 关闭 + 工作单转存档（见续记 ㉔）；**第二格：`trace-stats-cumulative.md` 跨 3 个真实项目 497 条函数观测（742 B/条）**，门槛未达但已裁定改日常累积；`STALE_HITS_DIVISOR` 仍 2（样本未达 1000，不改） |
 | P0-3 修 D-6 / D-7 / D-8 | ✅ 3/3 | **D-7 真机复核通过**（14/14）· **D-6** × + Esc 双通道（e2e/db 30/30 含回归钉）· **D-8** `refreshToolbarTips()`（单测钉住可逆） |
 | P0-0 产物体积口径 + 预算回绿 | ✅ 2 | dist 新鲜度 STALE 判定；style.css 按主题拆分（5,987 → 5,748）+ audit_tokens 加 @import 解析 |
 | P0-1 性能基线 | ✅ 1（本版新增后即补） | `bench/reports/metrics-20261006-091652.md` 首个基线（冷启动 956ms / 内存 339MB）；CI 触发验证仍缺 |
@@ -706,8 +709,8 @@ A 类全部复用已有的 probe trace 数据或外壳基建，**别人抄不走
 | `docs/adr/0009-lsp-result-merge-sorttext.md` | 补全合并策略：固定段位 + `⟳ runtime` 标注 + 运行时优先（补记，段位表述真源） |
 | `docs/sqlite_tool_dev_plan.md` v1.5 | B3 唯一真源（§17 交互方案 / §9 逐 PR 实施记录 / §10.3 v1.0 侧栏态真机 13/13 / §17.7 v1.4 真机待办） |
 | `bench/reports/gate-d-runtime-completion.md` | Gate D 确定性口径 base 数值（23/23）与两格 PENDING 的定义 |
-| `bench/reports/gate-d-ab-worklist.md` | P0-2 第一格的载体（OpenCharm 列已自动填好，**PyCharm 列 23 行仍全为 `☐`**） |
-| `bench/reports/trace-stats.md` | P0-2 第二格的**当前样本**（2026-10-06 重取：真实项目 `metawake/backend`，1 库 / 3 次运行 / **277 条函数观测**，覆盖率 79%；门槛为**跨项目累计 ≥1000**） |
+| `bench/reports/gate-d-ab-worklist.md` | ~~P0-2 第一格的载体~~ ❌ **已撤下转存档（2026-10-07，见续记 ㉔）**（OpenCharm 列已填好，PyCharm 列 23 行仍全为 `☐`；将来换对照组可复用，但结论须改写为"对 X"） |
+| `bench/reports/trace-stats-cumulative.md` | P0-2 第二格的**当前样本**（2026-10-07：跨 3 个真实项目 / 7 次运行 / **497 条函数观测**，742 B/条；门槛为**跨 ≥2~3 个项目累计 ≥1000 条函数观测**）。门槛口径与收口处置见 `trace-sample-threshold.md` |
 | `docs/tech-debt.md` | 债务明细：**待处理 4 条** TD-021 / TD-022 / TD-024 / **TD-025**（「自用」论据失效复审清单，6 条） |
 | `docs/e2e_divergence_ledger.md` | P0-1 的论据（真机才暴露的缺陷） |
 | `docs/onboarding_dev_plan.md` / `docs/onboarding_guide.md` | P0-3 方案来源与**双源冲突实例** |
@@ -716,7 +719,7 @@ A 类全部复用已有的 probe trace 数据或外壳基建，**别人抄不走
 | `docs/pycharm_ux_review_and_proposal.md:393` | B1 的现行裁决（F-1 维持非目标，2026-09-25） |
 | `docs/python_library_support_research.md` §8 | B1 复议时的边界依据（不做测试发现/结果树） |
 | `docs/plugin_system_design.md` §10 | P1-6 / D 类的待决策点 |
-| `intel/README.md:47` / `:58` / `:59` | P0-2 的挂起项（P3-T10）——**三处状态戳仍均为 ⏳** |
+| `intel/README.md:47` / `:60` / `:61` | ~~P0-2 的挂起项（P3-T10）——三处状态戳仍均为 ⏳~~ ✅ **2026-10-07 全部关闭**（第一格 ❌ 撤下 / 第二格 ✅ 已采收口 / 保留窗口补"建议值未落代码"），见续记 ㉔ |
 | `docs/debug_acceptance_record.md` §五 / `docs/run_acceptance_record.md` §四 | P0-3 的人工验收清单 |
 | `ci/budgets.toml` + `shell/scripts/budget-check.mjs` | P0-0 的预算真源与断言脚本（**当前三十一项全 PASS**；已并入 `ci.yml` test job） |
 | `.github/workflows/ci.yml` / `nightly.yml` | P0-1 的配置证据（分支已对齐 `[master, main]`、`audit_tokens.py` 与 `budget-check.mjs` 均在 test job、nightly 三 job）——**⚠ 无宿主**：本仓远端只有 Gitee，Actions 不执行（详见 §9 取数禁则 5） |

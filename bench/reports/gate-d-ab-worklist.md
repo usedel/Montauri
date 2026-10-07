@@ -1,5 +1,10 @@
 # Gate D 人工对标工作单（PyCharm 同场景）
 
+> **⛔ 状态：已撤下（2026-10-07），本表转为存档，不再是 P0 待办。**
+> 撤项依据：本机无 PyCharm，`docs/improvement_and_roadmap_report.md` §2 P0-2 的二选一截止规则（到 v1.4 仍未取得对标即撤下）到期执行；README「已知边界」已显式声明「未与 PyCharm 做过横向对比」。
+> **复用条件**：将来若换成可执行的对照组（如 VS Code + Pylance），本表 OpenCharm 侧 23 点排名可直接复用，但**结论口径必须改写为"对 X"**，不得用它冒充"对 PyCharm"的原命题。
+> **纪律**：在新证据出现前，「比 PyCharm 更准」是不可写表述，可写的只有"在自有样例集上 23/23"这类自证口径。
+>
 > 由 `cargo test -p opencharm-intel -- --nocapture runtime_completion_accuracy` 自动导出（设 `OC_GATE_D_WORKLIST=<路径>`）。
 > **OpenCharm 两列已由测试填好**，人只需在 PyCharm 打开 `bench/sample/unannotated_scraper/` 同一样例、
 > 在下表「光标位置」处触发补全，勾选期望 label 是否出现在 **top-5**。
