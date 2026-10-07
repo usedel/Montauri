@@ -9,6 +9,10 @@
 #hp-summary { font-size: var(--text-sm); color: var(--fg-dim); margin-right: auto; }
 #hp-results { overflow-y: auto; flex: 1; }
 
+/* 排序切换栏（A2 耗时视角）：默认隐藏，有 perf 样本时由 updateSortBar 显式显示 */
+#hp-sort { display: flex; align-items: center; gap: var(--space-1); flex: none; }
+#hp-sort .btn { font-size: var(--text-xs); padding: var(--space-1) var(--space-2); }
+
 /* 元信息行（运行次数 / 末次运行 / 截断提示） */
 .hp-meta { padding: var(--space-1) var(--space-3); font-size: var(--text-xs); color: var(--fg-dim); }
 

@@ -1,13 +1,8 @@
-// 运行时热点视图（A1 · `docs/improvement_and_roadmap_report.md` §3「A 类 · 深化差异化」）。
-//
-// 数据来自 Rust 侧 `intel_cmds::scan_runtime_hotspots`（读 probe trace 库 + 扫项目 `def`
-// 定义做差集），本模块只负责渲染与动作（照 endpointView.ts 先例）：
-// - 上半「已观测」：真实跑过的函数，按调用次数（hits）降序，带 stale / 异常徽章；
-// - 下半「未观测到运行」：项目里定义了但 trace 库没有的函数。
-//
-// **口径纪律**：下半区语义是「未观测到运行」，**不是**「死代码」——可能的正常原因包括
-// 未被测试/入口覆盖、条件分支未走到、采样遗漏、进程外调用。UI 文案与提示均按此措辞
-// （`hotspots.unobservedHint`），不得改写为"死代码"断言。
+// 运行时热点视图（A1 · docs/improvement_and_roadmap_report.md §3「A 类 · 深化差异化」）。
+// 数据来自 Rust 侧 `intel_cmds::scan_runtime_hotspots`（读 probe trace 库 + 扫项目 def
+// 定义做差集）；上半「已观测」按调用次数降序 + stale/异常徽章，下半「未观测到运行」。
+// **口径纪律**：下半区语义是「未观测到运行」，**不是**「死代码」（未被测试/入口覆盖、
+// 分支未走到、采样遗漏等）——UI 文案按此措辞（`hotspots.unobservedHint`）。
 
 import { invoke } from "@tauri-apps/api/core";
 import { app, $ } from "./state";
@@ -29,6 +24,12 @@ export interface HotspotItem {
   stale: boolean;
   /** 观测到的异常类型 */
   exc: string[];
+  /** A2 性能模式聚合（PR-A2-P3；无计时样本则为 undefined） */
+  calls?: number;
+  avg_ns?: number | null;
+  max_ns?: number | null;
+  excl_avg_ns?: number | null;
+  excl_max_ns?: number | null;
 }
 
 /** 扫描结果（与 Rust `RuntimeHotspots` 同构）。 */
@@ -62,6 +63,8 @@ let data: RuntimeHotspots | null = null;
 /** 刷新令牌：并发/连续刷新时旧结果不得覆盖新结果（同 endpointView） */
 let hpToken = 0;
 let loading = false;
+/** A2 耗时视角排序：hits = 按调用次数；time = 按平均耗时（仅 perf 数据存在时可切） */
+let sortMode: "hits" | "time" = "hits";
 
 /** 初始化运行时热点视图 DOM（init 时调用一次；#view-runtime 容器已在 index.html 声明）。 */
 export function initHotspotsView(): void {
@@ -73,6 +76,20 @@ export function initHotspotsView(): void {
   const summary = document.createElement("span");
   summary.id = "hp-summary";
   summary.textContent = "—";
+  // A2 耗时视角排序切换（active 态与文案由 renderHotspots 维护——取词时机在渲染点）
+  const sort = document.createElement("div");
+  sort.id = "hp-sort";
+  sort.style.display = "none";
+  const mkSort = (id: string, mode: "hits" | "time"): HTMLButtonElement => {
+    const b = document.createElement("button");
+    b.id = id;
+    b.addEventListener("click", () => { sortMode = mode; renderHotspots(); });
+    return b;
+  };
+  const sortHits = mkSort("hp-sort-hits", "hits");
+  const sortTime = mkSort("hp-sort-time", "time");
+  sortHits.className = sortTime.className = "btn";
+  sort.append(sortHits, sortTime);
   const refresh = document.createElement("button");
   refresh.id = "hp-refresh";
   refresh.className = "btn btn--ghost btn--icon";
@@ -80,7 +97,7 @@ export function initHotspotsView(): void {
   refresh.setAttribute("aria-label", t("hotspots.rescan"));
   refresh.appendChild(codicon("refresh"));
   refresh.addEventListener("click", () => void refreshHotspots());
-  toolbar.append(summary, refresh);
+  toolbar.append(summary, sort, refresh);
 
   const list = document.createElement("div");
   list.id = "hp-results";
@@ -123,6 +140,7 @@ export function resetHotspotsView(): void {
   hpToken++;
   data = null;
   loading = false;
+  sortMode = "hits";
   renderHotspots();
 }
 
@@ -144,6 +162,35 @@ export function coveragePct(d: RuntimeHotspots): number {
   return Math.round((d.observed.length / d.total_defined) * 100);
 }
 
+export function hasPerf(d: RuntimeHotspots | null): boolean {
+  return !!d && d.observed.some((it) => (it.calls ?? 0) > 0);
+}
+
+/** 纳秒 → 人类可读（单位是数值格式化，不走 i18n）。 */
+export function fmtNs(ns: number | null | undefined): string {
+  if (ns == null) return "—";
+  if (ns >= 1e9) return `${(ns / 1e9).toFixed(1)} s`;
+  if (ns >= 1e6) return `${(ns / 1e6).toFixed(1)} ms`;
+  if (ns >= 1e3) return `${(ns / 1e3).toFixed(0)} µs`;
+  return `${ns} ns`;
+}
+
+function updateSortBar(d: RuntimeHotspots | null): void {
+  const bar = document.getElementById("hp-sort");
+  const bh = document.getElementById("hp-sort-hits");
+  const bt = document.getElementById("hp-sort-time");
+  if (!bar || !bh || !bt) return;
+  const perf = hasPerf(d);
+  bar.style.display = perf ? "" : "none";
+  if (!perf) return;
+  bh.textContent = t("hotspots.sortHits");
+  bt.textContent = t("hotspots.sortTime");
+  bh.classList.toggle("btn--primary", sortMode === "hits");
+  bh.classList.toggle("btn--ghost", sortMode !== "hits");
+  bt.classList.toggle("btn--primary", sortMode === "time");
+  bt.classList.toggle("btn--ghost", sortMode !== "time");
+}
+
 /** 渲染面板（error 非空时显示为空态 + 错误说明）。 */
 function renderHotspots(error?: string): void {
   const list = document.getElementById("hp-results");
@@ -161,6 +208,7 @@ function renderHotspots(error?: string): void {
     else
       summary.textContent = `${t("hotspots.summaryObserved", { count: d.observed.length })}　·　${t("hotspots.summaryCoverage", { pct: coveragePct(d) })}`;
   }
+  updateSortBar(d && d.has_data ? d : null);
 
   list.textContent = "";
   if (error) {
@@ -186,12 +234,23 @@ function renderHotspots(error?: string): void {
   meta.textContent = `${t("hotspots.runsCount", { count: d.runs })}　·　${t("hotspots.lastRun", { time: fmtTime(d.last_run) })}`;
   list.appendChild(meta);
 
-  // 上半：已观测
+  // 无 perf 数据时明示（样本完整度纪律——不得让用户误以为"没耗时可看"）
+  if (!hasPerf(d)) {
+    const np = document.createElement("div");
+    np.className = "hp-meta";
+    np.textContent = t("hotspots.noPerfHint");
+    list.appendChild(np);
+  }
+
+  // 上半：已观测（time 视角按平均耗时降序，tie 回落到 hits）
+  const observed = [...d.observed];
+  if (sortMode === "time") observed.sort((a, b) => ((b.avg_ns ?? -1) - (a.avg_ns ?? -1)) || b.hits - a.hits);
+  else observed.sort((a, b) => b.hits - a.hits);
   list.appendChild(sectionHeader(t("hotspots.sectionObserved"), d.observed.length, null));
-  if (d.observed.length === 0) {
+  if (observed.length === 0) {
     list.appendChild(emptyState("pulse", t("hotspots.zeroObserved"), undefined, true));
   } else {
-    for (const it of d.observed) list.appendChild(buildRow(it, true));
+    for (const it of observed) list.appendChild(buildRow(it, true));
   }
 
   // 下半：未观测到运行
@@ -225,7 +284,6 @@ function sectionHeader(title: string, count: number, hint: string | null): HTMLE
   return header;
 }
 
-/** 单行条目（observed 决定是否显示 hits / 徽章）。 */
 function buildRow(it: HotspotItem, observed: boolean): HTMLElement {
   const row = document.createElement("div");
   row.className = "todo-item hp-item";
@@ -260,10 +318,20 @@ function buildRow(it: HotspotItem, observed: boolean): HTMLElement {
       exc.title = tip;
       row.appendChild(exc);
     }
-    const hits = document.createElement("span");
-    hits.className = "hp-hits";
-    hits.textContent = t("hotspots.hitsSuffix", { count: it.hits });
-    row.appendChild(hits);
+    // A2 耗时视角：有样本时显示「平均耗时 · 样本数」，title 挂口径红线
+    if (sortMode === "time" && (it.calls ?? 0) > 0) {
+      const time = document.createElement("span");
+      time.className = "hp-hits hp-time";
+      time.textContent = `${t("hotspots.timeAvg", { time: fmtNs(it.avg_ns) })}　·　${t("hotspots.timeSamples", { count: it.calls ?? 0 })}`;
+      time.title = t("hotspots.timeTip");
+      time.dataset.tip = time.title;
+      row.appendChild(time);
+    } else {
+      const hits = document.createElement("span");
+      hits.className = "hp-hits";
+      hits.textContent = t("hotspots.hitsSuffix", { count: it.hits });
+      row.appendChild(hits);
+    }
   }
 
   // UI-16：可点击行补 button 语义 + 键盘激活（跳转声明是主动作）

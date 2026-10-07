@@ -22,5 +22,11 @@
   "hotspots.zeroObserved": "No functions observed",
   "hotspots.truncatedHint": "Too many results; showing the first {count}",
   "hotspots.lastRun": "Last run {time}",
-  "hotspots.runsCount": "{count} runs total"
+  "hotspots.runsCount": "{count} runs total",
+  "hotspots.sortHits": "By call count",
+  "hotspots.sortTime": "By avg time",
+  "hotspots.timeAvg": "avg {time}",
+  "hotspots.timeSamples": "{count} samples",
+  "hotspots.timeTip": "Timing includes probe overhead; for relative ranking, not exact durations",
+  "hotspots.noPerfHint": "Performance mode is off — no timing data"
 }

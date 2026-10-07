@@ -86,14 +86,17 @@ class Monitor:
         # 否则「模块顶部慢 import + 末尾才调用业务函数」的脚本会被 2s 时间窗漏采。
         # 注意：异常退出/静音/未耗尽生成器会造成计数漂移，靠 _sync_active 在决策点校准。
         self._active = 0
-        # A2 性能模式（PR-A2-P1）：per-call inclusive 计时的 t0 栈（按 code 分桶，
-        # LIFO 配对——递归调用内层先返回）。**仅 perf_mode 时使用**，默认路径不触碰。
-        # PY_UNWIND 负责弹掉异常退出的 t0（实证：内部捕获的异常不触发 UNWIND，
-        # 传播出帧才触发——bench/profiler-overhead/unwind_semantics_probe.py）。
-        # ⚠ PY_UNWIND **不能作局部事件**（实测 3.13.7 set_local_events 拒收，
-        # local_events_probe.py）——只能开全局事件，靠 _perf_stacks.get 过滤掉
-        # 未计时的帧（库代码 unwind 只付一次 dict 查表；异常路径非热路径）。
-        self._perf_stacks: dict[types.CodeType, list[int]] = {}
+        # A2 性能模式（PR-A2-P1 + P2）：per-call 计时的帧栈 [code, t0_ns, child_ns]。
+        # **仅 perf_mode 时使用**，默认路径不触碰。单栈天然 LIFO：递归/父子配对，
+        # 返回时把 dt 累计进父帧 child_ns，样本同时产出 inclusive 与 exclusive
+        #（sink.perf 行 = [calls, total_ns, max_ns, excl_total_ns, excl_max_ns]）。
+        # PY_UNWIND 弹掉异常退出的帧并累计父 child_ns、不记样本（实证：内部捕获
+        # 的异常不触发 UNWIND，传播出帧才触发——unwind_semantics_probe.py）。
+        # ⚠ PY_UNWIND **不能作局部事件**（3.13.7 set_local_events 拒收）——只能开
+        # 全局事件，靠「栈顶 code 匹配」守卫过滤未计时的帧（库 unwind 只付一次
+        # 比较；异常路径非热路径）。⚠ 单栈为单线程语义（多线程交错会破坏配对，
+        # 与 P1 的 per-code 栈同等程度的技术债）。
+        self._perf_frames: list[list[int]] = []
         # 全局事件基座（窗口外常开的事件）：perf 模式叠加 PY_UNWIND。
         self._base_events = sys.monitoring.events.RAISE
         if cfg.perf_mode:
@@ -125,7 +128,7 @@ class Monitor:
             # A2 性能模式：注册「计时版」回调组（两套回调之一，热路径零 if perf_mode
             # 分支——runtime_profiler_dev_plan.md §3.2；多一层包装帧实测成本 ≈ 0）。
             # 计时版在原回调之外只做 t0 压栈/弹栈聚合，采集逻辑逐字复用原版。
-            # PY_UNWIND 为全局事件（不可局部），回调内靠 _perf_stacks 过滤。
+            # PY_UNWIND 为全局事件（不可局部），回调内靠「栈顶 code 匹配」过滤。
             sm.register_callback(tid, E.PY_START, self._on_start_perf)
             sm.register_callback(tid, E.PY_RETURN, self._on_return_perf)
             sm.register_callback(tid, E.PY_UNWIND, self._on_unwind_perf)
@@ -155,7 +158,7 @@ class Monitor:
         sm.free_tool_id(tid)
         self._armed.clear()
         self._muted.clear()
-        self._perf_stacks.clear()
+        self._perf_frames.clear()
 
     # -- 发现窗口 ---------------------------------------------------------
 
@@ -308,7 +311,7 @@ class Monitor:
     # -- A2 性能模式回调（仅 perf_mode 时注册；采集逻辑逐字复用原版） --------
 
     def _on_start_perf(self, code: types.CodeType, offset: int):
-        """原版 _on_start 之后压 t0（perf_counter_ns）。
+        """原版 _on_start 之后压帧 [code, t0, child_ns]。
 
         t0 在原回调**之后**取：回调返回后函数体才执行，计到的仍是函数体耗时，
         且能借用原回调的分类结果——只对**项目函数**计时，库函数只付一次 dict.get。
@@ -316,26 +319,34 @@ class Monitor:
         """
         self._on_start(code, offset)
         if self._code_ok.get(code) is True and code not in self._muted:
-            st = self._perf_stacks.get(code)
-            if st is None:
-                self._perf_stacks[code] = [time.perf_counter_ns()]
-            else:
-                st.append(time.perf_counter_ns())
+            self._perf_frames.append([code, time.perf_counter_ns(), 0])
         return None
 
     def _on_return_perf(self, code: types.CodeType, offset: int, retval):
-        """弹 t0 聚合耗时，**先于**原版 _on_return——不把探针记账算进函数耗时。"""
-        st = self._perf_stacks.get(code)
-        if st:
-            self._sink.add_perf(self._fid(code), time.perf_counter_ns() - st.pop())
+        """弹帧聚合耗时，**先于**原版 _on_return——不把探针记账算进函数耗时。
+
+        弹帧时把 dt 累计进父帧 child_ns（exclusive 的扣除依据），样本同时记
+        inclusive（dt）与 exclusive（dt - 本帧 child_ns）。栈顶 code 匹配守卫
+        保证库代码的 return/unwind 不会误弹项目帧。
+        """
+        frames = self._perf_frames
+        if frames and frames[-1][0] is code:
+            f = frames.pop()
+            dt = time.perf_counter_ns() - f[1]
+            if frames:
+                frames[-1][2] += dt
+            self._sink.add_perf(self._fid(code), dt, dt - f[2])
         self._on_return(code, offset, retval)
         return None
 
     def _on_unwind_perf(self, code: types.CodeType, offset: int, exc):
-        """异常退出（PY_UNWIND）：弹掉 t0 但不计样本——配对语义见 _perf_stacks 注释。"""
-        st = self._perf_stacks.get(code)
-        if st:
-            st.pop()
+        """异常退出（PY_UNWIND）：弹帧、把耗时累计进父帧 child_ns、不记样本。"""
+        frames = self._perf_frames
+        if frames and frames[-1][0] is code:
+            f = frames.pop()
+            dt = time.perf_counter_ns() - f[1]
+            if frames:
+                frames[-1][2] += dt
         return None
 
     def _fid(self, code: types.CodeType) -> int:

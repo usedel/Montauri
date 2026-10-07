@@ -1,6 +1,6 @@
 # A2 内置 Profiler 开发计划
 
-> 版本：**v0.2** · 日期：2026-10-07 · HEAD `d65fae9` · 状态：**§7 三项已裁决（红线 ≤ cProfile / 照现状推进 / self-time 先测后做），PR-A2-P1 开工**
+> 版本：**v0.5** · 日期：2026-10-07 · HEAD `88eea51` · 状态：**PR-A2-P1 ~ P4 已完成，下一步 P5（设置项「性能模式（默认关）」）**
 > 上级：`docs/improvement_and_roadmap_report.md` 候选池 **A2**（用户 2026-10-06 选定为阶段二下一步）
 > 证据：**`bench/reports/a2-overhead-lab.md`**（开销门槛实验 v1.0）——**本文所有倍率均出自该报告，引用前先核对 HEAD**
 > 相关合约：`docs/adr/0010-performance-lightweight-charter.md`（性能/体积一等目标）· `probe/README.md`（类型紧凑表示、零第三方依赖）
@@ -56,12 +56,12 @@
 |---|---|---|---|
 | **PR-A2-P0** | 开销门槛实验 + 本报告 | ✅ **已完成**（2026-10-06） | `bench/reports/a2-overhead-lab.md` v1.0 |
 | **PR-A2-P1** | probe 侧 `perf_mode`：配置开关 + 计时回调 + 每 code 聚合（calls / total_ns / max_ns） | ① 默认路径注册原回调，逐字不变；② 抬 `max_calls_per_func`；③ probe 单测 + `uv run pytest` 全绿 | ✅ **已完成（2026-10-07）**：V2n 2.81~2.87x ∈ [2.4, 2.9] 且 ≤ cProfile（余量 ~44%）；样本 6003/6003；86/86 全绿。差异记录：PY_UNWIND 不可局部事件 → 全局 + dict 过滤（盖印 `a2-overhead-lab.md` §8） |
-| **PR-A2-P2** | exclusive(self) time：**先测后做**——先跑一次 child_ns 结构成本实验，不达标（> cProfile 红线）则砍掉本 PR | 成本未实测前不得落地新结构 | 报告追加一行 `V2p-self`；按 §3.3 红线判定是否保留 |
-| **PR-A2-P3** | trace 库写入 + **复用现有 `scan_runtime_hotspots` 命令扩展返回**（**不新增 Tauri 命令**——命令面 196/200，只剩 4 个名额） | `intel_cmds.rs` 当前 472/600，余 128 行；超则先做行数预算 PR | 后端单测；`SQLITE_OPEN_READ_ONLY` 不变（A1 的只读约定延续） |
-| **PR-A2-P4** | 热点视图增「耗时」视角：排序切换 + 平均/P99 列 + 跳转复用 | `hotspotsView.ts` 282/350；`styles/hotspots.css` **44/60 只剩 16 行**，样式优先复用既有类 | e2e ux 域新增 cases；--no-new-CSS 优先 |
+| **PR-A2-P2** | exclusive(self) time：**先测后做**——先跑一次 child_ns 结构成本实验，不达标（> cProfile 红线）则砍掉本 PR | 成本未实测前不得落地新结构 | ✅ **已完成（2026-10-07）**：实验 V2p-self **2.95x ≤ cProfile 5.10x**（余量 ~42%）→ 达标落地。per-code 栈升级为单帧栈 `[code, t0, child_ns]`，样本行扩展 [calls, total, max, excl_total, excl_max]，**无新配置项**（perf 模式天然同时产出 incl+excl，2.68x→3.02x 仍 ≤ cProfile）。盖印 `a2-overhead-lab.md` §9；单测 87/87 |
+| **PR-A2-P3** | trace 库写入 + **复用现有 `scan_runtime_hotspots` 命令扩展返回**（**不新增 Tauri 命令**——命令面 196/200，只剩 4 个名额） | `intel_cmds.rs` 当前 472/600，余 128 行；超则先做行数预算 PR | ✅ **已完成（2026-10-07）**：`functions` 表 +5 列 `perf_*`（calls/total/max/excl_total/excl_max，仅 perf_mode 有数据否则恒 0；total/calls 累加、max 取全局最大；旧库 `_ensure_perf_columns` ALTER 迁移）；`HotspotItem` 扩展 `calls/avg_ns/max_ns/excl_avg_ns/excl_max_ns`（calls=0 → None，缺省行为不变），`read_trace` 加 `WHERE perf_calls>0` 单独 SELECT（旧库缺列静默跳过）。`SQLITE_OPEN_READ_ONLY` 不变；probe **89/89**、外壳 lib **319 通过**、`intel_cmds.rs` 472→**533/600**、budget-check **33 项全 PASS** |
+| **PR-A2-P4** | 热点视图增「耗时」视角：排序切换 + 平均/样本数列 + 跳转复用 | `hotspotsView.ts` 282→**350/350**（压行保住预算）；`styles/hotspots.css` 44→48/60，样式复用 `.btn` / `.hp-hits` 未新增视觉体系 | e2e ux 域新增 cases；--no-new-CSS 优先 | ✅ **已完成（2026-10-07）**：工具栏排序切换（`#hp-sort`，`btn--primary`/`btn--ghost` 互切表达 active，仅 `hasPerf` 时可见）；新增 `hasPerf`/`fmtNs`/`updateSortBar` helpers；time 视角按 `avg_ns` 降序（tie 回落 hits）；行内「平均 x · N 个样本」+ title 挂口径红线；无 perf 时排序栏隐藏 + `noPerfHint` 明示（样本完整度纪律）。**实证调整**：dev plan 原文为「平均/P99 列」，但 sink 只有聚合（calls/total/max/excl）无直方图 → P99 无法精确计算，改为**平均耗时 + 样本数**列并 title 挂口径（先例：P1 的 PY_UNWIND 差异记录）。验证：tsc ✓ · vitest 1271 ✓ · e2e ux 域 HS-9/HS-10 新增后 **10/10 ✓** · budget-check 33 项全 PASS |
 | **PR-A2-P5** | 设置项「性能模式（默认关）+ 开销提示文案」 | 文案须含 §5 口径红线；i18n 三步流程纳管 | e2e settings 域；`audit_tokens.py` 0 FAIL |
 
-**预算占位预警**（当前余量，来自 `budget-check.mjs` 三十三项全 PASS）：产物 **5,032/5,120 KB（余 88 KB）**· 命令 **196/200（余 4）**· `hotspots.css` **44/60（余 16）**。三者都不宽裕——**UI 层必须靠复用而非新 CSS 文件落地**，否则会重演 `style.css` 破线那一课。
+**预算占位预警**（当前余量，来自 `budget-check.mjs` 三十三项全 PASS）：产物 **5,034/5,120 KB（余 86 KB）**· 命令 **196/200（余 4）**· `hotspots.css` **48/60（余 12）**· `hotspotsView.ts` **350/350（余 0）**· `intel_cmds.rs` **533/600（余 67）**。**`hotspotsView.ts` 已到预算上限——P5 起不得再向该文件增行**（涉及它必须压缩既有代码）；UI 层继续靠复用既有类落地，否则会重演 `style.css` 破线那一课。
 
 ## 5. 口径红线（与 A1「未观测到运行」、A3「不 repr 值本身」同族纪律）
 
@@ -86,7 +86,7 @@
 
 ① ✅ **性能模式红线采用「≤ 同负载 cProfile」口径**（本文 §3.3 推荐方案），不写固定数字。
 ② ✅ **照现状推进 A2**（选项 b）：默认路径逐字不动即不恶化 Gate C；Gate C 口径欠账另案处理——裁决为「维持单形状官方 harness + 文档标注」，承认其单次读数判不了 0.1x 级差异，进程内精测（reps ≥7）为可信口径。**不启动 baseline 优化、不抬红线**（两个杠杆——全局 PY_START 常驻 ≈0.39x、类型观测 ≈0.26x——都是功能取舍，不是白拿的空间）。
-③ ⏳ **exclusive(self) time 维持「先测后做」**：是否值得再花 0.3~0.5d 取决于 PR-A2-P2 的成本实测，本轮不裁。
+③ ✅ **exclusive(self) time 裁决：达标，落地**。实验（V2p-self）2.95x ≤ cProfile 5.10x、样本零泄漏 → 按 PR-A2-P2 规格「不达标才砍」判定保留；已并入 perf 模式（帧栈 `[code, t0, child_ns]`，样本行含 excl_total/excl_max），无新配置项。
 
 ## 8. 引用
 

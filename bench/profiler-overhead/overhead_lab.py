@@ -189,7 +189,12 @@ def _probe_case(mode=None, stride=16, stack_ms=None, count=False, **cfg_override
             out["timed"] = sum(e[0] for e in perf.values())
             out["closed"] = out["timed"]
             out["total_ms"] = sum(e[1] for e in perf.values()) / 1e6
-            diag["perf_stack_residue"] = sum(len(s) for s in mon._perf_stacks.values())
+            frames = getattr(mon, "_perf_frames", None)
+            if frames is not None:
+                diag["perf_stack_residue"] = len(frames)
+            else:
+                diag["perf_stack_residue"] = sum(
+                    len(s) for s in mon._perf_stacks.values())
         if sampler is not None:
             out["stack_samples"] = sum(sampler.values())
         return out
@@ -291,6 +296,92 @@ def _hits_only_case(keep_type: bool = False):
         finally:
             mon.stop()
         return {"dt": dt, "diag": diag}
+    return runner
+
+
+def _self_case(**cfg_overrides):
+    """V2p-self（PR-A2-P2 成本实验）：child_ns 帧栈的 exclusive(self) time。
+
+    结构**与落地形态一致**（若红线通过，照此改 monitor.py）：
+    - 帧栈 `list[[code, t0_ns, child_ns]]`（单栈自然 LIFO，递归/父子天然配对）；
+    - PY_START 压 [code, t0, 0]；PY_RETURN 弹：dt = now - t0，父帧 child_ns += dt；
+      样本 = [calls, total_ns, max_ns, excl_total_ns, excl_max_ns]，excl = dt - 本帧 child_ns；
+    - PY_UNWIND：弹帧 + 累计父 child_ns，**不记样本**（与 P1 同语义）；
+    - 守卫：只弹「栈顶 code 匹配」的帧（库代码的 return/unwind 不配对，异常路径非热路径）；
+    - 采集逻辑逐字复用原版回调（orig_start / orig_return），与 P1 同原则。
+    """
+    def runner():
+        mon = _new_monitor(perf_mode=True, **cfg_overrides)
+        sm = sys.monitoring
+        E = sm.events
+        code_ok = mon._code_ok
+        muted = mon._muted
+        fid_of = mon._fid
+        ns = time.perf_counter_ns
+        orig_start = mon._on_start
+        orig_return = mon._on_return
+        frames: list[list] = []
+        agg: dict[int, list[int]] = {}
+        stats = {"timed": 0, "closed": 0, "total_ms": 0.0, "excl_ms": 0.0}
+
+        def s_start(code, offset):
+            orig_start(code, offset)
+            if code_ok.get(code) is True and code not in muted:
+                frames.append([code, ns(), 0])
+                stats["timed"] += 1
+            return None
+
+        def s_return(code, offset, retval):
+            if frames and frames[-1][0] is code:
+                f = frames.pop()
+                dt = ns() - f[1]
+                if frames:
+                    frames[-1][2] += dt
+                fid = fid_of(code)
+                excl = dt - f[2]
+                e = agg.get(fid)
+                if e is None:
+                    agg[fid] = [1, dt, dt, excl, excl]
+                else:
+                    e[0] += 1
+                    e[1] += dt
+                    if dt > e[2]:
+                        e[2] = dt
+                    e[3] += excl
+                    if excl > e[4]:
+                        e[4] = excl
+                stats["closed"] += 1
+                stats["total_ms"] += dt / 1e6
+                stats["excl_ms"] += excl / 1e6
+            orig_return(code, offset, retval)
+            return None
+
+        def s_unwind(code, offset, exc):
+            if frames and frames[-1][0] is code:
+                f = frames.pop()
+                dt = ns() - f[1]
+                if frames:
+                    frames[-1][2] += dt
+            return None
+
+        mon.start()
+        tid = mon._tid
+        # 落地形态：self 回调组整体替换 perf 回调组（三事件同换）
+        sm.register_callback(tid, E.PY_START, s_start)
+        sm.register_callback(tid, E.PY_RETURN, s_return)
+        sm.register_callback(tid, E.PY_UNWIND, s_unwind)
+        try:
+            t0 = time.perf_counter()
+            _wl(ROUNDS)
+            dt = (time.perf_counter() - t0) * 1000.0
+            diag = {"window_open": mon._in_window, "armed": len(mon._armed),
+                    "muted": len(mon._muted), "funcs": mon._sink.func_count,
+                    "residue": len(frames)}
+        finally:
+            mon.stop()
+        out = dict(stats)
+        out.update(dt=dt, diag=diag)
+        return out
     return runner
 
 
@@ -415,6 +506,8 @@ def main() -> int:
          "full calls AND keep type obs", {}),
         ("V2n native perf-mode", _probe_case(perf_mode=True),
          "PR-A2-P1 shipped impl (registered cb set)", {"primary": True}),
+        ("V2p-self excl.time", _self_case(),
+         "PR-A2-P2: child_ns frame stack (exclusive time)", {"primary": True}),
         ("V3 sampled 1/%d" % args.stride,
          _probe_case("sampled", args.stride, max_calls_per_func=BIG,
                      max_type_obs_per_site=0, count=True),

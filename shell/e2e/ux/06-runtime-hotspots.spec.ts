@@ -10,6 +10,8 @@
  *  - HS-6 惰性加载：未切到该视图不发扫描，切过去才拉取（不在启动路径上做 IO）
  *  - HS-7 刷新按钮：重新扫描后列表随之更新（非仅 onShow 一次性）
  *  - HS-8 截断提示 + 负向断言（stale 不串行 / 未观测行无 hits）+ 未观测行同路径可跳转
+ *  - HS-9 耗时视角（A2）：排序切换栏可见 + 按平均耗时降序 + 行内「平均 x · N 个样本」+ title 口径
+ *  - HS-10 无 perf 数据：排序栏隐藏 + noPerfHint 口径提示可见
  *
  * mock 面跑在 tauri-mock.js（scan_runtime_hotspots），预置经 window.__E2E_HOTSPOTS_PRESET__
  * 注入、错误经 __E2E_HOTSPOTS_FAIL__ 注入（均须 addInitScript 先于 goto）。真实差集语义
@@ -25,6 +27,12 @@ interface HotspotItem {
   hits: number;
   stale: boolean;
   exc: string[];
+  // A2 性能模式聚合（PR-A2-P3/P4；无计时样本则为缺省）
+  calls?: number;
+  avg_ns?: number | null;
+  max_ns?: number | null;
+  excl_avg_ns?: number | null;
+  excl_max_ns?: number | null;
 }
 
 interface HotspotsPreset {
@@ -305,4 +313,74 @@ test("HS-8 截断提示 + 徽章不串行 + 未观测行也可跳转", async ({ 
   // 未观测行与已观测行走同一条 openFile 路径
   await list.locator(".hp-item", { hasText: "unused" }).click();
   await expect.poll(() => activeTabName(page), { timeout: 10_000 }).toBe("main.py");
+});
+
+// ---------- HS-9：耗时视角（A2 · PR-A2-P4） ----------
+
+test("HS-9 耗时视角：排序切换 + 平均耗时/样本数 + 口径 title", async ({ page }) => {
+  const repo = await makeGitRepo({
+    files: { "app/main.py": "def slow():\n    return 1\n\n\ndef fast():\n    return 2\n" },
+    commitMsg: "baseline",
+  });
+  await boot(page, repo, {
+    has_data: true,
+    runs: 1,
+    last_run: 1_700_000_000,
+    total_defined: 2,
+    observed: [
+      { file: repo.abs("app/main.py"), qualname: "fast", line: 5, hits: 200, stale: false, exc: [],
+        calls: 200, avg_ns: 1_500_000, max_ns: 4_000_000, excl_avg_ns: 900_000, excl_max_ns: 2_000_000 },
+      { file: repo.abs("app/main.py"), qualname: "slow", line: 1, hits: 3, stale: false, exc: [],
+        calls: 3, avg_ns: 250_000_000, max_ns: 300_000_000, excl_avg_ns: 240_000_000, excl_max_ns: 290_000_000 },
+    ],
+    unobserved: [],
+  });
+
+  await page.locator("#tab-runtime").click();
+  const list = page.locator("#hp-results");
+  await expect(list.locator(".hp-item", { hasText: "slow" })).toBeVisible();
+
+  // 有 perf 样本 → 排序切换栏可见；默认 hits 视角（active 按钮 btn--primary）→ 首行 fast（200 次）
+  const sort = page.locator("#hp-sort");
+  await expect(sort).toBeVisible();
+  await expect(sort.locator("#hp-sort-hits")).toHaveClass(/btn--primary/);
+  await expect(list.locator(".hp-item").first().locator(".hp-name")).toHaveText("fast");
+
+  // 切「按平均耗时」→ slow（avg 250ms）排最前；行内显示「平均 x · N 个样本」；title 挂口径红线
+  await sort.locator("#hp-sort-time").click();
+  await expect(sort.locator("#hp-sort-time")).toHaveClass(/btn--primary/);
+  await expect(sort.locator("#hp-sort-hits")).toHaveClass(/btn--ghost/);
+  await expect(list.locator(".hp-item").first().locator(".hp-name")).toHaveText("slow");
+  const timeCell = list.locator(".hp-item", { hasText: "slow" }).locator(".hp-time");
+  await expect(timeCell).toContainText("平均 250.0 ms");
+  await expect(timeCell).toContainText("3 个样本");
+  await expect(timeCell).toHaveAttribute("title", /探针开销/);
+});
+
+// ---------- HS-10：无 perf 数据（性能模式未开启） ----------
+
+test("HS-10 无耗时数据：排序栏隐藏 + 口径提示可见", async ({ page }) => {
+  const repo = await makeGitRepo({
+    files: { "app/main.py": "def handle():\n    return 1\n" },
+    commitMsg: "baseline",
+  });
+  await boot(page, repo, {
+    has_data: true,
+    runs: 2,
+    last_run: 1_700_000_000,
+    total_defined: 1,
+    observed: [{ file: repo.abs("app/main.py"), qualname: "handle", line: 1, hits: 9, stale: false, exc: [] }],
+    unobserved: [],
+  });
+
+  await page.locator("#tab-runtime").click();
+  const list = page.locator("#hp-results");
+  await expect(list.locator(".hp-item", { hasText: "handle" })).toBeVisible();
+
+  // 无计时样本 → 排序栏不可见；行内保持 hits 显示（不出现 hp-time）
+  await expect(page.locator("#hp-sort")).not.toBeVisible();
+  await expect(list.locator(".hp-item .hp-time")).toHaveCount(0);
+  await expect(list.locator(".hp-item", { hasText: "handle" }).locator(".hp-hits")).toHaveText("9 次");
+  // 样本完整度纪律：明示性能模式未开启
+  await expect(list.locator(".hp-meta", { hasText: "性能模式未开启" })).toBeVisible();
 });

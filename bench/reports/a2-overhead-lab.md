@@ -123,3 +123,21 @@ V2p 实测：**2000 轮工作负载，各函数 inclusive 耗时之和 = 138.2 m
 **默认路径 HEAD 对照（官方 harness，同会话）**：HEAD（stash 后）**1.55x FAIL** → 改动后 **1.64x FAIL**。两读数都在本机历史抖动带（1.27~1.64x）内，且 lab V0（跑的就是未变的默认路径代码）同场 1.67~1.77x——**差异是机器热度，不是代码回归**。结论：**默认路径与 HEAD 持平 ✅**。
 
 **probe 单测**：86/86（新增 5 例：默认零影响 / 抬静音逐次计时 / UNWIND 配对 / 递归 LIFO / env 开关）。
+
+## 9. ✅ PR-A2-P2 落地盖印（exclusive(self) time，2026-10-07，同一脚本出数）
+
+**裁决流程（先测后做）**：新增实验变体 **V2p-self**（child_ns 帧栈结构，与落地形态逐字一致——self 回调组调用原版回调）。**实验：V2p-self 2.95x ≤ V6 cProfile 5.10x，余量 ~42% → 达标，保留并落地**（PR 规格：不达标才砍）。
+
+**落地**：monitor.py 的 per-code 栈 `_perf_stacks: dict[code, list[t0]]` 升级为**单帧栈** `_perf_frames: list[[code, t0_ns, child_ns]]`——返回时把 dt 累计进父帧 child_ns，样本行扩展为 **[calls, total_ns, max_ns, excl_total_ns, excl_max_ns]**。**无新配置项**：perf 模式天然同时产出 inclusive + exclusive（2.68x→~3.0x，仍远低于 cProfile）。PY_UNWIND 弹帧并累计父 child_ns、不记样本（与 P1 同语义）。
+
+**同机两次全量（rounds=2000, reps=7）**：
+
+| 变体 | 实验 run | 落地后 run | 判定 |
+|---|---|---|---|
+| V2p-self excl.time（实验装置） | 2.95x | 3.18x | ✅ ≤ cProfile |
+| **V2n native perf-mode（落地后 = 帧栈版）** | — | **3.02x** | ✅ 含 exclusive 仍 ≤ cProfile 5.45x，余量 ~42% |
+| V6 cProfile（参照） | 5.10x | 5.45x | 红线参照 |
+
+样本完整度：两次均 **timed = closed = 6003/6003**、帧栈零残留（`residue=0`）——帧栈配对无泄漏。
+
+**probe 单测**：87/87（新增 exclusive 减法用例：parent 调 child(sleep 10ms)，child excl>5ms、parent excl<5ms、parent incl ≥ child incl + parent excl，无负值/反转）。

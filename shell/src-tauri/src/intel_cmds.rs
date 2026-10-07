@@ -53,6 +53,18 @@ pub struct HotspotItem {
     pub stale: bool,
     /// 观测到的异常类型（去重、按观测次数降序；未观测条目为空）
     pub exc: Vec<String>,
+    // A2 性能模式（PR-A2-P3）：耗时聚合仅来自 perf_mode 运行；无计时样本恒为 None/0
+    // 口径：耗时是含探针开销的相对值（sys.monitoring 去优化），用于排序，非真实耗时
+    /// 计时样本数（无 perf 数据恒为 0——「样本完整度必须可见」）
+    pub calls: u32,
+    /// inclusive 平均耗时（ns；calls=0 为 None）
+    pub avg_ns: Option<u64>,
+    /// inclusive 最大耗时（ns；calls=0 为 None）
+    pub max_ns: Option<u64>,
+    /// exclusive(self) 平均耗时（ns；calls=0 为 None）
+    pub excl_avg_ns: Option<u64>,
+    /// exclusive(self) 最大耗时（ns；calls=0 为 None）
+    pub excl_max_ns: Option<u64>,
 }
 
 /// 运行时热点查询结果。
@@ -165,6 +177,8 @@ struct TraceRows {
     functions: Vec<(i64, String, String, i64, i64, i64)>,
     /// fid → 异常标签（按 count 降序）
     exc_by_fid: HashMap<i64, Vec<String>>,
+    /// fid → [calls, total_ns, max_ns, excl_total_ns, excl_max_ns]（A2 perf 聚合）
+    perf_by_fid: HashMap<i64, (i64, i64, i64, i64, i64)>,
 }
 
 /// 只读打开 trace 库并取原始行；库不存在/不可读返回 `None`（不报错——没数据是正常状态）。
@@ -212,10 +226,36 @@ fn read_trace(db: &Path) -> Option<TraceRows> {
             }
         }
     }
+    // A2 perf 聚合：只取有计时样本的函数（PR-A2-P3 前的旧库无 perf 列 →
+    // prepare 失败静默跳过，行为不变）
+    if let Ok(mut st) = conn.prepare(
+        "SELECT fid, perf_calls, perf_total_ns, perf_max_ns, perf_excl_total_ns, perf_excl_max_ns FROM functions WHERE perf_calls > 0",
+    ) {
+        if let Ok(iter) = st.query_map([], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, i64>(2)?,
+                r.get::<_, i64>(3)?,
+                r.get::<_, i64>(4)?,
+                r.get::<_, i64>(5)?,
+            ))
+        }) {
+            for (fid, calls, total, max, excl_total, excl_max) in iter.flatten() {
+                rows.perf_by_fid
+                    .insert(fid, (calls, total, max, excl_total, excl_max));
+            }
+        }
+    }
     Some(rows)
 }
 
 // ---------- 主流程 ----------
+
+/// 平均耗时 ns：total / calls（calls=0 返回 None——无计时样本）。
+fn avg_ns(total: i64, calls: i64) -> Option<u64> {
+    (calls > 0).then(|| (total / calls) as u64)
+}
 
 fn scan_runtime_hotspots_impl(root: &str) -> Result<RuntimeHotspots, String> {
     let root_path = Path::new(root);
@@ -273,6 +313,9 @@ fn scan_runtime_hotspots_impl(root: &str) -> Result<RuntimeHotspots, String> {
                     .get(&norm_path(&filename))
                     .cloned()
                     .unwrap_or_else(|| filename.replace('\\', "/"));
+                // A2 perf：缺省（非 perf 模式 / 旧库）时全 0/None——缺省行为不变
+                let (calls, total, max, excl_total, excl_max) =
+                    t.perf_by_fid.remove(&fid).unwrap_or((0, 0, 0, 0, 0));
                 observed.push(HotspotItem {
                     file,
                     qualname,
@@ -280,6 +323,11 @@ fn scan_runtime_hotspots_impl(root: &str) -> Result<RuntimeHotspots, String> {
                     hits: hits.max(0) as u32,
                     stale: stale != 0,
                     exc: t.exc_by_fid.remove(&fid).unwrap_or_default(),
+                    calls: calls.max(0) as u32,
+                    avg_ns: avg_ns(total, calls),
+                    max_ns: (calls > 0).then_some(max.max(0) as u64),
+                    excl_avg_ns: avg_ns(excl_total, calls),
+                    excl_max_ns: (calls > 0).then_some(excl_max.max(0) as u64),
                 });
                 if observed.len() >= MAX_OBSERVED {
                     break;
@@ -306,6 +354,11 @@ fn scan_runtime_hotspots_impl(root: &str) -> Result<RuntimeHotspots, String> {
                     hits: 0,
                     stale: false,
                     exc: Vec::new(),
+                    calls: 0,
+                    avg_ns: None,
+                    max_ns: None,
+                    excl_avg_ns: None,
+                    excl_max_ns: None,
                 });
             }
             unobserved.sort_by(|a, b| a.file.cmp(&b.file).then(a.line.cmp(&b.line)));
@@ -391,25 +444,25 @@ mod tests {
             let conn = Connection::open(&db).unwrap();
             conn.execute_batch(
                 "CREATE TABLE runs(id INTEGER PRIMARY KEY, started REAL, elapsed REAL, project TEXT, script TEXT, python TEXT, probe_version TEXT, instance TEXT);
-                 CREATE TABLE functions(fid INTEGER PRIMARY KEY, filename TEXT, qualname TEXT, lineno INTEGER, hits INTEGER, stale INTEGER);
+                 CREATE TABLE functions(fid INTEGER PRIMARY KEY, filename TEXT, qualname TEXT, lineno INTEGER, hits INTEGER, stale INTEGER, perf_calls INTEGER, perf_total_ns INTEGER, perf_max_ns INTEGER, perf_excl_total_ns INTEGER, perf_excl_max_ns INTEGER);
                  CREATE TABLE exc_types(fid INTEGER, exc_label TEXT, count INTEGER);",
             )
             .unwrap();
             conn.execute("INSERT INTO runs(started) VALUES(1700000000.0)", []).unwrap();
             let abs = proj.join("mod.py").to_string_lossy().replace('/', "\\");
             conn.execute(
-                "INSERT INTO functions(fid, filename, qualname, lineno, hits, stale) VALUES(1, ?1, 'ran', 1, 12, 0)",
+                "INSERT INTO functions(fid, filename, qualname, lineno, hits, stale, perf_calls, perf_total_ns, perf_max_ns, perf_excl_total_ns, perf_excl_max_ns) VALUES(1, ?1, 'ran', 1, 12, 0, 10, 50000000, 8000000, 30000000, 6000000)",
                 [&abs],
             )
             .unwrap();
             conn.execute(
-                "INSERT INTO functions(fid, filename, qualname, lineno, hits, stale) VALUES(2, ?1, 'also_ran', 5, 7, 1)",
+                "INSERT INTO functions(fid, filename, qualname, lineno, hits, stale, perf_calls, perf_total_ns, perf_max_ns, perf_excl_total_ns, perf_excl_max_ns) VALUES(2, ?1, 'also_ran', 5, 7, 1, 0, 0, 0, 0, 0)",
                 [&abs],
             )
             .unwrap();
             // 类体（非 def）应被回读过滤掉
             conn.execute(
-                "INSERT INTO functions(fid, filename, qualname, lineno, hits, stale) VALUES(3, ?1, 'SomeClass', 1, 3, 0)",
+                "INSERT INTO functions(fid, filename, qualname, lineno, hits, stale, perf_calls, perf_total_ns, perf_max_ns, perf_excl_total_ns, perf_excl_max_ns) VALUES(3, ?1, 'SomeClass', 1, 3, 0, 0, 0, 0, 0, 0)",
                 [&abs],
             )
             .unwrap();
@@ -423,6 +476,14 @@ mod tests {
         let rows = read_trace(&db).expect("trace 库应可读");
         assert_eq!(rows.runs, 1);
         assert_eq!(rows.functions.len(), 3);
+        // A2 perf 聚合：只取有计时样本的（WHERE perf_calls > 0）
+        assert_eq!(
+            rows.perf_by_fid.get(&1),
+            Some(&(10, 50_000_000, 8_000_000, 30_000_000, 6_000_000))
+        );
+        assert!(!rows.perf_by_fid.contains_key(&2));
+        assert_eq!(avg_ns(50_000_000, 10), Some(5_000_000));
+        assert_eq!(avg_ns(8_000_000, 0), None); // 无计时样本 → None
 
         // 复算 observed（过滤 <module>/类体）
         let mut file_cache: HashMap<String, Option<Vec<String>>> = HashMap::new();

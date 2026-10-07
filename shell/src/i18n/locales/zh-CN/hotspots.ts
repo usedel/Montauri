@@ -10,6 +10,7 @@ export const hotspots = {
   "hotspots.lastRun": "末次运行 {time}",
   "hotspots.noData": "暂无运行记录",
   "hotspots.noDataHint": "运行一次项目或测试后，这里会列出跑过的函数与调用次数",
+  "hotspots.noPerfHint": "性能模式未开启，无耗时数据",
   "hotspots.noWorkspace": "未打开工作区",
   "hotspots.noWorkspaceHint": "打开后此处按调用次数列出真实跑过的函数",
   "hotspots.openAria": "打开声明并定位",
@@ -24,6 +25,8 @@ export const hotspots = {
   "hotspots.scanningHint": "正在读取运行记录并扫描工作区",
   "hotspots.sectionObserved": "已观测（按调用次数）",
   "hotspots.sectionUnobserved": "未观测到运行",
+  "hotspots.sortHits": "按调用次数",
+  "hotspots.sortTime": "按平均耗时",
   "hotspots.staleBadge": "已改动",
   "hotspots.staleTip": "该文件在末次运行后被修改，观测可能已过期",
   "hotspots.summaryCoverage": "覆盖 {pct}%",
@@ -31,6 +34,12 @@ export const hotspots = {
   "hotspots.summaryObserved.one": "观测 {count} 个函数",
   "hotspots.summaryObserved.other": "观测 {count} 个函数",
   // ---- hotspots ----
+  "hotspots.timeAvg": "平均 {time}",
+  // ---- hotspots.timeSamples ----
+  "hotspots.timeSamples.one": "{count} 个样本",
+  "hotspots.timeSamples.other": "{count} 个样本",
+  // ---- hotspots ----
+  "hotspots.timeTip": "耗时含探针开销，用于相对排序，不代表真实耗时",
   "hotspots.title": "运行时热点",
   // ---- hotspots.truncatedHint ----
   "hotspots.truncatedHint.one": "结果过多，仅显示前 {count} 条",

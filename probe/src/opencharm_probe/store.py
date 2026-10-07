@@ -5,6 +5,9 @@
 
 P2-T07 陈旧标记：functions.stale = 1 表示该函数所在文件在末次运行后被修改过
 （文件 mtime > 末次 run.started），Phase 3 消费时可降权或忽略。
+
+A2 性能模式（PR-A2-P3）：functions 带 perf_* 列（calls/total/max/excl_total/excl_max），
+仅 perf_mode 运行贡献数据（否则恒 0）——「运行过的代码」的耗时聚合与类型观测同寿命。
 """
 from __future__ import annotations
 
@@ -37,6 +40,13 @@ CREATE TABLE IF NOT EXISTS functions(
   lineno INTEGER NOT NULL,
   hits INTEGER NOT NULL DEFAULT 0,
   stale INTEGER NOT NULL DEFAULT 0,
+  -- A2 性能模式聚合（PR-A2-P3）：仅 perf_mode 运行贡献数据，否则恒为 0
+  -- （「样本完整度可见」：perf_calls=0 表示该函数无计时样本，UI 不得展示耗时）
+  perf_calls INTEGER NOT NULL DEFAULT 0,
+  perf_total_ns INTEGER NOT NULL DEFAULT 0,
+  perf_max_ns INTEGER NOT NULL DEFAULT 0,
+  perf_excl_total_ns INTEGER NOT NULL DEFAULT 0,
+  perf_excl_max_ns INTEGER NOT NULL DEFAULT 0,
   UNIQUE(filename, qualname, lineno)
 );
 CREATE TABLE IF NOT EXISTS arg_types(
@@ -78,6 +88,39 @@ def _ensure_instance_column(conn: sqlite3.Connection) -> None:
     cols = {row[1] for row in conn.execute("PRAGMA table_info(runs)")}
     if "instance" not in cols:
         conn.execute("ALTER TABLE runs ADD COLUMN instance TEXT NOT NULL DEFAULT ''")
+
+
+# A2 性能模式聚合列（仅 perf_mode 有数据；PR-A2-P3 起的新库直接建列）
+_PERF_COLUMNS: dict[str, str] = {
+    "perf_calls": "perf_calls INTEGER NOT NULL DEFAULT 0",
+    "perf_total_ns": "perf_total_ns INTEGER NOT NULL DEFAULT 0",
+    "perf_max_ns": "perf_max_ns INTEGER NOT NULL DEFAULT 0",
+    "perf_excl_total_ns": "perf_excl_total_ns INTEGER NOT NULL DEFAULT 0",
+    "perf_excl_max_ns": "perf_excl_max_ns INTEGER NOT NULL DEFAULT 0",
+}
+
+
+def _ensure_perf_columns(conn: sqlite3.Connection) -> None:
+    """旧库迁移：functions 无 perf 列则逐列补（PR-A2-P3 前的库）。
+
+    必须显式 BEGIN 而非 `with conn:`：sqlite3 的隐式事务只对 DML
+    （INSERT/UPDATE/DELETE/REPLACE）自动开启，ALTER TABLE 是 DDL 不触发——
+    `with conn:` 里逐条 ALTER 会在无事务状态各自持久化，中途失败留下半迁移列
+    （实测 SQLite 3.50.4：with conn 中途异常前一列仍落库）。BEGIN/COMMIT/ROLLBACK
+    保证「要么全加要么全不加」。调用点（save）此时无挂起事务，BEGIN 安全。
+    """
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(functions)")}
+    pending = [(col, ddl) for col, ddl in _PERF_COLUMNS.items() if col not in cols]
+    if not pending:
+        return
+    conn.execute("BEGIN")
+    try:
+        for _col, ddl in pending:
+            conn.execute(f"ALTER TABLE functions ADD COLUMN {ddl}")
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
 
 
 def project_hash(project_root: str) -> str:
@@ -145,6 +188,7 @@ def save(cfg: ProbeConfig, sink: ObservationSink, project_root: str, script: str
         conn.executescript(SCHEMA)
         _ensure_stale_column(conn)
         _ensure_instance_column(conn)
+        _ensure_perf_columns(conn)
         # P2-T07：本次运行前库内末次 run 时刻（陈旧检测的比较基准）
         prev_max_started = conn.execute("SELECT MAX(started) FROM runs").fetchone()[0]
         conn.execute(
@@ -158,13 +202,25 @@ def save(cfg: ProbeConfig, sink: ObservationSink, project_root: str, script: str
         #   库内 fid 由 rowid 重新分配）
         fid_map: dict[int, int] = {}
         for (filename, qualname, lineno), mem_fid in sink.funcs.items():
+            # A2 性能模式聚合：perf_mode 才有数据（否则全 0——默认路径零落库成本）
+            perf = sink.perf.get(mem_fid, (0, 0, 0, 0, 0))
             # 单条 UPSERT 用 RETURNING 拿回 fid，省去再按自然键 SELECT 一次（N 次往返 → 1 次）
+            # total/calls 跨运行累加（同 hits 的沉淀语义）；max 取全局最大（MAX 双参标量）
             row = conn.execute(
-                "INSERT INTO functions(filename, qualname, lineno, hits, stale)"
-                " VALUES(?,?,?,?,0) ON CONFLICT(filename, qualname, lineno)"
-                " DO UPDATE SET hits = hits + excluded.hits, stale = 0"
+                "INSERT INTO functions(filename, qualname, lineno, hits, stale,"
+                " perf_calls, perf_total_ns, perf_max_ns,"
+                " perf_excl_total_ns, perf_excl_max_ns)"
+                " VALUES(?,?,?,?,0,?,?,?,?,?)"
+                " ON CONFLICT(filename, qualname, lineno)"
+                " DO UPDATE SET hits = hits + excluded.hits, stale = 0,"
+                " perf_calls = perf_calls + excluded.perf_calls,"
+                " perf_total_ns = perf_total_ns + excluded.perf_total_ns,"
+                " perf_max_ns = MAX(perf_max_ns, excluded.perf_max_ns),"
+                " perf_excl_total_ns = perf_excl_total_ns + excluded.perf_excl_total_ns,"
+                " perf_excl_max_ns = MAX(perf_excl_max_ns, excluded.perf_excl_max_ns)"
                 " RETURNING fid",
-                (filename, qualname, lineno, sink.hits.get(mem_fid, 0)),
+                (filename, qualname, lineno, sink.hits.get(mem_fid, 0),
+                 *perf),
             ).fetchone()
             fid_map[mem_fid] = row[0]
         # P2-T07：本次未覆盖的函数，若所在文件在库内末次运行后被修改 → 标陈旧

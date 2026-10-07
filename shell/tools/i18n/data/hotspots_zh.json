@@ -22,5 +22,11 @@
   "hotspots.zeroObserved": "没有观测到的函数",
   "hotspots.truncatedHint": "结果过多，仅显示前 {count} 条",
   "hotspots.lastRun": "末次运行 {time}",
-  "hotspots.runsCount": "累计 {count} 次运行"
+  "hotspots.runsCount": "累计 {count} 次运行",
+  "hotspots.sortHits": "按调用次数",
+  "hotspots.sortTime": "按平均耗时",
+  "hotspots.timeAvg": "平均 {time}",
+  "hotspots.timeSamples": "{count} 个样本",
+  "hotspots.timeTip": "耗时含探针开销，用于相对排序，不代表真实耗时",
+  "hotspots.noPerfHint": "性能模式未开启，无耗时数据"
 }

@@ -13,8 +13,9 @@ class ObservationSink:
     - args:      (fid, 参数名, 类型标签, 结构指纹) -> 次数
     - rets:      (fid, 类型标签, 结构指纹) -> 次数
     - excs:      (fid, 异常类型标签) -> 次数
-    - perf:      fid -> [calls, total_ns, max_ns]（A2 性能模式；inclusive wall-clock，
-      只含正常返回的调用——异常退出（PY_UNWIND）的调用不贡献耗时样本）
+    - perf:      fid -> [calls, total_ns, max_ns, excl_total_ns, excl_max_ns]
+      （A2 性能模式；inclusive/exclusive wall-clock，只含正常返回的调用——
+      异常退出（PY_UNWIND）的调用不贡献耗时样本，但会把耗时累计进父帧 child_ns）
     """
 
     __slots__ = ("funcs", "_next_fid", "_fid_lock", "hits", "args", "rets", "excs",
@@ -79,16 +80,23 @@ class ObservationSink:
         key = (fid, exc_label)
         self.excs[key] = self.excs.get(key, 0) + 1
 
-    def add_perf(self, fid: int, dt_ns: int) -> None:
-        """A2 性能模式：累加一次正常返回调用的 inclusive 耗时（纳秒）。"""
+    def add_perf(self, fid: int, dt_ns: int, excl_ns: int) -> None:
+        """A2 性能模式：累加一次正常返回调用的耗时（纳秒）。
+
+        行 = [calls, total_ns, max_ns, excl_total_ns, excl_max_ns]；
+        inclusive 是墙钟耗时，exclusive 已扣除子调用（child_ns 帧栈，PR-A2-P2）。
+        """
         e = self.perf.get(fid)
         if e is None:
-            self.perf[fid] = [1, dt_ns, dt_ns]
+            self.perf[fid] = [1, dt_ns, dt_ns, excl_ns, excl_ns]
         else:
             e[0] += 1
             e[1] += dt_ns
             if dt_ns > e[2]:
                 e[2] = dt_ns
+            e[3] += excl_ns
+            if excl_ns > e[4]:
+                e[4] = excl_ns
 
     @property
     def func_count(self) -> int:

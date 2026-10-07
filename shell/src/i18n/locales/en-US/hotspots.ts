@@ -11,6 +11,7 @@ export const hotspots: Record<HotspotsKey, string> = {
   "hotspots.lastRun": "Last run {time}",
   "hotspots.noData": "No run records yet",
   "hotspots.noDataHint": "Run the project or its tests once; functions that ran and their call counts will appear here",
+  "hotspots.noPerfHint": "Performance mode is off — no timing data",
   "hotspots.noWorkspace": "No workspace open",
   "hotspots.noWorkspaceHint": "Open a project to list the functions that actually ran, by call count",
   "hotspots.openAria": "Open declaration",
@@ -25,6 +26,8 @@ export const hotspots: Record<HotspotsKey, string> = {
   "hotspots.scanningHint": "Reading run records and scanning the workspace",
   "hotspots.sectionObserved": "Observed (by call count)",
   "hotspots.sectionUnobserved": "Not observed running",
+  "hotspots.sortHits": "By call count",
+  "hotspots.sortTime": "By avg time",
   "hotspots.staleBadge": "changed",
   "hotspots.staleTip": "File changed after the last run; the observation may be stale",
   "hotspots.summaryCoverage": "{pct}% covered",
@@ -32,6 +35,12 @@ export const hotspots: Record<HotspotsKey, string> = {
   "hotspots.summaryObserved.one": "{count} functions observed",
   "hotspots.summaryObserved.other": "{count} functions observed",
   // ---- hotspots ----
+  "hotspots.timeAvg": "avg {time}",
+  // ---- hotspots.timeSamples ----
+  "hotspots.timeSamples.one": "{count} samples",
+  "hotspots.timeSamples.other": "{count} samples",
+  // ---- hotspots ----
+  "hotspots.timeTip": "Timing includes probe overhead; for relative ranking, not exact durations",
   "hotspots.title": "Runtime Hotspots",
   // ---- hotspots.truncatedHint ----
   "hotspots.truncatedHint.one": "Too many results; showing the first {count}",

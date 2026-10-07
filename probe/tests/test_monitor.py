@@ -611,9 +611,11 @@ def test_perf_mode_lifts_mute_and_times_every_call():
 
     assert not mon._muted, "perf 模式不得触发静音（否则样本只剩前 200 次）"
     (entry,) = _perf_of(sink, "hot").values()
-    calls, total_ns, max_ns = entry
+    calls, total_ns, max_ns, excl_total_ns, excl_max_ns = entry
     assert calls == 300, "每次正常返回都必须有耗时样本（与 hits 一致）"
     assert total_ns >= max_ns > 0
+    # 无子调用的函数：exclusive 与 inclusive 同一量级（样本粒度粗，允许同值）
+    assert excl_total_ns <= total_ns and excl_max_ns <= max_ns
 
 
 def test_perf_mode_exception_unwind_discards_sample():
@@ -642,7 +644,7 @@ def test_perf_mode_exception_unwind_discards_sample():
             boom()
         except ValueError:
             pass
-    assert not mon._perf_stacks.get(boom.__code__), "异常退出的 t0 必须由 PY_UNWIND 弹掉"
+    assert not mon._perf_frames, "异常退出的帧必须由 PY_UNWIND 弹掉（栈应清空）"
     mon.stop()
 
     assert _perf_of(sink, "boom") == {}, "异常退出的调用不贡献耗时样本"
@@ -652,7 +654,7 @@ def test_perf_mode_exception_unwind_discards_sample():
 
 
 def test_perf_mode_recursion_lifo_pairing():
-    """递归调用按 code 分桶 LIFO 配对：每层一次样本，返回后栈空。"""
+    """递归调用帧栈 LIFO 配对：每层一次样本，返回后栈空。"""
     cfg = ProbeConfig(perf_mode=True)
     mon, sink = _new_monitor(cfg)
     mon.start()
@@ -661,10 +663,48 @@ def test_perf_mode_recursion_lifo_pairing():
         return 1 if n <= 1 else n * fact(n - 1)
 
     assert fact(10) == 3628800
-    assert not mon._perf_stacks.get(fact.__code__), "递归全部返回后计时栈应为空"
+    assert not mon._perf_frames, "递归全部返回后计时帧栈应为空"
     mon.stop()
     (entry,) = _perf_of(sink, "fact").values()
     assert entry[0] == 10
+    # 递归 child_ns：fact(1) 无子调用 → 其 exclusive 约为全体样本之和的主体；
+    # 顶层 fact(10) 的 exclusive 最小（child_ns 扣得最多）。只做单调性粗检：
+    # excl_total > 0 且 <= total（配对正确、无负数/溢出）
+    assert 0 < entry[3] <= entry[1]
+
+
+def test_perf_mode_exclusive_subtracts_children():
+    """PR-A2-P2：exclusive 必须扣除子调用（child_ns 帧栈）。
+
+    parent 调用 child（child 内部 sleep 使耗时显著），parent 的 exclusive 应
+    接近其自身帧体（≈0），child 的 exclusive 应承载几乎全部耗时。
+    """
+    import time
+
+    cfg = ProbeConfig(perf_mode=True)
+    mon, sink = _new_monitor(cfg)
+    mon.start()
+
+    def child():
+        time.sleep(0.01)
+        return 1
+
+    def parent():
+        return child() + 1
+
+    parent(), mon.stop()
+    (p,) = _perf_of(sink, "parent").values()
+    (c,) = _perf_of(sink, "child").values()
+    pcalls, ptotal, pmax, pexcl_total, pexcl_max = p
+    ccalls, ctotal, cmax, cexcl_total, cexcl_max = c
+    assert pcalls == 1 and ccalls == 1
+    # child 的 exclusive ≈ 10ms+；parent 的 exclusive 远小于 child 的 inclusive
+    assert cexcl_total > 5_000_000, "child 的 exclusive 应承载 sleep 耗时（>5ms）"
+    assert pexcl_total < 5_000_000, "parent 的 exclusive 应扣除 child 耗时（<5ms）"
+    assert ptotal >= ctotal + pexcl_total, "parent inclusive >= child inclusive + 自身 exclusive"
+    # 无负值、无反转
+    assert pexcl_total >= 0 and cexcl_total >= 0
+    assert pexcl_max <= pmax and cexcl_max <= cmax
 
 
 def test_perf_mode_env_var(monkeypatch, tmp_path):
