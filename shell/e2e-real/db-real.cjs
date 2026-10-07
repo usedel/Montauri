@@ -351,10 +351,20 @@ function killWebviewLeftovers(port) {
 // ———————————————— 主流程 ————————————————
 
 (async () => {
+  // 汇总元信息 + 预检失败出口：预检/中断都要落 JSON，否则 run-real-all 与 nightly 只会看到
+  // 「无报告（未启动？）」，无法区分「没跑」与「跑了失败」（2026-10-07 实测踩到）
+  const t0 = Date.now();
+  const suiteMeta = { suite: 'db-real', cdpPort: CDP_PORT, headCommit: env.gitHead() };
+  function precheckFail(msg) {
+    console.error(`[预检失败] ${msg}`);
+    env.writeJsonSummary({ ...suiteMeta, durationMs: Date.now() - t0, error: msg });
+    process.exit(2);
+  }
+
   // 预检
-  if (await portInUse(5173)) { console.error('[预检失败] 5173 被占用，先停 vite/tauri dev'); process.exit(2); }
-  if (await portInUse(CDP_PORT)) { console.error(`[预检失败] CDP ${CDP_PORT} 被占用`); process.exit(2); }
-  if (!existsSync(PYTHON)) { console.error(`[预检失败] Python 不存在: ${PYTHON}`); process.exit(2); }
+  if (await portInUse(5173)) precheckFail('5173 被占用，先停 vite/tauri dev');
+  if (await portInUse(CDP_PORT)) precheckFail(`CDP ${CDP_PORT} 被占用`);
+  if (!existsSync(PYTHON)) precheckFail(`Python 不存在: ${PYTHON}`);
 
   // fixture
   const tmp = mkdtempSync(path.join(os.tmpdir(), 'oc-db-real-'));
@@ -369,10 +379,9 @@ function killWebviewLeftovers(port) {
   writeFileSync(pyScript, MAKE_DB_FIXTURE_PY, 'utf8');
   const py = await runCmd(PYTHON, ['-X', 'utf8', pyScript, dbPath]);
   if (py.status !== 0 || !existsSync(dbPath)) {
-    console.error('[预检失败] 造数失败: ' + (py.error
+    precheckFail('造数失败: ' + (py.error
       ? `进程未能启动（${py.error.message}）`
       : (py.stderr || py.stdout || '(无输出)')));
-    process.exit(2);
   }
   record('T14-0', '造数：3 表 1 视图 1 索引 + 万行主表 + 8 列宽表 + 3 行日志表', true, dbPath);
 
@@ -398,6 +407,7 @@ function killWebviewLeftovers(port) {
   console.log(`[环境] 数据根: ${dataRoot}\n[启动] npm run tauri dev（日志: ${logPath}）…`);
   let child = startApp(dataRoot, logPath);
   let browser = null;
+  let runError = null;
   const exportCsvPath = path.join(tmp, 'export-out', 'users-export.csv');
   mkdirSync(path.dirname(exportCsvPath), { recursive: true });
 
@@ -741,7 +751,8 @@ function killWebviewLeftovers(port) {
         && draftSaved && writablePersisted && historySaved,
       `条目数=${savedList.length} 连接节点=${connNode} 锁=${lockNode} 表节点=${treeHasUsers} 落盘草稿="${(savedConn?.sql || '').slice(0, 46)}" writable=${savedConn?.writable} 历史条数=${savedConn?.history?.length}`);
   } catch (e) {
-    console.error(`\n[运行中断] ${e.message || e}`);
+    runError = String(e.message || e);
+    console.error(`\n[运行中断] ${runError}`);
     try {
       console.error('—— tauri dev 日志尾部 ——\n' + readFileSync(logPath, 'utf8').slice(-2000));
     } catch { /* 无日志 */ }
@@ -756,7 +767,9 @@ function killWebviewLeftovers(port) {
   }
 
   const failed = printSummary('SQLite 工具真机验收（v1.4 编辑器 Tab 化 · §17.7）', process.env.OC_KEEP_APP === '1');
-  process.exit(failed > 0 ? 1 : 0);
+  env.writeJsonSummary({ ...suiteMeta, durationMs: Date.now() - t0, error: runError });
+  // 运行中断也算失败：原先中断时已跑过的用例可能全 PASS → 退出码 0 → 跑批汇总显示"全绿"（假象）
+  process.exit(runError || failed > 0 ? 1 : 0);
 })();
 
 function closeSyncSafe(fd) {

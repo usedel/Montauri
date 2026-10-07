@@ -37,6 +37,7 @@ const { chromium } = require('@playwright/test');
 const { spawn, execSync } = require('child_process');
 const { mkdtempSync, mkdirSync, writeFileSync, existsSync, openSync, realpathSync } = require('fs');
 const http = require('http');
+const net = require('net');
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
@@ -111,8 +112,27 @@ function httpGet(url) {
   });
 }
 
+/**
+ * 端口是否被占用。用 **TCP 连接**探测，而不是 HTTP GET `/json/version`：
+ * 后者只对 CDP 端口成立——**vite（5173）不提供该端点**，导致 5173 预检长期形同虚设
+ * （2026-10-07 跑批时发现：前一套件残留的 vite 不会被拦下）。
+ * 双栈探测：vite 常只绑 `::1`，只探 127.0.0.1 会漏（与 `netstat -ano` 那条踩坑同源）。
+ */
 function portInUse(port) {
-  return httpGet(`http://127.0.0.1:${port}/json/version`).then(() => true, () => false);
+  const probe = (host) => new Promise((resolve) => {
+    const sock = net.connect({ port, host });
+    let done = false;
+    const finish = (v) => {
+      if (done) return;
+      done = true;
+      try { sock.destroy(); } catch { /* 已关闭 */ }
+      resolve(v);
+    };
+    sock.setTimeout(1200, () => finish(false));
+    sock.once('connect', () => finish(true));
+    sock.once('error', () => finish(false));
+  });
+  return Promise.all([probe('127.0.0.1'), probe('::1')]).then(([v4, v6]) => v4 || v6);
 }
 
 async function waitCdpReady(port, timeoutMs) {

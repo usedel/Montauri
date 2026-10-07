@@ -1,0 +1,110 @@
+{
+  "schema": "opencharm-e2e-real-summary/1",
+  "suite": "multi-window-real",
+  "at": "2026-10-07T08:39:59.597Z",
+  "ok": true,
+  "total": 16,
+  "failed": 0,
+  "error": null,
+  "durationMs": 45908,
+  "headCommit": "3ba7076",
+  "cdpPort": 9224,
+  "cases": [
+    {
+      "id": "MC-REAL-1",
+      "desc": "主窗口恢复项目 A（文件树可见 a_project.py）",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "MC-REAL-LSP-1",
+      "desc": "A 打开文件且静态引擎就绪（#status-lsp 含「就绪」）",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "MC-REAL-2",
+      "desc": "调用 open_workspace_window 打开项目 B",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "MC-REAL-3",
+      "desc": "新窗口 page 出现（pages 1 -> 2）",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "MC-REAL-4",
+      "desc": "新窗口文件树可见 b_project.py（前端 init 跑通）",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "MC-REAL-LSP-2",
+      "desc": "开 B 后 A 的静态引擎仍就绪（#status-lsp 含「就绪」）",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "MC-REAL-5",
+      "desc": "新窗口可打开文件（Monaco 出现）",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "MC-REAL-WATCH-1",
+      "desc": "开 B 后 A 的文件监听仍存活（写 A 新文件 → A 树出现 a_after_b.py）",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "MC-REAL-WATCH-2",
+      "desc": "B 的文件监听独立（写 B 新文件 → B 树出现 b_after.py）",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "MC-REAL-TERM-1",
+      "desc": "A 开终端（xterm 渲染 + shell spawn）",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "MC-REAL-TERM-2",
+      "desc": "B 开终端（xterm 渲染 + shell spawn）",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "MC-REAL-TERM-3",
+      "desc": "term-data 定向不串（A 出 WIN_A，B 无 WIN_A）",
+      "ok": true,
+      "detail": "B 终端=[PS C:\\Users\\tom\\AppData\\Local\\Temp\\oc-multiwin-real-tljWWy\\wsB>]"
+    },
+    {
+      "id": "MC-REAL-DBG-1",
+      "desc": "A 调试命中（真 debugpy 停 :6）",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "MC-REAL-DBG-2",
+      "desc": "双窗口调试会话并存（B 命中且 A 仍在调试态）",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "MC-REAL-6",
+      "desc": "重复打开 B 去重（pages 2 -> 2）",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "id": "MC-REAL-7",
+      "desc": "关闭 B（页面消失）且 A 不受影响（a_project.py 仍在）",
+      "ok": true,
+      "detail": "closed=true aOk=true"
+    }
+  ]
+}

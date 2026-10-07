@@ -31,10 +31,11 @@ const { chromium } = require('@playwright/test');
 const { spawn, execSync } = require('child_process');
 const { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync, openSync, rmSync } = require('fs');
 const http = require('http');
+const net = require('net');
 const os = require('os');
 const path = require('path');
 // 只借启动看门狗：exe / tauri dev 起不来时快速失败，不干等 cdpTimeout
-const { waitCdpReadyWatched } = require('./lib/real-env.cjs');
+const { waitCdpReadyWatched, writeJsonSummary, gitHead } = require('./lib/real-env.cjs');
 
 const CDP_PORT = Number(process.env.OC_CDP_PORT || 9224);
 const CDP_TIMEOUT_MS = Number(process.env.OC_CDP_TIMEOUT || 600) * 1000;
@@ -63,8 +64,22 @@ function httpGet(url) {
   });
 }
 
+// TCP 双栈探测（不是 HTTP /json/version——vite 5173 没有该端点，预检会形同虚设）
 function portInUse(port) {
-  return httpGet(`http://127.0.0.1:${port}/json/version`).then(() => true, () => false);
+  const probe = (host) => new Promise((resolve) => {
+    const sock = net.connect({ port, host });
+    let done = false;
+    const finish = (v) => {
+      if (done) return;
+      done = true;
+      try { sock.destroy(); } catch { /* 已关闭 */ }
+      resolve(v);
+    };
+    sock.setTimeout(1200, () => finish(false));
+    sock.once('connect', () => finish(true));
+    sock.once('error', () => finish(false));
+  });
+  return Promise.all([probe('127.0.0.1'), probe('::1')]).then(([v4, v6]) => v4 || v6);
 }
 
 function tail(text, n) { return text.length <= n ? text : '...' + text.slice(-n); }
@@ -195,22 +210,25 @@ async function runChecks(page, projRoot) {
 }
 
 (async () => {
-  if (await portInUse(5173)) {
-    console.error(`[预检失败] 5173 已被占用（可能已有 vite / tauri dev 在跑），请先停掉再运行本脚本。`);
+  // 汇总元信息 + 预检失败出口：不落 JSON 的话，run-real-all 与 nightly 只会看到
+  // 「无报告（未启动？）」，分不清「没跑」和「跑了失败」（2026-10-07 实测踩到）
+  const t0 = Date.now();
+  const suiteMeta = { suite: 'new-project-fastapi-real', cdpPort: CDP_PORT, headCommit: gitHead() };
+  function precheckFail(msg) {
+    console.error(`[预检失败] ${msg}`);
+    writeJsonSummary({ ...suiteMeta, durationMs: Date.now() - t0, error: msg });
     process.exit(2);
   }
-  if (await portInUse(CDP_PORT)) {
-    console.error(`[预检失败] CDP 端口 ${CDP_PORT} 已被占用（可能残留上一次会话）。`);
-    process.exit(2);
-  }
+
+  if (await portInUse(5173)) precheckFail('5173 已被占用（可能已有 vite / tauri dev 在跑），请先停掉再运行本脚本。');
+  if (await portInUse(CDP_PORT)) precheckFail(`CDP 端口 ${CDP_PORT} 已被占用（可能残留上一次会话）。`);
 
   // 项目父目录：默认临时目录（自建自清）；OC_PARENT 可指定（如 D:\logs）——不复用真实用户目录
   const parentDir = process.env.OC_PARENT || path.join(os.tmpdir(), `oc-np-real-${Date.now()}`);
   mkdirSync(parentDir, { recursive: true });
   const projRoot = path.join(parentDir, PROJ_NAME);
   if (existsSync(projRoot)) {
-    console.error(`[预检失败] 项目目录已存在: ${projRoot}（重名会触发「目标已存在」错误）`);
-    process.exit(2);
+    precheckFail(`项目目录已存在: ${projRoot}（重名会触发「目标已存在」错误）`);
   }
 
   // 隔离数据根：recent-workspaces 为空 → 启动停欢迎页（#ew-actions 可见）
@@ -236,6 +254,7 @@ async function runChecks(page, projRoot) {
 
   let exitCode = 0;
   let browser = null;
+  let runError = null;
   try {
     const waited = await waitCdpReadyWatched(CDP_PORT, CDP_TIMEOUT_MS, { child, logPath });
     console.log(`[就绪] CDP 已监听（等待 ${Math.round(waited / 1000)}s），连接…`);
@@ -248,7 +267,8 @@ async function runChecks(page, projRoot) {
 
     await runChecks(page, projRoot);
   } catch (e) {
-    console.error(`\n[运行中断] ${e.message || e}`);
+    runError = String(e.message || e);
+    console.error(`\n[运行中断] ${runError}`);
     try {
       const log = readFileSync(logPath, 'utf8');
       console.error('—— tauri dev 日志尾部 ——\n' + tail(log, 2000));
@@ -273,5 +293,6 @@ async function runChecks(page, projRoot) {
   const failed = results.filter((r) => !r.ok).length;
   console.log(`--------------------------------------`);
   console.log(`共 ${results.length} 项，失败 ${failed} 项${KEEP_APP ? '（应用保留运行中）' : ''}`);
+  writeJsonSummary({ ...suiteMeta, durationMs: Date.now() - t0, error: runError });
   process.exit(exitCode || (failed > 0 ? 1 : 0));
 })();
