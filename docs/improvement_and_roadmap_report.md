@@ -507,7 +507,9 @@
 - **两条工程决定**（都写进了脚本注释）：① 截断用例用**二进制**体（`ct=bin`）——前端对文本体是直接塞进 `<pre>` 的且**无渲染上限**，5 MB 文本会卡住 WebView 拖垮后续用例；二进制分支不渲染体，验的是同一条后端 `stopped_early` 路径。② 每次发送先**等服务端真的收到本次请求**（按 pathname 比对）再等 UI 落定——真机没有 mock 那种 `__E2E_HTTP_LAST_REQ__` 直读通道，只盯 UI 会读到上一条响应的旧状态（连续两次 200 必然误判）。
 - **口径**：默认 10 条 + 1 条可选；已加入 `run-real-all.ps1` 默认清单与 `nightly.yml` 脚本清单（**两处必须同步**，脚本头注释已写明）。
 - **本机已验的部分**：脚本内那个 Node 服务被**单独抽出跑过一轮端点自测**（10/10 PASS：`/json` `/echo` `/redirect` `/missing` `/bytes` `/big`(两种 ct) `/slow`(确认真的慢) `/stream`(断流计数) + 服务端观测），故服务端半边的行为是确定的；**未验的是 UI 半边**（需真机 DOM）。
-- ⏳ **待用户终端跑一次**（会话环境起不来 tauri dev）→ 结论以 `shell/real-reports/<stamp>/http-real.json` 为准；预期全量由 6 套 / 95 项变为 **7 套 / ~105 项**。
+- **首轮真机跑（2026-10-07 17:51，HEAD `0fa00c3`）：应用起来了（23s，CDP 已连），但 `#devtools-picker` 一直 hidden**——`Ctrl+Shift+T` **按得太早**。根因在代码里可定位：全局键位路由要到 `main.ts:1745 wireWindowKeys()` 才装（init 中段），而 mock 层靠等 `__TAURI_MOCK_INVOKE_LOG__` 的 `list_plugin_dirs` 判 init 完成——**真机没有这个钩子**，脚本在键位接线前就按键，事件没人接。**已修（commit `23c7b53`）**：① 就绪判据改用 DOM 信号 `#tree .tree-item`——行号依据 `initDevTools(1569) < wireWindowKeys(1745) < openInitialWorkspace(2109)`，文件树出现即同时保证"内置工具已注册 + 键位已接线"；② 保留最多 10 次重试兜底（不把脚本钉死在内部时序上）；③ 新增 `dismissFirstRunModals`——`maybePromptToolchain()` 是 `await openConfirm`，工具链缺失时会卡在 `openInitialWorkspace` 之前（树永不出现），该函数**只点「稍后/取消」这类非破坏性按钮**，刻意避开「立即安装」（真机上会真的开始装 uv/pyrefly）。
+- **这条值得归档为真机脚本的一条通用纪律**：**真机层没有 mock 的 `__TAURI_MOCK_INVOKE_LOG__` 等就绪钩子，凡是"等 init 完成"的地方都必须换成一个**可观测的 DOM 信号 + 重试**，不能靠固定 sleep 或直接按键**。选信号时先看 main.ts 里的行号先后关系（信号必须晚于你要用的那套接线）。
+- ⏳ **待用户终端再跑一次**（首轮失败报告已入库 `shell/real-reports/20261007-175115/`）→ 结论以新的 `http-real.json` 为准；预期全量由 6 套 / 95 项变为 **7 套 / ~105 项**。
 
 ### P1-5 · 偿还 TD-021 五小项
 
