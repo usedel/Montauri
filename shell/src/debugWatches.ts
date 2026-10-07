@@ -20,7 +20,16 @@ const MAX_WATCHES = 20;
 /** 值显示截断（完整值挂 title） */
 const MAX_VALUE_LEN = 200;
 
-let watches: string[] = load();
+let watches: string[] = [];
+let watchesLoaded = false;
+
+/** TD-021⑤：localStorage 读取从模块顶层副作用改为惰性——面板真正接线（首次 render）前
+ *  不触碰存储；测试 / 无存储环境 import 即安全（同「模块顶层禁止立即解析 DOM」纪律）。 */
+function ensureWatchesLoaded(): void {
+  if (watchesLoaded) return;
+  watchesLoaded = true;
+  watches = load();
+}
 let getFrameId: () => number | null = () => null;
 /** 刷新令牌（快速切帧时旧求值循环作废） */
 let watchToken = 0;
@@ -84,6 +93,7 @@ function renderRow(expr: string, value: string | null, failed: boolean): HTMLEle
 }
 
 function render(): void {
+  ensureWatchesLoaded(); // 惰性初始化：render 是所有 watches 读写的唯一入口网关
   if (!sectionEl || !listEl) return;
   sectionEl.textContent = "";
   const title = document.createElement("div");

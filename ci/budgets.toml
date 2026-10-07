@@ -98,6 +98,10 @@ endpoint_view_ts_max_lines = 460
 ep_sample_ts_max_lines = 330
 ep_sample_core_ts_max_lines = 205
 
+# terminalBackpressure.ts（TD-021① 终端背压 UTF-8 字节口径，2026-10-07 新增）：零依赖纯逻辑
+#   队列（同 epSampleCore / selectorCore 的分层惯例，单测可直接 import）。上限 130。
+terminal_backpressure_ts_max_lines = 130
+
 # selectorCore.ts / selector.ts（A4 选择器测试，2026-10-06 新增）：379 / 394 行。上限 460 / 480（余量 ~21% / ~22%）。
 #   两层是刻意分的（同 epSample 那条教训）：Core 零 app 依赖（不 import state / i18n / util）→
 #   单测直接 import 即可，happy-dom 下跑得动；selector.ts 那层要 PanelHost / DOMPurify / 面板 DOM。
@@ -117,11 +121,12 @@ git_ts_max_lines = 3300
 lsp_client_ts_max_lines = 1850
 
 # env_cmds.rs 及拆分后的三个新文件（2026-10-07 已执行拆分，P0-4「先冻结再择机拆」的"择机"时刻）。
-#   拆分前：env_cmds.rs 4,945 行 / 32 个命令，Rust 侧最大单文件。按业务域切四块，命令面
-#   （32 命令）与前端 invoke 字符串**零变化**，纯模块重组、无行为变更：
+#   拆分前：env_cmds.rs 4,945 行 / 32 个命令，Rust 侧最大单文件；拆分方案见
+#   .trae/documents/env-cmds-split.md。按业务域切四块，命令面（32 命令）与前端 invoke
+#   字符串**零变化**，纯模块重组、无行为变更：
 #     · env_cmds.rs  瘦身（解释器 / venv / 包管理 / 框架探针域）        → 1,374 行，上限 1,700（余量 ~19%）
-#     · run_config.rs 新建（工作区配置存储 / 运行配置 / 项目入口探测）   →   674 行，上限   900（余量 ~25%）
-#     · dep_health.rs 新建（依赖健康前半：style / 声明解析 / 环境快照 / E5 lock）→ 1,044 行，上限 1,280（余量 ~19%）
+#     · run_config.rs 新建（工作区配置存储 / 运行配置 / 项目入口探测）   →   675 行，上限   900（余量 ~25%）
+#     · dep_health.rs 新建（依赖健康前半：style / 声明解析 / 环境快照 / E5 lock）→ 1,043 行，上限 1,280（余量 ~19%）
 #     · dep_fix.rs   新建（后半：探针执行 / diff 计算 / dep_scan / 忽略清单 / 修复动作）→ 1,968 行，上限 2,400（余量 ~18%）
 #   冻结线纪律继续有效：新增的 Python 环境类命令一律落新文件，env_cmds.rs **只减不增**
 #   （纪律写在 env_cmds.rs 文件头）。

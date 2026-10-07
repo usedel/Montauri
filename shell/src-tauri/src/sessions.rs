@@ -66,10 +66,13 @@ fn valid_rel(p: &str) -> bool {
 fn sanitize(mut st: SessionState) -> SessionState {
     st.tabs.retain(|t| valid_rel(&t.path));
     if st.tabs.len() > MAX_TABS {
-        st.tabs.truncate(MAX_TABS);
+        // TD-021③：保尾（split_off 留最近打开的）——旧 `truncate(MAX_TABS)` 丢的是
+        // 最近打开的 tab，与「恢复最近现场」直觉相反。
+        st.tabs = st.tabs.split_off(st.tabs.len() - MAX_TABS);
     }
     if let Some(a) = &st.active {
-        if !valid_rel(a) {
+        // 同步活动 tab 判定：active 指向已丢弃（最旧）tab 时清掉，回落「激活最后一个」
+        if !valid_rel(a) || !st.tabs.iter().any(|t| &t.path == a) {
             st.active = None;
         }
     }
@@ -141,6 +144,34 @@ mod tests {
                 .collect(),
             active: None,
         };
-        assert_eq!(sanitize(many).tabs.len(), MAX_TABS);
+        let kept = sanitize(many);
+        assert_eq!(kept.tabs.len(), MAX_TABS);
+        // 保尾：保留的是最近打开的（f5 起），而不是最旧的（f0 起）
+        assert_eq!(kept.tabs.first().unwrap().path, "f5.py");
+        assert_eq!(kept.tabs.last().unwrap().path, "f44.py");
+    }
+
+    #[test]
+    fn sanitize_clears_active_pointing_at_dropped_tab() {
+        // active 指向被保尾丢弃的最旧 tab → 清掉（回落「激活最后一个」）
+        let dropped = SessionState {
+            tabs: (0..MAX_TABS + 1)
+                .map(|i| SessionTab { path: format!("f{i}.py"), line: 1, column: 1, draft: None })
+                .collect(),
+            active: Some("f0.py".into()),
+        };
+        let got = sanitize(dropped);
+        assert_eq!(got.active, None);
+        assert!(!got.tabs.iter().any(|t| t.path == "f0.py"));
+
+        // active 指向保留区内的 tab → 原样保留
+        let kept_active = SessionState {
+            tabs: (0..MAX_TABS + 1)
+                .map(|i| SessionTab { path: format!("f{i}.py"), line: 1, column: 1, draft: None })
+                .collect(),
+            active: Some("f40.py".into()),
+        };
+        let got2 = sanitize(kept_active);
+        assert_eq!(got2.active.as_deref(), Some("f40.py"));
     }
 }

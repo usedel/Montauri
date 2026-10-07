@@ -111,6 +111,10 @@
 > - **A4-Py 选择器 Python 引擎 → 不立项（已裁决）**：求值引擎裁决为「前端浏览器 DOM」（DOMParser + querySelectorAll / document.evaluate），Python 侧降级登记；口径差异已常驻一行说明 + e2e SEL-9 钉住（原裁决维持）。
 > - **阶段二全量交付**：A1 运行时热点视图（⑫）· A2 内置 Profiler（⑰~⑳，已收口进验收维护态，`profiler_acceptance_record.md`）· A3①②③ 实参补全 / hover 观测签名 / signatureHelp（⑭⑯）· A4①③ 选择器测试器 / 响应→模型桥（⑮）· A5①② 请求样例 / 一键 curl（⑬）。
 > **下一步**：**阶段二已收口，进入维护态**（运行侧只受理开销回归 / trace 迁移 / 预算违约修复；工具箱侧只受理缺陷修复与既有工具打磨）。后续候选批次待用户另行裁决。
+>
+> **㉑ 维护态首件：TD-021① 终端背压 UTF-8 口径已修（2026-10-07，用户指定 P1-5 ① 先行）**。此前 `terminal.ts` 背压队列用 `data.length` 累加「字节数」——那是 UTF-16 码元数，CJK 一个字符 1 码元 / 3 UTF-8 字节，中文输出下单帧 256KB / 积压 4MB 阈值实际放宽 ~3 倍。修法取登记中的「改存 Uint8Array」分支：新增零依赖模块 `terminalBackpressure.ts`（push 时 `TextEncoder` 一次编码，计数 / 切分 / 丢弃 / 限流提示全按真实 UTF-8 字节；浏览器无 Node `Buffer`，原登记的 `Buffer.byteLength` 路线不可行），`terminal.ts` 只留接线，i18n 文案与 ANSI 序列仍在壳侧。xterm.js v5 `write(Uint8Array)` 自带增量 UTF-8 解码，字节边界切分不乱码。配套：新增单测 6 例（CJK 计数 / 预算切分拼回 / 硬上限丢旧 / 限流只提示一次 / 清空与边界 / 字节边界合并解码）+ 预算条目 `terminal_backpressure_ts_max_lines = 130`（预算 36 → 37 项）。
+>
+> **㉒ TD-021③④⑤ 已修（2026-10-07，用户指定续推 P1-5 剩余项）**：**③** `sessions.rs` 快照改保尾——`truncate(MAX_TABS)` 丢的是最近打开的 tab，与「恢复最近现场」直觉相反；改 `tabs.split_off(len - MAX_TABS)` 留最近 40 个，并同步活动 tab 判定（active 指向已丢 tab 时清掉，回落「激活最后一个」）。**④** `proc_stats.rs` 只数直接子进程，运行链中间层（cmd /c、shell 包装）下的孙进程内存漏计、芯片口径偏小；改按 parent 邻接表 BFS 收集全部后代，visited 防环（进程 parent 关系极端下可能成环，裸递归会栈溢出），环处理与 sysinfo 解耦成纯函数 `collect_descendants` 直接单测。**⑤** `debugWatches.ts` 顶层 `load()` 读 localStorage 是 import 即触发的副作用（同「模块顶层禁止立即解析 DOM」纪律）；改惰性初始化——`watches` 先置空，`ensureWatchesLoaded()` 在首次 `render()`（面板接线唯一网关）时加载。验证：cargo test 320 → **323**（新增 3 例）、cargo check 通过、vitest 1277 不变、tsc/build 零错、budget 37 项全 PASS。P1-5 仅剩 **②**（session.ts `restoring` 布尔非令牌，场景罕见）。
 > v1.1 的规模数字取自 PowerShell `Get-Content $f | .Count`。在本机（PS 5.1，ANSI 代码页 **gb2312**）上，对**无 BOM 的 UTF-8 源文件**该写法会按 GBK 解码并**吞掉换行**——`style.css` 报 5,410 而真实 5,668（少 4.5%），`main.ts` 报 2,503 而真实 2,897（少 13%）。丢失比例随文件 CJK 密度而变、**逐文件不同**，因此这批数字是"看起来合理但系统性偏低"的。
 > 连带被推翻的结论（详见 §1.2）：**「巨型文件趋势已逆转」「UI 六批顺带把逻辑拆去了域模块」不成立**——`git.ts` / `lsp/client.ts` / `env_cmds.rs` / `fs_cmds.rs` / `git_cmds.rs` 在 `44c85ea → HEAD` 之间**一行未变**，`main.ts` 是 **+58**（不是 −336）。
 > 本版全部行数改由 `tools/stats/repo-stats.mjs` 重取，并新增两个防复发机制：取数脚本固化为代码 + 预算门禁（`ci/budgets.toml` / `shell/scripts/budget-check.mjs`）。
@@ -395,6 +399,7 @@
 
 5 个 P4 项，其中 **① 终端背压 UTF-8 口径**（CJK 下阈值放宽 3 倍）与 **③ tab 快照保头弃尾**（丢最近打开的 tab）在中文 Windows 自用场景下有实际体感，建议优先。其余三项按"顺手"原则处理。
 成本：合计约 1~2 人日。
+> 状态：**①③④⑤ ✅ 已修（2026-10-07，见落地续记 ㉑ / ㉒）**；**② 待处理**（session.ts `restoring` 布尔非令牌，场景罕见，可顺手时再修）。
 
 ### P1-6 · 插件 v2 议题启动（择一）
 

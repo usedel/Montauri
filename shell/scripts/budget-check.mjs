@@ -146,6 +146,7 @@ addLine("shell/src/hotspotsView.ts", "hotspots_view_ts_max_lines");
 addLine("shell/src/endpointView.ts", "endpoint_view_ts_max_lines");
 addLine("shell/src/epSample.ts", "ep_sample_ts_max_lines");
 addLine("shell/src/epSampleCore.ts", "ep_sample_core_ts_max_lines");
+addLine("shell/src/terminalBackpressure.ts", "terminal_backpressure_ts_max_lines");
 addLine("shell/src/devtools/builtin/selectorCore.ts", "selector_core_ts_max_lines");
 addLine("shell/src/devtools/builtin/selector.ts", "selector_ts_max_lines");
 addLine("shell/src/devtools/builtin/http.ts", "http_ts_max_lines");

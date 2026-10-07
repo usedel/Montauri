@@ -4,7 +4,7 @@
 // run_config.rs；依赖健康 dep 域前半（style / 声明解析 / 环境快照 / E5 lock）→ dep_health.rs；
 // 后半（探针执行 / diff 计算 / dep_scan / 忽略清单 / 修复动作）→ dep_fix.rs。三个新文件各设
 // 预算上限，本文件仅余解释器 / venv / 包管理 / 框架探针域（原「切三块」意向按业务域调整为
-// 切四块；四文件行数上限见 ci/budgets.toml，行段归属见提交 6f76edd..HEAD 的拆分 diff）。
+// 切四块，见 .trae/documents/env-cmds-split.md）。
 //
 // 冻结线纪律继续有效：**新增的 Python 环境类命令一律落新文件**，本文件**只减不增**。
 

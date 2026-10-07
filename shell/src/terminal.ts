@@ -13,6 +13,7 @@ import { t } from "./i18n"; // 第五批 i18n：终端内提示文案走语言�
 import { errMsg } from "./util";
 import { localizeBackendError } from "./i18n/backendError";
 import { shellThemeOf } from "./theme/tokens";
+import { OutputBackpressure } from "./terminalBackpressure"; // TD-021①：背压 UTF-8 字节口径
 
 /** 终端配色随外壳主题（D1 P-01：浅色主题下不再固定深色终端；批 4 起判定走 shellThemeOf） */
 function xtermTheme(): ITheme {
@@ -79,16 +80,11 @@ export class IntegratedTerminal {
   private started = false;
   private resizeObserver: ResizeObserver;
   private onExit?: () => void;
-  /** 待写入的文本块队列（按帧合并，削峰不丢数据） */
-  private pendingChunks: string[] = [];
-  /** 队列当前字节数（与 pendingChunks 同步维护，避免每帧 reduce 大数组） */
-  private pendingBytes = 0;
+  /** 待写队列（TD-021①：真实 UTF-8 字节口径；旧实现 data.length 是 UTF-16 码元数，
+   *  中文输出下 4MB 硬上限实际放宽 ~3 倍。纯逻辑抽到 terminalBackpressure.ts 可单测） */
+  private bp = new OutputBackpressure(MAX_PENDING_BYTES, THROTTLE_WARN_BYTES);
   /** 本帧是否已排了 flush */
   private flushScheduled = false;
-  /** 本次洪峰是否已提示过限流（队列清空时复位） */
-  private throttleNotified = false;
-  /** 本次洪峰因硬上限丢弃的最旧输出字节数（队列清空时汇总提示后复位） */
-  private droppedBytes = 0;
 
   constructor(id: string, view: HTMLElement) {
     this.id = id;
@@ -242,23 +238,7 @@ export class IntegratedTerminal {
   /** （外部事件分发）term-data → 排队，按帧合并后写入 xterm（背压，见文件头「输出背压」） */
   writeData(data: string): void {
     if (!data) return;
-    this.pendingChunks.push(data);
-    this.pendingBytes += data.length;
-    // G-1：积压硬上限——丢最旧输出保响应（scrollback 有限，最旧内容本就即将滚出可视区）
-    if (this.pendingBytes > MAX_PENDING_BYTES) {
-      let dropped = 0;
-      while (this.pendingBytes > MAX_PENDING_BYTES && this.pendingChunks.length > 1) {
-        const head = this.pendingChunks.shift()!;
-        this.pendingBytes -= head.length;
-        dropped += head.length;
-      }
-      if (dropped > 0) this.droppedBytes += dropped;
-    }
-    // 积压过大时只提示一次：让用户知道「输出被削峰」而非「程序卡了」
-    if (this.pendingBytes >= THROTTLE_WARN_BYTES && !this.throttleNotified) {
-      this.throttleNotified = true;
-      this.pendingChunks.push(`\r\n\x1b[33m${t("run.term.throttled")}\x1b[0m\r\n`);
-    }
+    this.bp.push(data, `\r\n\x1b[33m${t("run.term.throttled")}\x1b[0m\r\n`);
     this.scheduleFlush();
   }
 
@@ -275,44 +255,22 @@ export class IntegratedTerminal {
   /** 同步写出队列（按单帧字节预算削峰；剩余留到下一帧）。
    *  markStopped / handleExit 在写提示行前先调它，保证「进程输出 → 退出提示」的时序不乱。 */
   private flushPending(): void {
-    if (this.pendingChunks.length === 0) return;
-    let budget = MAX_WRITE_BYTES_PER_FRAME;
-    let out = "";
-    while (budget > 0 && this.pendingChunks.length > 0) {
-      const head = this.pendingChunks[0];
-      if (head.length <= budget) {
-        out += head;
-        budget -= head.length;
-        this.pendingChunks.shift();
-      } else {
-        // 单块比预算还大：切一部分写入，剩下的留在队首
-        out += head.slice(0, budget);
-        this.pendingChunks[0] = head.slice(budget);
-        budget = 0;
-      }
+    if (this.bp.isEmpty) return;
+    const out = this.bp.take(MAX_WRITE_BYTES_PER_FRAME);
+    if (out) this.term.write(out);
+    // 洪峰结束补一行收尾提示：洪峰中途那次提示会被后续输出冲出 scrollback（看不到），
+    // 结束时没有后续输出，这一行才真正留得住。
+    const dropped = this.bp.consumePeakEnd();
+    if (dropped !== null) {
+      const droppedNote = dropped > 0 ? t("run.term.droppedNote", { kb: Math.round(dropped / 1024) }) : "";
+      this.term.writeln(`\r\n\x1b[33m${t("run.term.peakEnded", { note: droppedNote })}\x1b[0m\r\n`);
     }
-    this.pendingBytes -= out.length;
-    if (this.pendingBytes < 0) this.pendingBytes = 0;
-    this.term.write(out);
-    if (this.pendingChunks.length === 0) {
-      // 洪峰结束补一行收尾提示：洪峰中途那次提示会被后续输出冲出 scrollback（看不到），
-      // 结束时没有后续输出，这一行才真正留得住。
-      if (this.throttleNotified) {
-        const droppedNote = this.droppedBytes > 0 ? t("run.term.droppedNote", { kb: Math.round(this.droppedBytes / 1024) }) : "";
-        this.term.writeln(`\r\n\x1b[33m${t("run.term.peakEnded", { note: droppedNote })}\x1b[0m\r\n`);
-        this.throttleNotified = false; // 允许下次洪峰再提示
-        this.droppedBytes = 0;
-      }
-    }
-    if (this.pendingChunks.length > 0) this.scheduleFlush(); // 还有积压 → 下一帧继续
+    if (!this.bp.isEmpty) this.scheduleFlush(); // 还有积压 → 下一帧继续
   }
 
   /** 丢弃待写队列（startRun 的 reset / dispose 用：旧输出已无意义） */
   private dropPendingWrites(): void {
-    this.pendingChunks = [];
-    this.pendingBytes = 0;
-    this.throttleNotified = false;
-    this.droppedBytes = 0;
+    this.bp.clear();
   }
 
   /** 同步排空全部待写队列（stop/exit 路径专用：进程已死不会再有新输入）。
@@ -321,22 +279,19 @@ export class IntegratedTerminal {
    *  （scrollback 只有 5000 行，截断的部分本就留不住）。 */
   private drainPending(): void {
     let drained = 0;
-    while (this.pendingChunks.length > 0 && drained < DRAIN_MAX_BYTES) {
-      const beforeChunks = this.pendingChunks.length;
-      const beforeBytes = this.pendingBytes;
-      this.flushPending();
-      const wrote = beforeBytes - this.pendingBytes;
-      drained += wrote;
-      if (this.pendingChunks.length === beforeChunks && wrote === 0) break; // 防御：无进展（理论不可达）
+    while (drained < DRAIN_MAX_BYTES) {
+      const out = this.bp.take(MAX_WRITE_BYTES_PER_FRAME);
+      if (!out) break;
+      this.term.write(out);
+      drained += out.length;
     }
-    if (this.pendingChunks.length > 0) {
-      const droppedKb = Math.max(1, Math.round(this.pendingBytes / 1024));
-      this.pendingChunks = [];
-      this.pendingBytes = 0;
+    const rest = this.bp.pendingBytes;
+    if (rest > 0) {
+      this.bp.clear();
+      const droppedKb = Math.max(1, Math.round(rest / 1024));
       this.term.write(`\r\n\x1b[33m${t("run.term.stopDropped", { kb: droppedKb })}\x1b[0m\r\n`);
     }
-    this.throttleNotified = false;
-    this.droppedBytes = 0;
+    this.bp.consumePeakEnd(); // 静默复位洪峰标记，避免退出后再 flush 误报「洪峰结束」
   }
 
   /** 为一整行终端缓冲提供全部链接（traceback + URL），供 registerLinkProvider 按需回调。
