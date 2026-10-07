@@ -1,6 +1,6 @@
 # A2 内置 Profiler 开发计划
 
-> 版本：**v0.1** · 日期：2026-10-06 · HEAD `8eb2b89` · 状态：**待裁决后开工**
+> 版本：**v0.2** · 日期：2026-10-07 · HEAD `d65fae9` · 状态：**§7 三项已裁决（红线 ≤ cProfile / 照现状推进 / self-time 先测后做），PR-A2-P1 开工**
 > 上级：`docs/improvement_and_roadmap_report.md` 候选池 **A2**（用户 2026-10-06 选定为阶段二下一步）
 > 证据：**`bench/reports/a2-overhead-lab.md`**（开销门槛实验 v1.0）——**本文所有倍率均出自该报告，引用前先核对 HEAD**
 > 相关合约：`docs/adr/0010-performance-lightweight-charter.md`（性能/体积一等目标）· `probe/README.md`（类型紧凑表示、零第三方依赖）
@@ -55,7 +55,7 @@
 | PR | 内容 | 关键约束 | 出口条件 |
 |---|---|---|---|
 | **PR-A2-P0** | 开销门槛实验 + 本报告 | ✅ **已完成**（2026-10-06） | `bench/reports/a2-overhead-lab.md` v1.0 |
-| **PR-A2-P1** | probe 侧 `perf_mode`：配置开关 + 计时回调 + 每 code 聚合（calls / total_ns / max_ns） | ① 默认路径注册原回调，逐字不变；② 抬 `max_calls_per_func`；③ probe 单测 + `uv run pytest` 全绿 | 默认路径 overhead 与 HEAD 持平；性能模式 ratio 进 [2.4, 2.9] |
+| **PR-A2-P1** | probe 侧 `perf_mode`：配置开关 + 计时回调 + 每 code 聚合（calls / total_ns / max_ns） | ① 默认路径注册原回调，逐字不变；② 抬 `max_calls_per_func`；③ probe 单测 + `uv run pytest` 全绿 | ✅ **已完成（2026-10-07）**：V2n 2.81~2.87x ∈ [2.4, 2.9] 且 ≤ cProfile（余量 ~44%）；样本 6003/6003；86/86 全绿。差异记录：PY_UNWIND 不可局部事件 → 全局 + dict 过滤（盖印 `a2-overhead-lab.md` §8） |
 | **PR-A2-P2** | exclusive(self) time：**先测后做**——先跑一次 child_ns 结构成本实验，不达标（> cProfile 红线）则砍掉本 PR | 成本未实测前不得落地新结构 | 报告追加一行 `V2p-self`；按 §3.3 红线判定是否保留 |
 | **PR-A2-P3** | trace 库写入 + **复用现有 `scan_runtime_hotspots` 命令扩展返回**（**不新增 Tauri 命令**——命令面 196/200，只剩 4 个名额） | `intel_cmds.rs` 当前 472/600，余 128 行；超则先做行数预算 PR | 后端单测；`SQLITE_OPEN_READ_ONLY` 不变（A1 的只读约定延续） |
 | **PR-A2-P4** | 热点视图增「耗时」视角：排序切换 + 平均/P99 列 + 跳转复用 | `hotspotsView.ts` 282/350；`styles/hotspots.css` **44/60 只剩 16 行**，样式优先复用既有类 | e2e ux 域新增 cases；--no-new-CSS 优先 |
@@ -82,11 +82,11 @@
 - [ ] `budget-check.mjs` 全 PASS（**新 CSS 文件必须同步登记上限**）；`audit_tokens.py` 0 FAIL（**新 CSS 落地后必须复跑取实测值**，不得以"本轮无 CSS 改动"推断）；
 - [ ] `delivery-overview.md` 登记 A2；`intel/README.md` 与本报告 §8 同步。
 
-## 7. 待裁决
+## 7. 待裁决 —— ✅ 已全部裁决（2026-10-07）
 
-① **性能模式红线是否采用「≤ cProfile」口径**（本文 §3.3 推荐），还是沿用固定数字。
-② **是否在 A2 之前先处理 Gate C 的口径问题**：深入追查后发现**不是抖动而是口径不可比**——同一份 probe 代码在同一时点，倍率随负载形状在 **1.17x~2.48x** 摆动（详见 **`bench/reports/probe-overhead-caliber.md`**）；归因亦在其中：静音节流藏起近 1x、全局 `PY_START` 常驻 ≈0.39x、类型观测 ≈0.26x。`git log` 排除 probe 回归。选项：(a) 先优化 baseline 再动 A2；(b) 照现状推进 A2（默认路径零改动即可不恶化）；(c) 显式 PR 抬红线（与 ADR-0010「数值维持现值不动」冲突，需写明理由）。
-③ **exclusive(self) time 是否值得再花 0.3~0.5d**（取决于 PR-A2-P2 的成本实测）。
+① ✅ **性能模式红线采用「≤ 同负载 cProfile」口径**（本文 §3.3 推荐方案），不写固定数字。
+② ✅ **照现状推进 A2**（选项 b）：默认路径逐字不动即不恶化 Gate C；Gate C 口径欠账另案处理——裁决为「维持单形状官方 harness + 文档标注」，承认其单次读数判不了 0.1x 级差异，进程内精测（reps ≥7）为可信口径。**不启动 baseline 优化、不抬红线**（两个杠杆——全局 PY_START 常驻 ≈0.39x、类型观测 ≈0.26x——都是功能取舍，不是白拿的空间）。
+③ ⏳ **exclusive(self) time 维持「先测后做」**：是否值得再花 0.3~0.5d 取决于 PR-A2-P2 的成本实测，本轮不裁。
 
 ## 8. 引用
 

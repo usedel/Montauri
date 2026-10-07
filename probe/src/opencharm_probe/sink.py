@@ -13,10 +13,12 @@ class ObservationSink:
     - args:      (fid, 参数名, 类型标签, 结构指纹) -> 次数
     - rets:      (fid, 类型标签, 结构指纹) -> 次数
     - excs:      (fid, 异常类型标签) -> 次数
+    - perf:      fid -> [calls, total_ns, max_ns]（A2 性能模式；inclusive wall-clock，
+      只含正常返回的调用——异常退出（PY_UNWIND）的调用不贡献耗时样本）
     """
 
     __slots__ = ("funcs", "_next_fid", "_fid_lock", "hits", "args", "rets", "excs",
-                 "arg_seen", "ret_seen")
+                 "arg_seen", "ret_seen", "perf")
 
     def __init__(self) -> None:
         self.funcs: dict[tuple[str, str, int], int] = {}
@@ -33,6 +35,8 @@ class ObservationSink:
         # 类型观测降采样计数（每参数位/返回位）
         self.arg_seen: dict[tuple[int, str], int] = {}
         self.ret_seen: dict[int, int] = {}
+        # A2 性能模式聚合：fid -> [calls, total_ns, max_ns]（仅 perf_mode 时有数据）
+        self.perf: dict[int, list[int]] = {}
 
     def func_id(self, filename: str, qualname: str, lineno: int) -> int:
         key = (filename, qualname, lineno)
@@ -74,6 +78,17 @@ class ObservationSink:
     def add_exc(self, fid: int, exc_label: str) -> None:
         key = (fid, exc_label)
         self.excs[key] = self.excs.get(key, 0) + 1
+
+    def add_perf(self, fid: int, dt_ns: int) -> None:
+        """A2 性能模式：累加一次正常返回调用的 inclusive 耗时（纳秒）。"""
+        e = self.perf.get(fid)
+        if e is None:
+            self.perf[fid] = [1, dt_ns, dt_ns]
+        else:
+            e[0] += 1
+            e[1] += dt_ns
+            if dt_ns > e[2]:
+                e[2] = dt_ns
 
     @property
     def func_count(self) -> int:

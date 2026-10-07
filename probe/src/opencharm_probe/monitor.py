@@ -86,6 +86,22 @@ class Monitor:
         # 否则「模块顶部慢 import + 末尾才调用业务函数」的脚本会被 2s 时间窗漏采。
         # 注意：异常退出/静音/未耗尽生成器会造成计数漂移，靠 _sync_active 在决策点校准。
         self._active = 0
+        # A2 性能模式（PR-A2-P1）：per-call inclusive 计时的 t0 栈（按 code 分桶，
+        # LIFO 配对——递归调用内层先返回）。**仅 perf_mode 时使用**，默认路径不触碰。
+        # PY_UNWIND 负责弹掉异常退出的 t0（实证：内部捕获的异常不触发 UNWIND，
+        # 传播出帧才触发——bench/profiler-overhead/unwind_semantics_probe.py）。
+        # ⚠ PY_UNWIND **不能作局部事件**（实测 3.13.7 set_local_events 拒收，
+        # local_events_probe.py）——只能开全局事件，靠 _perf_stacks.get 过滤掉
+        # 未计时的帧（库代码 unwind 只付一次 dict 查表；异常路径非热路径）。
+        self._perf_stacks: dict[types.CodeType, list[int]] = {}
+        # 全局事件基座（窗口外常开的事件）：perf 模式叠加 PY_UNWIND。
+        self._base_events = sys.monitoring.events.RAISE
+        if cfg.perf_mode:
+            # 静音对耗时统计是致命失真（停 PY_RETURN 会让计时栈泄漏、样本只剩
+            # 每函数前 200 次）——必须抬开静音上限。这不是调参偏好，是正确性前提
+            #（runtime_profiler_dev_plan.md §3.1）。
+            cfg.max_calls_per_func = sys.maxsize
+            self._base_events |= sys.monitoring.events.PY_UNWIND
 
     # -- 生命周期 ---------------------------------------------------------
 
@@ -105,8 +121,17 @@ class Monitor:
             raise RuntimeError("sys.monitoring 无可用 tool id（0-5 全被占用）")
         self._tid = tid
         E = sm.events
-        sm.register_callback(tid, E.PY_START, self._on_start)
-        sm.register_callback(tid, E.PY_RETURN, self._on_return)
+        if self._cfg.perf_mode:
+            # A2 性能模式：注册「计时版」回调组（两套回调之一，热路径零 if perf_mode
+            # 分支——runtime_profiler_dev_plan.md §3.2；多一层包装帧实测成本 ≈ 0）。
+            # 计时版在原回调之外只做 t0 压栈/弹栈聚合，采集逻辑逐字复用原版。
+            # PY_UNWIND 为全局事件（不可局部），回调内靠 _perf_stacks 过滤。
+            sm.register_callback(tid, E.PY_START, self._on_start_perf)
+            sm.register_callback(tid, E.PY_RETURN, self._on_return_perf)
+            sm.register_callback(tid, E.PY_UNWIND, self._on_unwind_perf)
+        else:
+            sm.register_callback(tid, E.PY_START, self._on_start)
+            sm.register_callback(tid, E.PY_RETURN, self._on_return)
         sm.register_callback(tid, E.RAISE, self._on_raise)
         self._open_window()
 
@@ -118,7 +143,7 @@ class Monitor:
         tid = self._tid
         self._tid = None
         sm.set_events(tid, 0)
-        for ev in (E.PY_START, E.PY_RETURN, E.RAISE):
+        for ev in (E.PY_START, E.PY_RETURN, E.RAISE, E.PY_UNWIND):
             sm.register_callback(tid, ev, None)
         # 清掉本工具开过的局部事件（armed 集合内的 code）
         for code in self._armed:
@@ -130,18 +155,19 @@ class Monitor:
         sm.free_tool_id(tid)
         self._armed.clear()
         self._muted.clear()
+        self._perf_stacks.clear()
 
     # -- 发现窗口 ---------------------------------------------------------
 
     def _open_window(self) -> None:
-        """开启全局 PY_START 发现窗口（RAISE 常开，不受窗口控制）。"""
+        """开启全局 PY_START 发现窗口（_base_events 常开，不受窗口控制）。"""
         now = time.perf_counter()
         self._win_until = now + _DISCOVERY_WINDOW
         self._win_opened_at = now
         self._in_window = True
         self._quiet = 0
-        E = sys.monitoring.events
-        sys.monitoring.set_events(self._tid, E.PY_START | E.RAISE)
+        sys.monitoring.set_events(self._tid,
+                                  sys.monitoring.events.PY_START | self._base_events)
 
     def _maybe_close_window(self) -> None:
         """窗口到期或连续无新函数则关闭全局 PY_START（RAISE 保持常开）。
@@ -181,7 +207,7 @@ class Monitor:
             self._win_until = now + _DISCOVERY_WINDOW
             self._quiet = 0
             return
-        sys.monitoring.set_events(self._tid, sys.monitoring.events.RAISE)
+        sys.monitoring.set_events(self._tid, self._base_events)
         self._in_window = False
 
     def _sync_active(self) -> int:
@@ -278,6 +304,39 @@ class Monitor:
     def _count_hit_only(self, code: types.CodeType) -> None:
         """静音函数的热路径：只累加 hits，不做分类/类型观测/深度检查。"""
         self._sink.add_hit(self._fid(code))
+
+    # -- A2 性能模式回调（仅 perf_mode 时注册；采集逻辑逐字复用原版） --------
+
+    def _on_start_perf(self, code: types.CodeType, offset: int):
+        """原版 _on_start 之后压 t0（perf_counter_ns）。
+
+        t0 在原回调**之后**取：回调返回后函数体才执行，计到的仍是函数体耗时，
+        且能借用原回调的分类结果——只对**项目函数**计时，库函数只付一次 dict.get。
+        静音检查保留兜底（perf 模式静音上限已抬开，_muted 恒为空，几乎零成本）。
+        """
+        self._on_start(code, offset)
+        if self._code_ok.get(code) is True and code not in self._muted:
+            st = self._perf_stacks.get(code)
+            if st is None:
+                self._perf_stacks[code] = [time.perf_counter_ns()]
+            else:
+                st.append(time.perf_counter_ns())
+        return None
+
+    def _on_return_perf(self, code: types.CodeType, offset: int, retval):
+        """弹 t0 聚合耗时，**先于**原版 _on_return——不把探针记账算进函数耗时。"""
+        st = self._perf_stacks.get(code)
+        if st:
+            self._sink.add_perf(self._fid(code), time.perf_counter_ns() - st.pop())
+        self._on_return(code, offset, retval)
+        return None
+
+    def _on_unwind_perf(self, code: types.CodeType, offset: int, exc):
+        """异常退出（PY_UNWIND）：弹掉 t0 但不计样本——配对语义见 _perf_stacks 注释。"""
+        st = self._perf_stacks.get(code)
+        if st:
+            st.pop()
+        return None
 
     def _fid(self, code: types.CodeType) -> int:
         """按归一化 filename 取函数 id（P2-4：code 级缓存，热路径零 realpath）。"""

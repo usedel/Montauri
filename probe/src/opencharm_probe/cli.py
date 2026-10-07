@@ -48,8 +48,11 @@ def _cmd_run(args) -> int:
     if summary is None:  # 静态分析守卫：上方分支均已 return
         return 3
     if not cfg.quiet:
-        print(f"[opencharm-probe] ✓ {summary['functions']} 函数 · "
-              f"{summary['observations']} 类型观测 · {summary['elapsed']:.3f}s → {summary['db']}")
+        line = (f"[opencharm-probe] ✓ {summary['functions']} 函数 · "
+                f"{summary['observations']} 类型观测")
+        if "perf_timed_calls" in summary:
+            line += f" · {summary['perf_timed_calls']} 次计时调用（性能模式）"
+        print(f"{line} · {summary['elapsed']:.3f}s → {summary['db']}")
     # P2-1（2026-09-29 review）：退出码透传——runner 精心计算的 exit_code 此前被
     # 无条件 return 0 吞掉，CI/脚本链中 `opencharm-probe run app.py && next` 会误判成功。
     return int(summary.get("exit_code", 0))

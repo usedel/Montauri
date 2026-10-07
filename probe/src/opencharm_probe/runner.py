@@ -76,10 +76,14 @@ def run_with_probe(cfg: ProbeConfig, script: str, argv: list[str] | None = None)
         path = None
     if error is not None:
         raise error
-    return {
+    summary = {
         "db": str(path) if path is not None else "(未落库)",
         "functions": sink.func_count,
         "observations": sink.observation_count,
         "elapsed": elapsed,
         "exit_code": exit_code,
     }
+    if cfg.perf_mode:
+        # A2 性能模式：暴露计时样本量（样本完整度必须可见——dev plan §5.3）
+        summary["perf_timed_calls"] = sum(e[0] for e in sink.perf.values())
+    return summary

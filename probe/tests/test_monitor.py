@@ -570,3 +570,110 @@ def test_sitecustomize_noise_does_not_close_window(monkeypatch):
     assert not mon._in_window, "越过地板且 _active=0：静默关窗恢复正常"
 
     mon.stop()
+
+
+# ---------- A2 性能模式（PR-A2-P1） ----------
+
+
+def _perf_of(sink, name):
+    fids = _fids_by_suffix(sink, name)
+    return {fid: e for fid, e in sink.perf.items() if fid in fids}
+
+
+def test_perf_mode_off_by_default():
+    """默认路径零影响：不开 perf_mode → 无计时聚合、静音上限保持默认值。"""
+    cfg = ProbeConfig()
+    mon, sink = _new_monitor(cfg)
+    mon.start()
+
+    def f(x):
+        return x
+
+    f(1)
+    mon.stop()
+    assert sink.perf == {}
+    assert cfg.max_calls_per_func == 200
+
+
+def test_perf_mode_lifts_mute_and_times_every_call():
+    """正确性前提（dev plan §3.1）：性能模式抬开静音上限，超 200 次调用仍逐次计时。"""
+    cfg = ProbeConfig(perf_mode=True)
+    mon, sink = _new_monitor(cfg)
+    assert cfg.max_calls_per_func == sys.maxsize, "perf 模式必须抬开静音上限"
+    mon.start()
+
+    def hot(n):
+        return n * 2
+
+    for i in range(300):
+        hot(i)
+    mon.stop()
+
+    assert not mon._muted, "perf 模式不得触发静音（否则样本只剩前 200 次）"
+    (entry,) = _perf_of(sink, "hot").values()
+    calls, total_ns, max_ns = entry
+    assert calls == 300, "每次正常返回都必须有耗时样本（与 hits 一致）"
+    assert total_ns >= max_ns > 0
+
+
+def test_perf_mode_exception_unwind_discards_sample():
+    """异常退出（PY_UNWIND）弹掉 t0 不记样本；内部捕获的异常照常计时。
+
+    配对语义实证：bench/profiler-overhead/unwind_semantics_probe.py——
+    内部捕获不触发 UNWIND（只有 PY_RETURN），传播出帧才触发。
+    """
+    cfg = ProbeConfig(perf_mode=True)
+    mon, sink = _new_monitor(cfg)
+    mon.start()
+
+    def boom():
+        raise ValueError("x")
+
+    def caught_inside():
+        try:
+            raise ValueError("y")
+        except ValueError:
+            pass
+        return 1
+
+    caught_inside()
+    for _ in range(3):
+        try:
+            boom()
+        except ValueError:
+            pass
+    assert not mon._perf_stacks.get(boom.__code__), "异常退出的 t0 必须由 PY_UNWIND 弹掉"
+    mon.stop()
+
+    assert _perf_of(sink, "boom") == {}, "异常退出的调用不贡献耗时样本"
+    assert _excs_of(sink, "boom") == {"ValueError": 3}  # 异常类型观测不受影响
+    (entry,) = _perf_of(sink, "caught_inside").values()
+    assert entry[0] == 1, "内部捕获的异常不得吃掉正常返回的样本"
+
+
+def test_perf_mode_recursion_lifo_pairing():
+    """递归调用按 code 分桶 LIFO 配对：每层一次样本，返回后栈空。"""
+    cfg = ProbeConfig(perf_mode=True)
+    mon, sink = _new_monitor(cfg)
+    mon.start()
+
+    def fact(n):
+        return 1 if n <= 1 else n * fact(n - 1)
+
+    assert fact(10) == 3628800
+    assert not mon._perf_stacks.get(fact.__code__), "递归全部返回后计时栈应为空"
+    mon.stop()
+    (entry,) = _perf_of(sink, "fact").values()
+    assert entry[0] == 10
+
+
+def test_perf_mode_env_var(monkeypatch, tmp_path):
+    """OPENCHARM_PROBE_PERF=1 开启性能模式（shell 运行环境注入通道）。"""
+    from opencharm_probe.config import load_config
+
+    monkeypatch.setenv("OPENCHARM_PROBE_HOME", str(tmp_path))  # 隔离真实配置文件
+    monkeypatch.delenv("OPENCHARM_PROBE_CONFIG", raising=False)
+    monkeypatch.setenv("OPENCHARM_PROBE_PERF", "1")
+    assert load_config().perf_mode is True
+    monkeypatch.delenv("OPENCHARM_PROBE_PERF")
+    assert load_config().perf_mode is False

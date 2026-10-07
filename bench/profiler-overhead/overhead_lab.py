@@ -183,6 +183,13 @@ def _probe_case(mode=None, stride=16, stack_ms=None, count=False, **cfg_override
                 stopper()
         out = dict(stats)
         out.update(dt=dt, diag=diag)
+        # PR-A2-P1 原生性能模式：直接从 sink 聚合取样本量（无需 _install 包装）
+        perf = getattr(mon._sink, "perf", None)
+        if perf:
+            out["timed"] = sum(e[0] for e in perf.values())
+            out["closed"] = out["timed"]
+            out["total_ms"] = sum(e[1] for e in perf.values()) / 1e6
+            diag["perf_stack_residue"] = sum(len(s) for s in mon._perf_stacks.values())
         if sampler is not None:
             out["stack_samples"] = sum(sampler.values())
         return out
@@ -406,6 +413,8 @@ def main() -> int:
          "true profiler mode: no mute, no type obs", {"primary": True}),
         ("V2p timing-full+args", _probe_case("timing", max_calls_per_func=BIG, count=True),
          "full calls AND keep type obs", {}),
+        ("V2n native perf-mode", _probe_case(perf_mode=True),
+         "PR-A2-P1 shipped impl (registered cb set)", {"primary": True}),
         ("V3 sampled 1/%d" % args.stride,
          _probe_case("sampled", args.stride, max_calls_per_func=BIG,
                      max_type_obs_per_site=0, count=True),

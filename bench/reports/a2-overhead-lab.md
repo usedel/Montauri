@@ -103,3 +103,23 @@ V2p 实测：**2000 轮工作负载，各函数 inclusive 耗时之和 = 138.2 m
 ## 7. 下一步
 
 裁决与 PR 拆分见 **`docs/runtime_profiler_dev_plan.md`**（v0.1）。本实验脚本保留为**回归资产**：任何后续 PR 只要改动采集热路径，都要重跑并更新本报告的数字。
+
+## 8. ✅ PR-A2-P1 落地盖印（2026-10-07，同一脚本出数）
+
+**交付**：`perf_mode` 进 `monitor.py`（两套回调组，`start()` 二选一注册——§3.2 形态裁决落地）+ `OPENCHARM_PROBE_PERF=1` 环境变量开关 + sink 聚合 `fid → [calls, total_ns, max_ns]`。默认路径采集逻辑逐字未变。
+
+**落地与实验装置的一处差异（实证驱动）**：**PY_UNWIND 不能作局部事件**（3.13.7 `set_local_events` 拒收，`local_events_probe.py`）——异常退出的配对清理改为**全局 PY_UNWIND + `_perf_stacks.get` 过滤**（库代码 unwind 只付一次 dict 查表，异常路径非热路径）。配对语义实证：`raise_semantics_probe.py` / `unwind_semantics_probe.py`（内部捕获不触发 UNWIND、传播出帧才触发、生成器耗尽走 PY_RETURN）。
+
+**同机两次全量（rounds=2000, reps=7）**：
+
+| 变体 | run1 | run2 | 判定 |
+|---|---|---|---|
+| V0 probe（默认路径，未变） | 1.77x | 1.67x | 本会话机器偏热（med/min 偏离大）；与改动无关——见下行 HEAD 对照 |
+| **V2n native perf-mode** | **2.87x** | **2.81x** | ✅ 进 [2.4, 2.9]；与实验装置 V2p（同场 2.85x/2.87x）同量级 |
+| V6 cProfile（参照） | 5.23x | 5.10x | V2n ≤ cProfile，余量 ~44% ✅（§3.3 红线） |
+
+样本完整度：V2n **timed = closed = 6003/6003**（无静音截断、计时栈零残留），对照 V2（默认参数）603/6003 的假样本。
+
+**默认路径 HEAD 对照（官方 harness，同会话）**：HEAD（stash 后）**1.55x FAIL** → 改动后 **1.64x FAIL**。两读数都在本机历史抖动带（1.27~1.64x）内，且 lab V0（跑的就是未变的默认路径代码）同场 1.67~1.77x——**差异是机器热度，不是代码回归**。结论：**默认路径与 HEAD 持平 ✅**。
+
+**probe 单测**：86/86（新增 5 例：默认零影响 / 抬静音逐次计时 / UNWIND 配对 / 递归 LIFO / env 开关）。

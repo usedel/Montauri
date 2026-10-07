@@ -4,6 +4,7 @@
 - OPENCHARM_PROBE_HOME   重定向 ~/.opencharm（测试用）
 - OPENCHARM_PROBE_CONFIG 指定配置文件路径
 - OPENCHARM_PROBE_QUIET  =1 时抑制摘要输出
+- OPENCHARM_PROBE_PERF   =1 时开启性能模式（A2 per-call 计时，默认关）
 """
 from __future__ import annotations
 
@@ -34,6 +35,10 @@ class ProbeConfig:
     # 存储
     db_dir: str | None = None      # None → <probe_home>/traces
     quiet: bool = False            # 抑制摘要输出
+    # 性能模式（A2 内置 Profiler，PR-A2-P1）：开 = per-call wall-clock 计时
+    # （inclusive，聚合 calls/total_ns/max_ns），实测开销 ~2.7x，**默认关**。
+    # 开启时静音上限被抬开（静音对耗时统计是致命失真，见 runtime_profiler_dev_plan §3.1）。
+    perf_mode: bool = False
 
 
 def probe_home() -> Path:
@@ -68,6 +73,8 @@ def load_config(**overrides) -> ProbeConfig:
                         setattr(cfg, key, val)
     if os.environ.get("OPENCHARM_PROBE_QUIET") == "1":
         cfg.quiet = True
+    if os.environ.get("OPENCHARM_PROBE_PERF") == "1":
+        cfg.perf_mode = True
     for key, val in overrides.items():
         if val is not None and hasattr(cfg, key):
             setattr(cfg, key, val)
