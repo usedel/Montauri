@@ -4,6 +4,11 @@ export const editor = {
   // ---- editor.crumb ----
   "editor.crumb.file": "文件 {text}",
   "editor.crumb.jump": "跳转到 {text}（第 {line} 行）",
+  // ---- editor.ep ----
+  "editor.epLens.one": "端点 {count}",
+  "editor.epLens.other": "端点 {count}",
+  "editor.epLensTitle.one": "{name} 的 {count} 个端点",
+  "editor.epLensTitle.other": "{name} 的 {count} 个端点",
   // ---- editor.md ----
   "editor.md.close": "关闭 Markdown 预览",
   "editor.md.exportTitle": "导出 Markdown 为 HTML",

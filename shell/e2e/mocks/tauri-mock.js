@@ -1098,6 +1098,16 @@
       }
       return JSON.parse(JSON.stringify(ep));
     }
+    // 4.65c) A5④ OpenAPI 预览（形状对齐 openapi_cmds.rs::OpenApiOp：method/path/
+    //        operation_id/summary/tags/deprecated）——测试经 window.__E2E_OPENAPI__
+    //        预置操作数组（未预置 = 空，对应「无操作」态）；
+    //        __E2E_OPENAPI_FAIL__ 非空 → 抛错（如 "HttpStatus:500"，backendError 层
+    //        zh 原样返回 / en 整条翻译）。
+    if (cmd === "fetch_openapi") {
+      if (window.__E2E_OPENAPI_FAIL__) throw new Error(String(window.__E2E_OPENAPI_FAIL__));
+      var ops = window.__E2E_OPENAPI__;
+      return Array.isArray(ops) ? JSON.parse(JSON.stringify(ops)) : [];
+    }
     // 4.65b) A1 运行时热点（形状对齐 intel_cmds.rs::RuntimeHotspots）——
     //        测试经 window.__E2E_HOTSPOTS_PRESET__ 预置；未预置返回「无运行记录」态。
     //        __E2E_HOTSPOTS_FAIL__ 非空 → 抛错（走 error 分支，验错误态与文案）。

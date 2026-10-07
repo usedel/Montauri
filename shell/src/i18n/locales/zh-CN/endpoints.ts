@@ -10,6 +10,10 @@ export const endpoints = {
   // ---- endpoints ----
   "endpoints.failCopy": "复制",
   "endpoints.failOpenBrowser": "打开浏览器",
+  "endpoints.jumpCopy": "复制完整 URL",
+  "endpoints.jumpCopied": "已复制完整 URL",
+  "endpoints.jumpFailCopy": "复制完整 URL",
+  "endpoints.jumpNoBase": "服务未运行：无法复制完整 URL（可先跳转端点面板）",
   "endpoints.noUrlHint": "服务未运行：无法拼出完整 URL（可先复制路由）",
   "endpoints.noWorkspace": "未打开工作区",
   "endpoints.noWorkspaceHint": "打开后此处列出 FastAPI / Flask 端点",
@@ -19,6 +23,17 @@ export const endpoints = {
   "endpoints.openDocs": "打开 /docs（Swagger UI，需服务运行中）",
   "endpoints.openOpenapi": "打开 /openapi.json（需服务运行中）",
   "endpoints.openTip": "在浏览器打开（需服务运行中）",
+  "endpoints.previewDeprecated": "已弃用",
+  "endpoints.previewEmpty": "没有可预览的 OpenAPI 操作",
+  "endpoints.previewFailed": "获取 OpenAPI 失败：{error}",
+  "endpoints.previewFetching": "正在获取 /openapi.json…",
+  "endpoints.previewJumpNotFound": "未在源码中找到该端点（可先重新扫描）",
+  "endpoints.previewOpen": "预览 /openapi.json（需服务运行中）",
+  // ---- endpoints.previewOps ----
+  "endpoints.previewOps.one": "{count} 个操作",
+  "endpoints.previewOps.other": "{count} 个操作",
+  // ---- endpoints ----
+  "endpoints.previewTitle": "OpenAPI 预览",
   "endpoints.rescan": "重新扫描",
   "endpoints.sampleAction": "请求样例",
   "endpoints.sampleBody": "请求体（{model}）",

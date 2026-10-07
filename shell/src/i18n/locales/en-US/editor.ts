@@ -5,6 +5,11 @@ export const editor: Record<EditorKey, string> = {
   // ---- editor.crumb ----
   "editor.crumb.file": "File {text}",
   "editor.crumb.jump": "Jump to {text} (line {line})",
+  // ---- editor.ep ----
+  "editor.epLens.one": "{count} endpoint",
+  "editor.epLens.other": "{count} endpoints",
+  "editor.epLensTitle.one": "{count} endpoint of {name}",
+  "editor.epLensTitle.other": "{count} endpoints of {name}",
   // ---- editor.md ----
   "editor.md.close": "Close Markdown preview",
   "editor.md.exportTitle": "Export Markdown as HTML",

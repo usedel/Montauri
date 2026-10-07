@@ -7,6 +7,7 @@
 @import "./styles/logView.css";
 @import "./styles/hotspots.css";
 @import "./styles/endpointSample.css";
+@import "./styles/endpointJump.css";
 @import "./styles/selector.css";
 
 /* ---------- 随包等宽字体（ui_premium §5.3-3b · 批 3）----------

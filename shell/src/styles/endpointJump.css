@@ -1,0 +1,144 @@
+/* A5③④ · 端点反向跳转（CodeLens 弹层）+ OpenAPI 面板预览 —— 新功能落新文件
+   （纪律同 B4/B5/A1/A5①：新样式不再往 style.css 里堆）。
+   真源 docs/improvement_and_roadmap_report.md §3 A5③④；渲染在 epJump.ts /
+   openApiPanel.ts，样式归宿 endpointView.ts 的 .ep-badge 复用。
+   命名空间：.oc-epj-*（弹层，与 oc-cv-* 同构）/ .ep-preview-*（预览块）。
+   本文件经 style.css 顶部 @import 内联进 bundle，门禁由 audit_tokens.py 的
+   @import 解析覆盖。全部走语义 token，不硬编码；阴影只用 --shadow。 */
+
+/* ---- ③ CodeLens 弹层（仿 codeVision .oc-cv-popup 同构） ---- */
+.oc-epj-popup {
+  display: flex;
+  flex-direction: column;
+  max-width: 520px;
+  min-width: 320px;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow);
+  z-index: 40;
+}
+
+.oc-epj-popup-header {
+  padding: var(--space-1) var(--space-2) var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--fg-dim);
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.oc-epj-popup-list { overflow-y: auto; padding: var(--space-1) 0; }
+
+.oc-epj-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+}
+.oc-epj-row:hover { background: var(--hover-subtle); }
+
+.oc-epj-row-route {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.oc-epj-row-loc {
+  flex: 0 0 auto;
+  font-size: var(--text-xs);
+  color: var(--link);
+  font-variant-numeric: tabular-nums;
+}
+.oc-epj-row-copy {
+  flex: none;
+  display: inline-flex;
+  color: var(--fg-dim);
+  cursor: pointer;
+}
+.oc-epj-row-copy:hover { color: var(--fg); }
+
+/* ---- ④ OpenAPI 预览块（结构仿 .ep-sample，命名独立） ---- */
+.ep-preview {
+  border-left: 2px solid var(--accent);
+  background: var(--bg-alt);
+  padding: var(--space-4) var(--space-6) var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.ep-preview-head { display: flex; align-items: center; gap: var(--space-4); }
+.ep-preview-title {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--fg);
+}
+.ep-preview-count { font-size: var(--text-xs); color: var(--fg-dim); }
+
+.ep-preview-hint {
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-xs);
+}
+.ep-preview-hint--muted { color: var(--fg-dim); padding-left: 0; }
+.ep-preview-hint--loading { color: var(--fg-dim); padding-left: 0; }
+.ep-preview-hint--error { color: var(--danger); background: var(--surface-3); }
+
+.ep-preview-list { display: flex; flex-direction: column; gap: var(--space-1); }
+
+.ep-preview-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+  text-align: left;
+}
+.ep-preview-row:hover { background: var(--hover-subtle); }
+
+.ep-preview-path {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ep-preview-meta {
+  flex: 0 1 auto;
+  font-size: var(--text-xs);
+  color: var(--fg-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ep-preview-deprecated {
+  flex: none;
+  font-size: var(--text-xs);
+  color: var(--fg-muted);
+}
+
+/* ---- ③ 端点面板条目高亮（反向跳转落点） ---- */
+.ep-highlight {
+  animation: ep-highlight-pulse calc(1.2s * var(--motion)) var(--ease-out);
+}
+@keyframes ep-highlight-pulse {
+  0%, 100% { background: transparent; }
+  40% { background: var(--accent-soft); }
+}

@@ -1,6 +1,7 @@
 # OpenCharm 工具箱开发计划（SQLite · HTTP Client · 结构化日志 · TODO/Markdown 增强）
 
-> 版本：v1.5 · 日期：2026-10-06 · 状态：**B3 / B4 / B5 三功能已闭环**；**B6 于 2026-10-06 终止**（仅保留已交付的 PR-B6-3，PR-B6-1 / PR-B6-2 不再实施）
+> 版本：v1.6 · 日期：2026-10-07 · 状态：**B3 / B4 / B5 三功能已闭环**；**B6 于 2026-10-06 终止**（仅保留已交付的 PR-B6-3，PR-B6-1 / PR-B6-2 不再实施）；**A5③④ 端点面板余项 2026-10-07 破例立项交付**（§12）
+> **v1.6 变更：A5③④ 端点面板余项交付**（§12 交付记录；2026-10-07，维护态下产品负责人破例立项）——③ handler→route 反向跳转（CodeLens「端点 N」）与 ④ OpenAPI 面板内预览（懒加载展开块）。本报告继续为回溯文档。
 > **v1.5 变更：B6 终止**（§7.7 决策记录；同步第 0 章状态、第 8 章排期表、第 10 章风险、第 11 章前置清单）。终止附带项：顺手修掉 `#anchor` 跳转现存 bug（§7.7 附）。
 > **v1.4 变更：B5 闭环**（§6.9 三项拍板；交付记录 §6.10 PR-B5-1 / §6.11 PR-B5-2 / §6.12 PR-B5-3）。
 > **v1.3 变更：B5 开工**（§6.9「拍板结论」）。
@@ -1117,6 +1118,23 @@ B6 终止不影响该 bug 的独立性——它是 PR-B6-2 调研时**从代码�
 7. ~~B6-3 开工前确认 `fs_cmds::scan_todos` 的返回结构是否含文件路径与行号（决定要不要扩后端）~~
    → **2026-10-04 已核实：含，后端零改动**（见 §7.6）；
 8. 每个 PR 结束跑第 9 章门禁，并把交付记录回填本文档（照 `git_clone_dev_plan.md` §12「交付记录」的写法）。
+
+---
+
+## 12. 交付记录 · A5③④ 端点面板余项（2026-10-07，A 类）
+
+> 本报告是工具箱（B 类）回溯文档；A5③④ 属 A 类差异化（端点面板余项），因与 B4 的「端点视图联动」（§5.11）同属端点面板域、且计划文档要求在本报告登记实施段落，故在此留档。完整交付记录见 `docs/delivery-overview.md` §2 第 30 行与 `docs/improvement_and_roadmap_report.md` ㉓。
+
+维护态下产品负责人**破例立项**（`docs/improvement_and_roadmap_report.md` ⑬ 范围裁决留下的余项），实施依据 `.trae/documents/a5-3-4-endpoint-panel-plan.md`（8 步计划，执行中修正 4 处实证调整）：
+
+- **③ handler→route 反向跳转**：FastAPI 路由定义行 CodeLens「端点 N」（与 codeVision 引用计数 lens 同行并排）→ 点击弹 content widget 列出该 handler 绑定的全部 route（含 include_router 多前缀合并），条目可复制 URL / 激活端点面板并高亮对应行。实现 = `epJump.ts`（懒扫索引 + provider + content widget 弹层）+ `epJumpCore.ts`（零依赖纯函数核：`buildHandlerIndex` / `findMatches`，键 `file + "\u0000" + handler`，文件路径两端 `normalizePath` 归一）。
+- **④ OpenAPI 面板内预览**：端点视图 toolbar 新增预览按钮 → 懒加载运行中服务的 `/openapi.json` 渲染展开块（方法徽章 / 路径 / summary + tags / 已弃用标记 / 点行跳源码，按 base URL 缓存、同刻只展开一处），无 base 地址显式提示；错误形态原样透传 `HttpStatus:{code}` / `HttpParse:{detail}`。实现 = `openapi_cmds.rs`（`fetch_openapi`，复用 `http_cmds` 纯函数 validate_http_url / clamp_timeout / classify_reqwest / truncate_body）+ `openApiPanel.ts` + `openApiCore.ts`。
+
+⚠ **实证调整 4 处**（与计划偏差，均已记录）：① CodeLens 首扫 `await ensureIndex()`——首次请求即等首扫完成再出 lens，不依赖「先返回空 → notify 补刷新」时序链（实测该链在 Monaco 下 flaky）；② 弹层关闭监听 `setTimeout(0)` 延后注册——同步注册会被打开弹层的**同一次 mousedown** 在冒泡阶段命中（事件派发到 document 前监听已注册），弹层创建即关；③ 端点高亮改 pending 模式——端点视图 onShow 每次切 tab 重扫并清空列表，旧「setSidebarTab 后同步遍历」必扑空，改为记 pending → renderEndpointPanel 重建后再应用；④ e2e 点击 `> a` 精确定位——`.codelens-decoration` 是整行容器（含引用计数 lens），点容器中心会落到引用 lens。
+
+验证数字：外壳 `cargo test` **330 通过**（新增 7 例 openapi 单测，serde_json Map 默认 BTreeMap 字典序遍历，断言改 `find_op` 按 (method, path) 显式查找）· vitest **1291/1291** · budget-check **43 项全 PASS**（新增 6 项文件上限）· `audit_tokens.py` 0 FAIL（`.ep-highlight` 动画挂 `calc(1.2s * var(--motion)) var(--ease-out)`）· e2e ux 域 **48/48**（新增 `07-endpoint-lens-openapi.spec.ts` 4 例 EP-J1/J2/P1/P2）。
+
+预算偏差登记：计划估 epJump 250 / endpointJump.css 90，实测 **349 / 144**（弹层 + 符号缓存 + provider 三块比预算丰满；弹层 + 预览块两套完整样式）——按「实测 + 余量」设 `ep_jump_ts_max_lines = 380` / `endpoint_jump_css_max_lines = 175`（`ci/budgets.toml` 有注释）。命令面 **196 → 197**（新增 `fetch_openapi`），距 200 告警线余 3 个。
 
 ---
 

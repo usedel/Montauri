@@ -15,6 +15,7 @@ mod intel_cmds;
 mod lib_cmds;
 mod logging;
 mod lsp;
+mod openapi_cmds;
 mod plugin_cmds;
 mod per_window;
 mod plugin_pkg;
@@ -211,6 +212,8 @@ pub fn run() {
             fs_cmds::scan_endpoints,
             // 端点请求样例（A5①：handler 签名 + Pydantic 模型 → 可复制的 JSON 样例）
             ep_sample_cmds::scan_endpoint_sample,
+            // 端点 OpenAPI 预览（A5④：拉运行中服务 /openapi.json → 扁平操作列表）
+            openapi_cmds::fetch_openapi,
             // 运行时热点（A1：probe trace 库 + 项目函数定义差集，docs/improvement_and_roadmap_report.md §3）
             intel_cmds::scan_runtime_hotspots,
             // Pydantic 语义层（阶段 4：构造校验诊断 + rename 传播补充，docs/pyrefly_pydantic_support_plan.md §3.4）

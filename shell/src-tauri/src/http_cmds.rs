@@ -125,7 +125,7 @@ static HTTP_OPS: LazyLock<PerWindow<std::collections::HashMap<String, Arc<Atomic
 // ---------- 纯函数（单测目标） ----------
 
 /// scheme 白名单 + host 非空（抄 `git_cmds::validate_clone_url` 的形态）
-fn validate_http_url_impl(raw: &str) -> Result<Url, String> {
+pub(crate) fn validate_http_url_impl(raw: &str) -> Result<Url, String> {
     let s = raw.trim();
     if s.is_empty() {
         return Err("empty:URL 为空".to_string());
@@ -199,7 +199,7 @@ fn sanitize_header_value_impl(raw: &str) -> Result<String, String> {
 }
 
 /// 响应体截断 + 宽松 UTF-8 转换（二进制内容由 `is_binary_content_type_impl` 另行判定）
-fn truncate_body_impl(bytes: &[u8], limit: usize) -> (String, bool) {
+pub(crate) fn truncate_body_impl(bytes: &[u8], limit: usize) -> (String, bool) {
     let truncated = bytes.len() > limit;
     let slice = if truncated { &bytes[..limit] } else { bytes };
     (String::from_utf8_lossy(slice).into_owned(), truncated)
@@ -228,13 +228,13 @@ fn parse_method_impl(raw: &str) -> Result<String, String> {
 }
 
 /// 超时钳制（防 0 / 超大值）
-fn clamp_timeout_ms(raw: Option<u64>) -> u64 {
+pub(crate) fn clamp_timeout_ms(raw: Option<u64>) -> u64 {
     raw.unwrap_or(DEFAULT_TIMEOUT_MS).clamp(TIMEOUT_MIN_MS, TIMEOUT_MAX_MS)
 }
 
 /// reqwest 错误 → 带前缀的可本地化错误（超时/连接/请求/解码四类，文档 §5.7.4）。
 /// `timeout_ms` 传本次实际生效的超时（钳制后），避免文案里写死默认值误导用户。
-fn classify_reqwest_error(e: &reqwest::Error, timeout_ms: u64) -> String {
+pub(crate) fn classify_reqwest_error(e: &reqwest::Error, timeout_ms: u64) -> String {
     if e.is_timeout() {
         format!("HttpTimeout:请求超时（{}ms 内未完成）", timeout_ms)
     } else if e.is_connect() {

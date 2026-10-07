@@ -11,6 +11,10 @@ export const endpoints: Record<EndpointsKey, string> = {
   // ---- endpoints ----
   "endpoints.failCopy": "Copy",
   "endpoints.failOpenBrowser": "Open in browser",
+  "endpoints.jumpCopy": "Copy full URL",
+  "endpoints.jumpCopied": "Full URL copied",
+  "endpoints.jumpFailCopy": "Copy full URL",
+  "endpoints.jumpNoBase": "Service not running: cannot copy the full URL (you can still jump to the endpoints panel)",
   "endpoints.noUrlHint": "Service not running: cannot build the full URL (you can still copy the route)",
   "endpoints.noWorkspace": "No workspace open",
   "endpoints.noWorkspaceHint": "Open one and FastAPI / Flask endpoints will be listed here",
@@ -20,6 +24,17 @@ export const endpoints: Record<EndpointsKey, string> = {
   "endpoints.openDocs": "Open /docs (Swagger UI; requires a running service)",
   "endpoints.openOpenapi": "Open /openapi.json (requires a running service)",
   "endpoints.openTip": "Open in browser (requires a running service)",
+  "endpoints.previewDeprecated": "Deprecated",
+  "endpoints.previewEmpty": "No OpenAPI operations to preview",
+  "endpoints.previewFailed": "Failed to fetch OpenAPI: {error}",
+  "endpoints.previewFetching": "Fetching /openapi.json…",
+  "endpoints.previewJumpNotFound": "No matching source endpoint found (try rescanning)",
+  "endpoints.previewOpen": "Preview /openapi.json (requires a running service)",
+  // ---- endpoints.previewOps ----
+  "endpoints.previewOps.one": "{count} operation",
+  "endpoints.previewOps.other": "{count} operations",
+  // ---- endpoints ----
+  "endpoints.previewTitle": "OpenAPI preview",
   "endpoints.rescan": "Rescan",
   "endpoints.sampleAction": "Request sample",
   "endpoints.sampleBody": "Request body ({model})",

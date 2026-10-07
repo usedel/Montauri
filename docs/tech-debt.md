@@ -65,7 +65,7 @@
 
 - **起因**：P0~P4 六个未推送提交推送前全量复核（子代理深审 + 人工求证）。两个中等问题（终端背压队列无上限、stop/exit 提示时序）与三个低级项（session 静默失败、异常断点失败不回滚、Watches 满额静默/无令牌、resourcePanel 死代码）已随当次修复提交偿还；以下 5 小项经裁决**暂缓**。
 - **① terminal.ts 背压「字节预算」实为 UTF-16 字符数**（✅ 已修 2026-10-07，维护态首件）：修法取登记中的「改存 Uint8Array」分支——新增零依赖模块 `shell/src/terminalBackpressure.ts`（push 时 `TextEncoder` 一次编码，计数 / 切分 / 丢弃 / 限流全按真实 UTF-8 字节），`terminal.ts` 只留接线。登记原提的 `Buffer.byteLength` 不可行：shell 是浏览器环境，无 Node `Buffer`。xterm v5 `write(Uint8Array)` 自带增量 UTF-8 解码，字节边界切分不乱码。
-- **② session.ts `restoring` 是布尔非令牌**：恢复 A 进行中切到工作区 B，A 的 `finally restoring=false` 会提前解锁，B 半恢复状态可能被防抖快照写回。场景罕见。修法：改为计数器/令牌。
+- **② session.ts `restoring` 是布尔非令牌**（❌ 裁决不处理 2026-10-07，P1-5 收口）：恢复 A 进行中切到工作区 B，A 的 `finally restoring=false` 会提前解锁，B 半恢复状态可能被防抖快照写回。场景罕见。修法：改为计数器/令牌。**收口裁决：场景罕见且维护态只受理三类事项，不立项，维持登记备查。**
 - **③ sessions.rs 快照超 40 tab 保头弃尾**（✅ 已修 2026-10-07）：`truncate(MAX_TABS)` 丢的是最近打开的 tab，与「恢复最近现场」直觉相反。改保尾（`tabs.split_off(len - MAX_TABS)`），并同步活动 tab 判定：active 指向已丢弃（最旧）tab 时清掉，回落「激活最后一个」。
 - **④ proc_stats 只统计直接子进程**（✅ 已修 2026-10-07）：运行链存在中间层（cmd /c、shell 包装）时孙进程内存不计入合计，芯片口径偏小。改按 parent 邻接表 BFS 收集全部后代（纯函数 `collect_descendants`，visited 防环），再映射成 ProcInfo。
 - **⑤ debugWatches.ts 顶层 `load()` 读 localStorage**（✅ 已修 2026-10-07）：顶层副作用（有 try/catch 兜底）已改惰性初始化——`watches` 先置空、`ensureWatchesLoaded()` 在首次 `render()`（面板接线唯一网关）时加载，import 即不再触碰存储。

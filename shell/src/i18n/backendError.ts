@@ -148,6 +148,11 @@ const PATTERNS: ErrPattern[] = [
   { zh: "目标路径不能为空", en: "Target path cannot be empty" },
   { zh: "目标路径不得包含 ..", en: "Target path must not contain .." },
   { zh: "目标路径必须是绝对路径", en: "Target path must be an absolute path" },
+  // A5④（docs/toolbox_dev_plan.md）OpenAPI 预览的 Http* 前缀错误：HttpStatus 纯码前缀
+  // （`HttpStatus:404` 形态，无中文）；HttpParse 内 detail 为 serde 原文（`invalid:…`）。
+  // 两处前端不按前缀分流，故英文直接整条翻译（不保留前缀）。
+  { zh: "HttpStatus:{code}", en: "HTTP error {code}" },
+  { zh: "HttpParse:{detail}", en: "Failed to parse OpenAPI response: {detail}" },
 ];
 
 /** 已编译的匹配器：中文模板按占位切分后拼成 `^固定(.*?)固定$`，用于从已填充的整句里捞回参数。 */

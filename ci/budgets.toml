@@ -98,6 +98,32 @@ endpoint_view_ts_max_lines = 460
 ep_sample_ts_max_lines = 330
 ep_sample_core_ts_max_lines = 205
 
+# epJump.ts / epJumpCore.ts（A5③ handler→route 反向跳转 CodeLens，2026-10-07 新增）：
+#   349 / 54 行。上限 380 / 110。两层分工同 epSample：Core 零 app 依赖（不 import state /
+#   lsp / termUi）→ 单测直接 import；epJump.ts 那层做懒扫索引 + 渲染 + content widget 弹层。
+#   ⚠ 计划估 250，实测 349（弹层 + 符号缓存 + provider 三块比预算丰满），按「实测 + 余量」
+#   设 380。
+ep_jump_ts_max_lines = 380
+ep_jump_core_ts_max_lines = 110
+
+# openApiPanel.ts / openApiCore.ts（A5④ OpenAPI 面板内预览，2026-10-07 新增）：164 / 64 行。
+#   上限 220 / 110。同款分层：Core（findScanMatch / sortOps）零依赖可单测；Panel 拉
+#   /openapi.json 渲染预览块（单例展开 + 缓存，同 epSample 范式）。
+open_api_panel_ts_max_lines = 220
+open_api_core_ts_max_lines = 110
+
+# styles/endpointJump.css（A5③④ 新样式，2026-10-07 新增）：144 行。上限 175（余量 ~21%）。
+#   范围：oc-epj-popup*（CodeLens 弹层）+ ep-preview*（OpenAPI 预览块）+ ep-highlight 闪类。
+#   @import 内联进 bundle，audit_tokens 覆盖。⚠ 计划估 90，实测 144（弹层 + 预览块两套
+#   完整样式），按实情设 175。
+endpoint_jump_css_max_lines = 175
+
+# openapi_cmds.rs（A5④ OpenAPI 数据层，2026-10-07 新增）：284 行。上限 320（余量 ~15%）。
+#   范围：fetch_openapi（spawn_blocking → blocking GET + 2 MB 截断）+ parse_openapi_impl 纯函数
+#   + 7 个单测。复用 http_cmds 纯函数（validate_http_url / clamp_timeout / classify_reqwest /
+#   truncate_body，仅放开 pub(crate) 可见性）。
+openapi_cmds_rs_max_lines = 320
+
 # terminalBackpressure.ts（TD-021① 终端背压 UTF-8 字节口径，2026-10-07 新增）：零依赖纯逻辑
 #   队列（同 epSampleCore / selectorCore 的分层惯例，单测可直接 import）。上限 130。
 terminal_backpressure_ts_max_lines = 130

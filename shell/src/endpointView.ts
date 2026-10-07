@@ -15,6 +15,7 @@ import { t } from "./i18n"; // 第十五批 i18n：端点视图动态文案走�
 import { localizeBackendError } from "./i18n/backendError";
 import { fullEndpointUrl } from "./frameworks";
 import { lastServiceBaseUrl } from "./termUi";
+import { setSidebarTab } from "./views"; // A5③：反向跳转 → 激活端点面板
 import { openHttpTool } from "./devtools"; // B4 PR-B4-3：端点 → HTTP 工具联动
 import { resetEndpointSample, toggleEndpointSample } from "./epSample"; // A5①：请求样例
 import { toast, toastFail } from "./toast";
@@ -44,6 +45,8 @@ const badgeClass = (method: string): string => `ep-badge ep-badge-${method.toLow
 export interface EndpointViewHandlers {
   /** 点击条目 → 打开声明并定位（main.ts 的 openFile） */
   openFile: (path: string, line: number) => void;
+  /** A5④：工具栏「预览」按钮 → 展开 / 收起 OpenAPI 预览块（main 注入 openApiPanel） */
+  openApiPreview?: (root: HTMLElement) => void;
 }
 
 let handlers: EndpointViewHandlers | null = null;
@@ -58,6 +61,12 @@ let results: EndpointMatch[] = [];
 /** 刷新令牌：并发/连续刷新时旧结果不得覆盖新结果（同 todoView） */
 let epToken = 0;
 let loading = false;
+/**
+ * 待高亮 route（A5③ 反向跳转）。切 tab 会触发 onShow 重扫 → 清空并重建列表，
+ * 高亮不能像旧实现那样在 setSidebarTab 后同步遍历（列表已被清空）——改为
+ * 「记 pending → renderEndpointPanel 重建完成后再应用」，与重扫的异步时序解耦。
+ */
+let pendingHighlight: string | null = null;
 
 /** 初始化端点视图 DOM（init 时调用一次；#view-endpoints 容器已在 index.html 声明） */
 export function initEndpointView(): void {
@@ -80,6 +89,10 @@ export function initEndpointView(): void {
     return b;
   };
   const refresh = mkBtn("ep-refresh", t("endpoints.rescan"), "refresh", () => void refreshEndpoints());
+  // A5④：面板内 OpenAPI 预览（拉运行中服务 /openapi.json；无 base 提示先运行）
+  const preview = mkBtn("ep-openapi-preview", t("endpoints.previewOpen"), "list-unordered", () =>
+    handlers?.openApiPreview?.(root),
+  );
   // F4：FastAPI 自带的 Swagger UI 与 OpenAPI 规范（服务运行后可用；无 base 提示先运行）
   const docs = mkBtn("ep-open-docs", t("endpoints.openDocs"), "book", () =>
     void openServicePath("/docs"),
@@ -87,7 +100,7 @@ export function initEndpointView(): void {
   const openapi = mkBtn("ep-open-openapi", t("endpoints.openOpenapi"), "json", () =>
     void openServicePath("/openapi.json"),
   );
-  toolbar.append(summary, openapi, docs, refresh);
+  toolbar.append(summary, preview, openapi, docs, refresh);
 
   const list = document.createElement("div");
   list.id = "ep-results";
@@ -149,6 +162,7 @@ export function resetEndpointView(): void {
   epToken++;
   results = [];
   loading = false;
+  pendingHighlight = null; // 切工作区后旧高亮目标无意义
   resetEndpointSample();
   renderEndpointPanel();
 }
@@ -219,6 +233,25 @@ export function renderEndpointPanel(error?: string): void {
 
     for (const m of items) {
       list.appendChild(buildEndpointRow(m));
+    }
+  }
+  applyPendingHighlight();
+}
+
+/** A5③ 反向跳转的落点：在重建完成的列表上应用待高亮（若目标 route 存在） */
+function applyPendingHighlight(): void {
+  const route = pendingHighlight;
+  if (!route) return;
+  pendingHighlight = null;
+  const list = document.getElementById("ep-results");
+  if (!list) return;
+  for (const el of list.querySelectorAll<HTMLElement>(".todo-item")) {
+    const r = el.querySelector(".ep-route");
+    if (r?.textContent === route) {
+      el.scrollIntoView({ block: "nearest" });
+      el.classList.add("ep-highlight");
+      window.setTimeout(() => el.classList.remove("ep-highlight"), 1200);
+      return;
     }
   }
 }
@@ -363,4 +396,18 @@ function buildEndpointRow(m: EndpointMatch): HTMLElement {
     }
   });
   return row;
+}
+
+// ---------- A5③④：结果导出 + 反向跳转高亮 ----------
+
+/** 当前静态扫描结果（epJump / openApiPanel 经 main 注入读取，避免循环依赖） */
+export function getEndpointResults(): EndpointMatch[] {
+  return results;
+}
+
+/** A5③：从源码反向跳转——激活端点面板，重扫完成后高亮指定 route 的条目 */
+export function highlightEndpoint(route: string): void {
+  if (!app.workspaceRoot) return;
+  pendingHighlight = route;
+  setSidebarTab("endpoints");
 }

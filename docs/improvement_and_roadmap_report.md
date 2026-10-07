@@ -1,8 +1,9 @@
 # OpenCharm 现状评估 · 改进建议与未来功能规划
 
-> 版本：**v1.3** · 日期：2026-10-06 · 状态：**待评审**
+> 版本：**v1.4** · 日期：2026-10-07 · 状态：**待评审**
 > 性质：基于当前代码库与全部 `docs/` 文档的**现状评估 + 改进清单 + 未来功能候选池**，不是开发计划（不直接排期）。
 > 与既有文档的关系：本文件是**全局视角的评估与选题**，落地时仍需回到各专项计划（`python_ide_dev_plan_v2.md` / 各 `*_dev_plan.md`）写 PR 级方案。冲突时以 `docs/python_ide_dev_plan_v2.md` 为准并反馈修订本文件。
+> **v1.4 修订（2026-10-07，维护态破例交付）**：**A5③④ 端点面板余项已交付**（落地续记见 ㉓）——③ handler→route 反向跳转（CodeLens「端点 N」+ 弹层）+ ④ OpenAPI 面板内预览（`fetch_openapi` 命令 + 懒加载展开块）。**P1-5 收口**（㉑/㉒）：①③④⑤ ✅ 已修，**② 裁决不处理**（session.ts `restoring` 布尔非令牌，场景罕见，维持 tech-debt 登记备查）。预算口径数字（`budget-check.mjs` 实测）：**43 项全 PASS**（命令 **197/200** · 产物 **5,048/5,120 KB**）。后续仍处维护态：运行侧只受理开销回归 / trace 迁移 / 预算违约修复，工具箱侧只受理缺陷修复与既有工具打磨。
 > **取数时点**：2026-10-06，git HEAD `bb32d77`（v1.2 基线 `ccf9da2` 之后 **23 个提交**）。所有数字由 **`node tools/stats/repo-stats.mjs`** 产出（口径固化在脚本里，见 §9）。**引用本文数字前必须先核对 HEAD**。
 > **v1.3 第二轮补记（同日稍后）**：本轮收口时 HEAD 已到 `f33e5be`（`bb32d77` 之后 **5 个提交**，均为 D-6 / D-7 / D-8 修复与文档，**未触发 §9 的 ≥10 提交重取条件**）。§1.1 的规模表未全量重取；但**预算口径的数字已按 `budget-check.mjs` 实测刷新**（`main.ts` 2,914 → **2,312**（阶段二拆分第一刀后）、命令数 **194**、`style.css` **5,748**、产物 **4,989 KB**），引用这几项时以本行数字为准。
 >
@@ -115,6 +116,11 @@
 > **㉑ 维护态首件：TD-021① 终端背压 UTF-8 口径已修（2026-10-07，用户指定 P1-5 ① 先行）**。此前 `terminal.ts` 背压队列用 `data.length` 累加「字节数」——那是 UTF-16 码元数，CJK 一个字符 1 码元 / 3 UTF-8 字节，中文输出下单帧 256KB / 积压 4MB 阈值实际放宽 ~3 倍。修法取登记中的「改存 Uint8Array」分支：新增零依赖模块 `terminalBackpressure.ts`（push 时 `TextEncoder` 一次编码，计数 / 切分 / 丢弃 / 限流提示全按真实 UTF-8 字节；浏览器无 Node `Buffer`，原登记的 `Buffer.byteLength` 路线不可行），`terminal.ts` 只留接线，i18n 文案与 ANSI 序列仍在壳侧。xterm.js v5 `write(Uint8Array)` 自带增量 UTF-8 解码，字节边界切分不乱码。配套：新增单测 6 例（CJK 计数 / 预算切分拼回 / 硬上限丢旧 / 限流只提示一次 / 清空与边界 / 字节边界合并解码）+ 预算条目 `terminal_backpressure_ts_max_lines = 130`（预算 36 → 37 项）。
 >
 > **㉒ TD-021③④⑤ 已修（2026-10-07，用户指定续推 P1-5 剩余项）**：**③** `sessions.rs` 快照改保尾——`truncate(MAX_TABS)` 丢的是最近打开的 tab，与「恢复最近现场」直觉相反；改 `tabs.split_off(len - MAX_TABS)` 留最近 40 个，并同步活动 tab 判定（active 指向已丢 tab 时清掉，回落「激活最后一个」）。**④** `proc_stats.rs` 只数直接子进程，运行链中间层（cmd /c、shell 包装）下的孙进程内存漏计、芯片口径偏小；改按 parent 邻接表 BFS 收集全部后代，visited 防环（进程 parent 关系极端下可能成环，裸递归会栈溢出），环处理与 sysinfo 解耦成纯函数 `collect_descendants` 直接单测。**⑤** `debugWatches.ts` 顶层 `load()` 读 localStorage 是 import 即触发的副作用（同「模块顶层禁止立即解析 DOM」纪律）；改惰性初始化——`watches` 先置空，`ensureWatchesLoaded()` 在首次 `render()`（面板接线唯一网关）时加载。验证：cargo test 320 → **323**（新增 3 例）、cargo check 通过、vitest 1277 不变、tsc/build 零错、budget 37 项全 PASS。P1-5 仅剩 **②**（session.ts `restoring` 布尔非令牌，场景罕见）。
+>
+> **㉓ A5③④ 端点面板余项已交付（2026-10-07，维护态下用户破例立项）**：③ handler→route 反向跳转 + ④ OpenAPI 面板内预览。
+> - **③**：`epJumpCore.ts` 纯函数核（`buildHandlerIndex` / `findMatches`，NUL 分隔复合键）+ `epJump.ts` CodeLens provider——`def` 行上方「端点 N」lens（同 handler 多 route 合并计数），点击弹 content widget（`.oc-epj-popup`，行 = 方法徽章 + route + 定位 + 复制 URL），行点击激活端点面板并高亮该 route 条目（`ep-highlight` 1.2s 自消）。**实证调整 1（刷新机制）**：首次 provideCodeLenses 返回空、依赖「ensureIndex 完成 → notify → Monaco onDidChange 补刷新」实测 flaky（Monaco 的 onDidChange 补刷新在部分时序下不触发）——改为 `await ensureIndex()` 首扫完成才出 lens + codeVision 同款多路刷新触发器。**实证调整 2（弹层时序）**：showEpPopup 同步执行时直接注册 document mousedown 会被「打开弹层的同一次 mousedown」在冒泡阶段命中（事件派发到 document 时监听已注册）→ 弹层创建即关——改 `setTimeout(0)` 延后注册（queueMicrotask 在 Playwright 事件时序下仍会提前，实测不可靠）。**实证调整 3（跳转高亮）**：端点视图 onShow = 每次切 tab 都重扫，`setSidebarTab` 后同步遍历列表必然扑空（列表已被清空）——高亮改为「记 pending → renderEndpointPanel 重建完成后再应用」。**实证调整 4（e2e 点击）**：`.codelens-decoration` 是整行容器（Monaco 同行为多 provider 各渲染一个 `> a`），点击容器中心会落到引用 lens 弹出 cv 弹层——e2e 必须定位 `> a` 按文本过滤。
+> - **④**：Rust `openapi_cmds.rs::fetch_openapi`（命令面 **196 → 197/200**；错误形态 `HttpInvalidUrl:{detail}` / `HttpStatus:{code}` / `HttpParse:{detail}`，zh 界面原样返回）+ `openApiCore.ts`（`findScanMatch` path 全等 + method 交集 / `sortOps` 方法档位排序）+ `openApiPanel.ts` 懒加载展开块（`.ep-preview`，方法/路径/summary/tags 行，行点击匹配静态扫描结果跳源码；无 base 提示先运行）。**实证调整（测试）**：serde_json Map 默认 BTreeMap 字典序遍历，Rust 单测断言不得依赖数组顺序，改 `find_op` 按 (method, path) 显式查找。
+> - **验证**：cargo test 外壳新增 7 例 openapi 单测（其中 1 例断言改为按 (method, path) 显式查找，不依赖数组顺序）· vitest **1291**（新增 epJumpCore / openApiCore 纯函数单测）· tsc/build ✓ · budget **43 项全 PASS**（新增 6 项上限：epJump 380 / epJumpCore 110 / openApiPanel 220 / openApiCore 110 / endpointJump.css 175 / openapi_cmds.rs 320；**实证偏差**：epJump.ts 349/380、endpointJump.css 144/175，未触线）· e2e ux 域 **48/48**（新增 `e2e/ux/07-endpoint-lens-openapi.spec.ts` 4 例：EP-J1/J2/P1/P2）· audit_tokens 0 FAIL。附注：OpenAPI 预览需服务运行中（拉 /openapi.json），是「运行态联查」，静态扫描识别不到的端点照实不匹配（绝不臆测）。
 > v1.1 的规模数字取自 PowerShell `Get-Content $f | .Count`。在本机（PS 5.1，ANSI 代码页 **gb2312**）上，对**无 BOM 的 UTF-8 源文件**该写法会按 GBK 解码并**吞掉换行**——`style.css` 报 5,410 而真实 5,668（少 4.5%），`main.ts` 报 2,503 而真实 2,897（少 13%）。丢失比例随文件 CJK 密度而变、**逐文件不同**，因此这批数字是"看起来合理但系统性偏低"的。
 > 连带被推翻的结论（详见 §1.2）：**「巨型文件趋势已逆转」「UI 六批顺带把逻辑拆去了域模块」不成立**——`git.ts` / `lsp/client.ts` / `env_cmds.rs` / `fs_cmds.rs` / `git_cmds.rs` 在 `44c85ea → HEAD` 之间**一行未变**，`main.ts` 是 **+58**（不是 −336）。
 > 本版全部行数改由 `tools/stats/repo-stats.mjs` 重取，并新增两个防复发机制：取数脚本固化为代码 + 预算门禁（`ci/budgets.toml` / `shell/scripts/budget-check.mjs`）。
@@ -399,7 +405,7 @@
 
 5 个 P4 项，其中 **① 终端背压 UTF-8 口径**（CJK 下阈值放宽 3 倍）与 **③ tab 快照保头弃尾**（丢最近打开的 tab）在中文 Windows 自用场景下有实际体感，建议优先。其余三项按"顺手"原则处理。
 成本：合计约 1~2 人日。
-> 状态：**①③④⑤ ✅ 已修（2026-10-07，见落地续记 ㉑ / ㉒）**；**② 待处理**（session.ts `restoring` 布尔非令牌，场景罕见，可顺手时再修）。
+> 状态：**P1-5 已收口（2026-10-07）**：①③④⑤ ✅ 已修（见落地续记 ㉑ / ㉒）；**② 裁决不处理**（session.ts `restoring` 布尔非令牌，场景罕见，维持 tech-debt 登记备查）。
 
 ### P1-6 · 插件 v2 议题启动（择一）
 
@@ -504,7 +510,7 @@ A 类全部复用已有的 probe trace 数据或外壳基建，**别人抄不走
 | ~~A4② 请求回放（独立面板）~~ ✅ **已关闭不立项（2026-10-07）** | ★ | 小 | — | ✅ **已覆盖**：B4 HTTP 工具历史区（最近 20 条点击回填）已是回放，独立面板重复建设（原裁决维持） |
 | ~~A4-Py 选择器 Python 引擎（lxml / bs4 口径校验）~~ ✅ **已关闭不立项（2026-10-07）** | ★★ | 小-中 | 求值桥 + 第三方包探测 | ✅ **已裁决**：求值引擎定为前端浏览器 DOM（DOMParser + querySelectorAll / document.evaluate），Python 侧降级登记（原裁决维持） |
 | A5③④ FastAPI 面板余项（反向跳转 / OpenAPI 预览） | ★★ | 中 | codeVision / 服务在跑 | ★★ |
-| P1-5 TD-021 五小项 | ★★ | 小 | — | ★★ |
+| P1-5 TD-021 五小项 | ★★ | 小 | — | ✅ **已收口**（①③④⑤ 已修，② 裁决不处理，2026-10-07） |
 | A2 内置 Profiler | ★★★★ | 大 | 开销预算重定 | ★★（排后） |
 | C 类 AI 三项 | ★★（**与 §1.1 冲突**） | 小-中 | 修订定位裁决 | ★（待裁决） |
 | B1 pytest 集成 | ★★★（**与 §1.1 冲突**） | 中 | 修订 F-1 裁决 | ★（待裁决） |

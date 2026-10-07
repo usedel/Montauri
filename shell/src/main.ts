@@ -33,8 +33,10 @@ import { runSearch, resetSearch, setOpenMatchHandler, type SearchMatch, type Sea
 import { findUsagesAtCursor, renameSymbolAtCursor, resetFindUsages, setOpenRefHandler, queryAndRender, initFindUsagesAction, installCtrlShiftDblclickUsages } from "./findUsages";
 import { wireProblemsPanel, resetProblemsPanel, setOpenProblemHandler, setShowPanelHandler, renderProblemsChip } from "./problemsPanel"; // 问题面板（对标 PyCharm Problems）
 import { initCodeVision, refreshCodeVision } from "./codeVision";
+import { initEpJump, refreshEpJump, resetEpJump, setEpJumpHandlers } from "./epJump"; // A5③：端点 CodeLens「端点 N」
 import { initDslLens, openRegexTesterAtCursor } from "./dslLens"; // 库支持 PR-2：正则 lens/装饰/诊断/右键
 import { initJsonLiteral } from "./jsonLiteral"; // 库支持 P1 §7-3：JSON 字面量高亮/折叠/诊断/右键
+import { resetOpenApiPreview, setOpenApiPreviewHandlers, toggleOpenApiPreview } from "./openApiPanel"; // A5④：OpenAPI 面板内预览
 import { refreshImportAliases, registerImportAliasCompletion } from "./importAlias"; // import 别名补全（import pandas as pd）
 import { registerAutoImportCompletion, resetAutoImportIndex } from "./autoImport"; // PR-E：补全内联 auto-import（自研，探针结局 C）
 import { initRenameWidget, setAfterRenameHandler, resetPydanticRenameWarn } from "./renameWidget";
@@ -87,7 +89,7 @@ import {
   clearCurrentLine, loadBreakpoints, refreshDebugGutter, resetBreakpoints, setBreakpointMenuHandler, wireDebugGutter,
 } from "./debugGutter";
 import { initTodoView, resetTodoView, setTodoViewHandlers } from "./todoView"; // P0：TODO 工具窗
-import { initEndpointView, resetEndpointView, setEndpointViewHandlers } from "./endpointView"; // F1：端点工具窗
+import { getEndpointResults, highlightEndpoint, initEndpointView, resetEndpointView, setEndpointViewHandlers } from "./endpointView"; // F1：端点工具窗
 import { initHotspotsView, resetHotspotsView, setHotspotsViewHandlers } from "./hotspotsView"; // A1：运行时热点
 import { initDbView, resetDbView, refreshDbWorkspace } from "./sqliteView"; // B3：SQLite 数据库侧栏（资源管理器）
 import { setDbTabHandlers, presentDbTab, cleanupDbTab, dismissDbHost, dbTabLabel, dbTabIcon, invalidateDbTokens } from "./sqliteTabs"; // B3：SQLite 编辑器 Tab（表数据 / SQL 查询）
@@ -226,6 +228,8 @@ function resetWorkspaceUiState(): void {
   resetFindUsages();            // 查找引用结果面板 + 行缓存
   resetTodoView();              // P0：TODO 列表 + 作废在途扫描
   resetEndpointView();          // F1：端点列表 + 作废在途扫描
+  resetEpJump();                // A5③：端点 CodeLens 索引随工作区失效
+  resetOpenApiPreview();        // A5④：OpenAPI 预览展开态与缓存随工作区失效
   resetHotspotsView();          // A1：运行时热点结果 + 作废在途扫描
   resetDbView();                // B3：数据库连接态 / 对象树 / 结果 + 作废在途请求
   invalidateDbTokens();         // B3 v1.4：db Tab 的在途查询响应一并作废
@@ -1616,6 +1620,7 @@ async function init(): Promise<void> {
   lspProviders.add(lsp.registerLspDefinition());
   lspProviders.add(lsp.registerLspReferences()); // Shift+F12 查找引用（peek 视图）
   lspProviders.add(initCodeVision(app.editor)); // 引用计数 Code Vision（声明行上方「N 处引用」）
+  lspProviders.add(initEpJump(app.editor)); // A5③：端点 CodeLens「端点 N」（独立 provider，Monaco 按 range 合并并排）
   lspProviders.add(initFindUsagesAction(app.editor)); // 右键菜单「查找引用」
   // PR-I：Ctrl+Shift+双击 = 查找引用（PyCharm 手势对标，鼠标事件因而按 into DisposableStore）
   lspProviders.add(installCtrlShiftDblclickUsages(app.editor));
@@ -1676,6 +1681,7 @@ async function init(): Promise<void> {
     if (model && pos) void queryAndRender(model, pos);
     window.setTimeout(() => refreshCodeVision(), 1500);
     window.setTimeout(() => refreshCodeVision(), 4000);
+    window.setTimeout(() => refreshEpJump(), 1500); // A5③：改名落盘后端点 lens 延迟重扫（同 codeVision 兜底）
   });
   // 问题面板（对标 PyCharm Problems）：marker 驱动 + 点击条目跳转（openFile 复用 tab/model 管理）
   setOpenProblemHandler((path, line, column) => {
@@ -1861,7 +1867,16 @@ async function init(): Promise<void> {
   setTodoViewHandlers({ openFile: (path, line) => void openFile(path, line) });
   // F1：端点工具窗（渲染与动作见 endpointView.ts；扫描在 Rust fs_cmds::scan_endpoints）
   initEndpointView();
-  setEndpointViewHandlers({ openFile: (path, line) => void openFile(path, line) });
+  setEndpointViewHandlers({
+    openFile: (path, line) => void openFile(path, line),
+    openApiPreview: (root) => toggleOpenApiPreview(root), // A5④：工具栏「预览」→ 展开/收起 OpenAPI 预览块
+  });
+  // A5③④ 反向解环：epJump 弹层点击 → 激活端点面板并高亮；预览块条目点击 → 匹配扫描结果跳源码
+  setEpJumpHandlers({ activateEndpoint: (route) => void highlightEndpoint(route) });
+  setOpenApiPreviewHandlers({
+    openFile: (path, line) => void openFile(path, line),
+    getScanResults: getEndpointResults,
+  });
   // A1：运行时热点视图（渲染与动作见 hotspotsView.ts；扫描在 Rust intel_cmds::scan_runtime_hotspots）
   initHotspotsView();
   setHotspotsViewHandlers({ openFile: (path, line) => void openFile(path, line) });
