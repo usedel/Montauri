@@ -121,7 +121,8 @@ powershell -File .\build-release.ps1 -SkipNpmInstall -Verify
 powershell -File shell\e2e-real\run-real-all.ps1              # 日常跑批（6 套，跳过 release/probe 三支，约 8 min）
 powershell -File shell\e2e-real\run-real-all.ps1 -PreRelease -Strict   # 发布前验收（含 release-real）
 powershell -File shell\e2e-real\run-real-all.ps1 -Only http-real       # 单套件
-# 报告落 shell/real-reports/<stamp>/（SUMMARY.md + 各套件 JSON；**入库作证**，勿忽略）
+# 报告落 shell/real-reports/<stamp>/（SUMMARY.md + 各套件 JSON）——**该目录已 gitignore**
+# （原始运行产物，一次跑一份、含中断跑；结论以 docs 里的数字为准，里程碑跑可 git add -f 留证）
 
 # dep_scan 性能红线回放（bench 大仓样例，红线 ≤ 2s）
 cd shell/src-tauri && cargo test --release bench_dep_scan -- --ignored --nocapture

@@ -492,7 +492,7 @@
 |---|---|
 | `build-release.ps1 -Verify` | 打包完成后自动跑 `run-real-all.ps1 -PreRelease -Strict`（release-real + 开发链路 6 套，约 12 min），任一套失败即**非零退出**；不加 `-Verify` 时打印黄字"发布前请跑 …"，让"忘了跑"在出包输出里可见（不是靠记性） |
 | `run-real-all.ps1 -PreRelease` | 把 `release-real`（验构建产物）纳入跑批并**置于首位**；默认跑批仍跳过它——开发检出常无 release 产物，跑了只会报 ENV |
-| 报告 | `SUMMARY.md` 增「模式」行（日常跑批 / 发布前验收），产物落 `shell/real-reports/<stamp>/` 并**入库作证**（与 `bench/reports/` 同性质，不加 ignore） |
+| 报告 | `SUMMARY.md` 增「模式」行（日常跑批 / 发布前验收），产物落 `shell/real-reports/<stamp>/`。**口径（2026-10-07 修订）：该目录已进 `.gitignore`** —— 与 `test-results/` 同性质的**原始运行产物**（一次跑一份、含中断/失败跑），无评审价值却无限增长（一天积 13 份）；结论与证据以「写进 docs 的数字 + `bench/reports/`」为准，确需留证某次里程碑跑时 `git add -f` 单独提升 |
 | 预检 | 新增 **divert 代理探测**：25378(PAC) / 18080(本地) / 8888(上游 Fiddler) 有监听即黄字告警。它走 WinDivert **驱动层**透明拦截，开着会让整套 `ERR_PROXY_CONNECTION_FAILED`，而环境变量与 `--no-proxy-server` 都躲不掉——**提前 10 秒告警胜过白跑 10 分钟** |
 
 - **实测（本会话干跑 `-PreRelease`）**：7 套件按序跑完、模式行正确、SUMMARY 落盘（`release-real` 因本机 release 产物是 dev 味（加载 `localhost:5173`）而 FAIL，其余 6 套因会话环境起不来 tauri dev 判 ENV——**均为环境所致，非脚本缺陷**）。

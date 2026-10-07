@@ -28,6 +28,13 @@ old-tr-*/
 # 真机 CDP 脚本运行时日志（e2e-real/*.cjs 落盘的 tauri dev 输出）
 shell/e2e-real/.tauri-dev*.log
 
+# 真机跑批报告（每次调用落一个 <stamp>/ 目录：SUMMARY.md + 各套件 JSON）
+# 与 test-results/ 同性质——**原始运行产物**，一次跑一份、含中断/失败跑，无评审价值却无限增长
+# （2026-10-07 一天就积了 13 份，其中 4 份是中断跑）。
+# 结论与证据以「写进 docs 的数字 + bench/reports/」为准；确需留证某次里程碑跑时
+# 用 `git add -f shell/real-reports/<stamp>` 单独提升入库。
+shell/real-reports/
+
 # Zed / IDE
 .DS_Store
 *.swp
