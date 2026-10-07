@@ -87,8 +87,10 @@ cargo build --release  # P3-T02 性能验收用
 > 所以这里只能展示**结构**（键 / 属性名），**不存在"实际见过的字面取值"**。文案因此写
 > 「常见键 / 常见属性」而非「常见值」。
 
-**未做（A3④，已降级登记在路线图优先级表）**：调用处参数名 inlay hint（A3③ 签名弹窗已于
-2026-10-06 交付，见 P3-T12）。
+**未做（A3④，已裁决覆盖不立项，2026-10-07）**：调用处参数名 inlay hint 已由 pyrefly 官方
+`python.analysis.inlayHints.callArgumentNames` 提供，且 shell 已由 PR-N 接通——`lsp/client.ts`
+`pushInlayHintSettings` 把 `inlay_param_hints`（默认开）映射推送 + `registerLspInlayHints` 双源
+provider 已注册，无需 intel 自研（A3③ 签名弹窗已于 2026-10-06 交付，见 P3-T12）。
 
 ### P3-T12 A3③ 签名帮助（2026-10-06）
 

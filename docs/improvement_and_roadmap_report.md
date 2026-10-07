@@ -105,8 +105,12 @@
 > **⑳续 PR-A2-P3（trace 库写入 + `scan_runtime_hotspots` 扩展返回，同日落地）**：probe `store.py` 给 `functions` 表加 5 列 `perf_calls / perf_total_ns / perf_max_ns / perf_excl_total_ns / perf_excl_max_ns`——**仅 perf_mode 有数据（否则恒 0，默认路径零落库成本）**；跨运行 `total/calls` 累加、`max` 取全局最大（同 hits 的沉淀语义）；旧库 `_ensure_perf_columns` 逐列 ALTER 迁移（同 stale/instance 先例）。intel 侧**复用现有 `scan_runtime_hotspots`**（命令面仍 196/200）：`HotspotItem` 扩展 `calls / avg_ns / max_ns / excl_avg_ns / excl_max_ns`（calls=0 → None，缺省行为不变），`read_trace` 单独一条 `WHERE perf_calls > 0` 的 SELECT（PR-A2-P3 前旧库缺列静默跳过）。`SQLITE_OPEN_READ_ONLY` 不变（A1 只读约定延续）。验证：probe **89/89**（+2 store 用例：perf 落库累加与 max 取大 / 旧库迁移补列）；外壳 `cargo test --lib` **319 通过 / 2 忽略**；`intel_cmds.rs` 472→**533/600**（余 67 行，未触发行数预算 PR）；budget-check **33 项全 PASS**。
 > **⑳续 PR-A2-P4（热点视图「耗时」视角，同日落地）**：`hotspotsView.ts` 工具栏加排序切换（`#hp-sort`，`btn--primary`/`btn--ghost` 互切表达 active，仅 `hasPerf` 时可见）；新增 `hasPerf`/`fmtNs`/`updateSortBar` helpers；time 视角按 `avg_ns` 降序（tie 回落 hits）；行内「平均 x · N 个样本」+ title 挂口径红线；无 perf 时排序栏隐藏 + `noPerfHint` 明示（样本完整度纪律）。**实证调整**：dev plan 原文为「平均/P99 列」，但 sink 只有聚合无直方图 → P99 无法精确计算，改为**平均耗时 + 样本数**列（同 P1 PY_UNWIND 先例，交付时注明）。预算：`hotspotsView.ts` 282→**350/350**（压缩既有注释与按钮组保住预算）、`hotspots.css` 44→48/60（复用 `.btn`/`.hp-hits`）。验证：tsc ✓ · vitest 1271 ✓ · e2e ux 域 **10/10**（新增 HS-9 耗时视角 / HS-10 无 perf 提示）· budget-check 33 项全 PASS。dev plan 升 v0.5。
 > **⑳续 PR-A2-P5（设置项「性能模式（默认关）+ 开销提示文案」，同日落地）**：Rust `Settings.probe_perf_enabled`（默认 false）+ `run_env::assemble` 注入 `OPENCHARM_PROBE_PERF=1`（仅 `probe_src.is_some() && perf_mode`——探针关闭时 perf 无意义不注入；perf 注入四象限单测锁定），`terminal.rs` 接线、`dap.rs` 补 false。前端设置行落 `index.html`（§5 口径红线文案：耗时为含探针开销的相对值，用于排序不等于真实耗时）+ `settingsPanel.ts` 填表/提交/关键词 + i18n 三步流程（html_dict/en_3 静态词条 + settings 域 `kw.probePerf`）。**e2e 基建顺手修复**：`tauri-mock` 的 staticHandlers 分派原来不传 args（`set_settings` 收不到入参），改为 `h(args)` 透传并记录 `__E2E_SETTINGS_SAVED__`。验证：`cargo test` 320 ✓ · vitest 1271 ✓ · `npm run build` ✓ · budget-check 33 项全 PASS（产物 5,035/5,120 KB）· `audit_tokens.py` 0 FAIL · e2e settings 域新 spec **4/4**（HS-11 默认关+红线文案 / HS-12 保存值+回填 / HS-13 需探针提示 / HS-14 搜索命中）。dev plan 升 v0.6。
-> **⑳终 P6 裁决（2026-10-07）：不扩大热点视图，A2 收口进验收维护态**。理由：P4 最小闭环已满足「找出最慢的 N 个函数」核心诉求；`hotspotsView.ts` 350/350 已到预算上限（扩大必然触线）；性能模式默认关，低频功能不再加码。后续只受理开销回归 / trace 迁移 / 预算违约修复。验收记录 `docs/profiler_acceptance_record.md`（dev plan §6 全项通过，v0.7）。
-> **下一步**：A2 已收口。阶段二剩余候选：**A3④**（调用处参数名 inlay hint，★1，做前先看是否已被 pyrefly 的 `callArgumentNames` 覆盖）· **A4②**（请求回放）· **A4-Py**（选择器 Python 引擎口径校验）——均已降级登记，待用户裁决是否启动或收口阶段二。
+> **⑳终 阶段二收口（2026-10-07）**：A3 / A4 剩余子项按覆盖 / 既有裁决**全部关闭，阶段二整体收口**——
+> - **A3④ 调用处参数名 inlay hint → 不立项（已覆盖）**：pyrefly 官方支持 `python.analysis.inlayHints.callArgumentNames`；shell 已由 PR-N 接通——`lsp/client.ts` `pushInlayHintSettings` 把 `inlay_param_hints`（默认开）映射推送 + `registerLspInlayHints` 双源 provider 已注册（2026-10-07 实证，无需 intel 自研）。
+> - **A4② 请求回放 → 不立项（已覆盖）**：B4 HTTP 工具历史区（最近 20 条点击回填）已是回放，独立面板重复建设（原裁决维持）。
+> - **A4-Py 选择器 Python 引擎 → 不立项（已裁决）**：求值引擎裁决为「前端浏览器 DOM」（DOMParser + querySelectorAll / document.evaluate），Python 侧降级登记；口径差异已常驻一行说明 + e2e SEL-9 钉住（原裁决维持）。
+> - **阶段二全量交付**：A1 运行时热点视图（⑫）· A2 内置 Profiler（⑰~⑳，已收口进验收维护态，`profiler_acceptance_record.md`）· A3①②③ 实参补全 / hover 观测签名 / signatureHelp（⑭⑯）· A4①③ 选择器测试器 / 响应→模型桥（⑮）· A5①② 请求样例 / 一键 curl（⑬）。
+> **下一步**：**阶段二已收口，进入维护态**（运行侧只受理开销回归 / trace 迁移 / 预算违约修复；工具箱侧只受理缺陷修复与既有工具打磨）。后续候选批次待用户另行裁决。
 > v1.1 的规模数字取自 PowerShell `Get-Content $f | .Count`。在本机（PS 5.1，ANSI 代码页 **gb2312**）上，对**无 BOM 的 UTF-8 源文件**该写法会按 GBK 解码并**吞掉换行**——`style.css` 报 5,410 而真实 5,668（少 4.5%），`main.ts` 报 2,503 而真实 2,897（少 13%）。丢失比例随文件 CJK 密度而变、**逐文件不同**，因此这批数字是"看起来合理但系统性偏低"的。
 > 连带被推翻的结论（详见 §1.2）：**「巨型文件趋势已逆转」「UI 六批顺带把逻辑拆去了域模块」不成立**——`git.ts` / `lsp/client.ts` / `env_cmds.rs` / `fs_cmds.rs` / `git_cmds.rs` 在 `44c85ea → HEAD` 之间**一行未变**，`main.ts` 是 **+58**（不是 −336）。
 > 本版全部行数改由 `tools/stats/repo-stats.mjs` 重取，并新增两个防复发机制：取数脚本固化为代码 + 预算门禁（`ci/budgets.toml` / `shell/scripts/budget-check.mjs`）。
@@ -484,15 +488,15 @@ A 类全部复用已有的 probe trace 数据或外壳基建，**别人抄不走
 | ~~P0-3 验收尾账 + onboarding 双源裁定~~ | ★★★★ | 中小 | — | ✅ **已交付**（**D-6 / D-7 / D-8 三个缺陷已全部修完**，2026-10-06） |
 | ~~A1 运行时热点视图~~ ✅ **已交付（2026-10-06）** | ★★★★ | ~~中~~ **1d** | — | ✅ **已交付**（`intel_cmds.rs` + `hotspotsView.ts`；e2e ux 8 例 / 单测 8 例钉住） |
 | ~~A5 FastAPI 面板增强~~ ✅ **①+② 已交付（2026-10-06）** | ★★★ | ~~中~~ **1d** | — | ✅ **已交付**（`ep_sample_cmds.rs` + `epSample{Core,}.ts`；e2e ux 5 例 / 单测 17 例钉住）。③④ 留待下轮 |
-| ~~A3 trace 驱动签名提示~~ ✅ **①+②+③ 已交付（2026-10-06）** | ★★★ | ~~小~~ **1.5d** | — | ✅ **已交付**（`completion.rs` 第四条补全分支 + `hover.rs` 观测签名/常见键 + `signature.rs` 签名弹窗；intel 单测 26 例 + 索引顺序 1 例钉住）。④ 调用处 inlay hint 仍降级登记 |
+| ~~A3 trace 驱动签名提示~~ ✅ **①+②+③ 已交付（2026-10-06）** | ★★★ | ~~小~~ **1.5d** | — | ✅ **已交付**（`completion.rs` 第四条补全分支 + `hover.rs` 观测签名/常见键 + `signature.rs` 签名弹窗；intel 单测 26 例 + 索引顺序 1 例钉住）。④ 调用处 inlay hint 已关闭不立项（2026-10-07，pyrefly `callArgumentNames` 覆盖） |
 | ~~A3③ intel 签名弹窗（`textDocument/signatureHelp`）~~ ✅ **已交付（2026-10-06）** | ★★ | ~~小~~ **0.5d** | — | ✅ **已交付**（新 `signature.rs` + server 能力/处理器 + shell provider 改「intel 优先、回落 static」；intel 单测 12 例钉住）。**与 A3① 共用 `call_frame_at` / `param_observations`**，故参数位与补全首推必然一致 |
-| A3④ 调用处参数名 inlay hint | ★ | 小 | intel inlay 通道 | ★★（与静态引擎的 `callArgumentNames` 可能重复，做前先看是否已被 pyrefly 覆盖） |
+| ~~A3④ 调用处参数名 inlay hint~~ ✅ **已关闭不立项（2026-10-07）** | ★ | 小 | intel inlay 通道 | ✅ **已覆盖**：pyrefly 官方 `callArgumentNames` + shell PR-N 已接通（`lsp/client.ts` `pushInlayHintSettings` 映射 `inlay_param_hints` + `registerLspInlayHints` 双源 provider），无需 intel 自研 |
 | P1-1 可观测性三件套 | ★★★ | 中 | — | ★★★ |
 | B2 REPL / Scratch | ★★★ | 小 | 求值桥 | ★★★ |
 | P1-2 自动更新 | ★★★ | 小 | — | ★★★ |
 | ~~A4 爬虫工具箱~~ ✅ **①+③ 已交付（2026-10-06）** | ★★★★（画像匹配） | ~~中~~ **1d** | — | ✅ **已交付**（新 devtools 工具「选择器测试」+ HTTP 响应两座桥；前端单测 31 例 + e2e 10 例钉住） |
-| A4② 请求回放（独立面板） | ★ | 小 | — | ★（**与 B4 历史区重复**：最近 20 条点击回填已可回放，做前先想清楚增量是什么） |
-| A4-Py 选择器 Python 引擎（lxml / bs4 口径校验） | ★★ | 小-中 | 求值桥 + 第三方包探测 | ★★（**口径一致性的补完**：当前前端 DOM 口径与爬虫实际结果有差异，面板已明说；要一致时再做） |
+| ~~A4② 请求回放（独立面板）~~ ✅ **已关闭不立项（2026-10-07）** | ★ | 小 | — | ✅ **已覆盖**：B4 HTTP 工具历史区（最近 20 条点击回填）已是回放，独立面板重复建设（原裁决维持） |
+| ~~A4-Py 选择器 Python 引擎（lxml / bs4 口径校验）~~ ✅ **已关闭不立项（2026-10-07）** | ★★ | 小-中 | 求值桥 + 第三方包探测 | ✅ **已裁决**：求值引擎定为前端浏览器 DOM（DOMParser + querySelectorAll / document.evaluate），Python 侧降级登记（原裁决维持） |
 | A5③④ FastAPI 面板余项（反向跳转 / OpenAPI 预览） | ★★ | 中 | codeVision / 服务在跑 | ★★ |
 | P1-5 TD-021 五小项 | ★★ | 小 | — | ★★ |
 | A2 内置 Profiler | ★★★★ | 大 | 开销预算重定 | ★★（排后） |
@@ -537,7 +541,7 @@ A 类全部复用已有的 probe trace 数据或外壳基建，**别人抄不走
 
 | 泳道 | 内容 |
 |---|---|
-| 差异化 | ~~A1 运行时热点~~ ✅ **已交付（2026-10-06）**（前置 P0-2 第二格 trace 采样已具备：metawake 277 条 / 覆盖率 79%）+ ~~A5① 端点请求样例 + 一键 curl~~ ✅ **已交付（2026-10-06）** + ~~A3①+② 调用实参补全 + hover 观测签名~~ ✅ **已交付（2026-10-06）** + ~~A4①+③ 选择器测试器 + 响应→模型桥~~ ✅ **已交付（2026-10-06）** + ~~A3③ intel 签名帮助~~ ✅ **已交付（2026-10-06）** → **本泳道下一条候选：A2 内置 Profiler（★4，但开销预算需重定、且需新增默认关的"性能模式"开关）**；次选 A3④ 调用处 inlay hint（★1，做前先看是否已被 pyrefly 的 `callArgumentNames` 覆盖） |
+| 差异化 | ~~A1 运行时热点~~ ✅ **已交付（2026-10-06）**（前置 P0-2 第二格 trace 采样已具备：metawake 277 条 / 覆盖率 79%）+ ~~A5① 端点请求样例 + 一键 curl~~ ✅ **已交付（2026-10-06）** + ~~A3①+② 调用实参补全 + hover 观测签名~~ ✅ **已交付（2026-10-06）** + ~~A4①+③ 选择器测试器 + 响应→模型桥~~ ✅ **已交付（2026-10-06）** + ~~A3③ intel 签名帮助~~ ✅ **已交付（2026-10-06）** + ~~A2 内置 Profiler~~ ✅ **已交付 + 已收口（2026-10-07，`profiler_acceptance_record.md`）** → **本泳道整体收口**：A3④ 调用处 inlay hint 已关闭不立项（pyrefly `callArgumentNames` + PR-N 覆盖）、A4② 请求回放已关闭不立项（B4 历史区覆盖）、A4-Py Python 引擎已关闭不立项（前端 DOM 裁决维持）——**全部见 ⑳终（2026-10-07）** |
 | 基本功 | ~~D-6 / D-8 两个残留缺陷~~ ✅ 已修 · ✅ **`main.ts` 外提两刀已完成（2,919 → **2,099**，两刀 −825、A1 接线 +5；阈值 3,000 → 2,600 → **2,400**）** · **第三刀候选：`init()` 余下的启动编排（Monaco 装配段 / 各域事件接线段）继续外提** · `env_cmds.rs` 真拆（−49%，**阶段二候选、不设死线**；本轮的冻结线已在生效，行数不再增长即可） |
 
 **阶段门**：~~热点视图对"死代码"的误报率可接受~~ ✅ **已由口径消除**——视图不产出"死代码"断言，只陈述「未观测到运行」并列明可能原因（未覆盖 / 分支未走 / 采样遗漏 / 进程外调用），**因此不存在"误报"这一口径**；~~`env_cmds.rs` 状态**明确**~~ ✅ 已明确（**长期上限 + 冻结线**，见 P0-4 裁决）；✅ `delivery-overview.md` 已补录 B4 / B5 / A1 / A5① / A3 并升 **v1.4**；✅ 用例基线已刷新为 **1240**；✅ **`main.ts` 外提两刀已完成（−825 行，阈值降到 2,400）**；✅ **差异化泳道三件已落地（A1 · A5① · A3①+②）**。**本阶段的结构性必办已清空**——`init()` 仍可继续外提（第三刀候选），但余量（301 行）已回到健康区间，不再紧急。
@@ -548,7 +552,7 @@ A 类全部复用已有的 probe trace 数据或外壳基建，**别人抄不走
 
 | 泳道 | 内容 |
 |---|---|
-| 画像专项 | ~~A4 爬虫工具箱~~ ✅ **①+③ 已交付（2026-10-06）**（B4 HTTP 工具 + A5① 请求样例 + `json2model.gen.ts` 三件现成基建都复用了；真正的新件只有选择器测试器）。**下一件建议 A2 内置 Profiler（★4）**——A3③ 签名弹窗已于 2026-10-06 交付；余项（A3④ 调用处 inlay hint / A4② 请求回放 / A4-Py Python 引擎）增量小、已降级登记 |
+| 画像专项 | ~~A4 爬虫工具箱~~ ✅ **①+③ 已交付（2026-10-06）**（B4 HTTP 工具 + A5① 请求样例 + `json2model.gen.ts` 三件现成基建都复用了；真正的新件只有选择器测试器）。**A2 内置 Profiler 已交付并收口**（2026-10-07，`profiler_acceptance_record.md`）；余项（A3④ 调用处 inlay hint / A4② 请求回放 / A4-Py Python 引擎）已全部关闭不立项（2026-10-07 收口，见 ⑳终） |
 | 可选 / 债务 | B2 REPL / Scratch + P1-4 真机覆盖补全（LSP 真引擎 / 运行真 `uv run` / 终端真 PTY / 插件真加载）+ P1-6 工作区级插件目录 |
 
 ### 阶段四 · 评估期（18 周后）
