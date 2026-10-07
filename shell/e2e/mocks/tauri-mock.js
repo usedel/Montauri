@@ -43,6 +43,7 @@
     minimap: true,
     lsp_engine: "pyrefly",
     runtime_intel_enabled: false,
+    probe_perf_enabled: false, // A2 性能模式默认关（e2e/settings/01-perf-mode 断言保存值）
     reduce_motion: false,
     keybindings: {},
   };
@@ -76,7 +77,11 @@
       if (preset) for (k in preset) merged[k] = preset[k];
       return merged;
     },
-    save_settings: function () { return null; },
+    set_settings: function (args) {
+      // 记录保存值供测试断言（性能模式等设置写入正确性；返回 null = Rust 侧正常返回空）
+      window.__E2E_SETTINGS_SAVED__ = args ? args.settings : null;
+      return null;
+    },
     // 工具链探测：全就绪 → 不弹安装引导（maybePromptToolchain 静默通过）
     detect_toolchain: function () {
       return {
@@ -1185,9 +1190,9 @@
     if (cmd === "pick_file" && window.__E2E_DB__ && window.__E2E_DB__.pick !== undefined) {
       return window.__E2E_DB__.pick;
     }
-    // 5) 静态表
+    // 5) 静态表（args 透传给 handler——set_settings 等需要读入参）
     var h = staticHandlers[cmd];
-    if (h) return h();
+    if (h) return h(args);
     // 5.5) 工作区文件列表（quickOpen 文件源）：经 bridge 走真实磁盘
     if (cmd === "list_workspace_files") {
       var wb = bridge();

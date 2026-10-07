@@ -54,6 +54,8 @@
   "settings.python.ruffSeverityF.warning": "Warning",
   "settings.python.ruffSeverityF.error": "Error",
   "settings.python.sectionPythonDiv2": "ruff rules map to editor squiggle severity by their leading letter; takes effect right after saving (the current file is re-checked). To ignore inline, use the editor context menu → Ignore this rule.",
+  "settings.python.sectionPythonLabel9": "Performance mode (default off)",
+  "settings.python.sectionPythonDiv3": "When on, each run records per-function duration (including probe overhead, about half of cProfile in the same scenario). Durations are relative — they rank hotspots by time but are not the true duration without the probe. Requires \"Runtime collection (probe)\" to be on.",
   "settings.templates.layer": "Target config layer for editing / saving",
   "settings.templates.layer.user": "User global layer",
   "settings.templates.layer.workspace": "Workspace layer",

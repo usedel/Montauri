@@ -63,6 +63,10 @@ export interface Settings {
   autosave: string;
   autosave_delay: number;
   probe_enabled: boolean;
+  /** A2 性能模式（PR-A2-P5）：默认关；开启后运行注入 OPENCHARM_PROBE_PERF=1，
+   *  探针记录各函数耗时（含探针开销，用于热点排序，不等于真实耗时）。
+   *  仅随探针注入生效——探针关闭时无效果（须与 Rust settings.rs 同步） */
+  probe_perf_enabled: boolean;
   lsp_engine: string;
   format_on_save: boolean;
   /** 保存时用 ruff 整理导入（Ctrl+Alt+O 的保存联动；与 format_on_save 同模式） */
@@ -213,6 +217,8 @@ export const DEFAULT_SETTINGS: Settings = {
   autosave: "delay",
   autosave_delay: 2000,
   probe_enabled: true,
+  // A2 性能模式默认关：perf 计时开销约为同场景 cProfile 的一半，非常开项（须与 Rust Settings::default 同步）
+  probe_perf_enabled: false,
   lsp_engine: "pyrefly",
   format_on_save: false,
   optimize_imports_on_save: false,

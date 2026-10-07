@@ -366,6 +366,7 @@ fn assemble_debug_session(
         workspace_root,
         &run_config,
         /* probe= */ false,
+        /* perf_mode= */ false,
         /* instance= */ None,
     );
 
@@ -556,6 +557,7 @@ pub async fn debug_attach_debuggee(
         workspace_root.as_deref(),
         &run_config,
         false,
+        /* perf_mode= */ false,
         None,
     );
 

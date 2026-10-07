@@ -114,6 +114,7 @@ const settingsHttpSaveTokensEl = lazyEl<HTMLInputElement>("settings-http-save-to
 const settingsPydanticDiagnosticsEl = lazyEl<HTMLInputElement>("settings-pydantic-diagnostics");
 const settingsAutosaveEl = lazyEl<HTMLSelectElement>("settings-autosave");
 const settingsProbeEl = lazyEl<HTMLInputElement>("settings-probe");
+const settingsProbePerfEl = lazyEl<HTMLInputElement>("settings-probe-perf");
 const settingsIntelEl = lazyEl<HTMLInputElement>("settings-intel");
 const settingsEngineEl = lazyEl<HTMLSelectElement>("settings-engine");
 const settingsFormatOnSaveEl = lazyEl<HTMLInputElement>("settings-format-on-save");
@@ -176,6 +177,7 @@ let SETTINGS_ROW_KEYWORDS: Record<string, string> = {
   "settings-ruff-severity-f": t("settings.kw.ruffSeverityF"),
   "settings-engine": t("settings.kw.engine"),
   "settings-probe": t("settings.kw.probe"),
+  "settings-probe-perf": t("settings.kw.probePerf"),
   "settings-intel": t("settings.kw.intel"),
   "settings-pypi-index": t("settings.kw.pypiIndex"),
   "settings-pypi-index-preset": t("settings.kw.pypiIndex"),
@@ -744,6 +746,7 @@ function fillForm(settings: Settings): void {
   settingsPydanticDiagnosticsEl.checked = settings.pydantic_diagnostics !== false;
   settingsAutosaveEl.value = settings.autosave;
   settingsProbeEl.checked = settings.probe_enabled;
+  settingsProbePerfEl.checked = settings.probe_perf_enabled ?? DEFAULT_SETTINGS.probe_perf_enabled;
   settingsIntelEl.checked = settings.runtime_intel_enabled;
   settingsEngineEl.value = settings.lsp_engine;
   settingsFormatOnSaveEl.checked = settings.format_on_save;
@@ -857,6 +860,7 @@ async function commitSettingsPanel(closeAfter: boolean): Promise<boolean> {
   const pasteJson = settingsPasteJsonEl.checked; // PR-M
   const autosave = settingsAutosaveEl.value;
   const probeEnabled = settingsProbeEl.checked;
+  const probePerfEnabled = settingsProbePerfEl.checked; // A2 性能模式
   const lspEngine = settingsEngineEl.value;
   const formatOnSave = settingsFormatOnSaveEl.checked;
   const optimizeImportsOnSave = settingsOptimizeImportsOnSaveEl.checked;
@@ -918,6 +922,7 @@ async function commitSettingsPanel(closeAfter: boolean): Promise<boolean> {
     autosave,
     autosave_delay: app.settings.autosave_delay,
     probe_enabled: probeEnabled,
+    probe_perf_enabled: probePerfEnabled, // A2 性能模式
     lsp_engine: lspEngine,
     format_on_save: formatOnSave,
     optimize_imports_on_save: optimizeImportsOnSave,
@@ -1045,6 +1050,7 @@ export function wireSettingsPanel(): void {
       "settings-ruff-severity-f": t("settings.kw.ruffSeverityF"),
       "settings-engine": t("settings.kw.engine"),
       "settings-probe": t("settings.kw.probe"),
+      "settings-probe-perf": t("settings.kw.probePerf"),
       "settings-intel": t("settings.kw.intel"),
       "settings-pypi-index": t("settings.kw.pypiIndex"),
       "settings-pypi-index-preset": t("settings.kw.pypiIndex"),

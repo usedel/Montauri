@@ -98,6 +98,7 @@ pub(crate) fn build_run_env(
     workspace_root: Option<&str>,
     run_config: &RunProfile,
     probe: bool,
+    perf_mode: bool,
     instance: Option<&str>,
 ) -> RunEnv {
     let probe_src = if probe { locate_probe_src(app) } else { None };
@@ -110,7 +111,7 @@ pub(crate) fn build_run_env(
     // P1-G：加载 .env 文件（有序；相对工作区根）。文件缺失仅告警不中断运行。
     let mut warnings: Vec<String> = Vec::new();
     let env_file_env = load_env_files(&run_config.env_files, workspace_root, &mut warnings);
-    let mut out = assemble(script_abs, workspace_root, run_config, probe_src, inherited.as_deref(), &env_file_env, instance, run_id.as_deref());
+    let mut out = assemble(script_abs, workspace_root, run_config, probe_src, inherited.as_deref(), &env_file_env, perf_mode, instance, run_id.as_deref());
     out.warnings.extend(warnings);
     out
 }
@@ -200,6 +201,7 @@ pub(crate) fn assemble(
     probe_src: Option<PathBuf>,
     inherited_pythonpath: Option<&str>,
     env_file_env: &[(String, String)],
+    perf_mode: bool,
     instance: Option<&str>,
     run_id: Option<&str>,
 ) -> RunEnv {
@@ -273,6 +275,11 @@ pub(crate) fn assemble(
     // OPENCHARM_PROBE_RUN_ID（TD-020）：每次运行唯一，probe 据此跨进程去重。
     if probe_src.is_some() {
         env.push(("OPENCHARM_PROBE_AUTOSTART".to_string(), "1".to_string()));
+        // A2 性能模式（PR-A2-P5）：perf 计时仅随探针注入——探针关闭时 perf 无意义，
+        // 故不注入。探针的 config.py 只在 OPENCHARM_PROBE_PERF=="1" 时开计时回调。
+        if perf_mode {
+            env.push(("OPENCHARM_PROBE_PERF".to_string(), "1".to_string()));
+        }
         env.push((
             "OPENCHARM_PROBE_SCRIPT".to_string(),
             script_abs.to_string_lossy().to_string(),
@@ -421,9 +428,9 @@ mod tests {
         RunProfile { args: args.into(), env, ..Default::default() }
     }
 
-    /// 装配（不挂 probe、无继承 PYTHONPATH、无 .env）——单测统一入口
+    /// 装配（不挂 probe、无继承 PYTHONPATH、无 .env、非 perf 模式）——单测统一入口
     fn asm(cfg: &RunProfile, root: Option<&str>) -> RunEnv {
-        assemble(Path::new(SCRIPT), root, cfg, None, None, &[], None, None)
+        assemble(Path::new(SCRIPT), root, cfg, None, None, &[], false, None, None)
     }
 
     /// §2.1 四段合并顺序的完整锁定：① 用户配置 → ② 继承 → ③ 工作区根 → ④ probe src
@@ -438,6 +445,7 @@ mod tests {
             Some(probe_src.clone()),
             Some("/inherited/lib"),
             &[],
+            false,
             None,
             None,
         );
@@ -453,7 +461,7 @@ mod tests {
 
     #[test]
     fn inherited_blank_pythonpath_is_ignored() {
-        let e = assemble(Path::new(SCRIPT), None, &rc("", vec![]), None, Some("   "), &[], None, None);
+        let e = assemble(Path::new(SCRIPT), None, &rc("", vec![]), None, Some("   "), &[], false, None, None);
         assert!(env_value(&e, "PYTHONPATH").is_none());
     }
 
@@ -504,7 +512,7 @@ mod tests {
     fn env_file_env_sits_between_defaults_and_user_env() {
         let cfg = rc("", vec![EnvVar { key: "APP_MODE".into(), value: "user".into() }]);
         let env_file = vec![("APP_MODE".to_string(), "dotenv".to_string()), ("FROM_DOTENV".to_string(), "1".to_string())];
-        let e = assemble(Path::new(SCRIPT), None, &cfg, None, None, &env_file, None, None);
+        let e = assemble(Path::new(SCRIPT), None, &cfg, None, None, &env_file, false, None, None);
         // 顺序即优先级：.env 先写、用户 env 后写覆盖
         let hits: Vec<&str> = e.env.iter().filter(|(k, _)| k == "APP_MODE").map(|(_, v)| v.as_str()).collect();
         assert_eq!(hits, ["dotenv", "user"]);
@@ -518,7 +526,7 @@ mod tests {
     fn env_file_pythonpath_joins_merge_after_user_value() {
         let cfg = rc("", vec![EnvVar { key: "PYTHONPATH".into(), value: "/user/lib".into() }]);
         let env_file = vec![("PYTHONPATH".to_string(), "/dotenv/lib".to_string())];
-        let e = assemble(Path::new(SCRIPT), Some("/ws/root"), &cfg, None, Some("/inherited/lib"), &env_file, None, None);
+        let e = assemble(Path::new(SCRIPT), Some("/ws/root"), &cfg, None, Some("/inherited/lib"), &env_file, false, None, None);
         let pp = env_value(&e, "PYTHONPATH").expect("应注入 PYTHONPATH");
         let sep = if cfg!(windows) { ';' } else { ':' };
         let parts: Vec<&str> = pp.split(sep).collect();
@@ -563,7 +571,7 @@ mod tests {
     fn probe_trio_and_pythonpath_tail() {
         // probe/src 追加在 PYTHONPATH **末位**（用户同名模块优先命中，不被探针遮蔽）+ 四件套
         let probe_src = PathBuf::from(if cfg!(windows) { "F:\\oc\\probe\\src" } else { "/oc/probe/src" });
-        let e = assemble(Path::new(SCRIPT), Some("/ws/root"), &rc("", vec![]), Some(probe_src.clone()), None, &[], None, None);
+        let e = assemble(Path::new(SCRIPT), Some("/ws/root"), &rc("", vec![]), Some(probe_src.clone()), None, &[], false, None, None);
         let pp = env_value(&e, "PYTHONPATH").expect("应注入 PYTHONPATH");
         let sep = if cfg!(windows) { ';' } else { ':' };
         let parts: Vec<&str> = pp.split(sep).collect();
@@ -589,6 +597,7 @@ mod tests {
             Some(probe_src),
             None,
             &[],
+            false,
             Some("run-term-project-2"),
             None,
         );
@@ -610,6 +619,7 @@ mod tests {
             Some(probe_src),
             None,
             &[],
+            false,
             None,
             Some("run-abc123"),
         );
@@ -625,10 +635,38 @@ mod tests {
             Some(PathBuf::from(if cfg!(windows) { "F:\\oc\\probe\\src" } else { "/oc/probe/src" })),
             None,
             &[],
+            false,
             None,
             Some(""),
         );
         assert!(env_value(&e3, "OPENCHARM_PROBE_RUN_ID").is_none());
+    }
+
+    /// PR-A2-P5：性能模式计时开关——perf 仅随探针注入（探针关闭时 perf 无意义，故不注入）
+    #[test]
+    fn probe_perf_env_injected_only_when_probe_and_perf_on() {
+        let probe_src = PathBuf::from(if cfg!(windows) { "F:\\oc\\probe\\src" } else { "/oc/probe/src" });
+        // ① 探针开 + perf 开 → OPENCHARM_PROBE_PERF=1 注入
+        let e = assemble(
+            Path::new(SCRIPT),
+            Some("/ws/root"),
+            &rc("", vec![]),
+            Some(probe_src.clone()),
+            None,
+            &[],
+            true,
+            None,
+            None,
+        );
+        assert_eq!(env_value(&e, "OPENCHARM_PROBE_PERF").as_deref(), Some("1"));
+        // ② perf 开 + 探针关 → 不注入（无探针则 perf 计时无处安放）
+        let e2 = assemble(Path::new(SCRIPT), Some("/ws/root"), &rc("", vec![]), None, None, &[], true, None, None);
+        assert!(env_value(&e2, "OPENCHARM_PROBE_PERF").is_none());
+        assert!(env_value(&e2, "OPENCHARM_PROBE_AUTOSTART").is_none());
+        // ③ 探针开 + perf 关 → 不注入（默认关）
+        let e3 = assemble(Path::new(SCRIPT), Some("/ws/root"), &rc("", vec![]), Some(probe_src), None, &[], false, None, None);
+        assert!(env_value(&e3, "OPENCHARM_PROBE_PERF").is_none());
+        assert_eq!(env_value(&e3, "OPENCHARM_PROBE_AUTOSTART").as_deref(), Some("1"));
     }
 
     #[test]

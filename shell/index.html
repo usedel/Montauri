@@ -1048,6 +1048,14 @@
                     <label data-i18n="settings.python.sectionPythonLabel2" for="settings-probe">运行时采集（探针）</label>
                     <input id="settings-probe" type="checkbox" />
                   </div>
+                  <!-- A2 性能模式（PR-A2-P5）：默认关；耗时含探针开销为相对值，仅用于热点排序 -->
+                  <div class="settings-row">
+                    <label data-i18n="settings.python.sectionPythonLabel9" for="settings-probe-perf">性能模式（默认关）</label>
+                    <div class="settings-field">
+                      <input id="settings-probe-perf" type="checkbox" />
+                      <div data-i18n="settings.python.sectionPythonDiv3" class="settings-row-desc">开启后每次运行记录各函数耗时（含探针开销，约为同场景 cProfile 的一半）。耗时为相对值，用于给热点按耗时排序，不等于无探针时的真实耗时。需要「运行时采集（探针）」开启。</div>
+                    </div>
+                  </div>
                   <div class="settings-row">
                     <label data-i18n="settings.python.sectionPythonLabel3" for="settings-intel">运行时智能层（intel）</label>
                     <input id="settings-intel" type="checkbox" />

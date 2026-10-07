@@ -37,6 +37,7 @@ export const settings = {
   "settings.kw.minimap": "minimap 小地图",
   "settings.kw.optimizeImports": "imports isort 整理导入",
   "settings.kw.probe": "probe profiling 探针",
+  "settings.kw.probePerf": "perf performance 性能 计时",
   "settings.kw.pypiIndex": "pypi mirror pip 源",
   "settings.kw.reduceMotion": "motion animation 动画",
   "settings.kw.ruffSeverityE": "ruff severity pycodestyle E 风格 级别 诊断",

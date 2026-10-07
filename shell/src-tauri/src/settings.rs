@@ -150,6 +150,10 @@ pub struct Settings {
     pub autosave_delay: u64,
     /// 运行时探针开关（关闭时 run_script 不注入）
     pub probe_enabled: bool,
+    /// A2 性能模式（PR-A2-P5）：默认关；开启时 run_script 注入 OPENCHARM_PROBE_PERF=1，
+    /// probe 以 perf_mode 注册计时回调（per-call 耗时聚合，开销约为同场景 cProfile 的一半）。
+    /// 仅随探针注入生效——探针关闭时本字段无效果（须与前端 DEFAULT_SETTINGS 同步）。
+    pub probe_perf_enabled: bool,
     /// LSP 引擎默认值："pyrefly" | "basedpyright"
     pub lsp_engine: String,
     /// 保存时用 ruff 格式化（Ctrl+S 联动）
@@ -250,6 +254,8 @@ impl Default for Settings {
             autosave: "delay".into(),
             autosave_delay: 2000,
             probe_enabled: true,
+            // A2 性能模式：默认关（2.68x 开销不可能常开；与前端 DEFAULT_SETTINGS 保持同步）
+            probe_perf_enabled: false,
             lsp_engine: "pyrefly".into(),
             format_on_save: false,
             optimize_imports_on_save: false,
@@ -341,6 +347,12 @@ pub(crate) fn current_probe_enabled(_app: &tauri::AppHandle) -> bool {
     load().probe_enabled
 }
 
+/// 当前 `probe_perf_enabled` 开关值（PR-A2-P5）：随探针注入生效，探针关闭时无效果。
+/// 默认关——perf 计时开销（2.68x）不可能常开，任何环境都不要改默认值。
+pub(crate) fn current_probe_perf_enabled(_app: &tauri::AppHandle) -> bool {
+    load().probe_perf_enabled
+}
+
 /// 写入完整设置（写盘后主动失效缓存——NTFS mtime 粒度下「快速连写两次且大小相同」
 /// 可能被 (mtime, size) 戳误判为未变，主动清缓存兜底；写失败保留旧缓存无害）。
 #[tauri::command]
@@ -386,6 +398,7 @@ mod tests {
         assert_eq!(d.autosave, "delay");
         assert_eq!(d.autosave_delay, 2000);
         assert_eq!(d.probe_enabled, true);
+        assert_eq!(d.probe_perf_enabled, false); // A2：性能模式默认关
         assert_eq!(d.lsp_engine, "pyrefly");
         assert_eq!(d.format_on_save, false);
         assert_eq!(d.runtime_intel_enabled, true);
@@ -481,6 +494,7 @@ mod tests {
         assert_eq!(s.font_size, 18);
         assert_eq!(s.theme, "opencharm-dark"); // 未提供的字段走 default
         assert_eq!(s.probe_enabled, true);
+        assert_eq!(s.probe_perf_enabled, false); // 旧配置文件无此字段 → 默认关闭（A2）
         assert_eq!(s.format_on_save, false); // 旧配置文件无此字段 → 默认关闭
         assert_eq!(s.terminal_cwd, "workspace"); // 旧配置文件无此字段 → 默认工作区根
         assert_eq!(s.terminal_shell, "auto"); // 旧配置文件无此字段 → 默认自动回退

@@ -38,6 +38,7 @@ export const settings: Record<SettingsKey, string> = {
   "settings.kw.minimap": "minimap",
   "settings.kw.optimizeImports": "imports isort organize",
   "settings.kw.probe": "probe profiling",
+  "settings.kw.probePerf": "perf performance timing",
   "settings.kw.pypiIndex": "pypi mirror pip index",
   "settings.kw.reduceMotion": "motion animation reduce",
   "settings.kw.ruffSeverityE": "ruff severity pycodestyle E style diagnostic",

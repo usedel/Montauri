@@ -306,6 +306,8 @@
  "settings.python.ruffSeverityF.warning": "警告",
  "settings.python.ruffSeverityF.error": "错误",
  "settings.python.sectionPythonDiv2": "ruff 规则按首字母分类映射到编辑器波浪线级别；保存后立即生效（自动重查当前文件）。行内忽略见编辑器右键「忽略此规则」。",
+ "settings.python.sectionPythonLabel9": "性能模式（默认关）",
+ "settings.python.sectionPythonDiv3": "开启后每次运行记录各函数耗时（含探针开销，约为同场景 cProfile 的一半）。耗时为相对值，用于给热点按耗时排序，不等于无探针时的真实耗时。需要「运行时采集（探针）」开启。",
  "settings.templates.layer": "编辑/保存的目标配置层",
  "settings.templates.layer.user": "用户全局层",
  "settings.templates.layer.workspace": "工作区层",

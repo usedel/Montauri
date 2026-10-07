@@ -71,6 +71,9 @@
  "probe profiling 探针": {
   "key": "settings.kw.probe"
  },
+ "perf performance 性能 计时": {
+  "key": "settings.kw.probePerf"
+ },
  "pypi mirror pip 源": {
   "key": "settings.kw.pypiIndex"
  },

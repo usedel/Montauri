@@ -413,12 +413,15 @@ pub fn run_in_terminal(
     // 经 OPENCHARM_PROBE_INSTANCE 注入 → probe 落库 runs.instance——多实例并行时 trace
     // 可归属到单次运行（调试链路 build_run_env 传 None，不受影响）。
     let probe = crate::settings::current_probe_enabled(&app);
+    // PR-A2-P5：性能模式随探针注入（探针关闭时无效果，run_env 内部有 probe_src.is_some() 门控）
+    let perf_mode = crate::settings::current_probe_perf_enabled(&app);
     let run_env = crate::run_env::build_run_env(
         &app,
         &script_abs,
         workspace_root.as_deref(),
         &run_config,
         probe,
+        perf_mode,
         Some(id.as_str()),
     );
 
