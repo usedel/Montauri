@@ -128,7 +128,7 @@
 > 　**前置动作已尝试、未跑通（⛔ 环境阻断）**：全量跑批（`shell/e2e-real/run-real-all.ps1`，默认 6 套 / 跳过 probe 三支）在本会话环境下起不来——`npm run tauri dev` 稳定 panic `failed to run 'npm run dev'`，而同一终端裸 `npm run dev` 正常（详见 §2 P1-4）。**真机层至今仍是"零全量跑通记录"**。
 > 　**但这次尝试已经产出价值——暴露 3 条，其中 2 条当场修掉**（此前无人发现，正因为没人跑过）：① ✅ **db-real 不可复现已修**（内联造数脚本；**并顺带挖出第二个根因——`spawnSync` 在本机 EBUSY 静默失败**，改异步 `runCmd`；实测 T14-0 PASS）；② ✅ **启动失败不可见已修**（`waitCdpReadyWatched`：盯进程 exit + 扫日志 panic，实测 db-real 5s / endpoints-real 3s 失败，原为 1500s）；③ ⛔ 会话环境跑真机不可行（须在用户终端跑，属外部条件）。**结论：真机层当前的最大缺口不是"域不够"，而是"没人跑 + 跑不起来也没人知道"**——后半句本轮已解决。
 > 　**✅ 首轮真机基线已出（2026-10-07 16:35，用户终端）**：`debug-real 14/14 · endpoints-real 4/4 · multi-window-real 16/16 · ui-real 39/39` = **73/73 PASS，合计仅 3 分钟**（原估 30~60 min 偏高，修正为 **10 min 量级**）。**但 db-real / new-project 显示「无报告」又暴露 3 条，均当场修掉**：④ 两个自实现套件**从不落 JSON**（分不清"没跑"与"跑了失败"）；⑤ **运行中断被当成成功（假绿）**——db-real 的 `catch` 不设失败计数 → 退出码 0 → 跑批报"失败 0 个套件"，**首轮"全绿"因此是假象**；⑥ **5173 预检形同虚设**（`portInUse` 用 HTTP `/json/version`，而 vite 不提供该端点；实测 vite 只绑 `[::1]`）→ 已改 TCP 双栈探测。**最终（第四轮，HEAD `80d9fe8`）：6 套 / 95 项全绿，db-real 18/18，全量约 8 分钟**——真机层至此有了可复现的全绿基线（详见 §2 P1-4 四轮小节）。
-> **㉖ P1-4 收尾：触发点已绑 + B4 真机一刀已交付（2026-10-07）**。① **C 触发点（先决条件，已完成）**：真机层最大的问题是"没人跑"（`nightly.yml` 编排了脚本但本仓远端只有 Gitee、Actions 不执行），现绑到**发布前验收**——`build-release.ps1 -Verify` 在打包后自动跑 `run-real-all.ps1 -PreRelease -Strict`（release-real + 开发链路 6 套，约 12 min，失败即非零退出）；不加 `-Verify` 时打印黄字提示，使"忘了跑"在出包输出里可见。跑批新增「模式」行与 **divert 代理预检**（25378/18080/8888 在监听即告警——它走驱动层，开着会让整套 `ERR_PROXY_CONNECTION_FAILED`，环境变量与 `--no-proxy-server` 都躲不掉）。② **B B4 HTTP 真机一刀已交付**（`shell/e2e-real/http-real.cjs`，HR-1..HR-11，覆盖 reqwest 真实链路：TCP / 响应头 / 重定向 / 超时 / 取消分块边界 / 二进制 / 5MB 截断 / 主机名解析；服务端记录到 `User-Agent: OpenCharm/0.1` 是跨进程硬证据）。③ **顺带修掉跑批自身一条缺陷**：PS 5.1 把 native stderr 包成 `NativeCommandError`，配 `$ErrorActionPreference="Stop"` 会**让任一真机脚本的 stderr 终止整轮跑批**（实测第 2 套件即整脚本退出、不写 SUMMARY）——与 `build-release.ps1::Invoke-Native` 同一个坑，已按同法加包装并实测修复（7 套全部跑完）。⏳ B 的真机结论待用户终端跑一次（会话环境起不来 tauri dev）。
+> **㉖ P1-4 收尾：触发点已绑 + B4 真机一刀已交付（2026-10-07）**。① **C 触发点（先决条件，已完成）**：真机层最大的问题是"没人跑"（`nightly.yml` 编排了脚本但本仓远端只有 Gitee、Actions 不执行），现绑到**发布前验收**——`build-release.ps1 -Verify` 在打包后自动跑 `run-real-all.ps1 -PreRelease -Strict`（release-real + 开发链路 6 套，约 12 min，失败即非零退出）；不加 `-Verify` 时打印黄字提示，使"忘了跑"在出包输出里可见。跑批新增「模式」行与 **divert 代理预检**（25378/18080/8888 在监听即告警——它走驱动层，开着会让整套 `ERR_PROXY_CONNECTION_FAILED`，环境变量与 `--no-proxy-server` 都躲不掉）。② **B B4 HTTP 真机一刀已交付**（`shell/e2e-real/http-real.cjs`，HR-1..HR-11，覆盖 reqwest 真实链路：TCP / 响应头 / 重定向 / 超时 / 取消分块边界 / 二进制 / 5MB 截断 / 主机名解析；服务端记录到 `User-Agent: OpenCharm/0.1` 是跨进程硬证据）。③ **顺带修掉跑批自身一条缺陷**：PS 5.1 把 native stderr 包成 `NativeCommandError`，配 `$ErrorActionPreference="Stop"` 会**让任一真机脚本的 stderr 终止整轮跑批**（实测第 2 套件即整脚本退出、不写 SUMMARY）——与 `build-release.ps1::Invoke-Native` 同一个坑，已按同法加包装并实测修复（7 套全部跑完）。④ **B 已真机验证 ✅**：首轮（17:51）暴露「按键早于 init 的键位接线」→ 修就绪判据（commit `23c7b53`）；第二轮（18:06，HEAD `3552012`）**`http-real` 10/10 PASS（36s）**。
 > v1.1 的规模数字取自 PowerShell `Get-Content $f | .Count`。在本机（PS 5.1，ANSI 代码页 **gb2312**）上，对**无 BOM 的 UTF-8 源文件**该写法会按 GBK 解码并**吞掉换行**——`style.css` 报 5,410 而真实 5,668（少 4.5%），`main.ts` 报 2,503 而真实 2,897（少 13%）。丢失比例随文件 CJK 密度而变、**逐文件不同**，因此这批数字是"看起来合理但系统性偏低"的。
 > 连带被推翻的结论（详见 §1.2）：**「巨型文件趋势已逆转」「UI 六批顺带把逻辑拆去了域模块」不成立**——`git.ts` / `lsp/client.ts` / `env_cmds.rs` / `fs_cmds.rs` / `git_cmds.rs` 在 `44c85ea → HEAD` 之间**一行未变**，`main.ts` 是 **+58**（不是 −336）。
 > 本版全部行数改由 `tools/stats/repo-stats.mjs` 重取，并新增两个防复发机制：取数脚本固化为代码 + 预算门禁（`ci/budgets.toml` / `shell/scripts/budget-check.mjs`）。
@@ -498,7 +498,7 @@
 - **实测（本会话干跑 `-PreRelease`）**：7 套件按序跑完、模式行正确、SUMMARY 落盘（`release-real` 因本机 release 产物是 dev 味（加载 `localhost:5173`）而 FAIL，其余 6 套因会话环境起不来 tauri dev 判 ENV——**均为环境所致，非脚本缺陷**）。
 - **顺带修掉跑批自身一条缺陷（本次实测暴露）**：`run-real-all.ps1` 顶部 `$ErrorActionPreference = "Stop"`，而 PS 5.1 会把 native 命令的 stderr 包成 `NativeCommandError` → **任一真机脚本往 stderr 写一行（失败/中断路径必然写）就终止整轮跑批**，表现为"跑到第 2 套件整脚本退出、不写 SUMMARY"（外层管道捕获如 `| Tee-Object` 时必现）。这与 `build-release.ps1::Invoke-Native` 是**同一个坑**（那边早有注释），已按同法加 `Invoke-RealSuite` 包装（局部降 EAP + ErrorRecord 渲染成纯文本）。**实测**：修复前在第 2 套件（db-real）退出；修复后 7 套全部跑完。
 
-#### 收尾二：B4 HTTP 真机一刀（B，2026-10-07 已交付，待真机验证）
+#### 收尾二：B4 HTTP 真机一刀（B，2026-10-07 已交付并真机验证 ✅）
 
 `shell/e2e-real/http-real.cjs`（**HR-1..HR-11**）——补上 reqwest 真实链路这个**唯一真空白**：
 
@@ -509,7 +509,8 @@
 - **本机已验的部分**：脚本内那个 Node 服务被**单独抽出跑过一轮端点自测**（10/10 PASS：`/json` `/echo` `/redirect` `/missing` `/bytes` `/big`(两种 ct) `/slow`(确认真的慢) `/stream`(断流计数) + 服务端观测），故服务端半边的行为是确定的；**未验的是 UI 半边**（需真机 DOM）。
 - **首轮真机跑（2026-10-07 17:51，HEAD `0fa00c3`）：应用起来了（23s，CDP 已连），但 `#devtools-picker` 一直 hidden**——`Ctrl+Shift+T` **按得太早**。根因在代码里可定位：全局键位路由要到 `main.ts:1745 wireWindowKeys()` 才装（init 中段），而 mock 层靠等 `__TAURI_MOCK_INVOKE_LOG__` 的 `list_plugin_dirs` 判 init 完成——**真机没有这个钩子**，脚本在键位接线前就按键，事件没人接。**已修（commit `23c7b53`）**：① 就绪判据改用 DOM 信号 `#tree .tree-item`——行号依据 `initDevTools(1569) < wireWindowKeys(1745) < openInitialWorkspace(2109)`，文件树出现即同时保证"内置工具已注册 + 键位已接线"；② 保留最多 10 次重试兜底（不把脚本钉死在内部时序上）；③ 新增 `dismissFirstRunModals`——`maybePromptToolchain()` 是 `await openConfirm`，工具链缺失时会卡在 `openInitialWorkspace` 之前（树永不出现），该函数**只点「稍后/取消」这类非破坏性按钮**，刻意避开「立即安装」（真机上会真的开始装 uv/pyrefly）。
 - **这条值得归档为真机脚本的一条通用纪律**：**真机层没有 mock 的 `__TAURI_MOCK_INVOKE_LOG__` 等就绪钩子，凡是"等 init 完成"的地方都必须换成一个**可观测的 DOM 信号 + 重试**，不能靠固定 sleep 或直接按键**。选信号时先看 main.ts 里的行号先后关系（信号必须晚于你要用的那套接线）。
-- ⏳ **待用户终端再跑一次**（首轮失败报告已入库 `shell/real-reports/20261007-175115/`）→ 结论以新的 `http-real.json` 为准；预期全量由 6 套 / 95 项变为 **7 套 / ~105 项**。
+- **✅ 第二轮真机跑（2026-10-07 18:06，HEAD `3552012`）：`http-real` 10/10 PASS（36s）**——就绪判据修复生效。关键证据全部来自**服务端观测**（不是 UI 自说自话）：HR-1 `ua=OpenCharm/0.1`（请求确实出自应用内核的 reqwest）、HR-3 服务端收到 `method=POST / token=t-123 / body={"a":1}`、HR-4 服务端路径序列 `["/redirect","/json"]`（真实 302 跟随）、HR-6 `HttpTimeout:请求超时（3000ms 内未完成）`（真实 reqwest 超时）、**HR-7 服务端断流 = true**（取消是真的断开连接，不是只改前端状态）、HR-9 `5.0 MB` 截断、HR-10 `localhost` 真实解析。报告入库 `shell/real-reports/20261007-180638/`。
+- **口径说明（防"配置就位当已交付"）**：`http-real` 是**单独跑**（`-Only http-real`）通过的；`6 套 / 95 项` 全绿是此前**全量跑批**的实测结果。**合并全量（7 套）尚未跑过一次**，`95 + 10 = 105 项`只是算术和，**不得当作实测数字引用**。下次发布前验收（`build-release.ps1 -Verify`）会自然产出该合并基线。
 
 ### P1-5 · 偿还 TD-021 五小项
 
@@ -675,7 +676,7 @@ A 类全部复用已有的 probe trace 数据或外壳基建，**别人抄不走
 | 泳道 | 内容 |
 |---|---|
 | 画像专项 | ~~A4 爬虫工具箱~~ ✅ **①+③ 已交付（2026-10-06）**（B4 HTTP 工具 + A5① 请求样例 + `json2model.gen.ts` 三件现成基建都复用了；真正的新件只有选择器测试器）。**A2 内置 Profiler 已交付并收口**（2026-10-07，`profiler_acceptance_record.md`）；余项（A3④ 调用处 inlay hint / A4② 请求回放 / A4-Py Python 引擎）已全部关闭不立项（2026-10-07 收口，见 ⑳终） |
-| 可选 / 债务 | B2 REPL / Scratch + **P1-4 已收尾：触发点已绑（`build-release.ps1 -Verify`）+ B4 HTTP 真机一刀已交付（`http-real.cjs` HR-1..HR-11，待真机跑一次）** + P1-6 工作区级插件目录 |
+| 可选 / 债务 | B2 REPL / Scratch + **P1-4 已收尾（触发点已绑 `build-release.ps1 -Verify` + B4 HTTP 真机一刀 `http-real.cjs` HR-1..HR-11 已真机 10/10 PASS）** + P1-6 工作区级插件目录 |
 
 ### 阶段四 · 评估期（18 周后）
 
