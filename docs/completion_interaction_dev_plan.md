@@ -2,7 +2,7 @@
 
 > 面向：OpenCharm 补全功能后续迭代。本文自包含，不依赖任何外部参考资料。
 > 定位：把「补全引擎能力」之外的**交互体验层**缺口拆成可逐项落地的开发项，按投入产出比排序。
-> 状态：**已收官**（2026-10-08：P0-C 落地，§2 四个批次全部交付；维护态下仅受理缺陷修复）。
+> 状态：**已收官**（2026-10-08：P0-C 落地 + P1-B 的 `commitCharacters` 下发 spike 结清，§2 四个批次全部交付；维护态下仅受理缺陷修复）。
 > 编写时间：2026-10-07　·　评审修订：2026-10-07（逐项核对代码后修正 P0-A/P0-B 的落地前提，补遗留缺口登记，v2 起为 §8）
 > 细化定稿：2026-10-07（v2——每项补齐「现状定位 / 交互语义 / 改动方案（含代码骨架）/ 测试清单 / 预算影响 / 验收剧本」，可按 §2 批次直接进入开发）
 > P0-C 收口：2026-10-08（**自动化 spike 取代 DevTools 手测**：四取值 × 四场景矩阵机器判定，结论回填 §3 P0-C；
@@ -52,16 +52,16 @@
 
 ## 2. 批次与依赖总览（v2 新增）
 
-| 批次 | 项 | 性质 | 依赖 | client.ts 净增估算 | PR 粒度建议 |
+| 批次 | 项 | 性质 | 依赖 | client.ts 净增估算 | 状态 |
 |---|---|---|---|---|---|
-| 批次 1 | P0-A1（intel 声明 `is_incomplete`） | 协议正确性 | 无 | 0（不动 client.ts） | 单独 PR（含 cargo build 产物验证） |
-| 批次 1 | P0-A2（客户端透传 `isIncomplete`） | 协议正确性 | **必须先 A1** | ≈ +5（类型/解析外迁抵消大头） | 与 P0-B 同 PR |
-| 批次 1 | P0-B（过期响应丢弃 + token 早退） | 健壮性 | 无 | ≈ +11 | 与 P0-A2 同 PR |
-| 批次 2 | P0-D（insert 坐标/接受路径测试） | 测试守护 | 无（可与批次 1 并行） | ≈ −2（映射外迁） | 单独 PR |
-| 批次 3 | §8-1（`preselect` 映射）+ P0-C（selectionMode 软硬选中） | 交互体感 | 8-1 先行；P0-C **先 spike 再定值** | ≈ +3 | ✅ 已交付（63693ff + `feat: P0-C`） |
-| 批次 4 | P1-A（Enter=插入 / Tab=替换） | 可选增强 | 批次 1 合并后 | ≈ +4（textEdit 映射外迁） | 逐项裁决、逐项 PR |
-| 批次 4 | P1-B（`commitCharacters`） | 可选增强 | 无 | ≈ +2（+设置面） | 逐项裁决、逐项 PR |
-| 批次 4 | P1-E（补全侧忙碌提示） | 可选增强 | 无 | 0 | 逐项裁决、逐项 PR |
+| 批次 1 | P0-A1（intel 声明 `is_incomplete`） | 协议正确性 | 无 | 0（不动 client.ts） | ✅ `a800416` |
+| 批次 1 | P0-A2（客户端透传 `isIncomplete`） | 协议正确性 | **必须先 A1** | ≈ +5（类型/解析外迁抵消大头） | ✅ `93b4c9a` |
+| 批次 1 | P0-B（过期响应丢弃 + token 早退） | 健壮性 | 无 | ≈ +11 | ✅ `93b4c9a` |
+| 批次 2 | P0-D（insert 坐标/接受路径测试） | 测试守护 | 无（可与批次 1 并行） | ≈ −2（映射外迁） | ✅ `d97e7ea` |
+| 批次 3 | §8-1（`preselect` 映射）+ P0-C（selectionMode 软硬选中） | 交互体感 | 8-1 先行；P0-C **先 spike 再定值** | ≈ +3 | ✅ `63693ff` + `9707b1e` |
+| 批次 4 | P1-A（Enter=插入 / Tab=替换） | 可选增强 | 批次 1 合并后 | ≈ +4（textEdit 映射外迁） | ✅ `63693ff`（spike 后由 P0-C 结清） |
+| 批次 4 | P1-B（`commitCharacters`） | 可选增强 | 无 | ≈ +2（+设置面） | ✅ `63693ff`（spike 2026-10-08 结清：两引擎不下发） |
+| 批次 4 | P1-E（补全侧忙碌提示） | 可选增强 | 无 | 0 | ✅ 验证后不改码关闭 |
 
 **依赖链**：`P0-A1 → P0-A2`；`§8-1 → P0-C 兜底方案`；其余互不阻塞。
 **行数总账**：全部落地后 client.ts ≈ 1,815 / 1,850 ✓；新增纯模块 `shell/src/completion/lspCompletion.ts`（≈ 90 行，**预算面新增 1 项，budget-check 37 → 38**）。
@@ -341,10 +341,10 @@ live-template 也走自动打字 → 一并失去预选（`Enter` 换行）。�
    - `textEdit` 为 `{ insert, replace, newText }`（InsertReplaceEdit）→ Monaco `range: { insert, replace }`（Monaco 原生支持双 range 形态）。
    - 无 `textEdit` → 回落现有 word range（现状不变）。
 2. **编辑器选项**：create 块 `suggest` 增 `insertMode: "insert"`（= 0.52 默认值，显式写出只为给「alternative = replace」一个稳定基准）。
-3. **键位区分**：Monaco suggest 贡献提供命令 `acceptAlternativeSelectedSuggestion`（VS Code 里绑 Shift+Enter；standalone Monaco 命令在、默认键不在，⚠spike 验证命令可触发）。接线：
-   - `keybindingDefaults.ts` 增 id `accept_suggestion_replace`（label「替换模式接受建议」，`def: "Tab"`，`scope: "editor"`）。
+3. **键位区分**：Monaco suggest 贡献提供命令 `acceptAlternativeSelectedSuggestion`（VS Code 里绑 Shift+Enter；standalone Monaco 命令在、默认键不在，**2026-10-08 已实测可触发**，见 `e2e/lsp/06` C-6）。接线：
+   - `keybindingDefaults.ts` 增 id `accept_suggestion_replace`（label 后经 P0-C 改为「接受建议（Tab）」，`def: "Tab"`，`scope: "editor"`）。
    - `keybindings.ts:303` 同款 handler：`app.editor.trigger("keybindings", "acceptAlternativeSelectedSuggestion", null)`。
-   - **`KEYBINDING_META` 需扩展可选 `when` 字段**：当前 `applyEditorKeybindings`（`keybindings.ts:344-360`）对所有规则硬写 `when: "editorTextFocus"`（`:357`）；本项必须 `when: "editorTextFocus && suggestWidgetVisible"`——只在面板可见时接管 `Tab`，否则吞掉正常缩进。动态规则优先级高于 Monaco 内建 `Tab`→`acceptSelectedSuggestion` 绑定（⚠spike 验证覆盖关系）。
+   - **`KEYBINDING_META` 需扩展可选 `when` 字段**：当前 `applyEditorKeybindings`（`keybindings.ts:344-360`）对所有规则硬写 `when: "editorTextFocus"`（`:357`）；本项必须 `when: "editorTextFocus && suggestWidgetVisible && suggestWidgetHasFocusedSuggestion"`——只在面板可见**且已有聚焦项**时接管 `Tab`，否则吞掉正常缩进。动态规则优先级高于 Monaco 内建 `Tab`→`acceptSelectedSuggestion` 绑定（⚠spike 覆盖关系**已实测结清**：确实覆盖内建，`e2e/lsp/06` C-6 钉住）。软选中（无聚焦项）分支见 §3 P0-C 的 `softWhen`/`softCommand`。
    - 设置面板键位编辑走通用表，无需改 UI。
 
 **验收**：目标语义两键行为可区分；无 `textEdit`/无双 range 的候选两键行为一致（回落 insert range，Monaco 原生兜底）；面板不可见时 `Tab` 缩进不受影响。
@@ -358,12 +358,13 @@ live-template 也走自动打字 → 一并失去预选（`Enter` 换行）。�
 
 **改动方案**
 
-1. **能力声明（Rust 侧，先查后补）**：`shell/src-tauri/src/lsp.rs` initialize 参数确认/补 `textDocument.completion.completionItem.commitCharactersSupport = true`——pyright 系引擎只在客户端声明支持后才下发 commitCharacters（⚠spike：下发后先实证 pyrefly/basedpyright 是否真带该字段，不带则本项对静态引擎零收益，价值只剩 intel/未来引擎）。
+1. **能力声明（Rust 侧，先查后补）**：`shell/src-tauri/src/lsp.rs` initialize 参数确认/补 `textDocument.completion.completionItem.commitCharactersSupport = true`——pyright 系引擎只在客户端声明支持后才下发 commitCharacters。**⚠spike 已于 2026-10-08 结清（裸会话实测）**：pyrefly 的 completionProvider capability 只有 `{resolveProvider, triggerCharacters}`（无 `commitCharactersSupport`），66 个补全 item **0 个带 `commitCharacters`**；basedpyright 的 capability 只有 `{labelDetailsSupport}`，84 个 item **0 个带 `commitCharacters`**。→ **两个引擎均不下发**，本项对静态引擎零收益，价值只剩 intel/未来引擎（intel 候选 `insertText` 无括号也不受影响）。「默认关」门控因此是**正确且必要**的——开着也无数据可用。
 2. **映射**：`toMonacoItem` 增 `commitCharacters: it.commitCharacters`（+1 行；类型已在 P0-A2 外迁模块预留）。
 3. **默认关闭、设置可配**（避免误插入）：新增设置 `completion_commit_characters`（默认 `false`）——settings.rs 字段 + settingsPanel 开关 + i18n 三步（`docs/i18n.md`）；映射处按设置门控（关则不下发该字段给 Monaco）。
 4. **Edge case**：候选 `insertText` 已含 `(`（如部分引擎对函数候选带括号）时 commit char 会**双括号**——门控默认关 + 文案注明；intel 候选 `insertText` 不含括号（`name=` / 裸名），不受影响。
 
 **验收**：设置开启后，`.`/`(` 接受候选一次完成「插入 + 跟随字符」；关闭后行为与现状一致。**标 P1 可选**。
+**spike 结清结论（2026-10-08）**：两个静态引擎都不下发 `commitCharacters`，本项**当前无观察对象**（仅当 intel/未来引擎主动下发时才产生行为差异）。能力声明与映射、设置门控仍保留（成本近零、为未来引擎预埋），默认关不变。
 
 ### P1-C　frecency / 邻近度排序
 
@@ -467,7 +468,7 @@ monaco 与 `../state` 的 `app`，**不是可直接单测的纯函数模块**。
 | # | 缺口 | 现状 | v2 处置 |
 |---|---|---|---|
 | 8-1 | **`preselect` 未映射** | ✅ 已交付（`63693ff`）：`toMonacoItem` 透传 `preselect`（类型字段 P0-A2 已预留） | **已关闭**：P0-C 实测证明 `preselect` 只影响「有聚焦项时选哪项」（`suggestMemory.js`），**不能**让软选中态获得预选——故 P0-C 的补偿走 `Tab`（见 §3 P0-C） |
-| 8-2 | **`commitCharacters` 未映射** | ✅ 已交付（`63693ff` = P1-B）：client 声明 `commitCharactersSupport` + 设置 `completion_commit_characters` 门控（默认关） | **已关闭**（⚠ 残留：pyrefly/basedpyright 是否真下发仍未实证——不下发则对静态引擎零收益，价值只剩 intel/未来引擎） |
+| 8-2 | **`commitCharacters` 未映射** | ✅ 已交付（`63693ff` = P1-B）：**`toMonacoItem` 已按设置门控映射 `commitCharacters`（`client.ts:663-667`）** + client 声明 `commitCharactersSupport` + 设置 `completion_commit_characters`（默认关） | **已关闭**（2026-10-08 裸会话实测：**pyrefly / basedpyright 均不下发** `commitCharacters`，本项当前无观察对象；映射/声明/门控保留为未来引擎预埋，默认关不变） |
 | 8-3 | **真取消未做** | `requestEngine` 的 `pending` 条目只能等 `REQUEST_TIMEOUT_MS`（15s，`client.ts:116`）超时清理，无 `$/cancelRequest` | 维持登记。若未来要做：`requestEngine` 需暴露请求 id（或接受 cancel 回调）以便 `provideCompletionItems` 在新一代触发时发 `$/cancelRequest`；届时单独立项评估（引擎对取消的支持度也要先 spike） |
 
 - **§5 明确不做**（ML 排序、面板内设置入口等）与此表性质不同：§5 是裁决不做，本表是**已排期或尚未裁决的未接线项**。
