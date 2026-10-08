@@ -1377,8 +1377,9 @@ export async function startLsp(): Promise<void> {
   try {
     await lsp.startEngine(engine, rootUri, currentInterpreter, app.workspaceRoot ?? undefined);
   } catch (e) {
+    // 静态引擎启动失败**不阻断**运行时引擎（P0-C 观察点2）：intel 是完全独立的进程/包，
+    // 架构铁律要求它失败静默降级、互不拖累；此处只提示，不 return（return 会让 intel 不启动）。
     statusLspEl.textContent = t("main.lsp.startFailed", { msg: String(e) });
-    return;
   }
   // 运行时引擎（opencharm-intel）：开关控制（P3-T09），失败静默降级（静态引擎照常工作）
   if (app.settings.runtime_intel_enabled) {

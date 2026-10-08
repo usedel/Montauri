@@ -1003,6 +1003,13 @@
       var result0 = null;
       var delayMs = 0; // P0-B：慢引擎延迟（仅补全分支会置位）
       if (method0 === "initialize") {
+        // P0-C 观察点2：staticInitFail 预设——让 static 引擎 initialize 返回 LSP error
+        //（前端 requestEngine reject → startEngine 抛异常 → 验证「static 挂不阻断 intel」）
+        var lpI = window.__E2E_LSP_PRESET__ || null;
+        if (eng0 === "static" && lpI && lpI.staticInitFail) {
+          emitEvent("lsp-message", { engine: eng0, id: rid, error: { code: -32603, message: "static init fail (e2e)" } });
+          return null;
+        }
         result0 = { capabilities: { textDocumentSync: 2, completionProvider: { triggerCharacters: [".", "_"], resolveProvider: true }, hoverProvider: true, definitionProvider: true, referencesProvider: true, documentSymbolProvider: true, renameProvider: { prepareProvider: true } } };
       } else if (method0 === "textDocument/completion") {
         var td0 = params0.textDocument || {};
@@ -1120,6 +1127,11 @@
       return null;
     }
     if (cmd === "lsp_send_response" || cmd === "lsp_start" || cmd === "lsp_stop") return null;
+    // 4.55) intel 启动信息（P0-C 观察点2 e2e 用）：浏览器侧无真实 opencharm-intel 二进制，
+    //       mock 返回伪 command，让 startIntel 走到 ready（真实链路由 opencharm-intel 构建 + 真机覆盖）。
+    if (cmd === "get_intel_info") {
+      return { command: "intel-mock", traceDbPath: "" };
+    }
     // 4.65) 框架探针表 / Pydantic 引擎推荐 / 端点扫描（形状对齐 env_cmds.rs / fs_cmds.rs）
     if (cmd === "detect_framework" || cmd === "set_framework_hint_disabled" || cmd === "detect_pydantic_stack" ||
         cmd === "scan_endpoints" || cmd === "scan_pydantic_issues" || cmd === "scan_pydantic_ctor_refs" ||

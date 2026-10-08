@@ -691,7 +691,13 @@ export function registerLspCompletion(): MonacoApi.IDisposable {
       // **先取号再 await**：保证 flush/请求期间新触发的调用也能作废旧请求（P0-B）
       const gen = ++completionGen;
       if (token?.isCancellationRequested) return { suggestions: [] };
-      if (engineStatus !== "ready") return { suggestions: [] };
+      // 拆总闸（P0-C 观察点2）：不再用 engineStatus（**静态引擎**状态）当补全总闸——
+      // static 未 ready 只应关 static 路，intel 路照常查自己的 session（对齐架构铁律
+      // 「intel 独立、失败静默降级」；此前 static 挂在 error/exited 时 intel 补全被一起拖死）。
+      // 仅当两路都未就绪才整体早退（省掉空跑 hook + 两次 queryCompletion 的空返回）。
+      if (session("static").status !== "ready" && session("intel").status !== "ready") {
+        return { suggestions: [] };
+      }
       // 先冲刷未同步的文档变更，再发补全请求（顺序保证：await 同步帧写入后才发请求）
       if (beforeCompletionHook) await beforeCompletionHook(model);
       if (token?.isCancellationRequested || gen !== completionGen) return { suggestions: [] };

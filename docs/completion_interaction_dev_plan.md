@@ -324,6 +324,8 @@ live-template 也走自动打字 → 一并失去预选（`Enter` 换行）。�
 **预算影响**：`main.ts` +11（2127/2400）；`keybindingDefaults.ts` / `keybindings.ts` 各 +~10（未在单文件预算面）；`lsp/client.ts` 与 `completion/lspCompletion.ts` **零改动**（§8-1 的 `preselect` 映射已在 `63693ff` 完成，本项直接受益）。
 **回滚**：删掉 `selectionMode` 一行即回默认硬选中；删掉 `softWhen` / `softCommand` 两字段即回 P1-A 原行为。
 
+**复核补充（2026-10-08，全量复核 P0~P1 后）**：复核发现 `provideCompletionItems` 用 `engineStatus`（**静态引擎**状态）当补全总闸——static 挂在 `error`/`exited` 时 intel 补全被一起拖死；且 `main.ts:startLsp` 在 static 启动失败时 `return`、intel 根本不启动，二者叠加违背架构铁律「intel 独立、失败静默降级」。修复：① `client.ts` 总闸改为「static 与 intel 两路 session 都未 ready 才早退」，每路由 `queryCompletion` 的 per-engine 门控各自短路；② `main.ts:startLsp` 去掉 static 失败的 `return`（只提示、不阻断 `startIntel`）。守护：`e2e/lsp/07-intel-independent.spec.ts`（mock 扩展 `get_intel_info` 伪 command + `staticInitFail` 预设，static 起不来时 intel 成员候选仍上屏）。门禁：tsc 0 错 · vitest 105/1310 · e2e lsp **30 + dx/05 全绿** · budget-check 44 项全 PASS（`client.ts` 1840/1850 余 10 · `main.ts` 2128/2400）。
+
 ---
 
 ## 4. P1 批次逐项实施规格（可选增强，逐项裁决）
@@ -446,11 +448,11 @@ monaco 与 `../state` 的 `app`，**不是可直接单测的纯函数模块**。
 
 | 文件 | 现值 / 上限 | 批次 1 | 批次 2 | 批次 3 | 批次 4 | **实测落地值**（2026-10-08 `budget-check` 44 项全 PASS） |
 |---|---|---|---|---|---|---|
-| `lsp/client.ts` | 1,795 / 1,850 | +16（A2+B）−13（类型外迁）≈ **+3** | −2 | +2（8-1 映射） | +7（A+B） | **1,834** ✓ |
+| `lsp/client.ts` | 1,795 / 1,850 | +16（A2+B）−13（类型外迁）≈ **+3** | −2 | +2（8-1 映射） | +7（A+B）+6（拆总闸） | **1,840** ✓（余 10） |
 | `completion/lspCompletion.ts`（新建） | — / 150（新登记） | ≈ 50 | +15 | +79（P1-A `mapLspTextEdit`） | 0 | **150 / 150**（零余量，后续改动须先拆文件） |
 | `intel completion.rs` | 1,672 / 1,950 | ≈ +30 | 0 | 0 | 0 | **1,787** ✓ |
 | `intel server.rs` | 未入预算面 | ≈ +20 | 0 | 0 | 0 | **610 / 620**（登记观察，余 10） |
-| `main.ts` / `keybinding*.ts` / `settings.rs` 等 | — | 0 | 0 | +11（P0-C，含矩阵注释） | 按需 | `main.ts` **2,127 / 2,400** ✓ |
+| `main.ts` / `keybinding*.ts` / `settings.rs` 等 | — | 0 | 0 | +11（P0-C，含矩阵注释）+1（拆总闸配套） | 按需 | `main.ts` **2,128 / 2,400** ✓ |
 
   新模块登记：`ci/budgets.toml` 增 `completion_lsp_ts_max_lines = 150` + `budget-check.mjs` 同步（**37 → 38 项**，先例：terminalBackpressure 拆分 36 → 37）。
   估增量超标时的纪律不变：把解析/映射逻辑继续拆到 `shell/src/completion/` 下，**不要**申请抬阈值（抬阈值须显式 PR 写理由，见架构铁律）。
