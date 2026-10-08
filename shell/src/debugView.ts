@@ -73,6 +73,15 @@ export function currentFrameId(): number | null {
   return activeFrameId;
 }
 
+/**
+ * 当前暂停线程 id（TD-027 A3）：stopped 事件维护的单一真源。F5/F10/F11 等键位
+ * 动作必须经此取值——硬编码 threadId=1 会在多线程暂停在非主线程时把步进命令
+ * 发到错误线程（窗口键位路由 windowKeys.ts 是主要消费方）。
+ */
+export function currentThreadId(): number {
+  return activeThreadId;
+}
+
 /** 记录「依赖清单命中 debugpy」的一次性提示是否已发（§3.5：输出面板一次性提示） */
 let depNoticeShown = false;
 /** 初始化只允许一次：语言切换只刷新已有 DOM，不能再次清空侧栏或重复接入 Watches。 */

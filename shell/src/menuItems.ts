@@ -56,6 +56,7 @@ import {
 import { computeRunWidget, runWidgetHandlers } from "./runWidget";
 import { runProject, runScript, runWidgetState, stopRun } from "./runFlow";
 import { onEvaluateShortcut, runDebug, runToCursorAtCursor, stopDebugSession } from "./debugEntry";
+import { currentThreadId } from "./debugView";
 
 /** main 注入的私有动作（解环：本文件不反向 import main）。 */
 export interface MenuItemsHandlers {
@@ -485,9 +486,10 @@ export function getMenuItems(menu: string): MenuEntry[] {
       { sep: true, label: "" },
       { label: t("menu.run.startDebug"), shortcut: kb.bindingLabel("debug") || undefined, action: () => void runDebug() },
       { label: t("menu.run.stopDebug"), shortcut: kb.bindingLabel("debug_stop") || undefined, action: () => void stopDebugSession() },
-      { label: t("menu.run.stepOver"), shortcut: kb.bindingLabel("debug_step_over") || undefined, action: () => void import("./dap/client").then((m) => m.dapNext(1)) },
-      { label: t("menu.run.stepInto"), shortcut: kb.bindingLabel("debug_step_into") || undefined, action: () => void import("./dap/client").then((m) => m.dapStepIn(1)) },
-      { label: t("menu.run.stepOut"), shortcut: kb.bindingLabel("debug_step_out") || undefined, action: () => void import("./dap/client").then((m) => m.dapStepOut(1)) },
+      // TD-027 A3：线程 id 同样读 debugView 真源（与 windowKeys 键位路由同源，勿再硬编码 1）
+      { label: t("menu.run.stepOver"), shortcut: kb.bindingLabel("debug_step_over") || undefined, action: () => void import("./dap/client").then((m) => m.dapNext(currentThreadId())) },
+      { label: t("menu.run.stepInto"), shortcut: kb.bindingLabel("debug_step_into") || undefined, action: () => void import("./dap/client").then((m) => m.dapStepIn(currentThreadId())) },
+      { label: t("menu.run.stepOut"), shortcut: kb.bindingLabel("debug_step_out") || undefined, action: () => void import("./dap/client").then((m) => m.dapStepOut(currentThreadId())) },
       { label: t("menu.run.runToCursor"), shortcut: kb.bindingLabel("debug_run_to_cursor") || undefined, action: () => void runToCursorAtCursor() },
       { label: t("menu.run.evaluateExpression"), shortcut: kb.bindingLabel("debug_evaluate") || undefined, action: () => void onEvaluateShortcut() },
       { sep: true, label: "" },

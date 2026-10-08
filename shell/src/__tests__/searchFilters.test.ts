@@ -88,6 +88,19 @@ describe("compileFileMask", () => {
     expect(m.test("pkg\\app.py")).toBe(true);
   });
 
+  it("TD-027 A7：掩码大小写不敏感（与 Rust 侧 ignore overrides 的 Windows 语义对齐）", () => {
+    // searchInFiles 喂的是 relativePath() 的小写归一串；掩码是用户原样输入。
+    // 修复前：`*.Py` 对小写路径静默 0 结果（大小写敏感正则 × 小写路径）。
+    const m1 = compileFileMask("*.Py")!;
+    expect(m1.test("main.py")).toBe(true);
+    expect(m1.test("pkg/deep/app.py")).toBe(true);
+    expect(m1.test("main.txt")).toBe(false);
+    // 反向：大写路径 × 小写掩码也要命中（Windows 文件名大小写不定的真实形态）
+    const m2 = compileFileMask("src/*.py")!;
+    expect(m2.test("SRC/App.PY")).toBe(true);
+    expect(m2.test("other/x.py")).toBe(false);
+  });
+
   it("掩码中的正则元字符按字面处理", () => {
     const m = compileFileMask("a+b.py")!;
     expect(m.test("a+b.py")).toBe(true);

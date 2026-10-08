@@ -316,7 +316,33 @@ pub(crate) fn resolve_callee<'a>(index: &'a TraceIndex, callee: &str) -> Option<
     if let Some(f) = best_function(index, callee) {
         return Some(f);
     }
-    index.by_qualname(&format!("{callee}.__init__")).next()
+    // TD-027 A8：类构造回落。旧实现 `by_qualname("{callee}.__init__")` 是全名精确匹配，
+    // 只覆盖「trace qualname == 用户写法 + .__init__」这一种巧合（同文件裸类名）。
+    // probe 记录的是 `code.co_qualname`——**不含模块路径**（定义在 mymod/scraper.py 的
+    // 类存的是 `Scraper.__init__`），用户写 `mymod.Scraper(` / `import mymod` 后的
+    // `mymod.Scraper(` 均拼不出全名 → 导入类构造的实参补全/签名帮助系统性失效。
+    //
+    // 修法：取 callee 的**类名最后段**（`mymod.Scraper` → `Scraper`），按
+    // `{类名}.__init__` 做后缀匹配（qualname == 它，或以 `.类名.__init__` 结尾——嵌套类
+    // `Outer.Scraper.__init__` 也算），多候选按 (非 stale, hits) 取最高——与 best_function
+    // 同一裁决式，不引入第二套排序口径。
+    let class_seg = callee.rsplit('.').next().unwrap_or(callee);
+    if class_seg.is_empty() {
+        return None;
+    }
+    let suffix = format!("{class_seg}.__init__");
+    index
+        .functions()
+        .iter()
+        .filter(|f| {
+            f.qualname == suffix
+                || (f.qualname.ends_with(&suffix) && {
+                    // 后缀必须落在段边界上（`Foo.__init__` 后缀不命中 `MyFoo.__init__`）
+                    let head = &f.qualname[..f.qualname.len() - suffix.len()];
+                    head.ends_with('.')
+                })
+        })
+        .max_by_key(|f| (!f.stale, f.hits))
 }
 
 /// 取 qualname 最后段 == `name` 最后段的函数中 hits 最高者（非 stale 优先）。
@@ -1755,6 +1781,85 @@ mod tests {
         let cands = complete(&idx, doc, 0, doc.len() as u32);
         assert_eq!(cands.len(), 1, "{cands:?}");
         assert_eq!(cands[0].label, "session");
+    }
+
+    /// TD-027 A8 回归：`mymod.Scraper(`（模块前缀写法）→ 命中 trace 的 `Scraper.__init__`
+    /// （probe 的 co_qualname 不含模块路径，旧精确匹配拼出 `mymod.Scraper.__init__` 永不命中）。
+    #[test]
+    fn completes_class_constructor_via_module_prefix() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.db");
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(SCHEMA).unwrap();
+            conn.execute(
+                "INSERT INTO functions(filename,qualname,lineno,hits,stale) VALUES('mymod/scraper.py','Scraper.__init__',1,6,0)",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO arg_types(fid,arg,type_label,shape,count) VALUES(1,'session','requests.Session','',6)",
+                [],
+            )
+            .unwrap();
+        }
+        let idx = TraceIndex::open(&path).unwrap();
+        let doc = "mymod.Scraper(";
+        let cands = complete(&idx, doc, 0, doc.len() as u32);
+        assert_eq!(cands.len(), 1, "模块前缀形态必须命中：{cands:?}");
+        assert_eq!(cands[0].label, "session");
+    }
+
+    /// TD-027 A8 回归：多文件同名类时按 (非 stale, hits) 裁决，段边界不误伤
+    /// （`Scraper.__init__` 的后缀不命中 `MyScraper.__init__`）。
+    #[test]
+    fn class_constructor_init_suffix_boundaries() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.db");
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(SCHEMA).unwrap();
+            // 同名类两处：b.py 的非 stale + 高 hits 应胜出；a.py 的 stale 低 hits 落选
+            conn.execute(
+                "INSERT INTO functions(filename,qualname,lineno,hits,stale) VALUES('a.py','Scraper.__init__',1,3,1)",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO functions(filename,qualname,lineno,hits,stale) VALUES('b.py','Scraper.__init__',1,9,0)",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO arg_types(fid,arg,type_label,shape,count) VALUES(1,'from_a','int','',3)",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO arg_types(fid,arg,type_label,shape,count) VALUES(2,'from_b','str','',9)",
+                [],
+            )
+            .unwrap();
+            // 段边界负例：`MyScraper.__init__` 不应被 `Scraper.__init__` 后缀命中
+            conn.execute(
+                "INSERT INTO functions(filename,qualname,lineno,hits,stale) VALUES('c.py','MyScraper.__init__',1,99,0)",
+                [],
+            )
+            .unwrap();
+        }
+        let idx = TraceIndex::open(&path).unwrap();
+        // 补全路径：多候选裁决（非 stale + 高 hits 胜出）
+        let doc = "Scraper(";
+        let cands = complete(&idx, doc, 0, doc.len() as u32);
+        assert_eq!(cands.len(), 1, "{cands:?}");
+        assert_eq!(cands[0].label, "from_b");
+        // 后缀段边界：MyScraper( 不误吃 Scraper.__init__ 的观测
+        let doc2 = "MyScraper(";
+        let cands2 = complete(&idx, doc2, 0, doc2.len() as u32);
+        assert!(
+            cands2.iter().all(|c| c.kind != CandidateKind::Param),
+            "段边界不得误伤：{cands2:?}"
+        );
     }
 
     /// 上下文判定：字符串内 / 分组括号 / 定义语句 / 非调用括号 → 不出参数补全。

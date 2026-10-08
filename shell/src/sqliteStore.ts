@@ -230,7 +230,12 @@ export function resetDbStoreTree(): void {
   notify();
 }
 
-/** 切换可写：关旧 + 以新模式重开（SQLite 打开模式在 open 时定死）。返回新条目；失败返回 null。 */
+/** 切换可写：关旧 + 以新模式重开（SQLite 打开模式在 open 时定死）。返回新条目；失败返回 null。
+ *  TD-027 A4：重开可以作用于**非活动**连接（连接行右键直接切可写），而 db_open 按路径
+ *  canonicalize 后的 conn_id 写表——当被重开连接与活动连接指向同一文件（不同书写形式）
+ *  时是**同一个 id**，后端表项被整体替换，前端 activeId/objects 却还停在旧语义上（树不刷
+ *  新、后续查询打到已被替换的连接）。修法：重开成功后若条目 id 等于当前活动 id，一律视
+ *  为活动连接被顶替——迁移 activeId 到返回的新条目并重拉对象树。 */
 export async function reopenConnection(id: string, writable: boolean): Promise<DbConnection | null> {
   const target = connections.find((c) => c.id === id);
   if (!target) return null;
@@ -238,6 +243,10 @@ export async function reopenConnection(id: string, writable: boolean): Promise<D
     await invoke("db_close", { id });
     const conn = await invoke<DbConnection>("db_open", { path: target.path, writable });
     connections = await invoke<DbConnection[]>("db_connections_load");
+    // A4：活动连接被顶替（重开的就是它，或同路径顶掉）→ 状态迁移 + 树刷新
+    if (activeId === conn.id) {
+      await refreshTree();
+    }
     notify();
     return conn;
   } catch (e) {

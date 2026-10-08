@@ -298,6 +298,32 @@ mod tests {
         assert_eq!(s.label, "__init__(session: requests.Session)");
     }
 
+    /// TD-027 A8 回归：`mymod.Scraper(`（模块前缀写法）同样出签名——与补全共用
+    /// resolve_callee 的同一条回落，修复必须两端同步生效。
+    #[test]
+    fn class_constructor_signature_via_module_prefix() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.db");
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(SCHEMA).unwrap();
+            conn.execute(
+                "INSERT INTO functions(filename,qualname,lineno,hits,stale) VALUES('mymod/scraper.py','Scraper.__init__',1,6,0)",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO arg_types(fid,arg,type_label,shape,count) VALUES(1,'session','requests.Session','',6)",
+                [],
+            )
+            .unwrap();
+        }
+        let idx = TraceIndex::open(&path).unwrap();
+        let s = sig_at(&idx, "mymod.Scraper(").unwrap();
+        assert_eq!(s.qualname, "Scraper.__init__");
+        assert_eq!(s.label, "__init__(session: requests.Session)");
+    }
+
     /// 参数说明：dict → 常见键，实例 → 常见属性；证据最高的类型与 shape 取自同一条观测。
     #[test]
     fn param_members_follow_best_observation() {

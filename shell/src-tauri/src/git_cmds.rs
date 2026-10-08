@@ -514,8 +514,22 @@ pub async fn git_apply_hunk(
         // → patch 落 .git/ 内（永不进 status），且用 dunce/canonicalize 风格的
         //   原生分隔符路径。std::fs::canonicalize 前缀 \\?\ 会被部分 git 版本拒开，
         //   故手动把 / 替换为 \（Windows）。
+        // TD-027 A2：文件名带唯一后缀（nanos + pid + 单调序，run_env.rs 同款配方）——
+        // 快速连点两个 hunk 时两次调用并发执行，固定名会互相覆盖/删除对方的 patch
+        // （A 写入 → B 覆盖 → A 读到 B 的内容 / B 的清理删掉 A 正在用的文件）。
         let patch_path = {
-            let p = Path::new(&root).join(".git").join(".opencharm-hunk.patch");
+            static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0);
+            let unique = format!(
+                ".opencharm-hunk-{now:x}-{pid:x}-{seq:x}.patch",
+                now = nanos,
+                pid = std::process::id(),
+                seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            );
+            let p = Path::new(&root).join(".git").join(unique);
             if cfg!(windows) {
                 std::path::PathBuf::from(p.to_string_lossy().replace('/', "\\"))
             } else {

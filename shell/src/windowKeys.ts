@@ -29,6 +29,7 @@ import { reopenClosedTab } from "./tabReopen";
 import { isQuickOpenOpen, openQuickOpen } from "./quickOpen";
 import { runProject, runScript, stopRun } from "./runFlow";
 import { onEvaluateShortcut, runDebug, runToCursorAtCursor, stopDebugSession } from "./debugEntry";
+import { currentThreadId } from "./debugView";
 
 /** P1：Double Shift 的判定窗口（ms）——两次 Shift 抬起间隔超过它就不算双击 */
 const DOUBLE_SHIFT_MS = 400;
@@ -74,14 +75,16 @@ export function wireWindowKeys(): void {
     else if (id === "recent_files") void openRecentFiles();
     else if (id === "markdown_preview") mdPreview.togglePreview();
     // 调试五件套（debug dev plan §6.6）：F5 启动/继续、Shift+F5 停止、F10/F11/Shift+F11 步进
+    // TD-027 A3：线程 id 读 debugView 单一真源（stopped 事件维护）——硬编码 1 会在
+    // 多线程暂停在非主线程时把继续/步进命令发到错误线程。
     else if (id === "debug") {
       const phase = dap.currentPhase();
-      if (phase === "stopped") import("./dap/client").then((m) => void m.dapContinue(1));
+      if (phase === "stopped") import("./dap/client").then((m) => void m.dapContinue(currentThreadId()));
       else if (phase === "idle" || phase === "exited") void runDebug();
     } else if (id === "debug_stop") void stopDebugSession();
-    else if (id === "debug_step_over") import("./dap/client").then((m) => void m.dapNext(1));
-    else if (id === "debug_step_into") import("./dap/client").then((m) => void m.dapStepIn(1));
-    else if (id === "debug_step_out") import("./dap/client").then((m) => void m.dapStepOut(1));
+    else if (id === "debug_step_over") import("./dap/client").then((m) => void m.dapNext(currentThreadId()));
+    else if (id === "debug_step_into") import("./dap/client").then((m) => void m.dapStepIn(currentThreadId()));
+    else if (id === "debug_step_out") import("./dap/client").then((m) => void m.dapStepOut(currentThreadId()));
     // P1：Search Everywhere 三入口 + 导航历史 + 本地历史 + 求值表达式
     else if (id === "goto_file") void openQuickOpen("files");
     else if (id === "goto_line") void openQuickOpen("line");

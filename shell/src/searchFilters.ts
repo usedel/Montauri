@@ -87,7 +87,11 @@ export function compileFileMask(
   // 无斜杠掩码 = 任意深度命中（与 Rust 侧 gitignore 语义对齐）
   const full = pattern.includes("/") ? `^${body}$` : `^(?:.*/)?${body}$`;
   try {
-    const re = new RegExp(full);
+    // TD-027 A7：大小写不敏感。searchInFiles 喂进来的 relPath 经 relativePath() 已是
+    // 小写归一串，而掩码是用户原样输入——`*.Py` / `Src/*.py` 这类含大写掩码在
+    // 大小写敏感正则下静默 0 结果。Rust 侧（ignore overrides）在 Windows 上本就是
+    // 大小写不敏感语义，这里补 i 标志对齐，两路不再分叉。
+    const re = new RegExp(full, "i");
     return { test: (relPath: string) => re.test(relPath.replace(/\\/g, "/")) };
   } catch (e) {
     return { test: () => true, error: t("search.filter.invalidMask", { error: localizeBackendError(errMsg(e instanceof Error ? e.message : String(e))) }) };
