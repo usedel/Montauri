@@ -27,6 +27,8 @@ const labelEl = lazyEl("split-editor-label");
 export interface SplitEditorHandlers {
   /** 与主编辑器同源的构造参数（main 注入 buildEditorOptions，防循环导入） */
   buildOptions: () => MonacoApi.editor.IEditorOptions;
+  /** 分屏实例创建时回调（main 注入：live-templates 的 attachEditor 等 per-editor 注册） */
+  onEditorCreated?: (editor: MonacoApi.editor.IStandaloneCodeEditor) => void;
 }
 
 let handlers: SplitEditorHandlers | null = null;
@@ -51,6 +53,9 @@ function ensureEditor(): MonacoApi.editor.IStandaloneCodeEditor {
     model: null,
     ...handlers?.buildOptions(),
   });
+  // per-editor 注册（live-templates Tab 展开 / docstring 等）——只在此处创建时挂一次，
+  // 实例常驻复用（G-1），随 live-templates dispose 一并释放
+  handlers?.onEditorCreated?.(splitEditorInstance);
   return splitEditorInstance;
 }
 

@@ -10,6 +10,7 @@ import type { EngineContext } from "./engine";
 import { insertSnippet } from "./snippet";
 import { hideEl, showEl } from "../anim";
 import { trapFocus } from "../focusTrap";
+import { t } from "../i18n";
 
 /** UI-05：模板面板模态的焦点陷阱解除句柄 */
 let releasePaletteFocus: (() => void) | null = null;
@@ -93,7 +94,7 @@ function openPalette(
     if (filtered.length === 0) {
       const empty = document.createElement("div");
       empty.className = "palette-empty";
-      empty.textContent = "无匹配模板";
+      empty.textContent = t("lt.emptyList");
       listEl.appendChild(empty);
       return;
     }

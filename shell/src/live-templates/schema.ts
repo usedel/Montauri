@@ -60,10 +60,12 @@ export interface ParseResult {
 const ABBR_RE = /^[A-Za-z0-9._-]+$/;
 const VAR_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const VALID_SCOPES = new Set([
+  // 仅容器轴三值（module/class/function）。「python:expression」是历史笔误值：
+  // 表达式语境由位置轴（positions）与词法轴承担，容器轴无 expression 值——
+  // 配置写入该值会被接受但永不匹配（静默失效），故不接受。
   "python:module",
   "python:class",
   "python:function",
-  "python:expression",
 ]);
 
 function isObj(v: unknown): v is Record<string, unknown> {

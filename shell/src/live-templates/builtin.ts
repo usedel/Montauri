@@ -290,7 +290,7 @@ function buildBuiltinTemplates(): TemplateDef[] {
     scopes: PY_ALL,
     positions: ["statement"],
     tabExpand: true,
-    variables: [{ name: "EXPR", defaultValue: "aopen(\"file\")" }, { name: "ALIAS", defaultValue: "f" }],
+    variables: [{ name: "EXPR", defaultValue: 'aiofiles.open("file")' }, { name: "ALIAS", defaultValue: "f" }],
   }),
 
   // ---------- 爬虫模板库（C 组：爬虫开发脚手架；均为语句位、可 Tab 展开） ----------
@@ -497,6 +497,132 @@ function buildBuiltinTemplates(): TemplateDef[] {
     variables: [{ name: "PATH", defaultValue: '"data.json"' }, { name: "DATA", defaultValue: "data" }],
   }),
 
+  // ---------- FastAPI 模板组（F 组：FastAPI 开发脚手架；均为语句位、可 Tab 展开） ----------
+  // app 装配
+  tpl({
+    id: "builtin.faapp",
+    group: t("lt.group.fastapi"),
+    abbreviation: "faapp",
+    description: t("lt.tpl.faapp"),
+    body: 'app = FastAPI(title="$TITLE$", version="$VERSION$")\n$END$',
+    scopes: ["python:module"],
+    positions: ["statement"],
+    tabExpand: true,
+    variables: [
+      { name: "TITLE", defaultValue: "My API" },
+      { name: "VERSION", defaultValue: "0.1.0" },
+    ],
+  }),
+  // 路由五件套（GET / POST / PUT / DELETE / PATCH）
+  tpl({
+    id: "builtin.faget",
+    group: t("lt.group.fastapi"),
+    abbreviation: "faget",
+    description: t("lt.tpl.faget"),
+    body: '@app.get("$PATH$")\nasync def $NAME$():\n    """$DESC$"""\n    return $END$',
+    scopes: PY_ALL,
+    positions: ["statement"],
+    tabExpand: true,
+    variables: [
+      { name: "PATH", defaultValue: '"/items"' },
+      { name: "NAME", defaultValue: "get_items" },
+      { name: "DESC", defaultValue: "TODO" },
+    ],
+  }),
+  tpl({
+    id: "builtin.fapost",
+    group: t("lt.group.fastapi"),
+    abbreviation: "fapost",
+    description: t("lt.tpl.fapost"),
+    body: '@app.post("$PATH$", status_code=201)\nasync def $NAME$(item: $MODEL$):\n    """$DESC$"""\n    return $END$',
+    scopes: PY_ALL,
+    positions: ["statement"],
+    tabExpand: true,
+    variables: [
+      { name: "PATH", defaultValue: '"/items"' },
+      { name: "NAME", defaultValue: "create_item" },
+      { name: "MODEL", defaultValue: "Item" },
+      { name: "DESC", defaultValue: "TODO" },
+    ],
+  }),
+  tpl({
+    id: "builtin.faput",
+    group: t("lt.group.fastapi"),
+    abbreviation: "faput",
+    description: t("lt.tpl.faput"),
+    body: '@app.put("$PATH$/{item_id}")\nasync def $NAME$(item_id: int, item: $MODEL$):\n    """$DESC$"""\n    return $END$',
+    scopes: PY_ALL,
+    positions: ["statement"],
+    tabExpand: true,
+    variables: [
+      { name: "PATH", defaultValue: '"/items"' },
+      { name: "NAME", defaultValue: "update_item" },
+      { name: "MODEL", defaultValue: "Item" },
+      { name: "DESC", defaultValue: "TODO" },
+    ],
+  }),
+  tpl({
+    id: "builtin.fadelete",
+    group: t("lt.group.fastapi"),
+    abbreviation: "fadelete",
+    description: t("lt.tpl.fadelete"),
+    body: '@app.delete("$PATH$/{item_id}", status_code=204)\nasync def $NAME$(item_id: int):\n    """$DESC$"""\n    $END$',
+    scopes: PY_ALL,
+    positions: ["statement"],
+    tabExpand: true,
+    variables: [
+      { name: "PATH", defaultValue: '"/items"' },
+      { name: "NAME", defaultValue: "delete_item" },
+      { name: "DESC", defaultValue: "TODO" },
+    ],
+  }),
+  tpl({
+    id: "builtin.fapatch",
+    group: t("lt.group.fastapi"),
+    abbreviation: "fapatch",
+    description: t("lt.tpl.fapatch"),
+    body: '@app.patch("$PATH$/{item_id}")\nasync def $NAME$(item_id: int):\n    """$DESC$"""\n    return $END$',
+    scopes: PY_ALL,
+    positions: ["statement"],
+    tabExpand: true,
+    variables: [
+      { name: "PATH", defaultValue: '"/items"' },
+      { name: "NAME", defaultValue: "patch_item" },
+      { name: "DESC", defaultValue: "TODO" },
+    ],
+  }),
+  // Pydantic 模型
+  tpl({
+    id: "builtin.famodel",
+    group: t("lt.group.fastapi"),
+    abbreviation: "famodel",
+    description: t("lt.tpl.famodel"),
+    body: "class $NAME$(BaseModel):\n    $FIELD$: $TYPE$\n    $END$",
+    scopes: ["python:module", "python:class"],
+    positions: ["statement"],
+    tabExpand: true,
+    variables: [
+      { name: "NAME", defaultValue: "Item" },
+      { name: "FIELD", defaultValue: "name" },
+      { name: "TYPE", defaultValue: "str" },
+    ],
+  }),
+  // Depends 注入
+  tpl({
+    id: "builtin.fadep",
+    group: t("lt.group.fastapi"),
+    abbreviation: "fadep",
+    description: t("lt.tpl.fadep"),
+    body: "$PARAM$ = Depends($FN$)\n$END$",
+    scopes: PY_ALL,
+    positions: ["statement", "expression"],
+    tabExpand: false,
+    variables: [
+      { name: "PARAM", defaultValue: "db" },
+      { name: "FN", defaultValue: "get_db" },
+    ],
+  }),
+
   // ---------- 环绕模板（M3，Ctrl+Alt+T；$SELECTION$ 承载选区） ----------
   tpl({
     id: "builtin.surround.q",
@@ -655,6 +781,48 @@ function buildBuiltinTemplates(): TemplateDef[] {
     postfixKey: "int",
     tabExpand: false,
   }),
+  // 后缀增补（2026-10-08，PyCharm/Rider 系日常主力）：var 赋值 / ifnot 反条件 / assert 断言 / par 加括号
+  tpl({
+    id: "builtin.postfix.var",
+    abbreviation: "var",
+    description: t("lt.tpl.postfixVar"),
+    body: "$NAME$ = $EXPR$$END$",
+    scopes: PY_ALL,
+    kind: "postfix",
+    postfixKey: "var",
+    tabExpand: false,
+    variables: [{ name: "NAME", defaultValue: "value" }],
+  }),
+  tpl({
+    id: "builtin.postfix.ifnot",
+    abbreviation: "ifnot",
+    description: t("lt.tpl.postfixIfnot"),
+    body: "if not $EXPR$:\n    $END$",
+    scopes: PY_ALL,
+    kind: "postfix",
+    postfixKey: "ifnot",
+    tabExpand: false,
+  }),
+  tpl({
+    id: "builtin.postfix.assert",
+    abbreviation: "assert",
+    description: t("lt.tpl.postfixAssert"),
+    body: "assert $EXPR$$END$",
+    scopes: PY_ALL,
+    kind: "postfix",
+    postfixKey: "assert",
+    tabExpand: false,
+  }),
+  tpl({
+    id: "builtin.postfix.par",
+    abbreviation: "par",
+    description: t("lt.tpl.postfixPar"),
+    body: "($EXPR$)$END$",
+    scopes: PY_ALL,
+    kind: "postfix",
+    postfixKey: "par",
+    tabExpand: false,
+  }),
   ];
 }
 
@@ -674,6 +842,8 @@ export const BUILTIN_ORDERING: Record<string, string[]> = {
     // 爬虫脚手架（C 组）
     "reqget", "reqpost", "reqsess", "hget", "bs4", "lxml", "css", "jsonld",
     "page", "ua", "proxy", "rsleep", "csvw", "jsonw",
+    // FastAPI 脚手架（F 组）
+    "faapp", "faget", "fapost", "faput", "fadelete", "fapatch", "famodel", "fadep",
   ],
   "python:class": [
     "def", "init", "prop", "iter", "repr", "super", "class", "dataclass",
@@ -685,5 +855,7 @@ export const BUILTIN_ORDERING: Record<string, string[]> = {
     // 爬虫脚手架（C 组）
     "reqget", "reqpost", "reqsess", "hget", "bs4", "lxml", "css", "jsonld",
     "page", "ua", "proxy", "rsleep", "csvw", "jsonw",
+    // FastAPI 脚手架（F 组）
+    "faget", "fapost", "faput", "fadelete", "fapatch", "fadep",
   ],
 };

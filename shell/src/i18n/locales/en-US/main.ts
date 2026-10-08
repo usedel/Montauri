@@ -62,6 +62,7 @@ export const main: Record<MainKey, string> = {
   "main.cmd.jumpBracket": "Jump to Matching Bracket",
   "main.cmd.lastEdit": "Last Edit Location",
   "main.cmd.localHistory": "Local History",
+  "main.cmd.ltForceShow": "Show All Templates (Completion)",
   "main.cmd.ltPalette": "Live Templates Panel",
   "main.cmd.mdPreview": "Markdown Preview",
   "main.cmd.newFile": "New File",

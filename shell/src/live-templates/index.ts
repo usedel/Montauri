@@ -40,8 +40,16 @@ export interface LiveTemplatesHandle {
   openPalette(): void;
   /** 打开环绕模板选择器（快捷键经 keybindings.ts 的 surround 配置；需选区） */
   openSurround(): void;
+  /** ⚡ 强制全显：下一次补全忽略成员访问门控，展示全部模板（一次性开关 + 自动触发补全） */
+  forceShowAll(): void;
   /** 在当前光标处按缩写插入模板（如新建文件后自动插 header 文件头）；未命中返回 false */
   insertByAbbreviation(abbr: string): Promise<boolean>;
+  /**
+   * 附加第二编辑器（分屏）：Tab 展开 / docstring 触发按 editor 实例注册，
+   * 分屏实例缺注册会静默失效——分屏创建时调用（attach 后随本 handle 一并 dispose）。
+   * 补全 provider 是语言级注册，天然覆盖分屏，无需重复。
+   */
+  attachEditor(editor: MonacoApi.editor.IStandaloneCodeEditor): void;
   // —— M2 管理面板 API ——
   listEffective(): EffectiveEntry[];
   getFile(layer: ConfigLayer): TemplatesFile | null;
@@ -155,6 +163,21 @@ export async function initLiveTemplates(
     resolveScopeInfo: getScopeInfo,
   });
 
+  // 附加编辑器（分屏）：Tab 展开 / docstring 同款注册（registry/上下文/引擎天然共享）。
+  // 补全 provider 是语言级注册，分屏天然覆盖；palette/surround 仍锚定主编辑器
+  //（分屏聚焦时的弹层插入目标属全应用 editor 级键位的系统性课题，登记 tech-debt #22）。
+  const extraDisposables: MonacoApi.IDisposable[] = [];
+  function attachEditor(extra: MonacoApi.editor.IStandaloneCodeEditor): void {
+    extraDisposables.push(
+      registerTabExpand(monaco, extra, registry, {
+        buildEngineContext,
+        isComposing: () => composing,
+        resolveScopeInfo: getScopeInfo,
+      }),
+      registerDocstringTrigger(monaco, extra),
+    );
+  }
+
   /** 按缩写在当前光标处插入模板（供新建文件后自动展开 header 等场景）；未命中/无编辑器返回 false */
   async function insertByAbbreviation(abbr: string): Promise<boolean> {
     const model = editor.getModel();
@@ -232,10 +255,17 @@ export async function initLiveTemplates(
       docstringTrigger.dispose();
       surroundHandle.dispose();
       paletteHandle.dispose();
+      for (const d of extraDisposables) d.dispose();
       symbolIndex?.clear();
     },
     openPalette: () => paletteHandle.open(),
     openSurround: () => surroundHandle.open(),
+    attachEditor,
+    // ⚡ 强制全显（S1-T03）：置一次性开关后立即触发补全弹窗（editor 级命令面板动作）
+    forceShowAll: () => {
+      setForceShowAll(true);
+      editor.trigger("opencharm.liveTemplates", "editor.action.triggerSuggest", null);
+    },
     insertByAbbreviation,
     listEffective: () => registry.listEffective(),
     getFile: (layer) => (layer === "user" ? userFile : workspaceFile),

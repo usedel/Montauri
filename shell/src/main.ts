@@ -1533,7 +1533,12 @@ async function init(): Promise<void> {
 
   // C-4：分屏域接线（buildOptions 注入防 settingsPanel ⇄ splitEditor 成环；
   // 右键动作入 lspProviders 随编辑器生命周期统一释放）
-  splitEditor.setSplitEditorHandlers({ buildOptions: () => buildEditorOptions(app.settings) });
+  // onEditorCreated：分屏实例懒创建时挂 live-templates 的 per-editor 注册
+  //（Tab 展开 / docstring；闭包运行时读 handle，分屏创建必然晚于 init 无时序问题）
+  splitEditor.setSplitEditorHandlers({
+    buildOptions: () => buildEditorOptions(app.settings),
+    onEditorCreated: (ed) => liveTemplatesHandle?.attachEditor(ed),
+  });
   splitEditor.wireSplitEditor();
   lspProviders.add(splitEditor.initSplitEditorAction(app.editor));
   
@@ -1607,9 +1612,10 @@ async function init(): Promise<void> {
   onLocaleChange(() => registerQuickOpenActions(buildQuickOpenActions()));
   void invoke("watch_plugins_dir").catch(() => undefined); // 监听失败静默（设置页「重新扫描」兜底）
   await listen("plugins-dir-changed", () => schedulePluginRescan());
-  // 模板入口快捷键（可配置，默认 Ctrl+J / Ctrl+Alt+T）
+  // 模板入口快捷键（可配置，默认 Ctrl+J / Ctrl+Alt+T / Ctrl+Shift+J 强制全显）
   kb.setKeybindingHandler("template_palette", () => liveTemplatesHandle?.openPalette());
   kb.setKeybindingHandler("surround", () => liveTemplatesHandle?.openSurround());
+  kb.setKeybindingHandler("force_show_templates", () => liveTemplatesHandle?.forceShowAll());
   // PR-G：转到文件内符号（Ctrl+F12，editor 级）——handler 放这里避免 keybindings.ts 反向依赖
   // quickOpen 成环；命令面板 / 前往菜单走同一 handler（消除双写漂移）
   kb.setKeybindingHandler("goto_symbol", () => void openQuickOpen("symbol"));

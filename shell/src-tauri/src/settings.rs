@@ -24,6 +24,8 @@ fn default_keybindings() -> HashMap<String, String> {
     m.insert("comment_block".into(), "Ctrl+Shift+/".into());
     m.insert("template_palette".into(), "Ctrl+J".into());
     m.insert("surround".into(), "Ctrl+Alt+T".into());
+    // ⚡ 强制全显（S1-T03 补口，2026-10-08）：与前端 KEYBINDING_META / DEFAULT_SETTINGS 三处同步
+    m.insert("force_show_templates".into(), "Ctrl+Shift+J".into());
     // P0（PyCharm 调研）：Optimize Imports / 最近文件（与前端 KEYBINDING_META / DEFAULT_SETTINGS 三处同步）
     m.insert("optimize_imports".into(), "Ctrl+Alt+O".into());
     m.insert("recent_files".into(), "Ctrl+E".into());
@@ -478,8 +480,11 @@ mod tests {
         assert_eq!(d.keybindings.get("goto_prev_problem").map(String::as_str), Some("Shift+F8"));
         // 问题面板（PyCharm Problems View 同款 Alt+0）
         assert_eq!(d.keybindings.get("open_problems").map(String::as_str), Some("Alt+0"));
-        // 键位表条目数 = 前端 KEYBINDING_META 条目数（漂移锁，新增键须同步改这里）
-        assert_eq!(d.keybindings.len(), 60);
+        // 键位表条目数 = 前端 KEYBINDING_META 条目数（漂移锁，新增键须同步改这里）。
+        // 2026-10-08 复核：62 = 60 + accept_suggestion_replace（P1-A，当时漏改此断言）+
+        // force_show_templates（⚡ 强制全显补口）。另注意 TS 侧该条目是多行对象，
+        // 用行内正则数 KEYBINDING_META 会漏数它（探针教训），以两侧各 62 为准。
+        assert_eq!(d.keybindings.len(), 62);
         assert_eq!(d.optimize_imports_on_save, false);
     }
 
@@ -545,7 +550,8 @@ mod tests {
         // 诊断导航：旧配置无 F8 组 → 回落默认
         assert_eq!(s.keybindings.get("goto_next_problem").map(String::as_str), Some("F8"));
         assert_eq!(s.keybindings.get("goto_prev_problem").map(String::as_str), Some("Shift+F8"));
-        assert_eq!(s.keybindings.len(), 60);
+        // 与 test_defaults 的漂移锁同步（62，见彼处注释）
+        assert_eq!(s.keybindings.len(), 62);
         assert_eq!(s.optimize_imports_on_save, false); // 旧配置文件无此字段 → 默认关闭
     }
 }

@@ -61,6 +61,14 @@
 - **处理时机**：有明确视觉投诉再说；升级 Monaco 时需重新评估。
 - **涉及文件**：`shell/src/style.css`、`shell/src/monaco.ts`、`docs/ui_premium_dev_plan.md §7.8.4`。
 
+### TD-026 分屏聚焦时 per-editor 弹层/跳转类动作仍锚定主编辑器（P3，架构课题；2026-10-08 live-templates 改进批登记）
+
+- **起因**：live-templates 改进批给 `initLiveTemplates` 补了 `attachEditor()`（分屏实例的 Tab 展开 / docstring per-editor 注册已随批修复），但 **palette（Ctrl+J）与 surround（Ctrl+Alt+T）** 仍只读主编辑器的光标与选区——分屏聚焦时触发，插入目标仍是主编辑器。
+- **根因（系统性，非 live-templates 独有）**：app 级动作（`app.editor`）统一锚定主编辑器实例，没有「焦点编辑器」抽象。同病：`menuItems.ts` 的 `goto_definition`、`format_document` 等编辑器类命令在分屏聚焦时也作用于主编辑器。splitEditor.ts 是懒创建的第二实例，各域无法静态引用。
+- **建议方案**：引入 `getActiveEditor(): IStandaloneCodeEditor`（焦点在分屏时返回分屏实例；可由 splitEditor 暴露 `isFocused()` + main 装配），各编辑器类命令改读该方法。涉及 ~10 处调用点与 e2e 回归，收益是分屏体验完整。
+- **处理时机**：分屏功能有实际使用反馈时；当前分屏属 P4 演示级功能，优先级让位。
+- **涉及文件**：`shell/src/live-templates/index.ts`（attachEditor 已修部分）、`shell/src/splitEditor.ts`、`shell/src/menuItems.ts`、`shell/src/state.ts`。
+
 ### TD-021 推送前复核遗留的低优先项（P4，5 小项；2026-09-25 全量复核引出）
 
 - **起因**：P0~P4 六个未推送提交推送前全量复核（子代理深审 + 人工求证）。两个中等问题（终端背压队列无上限、stop/exit 提示时序）与三个低级项（session 静默失败、异常断点失败不回滚、Watches 满额静默/无令牌、resourcePanel 死代码）已随当次修复提交偿还；以下 5 小项经裁决**暂缓**。

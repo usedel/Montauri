@@ -193,7 +193,10 @@ export function parsePycharmXml(xml: string): PycharmImportResult | null {
       positions: ctx?.positions,
       kind: "normal",
       enabled: true,
-      tabExpand: true,
+      // tabExpand 默认 false（2026-10-08 裁决）：PyCharm 导出集里大量缩写与日常标识符撞名
+      // （main/iter/re…），一刀切 true 会让普通词 + Tab 误触发展开；且窄层覆盖内置模板的
+      // 保守语义（builtin 约定：关键字类缩写 tabExpand=false）。导入后可在管理面板逐个开启。
+      tabExpand: false,
       variables: variables.length > 0 ? variables : undefined,
     });
   }

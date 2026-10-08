@@ -48,7 +48,9 @@ describe("parsePycharmXml", () => {
       { name: "MSG", expression: undefined, defaultValue: "hello", skipIfDefined: false },
     ]);
     expect(logf.scopes).toEqual(["python:module", "python:class", "python:function"]);
-    expect(logf.tabExpand).toBe(true);
+    // 2026-10-08 裁决：导入模板默认不 Tab 展开（缩写与日常标识符撞名，保守起步，
+    // 用户在管理面板逐个开启），对齐内置库「关键字类缩写 tabExpand=false」约定
+    expect(logf.tabExpand).toBe(false);
 
     const hdr = result!.templates[1];
     // fileName() 可翻译保留；alwaysStopAt=false → skipIfDefined

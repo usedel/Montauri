@@ -16,6 +16,8 @@ export type KeybindingId =
   | "comment_block"
   | "template_palette"
   | "surround"
+  // ⚡ 强制全显（S1-T03 宣称补口）：下一次补全展示全部模板（忽略成员访问门控）
+  | "force_show_templates"
   | "optimize_imports"
   | "recent_files"
   | "goto_file"
@@ -137,6 +139,8 @@ export const KEYBINDING_META: KeybindingMeta[] = [
   { id: "comment_block", label: "块注释开关", def: "Ctrl+Shift+/", scope: "editor" },
   { id: "template_palette", label: "Live Templates 面板", def: "Ctrl+J", scope: "editor" },
   { id: "surround", label: "环绕模板（需选区）", def: "Ctrl+Alt+T", scope: "editor" },
+  // ⚡ 强制全显：Ctrl+Shift+J 与既有键位无冲突（Ctrl+J 被模板面板占用，加 Shift 表「强制」变体）
+  { id: "force_show_templates", label: "显示全部模板（补全弹窗）", def: "Ctrl+Shift+J", scope: "editor" },
   // P0（PyCharm 调研）：Optimize Imports（Ctrl+Alt+O）/ 最近文件（Ctrl+E），均为 PyCharm 同款默认键
   { id: "optimize_imports", label: "Optimize Imports（整理导入）", def: "Ctrl+Alt+O", scope: "editor" },
   { id: "recent_files", label: "最近打开的文件", def: "Ctrl+E", scope: "window" },
@@ -256,6 +260,7 @@ export const KEYBINDING_GROUP: Record<KeybindingId, KeybindingGroup> = {
   comment_block: "edit",
   template_palette: "edit",
   surround: "edit",
+  force_show_templates: "edit",
   optimize_imports: "edit",
   smart_select_expand: "edit",
   smart_select_shrink: "edit",

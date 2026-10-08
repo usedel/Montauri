@@ -160,6 +160,9 @@ export function buildQuickOpenActions(): QuickOpenAction[] {
     { id: "local_history", label: t("main.cmd.localHistory"), run: () => void openLocalHistory() },
     { id: "template_palette", label: t("main.cmd.ltPalette"), run: () => liveTemplates()?.openPalette() },
     { id: "surround", label: t("main.cmd.surround"), run: () => liveTemplates()?.openSurround() },
+    // ⚡ 强制全显（S1-T03 宣称的能力，2026-10-08 补入口）：设置一次性开关后自动触发补全——
+    // 下一次弹窗忽略成员访问门控展示全部模板（completion.ts setForceShowAll）
+    { id: "force_show_templates", label: t("main.cmd.ltForceShow"), run: () => liveTemplates()?.forceShowAll() },
     { id: "markdown_preview", label: t("main.cmd.mdPreview"), run: () => mdPreview.togglePreview() },
     { id: "format_document", label: t("main.cmd.formatDoc"), hint: "Shift+Alt+F", run: () => void app.editor.getAction("editor.action.formatDocument")?.run() },
     { id: "open_settings", label: t("main.cmd.openSettings"), run: () => openSettingsPanel() },

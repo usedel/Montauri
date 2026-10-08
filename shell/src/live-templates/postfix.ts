@@ -134,8 +134,12 @@ export async function buildPostfixItems(
       insertTextRules: INSERT_AS_SNIPPET,
       sortText: "0" + String(i).padStart(2, "0"), // 三层合并契约：0xx 段
       preselect: i === 0,
-      filterText: key,
-      detail: `⟳ postfix · ${tpl.description}`,
+      // filterText 必须覆盖 range 的整个「word」段（= 表达式.键）：
+      // completionModel.js 以「range 起点 → 光标」整段为 fuzzy pattern（wordLen =
+      // overwriteBefore），filterText 只给键（"if"）时 pattern("eta.if") 比 target
+      // 还长 → 永不匹配 → 全部候选项被静默丢弃（e2e E-LT-3 实测 "No suggestions"）。
+      filterText: labelSrc,
+      detail: `◆ postfix · ${tpl.description}`,
       range: {
         startLineNumber: position.lineNumber,
         endLineNumber: position.lineNumber,

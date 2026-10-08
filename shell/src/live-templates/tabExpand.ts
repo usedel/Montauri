@@ -9,6 +9,7 @@ import { lexicalEnvAt, type SyntaxContext } from "./scope";
 import { compileTemplate } from "./compiler";
 import type { EngineContext } from "./engine";
 import { insertSnippet } from "./snippet";
+import { t } from "../i18n";
 
 type Monaco = typeof MonacoApi;
 
@@ -37,7 +38,7 @@ export function registerTabExpand(
   // 且返回真 IDisposable（dispose 即解绑）。副作用：命令面板（F1）可按名触发，可接受。
   return editor.addAction({
     id: "opencharm.liveTemplates.tabExpand",
-    label: "Live Templates: 展开缩写",
+    label: t("lt.tabExpandActionLabel"),
     keybindings: [monaco.KeyCode.Tab],
     // 补全弹窗接受 / snippet 占位符跳转 / 重命名 / 快速修复 / 参数提示 / 无障碍焦点模式 全部优先
     precondition:

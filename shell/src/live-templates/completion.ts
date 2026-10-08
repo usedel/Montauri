@@ -76,7 +76,7 @@ export function registerTemplateCompletion(
           sortText: "0" + String(i).padStart(2, "0"), // 三层合并契约：0xx 段，升序
           preselect: i === 0,
           filterText: tpl.abbreviation,
-          detail: `⟳ ${scopeInfo.syntax} · ${tpl.group ? `[${tpl.group}] ` : ""}${tpl.description}`,
+          detail: `◆ ${scopeInfo.syntax} · ${tpl.group ? `[${tpl.group}] ` : ""}${tpl.description}`,
           documentation: tpl.body,
           range,
         });

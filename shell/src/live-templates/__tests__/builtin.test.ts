@@ -45,21 +45,61 @@ describe("内置模板库合理性", () => {
     }
   });
 
-  it("分组区分：仅爬虫插入模板带 group=crawler，其余内置模板不带该组", () => {
+  it("分组区分：仅爬虫/FastAPI 插入模板带对应组，其余内置模板不带这两组", () => {
     const crawlerAbbrs = new Set([
       "reqget", "reqpost", "reqsess", "hget",
       "bs4", "lxml", "css", "jsonld",
       "page", "ua", "proxy", "rsleep",
       "csvw", "jsonw",
     ]);
+    const fastapiAbbrs = new Set([
+      "faapp", "faget", "fapost", "faput", "fadelete", "fapatch", "famodel", "fadep",
+    ]);
     for (const t of BUILTIN_TEMPLATES) {
       const isCrawler = t.kind === "normal" && crawlerAbbrs.has(t.abbreviation);
+      const isFastapi = t.kind === "normal" && fastapiAbbrs.has(t.abbreviation);
       if (isCrawler) {
         expect(t.group, `${t.abbreviation} 应属「爬虫」组`).toBe("爬虫");
+      } else if (isFastapi) {
+        expect(t.group, `${t.abbreviation} 应属「FastAPI」组`).toBe("FastAPI");
       } else {
-        expect(t.group, `${t.abbreviation} 不应属「爬虫」组`).not.toBe("爬虫");
+        expect(t.group, `${t.abbreviation} 不应属「爬虫/FastAPI」组`).not.toBe("爬虫");
+        expect(t.group, `${t.abbreviation} 不应属「爬虫/FastAPI」组`).not.toBe("FastAPI");
       }
     }
+  });
+
+  it("FastAPI 模板组（F 组）存在且为语句位、可 Tab 展开、属 FastAPI 组", () => {
+    // fadep 除外：Depends 参数片段在表达式位使用，且默认走弹窗（tabExpand=false）
+    const fastapi = ["faapp", "faget", "fapost", "faput", "fadelete", "fapatch", "famodel"];
+    for (const abbr of fastapi) {
+      const t = BUILTIN_TEMPLATES.find((x) => x.abbreviation === abbr);
+      expect(t, `缺少 FastAPI 模板 ${abbr}`).toBeTruthy();
+      expect(t?.kind, `${abbr} 应为 normal`).toBe("normal");
+      expect(t?.tabExpand, `${abbr} 应可 Tab 展开`).toBe(true);
+      expect(t?.positions, `${abbr} 应仅语句位`).toEqual(["statement"]);
+      expect(t?.group, `${abbr} 应属「FastAPI」组`).toBe("FastAPI");
+    }
+    const fadep = BUILTIN_TEMPLATES.find((x) => x.abbreviation === "fadep");
+    expect(fadep?.group).toBe("FastAPI");
+    expect(fadep?.tabExpand).toBe(false);
+    expect(fadep?.positions).toEqual(["statement", "expression"]);
+    // faapp/famodel 只在 module/class 声明，路由模板覆盖三容器
+    expect(BUILTIN_TEMPLATES.find((t) => t.abbreviation === "faapp")?.scopes).toEqual(["python:module"]);
+    const faget = BUILTIN_TEMPLATES.find((t) => t.abbreviation === "faget");
+    expect(faget?.scopes).toContain("python:module");
+    expect(faget?.scopes).toContain("python:function");
+  });
+
+  it("后缀增补（var/ifnot/assert/par）存在且键体合法", () => {
+    for (const key of ["var", "ifnot", "assert", "par"]) {
+      const t = BUILTIN_TEMPLATES.find((x) => x.kind === "postfix" && x.postfixKey === key);
+      expect(t, `缺少后缀模板 .${key}`).toBeTruthy();
+      expect(t?.body, `.${key} 应含 $EXPR$`).toContain("$EXPR$");
+    }
+    // .var 的 $NAME$ 占位符默认值存在
+    const varTpl = BUILTIN_TEMPLATES.find((x) => x.postfixKey === "var");
+    expect(varTpl?.variables?.[0]?.defaultValue).toBe("value");
   });
 
   it("同一 (scope, kind) 内缩写唯一（M3：同缩写可跨范式共存）", () => {
@@ -90,7 +130,7 @@ describe("内置模板库合理性", () => {
     const surrounds = BUILTIN_TEMPLATES.filter((t) => t.kind === "surround");
     const postfixes = BUILTIN_TEMPLATES.filter((t) => t.kind === "postfix");
     expect(surrounds.length).toBeGreaterThanOrEqual(4);
-    expect(postfixes.length).toBeGreaterThanOrEqual(10);
+    expect(postfixes.length).toBeGreaterThanOrEqual(14);
     for (const t of surrounds) {
       expect(t.body, `${t.id} 缺少 $SELECTION$`).toContain("$SELECTION$");
     }

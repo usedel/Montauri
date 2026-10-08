@@ -61,6 +61,7 @@ export const main = {
   "main.cmd.jumpBracket": "括号匹配跳转",
   "main.cmd.lastEdit": "上一个编辑位置",
   "main.cmd.localHistory": "本地历史",
+  "main.cmd.ltForceShow": "显示全部模板（补全弹窗）",
   "main.cmd.ltPalette": "Live Templates 面板",
   "main.cmd.mdPreview": "Markdown 预览",
   "main.cmd.newFile": "新建文件",
