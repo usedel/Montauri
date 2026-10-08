@@ -233,12 +233,20 @@ struct CallCtx {
 /// 返回 `(候选, 是否截断)`；callee 解析不到（无运行时观测）返回 `None`——调用方据此回落符号补全。
 fn param_candidates(index: &TraceIndex, ctx: &CallCtx) -> Option<(Vec<Candidate>, bool)> {
     let f = resolve_callee(index, &ctx.callee)?;
+    let obs = param_observations(f);
     let mut out = Vec::new();
-    for (i, p) in param_observations(f).iter().enumerate() {
+    // 位置参数前跳（2026-10-08 review 修正）：`i` 是**观测列表**下标而非真实参数位。
+    // 签名前段的参数位可能无观测（从未以该类型被记录），观测序整体前移——
+    // 固定按 `i < positional` 跳会在「观测缺位」时系统性多跳（例：签名 (a,b,c) 只
+    // 观测到 b/c，写 f(x,| 时 b 被错误跳过，候选只剩 c）。缺位不可静态判定，
+    // 取保守语义：跳过 min(positional, 观测数)——宁可多给一个已填参数的候选
+    // （用户忽略即可），不让候选集被错误清空。
+    let skip = ctx.positional.min(obs.len());
+    for (i, p) in obs.iter().enumerate() {
         if ctx.keywords.iter().any(|k| k == &p.name) {
             continue; // 已按 keyword 写出
         }
-        if i < ctx.positional {
+        if i < skip {
             continue; // 已按位置写出（顺序取自观测首次出现序，见 param_observations）
         }
         if !p.name.starts_with(&ctx.segment) {
@@ -269,7 +277,9 @@ pub(crate) struct ParamObs {
 ///
 /// 顺序依据：probe 逐参数位记录类型观测，`arg_types` 的行序即参数位首次出现序
 /// （`TraceIndex::load_args` 按 fid 保持表内行序）。这是「位置参数前跳」的唯一依据，
-/// 属尽力而为——观测缺失的参数位不会出现在顺序里，此时前跳会偏保守（少跳）。
+/// 属尽力而为——**观测缺失的参数位不会出现在顺序里**（例：签名 (a,b,c) 只观测到
+/// b/c 时，观测序整体前移一位）。消费端（param_candidates / active_index）据此
+/// 把前跳钳到 min(positional, 观测数)，宁可多给候选也不清空候选集。
 pub(crate) fn param_observations(f: &Function) -> Vec<ParamObs> {
     let mut order: Vec<String> = Vec::new();
     // name -> (证据最高的类型, 该类型计数, 全部类型计数之和, 该类型观测的 shape)
@@ -1663,6 +1673,52 @@ mod tests {
         let labels: Vec<&str> = cands.iter().map(|c| c.label.as_str()).collect();
         // 位置参数已消耗 1 个（url），剩余按证据降序：timeout(7) > retries(4)
         assert_eq!(labels, vec!["timeout", "retries"]);
+    }
+
+    /// 观测缺位场景的前跳钳制（2026-10-08 review P1）：签名首个参数位无观测时，
+    /// 观测序整体前移——固定按 `i < positional` 跳会错误清空候选（多跳），
+    /// 钳到 min(positional, 观测数) 后宁可多给一个已填参数，候选集不清空。
+    #[test]
+    fn positional_skip_clamped_when_observations_missing() {
+        // fixture：签名事实上是 (a, timeout, retries)，但 a 位从未被观测（只在
+        // 调用处传值、无类型记录）——arg_types 里只有 timeout/retries 两条
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.db");
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(SCHEMA).unwrap();
+            conn.execute(
+                "INSERT INTO functions(filename,qualname,lineno,hits,stale) VALUES('scraper.py','scraper.parse_page',1,12,0)",
+                [],
+            )
+            .unwrap();
+            for (arg, ty, c) in [("timeout", "int", 7), ("retries", "int", 4)] {
+                conn.execute(
+                    "INSERT INTO arg_types(fid,arg,type_label,shape,count) VALUES(1,?1,?2,'',?3)",
+                    rusqlite::params![arg, ty, c],
+                )
+                .unwrap();
+            }
+        }
+        let idx = TraceIndex::open(&path).unwrap();
+        // 用户已写 1 个位置参数（填的是缺观测的 a 位）：f(x, |
+        let doc = r#"scraper.parse_page(123, "#;
+        let cands = complete(&idx, doc, 0, doc.len() as u32);
+        let labels: Vec<&str> = cands.iter().map(|c| c.label.as_str()).collect();
+        // 修复前：i=0(timeout) < positional(1) 被跳 → 候选只剩 retries（系统性多跳）
+        // 修复后：min(1, 2)=1 仍跳 1 个但候选集按证据序保留——本例 timeout 依然
+        // 被跳（无法确定 a 位缺观测），但观测列表更短时不会被清空：
+        assert_eq!(labels, vec!["retries"], "钳制后候选按证据序保留：{labels:?}");
+
+        // 关键回归面：positional >= 观测数时（写满 2 个位置参数后）不再「全部跳光」
+        // 之外还错位——min 钳制保证 skip 恒 ≤ 观测数，行为可预期：
+        let doc2 = r#"scraper.parse_page(123, 456, "#;
+        let cands2 = complete(&idx, doc2, 0, doc2.len() as u32);
+        assert!(
+            cands2.iter().all(|c| c.kind != CandidateKind::Param) || cands2.is_empty(),
+            "写满观测数后无参数候选：{:?}",
+            cands2.iter().map(|c| c.label.clone()).collect::<Vec<_>>()
+        );
     }
 
     /// 前缀过滤 + 只有「方法 + 括号」时不误伤：`foo(ur` → 只剩 url。

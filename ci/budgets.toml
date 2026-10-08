@@ -213,10 +213,11 @@ intel_hover_rs_max_lines = 470
 #   上下文扫描与 callee 解析**复用 completion.rs**，本文件不含括号扫描逻辑。
 intel_signature_rs_max_lines = 450
 
-# server.rs（A3①/②/③ 逐轮接线 + P0-A1 补 `to_completion_response` 及单测）：610 行。上限 620（余量仅 10 行）。
-#   范围：LSP 能力声明 + 各 provider 的 spawn_blocking 分发 + trace 索引懒加载 / 失败退避。
-#   ⚠ 余量已近底：本文件再增长须先拆（如把响应封装抽到独立模块）或显式抬阈值并写理由。
-intel_server_rs_max_lines = 620
+# server.rs（A3①/②/③ 逐轮接线 + P0-A1 补 `to_completion_response` 及单测）：610 行。
+#   2026-10-08 review 修复批 +37：P0 退避死锁（闸门重构 + `should_retry` 纯函数化 + 2 条
+#   回归测试）与 P1 didOpen 版本守卫（防御块 + 注释）。修复性增长而非功能膨胀，
+#   上限 620 → 700（实测 647，余量 ~8%）；后续接线类需求仍应优先拆响应封装模块。
+intel_server_rs_max_lines = 700
 
 # —— 命令面 ——
 # 196 个 #[tauri::command]（2026-10-06 实测；B4 新增 http_cmds，A1 新增 intel_cmds，

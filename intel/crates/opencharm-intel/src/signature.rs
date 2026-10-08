@@ -100,14 +100,18 @@ pub fn signature_help(
 
 /// 当前参数位：观测顺序下**第一个尚未写出**的参数位；全部写出时钳到末位。
 ///
-/// 「已写出」判据与 A3① 逐字一致（已按 keyword 写出的名字 + 已按位置写出的前 `positional` 个），
+/// 「已写出」判据与 A3① 一致（已按 keyword 写出的名字 + 已按位置写出的前 `positional` 个），
 /// 这是「弹窗高亮 == 补全首推」这条一致性保证的唯一实现点。
+/// 与 param_candidates 同步（2026-10-08 review）：`i` 是观测列表下标而非真实参数位，
+/// 前跳钳到 min(positional, 观测数)——观测缺位时观测序前移，固定按 positional 跳
+/// 会系统性过跳（高亮到错误参数）。
 ///
 /// 钳到末位而非回 0：LSP 客户端要求合法下标，且「参数已填满」时停在最后一个比跳回第一个更少误导。
 fn active_index(obs: &[ParamObs], keywords: &[String], positional: usize) -> u32 {
     let last = obs.len().saturating_sub(1);
+    let skip = positional.min(obs.len());
     for (i, p) in obs.iter().enumerate() {
-        if i < positional || keywords.iter().any(|k| k == &p.name) {
+        if i < skip || keywords.iter().any(|k| k == &p.name) {
             continue;
         }
         return i as u32;

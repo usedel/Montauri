@@ -58,6 +58,14 @@ pub struct Backend {
     index_load_lock: tokio::sync::Mutex<()>,
 }
 
+/// CR-16 退避闸门：这是自上次成功以来的第 `attempt_no` 次加载请求，是否放行尝试。
+/// 前 3 次每次尝试；此后只在第 4/8/16/...（2 的幂）次请求时尝试。
+/// ⚠ `attempt_no` 必须是**请求序号**（含被拦下的），不能是「实际尝试次数」——
+/// 后者会让计数停在 3 后永不放行（退避死锁，2026-10-08 review P0）。
+fn should_retry(attempt_no: u32) -> bool {
+    attempt_no <= 3 || attempt_no.is_power_of_two()
+}
+
 impl Backend {
     pub fn new(client: Client) -> Self {
         Backend {
@@ -91,12 +99,6 @@ impl Backend {
     async fn ensure_index_loaded(&self) {
         let path = {
             let g = self.inner.read();
-            // CR-16：退避——失败次数未达重试窗口时直接跳过（不重试不打日志）
-            let backoff = g.index_fail_count;
-            if backoff >= 3 && (backoff as u64).count_ones() != 1 {
-                // 3 次后只在 4/8/16/...（2 的幂）次请求时重试
-                return;
-            }
             g.trace_db_path.clone()
         };
         let Some(path) = path else { return };
@@ -124,6 +126,20 @@ impl Backend {
             }
         }
 
+        // CR-16：退避闸门（2026-10-08 review P0 重构）——两点：① 放在新鲜度检查
+        // 之后（稳态请求不推进计数，否则真需要重载时反被成功历史拦住）；② 计数
+        // 语义 = 「自上次成功以来的第 N 次请求」**含被拦下的**（先自增再判定）——
+        // 旧实现只在尝试失败后自增，被拦请求不计数，fail_count=3 后闸门拦下一切、
+        // 计数永远停在 3 → 本会话永不重试（新项目库缺失连败 3 次后永久放弃）。
+        let attempt_no = {
+            let mut g = self.inner.write();
+            g.index_fail_count = g.index_fail_count.saturating_add(1);
+            g.index_fail_count
+        };
+        if !should_retry(attempt_no) {
+            return; // 本次请求被退避拦下（计数已推进，重试窗口到来时自然放行）
+        }
+
         // A-P2-3：在途加载互斥——拿不到锁说明已有加载在进行，本次直接返回
         let Ok(_guard) = self.index_load_lock.try_lock() else { return };
 
@@ -138,15 +154,9 @@ impl Backend {
                 g.index_fail_count = 0;
             }
             Ok(Err(e)) => {
-                // CR-16：失败计数退避（首次立即重试，3 次后按 2 的幂间隔）
-                let fails = {
-                    let mut g = self.inner.write();
-                    g.index_fail_count = g.index_fail_count.saturating_add(1);
-                    g.index_fail_count
-                };
-                if fails <= 3 || (fails as u64).count_ones() == 1 {
-                    eprintln!("[opencharm-intel] 加载 trace 库失败 {display_path}: {e}");
-                }
+                // CR-16：计数已在闸门处推进（被拦下的请求同样计数），此处只负责日志。
+                // 只在放行点（第 1/2/3/4/8/16... 次请求）打印，被拦下的请求静默。
+                eprintln!("[opencharm-intel] 加载 trace 库失败 {display_path}: {e}");
             }
             Err(e) => {
                 eprintln!("[opencharm-intel] 加载 trace 库任务异常: {e}");
@@ -306,10 +316,18 @@ impl LanguageServer for Backend {
         let uri = params.text_document.uri;
         let version = params.text_document.version;
         let text: Arc<str> = Arc::from(params.text_document.text);
-        self.inner
-            .write()
-            .documents
-            .insert(uri.to_string(), (version, text));
+        // CR-15 同款版本守卫（2026-10-08 review）：迟到 didOpen 不得回滚 didChange
+        // 已写入的新文本（与 did_change 守卫对称）。⚠ 块作用域化：锁守卫不跨 await。
+        {
+            let mut g = self.inner.write();
+            let newer = g
+                .documents
+                .get(uri.as_str())
+                .map_or(true, |(v, _)| version > *v);
+            if newer {
+                g.documents.insert(uri.to_string(), (version, text));
+            }
+        }
         self.publish_diagnostics(&uri).await;
     }
 
@@ -606,5 +624,24 @@ mod tests {
             }
             other => panic!("应返回 CompletionResponse::List，实际 {other:?}"),
         }
+    }
+
+    /// CR-16 退避闸门节奏：前 3 次请求每次尝试；之后只在第 4/8/16...（2 的幂）次请求放行。
+    /// 第二段为死锁回归（2026-10-08 review P0）：计数必须是「请求序号」（含被拦下的），
+    /// 不能是「实际尝试次数」——旧实现被拦请求不计数，停在 3 后永不放行。
+    #[test]
+    fn backoff_gate_allows_first_three_then_powers_of_two() {
+        for n in 1u32..=3 {
+            assert!(should_retry(n), "第 {n} 次请求必须放行");
+        }
+        for n in [5u32, 6, 7] {
+            assert!(!should_retry(n), "第 {n} 次请求拦截");
+        }
+        for n in [4u32, 8, 16] {
+            assert!(should_retry(n), "第 {n} 次请求（2 的幂）放行");
+        }
+        // 死锁回归：16 个连续失败请求，放行点按 1/2/3/4/8/16 节奏共 6 次
+        let attempts = (1u32..=16).filter(|&n| should_retry(n)).count();
+        assert_eq!(attempts, 6, "死锁实现（按尝试次数计数）会停在 3 次");
     }
 }
