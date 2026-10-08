@@ -2,7 +2,7 @@
 
 > 版本：**v0.7** · 日期：2026-10-07 · HEAD `31e0617` · 状态：**PR-A2-P0 ~ P5 已完成并收口（P6 裁决：不扩大视图，见 §9）——进入验收维护态**
 > 上级：`docs/improvement_and_roadmap_report.md` 候选池 **A2**（用户 2026-10-06 选定为阶段二下一步）
-> 证据：**`bench/reports/a2-overhead-lab.md`**（开销门槛实验 v1.0）——**本文所有倍率均出自该报告，引用前先核对 HEAD**
+> 证据：**`bench/reports/a2-overhead-lab.md`**（开销门槛实验 v1.0，本地证据、不入库）——**本文所有倍率数字均已内联**（perf 3.02x ≤ cProfile 5.45x 等，见 §4/§7）
 > 相关合约：`docs/adr/0010-performance-lightweight-charter.md`（性能/体积一等目标）· `probe/README.md`（类型紧凑表示、零第三方依赖）
 
 ---

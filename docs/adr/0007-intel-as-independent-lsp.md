@@ -4,7 +4,7 @@
 - 日期：2026-08-20（补记 2026-10-03）
 - 决策者：产品负责人裁决
 - 上游：`docs/python_ide_tech_plan_v3.md` v3.0（探针 / intel / 验收指标三章节）
-- 落地：`intel/`（独立 cargo workspace）· `probe/`（独立 Python 包）· `shell/src-tauri/src/lsp.rs` · `docs/bench/reports`（`bench/reports/gate-d-runtime-completion.md`）
+- 落地：`intel/`（独立 cargo workspace）· `probe/`（独立 Python 包）· `shell/src-tauri/src/lsp.rs` · 本地证据 `bench/reports/gate-d-runtime-completion.md`（不入库）
 
 ## 背景
 
@@ -43,4 +43,4 @@ OpenCharm 的差异化不是"又一个 Python IDE"，而是**用真实运行数�
 - **约束**：
   - intel 联调前必须 `cargo build`（`cargo test` 不刷新 shell 调用的 exe）；
   - 探针开销红线 < 1.5x（当前实测 1.35x），改采集路径必须跑 bench 回归；
-  - 任何改 `intel` 索引 schema 的 PR 必须同步 probe 写入端 + `bench/reports/` 基线。
+  - 任何改 `intel` 索引 schema 的 PR 必须同步 probe 写入端 + 本地 bench 基线（`bench/reports/`，不入库，结论以 docs 数字为准）。

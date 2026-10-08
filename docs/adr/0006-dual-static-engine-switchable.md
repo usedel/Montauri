@@ -4,7 +4,7 @@
 - 日期：2026-08-20（补记 2026-10-03）
 - 决策者：产品负责人裁决
 - 上游：`docs/python_ide_tech_plan_v3.md` v3.0（Phase 1 范围与「静态语义」层选型）
-- 落地：`shell/src-tauri/src/lsp.rs` · `settings.rs` · `toolchain.rs` · `bench/reports/engine-perf-comparison.md` · `docs/pyrefly_pydantic_support_plan.md` v0.2
+- 落地：`shell/src-tauri/src/lsp.rs` · `settings.rs` · `toolchain.rs` · 本地证据 `bench/reports/engine-perf-comparison.md`（不入库）· `docs/pyrefly_pydantic_support_plan.md` v0.2
 
 ## 背景
 
@@ -36,7 +36,7 @@
 
 - **正面**：引擎可换，"上游风险"从单点降为可选项；能力缺口可用另一引擎交叉验证（PyCharm 缺 `references=0` 场景就是靠 pyrefly/对照探针发现的）。
 - **负面 / 取舍**：
-  - 双引擎都要回归，CI 与 bench 成本 ×2 —— `bench/reports/engine-perf-comparison.md` 是当前唯一对照产物，**升级任一引擎须重跑**；
+  - 双引擎都要回归，CI 与 bench 成本 ×2 —— 本地 `bench/reports/engine-perf-comparison.md`（不入库）是当前唯一对照产物，**升级任一引擎须重跑对照**；
   - 用户可能选到与自己代码不匹配的引擎（如 Pydantic 项目用 basedpyright 仍有 `alias` 误报）→ 已在 `fs_cmds.rs` 自研层做"识别到即跳过"处理，两侧误报都不能靠引擎消失。
 - **约束**：
   - 两个引擎版本都锁 `ci/versions.toml`；

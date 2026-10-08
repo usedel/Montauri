@@ -35,6 +35,11 @@ shell/e2e-real/.tauri-dev*.log
 # 用 `git add -f shell/real-reports/<stamp>` 单独提升入库。
 shell/real-reports/
 
+# bench 报告（原始运行产物：budget 滚动快照 + 探针 JSON/报告，见下方证据迁移说明）
+# 结论与数字以「写进 docs 的数字」为准；确需留证某次里程碑跑时用
+# `git add -f bench/reports/<file>` 单独提升入库（2026-10-08 整目录治理）。
+bench/reports/
+
 # Zed / IDE
 .DS_Store
 *.swp

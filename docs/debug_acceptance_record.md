@@ -188,7 +188,7 @@ connect → initialize → attach({"justMyCode":true}) → [initialized 事件]
 
 **解决后实测**：`npx tauri build` 成功出包（8.63 MB）；安装至 `D:\OpenCharm`，四项自研组件随包落地（`opencharm-shell.exe` 20.58 MB · `opencharm-intel.exe` 4.75 MB · `probe/src` · `debugpy`）；`e2e-real/release-real.cjs` 对**安装后的程序**实测 **7/7 PASS**。
 
-- 完整根因、证据、候选修法对比：[`bench/reports/release-build-blocker.md`](../bench/reports/release-build-blocker.md)
+- 完整根因、证据、候选修法对比：本地证据 `bench/reports/release-build-blocker.md`（2026-10-08 起该目录不再入库，结论数字已内联上文；确需留证用 `git add -f`）
 - 附带发现：安装包 `/S` **静默安装无效**（退出码 0 但无文件、无注册表项），故验收走"安装后程序 + CDP"，不用静默安装。
 - `e2e-real/release-real.cjs` 默认从注册表 `HKCU\...\Uninstall\OpenCharm\InstallLocation` 读安装路径（NSIS 允许 `/D=` 覆盖，不能写死 `%LOCALAPPDATA%\OpenCharm`）；可用 `OC_RELEASE_EXE` 覆盖为构建产物路径。
 
