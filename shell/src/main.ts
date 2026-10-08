@@ -316,8 +316,12 @@ async function openWorkspace(root: string): Promise<void> {
   // 再升级为排队语义。串行损坏（双 teardown / LSP 双启动）的防护优先。
   wsSwitching = true;
   try {
-    // 切换工作区：先清理旧工作区状态
-    if (app.workspaceRoot && app.workspaceRoot !== root) {
+  // T3 打点（M0 体验度量拆解）：openWorkspace 各阶段耗时。console.debug 与 teardown 计时同款，
+  // release 默认不显示、零行为变更；排查「窗口出现→文件树可见」的 4.5s 去向时按段读数。
+  const tWs = performance.now();
+  const wsMark = (label: string) => console.debug(`[openWorkspace] ${label} +${(performance.now() - tWs).toFixed(0)}ms`);
+  // 切换工作区：先清理旧工作区状态
+  if (app.workspaceRoot && app.workspaceRoot !== root) {
       if (!(await teardownCurrent())) return;
       cancelPendingSessionSave(); // A-5：teardown 已同步存过旧工作区快照，挂起的防抖不得用新 root 覆盖
       await stopFileWatcher();
@@ -325,20 +329,27 @@ async function openWorkspace(root: string): Promise<void> {
     }
     app.workspaceRoot = root;
     $("tree-header-text").textContent = root;
+    wsMark("前置清理完成");
     // P2：书签按工作区持久化，换工作区要重新加载（并刷新 gutter 装饰）
     await loadBookmarks();
     refreshBookmarkGutter();
     // P2-11（UX 审查）：断点同样按工作区持久化——回填后重绘当前文件的红点
     await loadBreakpoints();
     refreshDebugGutter();
+    wsMark("书签+断点加载");
     // Markdown 预览：动态授权 asset 协议读取当前工作区根（本地图片渲染）
     await invoke("allow_asset_dir", { path: root }).catch(console.error);
     await invoke("add_recent_workspace", { path: root }).catch(console.error);
+    wsMark("asset 授权+recent 登记");
     await refreshTree();
+    wsMark("refreshTree 完成（文件树可见）");
     await invoke("sweep_run_configs", { workspaceRoot: root }).catch(console.error); // tech-debt #9：打开工作区清扫孤儿运行配置
     await loadTemplatesConfig();
+    wsMark("配置清扫+模板加载");
     await refreshInterpreterStatus(); // 先确定解释器，供 startLsp/run 使用
+    wsMark("解释器探测");
     await startLsp();
+    wsMark("startLsp 返回（引擎 spawn，ready 异步）");
     // 依赖健康体检（dep plan §4.7，M1 形态）：后台数据采集，绝不阻塞打开流程——
     // L0 style 判定先行，1.5s 后若 venv 确认/工具链引导等弹窗在前台则排队轮询（R13 弹窗优先），
     // 结果只进输出面板一行摘要（无横幅无弹窗，M3 才上 UI 投影）
@@ -346,6 +357,7 @@ async function openWorkspace(root: string): Promise<void> {
     await maybePromptVenv();
     await startFileWatcher(); // 启动文件监听
     await restoreSession(); // A-5：恢复上次现场（标签 / 光标 / 未保存草稿）
+    wsMark("venv 提示+watcher+会话恢复完成");
     // 框架探针表（P1：Django / Flask / FastAPI）：仅提示，不打扰；工作区级可关闭
     void maybeSuggestFramework();
     // 阶段 4：Pydantic 构造校验诊断（第四桶）——栈命中才扫描，后台进行不阻塞打开流程
@@ -1553,20 +1565,30 @@ async function init(): Promise<void> {
   // 之前同步画一次，否则覆盖层会露出空的「快捷键」区。此刻 app.settings 仍是 DEFAULT_SETTINGS，
   // 画的是出厂键位；loadSettings 完成后由 updateEditorOverlay 刷成真实值（多数用户二者相同）。
   renderWelcomeShortcuts();
+  // T3 打点（M0 体验度量拆解）：init 各阶段耗时（console.debug 同款，release 不显示零行为变更）
+  // performance.now() 绝对值 = 导航起点→此刻：init 是模块体末尾调用，此刻的绝对值 ≈
+  // HTML 解析完成后 main.ts 静态 import 图（全部功能域模块）加载+解析+执行的总耗时。
+  console.debug(`[init] init 开始 performance.now=${performance.now().toFixed(0)}ms（≈模块图加载总耗时）`);
+  const tInit = performance.now();
+  const initMark = (label: string) => console.debug(`[init] ${label} +${(performance.now() - tInit).toFixed(0)}ms`);
+  initMark("静态骨架+i18n 完成（T2 口径附近）");
   // Monaco 动态加载（首屏 UI 先渲染，编辑器包并行下载）
   const monacoModule = await import("./monaco");
   app.monaco = monacoModule.default;
+  initMark("monaco 动态包加载");
   // 批 4：注入主题钩子（settingsPanel / markdownPreview 经 app 调，不静态 import 本模块——
   // 那会把 ~3 MB 的 monaco-editor 拖进冷路径的按需加载链，抵消 monaco.ts 静态引入语言包的意义）。
   app.applyEditorTheme = monacoModule.applyEditorTheme;
   app.withEditorTheme = monacoModule.withEditorTheme;
   lsp.setMonaco(app.monaco);
   await loadSettings(); // 设置先于编辑器创建（字号/主题，P25-T08）
+  initMark("loadSettings");
   // 批 3：等随包等宽字体真正就绪再建编辑器。Monaco 用 canvas measureText 测字符宽度并缓存
   // （CharConfig），字体异步到位后宽度与缓存不符会让网格/光标列整体错位，且 0.52 不会自动重测；
   // font-display: swap 下浏览器先画回退字体再交换，不等就是这个窗口。
   // 实测本地 4 个 woff2 共 75 KB，load 约 8ms；函数内另有 1.5s 超时兜底，绝不把 init 拖死。
   await ensureEditorFontLoaded(app.settings);
+  initMark("字体就绪");
   app.applyEditorTheme(app.settings.theme); // 批 4：重注册（读 loadSettings 已切好的 data-theme 快照）+ setTheme
   // 快捷键域：注册稳定命令 + 按设置建立键 → 命令映射（设置保存后可重建）
   kb.initKeybindingCommands(app.monaco);
@@ -1653,6 +1675,7 @@ async function init(): Promise<void> {
     fetchDocumentSymbols: (path) => lsp.documentSymbols(path), // M2：符号上下文主路径
     getModelPath: (model) => lsp.modelPath(model),
   });
+  initMark("live-templates 初始化");
   ltUi.wirePanel({
     getHandle: () => liveTemplatesHandle,
     hasWorkspace: () => !!app.workspaceRoot,
@@ -2167,9 +2190,11 @@ async function init(): Promise<void> {
 
   // 首次启动环境引导（第 4 步）：缺失 uv/pyrefly 时弹窗引导一键安装
   await maybePromptToolchain();
+  initMark("事件接线+工具链引导");
 
   // 多窗口：项目窗口按其绑定目录打开；主窗口回落「恢复最近」
   await openInitialWorkspace();
+  initMark("openInitialWorkspace 返回（含 openWorkspace 全链）");
   updateEditorOverlay();
   renderRunWidget(runWidgetState()); // 首次渲染（无工作区时 renderTabs 不被调用，需显式补一次）
 }
