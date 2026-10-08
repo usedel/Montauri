@@ -1228,17 +1228,19 @@ function sameRefs(a: LspReferenceLocation[], b: LspReferenceLocation[]): boolean
  * onSample：每次采样回调（renameWidget 借此实时刷新 ghost 计数）。
  * onSettled：结束回调（E-2），stable=false 表示轮询次数用尽仍未收敛——调用方应提示
  * 「工作区索引可能尚未完成，结果可能不完整」（G-3：禁止静默不完整）。
+ * includeDeclaration：透传 LSP references context；Code Vision 计数传 false
+ * （PyCharm 语义：定义不算 usage，探针实测 pyrefly / basedpyright 均尊重该字段）。
  */
 export async function waitReferencesStable(
   model: MonacoApi.editor.ITextModel,
   position: MonacoApi.Position,
-  opts: { maxTries?: number; intervalMs?: number; onSample?: (refs: LspReferenceLocation[]) => void; onSettled?: (stable: boolean) => void } = {},
+  opts: { maxTries?: number; intervalMs?: number; includeDeclaration?: boolean; onSample?: (refs: LspReferenceLocation[]) => void; onSettled?: (stable: boolean) => void } = {},
 ): Promise<LspReferenceLocation[]> {
   const maxTries = opts.maxTries ?? 6;
   const intervalMs = opts.intervalMs ?? 700;
   let prev: LspReferenceLocation[] | null = null;
   for (let i = 0; i < maxTries; i++) {
-    const cur = await fetchReferencesAt(model, position);
+    const cur = await fetchReferencesAt(model, position, { includeDeclaration: opts.includeDeclaration });
     opts.onSample?.(cur);
     if (prev && sameRefs(prev, cur)) {
       opts.onSettled?.(true);
@@ -1251,10 +1253,15 @@ export async function waitReferencesStable(
   return prev ?? [];
 }
 
-/** 查询光标处符号的所有引用（供 Shift+F12 与全局搜索面板复用） */
+/**
+ * 查询光标处符号的所有引用（供 Shift+F12 与全局搜索面板复用）。
+ * includeDeclaration 默认 true（面板「定义」分组 / rename ghost / Monaco peek 惯例均含定义）；
+ * Code Vision 计数传 false——「N 处引用」按 PyCharm usages 语义只数使用处，不含定义。
+ */
 export async function fetchReferencesAt(
   model: MonacoApi.editor.ITextModel,
   position: MonacoApi.Position,
+  opts: { includeDeclaration?: boolean } = {},
 ): Promise<LspReferenceLocation[]> {
   if (engineStatus !== "ready") return [];
   await flushBeforeSemantic();
@@ -1262,7 +1269,7 @@ export async function fetchReferencesAt(
     const locs: LspLocation[] | null = await request("textDocument/references", {
       textDocument: { uri: pathToFileUri(currentPath(model)) },
       position: monacoPosToLsp(position),
-      context: { includeDeclaration: true },
+      context: { includeDeclaration: opts.includeDeclaration ?? true },
     });
     if (!locs) return [];
     return locs.map((loc) => {

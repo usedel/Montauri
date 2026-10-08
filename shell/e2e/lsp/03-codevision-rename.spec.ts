@@ -72,23 +72,23 @@ test.beforeEach(async ({ page }) => {
   await openFile(page, "lib.py"); // 最终激活 lib.py（声明所在文件）
 });
 
-test("Code Vision：类/函数声明行上方显示「N 处引用」计数", async ({ page }) => {
-  // add_score：lib.py 定义 1 处 + main.py 导入/调用 2 处 = 3
-  const lensAdd = page.locator("#editor .codelens-decoration", { hasText: "3 处引用" });
+test("Code Vision：类/函数声明行上方显示「N 处引用」计数（定义不计入）", async ({ page }) => {
+  // PyCharm usages 语义：定义不算 usage。add_score：main.py 导入 + 调用 = 2
+  const lensAdd = page.locator("#editor .codelens-decoration", { hasText: "2 处引用" });
   await expect(lensAdd.first()).toBeVisible({ timeout: 15_000 });
-  // label：lib.py 定义 + 同文件调用 = 2
-  const lensLabel = page.locator("#editor .codelens-decoration", { hasText: "2 处引用" });
+  // label：同文件调用 = 1（定义已剔除）
+  const lensLabel = page.locator("#editor .codelens-decoration", { hasText: "1 处引用" });
   await expect(lensLabel.first()).toBeVisible({ timeout: 15_000 });
 });
 
 test("Code Vision：点击计数弹出引用列表，点击条目跳转并选中标识符", async ({ page }) => {
-  await page.locator("#editor .codelens-decoration", { hasText: "3 处引用" }).first().click();
+  await page.locator("#editor .codelens-decoration", { hasText: "2 处引用" }).first().click();
 
   const popup = page.locator(".oc-cv-popup");
   await expect(popup).toBeVisible({ timeout: 10_000 });
-  await expect(popup).toContainText("add_score · 3 处引用");
-  // 三条引用都在：定义（lib.py:1）/ 导入（main.py:1）/ 调用（main.py:3）
-  await expect(popup.locator(".oc-cv-row")).toHaveCount(3);
+  await expect(popup).toContainText("add_score · 2 处引用");
+  // 两条引用都在：导入（main.py:1）/ 调用（main.py:3）——定义不进计数与弹层
+  await expect(popup.locator(".oc-cv-row")).toHaveCount(2);
 
   // 点击调用处条目 → 跳到 main.py 并选中标识符
   await popup.locator(".oc-cv-row", { hasText: "main.py:3" }).click();

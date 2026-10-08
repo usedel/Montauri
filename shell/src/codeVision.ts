@@ -85,8 +85,9 @@ async function showUsagesPopup(line: number, col: number): Promise<void> {
   closePopup();
   const pos = new app.monaco.Position(line, col);
   const symbolName = model.getWordAtPosition(pos)?.word ?? "";
-  // 稳定采样（同 lens）：后台索引推进期间不弹瞬时值
-  const refs = await waitReferencesStable(model, pos, { maxTries: 3, intervalMs: 500 });
+  // 稳定采样（同 lens）：后台索引推进期间不弹瞬时值。
+  // includeDeclaration: false——弹层与 lens 计数同口径（PyCharm usages 语义，定义不算 usage）
+  const refs = await waitReferencesStable(model, pos, { maxTries: 3, intervalMs: 500, includeDeclaration: false });
 
   const host = document.createElement("div");
   host.className = "oc-cv-popup";
@@ -232,8 +233,10 @@ export function initCodeVision(editor: MonacoApi.editor.IStandaloneCodeEditor): 
       let count = 0;
       try {
         // 稳定双采样：pyrefly 后台索引 / didOpen 重验证期间计数会瞬时回落，
-        // 直接显示会「变少一会又变多」——连续两次一致才上屏（已稳定时只多一次请求）
-        const refs = await waitReferencesStable(model, pos, { maxTries: 3, intervalMs: 500 });
+        // 直接显示会「变少一会又变多」——连续两次一致才上屏（已稳定时只多一次请求）。
+        // includeDeclaration: false——「N 处引用」按 PyCharm usages 语义只数使用处：
+        // 定义不算 usage（探针实测 pyrefly / basedpyright 均尊重该字段，能精确剔除定义）。
+        const refs = await waitReferencesStable(model, pos, { maxTries: 3, intervalMs: 500, includeDeclaration: false });
         count = refs.length;
       } catch {
         count = 0;

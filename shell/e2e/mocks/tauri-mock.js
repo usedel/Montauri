@@ -834,13 +834,18 @@
     return { word: line.slice(start, end), start: start, end: end };
   }
 
-  /** 查找引用：该词在全部已镜像文档中的所有出现（含定义；\b 词边界，字符串/注释不区分） */
-  function lspReferences(uri, pos) {
+  /** 查找引用：该词在全部已镜像文档中的所有出现（\b 词边界，字符串/注释不区分）。
+   *  context.includeDeclaration=false 时剔除 def/class 声明行——对齐真实引擎
+   *  （探针实测 pyrefly / basedpyright 均只剔除定义处，import 行保留为 usage）。 */
+  function lspReferences(uri, pos, context) {
     var w = lspWordAt(uri, pos);
     if (!w) return [];
+    var includeDecl = !context || context.includeDeclaration !== false;
+    var declRe = new RegExp("^(async\\s+)?(def|class)\\s+" + w.word + "\\b");
     var out = [];
     lspDocs.forEach(function (doc, docUri) {
       for (var i = 0; i < doc.lines.length; i++) {
+        if (!includeDecl && declRe.test(doc.lines[i])) continue;
         var re = new RegExp("\\b" + w.word + "\\b", "g");
         var m;
         while ((m = re.exec(doc.lines[i])) !== null) {
@@ -1084,7 +1089,7 @@
         result0 = lspDocumentSymbols(td4.uri);
       } else if (method0 === "textDocument/references") {
         var td5 = params0.textDocument || {};
-        result0 = lspReferences(td5.uri, params0.position || { line: 0, character: 0 });
+        result0 = lspReferences(td5.uri, params0.position || { line: 0, character: 0 }, params0.context || null);
       } else if (method0 === "textDocument/prepareRename") {
         var td6 = params0.textDocument || {};
         result0 = lspPrepareRename(td6.uri, params0.position || { line: 0, character: 0 });
