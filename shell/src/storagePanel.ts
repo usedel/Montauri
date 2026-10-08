@@ -5,7 +5,7 @@
 // - 首启数据落位提示（onboarding，只弹一次）
 
 import { invoke } from "@tauri-apps/api/core";
-import { $, $btn } from "./state";
+import { $btn, lazyEl } from "./state";
 import { hideEl, showEl } from "./anim";
 import { trapFocus } from "./focusTrap";
 import { openAlert, openConfirm } from "./dialog";
@@ -52,11 +52,12 @@ interface MigrateResult {
 }
 
 // ---------- 域内 DOM ----------
+// P1（2026-10-08 review）：改 lazyEl——顶层立即解析违反铁律 1（精简 DOM 测试环境 import 即抛）。
 
-const usageEl = $("storage-usage");
-const rootPathEl = $("storage-root-path") as HTMLElement;
-const migratePathEl = $("storage-migrate-path") as HTMLInputElement;
-const onboardingModalEl = $("storage-onboarding-modal");
+const usageEl = lazyEl("storage-usage");
+const rootPathEl = lazyEl("storage-root-path");
+const migratePathEl = lazyEl<HTMLInputElement>("storage-migrate-path");
+const onboardingModalEl = lazyEl("storage-onboarding-modal");
 /** UI-05：首启落位提示模态的焦点陷阱解除句柄 */
 let releaseOnboardingFocus: (() => void) | null = null;
 

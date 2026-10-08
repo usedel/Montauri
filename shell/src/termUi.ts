@@ -792,9 +792,11 @@ export async function disposeTerminal(): Promise<void> {
   bottomTab = "output";
   // class 与 aria-selected 同源切换（UI-16 单一写入点本应走 setBottomTab；此处是复位路径，
   // 不宜触发 ensureAnyTerminal 等副作用，故手动同步两态）
+  // P1（2026-10-08 review）：补 tab-logs / logs-panel——B5 运行日志新增的 tab 与面板
+  // 此前漏在复位矩阵外，停在「运行日志」tab 时关闭/切换工作区会残留叠加。
   for (const [id, active] of [
     ["tab-output", true], ["tab-terminal", false], ["tab-git-detail", false], ["tab-find-usages", false],
-    ["tab-problems", false],
+    ["tab-problems", false], ["tab-logs", false],
   ] as const) {
     $(id).classList.toggle("active", active);
     $(id).setAttribute("aria-selected", String(active));
@@ -804,6 +806,7 @@ export async function disposeTerminal(): Promise<void> {
   gitDetailPanelEl.classList.add("hidden");
   findUsagesPanelEl.classList.add("hidden");
   $("problems-panel").classList.add("hidden");
+  setLogPanelVisible(false);
   // P0-2（2026-09-30 审计）：setBottomTab 管理的三个辅助元素显隐此前漏同步——
   // 关闭工作区前底部正显示终端 tab 时，复位到输出后：输出过滤 chips / 级别 chips 不出现、
   // 终端高频命令下拉残留在输出 tab 上。与 setBottomTab("output") 的三行同口径。

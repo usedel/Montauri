@@ -6,7 +6,7 @@
 // 反馈技术债对齐（§6.5/memory 61552154）：即时操作结果一律 toast；文本全部 textContent 防注入。
 
 import { invoke } from "@tauri-apps/api/core";
-import { app, $, $btn, outputEl } from "./state";
+import { app, lazyEl, outputEl } from "./state";
 import { codicon, setBusy, spinIcon } from "./util";
 import { appendOutputLine } from "./output";
 import { gotoFromLink } from "./tracebackLink";
@@ -23,27 +23,28 @@ import {
 } from "./depHealth";
 
 // ---------- DOM 与视图状态 ----------
+// P1（2026-10-08 review）：改 lazyEl——顶层立即解析违反铁律 1（精简 DOM 测试环境 import 即抛）。
 
-const bannerEl = $("dep-health-banner");
-const bannerTextEl = $("dep-health-banner-text");
-const bannerActionsEl = $("dep-health-banner-actions");
-const styleBadgeEl = $("dep-style-badge");
-const interpLabelEl = $("dep-interp-label");
-const scannedAtEl = $("dep-scanned-at");
-const refreshBtn = $btn("dep-refresh");
-const contentEl = $("dep-health-content");
-const statusEl = $("dep-health-status");
-const envModalEl = $("env-modal");
-const detailEl = $("dep-health-detail");
-const collapseBtn = $btn("dep-collapse");
+const bannerEl = lazyEl("dep-health-banner");
+const bannerTextEl = lazyEl("dep-health-banner-text");
+const bannerActionsEl = lazyEl("dep-health-banner-actions");
+const styleBadgeEl = lazyEl("dep-style-badge");
+const interpLabelEl = lazyEl("dep-interp-label");
+const scannedAtEl = lazyEl("dep-scanned-at");
+const refreshBtn = lazyEl<HTMLButtonElement>("dep-refresh");
+const contentEl = lazyEl("dep-health-content");
+const statusEl = lazyEl("dep-health-status");
+const envModalEl = lazyEl("env-modal");
+const detailEl = lazyEl("dep-health-detail");
+const collapseBtn = lazyEl<HTMLButtonElement>("dep-collapse");
 
 type DepTab = "edge" | "file" | "ignored";
 type EdgeId = "e1" | "e2" | "e3" | "e4" | "e5";
 
 const tabBtns: Record<DepTab, HTMLButtonElement> = {
-  edge: $btn("dep-tab-edge"),
-  file: $btn("dep-tab-file"),
-  ignored: $btn("dep-tab-ignored"),
+  edge: lazyEl<HTMLButtonElement>("dep-tab-edge"),
+  file: lazyEl<HTMLButtonElement>("dep-tab-file"),
+  ignored: lazyEl<HTMLButtonElement>("dep-tab-ignored"),
 };
 
 let currentTab: DepTab = "edge";

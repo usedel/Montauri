@@ -7,7 +7,7 @@
 import type * as MonacoApi from "monaco-editor/esm/vs/editor/editor.api";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { app, $, $btn, outputEl, type Tab } from "./state";
+import { app, $, $btn, lazyEl, outputEl, type Tab } from "./state";
 import { basename, codicon, emptyState, errMsg, languageOf, gitBadgeClass, gitLineClass, joinPath, normalizePath, renderFileIcon, setBusy } from "./util";
 import { appendOutputLine } from "./output";
 import { refreshTreeWithExpandedState } from "./fileTree";
@@ -1784,10 +1784,12 @@ async function stashDropAt(index: number): Promise<void> {
 
 // ---------- Git 详情视图（提交详情 / Blame 的独立承载，不再侵占输出面板） ----------
 
-/** Git 详情视图容器（历史提交详情 git show / 逐行 blame 渲染处） */
-const gitDetailViewEl = $("git-detail-view");
+/** Git 详情视图容器（历史提交详情 git show / 逐行 blame 渲染处）
+ *  P1（2026-10-08 review）：改 lazyEl——顶层立即解析违反铁律 1，git.ts 被
+ *  fileTree/main 连锁引入，精简 DOM 测试环境 import 即抛。 */
+const gitDetailViewEl = lazyEl("git-detail-view");
 /** Git 详情视图标签（header 左侧，显示当前查看对象） */
-const gitDetailLabelEl = $("git-detail-label");
+const gitDetailLabelEl = lazyEl("git-detail-label");
 
 /** Git 详情视图行（独立视图，不参与输出面板 channel 过滤——过滤态下打开详情不受影响） */
 function appendDetailLine(text: string, cls: string): HTMLElement {

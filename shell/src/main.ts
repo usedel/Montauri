@@ -835,6 +835,9 @@ const lspProviders = new DisposableStore();
 
 /** CR-08：openFile 进行中去重表（path → 未完成的打开 Promise），防并发双开同文件 */
 const openFileInflight = new Map<string, Promise<void>>();
+/** P1（2026-10-08 review）：已注册 change handler 的 model 集合——防止 model 复用
+ *  分支（CR-08 防线二）重复注册导致 pendingChanges 双倍累积。WeakSet 随 model 释放。 */
+const modelChangeHandled = new WeakSet<MonacoApi.editor.ITextModel>();
 
 /** openFile 选项 */
 export interface OpenFileOptions {
@@ -884,25 +887,46 @@ async function doOpenFile(path: string, revealLine?: number, opts?: OpenFileOpti
     }
     // CR-08：并发防线二——创建前再查既有 model 命中则复用（防其它入口已建）
     const uri = app.monaco.Uri.file(path);
-    const model = app.monaco.editor.getModel(uri) ?? app.monaco.editor.createModel(content, languageOf(path), uri);
+    const existing = app.monaco.editor.getModel(uri);
+    // P1（2026-10-08 review）：rename 后的过期引用防线——model URI 创建后不可变，
+    // rename a.py→b.py 时 tab.path/model.__opencharmPath 已迁移到新路径，但过期引用
+    // （搜索结果/引用面板/LSP 未更新期的 traceback 链接）仍指向旧路径 a.py：
+    // getModel(旧uri) 命中 b.py 的 model → 若不拦会开出共享同一 model 的第二个 tab
+    // （关一个 dispose 另一个跟着坏）。此时按 model 的真实归属重定向到既有 tab。
+    if (existing) {
+      const owner = lsp.modelPath(existing);
+      const ownerTab = owner ? app.tabs.find((x) => x.model === existing) : undefined;
+      if (owner && !samePath(owner, path) && ownerTab) {
+        activateTab(ownerTab, opts?.focusEditor === false ? { focusEditor: false } : undefined);
+        await revealAfterOpen(ownerTab.path, revealLine);
+        return;
+      }
+    }
+    const model = existing ?? app.monaco.editor.createModel(content, languageOf(path), uri);
     model.updateOptions({ tabSize: app.settings.tab_size, insertSpaces: app.settings.insert_spaces }); // P1 缩进设置
     lsp.markModelPath(model, path);
-    model.onDidChangeContent((e) => {
-      const t = app.tabs.find((x) => x.model === model);
-      if (t && !t.dirty) {
-        t.dirty = true;
-        renderTabs();
-      }
-      // 累积增量编辑（200ms 防抖后发；basedpyright 走增量、pyrefly 由 lsp.didChange 回落全量）
-      if (t) {
-        const acc = app.pendingChanges.get(t.path) ?? [];
-        acc.push(...e.changes);
-        app.pendingChanges.set(t.path, acc);
-      }
-      scheduleSessionSave(); // A-5：编辑后刷新会话快照（草稿随内容一起留存）
-      // autosave delay 模式：每个文件独立计时（model 级监听，后台 tab 的编辑也触发）
-      if (t) scheduleAutosave(t.path);
-    });
+    // P1（2026-10-08 review）：change handler 只在**首次**为该 model 注册——
+    // 复用命中（CR-08 并发防线二）时若再注册一次，pendingChanges 会双倍累积、
+    // 脏标记重复触发。WeakSet 随 model 释放，无泄漏面。
+    if (!modelChangeHandled.has(model)) {
+      modelChangeHandled.add(model);
+      model.onDidChangeContent((e) => {
+        const t = app.tabs.find((x) => x.model === model);
+        if (t && !t.dirty) {
+          t.dirty = true;
+          renderTabs();
+        }
+        // 累积增量编辑（200ms 防抖后发；basedpyright 走增量、pyrefly 由 lsp.didChange 回落全量）
+        if (t) {
+          const acc = app.pendingChanges.get(t.path) ?? [];
+          acc.push(...e.changes);
+          app.pendingChanges.set(t.path, acc);
+        }
+        scheduleSessionSave(); // A-5：编辑后刷新会话快照（草稿随内容一起留存）
+        // autosave delay 模式：每个文件独立计时（model 级监听，后台 tab 的编辑也触发）
+        if (t) scheduleAutosave(t.path);
+      });
+    }
     tab = { path, model, dirty: false };
     app.tabs.push(tab);
     lsp.didOpen(path, model);
@@ -952,6 +976,7 @@ function activateTab(tab: Tab, opts?: { focusEditor?: boolean }): void {
     renderTabs();
     statusFileEl.textContent = tab.path;
     updateEditorOverlay(); // 诊断实证：diff tab 也是「有活动内容」，欢迎页覆盖层必须隐藏
+    mdPreview.updatePreviewVisibility(); // 与文件/db 分支同口径（2026-10-08 review 补）
     refreshDiffOnActivate(tab); // 后台期间文件可能已变：按需重拉（冲突 tab 保护跳过）
     return;
   }
@@ -959,6 +984,8 @@ function activateTab(tab: Tab, opts?: { focusEditor?: boolean }): void {
     // v1.4 Tab 化：数据库 Tab（表数据 / SQL 查询）——主编辑器隐藏，
     // 宿主由 sqliteTabs.presentDbTab 显示并同步共享视图 DOM（结果缓存在 Tab 内，切换不重查）
     app.editor.setModel(null);
+    dismissDiffHost(); // P0（2026-10-08 review）：db 宿主与 diff 宿主同为 #editor-row 浮层互斥——
+    // 漏掉时 diff→db 切换后旧 diff 面板残留遮挡 db 面板（diff 分支与文件分支均已互调 dismiss）
     presentDbTab(tab);
     splitEditor.setDiffActive(true); // db Tab 占满编辑区，分屏（若开着）一并隐藏
     renderTabs();
@@ -1413,6 +1440,47 @@ window.addEventListener("unhandledrejection", (e) => {
 
 // ---------- 初始化 ----------
 
+/** didChange 内容变化管线（P1 2026-10-08 review 抽取）——主编辑器与分屏实例共用。
+ *  原 inline 只挂 app.editor，分屏内编辑时 LSP 同步 / ruff lint / 四个 gutter
+ *  装饰 / 大纲 / 面包屑全部失联。防抖定时器共用 editorTimers 单槽：两实例编辑
+ *  同一 model 时天然去重；交替编辑时最后一次事件胜出（与单编辑器语义一致）。 */
+function wireDidChangePipeline(): void {
+  if (!app.activeTab) return;
+  // Markdown 预览：预览开启时才挂防抖渲染（关闭时零开销；仅活动 md tab 实际重渲染）
+  if (mdPreview.isPreviewOpen()) mdPreview.schedulePreviewRender();
+  window.clearTimeout(editorTimers.change);
+  // C5：▶ 位置随内容变化 300ms 防抖重算（与 didChange 的 changeTimer 各管各的，不复用）
+  window.clearTimeout(editorTimers.gutter);
+  editorTimers.gutter = window.setTimeout(() => refreshRunGutter(), 300);
+  // D3：断点行随内容变化防抖重算（行增删后断点按 Monaco 当前行号定位，不随行迁移）
+  // P1-8：入 editorTimers 集中管理（先 clear 前值，防连点叠加全量重算）
+  window.clearTimeout(editorTimers.debug);
+  editorTimers.debug = window.setTimeout(() => refreshDebugGutter(), 300);
+  // CR-13：changeTimer 回调改串行 await——原来循环内并发 fire-and-forget，多 invoke
+  // 到达顺序不保证 → version 乱序，引擎状态错乱
+  editorTimers.change = window.setTimeout(() => {
+    void syncPendingChanges();
+  }, 200);
+  // 大纲随编辑防抖刷新（500ms，P25-T07）
+  window.clearTimeout(editorTimers.outline);
+  editorTimers.outline = window.setTimeout(() => {
+    if (activeView() === "files") refreshOutline();
+  }, 500);
+  // P2：面包屑的符号树随编辑过期（缓存丢弃 → 下次刷新重查）
+  invalidateBreadcrumbs();
+  scheduleBreadcrumbs();
+  // P2：ruff 实时 lint（停手 800ms 后跑一次）
+  scheduleRuffLint();
+  // P2：书签按行号定位，行增删后装饰要跟着重算（与断点红点同款处理）
+  // P1-8：入 editorTimers 集中管理（先 clear 前值）
+  window.clearTimeout(editorTimers.bookmark);
+  editorTimers.bookmark = window.setTimeout(() => refreshBookmarkGutter(), 300);
+  // 迭代 2 · P0-5：git 行级装饰随编辑防抖重算（dirty 文件实时反映新增/修改行）
+  scheduleGitGutter();
+  // （autosave delay 模式已迁移到 model 级监听 doOpenFile → scheduleAutosave：
+  //  每个脏 tab 独立计时，不再只针对活动 tab）
+}
+
 async function init(): Promise<void> {
   // i18n 首屏：把语言包套到 index.html 的静态骨架（菜单条 / 设置面板 / 各模态的 data-i18n* 标记）。
   // 必须早于首个 await——否则静态文案会先以 HTML 里的中文原值闪一帧再跳成用户语言。
@@ -1535,9 +1603,14 @@ async function init(): Promise<void> {
   // 右键动作入 lspProviders 随编辑器生命周期统一释放）
   // onEditorCreated：分屏实例懒创建时挂 live-templates 的 per-editor 注册
   //（Tab 展开 / docstring；闭包运行时读 handle，分屏创建必然晚于 init 无时序问题）
+  // P1（2026-10-08 review）：didChange 管线同挂——分屏内编辑的 LSP 同步 / lint /
+  // gutter 装饰不再失联（实例常驻复用，注册一次即可）。
   splitEditor.setSplitEditorHandlers({
     buildOptions: () => buildEditorOptions(app.settings),
-    onEditorCreated: (ed) => liveTemplatesHandle?.attachEditor(ed),
+    onEditorCreated: (ed) => {
+      liveTemplatesHandle?.attachEditor(ed);
+      ed.onDidChangeModelContent(wireDidChangePipeline);
+    },
   });
   splitEditor.wireSplitEditor();
   lspProviders.add(splitEditor.initSplitEditorAction(app.editor));
@@ -1765,42 +1838,12 @@ async function init(): Promise<void> {
   wireWindowKeys();
 
   // didChange 全量同步（200ms 防抖，技术方案 §2.4）
-  app.editor.onDidChangeModelContent(() => {
-    if (!app.activeTab) return;
-    // Markdown 预览：预览开启时才挂防抖渲染（关闭时零开销；仅活动 md tab 实际重渲染）
-    if (mdPreview.isPreviewOpen()) mdPreview.schedulePreviewRender();
-    window.clearTimeout(editorTimers.change);
-    // C5：▶ 位置随内容变化 300ms 防抖重算（与 didChange 的 changeTimer 各管各的，不复用）
-    window.clearTimeout(editorTimers.gutter);
-    editorTimers.gutter = window.setTimeout(() => refreshRunGutter(), 300);
-    // D3：断点行随内容变化防抖重算（行增删后断点按 Monaco 当前行号定位，不随行迁移）
-    // P1-8：入 editorTimers 集中管理（先 clear 前值，防连点叠加全量重算）
-    window.clearTimeout(editorTimers.debug);
-    editorTimers.debug = window.setTimeout(() => refreshDebugGutter(), 300);
-    // CR-13：changeTimer 回调改串行 await——原来循环内并发 fire-and-forget，多 invoke
-    // 到达顺序不保证 → version 乱序，引擎状态错乱
-    editorTimers.change = window.setTimeout(() => {
-      void syncPendingChanges();
-    }, 200);
-    // 大纲随编辑防抖刷新（500ms，P25-T07）
-    window.clearTimeout(editorTimers.outline);
-    editorTimers.outline = window.setTimeout(() => {
-      if (activeView() === "files") refreshOutline();
-    }, 500);
-    // P2：面包屑的符号树随编辑过期（缓存丢弃 → 下次刷新重查）
-    invalidateBreadcrumbs();
-    scheduleBreadcrumbs();
-    // P2：ruff 实时 lint（停手 800ms 后跑一次）
-    scheduleRuffLint();
-    // P2：书签按行号定位，行增删后装饰要跟着重算（与断点红点同款处理）
-    // P1-8：入 editorTimers 集中管理（先 clear 前值）
-    window.clearTimeout(editorTimers.bookmark);
-    editorTimers.bookmark = window.setTimeout(() => refreshBookmarkGutter(), 300);
-    // 迭代 2 · P0-5：git 行级装饰随编辑防抖重算（dirty 文件实时反映新增/修改行）
-    scheduleGitGutter();
-    // （autosave delay 模式已迁移到 model 级监听 doOpenFile → scheduleAutosave：
-    //  每个脏 tab 独立计时，不再只针对活动 tab）
-  });
+  // P1（2026-10-08 review）：接线抽成 wireDidChangePipeline（本文件上方）——分屏实例
+  // （splitEditor 懒创建的第二编辑器）同样要挂，否则分屏内编辑时 LSP 同步 / ruff
+  // lint / run/debug/git/bookmark gutter / 大纲 / 面包屑全部失联（dirty/autosave
+  // 因 model 级监听幸存）。防抖定时器共用 editorTimers 单槽（两个实例编辑同一
+  // model 时天然去重；不同 model 交替编辑时最后一次事件胜出，行为可预期）。
+  app.editor.onDidChangeModelContent(wireDidChangePipeline);
 
   // 各功能域事件接线（TD-007 域拆分后由各域自行提供）
   restoreLayout(); // D2 P-03：先恢复上次的侧栏宽度 / 底部面板高度

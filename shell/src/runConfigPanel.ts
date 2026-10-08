@@ -8,7 +8,7 @@
 //   pre_run_profile）的 UI 与 TS 类型已删（§18 裁决 3）。
 
 import { invoke } from "@tauri-apps/api/core";
-import { app, $, $btn, outputEl } from "./state";
+import { app, $btn, lazyEl, outputEl } from "./state";
 import { setBusy } from "./util";
 import { appendOutputLine } from "./output";
 import { gotoFromLink } from "./tracebackLink";
@@ -23,26 +23,27 @@ import { createCombobox, type Combobox, type ComboboxItem } from "./combobox";
 import { renderScriptArgs, validateScriptArgs } from "./scriptArgsForm"; // 库支持 PR-4：脚本参数表单（D-3 内嵌）
 
 // ---------- 域内 DOM ----------
+// P1（2026-10-08 review）：改 lazyEl——顶层立即解析违反铁律 1（精简 DOM 测试环境 import 即抛）。
 
-const runConfigModalEl = $("run-config-modal");
-const runConfigListEl = $("run-config-list");
-const runConfigContextEl = $("run-config-context");
-const runConfigSecScriptBtn = $btn("run-config-sec-script");
-const runConfigSecProjectBtn = $btn("run-config-sec-project");
-const runConfigEntryKindEl = $("run-config-entry-kind") as HTMLSelectElement;
-const runConfigTargetInputEl = $("run-config-target-input") as HTMLInputElement;
-const runConfigTargetLabelEl = $("run-config-target-label");
-const runConfigArgsEl = $("run-config-args") as HTMLInputElement;
-const runConfigCwdEl = $("run-config-cwd") as HTMLInputElement;
-const runConfigEnvEl = $("run-config-env") as HTMLTextAreaElement;
-const runConfigEnvFilesEl = $("run-config-env-files") as HTMLTextAreaElement;
-const runConfigInterpreterEl = $("run-config-interpreter") as HTMLInputElement;
-const runConfigTargetDropEl = $("run-config-target-drop");
-const runConfigCwdDropEl = $("run-config-cwd-drop");
-const runConfigInterpreterDropEl = $("run-config-interpreter-drop");
-const runConfigEnvFilesAddEl = $btn("run-config-env-files-add");
+const runConfigModalEl = lazyEl("run-config-modal");
+const runConfigListEl = lazyEl("run-config-list");
+const runConfigContextEl = lazyEl("run-config-context");
+const runConfigSecScriptBtn = lazyEl<HTMLButtonElement>("run-config-sec-script");
+const runConfigSecProjectBtn = lazyEl<HTMLButtonElement>("run-config-sec-project");
+const runConfigEntryKindEl = lazyEl<HTMLSelectElement>("run-config-entry-kind");
+const runConfigTargetInputEl = lazyEl<HTMLInputElement>("run-config-target-input");
+const runConfigTargetLabelEl = lazyEl("run-config-target-label");
+const runConfigArgsEl = lazyEl<HTMLInputElement>("run-config-args");
+const runConfigCwdEl = lazyEl<HTMLInputElement>("run-config-cwd");
+const runConfigEnvEl = lazyEl<HTMLTextAreaElement>("run-config-env");
+const runConfigEnvFilesEl = lazyEl<HTMLTextAreaElement>("run-config-env-files");
+const runConfigInterpreterEl = lazyEl<HTMLInputElement>("run-config-interpreter");
+const runConfigTargetDropEl = lazyEl("run-config-target-drop");
+const runConfigCwdDropEl = lazyEl("run-config-cwd-drop");
+const runConfigInterpreterDropEl = lazyEl("run-config-interpreter-drop");
+const runConfigEnvFilesAddEl = lazyEl<HTMLButtonElement>("run-config-env-files-add");
 /** P1-F：字段级内联校验提示（就近显示在入口输入框下方，不再进输出面板） */
-const runConfigFieldErrorEl = $("run-config-field-error");
+const runConfigFieldErrorEl = lazyEl("run-config-field-error");
 
 /** P1-F：显示字段级错误（入口输入框下方的内联提示） */
 function showFieldError(msg: string): void {

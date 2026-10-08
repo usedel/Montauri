@@ -4,7 +4,7 @@
 // 三态：无参数 / 成功 / 解析失败退化纯输入框——都不阻止运行。
 
 import { invoke } from "@tauri-apps/api/core";
-import { $, app } from "./state";
+import { app, lazyEl } from "./state";
 import { openConfirm } from "./dialog";
 import { evalKind } from "./libEval";
 import {
@@ -22,7 +22,8 @@ import { t } from "./i18n"; // 第五批 i18n：脚本参数表单动态文案�
 import { errMsg } from "./util";
 import { localizeBackendError } from "./i18n/backendError";
 
-const container = $("run-config-args-form") as HTMLElement;
+// P1（2026-10-08 review）：改 lazyEl——顶层立即解析违反铁律 1（精简 DOM 测试环境 import 即抛）
+const container = lazyEl("run-config-args-form");
 // 内省按钮提示：渲染期经 t() 现算（不放模块级常量——语言切换后常量会过期）
 
 // ---------- 模块状态（面板每次打开重渲染） ----------

@@ -157,11 +157,16 @@ export async function saveConnections(): Promise<void> {
 }
 
 /** 打开一个连接并激活（关旧开新，同时只活一个——SQLite 可写连接持文件锁）。
- *  返回 false = 打开失败（toast 已提示；活动连接回退原值）。 */
+ *  返回 false = 打开失败（toast 已提示；活动连接回退原值）。
+ *  P1（2026-10-08 review）：请求令牌——检查与置位之间有 await 窗口，快速连点两个
+ *  连接时两路交错、后完成者覆盖 activeId，前端状态与后端实际连接错位。令牌让
+ *  过期路径的写入全部作废（含失败回退），以最后一次点击为准。 */
+let activateSeq = 0;
 export async function activateConnection(id: string): Promise<boolean> {
   if (!id || id === activeId) return true;
   const target = connections.find((c) => c.id === id);
   if (!target) return false;
+  const token = ++activateSeq; // 请求令牌：同步完成「检查 + 置位」
   const old = activeId;
   if (old) {
     try {
@@ -169,6 +174,7 @@ export async function activateConnection(id: string): Promise<boolean> {
     } catch {
       // 关旧连接失败不阻断（后端可能已摘除）
     }
+    if (token !== activateSeq) return false; // 已有更新的点击接管
   }
   activeId = id;
   objects = [];
@@ -176,12 +182,15 @@ export async function activateConnection(id: string): Promise<boolean> {
   notify();
   try {
     const conn = await invoke<DbConnection>("db_open", { path: target.path, writable: target.writable });
+    if (token !== activateSeq) return false; // 过期响应：不写状态（后端已被新请求重开）
     // db_open 会把合并后的条目写回全局列表（保留草稿与历史），以它为准
     connections = await invoke<DbConnection[]>("db_connections_load");
+    if (token !== activateSeq) return false;
     activeId = conn.id;
     await refreshTree();
     return true;
   } catch (e) {
+    if (token !== activateSeq) return false; // 过期失败：新请求负责状态
     // 打开失败：回退到上一个有效连接
     activeId = old;
     treeLoading = false;
