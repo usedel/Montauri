@@ -180,17 +180,31 @@ pub enum SqlKind {
 /// 避免 `SELECT '; DROP TABLE t;'` 这类字符串内的分号/关键字被误判。
 fn strip_noise(sql: &str) -> String {
     let bytes: Vec<char> = sql.chars().collect();
-    let mut out = String::with_capacity(bytes.len());
+    let mut out = String::with_capacity(sql.len());
     let mut i = 0usize;
     let n = bytes.len();
-    // 逐字符**等长**替换（噪声 → ' '，保留 '\n' 占位换行）：strip_trailing_limit
-    // 依赖「noised 偏移 == 原 SQL 偏移」把尾部 LIMIT 切点映射回原文。
+    // 逐字符替换（噪声 → ' '，保留 '\n' 占位换行）：strip_trailing_limit 依赖
+    // 「noised **字节**偏移 == 原 SQL 字节偏移」把尾部 LIMIT 切点映射回原文。
+    // ⚠ 等长必须是**字节**口径（2026-10-08 review 修正）：非 ASCII 字符（中文注释/
+    // 字符串）占 2-4 字节，只压成 1 字节空格会让后续内容整体前漂，切点落进
+    // 多字节字符中间时 `sql[..cut]` panic（not a char boundary），恰好对齐时
+    // 切出未闭合注释使 COUNT 失效——中文注释 + LIMIT 是目标用户高发场景。
+    // 故非 ASCII 噪声字符按 `len_utf8()` 输出等量空格，字节坐标恒对齐。
+    let push_noise = |out: &mut String, c: char| {
+        if c == '\n' {
+            out.push('\n');
+        } else {
+            for _ in 0..c.len_utf8() {
+                out.push(' ');
+            }
+        }
+    };
     while i < n {
         let c = bytes[i];
         // 行注释 -- ...（到行尾）
         if c == '-' && i + 1 < n && bytes[i + 1] == '-' {
             while i < n && bytes[i] != '\n' {
-                out.push(' ');
+                push_noise(&mut out, bytes[i]);
                 i += 1;
             }
             continue;
@@ -207,7 +221,7 @@ fn strip_noise(sql: &str) -> String {
                     i += 2;
                     break;
                 }
-                out.push(if bytes[i] == '\n' { '\n' } else { ' ' });
+                push_noise(&mut out, bytes[i]);
                 i += 1;
             }
             continue;
@@ -229,7 +243,7 @@ fn strip_noise(sql: &str) -> String {
                     }
                     break;
                 }
-                out.push(if bytes[i] == '\n' { '\n' } else { ' ' });
+                push_noise(&mut out, bytes[i]);
                 i += 1;
             }
             continue;
@@ -1212,6 +1226,48 @@ mod tests {
             strip_trailing_limit("SELECT * FROM \"t\""),
             "SELECT * FROM \"t\"",
             "无 LIMIT 且以标识符结尾：原样返回"
+        );
+    }
+
+    /// 中文注释/字符串 + LIMIT 的字节偏移回归（2026-10-08 review P1）：
+    /// strip_noise 旧实现字符级等长（3 字节中文压成 1 字节空格），noised 的
+    /// 字节坐标整体前漂——切点落进原文多字节字符中间 → `sql[..cut]` panic
+    /// （not a char boundary）；恰好对齐 → 切出未闭合注释 → COUNT 失效。
+    /// 修正后按 `len_utf8()` 输出等量空格，字节坐标恒对齐。
+    #[test]
+    fn strip_trailing_limit_multibyte_noise_keeps_byte_alignment() {
+        // 行注释含中文 + LIMIT：切点必须落在 LIMIT 之前（原样保留注释与换行）
+        let sql = "SELECT * FROM t WHERE x=1 -- 中文说明\nLIMIT 10";
+        assert_eq!(
+            strip_trailing_limit(sql),
+            "SELECT * FROM t WHERE x=1 -- 中文说明",
+            "中文注释下切点不得漂移（含原文截断必须落在 char boundary）"
+        );
+        // 块注释含中文
+        assert_eq!(
+            strip_trailing_limit("SELECT * FROM t /* 块注释中文 */ LIMIT 5"),
+            "SELECT * FROM t /* 块注释中文 */",
+            "中文块注释同样字节对齐"
+        );
+        // 字符串含中文（字符串不是噪声切点，但同样经历去噪坐标映射）
+        assert_eq!(
+            strip_trailing_limit("SELECT * FROM t WHERE name = '张三' LIMIT 3"),
+            "SELECT * FROM t WHERE name = '张三'",
+            "中文字符串内容原样保留"
+        );
+        // 多行中文注释：每行字节数都不同，逐行验证对齐
+        let sql2 = "SELECT 1 -- 第一行注释\n-- 第二行也是中文注释\nFROM t LIMIT 2";
+        assert_eq!(
+            strip_trailing_limit(sql2),
+            "SELECT 1 -- 第一行注释\n-- 第二行也是中文注释\nFROM t",
+            "多行中文注释下 LIMIT 前内容逐字节保留"
+        );
+        // 去噪文本本身：字节口径等长——中文噪声字符按 len_utf8 展开为等量空格
+        let orig = "-- 中文注释内容";
+        assert_eq!(
+            strip_noise(orig).len(),
+            orig.len(),
+            "去噪文本字节长度必须等于原文（字节口径等长）"
         );
     }
 

@@ -255,14 +255,17 @@ fn cleanup_session_payload(s: DebugSession, app: &AppHandle, wid: &str) {
         crate::util::kill_pid_tree(pid);
     }
     // 2. 杀 adapter：铁律 1——adapter 经解释器链拉起（如 venv wrapper），按 pid 杀树
-    //    防止包装器场景孙进程孤儿化；先取 pid 再 kill/wait。
+    //    防止包装器场景孙进程孤儿化。
+    //    ⚠ 顺序（2026-10-08 review 修正，对齐 util::kill_pty_child_tree_async）：
+    //    **先 taskkill 杀树再 kill/wait child**——直接子进程死了 taskkill 就找不到
+    //    树根（孙进程漏杀），且 wait() 回收后 pid 可能被 OS 复用（误杀无关进程树）。
     if let Some(mut adapter) = s.adapter {
         let pid = adapter.id();
-        let _ = adapter.kill();
-        let _ = adapter.wait();
         if pid != 0 {
             crate::util::kill_pid_tree(pid);
         }
+        let _ = adapter.kill();
+        let _ = adapter.wait();
     }
     log_line(Level::Info, "[dap] cleanup_session done");
     // P1-11：事件携带会话 seq（前端比对，防 stop → 快速重启时旧事件踩新会话）
@@ -669,13 +672,15 @@ pub async fn debug_attach_debuggee(
         };
         if let Some(s) = sess {
             if let Some(mut adapter) = s.adapter {
-                // 铁律 1：adapter 也按 pid 杀树（防包装器场景孙进程孤儿化）
+                // 铁律 1：adapter 也按 pid 杀树（防包装器场景孙进程孤儿化）。
+                // 顺序（2026-10-08 review 修正）：先杀树再 kill/wait——树根死后
+                // taskkill 找不到孙进程，wait 后 pid 复用有误杀窗口。
                 let apid = adapter.id();
-                let _ = adapter.kill();
-                let _ = adapter.wait();
                 if apid != 0 {
                     crate::util::kill_pid_tree(apid);
                 }
+                let _ = adapter.kill();
+                let _ = adapter.wait();
             }
             log_line(Level::Info, "[dap] debuggee exited; session finished");
             let _ = app_watch.emit_to(&wid_watch, "debug-exited", json!({ "reason": "exited", "seq": s.seq }));
@@ -758,12 +763,13 @@ pub(crate) fn debug_stop_for_exit() {
             crate::util::kill_pid_tree(pid);
         }
         if let Some(adapter) = s.adapter.as_mut() {
+            // 顺序（2026-10-08 review 修正）：先杀树再 kill/wait（与其它三处同款）
             let pid = adapter.id();
-            let _ = adapter.kill();
-            let _ = adapter.wait();
             if pid != 0 {
                 crate::util::kill_pid_tree(pid);
             }
+            let _ = adapter.kill();
+            let _ = adapter.wait();
         }
     }
 }
@@ -785,12 +791,13 @@ fn cleanup_session_payload_quiet(s: DebugSession) {
         crate::util::kill_pid_tree(pid);
     }
     if let Some(mut adapter) = s.adapter {
+        // 顺序（2026-10-08 review 修正）：先杀树再 kill/wait（与其它三处同款）
         let pid = adapter.id();
-        let _ = adapter.kill();
-        let _ = adapter.wait();
         if pid != 0 {
             crate::util::kill_pid_tree(pid);
         }
+        let _ = adapter.kill();
+        let _ = adapter.wait();
     }
     log_line(Level::Info, "[dap] cleanup_session (window) done");
 }

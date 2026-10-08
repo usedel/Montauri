@@ -1861,7 +1861,7 @@ filename a.py
             assert_eq!(dir, "repo");
         }
         // 带 .git 后缀保留原样
-        let (parent2, dir2) = split_clone_target("/home/user/repo.git").unwrap();
+        let (_parent2, dir2) = split_clone_target("/home/user/repo.git").unwrap();
         assert_eq!(dir2, "repo.git");
     }
 
