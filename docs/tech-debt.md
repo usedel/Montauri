@@ -18,6 +18,82 @@
 
 > 2026-10-05 产品定位变更（「单人自用」→「高性能 · 轻量」，ADR-0010）新增 **TD-025**：全项目 60+ 处决策曾以「单人自用」为论据，定位变更后这些论据**原则上已过期**。本轮按裁决**不逐个复审**，仅登记清单；读这些文档时须记住「论据过期 ≠ 结论错误」，画像类裁决仍然成立。
 
+> 2026-10-08 全项目代码审查（TS 前端 / Rust 外壳 / probe / intel 四模块深审 + 主线逐项复核）：P0×2 + P1×11 当日修复（4 个本地提交，见 TD-027 头部）；P2 登记为 **TD-027**。
+
+### TD-027 2026-10-08 全项目代码审查批次（P2×42，其中 1 项已随 P1 修复；intel 杂项 1 项拆为 3 个卫生点）
+
+- **起因**：全项目代码审查（四个并行深审：shell/src TS、shell/src-tauri Rust、probe Python、intel Rust，逐行通读；全部 P0/P1 经主线读码复核实证）。
+- **已修复（当日 4 提交，未推送）**：`587d8a4` intel P0 退避死锁 + P1 didOpen 守卫/参数前跳钳制；`93c7648` probe P1 perf 帧偏移（`_monitored_frame` 按 code 搜帧）+ RAISE 回调 type_label 兜底；`05c5ce1` shell-rust P1 dap 杀树顺序×4 + strip_noise 字节等长（中文 SQL）；`8601264` shell-ts P0 diff→db 遮挡 + P1×5（model 复用/rename 防线、分屏 didChange 管线、logs 复位、activateConnection 令牌、lazyEl×5）。新增回归测试 6 条；git_cmds.rs:1864 unused var 顺手修复；probe「perf 模式测试缺 args 断言」已随帧偏移修复补上（`test_perf_mode_records_arg_observations`）。
+- **处理原则**：按 A 行为正确性 → B 健壮性 → C 性能（随 bench 节奏）→ D 规范卫生排序；每项独立成 PR，动前跑对应测试矩阵（C 组改 intel 热路径必须跑准确率红线 + 性能基线）。
+
+**A. 行为正确性（用户可感知，优先）**
+
+| # | 条目 | 位置 | 要点 |
+|---|---|---|---|
+| A1 | db_cancel 取消检查死代码 | db_cmds.rs:637-640 | store(false) 后紧跟 load 恒 false，DbCancelled 分支永不可达；先 load 再 store 或删除 |
+| A2 | git_apply_hunk 固定 patch 路径竞态 | git_cmds.rs:517-525 | 两 hunk 操作共用 `.opencharm-hunk.patch`，快速连点互踩；文件名加唯一后缀（save_connections 的 nanos 先例） |
+| A3 | 调试快捷键硬编码 threadId=1 | windowKeys.ts:79-84 | 与 debugView.activeThreadId 双真值；多线程暂停在非主线程时 F5/F10/F11 作用到错误线程 |
+| A4 | reopenConnection 顶掉活动连接 | sqliteStore.ts:225-238 | 非活动连接切可写重开后原活动连接已被后端顶掉，前端 activeId/objects 未迁移，后续查询打到已关连接 |
+| A5 | serviceTail 跨实例共享 | termUi.ts:699-752 | 模块级单变量缓冲，多项目实例并行输出互相污染（注释自称按实例检测） |
+| A6 | 模板热重载目录判定过宽 | main.ts:715-721 | `endsWith("/config")`——工作区任意 `xxx/config` 目录变更都触发两次 invoke + registry 全量 rebuild |
+| A7 | scope 搜索掩码大小写失配 | search.ts:68 + searchFilters.ts:88-91 | 小写归一路径 × 大小写敏感正则，掩码含大写（如 `*.Py`）时静默 0 结果；workspace 模式走 Rust 不受影响，两路语义分叉 |
+| A8 | `__init__` 回退全名精确匹配 | intel completion.rs:305-310 | 导入类（`Scraper(` / `mymod.Scraper(`）永不命中 trace 的 `mymod.Scraper.__init__`，构造实参补全/签名帮助系统性失效 |
+| A9 | didOpen languageId 恒 "python" | lsp/client.ts:480-489 | md/json/yaml 全发 python；当前引擎按 uri 扩展名容忍，换引擎可能放大 |
+
+**B. 健壮性（触发面窄但后果重）**
+
+| # | 条目 | 位置 | 要点 |
+|---|---|---|---|
+| B1 | type_label::parse 递归无深度上限 | intel type_label.rs:43-99 | 损坏库的数千层嵌套 type_label 可爆栈 abort 常驻进程（shape 侧有 serde_json 128 层保护，此处无对等防线）；加深度计数即可 |
+| B2 | pick_folder/pick_file 阻塞 recv | fs_cmds.rs:207-224 | async 上下文同步 recv 阻塞 tokio worker 直到用户关对话框；应 spawn_blocking |
+| B3 | conn_id 依赖 DefaultHasher | db_cmds.rs:163-167 | std 不保证跨 Rust 版本稳定，工具链升级后 db_connections.json 旧条目全部失配追加重复；换 project_hash 同款 sha1 |
+| B4 | load_config 不校验值类型 | probe config.py:70-73 | 手写配置 `max_calls_per_func: "abc"` → 回调内 TypeError → 探针静默失效 |
+| B5 | os.chdir(old_dir) 可抛异常 | probe runner.py:67 | old_dir 被删场景抛新异常替换原始 error，破坏「不吞脚本原始异常」保护；单独 try/except |
+| B6 | _cmd_check 无 timeout | probe cli.py:181-183 | 交互脚本 `input()` 挂起 check 命令 |
+| B7 | autostart 摘要无编码兜底 | probe autostart.py:110-115 | GBK 控制台 + 未设 PYTHONIOENCODING 时 UnicodeEncodeError（数据不丢，traceback 难看） |
+| B8 | load_summary URI 未百分号编码 | probe store.py:331 | db_dir 含 `?`/`#`/`%` 时 `file:` URI 解析错位 |
+| B9 | 同步命令做磁盘 IO/进程创建 | terminal.rs:327/161、lsp.rs:45、db_cmds.rs:493/926 | 与 debug_start/db_query 的 async+spawn_blocking 范式不一致；无卡死实锤但违反「阻塞统一 async」纪律 |
+| B10 | 只读打开 WAL 库的崩溃恢复未覆盖 | intel trace.rs:146-160 | probe 崩溃留未 checkpoint 的 -wal 时 RO 打开可能失败（busy_timeout 不覆盖恢复）；正常流程（probe 正常退出 checkpoint）不受影响 |
+
+**C. 性能（随 bench 回归节奏，改热路径必须跑基线）**
+
+| # | 条目 | 位置 | 要点 |
+|---|---|---|---|
+| C1 | intel 索引 6 张 HashMap 字符串克隆 | trace.rs:123-243 | qualname/filename/segment 重复克隆 3-5 份，10 万函数估数十 MB 额外开销（ADR-0010 张力）；可 String 驻留或 Arc 共享 |
+| C2 | 顶级符号补全线性扫全键 | trace.rs:407-415 | starts_with 遍历 HashMap 全部键，10 万函数 ≈ 每键入 5 万+ 次字符串比较 |
+| C3 | call_frame_at 全文扫描 | intel completion.rs:355-379 | 括号栈从字节 0 起 O(文档)/请求，每次键入（含 `,` 触发）重扫 |
+| C4 | 诊断无服务端防抖 | intel server.rs + type_infer.rs:18-26 | 每次键入全文重扫 + `lines().collect()` 每调用重新分配整篇行表 |
+| C5 | model_inherits_from O(N×全仓) | fs_cmds.rs:2406-2430 | 每个候选子类触发 `pyd_collect_models` 整仓重扫；外层已收集的 models 清单应作参数传入 |
+| C6 | scan_pydantic_issues O(行×模型数) | fs_cmds.rs:2102-2135 | 每行对全部模型做 substring 扫描；可按行含 `(` 粗筛或建前缀索引 |
+| C7 | sink 多线程计数竞态 | probe sink.py:54-77 | get+set 非原子丢频次精度（类型集合不受影响，func_id 已有双检锁） |
+
+**D. 规范/卫生（顺手清或随批处理）**
+
+| # | 条目 | 位置 | 要点 |
+|---|---|---|---|
+| D1 | splitEditor 硬编码中文文案 | splitEditor.ts:67-71,127 | 违反 i18n 全覆盖约定，英文界面冒中文 |
+| D2 | wireGotoTriggers 丢弃监听器句柄 | lsp/client.ts:931-943 | onMouseDown/addCommand 的 IDisposable 未入 store，违反 DisposableStore 明文规范（主编辑器应用级生命周期兜底，泄漏面小） |
+| D3 | intel SCHEMA 与 store.py 漂移 | trace.rs:16-58 | probe 已加 `runs.instance` 与 `functions.perf_*` 6 列，intel SCHEMA 仍旧版；「schema 对齐」头注释失真（读真实库不受影响，SELECT 显式列名） |
+| D4 | intel 死代码/API 面膨胀 | trace.rs 多处 | `Function::loc`/`functions`/`get`/`by_location`/`by_file`/`qualnames` bin 侧零调用；`qualnames_by_prefix` 是 CR-17 改道后的废弃遗留 |
+| D5 | `#[allow(dead_code)]` 失效残留 | intel server.rs:51-52 | `client` 实际在用（publish_diagnostics），属性掩盖真实使用 |
+| D6 | 「库不存在」误用 InvalidParameterName | intel trace.rs:150-153 | 语义错位，应加 `TraceError::Missing(PathBuf)` variant |
+| D7 | symbol_candidates 双重去重 | intel completion.rs:591,607-611 | dedup_sort_truncate 那次才是必要的（跨分支合并），第一次纯开销 |
+| D8 | 诊断行扫描无注释/转义感知 | intel diagnostics.rs:41-81 | `#` 注释内引号开启伪字符串、`\"` 转义未处理；completion 侧 scan_string_end 有转义处理，两处口径不一 |
+| D9 | Monitor.__init__ 改写共享 cfg | probe monitor.py:106 | `max_calls_per_func = sys.maxsize` 直接污染调用方 ProbeConfig（有测试锁定属有意设计，但 mutator 坏味道；建议构造局部副本） |
+| D10 | _perf_frames 类型标注错误 | probe monitor.py:99 | `list[list[int]]` 实际元素是 `[CodeType, int, int]` |
+| D11 | _cmd_show 路径归一不对称 | probe cli.py:74-77 | normcase 小写盘符 × 未归一 parent 的 startswith 恒 False，退回显示原始绝对路径（仅观感） |
+| D12 | 函数内 import / `__import__` | probe store.py:184 / config.py:68 | 应提顶部 |
+| D13 | _cmd_inject / _cmd_clean 无 CLI 层单测 | probe cli.py:101-123 | clean 函数本身有测试，CLI 分发层（含非 .py 警告路径）无 |
+| D14 | _elem_shape 键上限语义不一致 | probe compact.py:147 vs 207 | dict 分支超限返回 None、shape 分支超限保留截断指纹，精度取舍两分支不对称 |
+| D15 | run lock 去重子进程不 stop 监控 | probe autostart.py:104-106 | 被去重的子进程 `_finalize` 直接 return，全局 RAISE 事件持续派发到进程死；TD-020 取舍的「子进程观测整段丢弃」丢失面建议在 TD-020 补注 |
+| D16 | dap attach spawn 失败路径泄漏 | dap.rs:612-614 | `stdout.take()` 失败即 return Err，child 已 spawn 无人杀（实际不可达——Stdio 已 piped；与 assemble 段防孤儿处理不对称，Err 路径补 kill） |
+| D17 | updateSyncCount 无请求令牌 | git.ts:177-193 | 连续 refreshGitStatus 的在途 `git_sync_status` 旧响应后到覆盖状态栏 ahead/behind（仅显示层，下次刷新自愈） |
+
+**预警（非缺陷，预算纪律提醒）**：`hotspotsView.ts` 350/350 顶格、`lsp/client.ts` 1847/1850、`git_cmds.rs` 1940/1950、intel `server.rs` 647/700（本批修复性抬限）、命令面 197/200——下一批功能交付前应先安排拆分窗口（各条目在 budgets.toml 已注明拆分路径）。另 `endpointView.ts`（8 处）/`hotspotsView.ts`（5 处）/`quickFix.ts`（3 处）散落 TODO 标记，建议清理或转入本文件登记（与「技术债单一真源」制度一致）。
+
+- **处理时机**：A 组先行（用户可感知）；B 组次之；C 组绑定 bench 回归节奏；D 组随批顺手清。任一项前先跑对应测试矩阵（shell → cargo test + vitest；probe → uv run pytest；intel → cargo test）。
+- **涉及文件**：见上表各列。
+
 ### TD-025 历史「单人自用」论据的定位失效复审清单（P2，文档一致性；2026-10-05 定位变更登记）
 
 - **起因**：产品定位由「单人自用 Python IDE」变更为「高性能 · 轻量 Python IDE」（ADR-0010，目标用户画像**不变**：FastAPI + 爬虫 + 小脚本）。历史文档大量以「自用 / 单人 / 没人在乎跨机一致性」作为取舍论据，这些论据在对外定位下不再自明。
@@ -87,7 +163,7 @@
 
 | 编号 | 标题 | 完成日期 | 结论摘要 |
 |---|---|---|---|
-| TD-020 | 停止运行时探针摘要重复打印/重复落库（P3，观感/数据卫生） | 2026-09-28 | 根因坐实（Python 3.13 复现）：`argv[0]` 守卫拦不住 argv 相同的父子进程（uvicorn `--reload` fork / 子进程自重启），多进程各自触发 `atexit._finalize` → 重复打印 + 多 `runs` 行 + `hits` 翻倍。修复：后端 `run_env.rs::build_run_env` 注入每次运行唯一的 `OPENCHARM_PROBE_RUN_ID`（纯 std：纳秒时间戳 + pid + 单调序号）；探针 `autostart._finalize` 用 `os.open(O_CREAT\|O_EXCL)` 墓碑文件（键=run_id，mtime 惰性清理）保证同 run_id 只落库+打印一次，非法 run_id / OSError 保守放行。probe pytest 全绿（新增 `test_run_lock.py` 3 例 + `test_inject.py` 1 例）、shell `cargo test run_env` 20 例全绿 |
+| TD-020 | 停止运行时探针摘要重复打印/重复落库（P3，观感/数据卫生） | 2026-09-28 | 根因坐实（Python 3.13 复现）：`argv[0]` 守卫拦不住 argv 相同的父子进程（uvicorn `--reload` fork / 子进程自重启），多进程各自触发 `atexit._finalize` → 重复打印 + 多 `runs` 行 + `hits` 翻倍。修复：后端 `run_env.rs::build_run_env` 注入每次运行唯一的 `OPENCHARM_PROBE_RUN_ID`（纯 std：纳秒时间戳 + pid + 单调序号）；探针 `autostart._finalize` 用 `os.open(O_CREAT\|O_EXCL)` 墓碑文件（键=run_id，mtime 惰性清理）保证同 run_id 只落库+打印一次，非法 run_id / OSError 保守放行。probe pytest 全绿（新增 `test_run_lock.py` 3 例 + `test_inject.py` 1 例）、shell `cargo test run_env` 20 例全绿。**取舍面（2026-10-08 TD-027/D15 补注）**：去重语义 = 首个进程胜出，同 run_id 后续进程的观测**整段丢弃**——子进程做不同工作的场景（如 worker 进程）观测丢失；且被去重的子进程不 stop 监控（全局 RAISE 持续派发到进程死，无正确性影响） |
 | 12 | pyproject.toml 两条生成路径包名归一化（P4，观感） | 2026-09-15 | 收敛：`fs_cmds.rs` 新增 `normalize_project_name`（字符串行扫描，定位 `[project].name` 改写为 `sanitize_pkg_name` 结果，不引入 TOML 依赖）+ `is_name_field` 防误配同前缀键；`ensure_pyproject` uv 生成后调用；`test_normalize_project_name` 覆盖大小写/空格与 `[tool.uv]` 段不误改 |
 | 17 | 全项目输入框未统一 autocomplete="off"（P4，一致性） | 2026-09-15 | `index.html` 10 处 `type=text` 输入框补 `autocomplete="off"`（tree-filter/search/env-pkg/new-project-*/settings-*/lt-search/storage-migrate-path/palette-search）；动态输入补 `settingsPanel.ts` 键位行 / `git.ts` 新分支 / `fileTree.ts` 内联重命名 / `manager.ts` 两处 text input |
 | 18 | 模态点遮罩关闭不一致（P4，一致性/数据安全） | 2026-09-15 | 含可编辑内容的模态统一「点遮罩不关闭 + Esc 关闭」：`dialog.ts::openPrompt`、`settingsPanel.ts`、`newProject.ts` 三处去遮罩关闭、补 document 级 keydown（open 挂/close 移除，对齐 runConfigPanel 范式）；其余选择/确认框点遮罩=取消语义保留 |
