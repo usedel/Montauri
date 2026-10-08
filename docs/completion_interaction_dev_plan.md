@@ -2,9 +2,11 @@
 
 > 面向：OpenCharm 补全功能后续迭代。本文自包含，不依赖任何外部参考资料。
 > 定位：把「补全引擎能力」之外的**交互体验层**缺口拆成可逐项落地的开发项，按投入产出比排序。
-> 状态：待裁决（维护态下，交互层新功能按批次裁决；协议正确性/健壮性修复可优先受理）。
+> 状态：**已收官**（2026-10-08：P0-C 落地，§2 四个批次全部交付；维护态下仅受理缺陷修复）。
 > 编写时间：2026-10-07　·　评审修订：2026-10-07（逐项核对代码后修正 P0-A/P0-B 的落地前提，补遗留缺口登记，v2 起为 §8）
 > 细化定稿：2026-10-07（v2——每项补齐「现状定位 / 交互语义 / 改动方案（含代码骨架）/ 测试清单 / 预算影响 / 验收剧本」，可按 §2 批次直接进入开发）
+> P0-C 收口：2026-10-08（**自动化 spike 取代 DevTools 手测**：四取值 × 四场景矩阵机器判定，结论回填 §3 P0-C；
+> 计划里的 ⚠spike 假设「`whenTriggerCharacter` 下显式触发也不预选」**被实测推翻**）
 
 ---
 
@@ -56,7 +58,7 @@
 | 批次 1 | P0-A2（客户端透传 `isIncomplete`） | 协议正确性 | **必须先 A1** | ≈ +5（类型/解析外迁抵消大头） | 与 P0-B 同 PR |
 | 批次 1 | P0-B（过期响应丢弃 + token 早退） | 健壮性 | 无 | ≈ +11 | 与 P0-A2 同 PR |
 | 批次 2 | P0-D（insert 坐标/接受路径测试） | 测试守护 | 无（可与批次 1 并行） | ≈ −2（映射外迁） | 单独 PR |
-| 批次 3 | §8-1（`preselect` 映射）+ P0-C（selectionMode 软硬选中） | 交互体感 | 8-1 先行；P0-C **先 spike 再定值** | ≈ +3 | spike 结论先行评审，再提改动 PR |
+| 批次 3 | §8-1（`preselect` 映射）+ P0-C（selectionMode 软硬选中） | 交互体感 | 8-1 先行；P0-C **先 spike 再定值** | ≈ +3 | ✅ 已交付（63693ff + `feat: P0-C`） |
 | 批次 4 | P1-A（Enter=插入 / Tab=替换） | 可选增强 | 批次 1 合并后 | ≈ +4（textEdit 映射外迁） | 逐项裁决、逐项 PR |
 | 批次 4 | P1-B（`commitCharacters`） | 可选增强 | 无 | ≈ +2（+设置面） | 逐项裁决、逐项 PR |
 | 批次 4 | P1-E（补全侧忙碌提示） | 可选增强 | 无 | 0 | 逐项裁决、逐项 PR |
@@ -266,43 +268,61 @@ async provideCompletionItems(model, position, _context, token) {
 
 ---
 
-### P0-C　硬选中 / 软选中（selectionMode）联动（先 spike，后定值）
+### P0-C　硬选中 / 软选中（selectionMode）联动　✅ 已交付（2026-10-08）
 
 **目标语义**：把「补全是否主动」做成连续光谱——
 - **软选中**（自动打字弹出）：显示建议但不抢占输入，继续打字自然收窄列表，`Enter` 永远是换行、不被候选劫持。
-- **硬选中**（显式触发 / 输入触发字符）：首项高亮，可直接 `Enter` 接受。
+- **硬选中**（触发字符 / 显式触发）：首项高亮，可直接 `Enter` 接受。
 
-**现状**：未显式配置 `suggest.selectionMode`，吃 Monaco 默认（偏硬选中），快速打字 + 标点时易产生误插入。
+**定值：`suggest.selectionMode = "whenTriggerCharacter"`**（`main.ts` create 块）。原计划「先 spike 再定值」的流程已走完，**用自动化 e2e 探针取代 DevTools 手测**：临时在 create 块读 `localStorage.oc_spike_sm` 走四取值 × 四场景，机器判定「首项是否预选 / `Enter` 行为」，矩阵取到后**临时代码零残留删除**（探针 spec 亦删除，改为常驻回归 `shell/e2e/lsp/06-completion-selection-mode.spec.ts`）。
 
-**Monaco 机制（0.52.2）**：`suggest.selectionMode` 是**编辑器级单值**，四选一：`always` / `never` / `whenTriggerCharacter` / `whenQuickSuggestion`。**没有任何单值精确等于「自动=软、显式=硬」**——按源码推断 `whenTriggerCharacter` 下显式 `Alt+/`（triggerKind=Invoke）也**不**预选（⚠spike 必验）。
+#### 实测矩阵（2026-10-08，浏览器层真 Monaco + mock 引擎，25 条断言全绿）
 
-**交互矩阵（spike 要填的表）**——4 取值 × 4 场景，记录「首项是否预选 / `Enter` 行为」：
+| `selectionMode` | S1 自动打字（autoImport 候选） | S2 触发字符 `s.` | S3 显式 `Alt+/` | S4 模板 `for` |
+|---|---|---|---|---|
+| 默认（= `always`，`editorOptions.js:2221`） | 硬·接受 | 硬·接受 | 硬·接受 | 硬·展开 |
+| `always` | 硬·接受 | 硬·接受 | 硬·接受 | 硬·展开 |
+| `never` | 软·换行 | 软·换行 | **硬·接受** | 软·换行 |
+| **`whenTriggerCharacter`（选定）** | **软·换行** | **硬·接受** | **硬·接受** | 软·换行 ⚠ |
+| `whenQuickSuggestion` | 硬·接受 | 软·换行 | 硬·接受 | 硬·展开 |
 
-| 场景 | 操作 |
+三条被矩阵**证实/推翻**的机制事实（`suggestController.js:216-233`，不必再读源码）：
+
+1. **`selectionMode` 只作用于「自动触发」**：`noFocus` 的计算裹在 `if (e.triggerOptions.auto)` 里 → **显式触发（`Alt+/` → `editor.action.triggerSuggest`，`auto=false`）在四取值下恒硬选中**。官方 option 文档同义（"a suggestion is always selected when explicitly invoked"）。
+   → **本计划原假设「`whenTriggerCharacter` 下 `Alt+/` 不预选」作废**：选定值**不牺牲显式触发**，S3 的代价不存在。
+2. **默认值就是 `always`**（硬选中）→ 改前「快速打字 + 标点误插入」是**存量事实**，本项是净改善。
+3. **`whenQuickSuggestion` 与目标相反**（自动打字硬、触发字符软）→ 排除；`never` 会把触发字符也软化 → 排除。
+
+#### S4 代价与补偿（用户 2026-10-08 裁决：模板走特殊处理，不接受「需 ↓+Enter」）
+
+live-template 也走自动打字 → 一并失去预选（`Enter` 换行）。补偿方案 = **把 Tab 让给「聚焦并接受首项」**：
+
+- `keybindingDefaults.ts` 的 `KeybindingMeta` 扩两个可选字段：`softWhen` / `softCommand`——同一键位的**第二条互斥规则**（`when` 要求 `suggestWidgetHasFocusedSuggestion`、`softWhen` 要求其取反，故互不抢键；`softCommand` 直接绑 Monaco 原生命令，不经本项目 handler）。
+- `accept_suggestion_replace` 相应调整为：`when: "editorTextFocus && suggestWidgetVisible && suggestWidgetHasFocusedSuggestion"` + `softWhen: "... && !suggestWidgetHasFocusedSuggestion"` / `softCommand: "focusAndAcceptSuggestion"`（该命令的 precondition 恰为「面板可见 && 无聚焦项」，`suggestController.js:833-840`，**现成可用、无需自研**）。
+- 效果：**`Enter` = 换行（软选中，零误插入）· `Tab` = 接受首项（软选中）/ 替换模式接受（硬选中）· 面板关闭时 `Tab` 仍是缩进**。
+- 为何不新增第二个 `Tab` 键位 id：`validateKeybindingMap`（`keybindings.ts:138`）把重复归一键位判为冲突，两个 id 同为 `Tab` 会让设置面板每次保存都报冲突。故**沿用单一 id + 双互斥规则**。
+
+#### 顺带修正的两处认知（原 P1-A ⚠spike 结论作废）
+
+- **P1-A「本动态规则与 Monaco 内建 `Tab→acceptSelectedSuggestion` 优先级待确认」**：实测**我们的规则确实覆盖内建**（e2e `06` C-6 钉住：有聚焦项时 Tab 走替换接受）。因两者 `when` 互补，谁先匹配都无所谓——但已用 C-6 防回归。
+- **「Ctrl+Space 可当显式触发用」不成立**：面板可见且无聚焦项时 `Ctrl+Space` 绑定的是 `focusSuggestion`（weight 190）而非 `triggerSuggest`（weight 100，`suggestController.js:823-831`）。显式触发**只能用 `Alt+/`**（项目 `trigger_suggest` 键位）。探针里第一版用 Ctrl+Space 判 S3 是错的，已改。
+
+#### 落地清单（实际改动）
+
+| 文件 | 改动 |
 |---|---|
-| S1 自动打字 | 输 `pri` 等字母触发 quick suggestion |
-| S2 触发字符 | 输 `.` / `(` |
-| S3 显式触发 | `Alt+/` |
-| S4 模板场景 | 输 `for`（live-template provider 设了 `preselect: i === 0`，`live-templates/completion.ts:77`）——验证软选中下模板**失去预选**后 `Enter` 不再展开模板，这是行为变化点，**需用户裁决可接受度** |
+| `main.ts` create 块 | `suggest: { insertMode: "insert", selectionMode: "whenTriggerCharacter" }`（+11 行注释含矩阵摘要） |
+| `keybindingDefaults.ts` | `KeybindingMeta` 增 `softWhen` / `softCommand`；`accept_suggestion_replace` 的 `when` 收紧 + 补软选中分支；label 改「接受建议（Tab）」 |
+| `keybindings.ts` | `applyEditorKeybindings` 对有 `softWhen` 的条目多推一条规则 |
+| `e2e/lsp/06-completion-selection-mode.spec.ts`（新增） | C-1..C-6 常驻回归：软选中新行 / 触发字符接受 / 显式接受模板 / 软选中 Tab 展开模板 / 面板关闭 Tab 缩进 / 硬选中 Tab 替换接受 |
+| `e2e/dx/05-auto-import.spec.ts` | 接受动作 `Enter` → `Tab`（自动打字已软选中的必然回归；同一用例在软/硬两种面板态下 Tab 均可接受） |
 
-**spike 操作法**（零残留）：`main.ts:1505` create 块临时加一行
-`suggest: { selectionMode: (localStorage.getItem("oc_spike_sm") as never) ?? undefined }`，
-`npm run tauri dev` 后 DevTools `localStorage.setItem("oc_spike_sm","whenTriggerCharacter")` + reload 遍历四值填表；spike 完**删除该临时代码**（维护态「默认轻量」纪律，不留隐藏开关）。
+**IME 维度未单独立项**：`C-3`（合成期间不劫持 Enter）由 Monaco 自身处理（合成事件期间抑制 suggest），软选中后 Enter 本就恒为换行，风险进一步下降；未做真机输入法实测，如后续有反馈再登记。
 
-**落地（spike 定值后）**
+**验收结论**：C-1（零误插入 + Enter 换行）✅ · C-2（触发字符硬选中）✅ · C-3（显式触发恒硬选中）✅ · C-4（模板经 Tab 展开）✅ · C-5（面板关闭 Tab 缩进不受影响）✅ · C-6（硬选中替换接受未被抢键）✅。
 
-1. **落点唯一**：`main.ts:1505` 的 `editor.create` 内联选项块——与 `:1513-1514` 的 `wordBasedSuggestions` / `quickSuggestions` 同层写 `suggest: { selectionMode: <定值> }`；**不是** `settingsPanel.ts:441` 的 `buildEditorOptions`（那里只有字号/连字/缩进/换行/迷你地图/字体族）。
-   补充事实：`editor.updateOptions(buildEditorOptions(...))` 只覆盖传入的键、不会重置未列出的键，写在 create 块不会被后续设置保存冲掉；但若将来要做成**设置项**，则必须同时进 `buildEditorOptions`。
-2. **前置依赖（§8-1，同批做）**：`preselect` 目前**未映射**（`LspCompletionItem` 与 `toMonacoItem` 均无该字段）——若 spike 结论是「单值 + 显式路径靠 item 级 `preselect` 补足」，必须先补映射：`toMonacoItem` 增 `...(it.preselect === true ? { preselect: true } : {})`（+2 行，类型已在 P0-A2 外迁模块里预留字段）。
-3. **推荐裁决倾向**（供评审）：优先 `whenTriggerCharacter`——S1 软（误插痛点主诉得到解决）、S2 硬；代价是 S3 `Alt+/` 首项不预选（用户意图强，`↓`+`Enter` 两键可接受）、S4 模板失去预选。若 S4 裁决不可接受，备选维持 `always` 并把本项标记为「维持现状」关闭。
-
-**验收剧本（手测）**
-- C-1：软选中态连续打字 + 直打 `;` `)` 等标点，**零误插入**；`Enter` 必为换行。
-- C-2：硬选中态（按定值口径）首项高亮、`Enter` 直接接受。
-- C-3：IME 场景——中文输入法拼音未上屏期间，补全面板不劫持 `Enter` 选词（Monaco 合成事件期间抑制 suggest，⚠spike 顺手验证并记录）。
-
-**预算影响**：`main.ts` +1；client.ts +2（6-1 映射）。
-**回滚**：删除该行配置即回默认。
+**预算影响**：`main.ts` +11（2127/2400）；`keybindingDefaults.ts` / `keybindings.ts` 各 +~10（未在单文件预算面）；`lsp/client.ts` 与 `completion/lspCompletion.ts` **零改动**（§8-1 的 `preselect` 映射已在 `63693ff` 完成，本项直接受益）。
+**回滚**：删掉 `selectionMode` 一行即回默认硬选中；删掉 `softWhen` / `softCommand` 两字段即回 P1-A 原行为。
 
 ---
 
@@ -423,13 +443,13 @@ monaco 与 `../state` 的 `app`，**不是可直接单测的纯函数模块**。
   改 `intel` 时另需 `cd intel && cargo test` + **`cargo build -p opencharm-intel`**（`cargo test` 不刷新 shell 调用的 exe）。
 - **预算余量（逐项估算，动手前先核）**：
 
-| 文件 | 现值 / 上限 | 批次 1 | 批次 2 | 批次 3 | 批次 4 | 落地后预估 |
+| 文件 | 现值 / 上限 | 批次 1 | 批次 2 | 批次 3 | 批次 4 | **实测落地值**（2026-10-08 `budget-check` 44 项全 PASS） |
 |---|---|---|---|---|---|---|
-| `lsp/client.ts` | 1,795 / 1,850 | +16（A2+B）−13（类型外迁）≈ **+3** | −2 | +2（6-1） | +7（A+B） | ≈ 1,805 ✓ |
-| `completion/lspCompletion.ts`（新建） | — / 150（新登记） | ≈ 50 | +15 | 0 | +25 | ≈ 90 ✓ |
-| `intel completion.rs` | 1,672 / 1,950 | ≈ +30 | 0 | 0 | 0 | ≈ 1,702 ✓ |
-| `intel server.rs` | 未入预算面 | ≈ +20 | 0 | 0 | 0 | 登记观察 |
-| `main.ts` / `keybinding*.ts` / `settings.rs` 等 | — | 0 | 0 | +1 | 按需 | 不在单文件预算面 |
+| `lsp/client.ts` | 1,795 / 1,850 | +16（A2+B）−13（类型外迁）≈ **+3** | −2 | +2（8-1 映射） | +7（A+B） | **1,834** ✓ |
+| `completion/lspCompletion.ts`（新建） | — / 150（新登记） | ≈ 50 | +15 | +79（P1-A `mapLspTextEdit`） | 0 | **150 / 150**（零余量，后续改动须先拆文件） |
+| `intel completion.rs` | 1,672 / 1,950 | ≈ +30 | 0 | 0 | 0 | **1,787** ✓ |
+| `intel server.rs` | 未入预算面 | ≈ +20 | 0 | 0 | 0 | **610 / 620**（登记观察，余 10） |
+| `main.ts` / `keybinding*.ts` / `settings.rs` 等 | — | 0 | 0 | +11（P0-C，含矩阵注释） | 按需 | `main.ts` **2,127 / 2,400** ✓ |
 
   新模块登记：`ci/budgets.toml` 增 `completion_lsp_ts_max_lines = 150` + `budget-check.mjs` 同步（**37 → 38 项**，先例：terminalBackpressure 拆分 36 → 37）。
   估增量超标时的纪律不变：把解析/映射逻辑继续拆到 `shell/src/completion/` 下，**不要**申请抬阈值（抬阈值须显式 PR 写理由，见架构铁律）。
@@ -446,8 +466,8 @@ monaco 与 `../state` 的 `app`，**不是可直接单测的纯函数模块**。
 
 | # | 缺口 | 现状 | v2 处置 |
 |---|---|---|---|
-| 8-1 | **`preselect` 未映射** | `LspCompletionItem`（`client.ts:30-42`）与 `toMonacoItem` 均无该字段 | **已排期**：并入批次 3 与 P0-C 同做（类型字段已在 P0-A2 外迁模块预留，映射 +2 行） |
-| 8-2 | **`commitCharacters` 未映射** | 同上，全仓库 `shell/src` 无引用 | **已排期**：即 P1-B（批次 4，含 Rust 能力声明 + 设置门控） |
+| 8-1 | **`preselect` 未映射** | ✅ 已交付（`63693ff`）：`toMonacoItem` 透传 `preselect`（类型字段 P0-A2 已预留） | **已关闭**：P0-C 实测证明 `preselect` 只影响「有聚焦项时选哪项」（`suggestMemory.js`），**不能**让软选中态获得预选——故 P0-C 的补偿走 `Tab`（见 §3 P0-C） |
+| 8-2 | **`commitCharacters` 未映射** | ✅ 已交付（`63693ff` = P1-B）：client 声明 `commitCharactersSupport` + 设置 `completion_commit_characters` 门控（默认关） | **已关闭**（⚠ 残留：pyrefly/basedpyright 是否真下发仍未实证——不下发则对静态引擎零收益，价值只剩 intel/未来引擎） |
 | 8-3 | **真取消未做** | `requestEngine` 的 `pending` 条目只能等 `REQUEST_TIMEOUT_MS`（15s，`client.ts:116`）超时清理，无 `$/cancelRequest` | 维持登记。若未来要做：`requestEngine` 需暴露请求 id（或接受 cancel 回调）以便 `provideCompletionItems` 在新一代触发时发 `$/cancelRequest`；届时单独立项评估（引擎对取消的支持度也要先 spike） |
 
 - **§5 明确不做**（ML 排序、面板内设置入口等）与此表性质不同：§5 是裁决不做，本表是**已排期或尚未裁决的未接线项**。

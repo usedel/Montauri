@@ -366,6 +366,11 @@ export function applyEditorKeybindings(): void {
       command: COMMAND_PREFIX + m.id,
       when: m.when ?? "editorTextFocus",
     });
+    // P0-C：软选中分支的第二条互斥规则（`when` 要求有聚焦项、这条要求其取反，故不抢键）。
+    // 命令直接用 Monaco 原生 id（不经 COMMAND_PREFIX handler——原生命令自带 precondition）。
+    if (m.softWhen && m.softCommand) {
+      rules.push({ keybinding: kb, command: m.softCommand, when: m.softWhen });
+    }
   }
   if (rules.length > 0) rulesDisposable = monaco.editor.addKeybindingRules(rules);
 }

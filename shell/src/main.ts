@@ -1513,7 +1513,18 @@ async function init(): Promise<void> {
     wordBasedSuggestions: "off", // 踩坑 #3
     quickSuggestions: { other: true, comments: false, strings: false },
     // P1-A（补全交互层 §4）：显式写出 0.52 默认值，给「Tab=替换模式接受」一个稳定基准
-    suggest: { insertMode: "insert" },
+    suggest: {
+      insertMode: "insert",
+      // P0-C（补全交互层 §3）：自动打字=软选中（不抢输入、Enter 必为换行），触发字符/显式=硬选中。
+      // 四取值实测矩阵（2026-10-08，e2e/lsp/06-completion-selection-mode.spec.ts）：
+      //   · `selectionMode` 只作用于**自动触发**（Monaco suggestController.js:217 `if (triggerOptions.auto)`）；
+      //     显式触发（Alt+/ → editor.action.triggerSuggest）恒硬选中 —— 四取值下 S3 都接受首项。
+      //   · 默认值是 `always`（editorOptions.js:2221）＝硬选中，即改前快速打字会误插入。
+      //   · `whenQuickSuggestion` 与目标**相反**（自动打字硬、触发字符软），排除。
+      //   · 代价：live-template 也走自动打字 → 一并失去预选；由 accept_suggestion_replace 的
+      //     软选中分支（Tab → focusAndAcceptSuggestion）补偿，见 keybindingDefaults.ts。
+      selectionMode: "whenTriggerCharacter",
+    },
   });
   // A-5：光标移动同样刷新会话快照（防抖），恢复时才落回原处
   app.editor.onDidChangeCursorPosition(() => scheduleSessionSave());

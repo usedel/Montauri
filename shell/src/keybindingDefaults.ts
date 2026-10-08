@@ -101,10 +101,22 @@ export interface KeybindingMeta {
   scope: "window" | "editor";
   /**
    * Monaco when 子句（P1-A 扩展；缺省 "editorTextFocus"）。
-   * 需要比默认更窄的场景才写——如 accept_suggestion_replace 限定「补全面板可见」，
+   * 需要比默认更窄的场景才写——如 accept_suggestion_replace 限定「补全面板可见 + 有聚焦项」，
    * 否则会在面板关闭时吞掉正常缩进。
    */
   when?: string;
+  /**
+   * P0-C：同一键位的**第二条互斥规则**——用于「软选中」（面板可见但无聚焦项）分支。
+   * 与 `when` 严格互补（一个要求 `suggestWidgetHasFocusedSuggestion`、另一个要求其取反），
+   * 故不会与 `when` 规则抢键；`softCommand` 直接绑 Monaco 原生命令（不经本项目 handler）。
+   *
+   * 存在理由：`suggest.selectionMode = "whenTriggerCharacter"` 下自动打字不再预选首项，
+   * live-template（输 `for`）也一并失去预选，Enter 必须是换行（零误插入）→ 模板改由
+   * Tab 接受（`focusAndAcceptSuggestion` 的 precondition 恰为「面板可见 && 无聚焦项」）。
+   */
+  softWhen?: string;
+  /** 软选中分支的 Monaco 原生命令 id（与 softWhen 配对使用） */
+  softCommand?: string;
 }
 
 export const KEYBINDING_META: KeybindingMeta[] = [
@@ -195,17 +207,21 @@ export const KEYBINDING_META: KeybindingMeta[] = [
   // PR-J：触发补全建议（Alt+/，editor 级）——Ctrl+Space 被中文 IME 吞键（人工验证），此为可配置保底；
   // handler 在 keybindings.ts（纯 app.editor.trigger，无循环依赖），命令面板同走该 handler
   { id: "trigger_suggest", label: "触发补全建议", def: "Alt+/", scope: "editor" },
-  // P1-A：替换模式接受建议（Enter=插入 / Tab=replace）。when 限定「补全面板可见」——
-  // 否则面板关闭时按 Tab 会吞掉正常缩进；suggestWidgetVisible 上下文键 standalone Monaco
-  // 可用（suggestWidget.js:216 绑定，show 置 true / hide reset）。
-  // ⚠spike 待真机确认：本动态规则与 Monaco 内建 Tab→acceptSelectedSuggestion 的优先级；
-  // 最坏情况是回退为内建的插入式接受（同样只在面板可见时接管 Tab，无缩进破坏）。
+  // P1-A：替换模式接受建议（Enter=插入 / Tab=replace）。when 限定「补全面板可见 **且有聚焦项**」——
+  // 否则面板关闭时按 Tab 会吞掉正常缩进；suggestWidgetVisible / suggestWidgetHasFocusedSuggestion
+  // 两个上下文键在 standalone Monaco 均可用（suggestWidget.js:216 / suggestController.js:219 绑定）。
+  // P0-C（2026-10-08 实测）：本动态规则**确实覆盖** Monaco 内建 Tab→acceptSelectedSuggestion
+  // （weight 190 的内建 accept 被我们的 COMMAND_PREFIX 规则抢走；e2e lsp/06 有断言守护），
+  // 原「最坏情况回退内建」的担心不成立。
   {
     id: "accept_suggestion_replace",
-    label: "替换模式接受建议（Tab）",
+    label: "接受建议（Tab）",
     def: "Tab",
     scope: "editor",
-    when: "editorTextFocus && suggestWidgetVisible",
+    when: "editorTextFocus && suggestWidgetVisible && suggestWidgetHasFocusedSuggestion",
+    // 软选中分支（P0-C）：面板可见但无聚焦项 → 聚焦并接受首项（模板 / autoImport 候选）。
+    softWhen: "editorTextFocus && suggestWidgetVisible && !suggestWidgetHasFocusedSuggestion",
+    softCommand: "focusAndAcceptSuggestion",
   },
   // 库特别支持 PR-2：正则测试器（editor 级）
   { id: "open_regex_tester", label: "在正则测试器中打开", def: "Ctrl+Alt+R", scope: "editor" },

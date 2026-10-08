@@ -59,7 +59,10 @@ test("E-DX-AI1 未导入符号补全 → 选中后头部自动插 import", async
   await expect(row.first()).toBeVisible({ timeout: 10_000 });
   await expect(row.first()).toContainText("from lib import DataFrame"); // detail 展示插入预览
 
-  await page.keyboard.press("Enter"); // 接受补全
+  // P0-C（补全交互层 §3）：自动打字现在是**软选中**（selectionMode="whenTriggerCharacter"），
+  // Enter 恒为换行、不再劫持为接受。接受键改用 Tab——软选中走「聚焦并接受首项」分支，
+  // 硬选中（走了上面 Ctrl+Space 兜底那条路）走替换接受；两种面板态下 Tab 都能接受。
+  await page.keyboard.press("Tab");
 
   await expect
     .poll(async () => lines(page), { timeout: 10_000 })
