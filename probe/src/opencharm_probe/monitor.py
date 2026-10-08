@@ -56,6 +56,24 @@ _QUIET_CLOSE = 2000          # 连续 N 次派发无新函数即提前关窗
 _MIN_DISCOVERY_FLOOR = 0.25  # 秒
 
 
+def _monitored_frame(code: types.CodeType):
+    """沿 f_back 搜索 `f_code is code` 的被监控帧（perf 包装免疫，2026-10-08 review）。
+
+    回调栈上以 code 对象身份匹配——`_on_start_perf` 等包装层多出的帧不干扰
+    定位（固定 `_getframe(2)` 在包装下会取到包装帧自身）。未命中返回 None
+    （防御：理论上回调总在目标帧的调用栈上执行）。
+    """
+    try:
+        f = sys._getframe(1)  # 本函数的调用者（_record_args / _too_deep）
+    except ValueError:
+        return None
+    while f is not None:
+        if f.f_code is code:
+            return f
+        f = f.f_back
+    return None
+
+
 class Monitor:
     """sys.monitoring 探针：start() 后采集，stop() 幂等可重复调用。"""
 
@@ -258,7 +276,7 @@ class Monitor:
                 return None
             self._active += 1
             self._sink.add_hit(fid)
-            if not self._too_deep():
+            if not self._too_deep(code):
                 self._record_args(code, fid)
             if code not in self._armed:
                 E = sys.monitoring.events
@@ -274,7 +292,7 @@ class Monitor:
             return None
         self._active += 1
         self._sink.add_hit(fid)
-        if not self._too_deep():
+        if not self._too_deep(code):
             self._record_args(code, fid)
         # 项目函数再度活跃：重开发现窗口，捕获其子调用（替代原来的周期重开）
         if not self._in_window:
@@ -367,19 +385,21 @@ class Monitor:
         """glob 匹配：精确 / 通配 / 目录前缀（"tests" ≙ "tests/*"；fnmatch 的 * 跨 /）。"""
         return any(fnmatch(rel, p) or fnmatch(rel, p + "/*") for p in patterns)
 
-    def _too_deep(self) -> bool:
+    def _too_deep(self, code: types.CodeType) -> bool:
         """调用栈深度是否超限（从被监控帧沿 f_back 计数，O(depth)）。
 
         仅在记录路径执行（未静音、未超调用上限）；深层调用仍计 hits，
         深递归函数照常触发静音兜底，不会反复遍历。
+
+        帧定位（2026-10-08 review 修正）：沿 f_back 搜索 `f_code is code` 的帧，
+        不再用固定 `_getframe(2)`——perf 模式的回调是 `_on_start_perf` 包装
+        （被监控函数 → _on_start_perf → _on_start → _too_deep），固定深度偏移 +1，
+        深度限制会提前 1 层误触发。按 code 搜索对包装层级天然免疫。
         """
         limit = self._cfg.max_call_depth
         if limit <= 0:
             return False
-        try:
-            f = sys._getframe(2)  # _too_deep(0) → _on_start(1) → 被监控函数(2)
-        except ValueError:
-            return False
+        f = _monitored_frame(code)
         depth = 0
         while f is not None:
             depth += 1
@@ -407,7 +427,16 @@ class Monitor:
         if not ok:
             return None
         fid = self._fid(code)
-        self._sink.add_exc(fid, type_label(type(exc)))
+        # 兜底（2026-10-08 review P1，与 compact_type 顶层同款）：异常类经魔法
+        # metaclass 在 __module__/__qualname__/__name__ 上抛异常时，裸 type_label
+        # 会让 RAISE 回调按 unraisable 处理甚至被禁用——RAISE 是唯一常开的
+        # 全局事件，回调被禁 = 此后异常观测全灭且无警告（违反「探针失败只打
+        # 警告」铁律）。降级为 "?"，观测近似值，探针存活优先。
+        try:
+            label = type_label(type(exc))
+        except Exception:  # noqa: BLE001 - 恶意/魔法对象的降级路径
+            label = "?"
+        self._sink.add_exc(fid, label)
         return None
     # -- 内部 -------------------------------------------------------------
 
@@ -446,13 +475,18 @@ class Monitor:
         return ok
 
     def _record_args(self, code: types.CodeType, fid: int) -> None:
-        """从被监控帧的 f_locals 提取参数类型（不含局部变量）。"""
-        try:
-            frame = sys._getframe(2)  # _record_args(0) → _on_start(1) → 被监控函数(2)
-        except ValueError:
+        """从被监控帧的 f_locals 提取参数类型（不含局部变量）。
+
+        帧定位（2026-10-08 review 修正，P1）：沿 f_back 搜索 `f_code is code` 的帧。
+        旧实现 `_getframe(2)` 依赖「_record_args → _on_start → 被监控函数」的固定
+        三层链，但 perf 模式的回调是 `_on_start_perf` 包装（多一层）——`_getframe(2)`
+        取到包装帧自身，`frame.f_code is not code` 恒命中 → perf 模式下**所有**
+        参数观测被静默丢弃（耗时/hits/异常不受影响，测试因此漏网）。按 code
+        搜索对包装层级免疫，未命中则防御性跳过。
+        """
+        frame = _monitored_frame(code)
+        if frame is None:
             return
-        if frame.f_code is not code:
-            return  # 帧定位失败（理论不发生，防御）
         names = code.co_varnames
         nargs = code.co_argcount + code.co_kwonlyargcount
         flags = code.co_flags

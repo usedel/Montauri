@@ -120,6 +120,50 @@ def test_exception_paths():
     assert "ValueError" in _excs_of(sink, "caller")
 
 
+def test_raise_callback_survives_magic_metaclass():
+    """魔法 metaclass 的异常类：`_on_raise` 的 type_label 兜底（2026-10-08 review P1）。
+
+    metaclass 在 __qualname__/__module__ 上抛异常时，裸 type_label 会让
+    RAISE 回调本身抛异常（unraisable，可能被 sys.monitoring 禁用——
+    RAISE 是唯一常开全局事件，禁用 = 此后异常观测全灭）。
+    修正后降级为 "?"，探针存活优先（与 compact_type 顶层兜底同款）。
+    """
+    mon, sink = _new_monitor()
+    mon.start()
+
+    class _EvilMeta(type):
+        # type_label 走 getattr(t, "__qualname__") → 触发 metaclass 的
+        # __getattribute__ → 抛异常（type 对 __qualname__ 的直读在类创建时
+        # 就会校验，property 方案不可行——必须走属性查找路径）。
+        def __getattribute__(cls, name):
+            if name == "__qualname__":
+                raise RuntimeError("magic")
+            return type.__getattribute__(cls, name)
+
+    class EvilError(Exception, metaclass=_EvilMeta):
+        pass
+
+    def evil_raise():
+        raise EvilError("x")
+
+    try:
+        evil_raise()
+    except EvilError:
+        pass
+
+    def normal_boom():
+        raise ValueError("y")
+
+    try:
+        normal_boom()
+    except ValueError:
+        pass
+    mon.stop()
+    # 魔法类降级 "?"（不抛、不吞），普通类观测不受影响
+    assert _excs_of(sink, "evil_raise").get("?") == 1
+    assert _excs_of(sink, "normal_boom") == {"ValueError": 1}
+
+
 def test_generator():
     mon, sink = _new_monitor()
     mon.start()
@@ -651,6 +695,34 @@ def test_perf_mode_exception_unwind_discards_sample():
     assert _excs_of(sink, "boom") == {"ValueError": 3}  # 异常类型观测不受影响
     (entry,) = _perf_of(sink, "caught_inside").values()
     assert entry[0] == 1, "内部捕获的异常不得吃掉正常返回的样本"
+
+
+def test_perf_mode_records_arg_observations():
+    """perf 模式的参数类型观测（2026-10-08 review P1 回归）。
+
+    帧定位修正前：`_on_start_perf` 包装使 `_record_args` 的 `_getframe(2)`
+    取到包装帧自身，防御检查恒命中 → perf 模式下所有函数的参数观测被
+    静默丢弃（只剩耗时/hits/excs——此前测试恰好只断言这三者，漏网）。
+    修正后按 code 沿 f_back 搜索被监控帧，包装层级免疫。
+    """
+    cfg = ProbeConfig(perf_mode=True)
+    mon, sink = _new_monitor(cfg)
+    mon.start()
+
+    def tagged(url, timeout):
+        return f"{url}:{timeout}"
+
+    tagged("https://x", 30)
+    tagged("https://y", 60)
+    mon.stop()
+
+    # 耗时照常（既有测试已覆盖，这里同时断言以防交叉回归）
+    assert _perf_of(sink, "tagged"), "perf 计时不受帧定位修正影响"
+    # 参数观测必须存在——这正是本回归锁定的行为
+    args = _args_of(sink, "tagged")
+    assert args, "perf 模式下参数观测不得静默丢失（帧偏移回归）"
+    assert args.get("url") == {"str": 2}, f"实际：{args}"
+    assert args.get("timeout") == {"int": 2}, f"实际：{args}"
 
 
 def test_perf_mode_recursion_lifo_pairing():
