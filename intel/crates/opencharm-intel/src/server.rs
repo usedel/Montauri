@@ -48,7 +48,8 @@ struct Inner {
 }
 
 pub struct Backend {
-    #[allow(dead_code)]
+    // TD-027 D5：client 在用（publish_diagnostics ×2 + send_notification），allow 属性
+    // 已失效（掩盖真实使用），删除。
     client: Client,
     inner: RwLock<Inner>,
     /// A-P2-3（2026-09-29 review）：加载互斥（in-flight 去重）——tower-lsp 每条消息

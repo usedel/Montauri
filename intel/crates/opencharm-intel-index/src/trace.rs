@@ -8,11 +8,13 @@
 
 use std::collections::HashMap;
 use std::fmt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
 
 /// 与 probe `store.py` 只读消费侧对齐的 schema（仅用于测试/种子库创建；`open` 不建表）。
+/// TD-027 D3：对齐 `runs.instance` 与 `functions.perf_*` 5 列（store.py 已有的增量迁移列），
+/// 头注释的「schema 对齐」恢复为事实（读真实库走显式列名，不受本表影响）。
 pub const SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS runs(
   id INTEGER PRIMARY KEY,
@@ -21,7 +23,8 @@ CREATE TABLE IF NOT EXISTS runs(
   project TEXT NOT NULL,
   script TEXT NOT NULL,
   python TEXT NOT NULL,
-  probe_version TEXT NOT NULL
+  probe_version TEXT NOT NULL,
+  instance TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS functions(
   fid INTEGER PRIMARY KEY,
@@ -30,6 +33,11 @@ CREATE TABLE IF NOT EXISTS functions(
   lineno INTEGER NOT NULL,
   hits INTEGER NOT NULL DEFAULT 0,
   stale INTEGER NOT NULL DEFAULT 0,
+  perf_calls INTEGER NOT NULL DEFAULT 0,
+  perf_total_ns INTEGER NOT NULL DEFAULT 0,
+  perf_max_ns INTEGER NOT NULL DEFAULT 0,
+  perf_excl_total_ns INTEGER NOT NULL DEFAULT 0,
+  perf_excl_max_ns INTEGER NOT NULL DEFAULT 0,
   UNIQUE(filename, qualname, lineno)
 );
 CREATE TABLE IF NOT EXISTS arg_types(
@@ -86,22 +94,19 @@ pub struct Function {
     pub excs: Vec<ExcObs>,
 }
 
-impl Function {
-    /// 自然键定位 `(filename, lineno)`（跳转/diagnostic 用）。
-    pub fn loc(&self) -> (&str, i64) {
-        (&self.filename, self.lineno)
-    }
-}
-
 #[derive(Debug)]
 pub enum TraceError {
     Sqlite(rusqlite::Error),
+    /// TD-027 D6：库路径不存在（原误用 InvalidParameterName Sqlite 变体——语义错位，
+    /// 调用方无法按变体分类处理）。携带路径供日志直读。
+    Missing(PathBuf),
 }
 
 impl fmt::Display for TraceError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             TraceError::Sqlite(e) => write!(f, "sqlite error: {e}"),
+            TraceError::Missing(p) => write!(f, "trace 库不存在: {}", p.display()),
         }
     }
 }
@@ -147,9 +152,7 @@ impl TraceIndex {
         use rusqlite::OpenFlags;
         let path = path.as_ref();
         if !path.exists() {
-            return Err(TraceError::Sqlite(rusqlite::Error::InvalidParameterName(
-                format!("trace 库不存在: {}", path.display()),
-            )));
+            return Err(TraceError::Missing(path.to_path_buf()));
         }
         let conn = Connection::open_with_flags(
             path,
@@ -334,10 +337,6 @@ impl TraceIndex {
         self.functions.is_empty()
     }
 
-    pub fn get(&self, idx: usize) -> Option<&Function> {
-        self.functions.get(idx)
-    }
-
     /// 按 qualified name 精确查询（同名函数可能位于多个文件）。
     pub fn by_qualname(&self, qualname: &str) -> impl Iterator<Item = &Function> {
         self.by_qualname
@@ -364,11 +363,6 @@ impl TraceIndex {
             .into_iter()
             .flatten()
             .map(|&i| &self.functions[i])
-    }
-
-    /// 全部 qualified name（去重不保证，仅遍历 key；P3-T03 前缀补全再决定排序结构）。
-    pub fn qualnames(&self) -> impl Iterator<Item = &String> {
-        self.by_qualname.keys()
     }
 
     /// CR-17：按 qualname **最后段**查询（调用点写短名 `parse_page()` 与全限定名
@@ -412,19 +406,6 @@ impl TraceIndex {
             .iter()
             .filter(move |(last, _)| last.starts_with(prefix))
             .flat_map(|(_, idxs)| idxs.iter().map(|&i| &self.functions[i]))
-    }
-
-    /// CR-17：qualname 前缀迭代（`parent` 段链 + 最后段前缀过滤交给消费端）。
-    pub fn qualnames_by_prefix<'a>(
-        &'a self,
-        prefix: &'a str,
-    ) -> impl Iterator<Item = (&'a str, &'a Function)> + 'a {
-        self.by_qualname
-            .iter()
-            .filter(move |(q, _)| q.starts_with(prefix))
-            .flat_map(move |(q, idxs)| {
-                idxs.iter().map(move |&i| (q.as_str(), &self.functions[i]))
-            })
     }
 
     /// CR-17：按 qualname 倒数第二段查询（符号补全 parent 段链匹配的粗筛，

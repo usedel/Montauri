@@ -396,15 +396,8 @@ pub(crate) enum ParsedShape {
 }
 
 impl ParsedShape {
-    /// 键名集合（顶层补全候选）。CR-27：members_for_type 改走 chain_keys 后仅测试使用。
-    #[cfg(test)]
-    pub(crate) fn keys(&self) -> Vec<&str> {
-        match self {
-            ParsedShape::Keys(v) => v.iter().map(|s| s.as_str()).collect(),
-            ParsedShape::Dict(m) => m.keys().map(|s| s.as_str()).collect(),
-            ParsedShape::List(_) => Vec::new(),
-        }
-    }
+    // TD-027 D5 顺手清：keys() 自 CR-27 改走 chain_keys 后零调用（含测试），
+    // #[cfg(test)] 属性掩盖了 dead_code 警告——删除。
 }
 
 /// `shape` 为 compact.py 的 shape_fingerprint：数组（键名）或递归对象（键→值信息）。

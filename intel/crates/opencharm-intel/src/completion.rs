@@ -544,7 +544,9 @@ fn top_level_eq(s: &str) -> Option<(&str, &str)> {
 
 /// 从 `start`（引号位置）跳过整个字符串字面量，返回闭合引号**之后**的偏移。
 /// 支持 `"` / `'` 与三引号；未闭合返回 `bytes.len()`。转义按非 raw 处理（尽力而为）。
-fn scan_string_end(bytes: &[u8], start: usize) -> usize {
+/// TD-027 D8：pub(crate)——diagnostics 的行扫描复用同一转义口径（两处原本不一致：
+/// 诊断侧 `\"` 转义未处理、注释内引号会开启伪字符串）。
+pub(crate) fn scan_string_end(bytes: &[u8], start: usize) -> usize {
     let q = bytes[start];
     let triple = start + 2 < bytes.len() && bytes[start + 1] == q && bytes[start + 2] == q;
     let mut i = if triple { start + 3 } else { start + 1 };
@@ -583,8 +585,10 @@ fn text_offset(text: &str, line: u32, character: u32) -> Option<usize> {
 /// CR-17：不再全量扫描 + 每函数 split('.')——
 /// - parent 为空（顶级符号）：按最后段前缀倒排迭代；
 /// - parent 非空：qualname 倒数第二段必须 == parent 末段，用倒排粗筛后再完整校验段链。
+/// TD-027 D7：不做内部去重——同 label 候选（不同文件同名函数）由调用方的
+/// `dedup_sort_truncate` 统一去重（保留 score 高者），此处先收集后合并即可。
 fn symbol_candidates(index: &TraceIndex, parent: &[String], prefix: &str) -> Vec<Candidate> {
-    let mut by_label: HashMap<String, Candidate> = HashMap::new();
+    let mut out: Vec<Candidate> = Vec::new();
 
     let iter: Box<dyn Iterator<Item = &Function>> = if parent.is_empty() {
         Box::new(index.functions_by_last_segment_prefix(prefix))
@@ -607,23 +611,15 @@ fn symbol_candidates(index: &TraceIndex, parent: &[String], prefix: &str) -> Vec
             let stale_note = if f.stale { " · stale" } else { "" };
             let detail =
                 format!("⟳ runtime · {} · {} hits{}{}", f.qualname, f.hits, ret_suffix, stale_note);
-            let cand = Candidate::new(
+            out.push(Candidate::new(
                 member.clone(),
                 CandidateKind::Function,
                 detail,
                 if f.stale { f.hits / STALE_HITS_DIVISOR } else { f.hits },
-            );
-            by_label
-                .entry(member)
-                .and_modify(|e| {
-                    if cand.score > e.score {
-                        *e = cand.clone();
-                    }
-                })
-                .or_insert(cand);
+            ));
         }
     }
-    by_label.into_values().collect()
+    out
 }
 
 /// 同 label 去重（保留 score 高者）→ score 降序 → 截断。

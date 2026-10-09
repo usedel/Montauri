@@ -5,7 +5,7 @@
 
 use opencharm_intel_index::TraceIndex;
 
-use crate::completion::{is_jmespath_call_prefix, parse_jmespath_segments};
+use crate::completion::{is_jmespath_call_prefix, parse_jmespath_segments, scan_string_end};
 use crate::type_infer;
 
 /// 一条运行时诊断（LSP 0 基坐标）。
@@ -35,19 +35,38 @@ fn scan_line(
     line: &str,
     out: &mut Vec<RuntimeDiagnostic>,
 ) {
+    // TD-027 D8：注释/转义感知的行扫描。
+    // - `#` 后的内容是注释：其内引号不再开启伪字符串（原实现会把 `# it's fine`
+    //   的撇号当字符串起点，吞掉后续真实代码）；
+    // - 字符串跳过走 completion 侧同款 `scan_string_end`（转义感知，`\"` 不再被
+    //   当闭合引号——原 `find` 对 `"a\"b"` 会提前闭合，路径串截断错位）。
     let bytes = line.as_bytes();
     let n = bytes.len();
+    let comment_at = bytes.iter().position(|&b| b == b'#');
+    let code_end = match comment_at {
+        Some(pos) => {
+            // 前一个反斜杠可能转义了 '#'（行尾续行）——非转义 # 才是注释
+            if pos == 0 || bytes[pos - 1] != b'\\' {
+                pos
+            } else {
+                n
+            }
+        }
+        None => n,
+    };
     let mut i = 0;
-    while i + 1 < n {
+    while i < code_end {
         let c = bytes[i];
         if c != b'"' && c != b'\'' {
             i += 1;
             continue;
         }
-        let Some(rel_close) = line[i + 1..].find(c as char) else {
-            break; // 字符串未闭合：跳过
-        };
-        let close = i + 1 + rel_close;
+        // 字符串整体跳过（转义感知）；scan_string_end 返回闭合引号之后
+        let str_end = scan_string_end(bytes, i).min(code_end.max(i + 1));
+        let close = str_end.saturating_sub(1); // 闭合引号位置
+        if close <= i || close >= code_end {
+            break; // 未闭合或被注释边界截断：跳过
+        }
         let path = &line[i + 1..close];
         let before = line[..i].trim_end();
         // CR-12：复用补全侧的收窄判定（jmespath.xxx( / .search( / .compile(，排除 re.*）
@@ -77,7 +96,7 @@ fn scan_line(
                 }
             }
         }
-        i = close + 1;
+        i = str_end;
     }
 }
 
@@ -171,5 +190,40 @@ mod tests {
             diags.iter().any(|d| d.message.contains("dff")),
             "链式 .search( 应识别为 jmespath 调用，实际 {diags:?}"
         );
+    }
+
+    /// TD-027 D8：注释内的撇号不再开启伪字符串吞掉后续真实调用。
+    #[test]
+    fn comment_apostrophe_does_not_swallow_following_call() {
+        let idx = fixture();
+        let text = "quotes = get_quotes()\n# it's fine here\nresult = jmespath.search(\"data.dff\", quotes)";
+        let diags = diagnose(&idx, text);
+        // 注释行的撇号此前开启伪字符串 → 把第三行的 jmespath 调用吞进"字符串"，
+        // 诊断丢失；现在注释截断后第三行正常扫描。
+        assert!(
+            diags.iter().any(|d| d.message.contains("dff")),
+            "注释撇号后 jmespath 调用应正常诊断，实际 {diags:?}"
+        );
+    }
+
+    /// TD-027 D8：字符串转义感知——`\"` 不再被当闭合引号，路径不截断错位。
+    #[test]
+    fn escaped_quote_in_string_keeps_path_intact() {
+        let idx = fixture();
+        // 路径含转义引号（构造场景）：`data.diff` 前有一个转义引号字符串段。
+        // 原实现对 `"x\"` 形态提前闭合 → path 被截成 `x\`，valid 路径反被判为未知。
+        let text = r#"quotes = get_quotes()
+result = jmespath.search("data.diff", quotes)  # ok \" not a closer"#;
+        let diags = diagnose(&idx, text);
+        assert!(diags.is_empty(), "转义/注释混合下 valid 路径不应误报，实际 {diags:?}");
+    }
+
+    /// TD-027 D8：注释里的 jmespath 调用不产生诊断（原实现会扫注释内容）。
+    #[test]
+    fn jmespath_call_inside_comment_ignored() {
+        let idx = fixture();
+        let text = "quotes = get_quotes()\n# result = jmespath.search(\"data.dff\", quotes)";
+        let diags = diagnose(&idx, text);
+        assert!(diags.is_empty(), "注释内调用不应诊断，实际 {diags:?}");
     }
 }
