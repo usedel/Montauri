@@ -11,6 +11,7 @@ import { refreshGitStatus, stageFiles, showDiffForPath, showBlame, showFileHisto
 import { gitStatusOf, isGitRepoActive, isGitDirtyDir } from "./gitStatusState";
 import { openTerminalAt } from "./termUi";
 import * as mdPreview from "./markdownPreview"; // Markdown 预览（.md 右键「打开预览」）
+import { closePreviewTabIfExists } from "./mdPreviewTab"; // md 双击提升：先收预览 Tab 再开编辑
 import { openConfirm } from "./dialog";
 import { toast, toastFail } from "./toast";
 import { setSidebarTab } from "./views";
@@ -26,8 +27,9 @@ import { onLocaleChange, t } from "./i18n"; // 第四批 i18n：文件树域动�
 // 都是运行时函数引用，改由 main 注入（参照 terminal.ts::setTerminalLinkHandler 先例）。
 
 interface FileTreeHandlers {
-  /** opts.focusEditor=false：焦点留在文件树（单击/键盘打开不抢编辑器焦点，可继续漫游） */
-  openFile: (path: string, revealLine?: number, opts?: { focusEditor?: boolean }) => Promise<void>;
+  /** opts.focusEditor=false：焦点留在文件树（单击/键盘打开不抢编辑器焦点，可继续漫游）；
+   *  opts.mdMode="edit"：md 双击的显式编辑意图（open_file_dev_plan §1.3） */
+  openFile: (path: string, revealLine?: number, opts?: { focusEditor?: boolean; mdMode?: "edit" }) => Promise<void>;
   renderTabs: () => void;
   closeTabSilent: (tab: Tab) => void;
   insertHeaderTemplate: () => Promise<boolean>;
@@ -232,7 +234,19 @@ function renderTreeItem(e: Entry, depth: number, opts?: { isRoot?: boolean }): H
     selectEntry(e, item, ev);
     if (e.is_dir && !ev.ctrlKey && !ev.shiftKey) void toggleDir(item, e, depth);
     // focusEditor=false：焦点留在树内，连续浏览/键盘漫游不被编辑器抢焦点（VSCode 式）
+    // md 单击分流（open_file_dev_plan §1.3）：按 settings.markdown_open_mode 走预览/编辑/分栏
     else if (!e.is_dir && !ev.ctrlKey && !ev.shiftKey) void fh().openFile(e.path, undefined, { focusEditor: false });
+  });
+  // open_file_dev_plan §1.3：md 文件双击 = 显式编辑意图（单击开预览，双击提升为编辑 Tab）。
+  // 单击先触发（预览立即展示，无单击延迟），dblclick 到达时 openFile 的 mdMode="edit" 分流
+  // 直接开编辑 Tab——预览 Tab 若刚被单击创建，doOpenFile 的「已有编辑 Tab」检查不命中时会
+  // 与预览并存，由 promote 语义兜底（下方 md 双击专用：先收预览再开编辑）。
+  item.addEventListener("dblclick", (ev) => {
+    if (e.is_dir || ev.ctrlKey || ev.shiftKey) return;
+    if (!mdPreview.isMarkdownPath(e.path)) return; // 非 md 保持原状（单击已打开）
+    ev.preventDefault();
+    closePreviewTabIfExists(e.path);
+    void fh().openFile(e.path, undefined, { focusEditor: false, mdMode: "edit" });
   });
   item.addEventListener("contextmenu", (ev) => {
     ev.preventDefault();

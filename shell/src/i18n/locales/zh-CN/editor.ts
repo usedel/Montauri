@@ -10,11 +10,11 @@ export const editor = {
   "editor.epLensTitle.one": "{name} 的 {count} 个端点",
   "editor.epLensTitle.other": "{name} 的 {count} 个端点",
   // ---- editor.md ----
-  "editor.md.close": "关闭 Markdown 预览",
+  "editor.md.close": "关闭分栏预览",
   "editor.md.exportTitle": "导出 Markdown 为 HTML",
-  "editor.md.hintWithKey": "按 {key} 或点击右上角图标打开 Markdown 预览",
-  "editor.md.open": "打开 Markdown 预览",
-  "editor.md.openWithKey": "打开 Markdown 预览（{key}）",
+  "editor.md.hintWithKey": "按 {key} 或点击右上角图标打开分栏预览",
+  "editor.md.open": "分栏预览",
+  "editor.md.openWithKey": "分栏预览（{key}）",
   // ---- editor.nav ----
   "editor.nav.newest": "已在最新的导航位置",
   "editor.nav.oldest": "没有更早的导航位置",

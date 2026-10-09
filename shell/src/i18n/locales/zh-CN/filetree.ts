@@ -35,7 +35,7 @@ export const filetree = {
   "filetree.menu.newPyFile": "新建 Python 文件",
   "filetree.menu.newPyPackage": "新建 Python 包",
   "filetree.menu.openDiff": "打开差异",
-  "filetree.menu.openPreview": "打开预览",
+  "filetree.menu.openPreview": "分栏预览",
   "filetree.menu.openTerminal": "在终端中打开",
   "filetree.menu.paste": "粘贴",
   "filetree.menu.rename": "重命名",

@@ -65,12 +65,12 @@ test.describe("OG-1/2：指南入口 + 欢迎页三步卡", () => {
     await bootEmpty(page, repo);
 
     await clickHelpMenu(page, "新手指南");
-    // 落盘 + 打开：.md tab 打开（预览开关默认关，先验证 tab 与内容到达）
-    await expect(page.locator("#tabbar .tab.active .name", { hasText: "onboarding_guide.md" })).toBeVisible({ timeout: 15_000 });
-    // 打开预览（方案A 开关按钮），断言渲染出 uv 速查卡标题
-    await page.locator("#btn-md-preview").click();
-    await expect(page.locator("#md-preview")).toBeVisible();
-    await expect(page.locator("#md-preview")).toContainText("uv 速查卡", { timeout: 10_000 });
+    // 落盘 + 打开：open_file_dev_plan 起 markdown_open_mode 默认 preview——
+    // 指南（阅读场景）直接开纯预览 Tab（tab 名带「预览」后缀），内容即渲染结果，
+    // 不再需要先开编辑 tab 再点分栏按钮。
+    await expect(page.locator("#tabbar .tab.active .name", { hasText: "onboarding_guide.md" })).toContainText("预览", { timeout: 15_000 });
+    await expect(page.locator("#md-preview-tab-panel")).toBeVisible();
+    await expect(page.locator("#md-preview-tab-panel")).toContainText("uv 速查卡", { timeout: 10_000 });
     // 磁盘落盘（write_file 走真实 FS bridge）
     expect(repo.read("docs/onboarding_guide.md")).toContain("uv 速查卡");
   });

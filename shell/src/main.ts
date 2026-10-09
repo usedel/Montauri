@@ -142,6 +142,11 @@ import {
   expandDepDetail,
 } from "./depHealthPanel";
 import { wireMenuBar } from "./menuBar";
+import { openFileFromDisk, setOpenFileEntryHandlers } from "./openFileEntry";
+import {
+  cleanupMdPreviewTab, dismissMdPreviewHost, mdPreviewSourcePath, mdPreviewTabIcon, mdPreviewTabLabel,
+  openPreviewTab, presentMdPreviewTab, setMdPreviewTabHandlers,
+} from "./mdPreviewTab";
 import {
   initRunEvents, maybeSuggestFramework,
   resetRunSessionState, runScript, runProject, stopAllRuns,
@@ -443,6 +448,10 @@ function updateEditorOverlay(): void {
   }
 
   overlayEl.classList.remove("hidden");
+  // PR-S2c 补丁（欢迎页被宿主浮层遮挡 bug）：diff/db/md 预览宿主都是 #editor-row 内
+  // z-index:20 的浮层，而 overlay 是 z-index:5——force 态（帮助菜单「欢迎页」）在这些
+  // Tab 激活时会被整个盖住。force 态提层级到 30（盖过所有宿主），解除时还原。
+  overlayEl.classList.toggle("forced", isWelcomeForced());
   // UI-25：覆盖层要显示了才重绘快捷键网格（改键后 / 设置加载完成后经此路径刷新为真实键位）
   renderWelcomeShortcuts();
   // PR-S2：三步卡与巡礼同口径重绘（键位标签跟随改键；巡礼完成态即时刷新）
@@ -633,13 +642,16 @@ function showTabContextMenu(tab: Tab, x: number, y: number): void {
       { sep: true },
     );
   }
-  // Markdown 预览（markdown preview dev plan §5-T4）：.md tab 右键开关分栏预览
+  // Markdown 预览（markdown preview dev plan §5-T4）：.md tab 右键开关分栏预览 +
+  // open_file_dev_plan 补入口：编辑 tab「切换到预览模式」（开纯预览 Tab 并激活，
+  // 编辑 Tab 保留后台——dirty 草稿不丢，切回一键即回）。
   if (mdPreview.isMarkdownPath(tab.path)) {
     const open = mdPreview.isPreviewOpen();
     items.splice(
       5,
       0,
       { label: open ? t("main.tab.previewClose") : t("main.tab.previewOpen"), action: () => mdPreview.setPreviewOpen(!open) },
+      { label: t("main.tab.switchToPreview"), action: () => openPreviewTab(tab.path) },
       { sep: true },
     );
   }
@@ -723,6 +735,18 @@ function handleFsChanged(dirs: string[]): void {
     }
     // P1：文件增删后作废 Search Everywhere 的文件清单缓存（下次打开重新拉取）
     invalidateQuickOpenFiles();
+    // open_file_dev_plan §1.2：纯 md 工作区跳过引擎后，watcher 发现新增 .py/.pyw → 后补启动
+    // （用户把纯笔记目录逐步变成代码仓库时功能不缺失）。lspSkippedForNoPy 带 root 校验防跨工作区误触发。
+    if (root && lspSkippedForNoPy === root) {
+      const hasNewPy = dirs.some((d) => {
+        const n = normalizePath(d);
+        return n.endsWith(".py") || n.endsWith(".pyw");
+      });
+      if (hasNewPy) {
+        lspSkippedForNoPy = null;
+        void startLsp();
+      }
+    }
     // Live Templates 热重载：用户层（<data_root>/config，watcher 附加监听）或工作区层配置变更（M2）
     if (
       dirs.some((d) => {
@@ -857,6 +881,9 @@ export interface OpenFileOptions {
    *  焦点留在树内可继续浏览与键盘漫游（VSCode/PyCharm 同款）——修复 tree 点击
    *  已打开文件时焦点被编辑器抢走的回归（activateTab 焦点改造引入）。 */
   focusEditor?: boolean;
+  /** open_file_dev_plan §1.3：md 文件打开方式覆盖（默认读 settings.markdown_open_mode）。
+   *  "edit" = 强制编辑 tab（文件树双击 / 预览「编辑源码」/ markdown 链接跳转等显式编辑意图）。 */
+  mdMode?: "edit";
 }
 
 export async function openFile(path: string, revealLine?: number, opts?: OpenFileOptions): Promise<void> {
@@ -882,6 +909,28 @@ export async function openFile(path: string, revealLine?: number, opts?: OpenFil
 
 /** CR-08：openFile 的实际执行体（由 in-flight 去重表保证同一 path 串行） */
 async function doOpenFile(path: string, revealLine?: number, opts?: OpenFileOptions): Promise<void> {
+  // open_file_dev_plan §1.3：md 文件按设置分流——preview（默认）开只读预览 Tab；
+  // split = 编辑 tab + 自动开分栏；edit（显式意图或设置）走下方正常编辑路径。
+  // 显式 opts.mdMode="edit" 一律强制编辑（双击 / 编辑源码按钮 / 链接跳转）。
+  if (mdPreview.isMarkdownPath(path) && opts?.mdMode !== "edit") {
+    const mode = app.settings.markdown_open_mode ?? "preview";
+    if (mode === "preview") {
+      // 已有该文件的编辑 tab → 激活它（不重复开预览；预览与编辑互斥但共享 openFile 入口）
+      const editTab = app.tabs.find((x) => x.kind !== "md" && samePath(x.path, path));
+      if (editTab) {
+        activateTab(editTab, opts?.focusEditor === false ? { focusEditor: false } : undefined);
+        await revealAfterOpen(editTab.path, revealLine);
+        return;
+      }
+      openPreviewTab(path);
+      await revealAfterOpen(path, revealLine);
+      return;
+    }
+    if (mode === "split") {
+      // 分栏模式：正常开编辑 tab，随后自动开预览分栏（现有 setPreviewOpen 通道）
+      mdPreview.setPreviewOpen(true);
+    }
+  }
   // P1：导航历史——先记「离开前的位置」，末尾记「到达的位置」，后退才能回到出发点
   pushCurrent();
   // 路径等价比较用 samePath（斜杠/大小写无关）：会话恢复的 tab 路径与文件树/Rust
@@ -1006,9 +1055,25 @@ function activateTab(tab: Tab, opts?: { focusEditor?: boolean }): void {
     mdPreview.updatePreviewVisibility();
     return;
   }
-  // 文件 tab：从 diff/db tab 切回时恢复主编辑器
+  if (tab.kind === "md") {
+    // open_file_dev_plan §1.3：Markdown 预览 Tab（只读）——主编辑器隐藏，
+    // 宿主由 mdPreviewTab.presentMdPreviewTab 显示（激活即重读源文件，外部修改可见）。
+    // 互斥链三方：diff / db / md 宿主都是 #editor-row 浮层，切走时统一 dismiss。
+    app.editor.setModel(null);
+    dismissDiffHost();
+    dismissDbHost();
+    void presentMdPreviewTab(tab);
+    splitEditor.setDiffActive(true); // 预览 Tab 占满编辑区，分屏（若开着）一并隐藏
+    renderTabs();
+    statusFileEl.textContent = mdPreviewSourcePath(tab.path);
+    updateEditorOverlay(); // 预览 Tab 也是「有活动内容」，欢迎页覆盖层必须隐藏
+    mdPreview.updatePreviewVisibility(); // 预览 Tab 激活时分栏预览必须隐藏（防预览套预览）
+    return;
+  }
+  // 文件 tab：从 diff/db/md tab 切回时恢复主编辑器
   dismissDiffHost();
   dismissDbHost(); // v1.4：db Tab 宿主随切回文件隐藏（互斥，不动各 Tab 的 state）
+  dismissMdPreviewHost(); // 预览宿主同理（互斥）
   splitEditor.setDiffActive(false); // C-4：分屏若开着则恢复显示
   app.editor.setModel(tab.model);
   if (tab.viewState) app.editor.restoreViewState(tab.viewState);
@@ -1043,10 +1108,11 @@ function cycleTab(dir: 1 | -1): void {
 async function closeTab(tab: Tab): Promise<void> {
   const idx = app.tabs.indexOf(tab);
   if (idx === -1) return;
-  // diff/db tab 恒不 dirty（占位模型/只读视图），无需确认直接关
-  if (tab.kind !== "diff" && tab.kind !== "db" && tab.dirty && !(await openConfirm({ message: t("main.confirm.closeDirty", { name: basename(tab.path) }), kind: "danger" }))) return;
+  // diff/db/md tab 恒不 dirty（占位模型/只读视图），无需确认直接关
+  const virtualTab = tab.kind === "diff" || tab.kind === "db" || tab.kind === "md";
+  if (!virtualTab && tab.dirty && !(await openConfirm({ message: t("main.confirm.closeDirty", { name: basename(tab.path) }), kind: "danger" }))) return;
   closeTabSilent(tab);
-  if (tab.kind !== "diff" && tab.kind !== "db") recordClosedTab(tab.path); // PR-A：用户主动关闭入重开栈（工作区切换的批量清理不入栈）
+  if (!virtualTab) recordClosedTab(tab.path); // PR-A：用户主动关闭入重开栈（工作区切换的批量清理不入栈）
 }
 
 /** 关闭标签（不弹确认，用于工作区切换时的批量清理） */
@@ -1061,6 +1127,10 @@ export function closeTabSilent(tab: Tab): void {
     // v1.4：db tab 不走 LSP/诊断/标记链（path 是 db-data:/db-query: 虚拟路径）；
     // model（查询 Tab 的 SQL model / 占位模型）与状态表由域内统一清理
     cleanupDbTab(tab);
+  } else if (tab.kind === "md") {
+    // 预览 tab 同 diff/db：不走 LSP/诊断/标记链（path 是 mdpreview: 虚拟路径）；
+    // 占位模型与在途渲染令牌由域内统一清理
+    cleanupMdPreviewTab(tab);
   } else {
     editorTimers.clearAutosave(tab.path); // 在途 autosave 计时器随 tab 关闭作废（防 dispose 后写盘复活内容）
     lsp.didClose(tab.path);
@@ -1078,6 +1148,7 @@ export function closeTabSilent(tab: Tab): void {
       statusFileEl.textContent = "";
       dismissDiffHost(); // 最后一个 diff tab 关闭（无下一个 tab）：宿主一并隐藏
       dismissDbHost(); // v1.4：最后一个 db tab 关闭同理
+      dismissMdPreviewHost(); // 预览 tab 同理
       updateEditorOverlay();
     }
   }
@@ -1099,13 +1170,17 @@ export function renderTabs(): void {
     const active = tab === app.activeTab;
     const isDiff = tab.kind === "diff";
     const isDb = tab.kind === "db";
+    const isMd = tab.kind === "md";
     // diff tab 的显示名：剥 diff: 前缀（VS Code 同款「文件名 (Working Tree)」语义）
     // db tab 的显示名由域内解析（`表名 · 库名` / `查询 N · 库名`），path 里是 connId 哈希
+    // md 预览 tab：`文件名 预览`（与同名编辑 tab 区分）
     const displayName = isDiff
       ? t("main.tab.diffTitle", { name: basename(tab.path.slice("diff:".length)) })
       : isDb
         ? dbTabLabel(tab)
-        : basename(tab.path);
+        : isMd
+          ? mdPreviewTabLabel(tab)
+          : basename(tab.path);
     const el = document.createElement("div");
     el.className = `tab ${active ? "active" : ""}`;
     // UI-16：tabs 模式（#tabbar 的 role=tablist 在 index.html 静态声明）。
@@ -1118,9 +1193,18 @@ export function renderTabs(): void {
     // 悬停显示完整路径（tooltip.ts 规则 4：纯路径披露用原生 title，不挂 data-tip；
     // tab 内部无 data-tip，不触发规则 5 的父子不同轨冲突）
     // db tab 的 path 是 connId 哈希虚拟路径，对用户无意义——title 用显示名
-    el.title = isDb ? displayName : tab.path;
-    // diff/db tab 用专属图标（与文件类型图标区分）；文件 tab 保持类型图标
-    el.appendChild(isDiff ? codicon("diff") : isDb ? codicon(dbTabIcon(tab)) : renderFileIcon(basename(tab.path))); // D2 P-08：标签页文件类型图标
+    // md 预览 tab 的 path 是 mdpreview: 虚拟路径——title 用源文件路径
+    el.title = isDb ? displayName : isMd ? tab.path.slice("mdpreview:".length) : tab.path;
+    // diff/db/md tab 用专属图标（与文件类型图标区分）；文件 tab 保持类型图标
+    el.appendChild(
+      isDiff
+        ? codicon("diff")
+        : isDb
+          ? codicon(dbTabIcon(tab))
+          : isMd
+            ? codicon(mdPreviewTabIcon())
+            : renderFileIcon(basename(tab.path)),
+    ); // D2 P-08：标签页文件类型图标
     const name = document.createElement("span");
     name.className = "name";
     name.textContent = displayName;
@@ -1407,8 +1491,34 @@ function buildPluginFacadeDeps() {
 
 // ---------- LSP ----------
 
+/** open_file_dev_plan §1.2：本会话静态引擎是否因「工作区无 py」被跳过（watcher 后补启动用）。
+ *  null = 未跳过（正常启动 / 从未判定）；root 记录跳过时的工作区，切工作区后作废。 */
+let lspSkippedForNoPy: string | null = null;
+
+/** 工作区含 .py/.pyw 才启动静态引擎；探测失败保守放行（宁可空转不丢功能）。 */
+async function shouldStartStaticEngine(): Promise<boolean> {
+  const root = app.workspaceRoot;
+  if (!root) return false;
+  try {
+    const hasPy = await invoke<boolean>("workspace_has_python", { root });
+    if (!hasPy) {
+      lspSkippedForNoPy = root;
+      statusLspEl.textContent = t("main.lsp.skippedNoPy");
+      return false;
+    }
+  } catch (e) {
+    console.warn("[lsp] 工作区 py 探测失败，按含 py 处理：", e);
+  }
+  lspSkippedForNoPy = null;
+  return true;
+}
+
 export async function startLsp(): Promise<void> {
   if (!app.workspaceRoot) return;
+  // open_file_dev_plan §1.2：纯 md / 无 py 工作区跳过静态引擎（ADR-0010「按需加载优先于常驻」——
+  // pyrefly 对无 py 文件的目录是纯空转；现状手动开纯 md 目录也会启动，本次顺手收掉）。
+  // 判定失败保守处理 = 照常启动（宁可空转也不静默丢功能）。
+  if (!(await shouldStartStaticEngine())) return;
   // 引擎真值统一读 app.settings.lsp_engine（C2 修 bug：不再读 menubar 的 DOM select，
   // 避免「界面显示 A、实际跑 B」的永久分叉）
   const engine = app.settings.lsp_engine || "pyrefly";
@@ -1533,6 +1643,20 @@ async function init(): Promise<void> {
   setRunFlowHandlers({ openFile, activateTab, renderTabs, saveActive, saveTab });
   setFileTreeHandlers({ openFile, renderTabs, closeTabSilent, insertHeaderTemplate, runScript: (p) => void runScript(p) });
   setSettingsPanelHandlers({ startLsp });
+  // 单文件打开（open_file_dev_plan 批 1）：openWorkspace / openFile 注入 openFileEntry 域
+  setOpenFileEntryHandlers({ openWorkspace, openFile });
+  // md 预览 Tab（批 2）：activateTab / openFile / 占位模型创建注入 mdPreviewTab 域。
+  // openFile 绑定 mdMode:"edit"——「编辑源码」/预览内链接跳转都是显式编辑/打开意图
+  // （mdMode 缺省时会按 settings.markdown_open_mode 分流，preview 模式下会开回预览死循环）。
+  setMdPreviewTabHandlers({
+    activateTab,
+    openFile: (path) => openFile(path, undefined, { mdMode: "edit" }),
+    createModel: (path) => {
+      // 占位模型（照 diff tab 先例）：唯一 URI，随 Tab 关闭 dispose；语言标记 markdown 供语法无关功能使用
+      const uri = app.monaco.Uri.parse(`inmemory://mdpreview/${normalizePath(path)}`);
+      return app.monaco.editor.getModel(uri) ?? app.monaco.editor.createModel("", "markdown", uri);
+    },
+  });
 
   // 菜单 / 命令面板数据源（menuItems.ts）：本层私有动作经注入解环，避免 main ⇄ menuItems 静态成环
   setMenuItemsHandlers({
@@ -1970,9 +2094,15 @@ async function init(): Promise<void> {
   initDbView();
   setDbTabHandlers({ activateTab, buildOptions: () => buildEditorOptions(app.settings) });
   $("ew-open-folder").addEventListener("click", () => void openFolderFromToolbar());
+  $("ew-open-file").addEventListener("click", () => void openFileFromDisk());
   $("ew-new-project").addEventListener("click", () => openNewProjectPanel());
   $("ew-recent-clear").addEventListener("click", () => void clearRecentWorkspaces());
   mdPreview.setMarkdownLinkHandler((path) => void openFile(path)); // 相对 .md 链接 → openFile（注入回调，避免循环依赖）
+  mdPreview.setPreviewModeHandler(() => {
+    // 预览模式按钮（open_file_dev_plan）：活动编辑态 md → 切纯预览 Tab（编辑 Tab 保留后台）
+    const p = app.activeTab?.path;
+    if (p && mdPreview.isMarkdownPath(p)) openPreviewTab(p);
+  });
   mdPreview.wireMarkdownClicks(); // 预览点击委托（#锚点 / 相对 .md / http(s)）
   mdPreview.wireMarkdownControls(); // 方案A：右上角开关按钮 + 方案D：一次性引导关闭
   wireMenuBar(getMenuItems); // TD-14：菜单机制在 menuBar.ts，菜单项数据仍由本层组装

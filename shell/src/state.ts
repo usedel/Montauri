@@ -21,8 +21,8 @@ export interface Tab {
   dirty: boolean;
   /** 切标签时的编辑器视图状态（光标/滚动/选区），activateTab 保存与恢复 */
   viewState?: MonacoApi.editor.ICodeEditorViewState;
-  /** tab 类型：普通文件（默认）| git diff 视图 | 数据库视图（表数据 / SQL 查询） */
-  kind?: "file" | "diff" | "db";
+  /** tab 类型：普通文件（默认）| git diff 视图 | 数据库视图（表数据 / SQL 查询）| Markdown 预览（只读） */
+  kind?: "file" | "diff" | "db" | "md";
   /** kind="diff" 时的元数据 */
   diff?: {
     /** 三态基准（auto/index/head），切 tab 恢复 */
@@ -95,6 +95,9 @@ export interface Settings {
   terminal_cwd: string;
   /** 集成终端 shell："auto" | "pwsh" | "powershell" | "cmd"（auto 按顺序回退） */
   terminal_shell: string;
+  /** Markdown 文件打开方式："preview"（预览 tab，只读）| "edit"（编辑）| "split"（编辑+分栏预览）
+   *  （open_file_dev_plan §1.3；须与 Rust settings.rs 同步） */
+  markdown_open_mode: string;
   /** PyPI 包源（uv 拉取依赖用；默认官方源，国内网络可切镜像） */
   pypi_index: string;
   /** 快捷键自定义（id → 键位串如 "Ctrl+D"；空串 = 解绑）。
@@ -243,6 +246,8 @@ export const DEFAULT_SETTINGS: Settings = {
   keyword_completion: true,
   terminal_cwd: "workspace",
   terminal_shell: "auto",
+  // md 默认预览 tab（open_file_dev_plan §1.3；与 Rust settings.rs 同步）
+  markdown_open_mode: "preview",
   // PyPI 包源默认官方源（须与 Rust Settings::default 保持同步）
   pypi_index: "https://pypi.org/simple",
   // 出厂默认键位（PyCharm 风格）：由 keybindingDefaults.ts 单一来源派生（tech-debt #6），

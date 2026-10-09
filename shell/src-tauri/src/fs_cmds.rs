@@ -223,6 +223,183 @@ pub async fn pick_file(app: tauri::AppHandle) -> Result<Option<String>, String> 
     Ok(rx.recv().map_err(|e| e.to_string())?)
 }
 
+// ---------- 单文件打开（docs/open_file_dev_plan.md 批 1） ----------
+
+/// 项目根探测的向上层数上限（docs/open_file_dev_plan.md §1.1）。
+/// 防「home 目录被 git init 过」把整个用户目录当工作区。
+const PROJECT_ROOT_MAX_DEPTH: usize = 4;
+
+/// Python 项目根标记：目录的直接子项命中即视为该目录为项目根。
+const PY_ROOT_MARKERS: [&str; 4] = ["pyproject.toml", "setup.py", ".venv", "venv"];
+
+/// find_project_root 的纯逻辑内核（可单测；不碰 fs 的路径拼接与回退规则）。
+///
+/// 规则（分语言，见计划 §1.1）：
+/// - `.py` / `.pyw`：向上找 PY_ROOT_MARKERS（pyproject.toml / setup.py / .venv / venv）；
+/// - 其余（含 .md）：向上找 `.git`（笔记仓库以仓库为上下文）；
+/// - 探测深度上限 PROJECT_ROOT_MAX_DEPTH；
+/// - 未命中任何标记 → 回退文件所在目录。
+fn detect_project_root_impl(file_path: &str, is_python: bool, dir_exists: &dyn Fn(&Path) -> bool) -> String {
+    let file = Path::new(file_path);
+    // 文件名本身不是目录候选；从父目录开始逐级向上
+    let Some(start) = file.parent().map(|p| p.to_path_buf()) else {
+        return file_path.to_string();
+    };
+    let mut dir = start.clone();
+    let markers: &[&str] = if is_python { &PY_ROOT_MARKERS } else { &[".git"] };
+    for _ in 0..PROJECT_ROOT_MAX_DEPTH {
+        for m in markers {
+            if dir_exists(&dir.join(m)) {
+                return dir.to_string_lossy().to_string();
+            }
+        }
+        if !dir.pop() {
+            break;
+        }
+    }
+    // 未命中：回退文件所在目录（循环已把 dir 弹到上层，不能用 dir 本身）
+    start.to_string_lossy().to_string()
+}
+
+/// 单文件打开前的项目根探测（docs/open_file_dev_plan.md §1.1）。
+/// 返回（项目根, 是否为回退值）——回退时前端不把探测根当作「项目」登记语义提示。
+#[tauri::command]
+pub fn find_project_root(file_path: &str) -> Result<(String, bool), String> {
+    let p = Path::new(file_path);
+    if !p.is_file() {
+        return Err(format!("路径不是文件：{}", file_path));
+    }
+    let lower = p
+        .extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    let is_python = lower == "py" || lower == "pyw";
+    let root = detect_project_root_impl(file_path, is_python, &|d: &Path| d.exists());
+    let fallback = root == p.parent().map(|d| d.to_string_lossy().to_string()).unwrap_or_default();
+    Ok((root, fallback))
+}
+
+/// 工作区是否含 Python 文件（open_file_dev_plan §1.2：纯 md / 无 py 工作区跳过静态引擎）。
+/// 复用 collect_files_glob 的 `*.py` 掩码走查（.gitignore 感知 + 噪声剪枝），首个命中即返回——
+/// 大仓库不比 list_workspace_files 多花一分时间（早退，最多走查到第一个 .py 为止）。
+/// async + spawn_blocking：与 list_workspace_files 同纪律（大仓库遍历可能耗时）。
+#[tauri::command]
+pub async fn workspace_has_python(root: String) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || workspace_has_python_impl(&root))
+        .await
+        .map_err(|e| format!("任务执行异常：{e}"))?
+}
+
+fn workspace_has_python_impl(root: &str) -> Result<bool, String> {
+    let root_path = Path::new(root);
+    if !root_path.is_dir() {
+        return Err(format!("工作区目录不存在：{root}"));
+    }
+    let mut builder = ignore::WalkBuilder::new(root_path);
+    builder
+        .hidden(true)
+        .git_ignore(true)
+        .git_global(true)
+        .git_exclude(true)
+        .filter_entry(|e| {
+            if e.depth() == 0 {
+                return true;
+            }
+            let name = e.file_name().to_string_lossy().into_owned();
+            !SEARCH_IGNORED_DIRS.contains(&name.as_str())
+        });
+    let mut ov = ignore::overrides::OverrideBuilder::new(root_path);
+    ov.add("*.py").map_err(|e| format!("文件掩码无效：{e}"))?;
+    builder.overrides(ov.build().map_err(|e| format!("文件掩码无效：{e}"))?);
+    for entry in builder.build() {
+        if let Ok(entry) = entry {
+            if entry.file_type().map_or(false, |ft| ft.is_file()) {
+                return Ok(true); // 早退：只需要「有没有」
+            }
+        }
+    }
+    Ok(false)
+}
+
+#[cfg(test)]
+mod find_project_root_tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    /// 内存文件系统模拟（测试 dir_exists 回调）：只记录存在哪些目录。
+    fn mk_exists<'a>(existing: &'a [&'a str]) -> impl Fn(&Path) -> bool + 'a {
+        let set: HashSet<String> = existing.iter().map(|s| s.to_string()).collect();
+        move |d: &Path| set.contains(&d.to_string_lossy().to_string())
+    }
+
+    #[test]
+    fn py_file_finds_pyproject_ancestor() {
+        // D:\proj\pyproject.toml；文件在 D:\proj\src\a.py → 根 = D:\proj
+        let f = mk_exists(&["D:\\proj\\pyproject.toml"]);
+        assert_eq!(
+            detect_project_root_impl("D:\\proj\\src\\a.py", true, &f),
+            "D:\\proj"
+        );
+    }
+
+    #[test]
+    fn py_file_finds_venv_in_parent() {
+        let f = mk_exists(&["D:\\proj\\.venv"]);
+        assert_eq!(
+            detect_project_root_impl("D:\\proj\\pkg\\mod.py", true, &f),
+            "D:\\proj"
+        );
+    }
+
+    #[test]
+    fn md_file_finds_git_repo_root() {
+        // md 找 .git（笔记仓库）；pyproject 对 md 无意义，即使存在也不认
+        let f = mk_exists(&["D:\\notes\\.git", "D:\\notes\\pyproject.toml"]);
+        assert_eq!(
+            detect_project_root_impl("D:\\notes\\sub\\readme.md", false, &f),
+            "D:\\notes"
+        );
+    }
+
+    #[test]
+    fn md_file_ignores_pyproject() {
+        let f = mk_exists(&["D:\\notes\\pyproject.toml"]);
+        assert_eq!(
+            detect_project_root_impl("D:\\notes\\readme.md", false, &f),
+            "D:\\notes" // 回退：文件所在目录
+        );
+    }
+
+    #[test]
+    fn depth_limit_stops_at_4_levels() {
+        // .git 在 5 层之上：不应被认作根（回退文件所在目录）
+        let f = mk_exists(&["D:\\home\\.git"]);
+        assert_eq!(
+            detect_project_root_impl("D:\\home\\a\\b\\c\\d\\x.py", true, &f),
+            "D:\\home\\a\\b\\c\\d"
+        );
+    }
+
+    #[test]
+    fn no_marker_falls_back_to_file_dir() {
+        let f = mk_exists(&[]);
+        assert_eq!(
+            detect_project_root_impl("D:\\tmp\\note.md", false, &f),
+            "D:\\tmp"
+        );
+    }
+
+    #[test]
+    fn nearest_marker_wins() {
+        // 内层 src/.venv 与外层 proj/pyproject.toml 都在——逐级向上，先撞内层
+        let f = mk_exists(&["D:\\proj\\src\\.venv", "D:\\proj\\pyproject.toml"]);
+        assert_eq!(
+            detect_project_root_impl("D:\\proj\\src\\main.py", true, &f),
+            "D:\\proj\\src"
+        );
+    }
+}
+
 // ---------- 新建项目 ----------
 
 #[derive(Serialize)]

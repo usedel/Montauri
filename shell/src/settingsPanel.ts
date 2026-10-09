@@ -127,6 +127,8 @@ const settingsRuffSeverityWEl = lazyEl<HTMLSelectElement>("settings-ruff-severit
 const settingsRuffSeverityFEl = lazyEl<HTMLSelectElement>("settings-ruff-severity-f");
 const settingsTerminalCwdEl = lazyEl<HTMLSelectElement>("settings-terminal-cwd");
 const settingsTerminalShellEl = lazyEl<HTMLSelectElement>("settings-terminal-shell");
+// md 打开方式（open_file_dev_plan §1.3）：preview / edit / split
+const settingsMdOpenModeEl = lazyEl<HTMLSelectElement>("settings-md-open-mode");
 const settingsReduceMotionEl = lazyEl<HTMLInputElement>("settings-reduce-motion");
 // i18n：语言下拉（值不来自 settings.locale——语言存 localStorage，见 i18n/index.ts 头注）
 const settingsLocaleEl = lazyEl<HTMLSelectElement>("settings-locale");
@@ -185,6 +187,7 @@ let SETTINGS_ROW_KEYWORDS: Record<string, string> = {
   "settings-pypi-index-preset": t("settings.kw.pypiIndex"),
   "settings-terminal-cwd": t("settings.kw.terminalCwd"),
   "settings-terminal-shell": t("settings.kw.terminalShell"),
+  "settings-md-open-mode": t("settings.kw.mdOpenMode"),
   "settings-log-enabled": t("settings.kw.logEnabled"),
   "settings-log-level": t("settings.kw.logLevel"),
   "settings-log-keep": t("settings.kw.logKeep"),
@@ -762,6 +765,8 @@ function fillForm(settings: Settings): void {
   settingsRuffSeverityFEl.value = normalizeSeverity(settings.ruff_severity_f);
   settingsTerminalCwdEl.value = settings.terminal_cwd;
   settingsTerminalShellEl.value = settings.terminal_shell ?? DEFAULT_SETTINGS.terminal_shell;
+  // md 打开方式（旧配置缺字段兜底 preview）
+  settingsMdOpenModeEl.value = settings.markdown_open_mode ?? DEFAULT_SETTINGS.markdown_open_mode;
   // 旧配置缺 pypi_index 时兜底出厂默认（官方源）
   settingsPypiIndexEl.value = settings.pypi_index || DEFAULT_SETTINGS.pypi_index;
   syncPypiIndexPreset(settingsPypiIndexEl.value);
@@ -877,6 +882,7 @@ async function commitSettingsPanel(closeAfter: boolean): Promise<boolean> {
   const keywordCompletion = settingsKeywordCompletionEl.checked;
   const terminalCwd = settingsTerminalCwdEl.value;
   const terminalShell = settingsTerminalShellEl.value;
+  const markdownOpenMode = settingsMdOpenModeEl.value;
   const pypiIndex = settingsPypiIndexEl.value.trim();
   const logEnabled = settingsLogEnabledEl.checked;
   const logLevel = settingsLogLevelEl.value;
@@ -939,6 +945,7 @@ async function commitSettingsPanel(closeAfter: boolean): Promise<boolean> {
     keyword_completion: keywordCompletion,
     terminal_cwd: terminalCwd,
     terminal_shell: terminalShell,
+    markdown_open_mode: markdownOpenMode,
     pypi_index: pypiIndex,
     keybindings,
     log_enabled: logEnabled,

@@ -49,6 +49,7 @@ export const settings: Record<SettingsKey, string> = {
   "settings.kw.tabSize": "tab indent",
   "settings.kw.terminalCwd": "terminal cwd directory",
   "settings.kw.terminalShell": "terminal shell pwsh cmd powershell",
+  "settings.kw.mdOpenMode": "markdown md preview open mode",
   "settings.kw.themePicker": "theme appearance",
   "settings.kw.uvClean": "uv cache deep clean",
   "settings.kw.uvPrune": "uv cache prune",

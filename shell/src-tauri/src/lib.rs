@@ -124,6 +124,8 @@ pub fn run() {
             fs_cmds::remove_recent_workspace,
             fs_cmds::pick_folder,
             fs_cmds::pick_file,
+            fs_cmds::find_project_root,
+            fs_cmds::workspace_has_python,
             fs_cmds::create_project,
             fs_cmds::create_scratch,
             fs_cmds::format_python,

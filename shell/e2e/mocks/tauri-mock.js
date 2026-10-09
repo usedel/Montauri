@@ -1301,6 +1301,20 @@
     if (cmd === "pick_file" && window.__E2E_DB__ && window.__E2E_DB__.pick !== undefined) {
       return window.__E2E_DB__.pick;
     }
+    // 单文件打开（open_file_dev_plan 批 1）：find_project_root / workspace_has_python 走
+    // __E2E_OPENFILE__ 控制面（root/fallback/hasPy），未预置时回落保守默认（不跳过 LSP）。
+    if (cmd === "find_project_root") {
+      var of = window.__E2E_OPENFILE__ || {};
+      return [of.root !== undefined ? of.root : (args && args.filePath) || "", !!of.fallback];
+    }
+    if (cmd === "workspace_has_python") {
+      var of2 = window.__E2E_OPENFILE__ || {};
+      return of2.hasPy !== undefined ? !!of2.hasPy : true;
+    }
+    // pick_file 的 openfile 通道（优先于 __E2E_DB__.pick 之后兜底）：预置 __E2E_OPENFILE__.pick
+    if (cmd === "pick_file" && window.__E2E_OPENFILE__ && window.__E2E_OPENFILE__.pick !== undefined) {
+      return window.__E2E_OPENFILE__.pick;
+    }
     // 5) 静态表（args 透传给 handler——set_settings 等需要读入参）
     var h = staticHandlers[cmd];
     if (h) return h(args);

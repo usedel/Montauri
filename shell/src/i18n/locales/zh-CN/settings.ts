@@ -48,6 +48,7 @@ export const settings = {
   "settings.kw.tabSize": "tab indent 缩进",
   "settings.kw.terminalCwd": "terminal cwd 终端目录",
   "settings.kw.terminalShell": "terminal shell pwsh cmd powershell 终端",
+  "settings.kw.mdOpenMode": "markdown md preview 预览 打开方式",
   "settings.kw.themePicker": "theme 主题 appearance",
   "settings.kw.uvClean": "uv cache 深度清理",
   "settings.kw.uvPrune": "uv cache 缓存",

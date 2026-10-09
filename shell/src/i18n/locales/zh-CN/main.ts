@@ -63,7 +63,8 @@ export const main = {
   "main.cmd.localHistory": "本地历史",
   "main.cmd.ltForceShow": "显示全部模板（补全弹窗）",
   "main.cmd.ltPalette": "Live Templates 面板",
-  "main.cmd.mdPreview": "Markdown 预览",
+  "main.cmd.mdPreview": "分栏预览（Markdown）",
+  "main.cmd.mdSwitchPreview": "切换到预览模式（当前 Markdown 文件）",
   "main.cmd.newFile": "新建文件",
   "main.cmd.newProject": "新建项目",
   "main.cmd.noEarlierEdit": "没有更早的编辑位置",
@@ -124,6 +125,7 @@ export const main = {
   "main.lsp.ready": "LSP: 就绪",
   "main.lsp.startFailed": "LSP 启动失败: {msg}",
   "main.lsp.starting": "LSP: 启动中…",
+  "main.lsp.skippedNoPy": "LSP: 无 Python 文件（已跳过）",
   // ---- main.openFile ----
   "main.openFile.failed": "打开文件失败：{msg}",
   // ---- main.outline ----
@@ -162,8 +164,9 @@ export const main = {
   "main.tab.diffTitle": "{name} · 差异",
   "main.tab.modified": "已修改",
   "main.tab.openInTerminal": "在终端中打开",
-  "main.tab.previewClose": "关闭预览",
-  "main.tab.previewOpen": "打开预览",
+  "main.tab.previewClose": "关闭分栏预览",
+  "main.tab.previewOpen": "分栏预览",
+  "main.tab.switchToPreview": "切换到预览模式",
   "main.tab.revealInExplorer": "在资源管理器中显示",
   "main.tab.running": "运行中",
   // ---- main.url ----

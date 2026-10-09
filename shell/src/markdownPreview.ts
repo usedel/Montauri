@@ -170,6 +170,17 @@ function mdSplitterEl(): HTMLElement | null {
 function mdPreviewBtnEl(): HTMLButtonElement | null {
   return document.getElementById("btn-md-preview") as HTMLButtonElement | null;
 }
+/** 预览模式按钮（open_file_dev_plan）：编辑 md 时右上角三按钮之一 */
+function mdPreviewModeBtnEl(): HTMLButtonElement | null {
+  return document.getElementById("btn-md-preview-mode") as HTMLButtonElement | null;
+}
+
+/** 预览模式按钮点击动作（main 注入 openPreviewTab；防本模块 → mdPreviewTab 循环依赖） */
+let onPreviewModeClick: (() => void) | null = null;
+
+export function setPreviewModeHandler(fn: () => void): void {
+  onPreviewModeClick = fn;
+}
 function mdExportBtnEl(): HTMLButtonElement | null {
   return document.getElementById("btn-md-export") as HTMLButtonElement | null;
 }
@@ -179,8 +190,9 @@ function mdPreviewHintEl(): HTMLElement | null {
 /** 一次性引导标记（方案D）：首次打开 .md 且预览未开启时提示一次 */
 const HINT_SEEN_KEY = "opencharm.mdpreview_hint_seen";
 
-/** 遍历 pre > code，按 language-xxx 异步高亮；未知语言 / colorize 失败回退纯文本 */
-async function highlightCodeBlocks(container: HTMLElement): Promise<void> {
+/** 遍历 pre > code，按 language-xxx 异步高亮；未知语言 / colorize 失败回退纯文本。
+ *  导出（open_file_dev_plan 批 2）：md 预览 Tab 复用同一高亮管线。 */
+export async function highlightCodeBlocks(container: HTMLElement): Promise<void> {
   const blocks = Array.from(container.querySelectorAll<HTMLElement>("pre > code"));
   await Promise.all(
     blocks.map(async (code) => {
@@ -211,7 +223,9 @@ async function renderMarkdown(tab: Tab): Promise<void> {
 /** 按「开关 + 活动 tab 是否 md」刷新面板/分隔条/开关按钮/引导提示的显隐；显示时立即渲染 */
 export function updatePreviewVisibility(): void {
   const tab = app.activeTab;
-  const isMd = tab !== null && isMarkdownPath(tab.path);
+  // open_file_dev_plan §1.3：预览 Tab（kind="md"，path 带 mdpreview: 前缀）激活时
+  // 分栏预览必须隐藏——否则预览里再开预览（嵌套）。
+  const isMd = tab !== null && tab.kind !== "md" && isMarkdownPath(tab.path);
   const show = previewOpen && isMd;
   mdPreviewEl()?.classList.toggle("hidden", !show);
   mdSplitterEl()?.classList.toggle("hidden", !show);
@@ -226,6 +240,10 @@ export function updatePreviewVisibility(): void {
     btn.dataset.tip = previewOpen ? t("editor.md.close") : t("editor.md.openWithKey", { key: chord });
     btn.setAttribute("aria-label", previewOpen ? t("editor.md.close") : t("editor.md.open"));
   }
+
+  // 预览模式按钮（open_file_dev_plan）：活动编辑态 .md 即显示（预览 Tab 自身不显示——
+  // 已在预览模式里，无需再切）；点击动作由 main 注入（mdPreviewTab 域，防循环 import）
+  mdPreviewModeBtnEl()?.classList.toggle("hidden", !isMd);
 
   // 导出按钮：活动 .md 即显示（导出不依赖预览是否开启）
   mdExportBtnEl()?.classList.toggle("hidden", !isMd);
@@ -317,9 +335,10 @@ function hidePreviewHint(): void {
   mdPreviewHintEl()?.classList.add("hidden");
 }
 
-/** 方案A：绑定悬浮开关按钮点击（toggle）、导出按钮与引导关闭按钮 */
+/** 方案A：绑定悬浮开关按钮点击（toggle）、预览模式按钮、导出按钮与引导关闭按钮 */
 export function wireMarkdownControls(): void {
   mdPreviewBtnEl()?.addEventListener("click", () => togglePreview());
+  mdPreviewModeBtnEl()?.addEventListener("click", () => onPreviewModeClick?.());
   mdExportBtnEl()?.addEventListener("click", () => void exportActiveMarkdown());
   mdPreviewHintEl()?.querySelector("#md-preview-hint-close")?.addEventListener("click", hidePreviewHint);
 }

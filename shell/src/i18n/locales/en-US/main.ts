@@ -64,7 +64,8 @@ export const main: Record<MainKey, string> = {
   "main.cmd.localHistory": "Local History",
   "main.cmd.ltForceShow": "Show All Templates (Completion)",
   "main.cmd.ltPalette": "Live Templates Panel",
-  "main.cmd.mdPreview": "Markdown Preview",
+  "main.cmd.mdPreview": "Split Preview (Markdown)",
+  "main.cmd.mdSwitchPreview": "Switch to preview mode (current Markdown file)",
   "main.cmd.newFile": "New File",
   "main.cmd.newProject": "New Project",
   "main.cmd.noEarlierEdit": "No earlier edit location",
@@ -125,6 +126,7 @@ export const main: Record<MainKey, string> = {
   "main.lsp.ready": "LSP: ready",
   "main.lsp.startFailed": "LSP startup failed: {msg}",
   "main.lsp.starting": "LSP: starting…",
+  "main.lsp.skippedNoPy": "LSP: no Python files (skipped)",
   // ---- main.openFile ----
   "main.openFile.failed": "Failed to open file: {msg}",
   // ---- main.outline ----
@@ -163,8 +165,9 @@ export const main: Record<MainKey, string> = {
   "main.tab.diffTitle": "{name} · diff",
   "main.tab.modified": "modified",
   "main.tab.openInTerminal": "Open in terminal",
-  "main.tab.previewClose": "Close preview",
-  "main.tab.previewOpen": "Open preview",
+  "main.tab.previewClose": "Close split preview",
+  "main.tab.previewOpen": "Split preview",
+  "main.tab.switchToPreview": "Switch to preview mode",
   "main.tab.revealInExplorer": "Reveal in file explorer",
   "main.tab.running": "running",
   // ---- main.url ----

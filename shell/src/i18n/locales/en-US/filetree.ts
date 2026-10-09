@@ -36,7 +36,7 @@ export const filetree: Record<FiletreeKey, string> = {
   "filetree.menu.newPyFile": "New Python File",
   "filetree.menu.newPyPackage": "New Python Package",
   "filetree.menu.openDiff": "Open Diff",
-  "filetree.menu.openPreview": "Open Preview",
+  "filetree.menu.openPreview": "Split Preview",
   "filetree.menu.openTerminal": "Open in Terminal",
   "filetree.menu.paste": "Paste",
   "filetree.menu.rename": "Rename",

@@ -11,6 +11,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import type { LiveTemplatesHandle } from "./live-templates";
 import { app, $, type Entry, type Tab } from "./state";
+import { openPreviewTab } from "./mdPreviewTab";
 import { t } from "./i18n";
 import { basename } from "./util";
 import { toast, toastFail } from "./toast";
@@ -46,6 +47,7 @@ import { openBookmarks, toggleBookmarkAtCursor } from "./bookmarks";
 import { openLocalHistory } from "./localHistory";
 import { openRecentFiles } from "./recentFiles";
 import { openRunHistory } from "./runHistory";
+import { openFileFromDisk } from "./openFileEntry";
 import { goBack, goForward } from "./navHistory";
 import { jumpToLastEdit } from "./editPoints";
 import { reopenClosedTab } from "./tabReopen";
@@ -165,6 +167,8 @@ export function buildQuickOpenActions(): QuickOpenAction[] {
     // 下一次弹窗忽略成员访问门控展示全部模板（completion.ts setForceShowAll）
     { id: "force_show_templates", label: t("main.cmd.ltForceShow"), run: () => liveTemplates()?.forceShowAll() },
     { id: "markdown_preview", label: t("main.cmd.mdPreview"), run: () => mdPreview.togglePreview() },
+    // open_file_dev_plan 补入口：当前 md 编辑 tab 一键切纯预览 Tab（编辑 Tab 保留后台）
+    { id: "md_switch_preview", label: t("main.cmd.mdSwitchPreview"), run: () => { const p = app.activeTab?.path; if (p && mdPreview.isMarkdownPath(p)) openPreviewTab(p); } },
     { id: "format_document", label: t("main.cmd.formatDoc"), hint: "Shift+Alt+F", run: () => void app.editor.getAction("editor.action.formatDocument")?.run() },
     { id: "open_settings", label: t("main.cmd.openSettings"), run: () => openSettingsPanel() },
     // PR-S1/S2（onboarding plan §3.1）：新手指南 + 欢迎页 force-show 进命令面板
@@ -393,6 +397,7 @@ export function getMenuItems(menu: string): MenuEntry[] {
       { label: t("menu.file.newFolder"), action: () => { if (app.workspaceRoot) void createDirAt(rootEntry()); } },
       { sep: true, label: "" },
       { label: t("menu.file.openWorkspace"), shortcut: "Ctrl+K Ctrl+O", action: () => void openFolderFromToolbar() },
+      { label: t("menu.file.openFile"), action: () => void openFileFromDisk() },
       { label: t("menu.file.openWorkspaceInNewWindow"), action: () => void openFolderInNewWindow() },
       { label: t("menu.file.save"), shortcut: kb.bindingLabel("save") || undefined, action: () => void saveActive() },
       { sep: true, label: "" },

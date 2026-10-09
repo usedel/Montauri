@@ -181,6 +181,9 @@ pub struct Settings {
     /// 集成终端默认 shell："auto" | "pwsh" | "powershell" | "cmd"
     /// （"auto" 按 pwsh → powershell → cmd 依次回退；Unix 忽略该项用 $SHELL）
     pub terminal_shell: String,
+    /// Markdown 文件打开方式："preview"（预览 tab，只读）| "edit"（编辑）| "split"（编辑+分栏预览）
+    /// （open_file_dev_plan §1.3；与前端 DEFAULT_SETTINGS.markdown_open_mode 保持同步）
+    pub markdown_open_mode: String,
     /// PyPI 包源（uv 拉取依赖用；默认官方源，国内网络可在设置面板切镜像）
     pub pypi_index: String,
     /// 快捷键自定义（id → 键位串如 "Ctrl+D"；空串 = 解绑）。
@@ -277,6 +280,7 @@ impl Default for Settings {
             keyword_completion: true,
             terminal_cwd: "workspace".into(),
             terminal_shell: "auto".into(),
+            markdown_open_mode: "preview".into(),
             pypi_index: "https://pypi.org/simple".into(),
             keybindings: default_keybindings(),
             log_enabled: true,
@@ -414,6 +418,7 @@ mod tests {
         assert_eq!(d.keyword_completion, true);
         assert_eq!(d.terminal_cwd, "workspace");
         assert_eq!(d.terminal_shell, "auto");
+        assert_eq!(d.markdown_open_mode, "preview"); // open_file_dev_plan §1.3：md 默认预览 tab
         // 快捷键默认值（PyCharm 风格）
         assert_eq!(d.keybindings.get("save").map(String::as_str), Some("Ctrl+S"));
         // v3.4 §17-7（M3-3.5）：run 拆为 run_script + run_project
@@ -510,6 +515,7 @@ mod tests {
         assert_eq!(s.format_on_save, false); // 旧配置文件无此字段 → 默认关闭
         assert_eq!(s.terminal_cwd, "workspace"); // 旧配置文件无此字段 → 默认工作区根
         assert_eq!(s.terminal_shell, "auto"); // 旧配置文件无此字段 → 默认自动回退
+        assert_eq!(s.markdown_open_mode, "preview"); // 旧配置文件无此字段 → 默认预览 tab
         assert_eq!(s.pypi_index, "https://pypi.org/simple"); // 旧配置文件无此字段 → 默认官方源
         // 编辑器新增项（P1）：旧配置文件无此字段 → 回落默认
         assert_eq!(s.tab_size, 4);

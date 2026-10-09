@@ -11,11 +11,11 @@ export const editor: Record<EditorKey, string> = {
   "editor.epLensTitle.one": "{count} endpoint of {name}",
   "editor.epLensTitle.other": "{count} endpoints of {name}",
   // ---- editor.md ----
-  "editor.md.close": "Close Markdown preview",
+  "editor.md.close": "Close split preview",
   "editor.md.exportTitle": "Export Markdown as HTML",
-  "editor.md.hintWithKey": "Press {key} or click the icon at the top right to open the Markdown preview",
-  "editor.md.open": "Open Markdown preview",
-  "editor.md.openWithKey": "Open Markdown preview ({key})",
+  "editor.md.hintWithKey": "Press {key} or click the icon at the top right to open the split preview",
+  "editor.md.open": "Split preview",
+  "editor.md.openWithKey": "Split preview ({key})",
   // ---- editor.nav ----
   "editor.nav.newest": "Already at the latest navigation position",
   "editor.nav.oldest": "No earlier navigation position",

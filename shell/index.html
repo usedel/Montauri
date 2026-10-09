@@ -243,6 +243,10 @@
                  内含两套视图（#db-data-view 表数据网格 / #db-query-view SQL 查询），
                  多 Tab 共享同一份 DOM，内容由 sqliteTabs.ts 按 Tab 状态同步。 -->
             <div id="db-tab-panel" class="hidden"></div>
+            <!-- Markdown 预览 Tab 宿主（open_file_dev_plan §1.3）：照 #db-tab-panel 范式——
+                 #editor-row 内与 #editor 互斥的浮层，内容由 mdPreviewTab.ts 惰性构建
+                 （工具栏 + 渲染主体，多 Tab 共享同一份 DOM）。 -->
+            <div id="md-preview-tab-panel" class="hidden"></div>
             <!-- Git 差异视图宿主（第 2 步迁移：diff tab 激活时显示，与 #editor 互斥；
                  DOM 从底部面板整体迁入，Monaco diffEditor 单实例不重建。
                  布局改纵向：工具栏行（原 git-diff-header）+ 块级合并面板 + diff 编辑器 -->
@@ -280,8 +284,11 @@
             <div data-i18n-tip="editor.mdSplitter" id="md-splitter" data-tip="拖动调整 Markdown 预览宽度（双击重置）"></div>
             <!-- Markdown 预览面板（默认隐藏；仅活动 .md tab 且开关开启时显示） -->
             <div id="md-preview" class="hidden"></div>
-            <!-- 方案A：预览开关按钮（悬浮编辑区右上角，活动 .md 时可见） -->
-            <button data-i18n-aria="editor.mdPreview" data-i18n-tip="editor.mdPreview" id="btn-md-preview" class="hidden" data-tip="打开 Markdown 预览" aria-label="打开 Markdown 预览" aria-pressed="false"><i class="codicon codicon-split-horizontal" aria-hidden="true"></i></button>
+            <!-- 方案A：预览开关按钮（悬浮编辑区右上角，活动 .md 时可见）——文案「分栏预览」（open_file_dev_plan：
+                 与纯预览 Tab 区分，防「打开 Markdown 预览」误导为进入预览模式） -->
+            <button data-i18n-aria="editor.mdPreview" data-i18n-tip="editor.mdPreview" id="btn-md-preview" class="hidden" data-tip="分栏预览" aria-label="分栏预览" aria-pressed="false"><i class="codicon codicon-split-horizontal" aria-hidden="true"></i></button>
+            <!-- 预览模式按钮（open_file_dev_plan）：编辑 md 时切纯预览 Tab（与 tab 右键 / 命令面板同语义） -->
+            <button data-i18n-aria="editor.mdPreviewMode" data-i18n-tip="editor.mdPreviewMode" id="btn-md-preview-mode" class="hidden" data-tip="切换到预览模式" aria-label="切换到预览模式"><i class="codicon codicon-open-preview" aria-hidden="true"></i></button>
             <!-- 导出 HTML（P3）：右上角，与预览开关按钮并列 -->
             <button data-i18n-aria="editor.mdExport" data-i18n-tip="editor.mdExport" id="btn-md-export" class="hidden" data-tip="导出为 HTML" aria-label="导出为 HTML"><i class="codicon codicon-desktop-download" aria-hidden="true"></i></button>
             <!-- 方案D：一次性引导提示（首次打开 .md 且预览未开启时出现一次） -->
@@ -305,6 +312,7 @@
 
               <div id="ew-actions" class="ew-actions">
                 <button data-i18n="welcome.openFolder" id="ew-open-folder" class="btn btn--lg btn--primary"><span class="icon"><i class="codicon codicon-folder-opened" aria-hidden="true"></i></span>打开文件夹</button>
+                <button data-i18n="welcome.openFile" id="ew-open-file" class="btn btn--lg"><span class="icon"><i class="codicon codicon-file" aria-hidden="true"></i></span>打开文件</button>
                 <button data-i18n="welcome.newProject" id="ew-new-project" class="btn btn--lg"><span class="icon"><i class="codicon codicon-add" aria-hidden="true"></i></span>新建项目</button>
               </div>
 
@@ -990,6 +998,19 @@
                   <div class="settings-row">
                     <label data-i18n="settings.editor.sectionEditorLabel19" for="settings-log-level-colors">输出面板日志级别着色</label>
                     <input id="settings-log-level-colors" type="checkbox" />
+                  </div>
+                </div>
+              </div>
+              <div class="settings-group">
+                <h3 data-i18n="settings.group.editorMarkdown" class="settings-group-title">Markdown</h3>
+                <div class="settings-grid">
+                  <div class="settings-row">
+                    <label data-i18n="settings.editor.mdOpenModeLabel" for="settings-md-open-mode">Markdown 打开方式</label>
+                    <select id="settings-md-open-mode">
+                      <option data-i18n="settings.editor.mdOpenMode.preview" value="preview">预览（只读，工具栏可转编辑）</option>
+                      <option data-i18n="settings.editor.mdOpenMode.edit" value="edit">编辑</option>
+                      <option data-i18n="settings.editor.mdOpenMode.split" value="split">编辑 + 分栏预览</option>
+                    </select>
                   </div>
                 </div>
               </div>
