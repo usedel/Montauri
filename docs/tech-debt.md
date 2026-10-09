@@ -24,6 +24,8 @@
 
 > 2026-10-09 第一梯队清偿：**A1/A5/A6/A9 当日四提交修复**（`5514baf`/`b4b439a`/`4ab4277`/`5eb36d2`，均已录已归档区）——**A 组 9 条全部清零**。门禁：cargo test 340 / vitest 1342 / e2e-ui 66 / lsp·lt 针对性 14 / budget 全 PASS（顺手清拆分批遗留 2 处 unused import）。
 
+> 2026-10-09 第二梯队清偿：**B2/B4/B5/B6/B7/B8 六提交修复**（`b1bd5b3`/`1db26ce`/`c23dd66`/`43a30f5`/`93ad46f`/`3f92077`，均已录已归档区）——B 组余 B1/B3/B9/B10（B1 留 intel 批次；B3 需配迁移逻辑独立 PR；B9/B10 无实锤待观察）。D12 的 config.py 部分已随 B4 顺手清。门禁：cargo test 340 / probe pytest 109（新增 20 用例）。intel trace.rs 经核实**无** B8 同款手拼 URI 问题（Rust 走 OpenFlags 路径直开），无需登记。
+
 ### TD-027 2026-10-08 全项目代码审查批次（P2×42，其中 1 项已随 P1 修复；intel 杂项 1 项拆为 3 个卫生点）
 
 - **起因**：全项目代码审查（四个并行深审：shell/src TS、shell/src-tauri Rust、probe Python、intel Rust，逐行通读；全部 P0/P1 经主线读码复核实证）。
@@ -49,13 +51,13 @@
 | # | 条目 | 位置 | 要点 |
 |---|---|---|---|
 | B1 | type_label::parse 递归无深度上限 | intel type_label.rs:43-99 | 损坏库的数千层嵌套 type_label 可爆栈 abort 常驻进程（shape 侧有 serde_json 128 层保护，此处无对等防线）；加深度计数即可 |
-| B2 | pick_folder/pick_file 阻塞 recv | fs_cmds.rs:205-224 | async 上下文同步 recv 阻塞 tokio worker 直到用户关对话框；应 spawn_blocking |
-| B3 | conn_id 依赖 DefaultHasher | db_cmds.rs:163-167 | std 不保证跨 Rust 版本稳定，工具链升级后 db_connections.json 旧条目全部失配追加重复；换 project_hash 同款 sha1 |
-| B4 | load_config 不校验值类型 | probe config.py:70-73 | 手写配置 `max_calls_per_func: "abc"` → 回调内 TypeError → 探针静默失效 |
-| B5 | os.chdir(old_dir) 可抛异常 | probe runner.py:67 | old_dir 被删场景抛新异常替换原始 error，破坏「不吞脚本原始异常」保护；单独 try/except |
-| B6 | _cmd_check 无 timeout | probe cli.py:181-183 | 交互脚本 `input()` 挂起 check 命令 |
-| B7 | autostart 摘要无编码兜底 | probe autostart.py:110-115 | GBK 控制台 + 未设 PYTHONIOENCODING 时 UnicodeEncodeError（数据不丢，traceback 难看） |
-| B8 | load_summary URI 未百分号编码 | probe store.py:331 | db_dir 含 `?`/`#`/`%` 时 `file:` URI 解析错位 |
+| ~~B2~~ | ~~pick_folder/pick_file 阻塞 recv~~ | ~~fs_cmds.rs:205-224~~ | ✅ 已修（`b1bd5b3`）：recv 移入 spawn_blocking，对话框挂起期间不再占 tokio worker；接口零变化 |
+| B3 | conn_id 依赖 DefaultHasher | db_cmds.rs:163-167 | std 不保证跨 Rust 版本稳定，工具链升级后 db_connections.json 旧条目全部失配追加重复；换 project_hash 同款 sha1（**须配旧条目迁移**，独立 PR） |
+| ~~B4~~ | ~~load_config 不校验值类型~~ | ~~probe config.py:70-73~~ | ✅ 已修（`1db26ce`）：get_type_hints 驱动的 _matches 运行时校验，类型不符告警保默认；顺手清 D12 config.py 部分；附 9 用例 |
+| ~~B5~~ | ~~os.chdir(old_dir) 可抛异常~~ | ~~probe runner.py:67~~ | ✅ 已修（`c23dd66`）：finally 里 chdir 单独 try/except 降级告警，原始异常必传播；附删除 cwd 场景用例 |
+| ~~B6~~ | ~~_cmd_check 无 timeout~~ | ~~probe cli.py:181-183~~ | ✅ 已修（`43a30f5`）：--timeout（默认 60s）+ TimeoutExpired 捕获 → 退出码 2；附超时用例 |
+| ~~B7~~ | ~~autostart 摘要无编码兜底~~ | ~~probe autostart.py:110-115~~ | ✅ 已修（`93ad46f`）：_print_safe per-print 降级（UnicodeEncodeError → replace 重打、流关闭静默），不动全局 stdio；附 GBK 流模拟 5 用例。实测 ✓ U+2713 不在 GBK 映射——摘要行在 GBK 控制台必然触发原 bug |
+| ~~B8~~ | ~~load_summary URI 未百分号编码~~ | ~~probe store.py:331~~ | ✅ 已修（`3f92077`）：as_uri() 标准编码 + "?mode=ro"；附 `#`/`%` 目录往返用例。intel trace.rs 经核实无同款问题 |
 | B9 | 同步命令做磁盘 IO/进程创建 | terminal.rs:327/161、lsp.rs:45、db_cmds.rs:493/926 | 与 debug_start/db_query 的 async+spawn_blocking 范式不一致；无卡死实锤但违反「阻塞统一 async」纪律 |
 | B10 | 只读打开 WAL 库的崩溃恢复未覆盖 | intel trace.rs:146-160 | probe 崩溃留未 checkpoint 的 -wal 时 RO 打开可能失败（busy_timeout 不覆盖恢复）；正常流程（probe 正常退出 checkpoint）不受影响 |
 
@@ -86,7 +88,7 @@
 | D9 | Monitor.__init__ 改写共享 cfg | probe monitor.py:106 | `max_calls_per_func = sys.maxsize` 直接污染调用方 ProbeConfig（有测试锁定属有意设计，但 mutator 坏味道；建议构造局部副本） |
 | D10 | _perf_frames 类型标注错误 | probe monitor.py:99 | `list[list[int]]` 实际元素是 `[CodeType, int, int]` |
 | D11 | _cmd_show 路径归一不对称 | probe cli.py:74-77 | normcase 小写盘符 × 未归一 parent 的 startswith 恒 False，退回显示原始绝对路径（仅观感） |
-| D12 | 函数内 import / `__import__` | probe store.py:184 / config.py:68 | 应提顶部 |
+| D12 | 函数内 import / `__import__` | probe store.py:184 / config.py:68 | 应提顶部（config.py 部分已随 B4 顺手清，store.py:184 仍在） |
 | D13 | _cmd_inject / _cmd_clean 无 CLI 层单测 | probe cli.py:101-123 | clean 函数本身有测试，CLI 分发层（含非 .py 警告路径）无 |
 | D14 | _elem_shape 键上限语义不一致 | probe compact.py:147 vs 207 | dict 分支超限返回 None、shape 分支超限保留截断指纹，精度取舍两分支不对称 |
 | D15 | run lock 去重子进程不 stop 监控 | probe autostart.py:104-106 | 被去重的子进程 `_finalize` 直接 return，全局 RAISE 事件持续派发到进程死；TD-020 取舍的「子进程观测整段丢弃」丢失面建议在 TD-020 补注 |
@@ -167,6 +169,12 @@
 
 | 编号 | 标题 | 完成日期 | 结论摘要 |
 |---|---|---|---|
+| TD-027-B2 | pick_folder/pick_file 阻塞 recv（B 组） | 2026-10-09 | 提交 `b1bd5b3`：rx.recv() 移入 tauri::async_runtime::spawn_blocking——对话框挂起期间阻塞 blocking 线程池而非 tokio worker；接口签名与返回值零变化。cargo check 通过 |
+| TD-027-B4 | load_config 不校验值类型（B 组） | 2026-10-09 | 提交 `1db26ce`：新增 `_matches`（get_type_hints 驱动，覆盖 int/bool/str/list[X]/X\|None，bool/int 互斥防 0/1 当开关），类型不符告警保默认值；顺手清 D12 的 config.py 部分（`__import__("sys")` 提顶部）；test_config.py 9 用例 |
+| TD-027-B5 | os.chdir(old_dir) 可抛异常（B 组） | 2026-10-09 | 提交 `c23dd66`：runner finally 的 chdir 单独 try/except OSError 降级告警（进程停留当前目录），脚本原始异常必传播；test_e2e 新增删除 cwd 场景用例（启动 cwd 与脚本目录分离——Windows 不可删进程当前目录，首版测试踩坑） |
+| TD-027-B6 | _cmd_check 无 timeout（B 组） | 2026-10-09 | 提交 `43a30f5`：check 子命令新增 --timeout（默认 60s），subprocess.run timeout + TimeoutExpired → 明确提示 + 退出码 2；test_check 新增 sleep 脚本超时用例 |
+| TD-027-B7 | autostart 摘要无编码兜底（B 组） | 2026-10-09 | 提交 `93ad46f`：`_print_safe` per-print 降级——UnicodeEncodeError 按 stream 编码 replace 重打、流关闭（ValueError）静默；不改用户进程全局 stdio（侵入红线）。实测发现 ✓（U+2713）不在 GBK 映射，摘要行在 GBK 控制台必然触发原 bug，且 except 里再 print 会二次炸 atexit。test_autostart_print.py 5 用例（GBK 流模拟） |
+| TD-027-B8 | load_summary URI 未百分号编码（B 组） | 2026-10-09 | 提交 `3f92077`：`f"file:{path}?mode=ro"` 改 `path.resolve().as_uri() + "?mode=ro"` 标准百分号编码（`#` 截断 / `%` 转义修复）；load_summary_json 复用同路径一并修复；intel trace.rs 经核实走 OpenFlags 路径直开、无同款问题。test_store 新增 `#`/`%` 目录 save→load 往返用例 |
 | TD-027-A1 | db_cancel 取消检查死代码（A 组） | 2026-10-09 | 提交 `5514baf`：删「store(false) 后紧跟 load」的不可达分支与 DbOp.cancel 字段——interrupt 句柄即取消单一真值（db_cancel → interrupt() → SQLite 安全点 interrupted → map_sql_err 映射 DbCancelled:）；AtomicBool import 下移测试模块；顺手清拆分批遗留 2 处 unused import（fs_cmds/pydantic_cmds）。cargo test 340 全绿零警告 |
 | TD-027-A5 | serviceTail 跨实例共享（A 组） | 2026-10-09 | 提交 `b4b439a`：模块级单变量缓冲改 `Map<实例id, string>` 分桶，多项目并行运行的就绪行缓冲互不污染；命中即弃 / closeTerminal / term-exit 自然退出 / disposeTerminal 工作区复位四路径清理（上限 512 字符/实例）。vitest 1342 全绿 |
 | TD-027-A6 | 模板热重载目录判定过宽（A 组） | 2026-10-09 | 提交 `4ab4277`：`endsWith("/config")` 收紧为 `/.opencharm`、`/.opencharm/config`、`/opencharm/config` 三前缀，工作区任意 xxx/config 变更不再触发 registry 全量 rebuild。取舍：OPENCHARM_DATA_ROOT 重定向非默认路径时用户层外部编辑热重载失效（面板内保存不受影响）。lt/01 e2e 5 条全绿 |
