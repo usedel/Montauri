@@ -98,3 +98,20 @@ def test_check_missing_expect_file(tmp_path):
     )
     assert r.returncode == 2
     assert "期望文件不存在" in r.stderr
+
+
+def test_check_timeout_interrupts_hung_script(tmp_path):
+    """TD-027 B6：长跑脚本超时 → 退出码 2 + 提示（不再无限挂起）。"""
+    script = tmp_path / "slow.py"
+    script.write_text("import time\ntime.sleep(30)\n", encoding="utf-8")
+    (tmp_path / "probe_expect.json").write_text(
+        json.dumps({"functions": []}), encoding="utf-8")
+    (tmp_path / "home").mkdir()
+    r = subprocess.run(
+        [sys.executable, "-m", "opencharm_probe.cli", "check", str(script),
+         "--timeout", "1"],
+        capture_output=True, text=True, env=_env(tmp_path), cwd=str(PROBE_ROOT),
+        encoding="utf-8", errors="replace",
+    )
+    assert r.returncode == 2
+    assert "超时" in r.stderr

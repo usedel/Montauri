@@ -174,13 +174,20 @@ def _cmd_check(args) -> int:
     with open(expect_path, encoding="utf-8") as f:
         expect = json.load(f)
 
-    # 注入运行（子进程，脚本目录为 cwd——同级 import 与 `python script.py` 一致）
+    # 注入运行（子进程，脚本目录为 cwd——同级 import 与 `python script.py` 一致）。
+    # TD-027 B6：timeout 兜底——交互脚本 input() 等此前会无限挂起 check 命令。
     env = _inject_env(script)
     env["OPENCHARM_PROBE_QUIET"] = "1"
     cmd = ["uv", "run", "python", script] if args.uv else [sys.executable, script]
-    proc = subprocess.run(cmd, env=env, cwd=os.path.dirname(script),
-                          capture_output=True, text=True,
-                          encoding="utf-8", errors="replace")
+    try:
+        proc = subprocess.run(cmd, env=env, cwd=os.path.dirname(script),
+                              capture_output=True, text=True,
+                              encoding="utf-8", errors="replace",
+                              timeout=max(args.timeout, 0.1))
+    except subprocess.TimeoutExpired:
+        print(f"[opencharm-probe] ✗ 脚本运行超时（>{args.timeout}s，可能是交互脚本 "
+              f"input() 挂起；用 --timeout N 调整）", file=sys.stderr)
+        return 2
     if proc.returncode != 0:
         print(f"[opencharm-probe] ✗ 脚本运行失败（exit {proc.returncode}）",
               file=sys.stderr)
@@ -274,6 +281,8 @@ def main(argv: list[str] | None = None) -> int:
                          help="用目标项目 venv 运行（uv run python，依赖第三方包时）")
     p_check.add_argument("--threshold", type=float, default=98.0,
                          help="正确率阈值（%%，默认 98）")
+    p_check.add_argument("--timeout", type=float, default=60.0,
+                         help="脚本运行超时秒数（默认 60；交互脚本 input() 挂起保护，TD-027 B6）")
     p_check.set_defaults(func=_cmd_check)
 
     args = parser.parse_args(argv)
