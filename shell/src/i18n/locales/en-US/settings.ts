@@ -17,6 +17,7 @@ export const settings: Record<SettingsKey, string> = {
   // ---- settings.kw ----
   "settings.kw.autosave": "autosave",
   "settings.kw.bracketColors": "bracket colorization",
+  "settings.kw.bracketPairGuides": "bracket pair guides nesting",
   "settings.kw.cleanLogs": "logs clean",
   "settings.kw.cleanWebview": "cache webview clean",
   "settings.kw.dataOpen": "data directory",

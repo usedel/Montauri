@@ -58,6 +58,9 @@ export interface Settings {
   sticky_scroll: boolean;
   /** 参数名行内提示（PR-N · dx_features_backlog §6.8：调用处灰字 `name=`，走 pyrefly inlayHint） */
   inlay_param_hints: boolean;
+  /** 括号对参考线（T6a · 微交互批：Monaco guides.bracketPairs，VSCode 默认开；
+   *  嵌套 dict/JSON 深的代码可读性受益） */
+  bracket_pair_guides: boolean;
   /** 调试「只步进我的代码」（B-3：不误入 site-packages；改动需重启调试会话生效） */
   debug_just_my_code: boolean;
   autosave: string;
@@ -216,6 +219,8 @@ export const DEFAULT_SETTINGS: Settings = {
   sticky_scroll: true,
   // PR-N：参数名行内提示默认开（PyCharm 同款感知；走 pyrefly inlayHint，见 lsp/client.ts）
   inlay_param_hints: true,
+  // T6a：括号对参考线默认开（VSCode guides.bracketPairs 同款默认；!== false 兼容旧配置）
+  bracket_pair_guides: true,
   // B-3（PyCharm 调研）：只步进我的代码，默认开（与 DAP attach 硬编码时代行为一致）
   debug_just_my_code: true,
   // autosave 默认 delay 2s（PyCharm 式数据安全优先，对标 VSCode/PyCharm 调研结论）；

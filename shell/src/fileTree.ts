@@ -10,6 +10,7 @@ import { basename, ensurePyExtension, normalizePath, samePath, stripPyExtension,
 import { refreshGitStatus, stageFiles, showDiffForPath, showBlame, showFileHistory, gitFileOriginalPath } from "./git";
 import { gitStatusOf, isGitRepoActive, isGitDirtyDir, isGitIgnored } from "./gitStatusState";
 import { treeHealthOf } from "./treeHealthState";
+import { runningPathsOf } from "./runState";
 import { openTerminalAt } from "./termUi";
 import * as mdPreview from "./markdownPreview"; // Markdown 预览（.md 右键「打开预览」）
 import { closePreviewTabIfExists } from "./mdPreviewTab"; // md 双击提升：先收预览 Tab 再开编辑
@@ -247,6 +248,10 @@ function renderTreeItem(e: Entry, depth: number, opts?: { isRoot?: boolean }): H
     if (h === "error") item.classList.add("has-error");
     else if (h === "warning") item.classList.add("has-warning");
   }
+
+  // 运行中指示（T1 · PyCharm/VSCode 树侧运行状态同款）：脚本实例在跑时文件名旁转圈。
+  // 数据源与 tab 的 .tab-running 同源（runningPathsOf）；diff/db/md tab 无树语义不涉及。
+  if (!e.is_dir && runningPathsOf().has(e.path)) item.classList.add("tree-running");
 
   item.addEventListener("click", (ev) => {
     selectEntry(e, item, ev);
@@ -1148,6 +1153,17 @@ export function refreshTreeHealthClasses(): void {
     const h = treeHealthOf(path);
     el.classList.toggle("has-error", h === "error");
     el.classList.toggle("has-warning", h === "warning");
+  }
+}
+
+/** 已渲染树节点的运行中 class 全量同步（运行态变化点回调，与 renderTabs 同时机）。
+ *  T1：树可见时运行启动/结束即时可见；不可见则下次渲染自然带上（renderTreeItem 现算）。 */
+export function refreshTreeRunningClasses(): void {
+  const running = runningPathsOf();
+  for (const el of treeEl.querySelectorAll<HTMLElement>(".tree-item.file")) {
+    const path = el.dataset.path;
+    if (!path) continue;
+    el.classList.toggle("tree-running", running.has(path));
   }
 }
 

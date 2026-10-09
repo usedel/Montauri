@@ -936,6 +936,22 @@ button:focus-visible,
    的文件才有色。规则顺序保证优先级：error > warning > ignored > 正常 */
 .tree-item.file.has-error .name { color: var(--danger); }
 .tree-item.file.has-warning .name { color: var(--warn); }
+/* 运行中指示（T1）：文件名旁转圈（.tab-running 同款 codicon loading 字形），与错误/
+   警告着色可并存（转圈在名字后追加，不覆盖颜色）。伪元素挂不了 codicon-modifier-spin
+   类，动画就地声明；reduce-motion 用 animation:none 压制（静止圆弧仍表「加载中」，
+   UI-11 同款取舍）。 */
+.tree-item.tree-running::after {
+  font-family: "codicon";
+  content: "\eb19"; /* codicon-loading */
+  font-size: var(--text-xs);
+  color: var(--brand);
+  margin-left: auto;
+  padding-right: var(--space-2);
+  animation: oc-spin 1.5s steps(12) infinite;
+}
+@keyframes oc-spin { to { transform: rotate(360deg); } }
+html[data-reduce-motion] .tree-item.tree-running::after { animation: none; }
+@media (prefers-reduced-motion: reduce) { .tree-item.tree-running::after { animation: none; } }
 /* 工作区根节点：名称加粗，作为树的视觉锚点（对齐 VS Code / JetBrains 的根文件夹） */
 .tree-item.tree-root .name { font-weight: 600; }
 .tree-item .twisty { width: 12px; flex: none; color: var(--fg-dim); font-size: var(--text-sm); }
@@ -1049,6 +1065,9 @@ button:focus-visible,
   max-width: 200px;
 }
 .tab.active { background: var(--tab-active-bg); color: var(--fg); border-top: 2px solid var(--brand); }
+/* T4：拖拽排序插入位指示（VSCode 同款细竖线，左右半区判定） */
+.tab.drop-before { box-shadow: -2px 0 0 0 var(--accent); }
+.tab.drop-after { box-shadow: 2px 0 0 0 var(--accent); }
 /* D2 P-08：标签页文件类型图标槽位 */
 .tab .icon {
   width: 16px; height: 16px;
@@ -2191,6 +2210,10 @@ button:focus-visible,
   text-overflow: ellipsis;
   max-width: 42%;
 }
+/* T2：光标位置芯片（cursorStatus.ts 驱动）。flex none 防被 #status-file 的截断挤压；
+   颜色走 --fg-dim（状态栏次要信息档，与 #status-lsp 同级） */
+#status-cursor { flex: none; color: var(--fg-dim); font-size: var(--text-xs); user-select: none; }
+#status-cursor:hover { color: var(--fg); }
 /* UI-21：分支名可长（feature/xxx），补 max-width + 截断，避免窄窗口顶破状态栏 */
 #status-git { color: var(--git-branch); overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
 #status-interpreter { overflow: hidden; text-overflow: ellipsis; max-width: 120px; }

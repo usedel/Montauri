@@ -79,6 +79,8 @@ const settingsIndentGuidesEl = lazyEl<HTMLInputElement>("settings-indent-guides"
 const settingsBracketColorsEl = lazyEl<HTMLInputElement>("settings-bracket-colors");
 // PR-B（dx_features_backlog §6.2）：粘性滚动
 const settingsStickyScrollEl = lazyEl<HTMLInputElement>("settings-sticky-scroll");
+// T6a（微交互批）：括号对参考线
+const settingsBracketPairGuidesEl = lazyEl<HTMLInputElement>("settings-bracket-pair-guides");
 // PR-N（dx_features_backlog §6.8）：参数名行内提示
 const settingsInlayParamHintsEl = lazyEl<HTMLInputElement>("settings-inlay-param-hints");
 // PR-C（dx_features_backlog §6.3）：保存清理
@@ -172,6 +174,7 @@ let SETTINGS_ROW_KEYWORDS: Record<string, string> = {
   "settings-minimap": t("settings.kw.minimap"),
   "settings-indent-guides": t("settings.kw.indentGuides"),
   "settings-bracket-colors": t("settings.kw.bracketColors"),
+  "settings-bracket-pair-guides": t("settings.kw.bracketPairGuides"),
   "settings-debug-jmc": t("settings.kw.debugJmc"),
   "settings-autosave": t("settings.kw.autosave"),
   "settings-format-on-save": t("settings.kw.formatOnSave"),
@@ -451,9 +454,13 @@ export function buildEditorOptions(settings: Settings): MonacoApi.editor.IEditor
     minimap: { enabled: settings.minimap },
     // C-6（PyCharm 调研）：可读性——缩进参考线（含当前层级高亮）+ 括号彩色化。
     // 旧配置无这两个字段时 serde(default) 落在 false，故用 `!== false` 兜底为开。
+    // T6a（微交互批）：bracketPairs 括号对参考线（VSCode 默认开）——Monaco 出厂默认
+    // false，此前未配置即无参考线；显式接线后由设置开关控制。
     guides: {
       indentation: settings.indent_guides !== false,
       highlightActiveIndentation: settings.indent_guides !== false,
+      bracketPairs: settings.bracket_pair_guides !== false,
+      bracketPairsHorizontal: settings.bracket_pair_guides !== false,
     },
     bracketPairColorization: { enabled: settings.bracket_colors !== false },
     // 方案 2：收窄行号右侧的折叠箭头区。Monaco 默认 lineDecorationsWidth=10，且 folding 开启时
@@ -633,9 +640,15 @@ function readKeybindingForm(): Record<string, string> {
 
 // ---------- 设置面板（P25-T09 + P1） ----------
 
-function clampFontSize(raw: number, fallback: number): number {
+/** 字号范围常量（与 DEFAULT_SETTINGS.font_size 的默认值配套；Rust 侧 serde 兜底同口径） */
+export const FONT_SIZE_MIN = 8;
+export const FONT_SIZE_MAX = 32;
+
+/** 字号范围钳制（8~32px；wheel 缩放 / 设置面板 / Rust 侧 serde 兜底共用口径）。
+ *  T3 导出：main.ts 的 Ctrl+滚轮与 Ctrl+0 复位同源引用，消除魔法数漂移。 */
+export function clampFontSize(raw: number, fallback: number): number {
   const n = Number.isFinite(raw) ? raw : fallback;
-  return Math.max(8, Math.min(32, n));
+  return Math.max(FONT_SIZE_MIN, Math.min(FONT_SIZE_MAX, n));
 }
 
 /**
@@ -721,6 +734,7 @@ function fillForm(settings: Settings): void {
   settingsBracketColorsEl.checked = settings.bracket_colors !== false;
   settingsStickyScrollEl.checked = settings.sticky_scroll !== false; // PR-B
   settingsInlayParamHintsEl.checked = settings.inlay_param_hints !== false; // PR-N
+  settingsBracketPairGuidesEl.checked = settings.bracket_pair_guides !== false; // T6a
   settingsTrimTrailingEl.checked = settings.trim_trailing_whitespace !== false; // PR-C
   settingsFinalNewlineEl.checked = settings.final_newline !== false;
   // PR-K：默认关，旧配置缺字段时兜底关（与 DEFAULT_SETTINGS 同向，!== true 反向兼容不适用）
@@ -863,6 +877,7 @@ async function commitSettingsPanel(closeAfter: boolean): Promise<boolean> {
   const bracketColors = settingsBracketColorsEl.checked;
   const stickyScroll = settingsStickyScrollEl.checked; // PR-B
   const inlayParamHints = settingsInlayParamHintsEl.checked; // PR-N
+  const bracketPairGuides = settingsBracketPairGuidesEl.checked; // T6a
   const trimTrailing = settingsTrimTrailingEl.checked; // PR-C
   const finalNewline = settingsFinalNewlineEl.checked;
   const newFileTemplate = settingsNewFileTemplateEl.checked; // PR-K
@@ -904,6 +919,7 @@ async function commitSettingsPanel(closeAfter: boolean): Promise<boolean> {
     bracket_colors: bracketColors,
     sticky_scroll: stickyScroll,
     inlay_param_hints: inlayParamHints,
+    bracket_pair_guides: bracketPairGuides, // T6a
     trim_trailing_whitespace: trimTrailing,
     final_newline: finalNewline,
     new_file_template: newFileTemplate, // PR-K
@@ -1054,6 +1070,7 @@ export function wireSettingsPanel(): void {
       "settings-minimap": t("settings.kw.minimap"),
       "settings-indent-guides": t("settings.kw.indentGuides"),
       "settings-bracket-colors": t("settings.kw.bracketColors"),
+      "settings-bracket-pair-guides": t("settings.kw.bracketPairGuides"),
       "settings-debug-jmc": t("settings.kw.debugJmc"),
       "settings-autosave": t("settings.kw.autosave"),
       "settings-format-on-save": t("settings.kw.formatOnSave"),

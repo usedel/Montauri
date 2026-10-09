@@ -351,6 +351,7 @@ export const core = {
   "settings.editor.sectionEditorLabel7": "括号彩色化",
   "settings.editor.sectionEditorLabel8": "粘性滚动（作用域头部常驻）",
   "settings.editor.sectionEditorLabel9": "参数名行内提示（调用处灰字）",
+  "settings.editor.sectionEditorLabel22": "括号对参考线（嵌套层级竖线）",
   "settings.editor.wordWrap.off": "关闭",
   "settings.editor.wordWrap.on": "开启",
   // UI-31：设置面板分类内分组标题（编辑器 20+ 项复选框墙 → 四组，其余密集分类同步分组）
@@ -492,6 +493,11 @@ export const core = {
   "status.statusGit": "当前分支",
   "status.statusInterpreter": "点击管理 Python 环境 · OpenCharm 以 uv 管理依赖",
   "status.statusMem": "资源占用（外壳 + 子进程）· 点击查看明细",
+  // ---- status.cursor（T2：状态栏光标位置芯片） ----
+  "status.cursor.position": "行 {line}，列 {column}",
+  "status.cursor.selected": "{chars} 个字符已选择",
+  "status.cursor.selectedLines": "{lines} 行（{chars} 个字符）已选择",
+  "status.cursor.aria": "光标位置（点击转到指定行）",
   // ---- storage ----
   "storage.obCustom": "自定义位置…",
   "storage.obDefault": "使用默认位置",

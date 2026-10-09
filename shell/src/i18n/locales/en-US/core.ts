@@ -352,6 +352,7 @@ export const core: Record<CoreKey, string> = {
   "settings.editor.sectionEditorLabel7": "Bracket Pair Colorization",
   "settings.editor.sectionEditorLabel8": "Sticky Scroll (scope header stays on top)",
   "settings.editor.sectionEditorLabel9": "Parameter Name Hints (gray inline text at call sites)",
+  "settings.editor.sectionEditorLabel22": "Bracket Pair Guides (nesting level lines)",
   "settings.editor.wordWrap.off": "Off",
   "settings.editor.wordWrap.on": "On",
   // UI-31: group titles inside settings categories
@@ -493,6 +494,11 @@ export const core: Record<CoreKey, string> = {
   "status.statusGit": "Current Branch",
   "status.statusInterpreter": "Click to manage Python environments · OpenCharm manages dependencies with uv",
   "status.statusMem": "Resource usage (shell + child processes) · click for details",
+  // ---- status.cursor (T2: status bar cursor position chip) ----
+  "status.cursor.position": "Ln {line}, Col {column}",
+  "status.cursor.selected": "{chars} selected",
+  "status.cursor.selectedLines": "{lines} lines ({chars} chars) selected",
+  "status.cursor.aria": "Cursor position (click to go to line)",
   // ---- storage ----
   "storage.obCustom": "Custom Location…",
   "storage.obDefault": "Use Default Location",

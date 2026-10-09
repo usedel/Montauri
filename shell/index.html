@@ -442,6 +442,8 @@
       </div>
       <footer id="statusbar">
         <span id="status-file"></span>
+        <!-- T2：光标位置芯片（cursorStatus.ts 驱动）——「Ln 42, Col 8」+ 选区计数；点击 = 跳行（Ctrl+G 同入口） -->
+        <span id="status-cursor" class="hidden" style="cursor:pointer" role="button" tabindex="0"></span>
         <!-- UI-09：与同栏的 #status-interpreter / #status-engine 统一走 data-tip，消除状态栏内的 tooltip 双轨 -->
         <span data-i18n-tip="status.statusGit" id="status-git" data-tip="当前分支" style="cursor:default"></span>
         <span class="spacer"></span>
@@ -939,6 +941,11 @@
                   <div class="settings-row">
                     <label data-i18n="settings.editor.sectionEditorLabel9" for="settings-inlay-param-hints">参数名行内提示（调用处灰字）</label>
                     <input id="settings-inlay-param-hints" type="checkbox" />
+                  </div>
+                  <!-- T6a（微交互批）：括号对参考线（VSCode guides.bracketPairs 默认开；嵌套 dict/JSON 深的爬虫代码可读性受益） -->
+                  <div class="settings-row">
+                    <label data-i18n="settings.editor.sectionEditorLabel22" for="settings-bracket-pair-guides">括号对参考线（嵌套层级竖线）</label>
+                    <input id="settings-bracket-pair-guides" type="checkbox" />
                   </div>
                 </div>
               </div>

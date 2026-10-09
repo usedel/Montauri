@@ -92,6 +92,10 @@ export const ide = {
   // ---- ide.res ----
   "ide.res.summary.one": "合计 {mb} MB · 子进程 {count} 个",
   "ide.res.summary.other": "合计 {mb} MB · 子进程 {count} 个",
+  // ---- ide.ws（T6b：空白字符渲染切换） ----
+  "ide.ws.actionLabel": "显示空白字符",
+  "ide.ws.enabled": "已显示空白字符",
+  "ide.ws.disabled": "已隐藏空白字符（选区内仍显示）",
   // ---- ide.ruff ----
   "ide.ruff.actionLabel": "忽略此规则（行尾添加 # noqa）",
   "ide.ruff.added": "已添加 # noqa: {code}",

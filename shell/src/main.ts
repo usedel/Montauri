@@ -42,6 +42,8 @@ import { registerAutoImportCompletion, resetAutoImportIndex } from "./autoImport
 import { initRenameWidget, setAfterRenameHandler, resetPydanticRenameWarn } from "./renameWidget";
 import { initClipboardDiffAction } from "./clipboardDiff"; // C-5：与剪贴板对比（右键菜单）
 import { initNoqaAction } from "./ruffLint"; // D-4：忽略此规则（# noqa，右键菜单）
+import { initWhitespaceAction } from "./whitespaceToggle"; // T6b：显示空白字符（右键菜单，视图级开关）
+import { setTabDragHandlers, wireTabDnD, wireTabDragEnd } from "./tabDragSort"; // T4：tab 拖拽排序
 import { installPasteJson } from "./pasteJson"; // PR-M（dx_features_backlog §6.6）：粘贴 JSON → Python 字面量
 import { initQuickFixActions, resetQuickFixCache } from "./quickFix"; // P4：D-1 缺失 import 兜底 + D-2 就地创建符号
 import { breakDownSaveErrors, saveErrorToastMessage, revealFirstError } from "./markerNavigation"; // 诊断导航 + 保存错误分类（F8 / 保存 toast 定位）
@@ -52,9 +54,10 @@ import * as lsp from "./lsp/client";
 import * as kb from "./keybindings";
 import { appendOutputLine, clearOutput, setOutputLevelColorsEnabled, setOutputTracebackHandler, setOutputUrlHandler } from "./output";
 import { openConfirm } from "./dialog";
-import { app, $, lazyEl, outputEl, statusFileEl, type SaveOptions, type Tab } from "./state";
+import { wireCursorStatus, refreshCursorStatus } from "./cursorStatus"; // T2：状态栏光标位置芯片
+import { app, $, lazyEl, outputEl, statusFileEl, DEFAULT_SETTINGS, type SaveOptions, type Tab } from "./state";
 import {
-  isDirExpanded, isTreeEmpty, refreshTree, reloadDir,
+  isDirExpanded, isTreeEmpty, refreshTree, reloadDir, refreshTreeRunningClasses,
   renderCtxMenu, resetTreeState, scheduleFollowReveal, setFileTreeHandlers, wireFileTree, type CtxItem,
 } from "./fileTree";
 import {
@@ -69,7 +72,7 @@ import {
 import { addRunDataConsumer } from "./runDataBus"; // B5 §6.8：运行输出多播的消费方注册
 import { setTerminalLinkHandler, setTerminalUrlHandler } from "./terminal";
 import { setExternalUrlOpener } from "./termUi";
-import { loadSettings, saveSettings, applyFontStatus, setSettingsPanelHandlers, wireSettingsPanel, buildEditorOptions, ensureEditorFontLoaded } from "./settingsPanel";
+import { loadSettings, saveSettings, applyFontStatus, setSettingsPanelHandlers, wireSettingsPanel, buildEditorOptions, ensureEditorFontLoaded, clampFontSize } from "./settingsPanel";
 import { checkFirstRunStorage } from "./storagePanel";
 import { cancelPendingSessionSave, restoreSession, scheduleSessionSave, saveSessionNow, setSessionHandlers } from "./session"; // A-5 会话恢复
 import { wireResourcePanel } from "./resourcePanel"; // A-1 资源可观测
@@ -1090,6 +1093,7 @@ function activateTab(tab: Tab, opts?: { focusEditor?: boolean }): void {
   scheduleBreadcrumbs(); // P2：面包屑跟随激活文件
   refreshBookmarkGutter(); // P2：书签标记跟随激活文件
   renderProblemsChip(); // 问题芯片：切 tab 立即按新文件的 marker 刷新（不等 500ms 防抖）
+  refreshCursorStatus(); // T2：光标位置芯片按新 tab 的 viewState 刷新（隐藏/显示 + 位置）
   void lintActiveFile(); // P2：ruff 实时 lint（切 tab 立即跑，不等防抖）
   mdPreview.updatePreviewVisibility(); // Markdown 预览：切换 tab 后按「是否 md + 开关」刷新显隐
   // 鼠标切 tab / 关 tab 后焦点落回编辑器（打字立即生效）；tab 键盘激活路径传 false，
@@ -1280,6 +1284,8 @@ export function renderTabs(): void {
       ev.stopPropagation();
       showTabContextMenu(tab, ev.clientX, ev.clientY);
     });
+    // T4：拖拽排序（tabDragSort.ts 外提模块——预算红线后拆分；main 只保留接线）
+    wireTabDnD(el, tab.path);
     tabbarEl.appendChild(el);
   }
   // UI-16：焦点恢复（原焦点 tab 已被关闭时落到激活项，与鼠标行为一致）
@@ -1294,6 +1300,9 @@ export function renderTabs(): void {
   tabbarEl.querySelector<HTMLElement>(".tab.active")?.scrollIntoView({ block: "nearest", inline: "nearest" });
   // 运行组按钮随 tab / 运行态一起重绘（renderTabs 覆盖了大多数状态变化点）
   renderRunWidget(runWidgetState());
+  // T1：树侧运行中指示与 tab 同步（renderTabs 恰是全部运行态变化点的汇聚处——
+  // runFlow 各状态迁移都调 h().renderTabs()；树不可见时刷新空 DOM 无开销）
+  refreshTreeRunningClasses();
 }
 
 /** Optimize Imports（P0，Ctrl+Alt+O）：整理当前 Python 文件的导入（排序 + 删无用）。 */
@@ -1744,6 +1753,8 @@ async function init(): Promise<void> {
   // A-5：光标移动同样刷新会话快照（防抖），恢复时才落回原处
   app.editor.onDidChangeCursorPosition(() => scheduleSessionSave());
   applyFontStatus();
+  // T2：状态栏光标位置芯片（wire 一次；activateTab 里随 tab 切换刷新显示/隐藏）
+  wireCursorStatus();
 
   // C-4：分屏域接线（buildOptions 注入防 settingsPanel ⇄ splitEditor 成环；
   // 右键动作入 lspProviders 随编辑器生命周期统一释放）
@@ -1763,17 +1774,45 @@ async function init(): Promise<void> {
   
 
   // 字体缩放：Ctrl+滚轮 8-32px，状态栏显示，存全局配置（P25-T08）
-  app.editor.getDomNode()?.addEventListener("wheel", (e: WheelEvent) => {
+  // T3 补齐（2026-10-09 微交互批）：① Ctrl+0 一键复位默认字号（VSCode 同款）；
+  // ② 分屏编辑器同源刷新（此前只有主编辑器，分屏字体脱节）；③ 范围常量与
+  // settingsPanel::clampFontSize / state.ts 默认值同源引用（不再各写魔法数）。
+  // ⚠ 挂点改 #editor 外层容器 + capture（T3 e2e 探针三连实测修正）：
+  //   · Monaco 的 wheelHandler 在内层节点 stopPropagation，冒泡阶段收不到；
+  //   · getDomNode() 的实际节点与 querySelector(".monaco-editor") 不保证同层
+  //    （页面存在多个 .monaco-editor 实例时漂移）——挂外层容器是必经之路，双保险。
+  $("editor").addEventListener("wheel", (e: WheelEvent) => {
     if (!e.ctrlKey || e.shiftKey) return;
     e.preventDefault();
     const delta = e.deltaY > 0 ? -1 : 1;
-    const next = Math.max(8, Math.min(32, app.settings.font_size + delta));
+    const next = clampFontSize(app.settings.font_size + delta, app.settings.font_size);
     if (next === app.settings.font_size) return;
     app.settings.font_size = next;
     app.editor.updateOptions({ fontSize: next });
+    splitEditor.refreshSplitEditorOptions(); // C-4：分屏同源（buildOptions 读 app.settings 现值）
     applyFontStatus();
     void saveSettings();
-  }, { passive: false });
+  }, { capture: true, passive: false });
+
+  // T3：Ctrl+0 一键复位默认字号（VSCode 同款；与 Ctrl+滚轮同族的轻量手势，
+  // 不进键位表——刻意保持与 wheel 缩放相同的「直接生效 + 存盘」语义）。
+  // window 级挂载：输入框聚焦时 Ctrl+0 也是复位（WebView2 的浏览器缩放复位被
+  // 我们接管语义；焦点在 Monaco 时 keydown 冒泡到 window，两条路径合一）。
+  window.addEventListener("keydown", (e) => {
+    if (e.code !== "Digit0" && e.code !== "Numpad0") return;
+    if (!e.ctrlKey || e.shiftKey || e.altKey || e.metaKey) return;
+    e.preventDefault(); // 吞掉浏览器页面缩放复位
+    if (app.settings.font_size === DEFAULT_SETTINGS.font_size) return;
+    app.settings.font_size = DEFAULT_SETTINGS.font_size;
+    app.editor.updateOptions({ fontSize: app.settings.font_size });
+    splitEditor.refreshSplitEditorOptions();
+    applyFontStatus();
+    void saveSettings();
+  });
+
+  // T4：拖拽排序（tabDragSort.ts 外提模块接线：handlers + dragend 收尾）
+  setTabDragHandlers({ onMoved: () => { renderTabs(); scheduleSessionSave(); } });
+  wireTabDragEnd(tabbarEl);
 
   // 标签栏滚轮横滚（标签多时鼠标滚轮纵向增量转横向滚动，与触控板行为一致）
   tabbarEl.addEventListener("wheel", (e: WheelEvent) => {
@@ -1871,6 +1910,7 @@ async function init(): Promise<void> {
   lspProviders.add(initClipboardDiffAction(app.editor)); // C-5：右键菜单「与剪贴板对比」
   lspProviders.add(initNoqaAction(app.editor)); // D-4：右键菜单「忽略此规则（# noqa）」
   lspProviders.add(installPasteJson(app.editor)); // PR-M：粘贴 JSON → Python 字面量（onDidPaste 拦截）
+  lspProviders.add(initWhitespaceAction(app.editor)); // T6b：右键菜单「显示空白字符」（视图级开关）
   initQuickFixActions(); // P4：D-1/D-2 自研快速修复（Ctrl+. 灯泡；registerCodeActionProvider 自持 dispose 无需入 store）
   lspProviders.add(lsp.registerLspSignatureHelp()); // 签名帮助（参数提示）
   lspProviders.add(lsp.registerLspCodeAction()); // Ctrl+. 快速修复

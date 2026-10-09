@@ -16,6 +16,7 @@ export const settings = {
   // ---- settings.kw ----
   "settings.kw.autosave": "autosave 自动保存",
   "settings.kw.bracketColors": "bracket colorization 括号颜色",
+  "settings.kw.bracketPairGuides": "bracket pair guides 括号对参考线 嵌套",
   "settings.kw.cleanLogs": "logs 清理日志",
   "settings.kw.cleanWebview": "cache webview 清理缓存",
   "settings.kw.dataOpen": "data directory 数据目录",

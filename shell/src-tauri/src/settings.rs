@@ -138,6 +138,8 @@ pub struct Settings {
     pub sticky_scroll: bool,
     /// 参数名行内提示（PR-N：调用处灰字 `name=`；须与前端 inlay_param_hints 同步）
     pub inlay_param_hints: bool,
+    /// 括号对参考线（T6a 微交互批：Monaco guides.bracketPairs；须与前端 bracket_pair_guides 同步）
+    pub bracket_pair_guides: bool,
     /// 保存时清理行尾空白（PR-C；仅显式保存触发，autosave/运行前跳过；须与前端同步）
     pub trim_trailing_whitespace: bool,
     /// 保存时确保文件以换行结束（PR-C；仅显式保存触发；须与前端同步）
@@ -252,6 +254,8 @@ impl Default for Settings {
             bracket_colors: true,
             sticky_scroll: true,
             inlay_param_hints: true,
+            // T6a：默认开（VSCode guides.bracketPairs 同款默认；与前端 DEFAULT_SETTINGS 同步）
+            bracket_pair_guides: true,
             trim_trailing_whitespace: true,
             final_newline: true,
             // PR-K：默认关（避免污染草稿流；与前端 DEFAULT_SETTINGS 保持一致）

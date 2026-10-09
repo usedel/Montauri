@@ -161,19 +161,23 @@ test("E-BASIC-4 可读性配置：缩进参考线可在设置里关掉再打开�
   await expect(page.locator(".monaco-editor")).toBeVisible({ timeout: 20_000 });
   await expect(page.locator(".view-line", { hasText: "print(i)" }).first()).toBeVisible({ timeout: 10_000 });
 
+  // T6a 后 .core-guide 同时承载缩进线与括号对线（Monaco 共用类名）——计数口径
+  // 须两个开关同管：断言 0 前把 bracket_pair_guides 一并关掉（INDENTED 含 [ ] 嵌套）
   const guideCount = () => page.locator(".monaco-editor .core-guide").count();
-  await expect.poll(guideCount, { timeout: 5_000 }).toBeGreaterThan(0); // 默认开 → 有缩进线
+  await expect.poll(guideCount, { timeout: 5_000 }).toBeGreaterThan(0); // 默认开 → 有参考线
 
-  // 关掉：设置 → 编辑器 → 取消「缩进参考线」→ 保存
+  // 关掉：设置 → 编辑器 → 取消「缩进参考线」+「括号对参考线」→ 保存
   await page.keyboard.press("Control+Alt+S");
   await expect(page.locator("#settings-modal, .modal:has(#settings-save)").first()).toBeVisible({ timeout: 5_000 });
   await page.locator('.settings-nav-item[data-cat="editor"]').click();
   await expect(page.locator("#settings-indent-guides")).toBeVisible({ timeout: 5_000 });
   await page.locator("#settings-indent-guides").uncheck();
+  const bpg = page.locator("#settings-bracket-pair-guides");
+  if (await bpg.count() > 0) await bpg.uncheck();
   await page.locator("#settings-save").click();
   await expect.poll(guideCount, { timeout: 5_000 }).toBe(0);
 
-  // 再打开：勾选 → 保存 → 缩进线回来
+  // 再打开：勾选「缩进参考线」→ 保存 → 缩进线回来（只开缩进，验证独立开关语义）
   await page.keyboard.press("Control+Alt+S");
   await page.locator('.settings-nav-item[data-cat="editor"]').click();
   await page.locator("#settings-indent-guides").check();

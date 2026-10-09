@@ -93,6 +93,10 @@ export const ide: Record<IdeKey, string> = {
   // ---- ide.res ----
   "ide.res.summary.one": "Total {mb} MB · {count} child processes",
   "ide.res.summary.other": "Total {mb} MB · {count} child processes",
+  // ---- ide.ws (T6b: whitespace render toggle) ----
+  "ide.ws.actionLabel": "Show Whitespace",
+  "ide.ws.enabled": "Whitespace is now visible",
+  "ide.ws.disabled": "Whitespace hidden (still shown in selection)",
   // ---- ide.ruff ----
   "ide.ruff.actionLabel": "Ignore this rule (append # noqa at line end)",
   "ide.ruff.added": "Added # noqa: {code}",
