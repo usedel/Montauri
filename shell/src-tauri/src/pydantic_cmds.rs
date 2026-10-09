@@ -966,7 +966,6 @@ fn model_inherits_from(model_name: &str, ancestor: &str, root: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 

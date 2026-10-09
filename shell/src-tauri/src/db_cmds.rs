@@ -19,7 +19,6 @@ use std::collections::HashMap;
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Instant;
 
@@ -110,8 +109,6 @@ struct DbOp {
     conn: Mutex<Connection>,
     /// SQLite 协作式中断句柄（`db_cancel` 调用，让查询在下一个安全点返回 interrupted）
     interrupt: rusqlite::InterruptHandle,
-    /// 取消标志（供查询前后与未来流式场景判定）
-    cancel: AtomicBool,
     writable: bool,
 }
 
@@ -522,7 +519,6 @@ pub fn db_open(path: String, writable: bool) -> Result<DbConnection, String> {
         Arc::new(DbOp {
             conn: Mutex::new(conn),
             interrupt,
-            cancel: AtomicBool::new(false),
             writable,
         }),
     );
@@ -647,11 +643,9 @@ fn db_query_impl(id: &str, sql: &str, limit: u32, offset: u32) -> Result<DbQuery
     if is_write && !op.writable {
         return Err("DbReadOnly:只读模式下不允许写操作".to_string());
     }
-    // 新查询清除上一次的取消标志（取消是「中断这次」，不是「禁用以后」）
-    op.cancel.store(false, Ordering::SeqCst);
-    if op.cancel.load(Ordering::SeqCst) {
-        return Err("DbCancelled:查询已取消".to_string());
-    }
+    // 注：取消不查标志位——`db_cancel` 的 `interrupt()` 会让本查询在下一个安全点返回
+    // interrupted（经 map_sql_err 映射为 DbCancelled:），标志位仅留给未来流式场景。
+    // （TD-027 A1：原「先 store(false) 再 load」的检查恒 false，属不可达死代码，已删。）
 
     // 读路径：SQLite 的 prepare 只编译第一条语句，其余会被**静默丢弃**——显式拦下，
     // 免得用户以为整段都跑了（写路径走 execute_batch，天然支持多语句批处理）。
@@ -728,11 +722,12 @@ fn count_total(conn: &Connection, sql: &str) -> Option<i64> {
     conn.query_row(&q, [], |r| r.get(0)).ok()
 }
 
-/// 取消进行中的查询：置标志 + 触发 SQLite 协作式中断（查询会在下一个安全点返回 interrupted）。
+/// 取消进行中的查询：触发 SQLite 协作式中断（查询会在下一个安全点返回 interrupted，
+/// 经 `map_sql_err` 映射为 `DbCancelled:`）。标志位方案已随 TD-027 A1 删除——
+/// interrupt 句柄即为取消的单一真值（无需先置位再查询前检查）。
 #[tauri::command]
 pub fn db_cancel(id: String) -> Result<(), String> {
     let op = get_op(&id)?;
-    op.cancel.store(true, Ordering::SeqCst);
     op.interrupt.interrupt();
     Ok(())
 }
@@ -962,6 +957,7 @@ pub fn db_stop_for_exit() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     fn tmp_dir(tag: &str) -> PathBuf {
         let nanos = std::time::SystemTime::now()

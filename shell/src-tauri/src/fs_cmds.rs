@@ -793,7 +793,6 @@ pub fn create_scratch(ext: Option<String>) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
