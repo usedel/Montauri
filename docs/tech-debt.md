@@ -22,25 +22,27 @@
 
 > 2026-10-09 复核：TD-027 A 组 **A2/A3/A4/A7/A8 已随提交 `0c881b2` 修复**（表格内 ✅ 标记，并录已归档区）；A1/A5/A6/A9 仍在，位置列按当前代码校准（10-09 各批致行号漂移）。C5/C6 随命令层拆分批迁至 pydantic_cmds.rs。预警区刷新：git_cmds.rs 已解决、命令面 200/200 整顶格、main.ts 2372/2400 新增逼近项、TODO 句经核实撤销。
 
+> 2026-10-09 第一梯队清偿：**A1/A5/A6/A9 当日四提交修复**（`5514baf`/`b4b439a`/`4ab4277`/`5eb36d2`，均已录已归档区）——**A 组 9 条全部清零**。门禁：cargo test 340 / vitest 1342 / e2e-ui 66 / lsp·lt 针对性 14 / budget 全 PASS（顺手清拆分批遗留 2 处 unused import）。
+
 ### TD-027 2026-10-08 全项目代码审查批次（P2×42，其中 1 项已随 P1 修复；intel 杂项 1 项拆为 3 个卫生点）
 
 - **起因**：全项目代码审查（四个并行深审：shell/src TS、shell/src-tauri Rust、probe Python、intel Rust，逐行通读；全部 P0/P1 经主线读码复核实证）。
 - **已修复（当日 4 提交，未推送）**：`587d8a4` intel P0 退避死锁 + P1 didOpen 守卫/参数前跳钳制；`93c7648` probe P1 perf 帧偏移（`_monitored_frame` 按 code 搜帧）+ RAISE 回调 type_label 兜底；`05c5ce1` shell-rust P1 dap 杀树顺序×4 + strip_noise 字节等长（中文 SQL）；`8601264` shell-ts P0 diff→db 遮挡 + P1×5（model 复用/rename 防线、分屏 didChange 管线、logs 复位、activateConnection 令牌、lazyEl×5）。新增回归测试 6 条；git_cmds.rs:1864 unused var 顺手修复；probe「perf 模式测试缺 args 断言」已随帧偏移修复补上（`test_perf_mode_records_arg_observations`）。
 - **处理原则**：按 A 行为正确性 → B 健壮性 → C 性能（随 bench 节奏）→ D 规范卫生排序；每项独立成 PR，动前跑对应测试矩阵（C 组改 intel 热路径必须跑准确率红线 + 性能基线）。
 
-**A. 行为正确性（用户可感知，优先）**
+**A. 行为正确性（用户可感知，优先）—— 2026-10-09 全部清偿，9/9 归档**
 
 | # | 条目 | 位置 | 要点 |
 |---|---|---|---|
-| A1 | db_cancel 取消检查死代码 | db_cmds.rs:650-654 | store(false) 后紧跟 load 恒 false，DbCancelled 分支永不可达；先 load 再 store 或删除（实际取消靠 interrupt + map_sql_err，测试已覆盖） |
+| ~~A1~~ | ~~db_cancel 取消检查死代码~~ | ~~db_cmds.rs:650-654~~ | ✅ 已修（`5514baf`）：删不可达分支与 DbOp.cancel 字段，interrupt 句柄即取消单一真值（cancel_interrupts_running_query 仍绿锁定语义） |
 | ~~A2~~ | ~~git_apply_hunk 固定 patch 路径竞态~~ | ~~git_cmds.rs:517-525~~ | ✅ 已修（`0c881b2`）：patch 文件名加 nanos+pid+seq 唯一后缀，无论成败清理（git_cmds.rs:519-560） |
 | ~~A3~~ | ~~调试快捷键硬编码 threadId=1~~ | ~~windowKeys.ts:79-84~~ | ✅ 已修（`0c881b2`）：F5/F10/F11/Shift+F11 改 `currentThreadId()`（debugView.ts:81-83 单一真源），menuItems.ts 步进项同步 |
 | ~~A4~~ | ~~reopenConnection 顶掉活动连接~~ | ~~sqliteStore.ts:225-238~~ | ✅ 已修（`0c881b2`）：重开后重拉连接列表 + activeId 命中即 refreshTree（sqliteStore.ts:239-256）；conn_id 按归一化路径派生、同路径 id 稳定，无需迁移 |
-| A5 | serviceTail 跨实例共享 | termUi.ts:699-752 | 模块级单变量缓冲，多项目实例并行输出互相污染（注释自称按实例检测）；`watchServiceUrlLine` 的 `_id` 参数弃用是佐证 |
-| A6 | 模板热重载目录判定过宽 | main.ts:754-760 | `endsWith("/config")`——工作区任意 `xxx/config` 目录变更都触发两次 invoke + registry 全量 rebuild |
+| ~~A5~~ | ~~serviceTail 跨实例共享~~ | ~~termUi.ts:699-752~~ | ✅ 已修（`b4b439a`）：改 Map 按运行实例 id 分桶；命中即弃 / closeTerminal / term-exit / disposeTerminal 四路径清理 |
+| ~~A6~~ | ~~模板热重载目录判定过宽~~ | ~~main.ts:754-760~~ | ✅ 已修（`4ab4277`）：收紧为 `/.opencharm`、`/.opencharm/config`、`/opencharm/config` 三前缀；取舍：DATA_ROOT 重定向非默认路径时用户层外部编辑热重载失效 |
 | ~~A7~~ | ~~scope 搜索掩码大小写失配~~ | ~~search.ts:68 + searchFilters.ts:88-91~~ | ✅ 已修（`0c881b2`）：searchFilters.ts:90-95 正则加 `i` 标志；附回归测试 searchFilters.test.ts:91-102（`*.Py` 正反用例） |
 | ~~A8~~ | ~~`__init__` 回退全名精确匹配~~ | ~~intel completion.rs:305-310~~ | ✅ 已修（`0c881b2`）：resolve_callee 改取 callee 末段做段边界后缀匹配 + (非 stale, hits) 裁决（completion.rs:315-346）；附正负回归测试 |
-| A9 | didOpen languageId 恒 "python" | lsp/client.ts:480-489 | md/json/yaml 全发 python（didOpenText 492-501 同病）；当前引擎按 uri 扩展名容忍，换引擎可能放大 |
+| ~~A9~~ | ~~didOpen languageId 恒 "python"~~ | ~~lsp/client.ts:480-489~~ | ✅ 已修（`5eb36d2`）：改 `model.getLanguageId()`（Monaco 注册 id 与 LSP languageId 同源）；didOpenText 保留 "python"（rename 只作用 .py） |
 
 **B. 健壮性（触发面窄但后果重）**
 
@@ -91,7 +93,7 @@
 | D16 | dap attach spawn 失败路径泄漏 | dap.rs:612-614 | `stdout.take()` 失败即 return Err，child 已 spawn 无人杀（实际不可达——Stdio 已 piped；与 assemble 段防孤儿处理不对称，Err 路径补 kill） |
 | D17 | updateSyncCount 无请求令牌 | git.ts:182-197 | 连续 refreshGitStatus 的在途 `git_sync_status` 旧响应后到覆盖状态栏 ahead/behind（仅显示层，下次刷新自愈） |
 
-**预警（非缺陷，预算纪律提醒；2026-10-09 复核刷新）**：`hotspotsView.ts` 350/350 顶格、`lsp/client.ts` 1847/1850（余 3 行）、`main.ts` 2372/2400（**新增逼近项**，余 28 行；budgets.toml 注释仍写 2094 已过时，下次动 budgets 时顺带校准）、intel `server.rs` 647/700、**命令面 200/200 整顶格**（10-09 拆分后实测 200 处，budgets 注释的 196/197 均过时）——下一批功能交付前应先安排拆分窗口（各条目在 budgets.toml 已注明拆分路径）。~~git_cmds.rs 1940/1950~~ 已随 10-09 命令层拆分批解决（现 1603/1900，worktree/clone 域外提至 git_worktree_cmds.rs 374/450）。~~TODO 标记清理~~ 撤销：经核实 endpointView.ts（8 处）/hotspotsView.ts（5 处）全是复用 todo 分组样式的 CSS 类名与模块引用，quickFix.ts（3 处）是快捷修复有意插入用户代码的 `# TODO` 桩注释——均非开发遗留标记，无需清理。
+**预警（非缺陷，预算纪律提醒；2026-10-09 复核刷新·第一梯队后）**：`hotspotsView.ts` 350/350 顶格、`lsp/client.ts` 1848/1850（余 2 行）、`main.ts` 2374/2400（余 26 行）、intel `server.rs` 647/700、intel `completion.rs` 1948/1950（新录入：A8 修复后逼近）、**命令面 200/200 整顶格**——下一批功能交付前应先安排拆分窗口（各条目在 budgets.toml 已注明拆分路径）。~~git_cmds.rs 1940/1950~~ 已随 10-09 命令层拆分批解决（现 1603/1900）。~~TODO 标记清理~~ 撤销：经核实 endpointView.ts（8 处）/hotspotsView.ts（5 处）全是复用 todo 分组样式的 CSS 类名与模块引用，quickFix.ts（3 处）是快捷修复有意插入用户代码的 `# TODO` 桩注释——均非开发遗留标记，无需清理。
 
 - **处理时机**：A 组先行（用户可感知）；B 组次之；C 组绑定 bench 回归节奏；D 组随批顺手清。任一项前先跑对应测试矩阵（shell → cargo test + vitest；probe → uv run pytest；intel → cargo test）。
 - **涉及文件**：见上表各列。
@@ -165,6 +167,10 @@
 
 | 编号 | 标题 | 完成日期 | 结论摘要 |
 |---|---|---|---|
+| TD-027-A1 | db_cancel 取消检查死代码（A 组） | 2026-10-09 | 提交 `5514baf`：删「store(false) 后紧跟 load」的不可达分支与 DbOp.cancel 字段——interrupt 句柄即取消单一真值（db_cancel → interrupt() → SQLite 安全点 interrupted → map_sql_err 映射 DbCancelled:）；AtomicBool import 下移测试模块；顺手清拆分批遗留 2 处 unused import（fs_cmds/pydantic_cmds）。cargo test 340 全绿零警告 |
+| TD-027-A5 | serviceTail 跨实例共享（A 组） | 2026-10-09 | 提交 `b4b439a`：模块级单变量缓冲改 `Map<实例id, string>` 分桶，多项目并行运行的就绪行缓冲互不污染；命中即弃 / closeTerminal / term-exit 自然退出 / disposeTerminal 工作区复位四路径清理（上限 512 字符/实例）。vitest 1342 全绿 |
+| TD-027-A6 | 模板热重载目录判定过宽（A 组） | 2026-10-09 | 提交 `4ab4277`：`endsWith("/config")` 收紧为 `/.opencharm`、`/.opencharm/config`、`/opencharm/config` 三前缀，工作区任意 xxx/config 变更不再触发 registry 全量 rebuild。取舍：OPENCHARM_DATA_ROOT 重定向非默认路径时用户层外部编辑热重载失效（面板内保存不受影响）。lt/01 e2e 5 条全绿 |
+| TD-027-A9 | didOpen languageId 恒 "python"（A 组） | 2026-10-09 | 提交 `5eb36d2`：改 `model.getLanguageId()`（Monaco 注册 id 与 LSP languageId 同源约定，零新依赖），md/json/yaml 不再全发 python；didOpenText 保留 "python"（rename 只作用 .py）。lsp/03 e2e 9 条全绿；client.ts 1848/1850 |
 | TD-027-A2 | git_apply_hunk 固定 patch 路径竞态（A 组） | 2026-10-09 | 提交 `0c881b2`：patch 文件名加 nanos+pid+单调序号唯一后缀（`.opencharm-hunk-{…}.patch`），写入后无论成败清理，快速连点互踩消除（git_cmds.rs:519-560，代码内留 `TD-027 A2` 标记） |
 | TD-027-A3 | 调试快捷键硬编码 threadId=1（A 组） | 2026-10-09 | 提交 `0c881b2`：F5/F10/F11/Shift+F11 改经 `currentThreadId()` 读 debugView 的 stopped 事件维护值（单一真源），menuItems.ts 菜单步进项同步改用同源（windowKeys.ts:78-87） |
 | TD-027-A4 | reopenConnection 顶掉活动连接（A 组） | 2026-10-09 | 提交 `0c881b2`：重开后重拉连接列表，activeId 命中新连接即 refreshTree 完成状态迁移；conn_id 按归一化路径哈希派生、同路径 id 天然稳定无需迁移（sqliteStore.ts:239-256） |
