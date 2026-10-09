@@ -1,6 +1,9 @@
 # 微交互差距调研与落地（PyCharm / VSCode 对标 · 微交互批）
 
 > 版本：v1.1 · 日期：2026-10-09 · 性质：调研报告 + 第一/第二梯队落地记录
+> v1.2（2026-10-09 傍晚）：**T5（外部文件拖入）已落地**（§3.8），第二梯队全部交付；
+> 验证基线更新：vitest 109 文件/1340 用例、e2e-ui 66/66、微交互 spec 12/12（08+09）、
+> Rust 339 用例、tsc 0 错、预算全 PASS（含 `#[tauri::command]` 200/200）。
 > v1.1（2026-10-09 下午）：**第二梯队 T4 + T6 已落地**（§3.6/§3.7），T5（外部文件拖入）
 > 仍登记备查；验证基线更新：vitest 108 文件/1332 用例、e2e-ui 66/66、微交互 spec 7/7。
 > 背景：以文件树装饰批（gitignore 灰显 + 错误/警告着色，commit `41eabcf`）为契机，
@@ -24,7 +27,7 @@
 | # | 行为 | 现状（落地前代码证据） | 状态 |
 |---|---|---|---|
 | T4 | tab 拖拽排序 | `renderTabs` 的 tab 元素无 `draggable`（main.ts 核实）；树有 DnD 但 tabbar 完全没有 | ✅ 已落地（§3.6） |
-| T5 | 外部文件拖入窗口打开 | 全局无 drop 处理；Tauri 2 `onDragDropEvent`（WebView2 通道）整链路缺失 | 登记备查（估约半天） |
+| T5 | 外部文件拖入窗口打开 | 全局无 drop 处理；Tauri 2 `onDragDropEvent`（WebView2 通道）整链路缺失 | ✅ 已落地（§3.8） |
 | T6 | 空白字符渲染切换（`renderWhitespace`）+ 括号对参考线（`guides.bracketPairs`） | `renderWhitespace` 全库 0 命中；`buildEditorOptions` 的 guides 只配了 indentation 没配 bracketPairs | ✅ 已落地（§3.7）
 
 ### 明确不借鉴（对照铁律与既有裁决）
@@ -177,13 +180,43 @@ v1.4 报告（`improvement_and_roadmap_report.md`）定义的维护态边界：�
 CSS 类**——bracketPairs 默认开后，「关缩进线 → 0 条参考线」的旧断言不再成立。spec
 适配：断言 0 前把两开关同关；重开只开缩进线（顺带验证独立开关语义）。
 
-### 3.8 验证基线（v1.1 更新）
+### 3.8 T5：外部文件拖入工作区（2026-10-09 傍晚落地）
 
-- `tsc` 0 错；`cargo test settings` 3/3（serde roundtrip 含新字段）；
-- vitest **108 文件 / 1332 用例全绿**（新增 tabDragSort 6 例）；
-- e2e：微交互 spec **7/7**（T2×2 + T3×2 + T4 + T6a + T6b）；editor 03 **4/4**
-  （E-BASIC-4 双开关口径适配后）；e2e-ui 门禁 **66/66**；
-- 预算：`main.ts` **2371/2400 PASS**（外提后）；`style.css` 5831/5850 PASS；
-- **环境方法论补一条**：e2e 大批量失败且报 `page.goto waiting for "load"` / 「编辑器
-  尚未初始化」时，先查 dev server 是否为**复用的陈旧实例**（依赖图过期，PR-P/Q 验收
-  登记过的同款）——`npm run e2e:clean` 后重跑即可分辨环境问题与真回归。
+**路线裁决（评估报告的核心结论）**：拿绝对路径须撤 `disable_drag_drop_handler` 走 wry
+原生 IDropTarget——但 wry 会 RevokeDragDrop 抢注 WebView2 的子 HWND，**HTML5 drop 全灭
+（T4 tab 拖拽 + 树内移动直接被杀）**，否决。选定 **HTML5 DnD 内容复制路线**：
+`File.arrayBuffer → base64 → write_dropped_file`（二进制安全；`write_file` 的字符串通道
+对非 UTF-8 会损坏）。
+
+**实现清单**：
+- Rust `file_ops.rs::write_dropped_file`：base64 解码 + 文件名合法性（拒 `/`、`..`）+
+  64MB 守卫 + `unique_target`「 - 副本」防覆盖 + 返回最终绝对路径（reveal 用）；
+- 前端 `shell/src/treeDropImport.ts`（纯逻辑模块，防 fileTree 膨胀）：`hasExternalFiles`
+  判定（`types.includes("Files")`——树内拖拽只有 text/plain，天然互斥）、`dropTargetDir`
+  落点、`bytesToBase64` 分块编码（32KB 块防 `+Array` 超栈）、`importDroppedFiles` 编排
+  （顺序执行，逐文件成败分桶）；
+- `fileTree.ts` 接线三处：目录条目 dragover/drop + 树空白（落根）+ dragover 的
+  `dropEffect = "copy"`（+ 号光标，与树内 move 区隔）；完成后 `reloadDir` 同步刷树
+  （不等 watcher 防抖）+ toast 汇总 + `revealInTree` 定位首个成功项；
+- 目录拖入不支持（File 对象无法表达目录树）→ 明确 toast 提示走资源管理器复制；
+- e2e bridge 三处登记（mock `FS_CMDS` + helpers `FS_DISPATCH_CMDS` + `FS_WRITE_CMDS`
+  watcher 通知）+ `dispatchFs` 镜像 Rust 语义（base64 + 「 - 副本」）。
+
+**测试**：单测 8 例（判定/落点/常量口径）；e2e 5 例（D1 落根 / D2 多文件计数 /
+D3 「 - 副本」不覆盖 / D4 落子目录 / **D5 树内拖拽回归**——text/plain 与 Files 载荷
+互斥性的产品级断言）。浏览器内 `new DataTransfer() + new File()` 构造 + `dispatchEvent`
+完整走真实链路（mock invoke → Node fs 真实写盘 → 树刷新 → toast → reveal）。
+
+**边界与限制**（真机验证清单）：OS 级光标形态（copy + 号）与真实资源管理器拖拽行为
+Playwright 不可测，需人工过一遍；多窗口场景 HTML5 DnD 只在窗口内，无跨窗口误拖风险。
+
+### 3.9 验证基线（v1.2 更新）
+
+- `tsc` 0 错；`cargo test --lib` **339 passed**（含 file_ops 既有用例）；
+- vitest **109 文件 / 1340 用例全绿**（新增 treeDropImport 8 例）；
+- e2e：微交互 spec **12/12**（08 的 7 例 + 09 的 5 例，含 T4 回归）；e2e-ui 门禁 **66/66**；
+- 预算：`#[tauri::command]` **200/200 恰好压线**（write_dropped_file 占了最后一个
+  名额——下一个新命令须先做拆分预算）；`dist/assets` 构建后 **5076/5120 PASS**；
+  `fs_cmds.rs` 4062/4000 与 `git_cmds.rs` 1954/1950 FAIL 为存量（本批未触碰），
+  待专项瘦身。
+

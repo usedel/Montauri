@@ -53,6 +53,12 @@ export const filetree: Record<FiletreeKey, string> = {
   "filetree.op.moveIntoSelf": "Cannot move a folder into its own subfolder",
   "filetree.op.pasteFailed.one": "Failed to paste 1 item: {names}",
   "filetree.op.pasteFailed.other": "Failed to paste {count} items: {names}",
+  // ---- filetree.drop (T5: drag external files into the workspace) ----
+  "filetree.drop.importedOne": "Imported {name}",
+  "filetree.drop.importedMany": "Imported {count} files",
+  "filetree.drop.dirUnsupported": "Dropping folders is not supported (copy them in Explorer)",
+  "filetree.drop.tooLarge": "\"{name}\" exceeds the 64 MB drop limit; copy it in Explorer",
+  "filetree.drop.importFailed": "Failed to import \"{name}\"",
   "filetree.op.pasteSkipped": "The target folder already contains items with the same name, skipped: {names} (move does not overwrite)",
   "filetree.op.revealExplorer": "Reveal in File Explorer",
   // ---- filetree.reveal ----

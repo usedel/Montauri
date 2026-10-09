@@ -128,6 +128,8 @@ pub fn run() {
             fs_cmds::workspace_has_python,
             fs_cmds::create_project,
             fs_cmds::create_scratch,
+            // 外部拖入文件落地（T5 · 微交互批）：base64 内容 + unique_target 防覆盖
+            file_ops::write_dropped_file,
             fs_cmds::format_python,
             fs_cmds::optimize_imports,
             fs_cmds::search_workspace,

@@ -592,7 +592,7 @@ async function dispatchGit(cmd: string, args: Record<string, unknown>, repo: Git
 /** fs 命令白名单（未列出的 fs 命令直接报错，避免静默 null 引发前端崩溃难排查） */
 const FS_DISPATCH_CMDS = new Set(["list_dir", "read_dir", "read_file", "read_file_base64", "write_file",
   "create_dir", "create_file", "create_py_package", "rename_path", "paste_path", "delete_file", "watch_start", "watch_stop", "list_workspace_files",
-  "create_project"]);
+  "write_dropped_file", "create_project"]);
 
 async function dispatchFs(cmd: string, args: Record<string, unknown>, repo: GitRepo): Promise<unknown> {
   const guard = (p: string): string => {
@@ -668,6 +668,29 @@ async function dispatchFs(cmd: string, args: Record<string, unknown>, repo: GitR
     }
     case "paste_path": {
       throw new Error("[e2e-fs] paste_path 未实现（当前用例不覆盖）");
+    }
+    // T5：对齐 Rust file_ops::write_dropped_file（base64 解码 + unique_target
+    // 「 - 副本」策略 + 返回最终绝对路径）
+    case "write_dropped_file": {
+      const dir = guard(String(args.dstDir));
+      const name = String(args.name ?? "");
+      if (!name || name.includes("/") || name.includes("\\") || name === "." || name === "..") {
+        throw new Error(`非法文件名：${name}`);
+      }
+      const bytes = Buffer.from(String(args.contentB64 ?? ""), "base64");
+      mkdirSync(dir, { recursive: true });
+      let final = join(dir, name);
+      if (existsSync(final)) {
+        const stem = name.replace(/(\.[^.]*)$/, "");
+        const ext = name.slice(stem.length);
+        let n = 1;
+        do {
+          final = join(dir, `${stem} - 副本${n > 1 ? ` ${n}` : ""}${ext}`);
+          n++;
+        } while (existsSync(final));
+      }
+      writeFileSync(final, bytes);
+      return final;
     }
     case "list_workspace_files": {
       // quickOpen 文件源：递归列出仓库内文件（对齐后端 ignore 走查的粗粒度——跳 .git 即可）
@@ -861,7 +884,7 @@ export async function equipPage(page: Page, repo: GitRepo, opts: { slowGitMs?: R
   const GIT_WRITE_CMDS = new Set(["git_stage", "git_unstage", "git_commit", "git_discard", "git_clean",
     "git_accept_current", "git_accept_incoming", "git_stash_push", "git_stash_pop", "git_stash_pop_at",
     "git_stash_drop_at", "git_checkout", "git_create_branch", "git_init"]);
-  const FS_WRITE_CMDS = new Set(["write_file", "create_dir", "create_file", "create_py_package", "rename_path", "delete_file"]);
+  const FS_WRITE_CMDS = new Set(["write_file", "create_dir", "create_file", "create_py_package", "rename_path", "delete_file", "write_dropped_file"]);
 
   /** 模拟 Rust plugin watcher 推送 plugins-dir-changed（plugin_cmds.rs::watch_plugins_dir） */
   const emitPluginsDirChanged = (): void => {

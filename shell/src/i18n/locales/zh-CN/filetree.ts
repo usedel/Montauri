@@ -52,6 +52,12 @@ export const filetree = {
   "filetree.op.moveIntoSelf": "不能把文件夹移动到它自己的子目录里",
   "filetree.op.pasteFailed.one": "粘贴 {count} 项失败：{names}",
   "filetree.op.pasteFailed.other": "粘贴 {count} 项失败：{names}",
+  // ---- filetree.drop（T5：外部文件拖入工作区） ----
+  "filetree.drop.importedOne": "已导入 {name}",
+  "filetree.drop.importedMany": "已导入 {count} 个文件",
+  "filetree.drop.dirUnsupported": "不支持拖入文件夹（请用资源管理器复制目录）",
+  "filetree.drop.tooLarge": "「{name}」超过 64 MB 拖入上限，请用资源管理器复制",
+  "filetree.drop.importFailed": "导入「{name}」失败",
   "filetree.op.pasteSkipped": "目标目录已存在同名项，已跳过：{names}（移动不支持覆盖）",
   "filetree.op.revealExplorer": "打开资源管理器",
   // ---- filetree.reveal ----

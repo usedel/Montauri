@@ -24,6 +24,7 @@ import { openLocalHistory } from "./localHistory"; // E-3：右键「本地历�
 import { diffFileWithClipboard } from "./clipboardDiff"; // C-5：右键「与剪贴板对比」（clipboardDiff 不依赖本模块，无环）
 import { headerTemplateApplies } from "./newFileTemplate"; // PR-K：新建 .py 文件头模板门控（零依赖纯函数）
 import { onLocaleChange, t } from "./i18n"; // 第四批 i18n：文件树域动态文案走语言包
+import { hasExternalFiles, importDroppedFiles } from "./treeDropImport"; // T5：外部文件拖入
 
 // ---------- 注入（main 的 init 中 setFileTreeHandlers） ----------
 // TD-13：解「fileTree.ts → main.ts」循环边——打开文件 / 重绘标签 / 静默关标签 / 插入文件头
@@ -292,7 +293,10 @@ function renderTreeItem(e: Entry, depth: number, opts?: { isRoot?: boolean }): H
     item.addEventListener("dragover", (ev) => {
       ev.preventDefault();
       ev.stopPropagation();
-      if (ev.dataTransfer) ev.dataTransfer.dropEffect = "move";
+      // T5：外部文件拖入 = copy（+ 号光标）；树内拖拽 = move（VSCode 同款区隔）
+      if (ev.dataTransfer) {
+        ev.dataTransfer.dropEffect = hasExternalFiles(ev.dataTransfer) ? "copy" : "move";
+      }
       item.classList.add("drag-over");
     });
     item.addEventListener("dragleave", (ev) => {
@@ -303,6 +307,11 @@ function renderTreeItem(e: Entry, depth: number, opts?: { isRoot?: boolean }): H
       ev.preventDefault();
       ev.stopPropagation();
       item.classList.remove("drag-over");
+      // T5：外部文件拖入（DataTransfer 只含 File 对象，与树内 text/plain 互斥）
+      if (hasExternalFiles(ev.dataTransfer)) {
+        void importDroppedTo(ev.dataTransfer!.files, e.path);
+        return;
+      }
       const srcPath = ev.dataTransfer?.getData("text/plain");
       if (srcPath && srcPath !== e.path) void dropMoveFile(srcPath, e.path);
     });
@@ -1109,6 +1118,37 @@ async function dropMoveFile(srcPath: string, targetDirPath: string): Promise<voi
   if (dirContainers.has(targetDirPath)) await reloadDir(targetDirPath);
 }
 
+/** T5：外部文件拖入编排（树侧 UI 反馈 + treeDropImport 的复制编排）。
+ *  落点：目录条目 / 树空白（工作区根）。完成后：刷目录（不依赖 watcher 延迟）+
+ *  toast 汇总 + revealInTree 定位首个成功项（用户刚拖进来的东西要能被看见）。 */
+async function importDroppedTo(files: FileList | File[], dstDir: string): Promise<void> {
+  const res = await importDroppedFiles(files, dstDir);
+  // 刷新落点目录（展开态才可见；未展开的 revealInTree 会自行展开）
+  if (dirContainers.has(dstDir)) await reloadDir(dstDir);
+  if (res.ok.length > 0) {
+    toast(
+      res.ok.length === 1
+        ? t("filetree.drop.importedOne", { name: basename(res.ok[0]) })
+        : t("filetree.drop.importedMany", { count: res.ok.length }),
+      "success",
+    );
+    // 定位首个成功项（多文件时首个最贴近用户拖入意图）
+    void revealInTree(res.ok[0]);
+  }
+  if (res.failed.length > 0) {
+    const kinds = res.failed.map((f) => f.error);
+    if (kinds.includes("directory")) {
+      toast(t("filetree.drop.dirUnsupported"), "info");
+    } else if (kinds.includes("too-large")) {
+      const big = res.failed.find((f) => f.error === "too-large");
+      toast(t("filetree.drop.tooLarge", { name: big?.name ?? "" }), "info");
+    } else {
+      const first = res.failed.find((f) => f.error !== "directory" && f.error !== "too-large");
+      toastFail(t("filetree.drop.importFailed", { name: first?.name ?? "" }), first?.error ?? "");
+    }
+  }
+}
+
 /** 当前右键操作的目标路径：多选且右键项确在选中集内时取全部选中项，否则只取该 entry。
  * 「在选中集内」的判定是必须的：树空白处右键（entry = 工作区根）不经过 selectEntry，
  * selectedPaths 会残留上一次多选，若只看 size>1 会把旧选中项当成复制目标。 */
@@ -1224,13 +1264,19 @@ function wireFileTreeEvents(): void {
       );
     }
   });
-  // 树容器级拖放：拖到空白处 = 移动到工作区根目录
+  // 树容器级拖放：拖到空白处 = 移动到工作区根目录（T5：外部文件同理落根）
   treeEl.addEventListener("dragover", (ev) => {
     ev.preventDefault();
-    if (ev.dataTransfer) ev.dataTransfer.dropEffect = "move";
+    if (ev.dataTransfer) {
+      ev.dataTransfer.dropEffect = hasExternalFiles(ev.dataTransfer) ? "copy" : "move";
+    }
   });
   treeEl.addEventListener("drop", (ev) => {
     ev.preventDefault();
+    if (hasExternalFiles(ev.dataTransfer) && app.workspaceRoot) {
+      void importDroppedTo(ev.dataTransfer!.files, app.workspaceRoot);
+      return;
+    }
     const srcPath = ev.dataTransfer?.getData("text/plain");
     if (srcPath && app.workspaceRoot) {
       void dropMoveFile(srcPath, app.workspaceRoot);

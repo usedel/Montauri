@@ -50,7 +50,7 @@
 
   var FS_CMDS = ["list_dir", "read_dir", "read_file", "read_file_base64", "write_file", "create_dir",
     "create_file", "create_py_package",
-    "rename_path", "paste_path", "delete_file", "watch_start", "watch_stop", "create_project"];
+    "rename_path", "paste_path", "delete_file", "watch_start", "watch_stop", "write_dropped_file", "create_project"];
 
   function bridge() {
     return window.__E2E_BRIDGE__;

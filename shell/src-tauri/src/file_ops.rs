@@ -221,6 +221,43 @@ fn copy_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
     }
 }
 
+/// 外部拖入文件的落地命令（T5 · 微交互批）：把 base64 内容写入 dst_dir/name。
+/// - 二进制安全：DataTransfer 的 File 对象经 arrayBuffer → base64 传输（与
+///   read_file_base64 对称的先例），write_file 的字符串通道对非 UTF-8 会损坏；
+/// - 防覆盖：目标已存在时 unique_target 追加「 - 副本」（与粘贴同款策略，返回最终名）；
+/// - 大小守卫：64 MB 上限（拖入场景的合理上限；超出 toast 提示走资源管理器复制）。
+/// 返回最终写入的绝对路径（前端用于 revealInTree 定位）。
+#[tauri::command]
+pub async fn write_dropped_file(dst_dir: String, name: String, content_b64: String) -> Result<String, String> {
+    const MAX_BYTES: usize = 64 * 1024 * 1024;
+    if name.is_empty() || name.contains('/') || name.contains('\\') || name == "." || name == ".." {
+        return Err(format!("非法文件名：{name}"));
+    }
+    // base64 先行解码：体积判在解码后（前端 File.arrayBuffer 读出的就是真实字节），
+    // 但 base64 字符串本身长度 ≈ 4/3 倍——用字符串长度先做粗筛（超限早退，不白解码）
+    if content_b64.len() > MAX_BYTES * 2 {
+        const MB: usize = 1024 * 1024;
+        return Err(format!("文件过大：超过 {} MB 拖入上限", MAX_BYTES / MB));
+    }
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(content_b64)
+        .map_err(|e| format!("内容解码失败：{e}"))?;
+    if bytes.len() > MAX_BYTES {
+        const MB: usize = 1024 * 1024;
+        return Err(format!("文件过大：{} MB 拖入上限", MAX_BYTES / MB));
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let dir = Path::new(&dst_dir);
+        fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        let final_path = unique_target(&dir.join(&name));
+        fs::write(&final_path, &bytes).map_err(|e| e.to_string())?;
+        Ok(final_path.to_string_lossy().to_string())
+    })
+    .await
+    .map_err(|e| format!("任务执行异常：{e}"))?
+}
+
 /// 目标已存在时追加「 - 副本」（可叠加 - 副本 2 / - 副本 3 …）。
 fn unique_target(dst: &Path) -> PathBuf {
     if !dst.exists() {
@@ -527,6 +564,43 @@ mod tests {
             .unwrap();
         assert!(Path::new(&new_path).exists());
         assert!(new_path.contains("副本"));
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn test_write_dropped_file_impl() {
+        use base64::Engine;
+        let base = tmpdir("drop");
+        // 正常写入：base64 内容解码落盘，返回绝对路径
+        let b64 = base64::engine::general_purpose::STANDARD.encode(b"\x00\x01binary\xff");
+        let got = tauri::async_runtime::block_on(write_dropped_file(
+            base.to_string_lossy().to_string(),
+            "blob.bin".to_string(),
+            b64,
+        ))
+        .unwrap();
+        assert_eq!(got, base.join("blob.bin").to_string_lossy().to_string());
+        // 二进制安全（非 UTF-8 字节原样往返）
+        let read = fs::read(&got).unwrap();
+        assert_eq!(read, vec![0x00, 0x01, 0x62, 0x69, 0x6e, 0x61, 0x72, 0x79, 0xff]);
+        // 非法文件名拒绝
+        let bad = tauri::async_runtime::block_on(write_dropped_file(
+            base.to_string_lossy().to_string(),
+            "../evil".to_string(),
+            "aaaa".to_string(),
+        ))
+        .unwrap_err();
+        assert!(bad.contains("非法文件名"));
+        // 同名 → 副本策略
+        let dup = tauri::async_runtime::block_on(write_dropped_file(
+            base.to_string_lossy().to_string(),
+            "blob.bin".to_string(),
+            "YQ==".to_string(),
+        ))
+        .unwrap();
+        assert!(dup.contains("副本"));
+        // 原文件未被覆盖（内容仍是首写）
+        assert_eq!(fs::read(base.join("blob.bin")).unwrap(), vec![0x00, 0x01, 0x62, 0x69, 0x6e, 0x61, 0x72, 0x79, 0xff]);
         fs::remove_dir_all(base).unwrap();
     }
 
