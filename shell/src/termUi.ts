@@ -335,6 +335,7 @@ async function closeTerminal(id: string): Promise<void> {
   }
   await s.iterm.dispose();
   s.view.remove();
+  if (s.kind === "run") dropServiceTail(id); // TD-027 A5：运行会话关闭即弃就绪行分桶
   if (activeTermId === id) {
     activeTermId = termSessions[Math.min(idx, termSessions.length - 1)]?.id ?? null;
   }
@@ -695,8 +696,14 @@ const SERVICE_URL_RES: RegExp[] = [
 const SERVICE_URL_HINTS = ["Uvicorn running on", "development server at", "Running on"];
 
 /** 跨块缓冲（§9 复查修复）：PTY 分块可能把就绪行从中间截断（`Uvicorn run` + `ning on …`），
- *  逐块匹配会漏——保留尾部一段（就绪行长度上限 512 字符足够）跨块拼接。 */
-let serviceTail = "";
+ *  逐块匹配会漏——保留尾部一段（就绪行长度上限 512 字符足够）跨块拼接。
+ *  TD-027 A5：按运行实例 id 分桶——多项目并行运行时输出互不拼接污染。 */
+const serviceTails = new Map<string, string>();
+
+/** 就绪行已解析（缓冲使命完成）或实例退出时丢弃分桶（上限 512 字符/实例，防残留） */
+function dropServiceTail(id: string): void {
+  serviceTails.delete(id);
+}
 
 /** 按实例检测服务就绪行并打开浏览器（每项目每会话一次，§9）。
  *  挂在 term-data 分发点：任何项目运行实例（uvicorn / manage.py runserver / flask run 等）
@@ -722,13 +729,15 @@ export function lastServiceBaseUrl(): string | null {
   getServiceBase: () => lastServiceOrigin,
 };
 
-function watchServiceUrlLine(_id: string, text: string): void {
+function watchServiceUrlLine(id: string, text: string): void {
   // 已打开过的项目直接跳过（每项目每会话一次，§9），不积累缓冲
   const root = app.workspaceRoot ?? "";
   if (root && serviceOpenedFor.has(root)) return;
+  const tail = serviceTails.get(id) ?? "";
   // 快速路径：不含任何就绪行关键词且缓冲为空 → 无需拼接，直接返回
-  if (!serviceTail && !SERVICE_URL_HINTS.some((k) => text.includes(k))) return;
-  serviceTail = (serviceTail + text).slice(-512);
+  if (!tail && !SERVICE_URL_HINTS.some((k) => text.includes(k))) return;
+  const combined = tail + text;
+  const serviceTail = combined.slice(-512);
   let url: string | null = null;
   for (const re of SERVICE_URL_RES) {
     const m = re.exec(serviceTail);
@@ -737,8 +746,12 @@ function watchServiceUrlLine(_id: string, text: string): void {
       break;
     }
   }
-  if (!url) return;
-  serviceTail = "";
+  if (!url) {
+    // 未命中：写回分桶等下一块（就绪行可能仍在路上）
+    serviceTails.set(id, serviceTail);
+    return;
+  }
+  dropServiceTail(id); // 命中即弃（同旧语义：单次就绪检测，不跨实例残留）
   // 就绪行尾部可能带上句末标点（如 `at http://…:8000/.`），剥掉再打开
   const clean = url.replace(/[.,;:!?)\]]+$/u, "");
   if (!clean) return;
@@ -785,7 +798,7 @@ export async function disposeTerminal(): Promise<void> {
   termSeq = 0;
   projectRunSeq = 1;
   serviceOpenedFor.clear();
-  serviceTail = "";
+  serviceTails.clear(); // TD-027 A5：分桶随工作区复位
   lastServiceOrigin = null;
   resetOutputChannelUi();
   renderTerminalTabs();
@@ -940,6 +953,7 @@ export async function wireTerminalEvents(): Promise<void> {
     // tab 本身保留，供阅读输出与点击 traceback（§4.7 结论 2）
     if (s.kind === "run") {
       s.runActive = false;
+      dropServiceTail(s.id); // TD-027 A5：进程退出即弃就绪行分桶（tab 保留但会话已死）
       renderTerminalTabs();
       const code = typeof e.payload.code === "number" ? e.payload.code : 0;
       const exit = s.runExit;
