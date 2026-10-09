@@ -231,6 +231,22 @@ describe("批 4 · 映射引用的 CSS 变量必须两套主题都有定义", ()
     for (const set of [rootVars, lightVars]) expect(set.has("--editor-line-highlight")).toBe(true);
   });
 
+  it("T6a 修复 · 括号对参考线 12 槽位全量映射（缺任何一层 → 该层借用出厂黄/紫/蓝括号色）", () => {
+    for (let i = 1; i <= 6; i++) {
+      expect(MONACO_COLOR_SLOTS[`editorBracketPairGuide.background${i}`], `第 ${i} 层非激活`).toBe("--surface-3");
+      expect(MONACO_COLOR_SLOTS[`editorBracketPairGuide.activeBackground${i}`], `第 ${i} 层激活`).toBe("--surface-4");
+    }
+  });
+
+  it("T6a 修复 · 括号对参考线与缩进线同源（同为中性表面档，不抢内容视线）", () => {
+    expect(MONACO_COLOR_SLOTS["editorBracketPairGuide.background1"]).toBe(
+      MONACO_COLOR_SLOTS["editorIndentGuide.background1"],
+    );
+    expect(MONACO_COLOR_SLOTS["editorBracketPairGuide.activeBackground1"]).toBe(
+      MONACO_COLOR_SLOTS["editorIndentGuide.activeBackground1"],
+    );
+  });
+
   it("THEME_BASES：深色垫 vs-dark、浅色垫 vs（Monaco 没有内置 vs-light）", () => {
     expect(THEME_BASES[EDITOR_THEME_DARK]).toBe("vs-dark");
     expect(THEME_BASES[EDITOR_THEME_LIGHT]).toBe("vs");

@@ -109,6 +109,26 @@ const COLOR_SLOTS: Readonly<Record<string, string>> = {
   //    视觉由基线截图覆盖。若日后要加断言，先在浏览器里确认实际 class 再写选择器。
   "editorIndentGuide.background1": "--surface-3",
   "editorIndentGuide.activeBackground1": "--surface-4",
+  // —— 括号对参考线（T6a 修复 · 2026-10-09）——
+  //  T6a 开启 guides.bracketPairs 后，dict 展开出现黄线：Monaco 的取色链是
+  //  guideColor 透明 → **借用括号彩色化前景色**（editorBracketHighlight.foreground1-3
+  //  出厂 = 金黄 #FFD700 / 紫 #DA70D6 / 蓝 #179FFF），而本映射表此前没有任何
+  //  bracket 槽位 → 出厂彩色穿透，与 ADR-0005 单色相轴冲突（同 R-FIXA-1 行号出厂蓝）。
+  //  修法：与缩进线同款纪律——全部层级统一走中性表面档，嵌套 dict 深层不再彩色轮换。
+  //  ⚠ background1-6 / activeBackground1-6 十二个槽位必须**全量映射**：只映射 1 的话，
+  //    2-6 层仍透明 → 继续借用括号前景色 → 嵌套 dict 深层照样出黄/紫/蓝线。
+  "editorBracketPairGuide.background1": "--surface-3",
+  "editorBracketPairGuide.background2": "--surface-3",
+  "editorBracketPairGuide.background3": "--surface-3",
+  "editorBracketPairGuide.background4": "--surface-3",
+  "editorBracketPairGuide.background5": "--surface-3",
+  "editorBracketPairGuide.background6": "--surface-3",
+  "editorBracketPairGuide.activeBackground1": "--surface-4",
+  "editorBracketPairGuide.activeBackground2": "--surface-4",
+  "editorBracketPairGuide.activeBackground3": "--surface-4",
+  "editorBracketPairGuide.activeBackground4": "--surface-4",
+  "editorBracketPairGuide.activeBackground5": "--surface-4",
+  "editorBracketPairGuide.activeBackground6": "--surface-4",
   // —— 浮层：建议 / hover / 参数提示（bg 抬升到 S3，边框走 --border）——
   "editorWidget.background": "--surface-3",
   "editorWidget.border": "--border",
