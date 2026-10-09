@@ -1987,7 +1987,8 @@ async function init(): Promise<void> {
   // 语义请求（references / rename / prepareRename / documentSymbol）同理前置冲刷：
   // 引擎按旧缓冲算 rename 会漏改/错位，引用计数也会错
   lsp.setBeforeSemanticHook(() => syncPendingChanges());
-  lsp.wireGotoTriggers(app.editor); // F12 / Ctrl+点击 显式跳转（Ctrl+悬停不跳）
+  // F12 / Ctrl+点击 显式跳转（Ctrl+悬停不跳）；TD-027 D2：句柄入应用级 store
+  lspProviders.add(lsp.wireGotoTriggers(app.editor));
   lsp.setGotoDefinitionHandler((path, line, col) => {
     openFile(path, line).then(() => app.editor.setPosition({ lineNumber: line, column: col }));
   });

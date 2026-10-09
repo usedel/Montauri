@@ -92,16 +92,16 @@ export const ide = {
   // ---- ide.res ----
   "ide.res.summary.one": "合计 {mb} MB · 子进程 {count} 个",
   "ide.res.summary.other": "合计 {mb} MB · 子进程 {count} 个",
-  // ---- ide.ws（T6b：空白字符渲染切换） ----
-  "ide.ws.actionLabel": "显示空白字符",
-  "ide.ws.enabled": "已显示空白字符",
-  "ide.ws.disabled": "已隐藏空白字符（选区内仍显示）",
   // ---- ide.ruff ----
   "ide.ruff.actionLabel": "忽略此规则（行尾添加 # noqa）",
   "ide.ruff.added": "已添加 # noqa: {code}",
   "ide.ruff.alreadyIgnored": "该行已忽略 {code}",
   "ide.ruff.noCode": "该诊断没有规则码，无法用 # noqa 忽略",
   "ide.ruff.noDiagnostic": "光标处没有 ruff 诊断",
+  // ---- ide.split ----
+  "ide.split.actionLabel": "向右分屏",
+  "ide.split.alreadyPinned": "分屏已在显示当前文件",
+  "ide.split.noFileTab": "当前没有可分屏的文件标签",
   // ---- ide.term ----
   "ide.term.closeRunTip": "关闭运行终端（先停止）",
   "ide.term.closeTip": "关闭终端",
@@ -118,6 +118,10 @@ export const ide = {
   // ---- ide.traceback ----
   "ide.traceback.openAction": "打开 traceback 文件",
   "ide.traceback.openFailed": "无法打开: {path}",
+  // ---- ide.ws ----
+  "ide.ws.actionLabel": "显示空白字符",
+  "ide.ws.disabled": "已隐藏空白字符（选区内仍显示）",
+  "ide.ws.enabled": "已显示空白字符",
 };
 
 /** 本域文案 key：en-US/ide.ts 的 Record<IdeKey, string> 由它派生。 */

@@ -178,14 +178,20 @@ export function updateGitStatusBar(): void {
   }
 }
 
-/** 拉取 ahead/behind 并追加到状态栏（↑待推 ↓待拉，对标 VS Code ↑2 ↓1） */
+/** 拉取 ahead/behind 并追加到状态栏（↑待推 ↓待拉，对标 VS Code ↑2 ↓1）。
+ *  TD-027 D17：请求令牌防串台——连续 refreshGitStatus 时在途的 git_sync_status
+ *  旧响应后到会覆盖新结果（仅显示层，此前靠下次刷新自愈），照 searchToken 范式。 */
+let syncCountToken = 0;
+
 async function updateSyncCount(): Promise<void> {
   const el = $("status-git");
   if (!el || !app.workspaceRoot || !gitRepoActive.value) return;
+  const token = ++syncCountToken;
   try {
     const s = await invoke<{ upstream: string | null; ahead: number; behind: number }>("git_sync_status", {
       root: app.workspaceRoot,
     });
+    if (token !== syncCountToken) return; // 已有更新的请求在途/完成：丢弃本次结果
     if (!gitRepoActive.value || !currentBranch) return; // 等待期间仓库已切走
     const parts: Node[] = [codicon("git-branch"), document.createTextNode(` ${currentBranch}`)];
     if (s.ahead > 0) parts.push(document.createTextNode(` ↑${s.ahead}`));

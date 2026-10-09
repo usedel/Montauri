@@ -89,5 +89,11 @@
   "ide.term.shellCmd": "Command Prompt (cmd)",
   "ide.term.stopTip": "Stop {label}",
   "ide.traceback.openAction": "Open traceback file",
-  "ide.traceback.openFailed": "Cannot open: {path}"
+  "ide.traceback.openFailed": "Cannot open: {path}",
+  "ide.split.noFileTab": "No file tab to split",
+  "ide.split.alreadyPinned": "Split editor already shows this file",
+  "ide.split.actionLabel": "Split Right",
+  "ide.ws.actionLabel": "Show Whitespace",
+  "ide.ws.enabled": "Whitespace is now visible",
+  "ide.ws.disabled": "Whitespace hidden (still shown in selection)"
 }

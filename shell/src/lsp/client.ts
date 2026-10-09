@@ -923,13 +923,15 @@ export async function gotoDefinitionAtCursor(editor: MonacoApi.editor.IStandalon
   if (target && gotoDefinitionHandler) gotoDefinitionHandler(target.path, target.line, target.col);
 }
 
-/** 显式跳转触发器：F12 与 Ctrl+鼠标点击（Ctrl+悬停不跳转） */
-export function wireGotoTriggers(editor: MonacoApi.editor.IStandaloneCodeEditor): void {
+/** 显式跳转触发器：F12 与 Ctrl+鼠标点击（Ctrl+悬停不跳转）。
+ *  TD-027 D2：onMouseDown 句柄返回入调用方 store（原丢弃违反规范）；F12 走
+ *  addCommand 无解绑 API（规范已知限制），随编辑器实例生命周期兜底。 */
+export function wireGotoTriggers(editor: MonacoApi.editor.IStandaloneCodeEditor): MonacoApi.IDisposable {
   // F12
   editor.addCommand(monaco.KeyCode.F12, () => void gotoDefinitionAtCursor(editor));
 
   // Ctrl+点击（仅按下 Ctrl 且是左键时触发）
-  editor.onMouseDown((e) => {
+  return editor.onMouseDown((e) => {
     if (
       e.event.ctrlKey &&
       !e.event.altKey &&

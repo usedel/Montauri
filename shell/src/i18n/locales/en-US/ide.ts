@@ -93,16 +93,16 @@ export const ide: Record<IdeKey, string> = {
   // ---- ide.res ----
   "ide.res.summary.one": "Total {mb} MB · {count} child processes",
   "ide.res.summary.other": "Total {mb} MB · {count} child processes",
-  // ---- ide.ws (T6b: whitespace render toggle) ----
-  "ide.ws.actionLabel": "Show Whitespace",
-  "ide.ws.enabled": "Whitespace is now visible",
-  "ide.ws.disabled": "Whitespace hidden (still shown in selection)",
   // ---- ide.ruff ----
   "ide.ruff.actionLabel": "Ignore this rule (append # noqa at line end)",
   "ide.ruff.added": "Added # noqa: {code}",
   "ide.ruff.alreadyIgnored": "This line is already ignored: {code}",
   "ide.ruff.noCode": "This diagnostic has no rule code; it cannot be ignored with # noqa",
   "ide.ruff.noDiagnostic": "No ruff diagnostic at the cursor",
+  // ---- ide.split ----
+  "ide.split.actionLabel": "Split Right",
+  "ide.split.alreadyPinned": "Split editor already shows this file",
+  "ide.split.noFileTab": "No file tab to split",
   // ---- ide.term ----
   "ide.term.closeRunTip": "Close the run terminal (stop it first)",
   "ide.term.closeTip": "Close terminal",
@@ -119,4 +119,8 @@ export const ide: Record<IdeKey, string> = {
   // ---- ide.traceback ----
   "ide.traceback.openAction": "Open traceback file",
   "ide.traceback.openFailed": "Cannot open: {path}",
+  // ---- ide.ws ----
+  "ide.ws.actionLabel": "Show Whitespace",
+  "ide.ws.disabled": "Whitespace hidden (still shown in selection)",
+  "ide.ws.enabled": "Whitespace is now visible",
 };

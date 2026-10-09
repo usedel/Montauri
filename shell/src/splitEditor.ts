@@ -17,6 +17,7 @@ import { app, $, lazyEl } from "./state";
 import { basename } from "./util";
 import { hideEl, showEl } from "./anim";
 import { toast } from "./toast";
+import { t } from "./i18n";
 
 const panelEl = lazyEl("split-editor-panel");
 const labelEl = lazyEl("split-editor-label");
@@ -64,11 +65,11 @@ export function openSplit(): void {
   wireSplitEditor(); // 关闭按钮接线（首开一次）
   const tab = app.activeTab;
   if (!tab || tab.kind === "diff") {
-    toast("当前没有可分屏的文件标签", "info");
+    toast(t("ide.split.noFileTab"), "info");
     return;
   }
   if (splitModel === tab.model) {
-    toast("分屏已在显示当前文件", "info");
+    toast(t("ide.split.alreadyPinned"), "info");
     return;
   }
   splitModel = tab.model;
@@ -124,7 +125,7 @@ export function resetSplitEditor(): void {
 export function initSplitEditorAction(editor: MonacoApi.editor.IStandaloneCodeEditor): MonacoApi.IDisposable {
   return editor.addAction({
     id: "opencharm.splitRight",
-    label: "向右分屏",
+    label: t("ide.split.actionLabel"),
     contextMenuGroupId: "1_modification",
     contextMenuOrder: 4,
     run: () => openSplit(),

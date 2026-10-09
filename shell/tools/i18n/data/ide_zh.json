@@ -89,5 +89,11 @@
   "ide.term.shellCmd": "命令提示符（cmd）",
   "ide.term.stopTip": "停止 {label}",
   "ide.traceback.openAction": "打开 traceback 文件",
-  "ide.traceback.openFailed": "无法打开: {path}"
+  "ide.traceback.openFailed": "无法打开: {path}",
+  "ide.split.noFileTab": "当前没有可分屏的文件标签",
+  "ide.split.alreadyPinned": "分屏已在显示当前文件",
+  "ide.split.actionLabel": "向右分屏",
+  "ide.ws.actionLabel": "显示空白字符",
+  "ide.ws.enabled": "已显示空白字符",
+  "ide.ws.disabled": "已隐藏空白字符（选区内仍显示）"
 }
