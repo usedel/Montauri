@@ -10,8 +10,12 @@ from __future__ import annotations
 
 import json
 import os
+import sys
+import types
+import typing
 from dataclasses import dataclass
 from pathlib import Path
+from typing import get_args, get_origin, get_type_hints
 
 
 @dataclass
@@ -65,11 +69,20 @@ def load_config(**overrides) -> ProbeConfig:
             data = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as e:
             print(f"[opencharm-probe] ⚠ 配置文件解析失败，使用默认值（{path}: {e}）",
-                  file=__import__("sys").stderr)
+                  file=sys.stderr)
         else:
             if isinstance(data, dict):
+                # TD-027 B4：值类型校验——手写配置 `max_calls_per_func: "abc"` 此前会
+                # 原样 setattr，回调内 TypeError 让探针静默失效。类型不符 → 警告 + 保默认。
+                hints = get_type_hints(ProbeConfig)
                 for key, val in data.items():
                     if not key.startswith("_") and hasattr(cfg, key):
+                        hint = hints.get(key)
+                        if hint is not None and not _matches(hint, val):
+                            print(f"[opencharm-probe] ⚠ 配置项 {key} 类型不符"
+                                  f"（期望 {hint}，得到 {type(val).__name__}），保留默认值",
+                                  file=sys.stderr)
+                            continue
                         setattr(cfg, key, val)
     if os.environ.get("OPENCHARM_PROBE_QUIET") == "1":
         cfg.quiet = True
@@ -79,3 +92,32 @@ def load_config(**overrides) -> ProbeConfig:
         if val is not None and hasattr(cfg, key):
             setattr(cfg, key, val)
     return cfg
+
+
+def _matches(hint, val) -> bool:
+    """值是否符合字段类型标注（dataclass 字段的运行时校验；覆盖 int/bool/str/
+    list[X] 与 `X | None`，其余宽放行——校验目标是无声崩溃，不是严格类型系统）。"""
+    args = get_args(hint)
+    if hint is type(None):
+        return val is None
+    if get_origin(hint) is typing.Union or isinstance(hint, types.UnionType):
+        # `X | None`（3.10+ 是 types.UnionType；Optional[X] 是 typing.Union）
+        return any(_matches(a, val) for a in args)
+    if hint is bool:
+        return isinstance(val, bool)
+    if hint is int:
+        # bool 是 int 子类：int 字段不接受 bool（防 True 静默当 1）
+        return isinstance(val, int) and not isinstance(val, bool)
+    if hint is str:
+        return isinstance(val, str)
+    origin = get_origin(hint)
+    if origin in (list, tuple, set, frozenset):
+        if not isinstance(val, (list, tuple, set, frozenset)):
+            return False
+        elem = args[0] if args else None
+        # 不带元素类型（裸 list）或不校验元素（采集路径不做深校验，防误杀）
+        return elem is None or elem is object or all(
+            _matches(elem, v) for v in val)
+    return True  # 未识别的标注宽放行
+
+
