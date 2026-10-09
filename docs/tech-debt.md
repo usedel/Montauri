@@ -26,6 +26,8 @@
 
 > 2026-10-09 第二梯队清偿：**B2/B4/B5/B6/B7/B8 六提交修复**（`b1bd5b3`/`1db26ce`/`c23dd66`/`43a30f5`/`93ad46f`/`3f92077`，均已录已归档区）——B 组余 B1/B3/B9/B10（B1 留 intel 批次；B3 需配迁移逻辑独立 PR；B9/B10 无实锤待观察）。D12 的 config.py 部分已随 B4 顺手清。门禁：cargo test 340 / probe pytest 109（新增 20 用例）。intel trace.rs 经核实**无** B8 同款手拼 URI 问题（Rust 走 OpenFlags 路径直开），无需登记。
 
+> 2026-10-09 D 组卫生批清偿：**D1~D17 共 16 条全部清偿**（probe 域 `6349b4d` / intel 域 `17f531b` / shell-ts 域 `670af2d` / shell-rust 域 `1e7a7d6`，按域四提交 + 本 docs 提交）——**TD-027 至此 42/42 全部处置完毕**（A9 + B6 + C7 留置 + D16 清偿 + 5 项已随 P1）。C 组 7 条留置绑定 bench 节奏；B1/B3/B9/B10 留置见上。门禁：probe pytest 114 / intel cargo test 85（含准确率红线 + bench_load 1318ms PASS）/ shell cargo test 340 / vitest 1342 / e2e editor·lsp 12/12 / budget 全 PASS（client.ts 1850/1850 顶格未越线）。
+
 ### TD-027 2026-10-08 全项目代码审查批次（P2×42，其中 1 项已随 P1 修复；intel 杂项 1 项拆为 3 个卫生点）
 
 - **起因**：全项目代码审查（四个并行深审：shell/src TS、shell/src-tauri Rust、probe Python、intel Rust，逐行通读；全部 P0/P1 经主线读码复核实证）。
@@ -73,31 +75,31 @@
 | C6 | scan_pydantic_issues O(行×模型数) | pydantic_cmds.rs:626+ | 每行对全部模型做 substring 扫描；可按行含 `(` 粗筛或建前缀索引（原 fs_cmds.rs:2102-2135，随拆分批迁入） |
 | C7 | sink 多线程计数竞态 | probe sink.py:54-77 | get+set 非原子丢频次精度（类型集合不受影响，func_id 已有双检锁） |
 
-**D. 规范/卫生（顺手清或随批处理）**
+**D. 规范/卫生 —— 2026-10-09 卫生批全部清偿（16/16，D12 config.py 部分随 B4）**
 
 | # | 条目 | 位置 | 要点 |
 |---|---|---|---|
-| D1 | splitEditor 硬编码中文文案 | splitEditor.ts:67-71,127 | 违反 i18n 全覆盖约定，英文界面冒中文 |
-| D2 | wireGotoTriggers 丢弃监听器句柄 | lsp/client.ts:931-943 | onMouseDown/addCommand 的 IDisposable 未入 store，违反 DisposableStore 明文规范（主编辑器应用级生命周期兜底，泄漏面小） |
-| D3 | intel SCHEMA 与 store.py 漂移 | trace.rs:16-58 | probe 已加 `runs.instance` 与 `functions.perf_*` 6 列，intel SCHEMA 仍旧版；「schema 对齐」头注释失真（读真实库不受影响，SELECT 显式列名） |
-| D4 | intel 死代码/API 面膨胀 | trace.rs 多处 | `Function::loc`/`functions`/`get`/`by_location`/`by_file`/`qualnames` bin 侧零调用；`qualnames_by_prefix` 是 CR-17 改道后的废弃遗留 |
-| D5 | `#[allow(dead_code)]` 失效残留 | intel server.rs:51-52 | `client` 实际在用（publish_diagnostics），属性掩盖真实使用 |
-| D6 | 「库不存在」误用 InvalidParameterName | intel trace.rs:150-153 | 语义错位，应加 `TraceError::Missing(PathBuf)` variant |
-| D7 | symbol_candidates 双重去重 | intel completion.rs:591,607-611 | dedup_sort_truncate 那次才是必要的（跨分支合并），第一次纯开销 |
-| D8 | 诊断行扫描无注释/转义感知 | intel diagnostics.rs:41-81 | `#` 注释内引号开启伪字符串、`\"` 转义未处理；completion 侧 scan_string_end 有转义处理，两处口径不一 |
-| D9 | Monitor.__init__ 改写共享 cfg | probe monitor.py:106 | `max_calls_per_func = sys.maxsize` 直接污染调用方 ProbeConfig（有测试锁定属有意设计，但 mutator 坏味道；建议构造局部副本） |
-| D10 | _perf_frames 类型标注错误 | probe monitor.py:99 | `list[list[int]]` 实际元素是 `[CodeType, int, int]` |
-| D11 | _cmd_show 路径归一不对称 | probe cli.py:74-77 | normcase 小写盘符 × 未归一 parent 的 startswith 恒 False，退回显示原始绝对路径（仅观感） |
-| D12 | 函数内 import / `__import__` | probe store.py:184 / config.py:68 | 应提顶部（config.py 部分已随 B4 顺手清，store.py:184 仍在） |
-| D13 | _cmd_inject / _cmd_clean 无 CLI 层单测 | probe cli.py:101-123 | clean 函数本身有测试，CLI 分发层（含非 .py 警告路径）无 |
-| D14 | _elem_shape 键上限语义不一致 | probe compact.py:147 vs 207 | dict 分支超限返回 None、shape 分支超限保留截断指纹，精度取舍两分支不对称 |
-| D15 | run lock 去重子进程不 stop 监控 | probe autostart.py:104-106 | 被去重的子进程 `_finalize` 直接 return，全局 RAISE 事件持续派发到进程死；TD-020 取舍的「子进程观测整段丢弃」丢失面建议在 TD-020 补注 |
-| D16 | dap attach spawn 失败路径泄漏 | dap.rs:612-614 | `stdout.take()` 失败即 return Err，child 已 spawn 无人杀（实际不可达——Stdio 已 piped；与 assemble 段防孤儿处理不对称，Err 路径补 kill） |
-| D17 | updateSyncCount 无请求令牌 | git.ts:182-197 | 连续 refreshGitStatus 的在途 `git_sync_status` 旧响应后到覆盖状态栏 ahead/behind（仅显示层，下次刷新自愈） |
+| ~~D1~~ | ~~splitEditor 硬编码中文文案~~ | splitEditor.ts:67-71,127 | ✅ 已修（`670af2d`）：三处文案走 `ide.split.*` 词条；过程中 gen_domain 全量重写删掉手工登记的 ide.ws.*（T6b 批），按流程补进数据源恢复 |
+| ~~D2~~ | ~~wireGotoTriggers 丢弃监听器句柄~~ | lsp/client.ts:931-943 | ✅ 已修（`670af2d`）：onMouseDown 句柄返回并入 lspProviders store；F12 走 addCommand 无解绑 API（规范已知限制）随实例兜底 |
+| ~~D3~~ | ~~intel SCHEMA 与 store.py 漂移~~ | trace.rs:16-58 | ✅ 已修（`17f531b`）：SCHEMA 补 `runs.instance` + `functions.perf_*` 5 列，头注释恢复为事实 |
+| ~~D4~~ | ~~intel 死代码/API 面膨胀~~ | trace.rs 多处 | ✅ 已修（`17f531b`）：删 Function::loc / get / qualnames / qualnames_by_prefix（全仓搜证零调用）；functions / by_location / by_file 有真实调用方保留 |
+| ~~D5~~ | ~~`#[allow(dead_code)]` 失效残留~~ | intel server.rs:51-52 | ✅ 已修（`17f531b`）：删属性（client 三处在用）；顺手清 type_infer.rs 的 ParsedShape::keys（CR-27 后零调用——存量） |
+| ~~D6~~ | ~~「库不存在」误用 InvalidParameterName~~ | intel trace.rs:150-153 | ✅ 已修（`17f531b`）：TraceError::Missing(PathBuf) variant + Display 分支 |
+| ~~D7~~ | ~~symbol_candidates 双重去重~~ | intel completion.rs:591,607-611 | ✅ 已修（`17f531b`）：删内部 by_label 去重（dedup_sort_truncate 统一处理）；准确率红线 + bench_load 1318ms/2s PASS |
+| ~~D8~~ | ~~诊断行扫描无注释/转义感知~~ | intel diagnostics.rs:41-81 | ✅ 已修（`17f531b`）：scan_line 重写——`#` 注释截断 + 引号跳过复用 scan_string_end（pub(crate) 化，转义口径统一）；附 3 正反测试 |
+| ~~D9~~ | ~~Monitor.__init__ 改写共享 cfg~~ | probe monitor.py:106 | ✅ 已修（`6349b4d`）：perf 抬开写 dataclasses.replace 局部副本；test_monitor 断言同步（内部副本抬开 + 调用方不变） |
+| ~~D10~~ | ~~_perf_frames 类型标注错误~~ | probe monitor.py:99 | ✅ 已修（`6349b4d`）：`list[list[types.CodeType | int]]` |
+| ~~D11~~ | ~~_cmd_show 路径归一不对称~~ | probe cli.py:74-77 | ✅ 已修（`6349b4d`）：startswith 两侧同走 normcase |
+| ~~D12~~ | ~~函数内 import / `__import__`~~ | probe store.py:184 / config.py:68 | ✅ 已修（`6349b4d`）：store.py 的 import sys 提顶部（config.py 部分已随 B4 先清） |
+| ~~D13~~ | ~~_cmd_inject / _cmd_clean 无 CLI 层单测~~ | probe cli.py:101-123 | ✅ 已修（`6349b4d`）：test_cli_dispatch.py 5 用例（inject 无命令/非 .py 警告、clean 有库无库、show 无库） |
+| ~~D14~~ | ~~_elem_shape 键上限语义不一致~~ | probe compact.py:147 vs 207 | ✅ 注释化归档（`6349b4d`）：登记为有意取舍（顶层超限防指纹爆炸放弃 / 元素合并超限截断保留），统一任一方向都改变 trace 库内容 |
+| ~~D15~~ | ~~run lock 去重子进程不 stop 监控~~ | probe autostart.py:104-106 | ✅ 已修（`6349b4d`）：被去重子进程 return 前补 mon.stop()（幂等），全局 RAISE 不再空转到进程死 |
+| ~~D16~~ | ~~dap attach spawn 失败路径泄漏~~ | dap.rs:612-614 | ✅ 已修（`1e7a7d6`）：take 失败 Err 路径 kill_process_tree_async(child)（与 assemble 段对称，实际不可达纯防御） |
+| ~~D17~~ | ~~updateSyncCount 无请求令牌~~ | git.ts:182-197 | ✅ 已修（`670af2d`）：syncCountToken 令牌（searchToken 范式），在途旧响应不再覆盖状态栏 |
 
 **预警（非缺陷，预算纪律提醒；2026-10-09 复核刷新·第一梯队后）**：`hotspotsView.ts` 350/350 顶格、`lsp/client.ts` 1848/1850（余 2 行）、`main.ts` 2374/2400（余 26 行）、intel `server.rs` 647/700、intel `completion.rs` 1948/1950（新录入：A8 修复后逼近）、**命令面 200/200 整顶格**——下一批功能交付前应先安排拆分窗口（各条目在 budgets.toml 已注明拆分路径）。~~git_cmds.rs 1940/1950~~ 已随 10-09 命令层拆分批解决（现 1603/1900）。~~TODO 标记清理~~ 撤销：经核实 endpointView.ts（8 处）/hotspotsView.ts（5 处）全是复用 todo 分组样式的 CSS 类名与模块引用，quickFix.ts（3 处）是快捷修复有意插入用户代码的 `# TODO` 桩注释——均非开发遗留标记，无需清理。
 
-- **处理时机**：A 组先行（用户可感知）；B 组次之；C 组绑定 bench 回归节奏；D 组随批顺手清。任一项前先跑对应测试矩阵（shell → cargo test + vitest；probe → uv run pytest；intel → cargo test）。
+- **处理时机**：A/B/D 组已于 2026-10-09 全部清偿（见各表 ✅ 标记与已归档区）；**C 组 7 条留置**，绑定 bench 回归节奏（改 intel 热路径须跑准确率红线 + 性能基线）；B1 留 intel 批次、B3 需配迁移逻辑独立 PR、B9/B10 无实锤待观察。任一项前先跑对应测试矩阵（shell → cargo test + vitest；probe → uv run pytest；intel → cargo test）。
 - **涉及文件**：见上表各列。
 
 ### TD-025 历史「单人自用」论据的定位失效复审清单（P2，文档一致性；2026-10-05 定位变更登记）
@@ -169,6 +171,10 @@
 
 | 编号 | 标题 | 完成日期 | 结论摘要 |
 |---|---|---|---|
+| TD-027-D（probe） | D 组卫生批 probe 域七项（D9/D10/D11/D12/D13/D14/D15） | 2026-10-09 | 提交 `6349b4d`：D9 perf 抬开写 dataclasses.replace 局部副本（断言同步：内部副本抬开 + 调用方 cfg 不变）；D10 标注修 `list[list[CodeType\|int]]`；D11 normcase 两侧对齐；D12 store.py import 提顶；D13 新增 test_cli_dispatch.py 5 用例（CLI 分发层首个覆盖）；D14 注释化登记有意取舍；D15 被去重子进程 return 前 mon.stop()（RAISE 不再空转）。probe pytest 114 全绿 |
+| TD-027-D（intel） | D 组卫生批 intel 域六项（D3/D4/D5/D6/D7/D8） | 2026-10-09 | 提交 `17f531b`：D3 SCHEMA 对齐 store.py（instance + perf_* 5 列）；D4 删四项零调用 API（loc/get/qualnames/qualnames_by_prefix，保留有调用方的 functions/by_location/by_file）；D5 删失效 allow 属性 + 顺手清存量 ParsedShape::keys；D6 TraceError::Missing(PathBuf)；D7 删 symbol_candidates 内部去重（dedup_sort_truncate 统一）；D8 scan_line 注释/转义感知重写（复用 scan_string_end，附 3 测试）。intel cargo test 85/85（含准确率红线）+ bench_load 1318ms/2s PASS |
+| TD-027-D（shell-ts） | D 组卫生批 shell-ts 域三项（D1/D2/D17） | 2026-10-09 | 提交 `670af2d`：D1 splitEditor 三文案走 ide.split.*（**过程中 gen_domain 全量重写删掉手工登记的 ide.ws.***（T6b 批）——按流程补进数据源恢复，教训：跑 gen_domain 前必须核对目标域语言包有无数据源外词条）；D2 wireGotoTriggers 返回 onMouseDown 句柄入 lspProviders；D17 updateSyncCount 请求令牌。tsc 0 错 / vitest 1342 / e2e editor·lsp 12/12 / budget 全 PASS |
+| TD-027-D（shell-rust） | D 组卫生批 shell-rust 域一项（D16） | 2026-10-09 | 提交 `1e7a7d6`：dap attach 的 take 失败 Err 路径补 kill_process_tree_async(child)（与 assemble 段防孤儿对称；实际不可达纯防御）。cargo test 340 全绿 |
 | TD-027-B2 | pick_folder/pick_file 阻塞 recv（B 组） | 2026-10-09 | 提交 `b1bd5b3`：rx.recv() 移入 tauri::async_runtime::spawn_blocking——对话框挂起期间阻塞 blocking 线程池而非 tokio worker；接口签名与返回值零变化。cargo check 通过 |
 | TD-027-B4 | load_config 不校验值类型（B 组） | 2026-10-09 | 提交 `1db26ce`：新增 `_matches`（get_type_hints 驱动，覆盖 int/bool/str/list[X]/X\|None，bool/int 互斥防 0/1 当开关），类型不符告警保默认值；顺手清 D12 的 config.py 部分（`__import__("sys")` 提顶部）；test_config.py 9 用例 |
 | TD-027-B5 | os.chdir(old_dir) 可抛异常（B 组） | 2026-10-09 | 提交 `c23dd66`：runner finally 的 chdir 单独 try/except OSError 降级告警（进程停留当前目录），脚本原始异常必传播；test_e2e 新增删除 cwd 场景用例（启动 cwd 与脚本目录分离——Windows 不可删进程当前目录，首版测试踩坑） |
