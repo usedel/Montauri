@@ -64,7 +64,13 @@ def run_with_probe(cfg: ProbeConfig, script: str, argv: list[str] | None = None)
         elapsed = time.perf_counter() - perf_started
         sys.argv = old_argv
         sys.path[:] = old_path
-        os.chdir(old_dir)
+        # TD-027 B5：old_dir 被脚本删除时 chdir 抛 OSError，会替换掉 finally 链上
+        # 更有价值的原始异常——单独隔离，降级为停留当前目录（不吞原始异常）。
+        try:
+            os.chdir(old_dir)
+        except OSError:
+            print(f"[opencharm-probe] ⚠ 恢复工作目录失败（{old_dir}），"
+                  f"进程停留在 {os.getcwd()}", file=sys.stderr)
 
     # P2-3（2026-09-29 review）：save 失败只告警不吞脚本原始异常——脚本崩溃（error
     # 非 None）且落库同时失败（盘满等）时，原实现 save 的异常会替换原始异常传播，

@@ -89,6 +89,42 @@ def test_run_with_probe_crash_still_saves(tmp_path):
         conn.close()
 
 
+def test_run_with_probe_deleted_cwd_keeps_original_error(tmp_path, monkeypatch):
+    """TD-027 B5：脚本删除启动 cwd 再抛异常——原始异常必须传播（不被 chdir 失败替换）。
+
+    runner 启动时记录 old_dir（= 启动 cwd，与脚本目录分离——Windows 不允许删进程
+    当前目录，脚本运行时 cwd 已是脚本目录，删除 old_dir 合法）；finally 恢复
+    old_dir 时 chdir 抛 OSError——此前会替换原始 ValueError，现在必须只降级告警。
+    """
+    start = tmp_path / "start"   # 启动 cwd（待删的 old_dir）
+    scripts = tmp_path / "scripts"
+    start.mkdir()
+    scripts.mkdir()
+    script = scripts / "app.py"
+    script.write_text(
+        "import os, shutil\n"
+        "shutil.rmtree(os.environ['OLD_DIR'])\n"  # 删 runner 的 old_dir（非当前目录）
+        "def boom():\n    raise ValueError('original-error')\n"
+        "boom()\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("OLD_DIR", str(start))
+    cfg = ProbeConfig(db_dir=str(tmp_path / "traces"))
+    old_cwd = os.getcwd()
+    os.chdir(start)
+    try:
+        raised = None
+        try:
+            run_with_probe(cfg, str(script))
+        except BaseException as e:  # noqa: BLE001 - 断言异常身份
+            raised = e
+        assert isinstance(raised, ValueError), (
+            f"原始 ValueError 必须传播（实际 {type(raised).__name__}: {raised}）")
+        assert "original-error" in str(raised)
+    finally:
+        os.chdir(old_cwd)  # 测试进程自身 cwd 恢复（start 已删，chdir 回 pytest 原目录）
+
+
 def test_cli_run_and_show(tmp_path):
     script = tmp_path / "app.py"
     script.write_text(SCRIPT, encoding="utf-8")
