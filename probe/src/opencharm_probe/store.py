@@ -328,7 +328,9 @@ def clean(cfg: ProbeConfig, project_root: str, days: int | None = None,
 
 def load_summary(path: Path, pattern: str | None = None) -> list[dict]:
     """读取 trace 库，返回函数级汇总（show 命令用）。"""
-    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    # TD-027 B8：路径经 as_uri() 标准百分号编码再拼查询串——db_dir 含 `#`/`%` 时
+    # 手拼 f"file:{path}" 会被 URI 解析错位（# 截断、% 当转义），导致「库存在却打不开」。
+    conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
     try:
         conn.execute("PRAGMA busy_timeout=5000")
         rows = conn.execute(

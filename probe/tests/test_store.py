@@ -35,6 +35,26 @@ def test_project_hash_stable():
     assert a != project_hash("F:/other")
 
 
+def test_load_summary_special_chars_in_db_dir(tmp_path):
+    """TD-027 B8：db_dir 含 `#`/`%`（URI 保留字符）时 save→load_summary 往返。
+
+    手拼 f"file:{path}?mode=ro" 下 `#` 会截断 URI、`%` 会被当转义——
+    现经 as_uri() 百分号编码，两条路径都能只读打开。
+    """
+    from opencharm_probe.sink import ObservationSink
+
+    for tag in ("hash#dir", "pct%dir"):
+        db_dir = tmp_path / tag
+        cfg_special = ProbeConfig(db_dir=str(db_dir))
+        sink = ObservationSink()
+        _fill(sink)
+        path = save(cfg_special, sink, "F:/proj", "scraper.py", 1.0, 0.5)
+        assert path.is_file()
+        rows = load_summary(path)
+        # _fill 造了 parse_page / fetch 两个函数
+        assert {r["qualname"] for r in rows} == {"parse_page", "fetch"}
+
+
 def test_project_hash_case_insensitive():
     # tech-debt #4：Windows 路径不区分大小写，大小写变体须落到同一 trace 库键
     # （对齐 shell/src-tauri/src/file_ops.rs::project_hash 的 to_lowercase / os.path.normcase）。
