@@ -613,8 +613,22 @@ pub async fn debug_attach_debuggee(
         .map_err(|e| format!("无法启动调试命令: {e}"))?;
 
     let pid = child.id();
-    let stdout = child.stdout.take().ok_or("无法获取 debuggee stdout")?;
-    let stderr = child.stderr.take().ok_or("无法获取 debuggee stderr")?;
+    // TD-027 D16：take 失败即 return Err 的路径须补杀已 spawn 的 child（与 assemble 段
+    // 防孤儿处理对称）——实际不可达（Stdio 已 piped，take 必 Some），纯防御性收口。
+    let stdout = match child.stdout.take() {
+        Some(s) => s,
+        None => {
+            crate::util::kill_process_tree_async(child);
+            return Err("无法获取 debuggee stdout".to_string());
+        }
+    };
+    let stderr = match child.stderr.take() {
+        Some(s) => s,
+        None => {
+            crate::util::kill_process_tree_async(child);
+            return Err("无法获取 debuggee stderr".to_string());
+        }
+    };
 
     // debuggee 输出转发到前端（v3.4 §13.3/§17-16：独立事件 debug-stdout / debug-stderr → 输出面板。
     // 运行角色的 run-stdout/run-stderr 已随 piped 路径下线，调试输出不再借道运行事件——
