@@ -750,11 +750,13 @@ function handleFsChanged(dirs: string[]): void {
         void startLsp();
       }
     }
-    // Live Templates 热重载：用户层（<data_root>/config，watcher 附加监听）或工作区层配置变更（M2）
+    // Live Templates 热重载（M2）：工作区层 <ws>/.opencharm/ 或用户层 <data_root>/config 变更。
+    // TD-027 A6：原 `endsWith("/config")` 把工作区任意 xxx/config 变更也当成模板配置——收紧。
+    // 取舍：OPENCHARM_DATA_ROOT 重定向到非默认路径时用户层外部编辑的热重载失效（面板内保存不受影响）。
     if (
       dirs.some((d) => {
         const n = d.toLowerCase().replace(/\\/g, "/");
-        return n.endsWith(".opencharm") || n.endsWith("opencharm/config") || n.endsWith("/config");
+        return n.endsWith("/.opencharm") || n.endsWith("/.opencharm/config") || n.endsWith("/opencharm/config");
       })
     )
       await loadTemplatesConfig();
