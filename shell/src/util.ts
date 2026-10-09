@@ -278,6 +278,7 @@ export function gitStatusLabel(code: string): string {
   const map: Record<string, string> = {
     M: t("git.status.modified"), A: t("git.status.stagedAdded"), D: t("git.status.deleted"),
     R: t("git.status.renamed"), "?": t("git.status.untracked"), "!": t("git.status.conflict"),
+    i: t("git.status.ignored"),
   };
   return map[code] ?? code;
 }
@@ -285,7 +286,7 @@ export function gitStatusLabel(code: string): string {
 /** 展示状态码 → badge CSS class（?/! 映射为合法 class 名） */
 export function gitBadgeClass(code: string): string {
   const map: Record<string, string> = {
-    M: "m", A: "a", D: "d", R: "r", "?": "u", "!": "conflict",
+    M: "m", A: "a", D: "d", R: "r", "?": "u", "!": "conflict", i: "ignored",
   };
   return `git-badge git-${map[code] ?? "m"}`;
 }

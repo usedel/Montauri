@@ -8,7 +8,8 @@ import { basename, ensurePyExtension, normalizePath, samePath, stripPyExtension,
 // CR-25：状态读取改从零依赖的 gitStatusState（切断 fileTree ↔ git 的状态耦合）；
 // refreshGitStatus 是运行时才调用的函数（无初始化期循环风险），保留从 git.ts 导入
 import { refreshGitStatus, stageFiles, showDiffForPath, showBlame, showFileHistory, gitFileOriginalPath } from "./git";
-import { gitStatusOf, isGitRepoActive, isGitDirtyDir } from "./gitStatusState";
+import { gitStatusOf, isGitRepoActive, isGitDirtyDir, isGitIgnored } from "./gitStatusState";
+import { treeHealthOf } from "./treeHealthState";
 import { openTerminalAt } from "./termUi";
 import * as mdPreview from "./markdownPreview"; // Markdown 预览（.md 右键「打开预览」）
 import { closePreviewTabIfExists } from "./mdPreviewTab"; // md 双击提升：先收预览 Tab 再开编辑
@@ -16,6 +17,7 @@ import { openConfirm } from "./dialog";
 import { toast, toastFail } from "./toast";
 import { setSidebarTab } from "./views";
 import * as lsp from "./lsp/client";
+import { setTreeHealthHandler } from "./problemsPanel";
 import { hideMenu, showMenu, type MenuItem } from "./menu";
 import { openLocalHistory } from "./localHistory"; // E-3：右键「本地历史」入口（localHistory 不反向依赖本模块，无环）
 import { diffFileWithClipboard } from "./clipboardDiff"; // C-5：右键「与剪贴板对比」（clipboardDiff 不依赖本模块，无环）
@@ -215,11 +217,11 @@ function renderTreeItem(e: Entry, depth: number, opts?: { isRoot?: boolean }): H
     if (isGitDirtyDir(rel)) item.classList.add("git-dirty");
   }
 
-  // Git 状态装饰（仅 git 仓库时渲染）
+  // Git 状态装饰（仅 git 仓库时渲染；ignored（i）不用 badge——灰显表达，见下方 git-ignored 段）
   if (!e.is_dir && isGitRepoActive() && app.workspaceRoot) {
     const rel = relativePath(app.workspaceRoot, e.path);
     const st = gitStatusOf(rel);
-    if (st) {
+    if (st && st !== "i") {
       const badge = document.createElement("span");
       badge.className = gitBadgeClass(st);
       badge.textContent = st;
@@ -228,6 +230,22 @@ function renderTreeItem(e: Entry, depth: number, opts?: { isRoot?: boolean }): H
       badge.title = gitStatusLabel(st);
       item.appendChild(badge);
     }
+  }
+
+  // ignored 灰显（VSCode gitDecoration.ignoredResourceForeground 同款语义）：条目自身或
+  // 任一祖先是 .gitignore 忽略路径。目录与文件都上（目录灰了子树自然全灰——展开后
+  // 的子项渲染时同样命中前缀匹配）。与 git badge 互斥（ignored 条目不会有 M/A/D 状态）。
+  if (isGitRepoActive() && app.workspaceRoot) {
+    const rel = relativePath(app.workspaceRoot, e.path);
+    if (rel && isGitIgnored(rel)) item.classList.add("git-ignored");
+  }
+
+  // 错误/警告文件着色（VSCode list.errorForeground 同款语义）：只有打开过（被诊断过）
+  // 的文件才有色，关闭 tab 后颜色随 marker 消失。error > warning 优先；目录不参与。
+  if (!e.is_dir) {
+    const h = treeHealthOf(e.path);
+    if (h === "error") item.classList.add("has-error");
+    else if (h === "warning") item.classList.add("has-warning");
   }
 
   item.addEventListener("click", (ev) => {
@@ -542,7 +560,7 @@ function showContextMenu(entry: Entry, x: number, y: number, opts?: { background
   if (!entry.is_dir && isGitRepoActive() && app.workspaceRoot) {
     const rel = relativePath(app.workspaceRoot, entry.path);
     const code = gitStatusOf(rel);
-    if (code !== undefined) {
+    if (code !== undefined && code !== "i") {
       const exact = gitFileOriginalPath(rel);
       if (exact) {
         items.push(
@@ -1118,6 +1136,21 @@ async function revealEntry(entry: Entry): Promise<void> {
   }
 }
 
+// ---------- 健康度轻量刷新（不重建 DOM） ----------
+
+/** 已渲染树节点的错误/警告 class 全量同步（problemsPanel 每轮防抖刷新回调）。
+ *  只换 class 不重建节点——文件名/badge/展开态/选中态全保留；数百节点量级毫秒级。 */
+export function refreshTreeHealthClasses(): void {
+  const items = treeEl.querySelectorAll<HTMLElement>(".tree-item.file");
+  for (const el of items) {
+    const path = el.dataset.path;
+    if (!path) continue;
+    const h = treeHealthOf(path);
+    el.classList.toggle("has-error", h === "error");
+    el.classList.toggle("has-warning", h === "warning");
+  }
+}
+
 // ---------- 事件接线 ----------
 
 /** 接线文件树全部交互：工具栏按钮 + 过滤框 + 树全局事件（原 init 内片段 + wireFileTreeEvents） */
@@ -1129,6 +1162,10 @@ export function wireFileTree(): void {
     syncFollowBtn();
     if (app.workspaceRoot && !isTreeEmpty()) void refreshTreeWithExpandedState();
   });
+
+  // 健康度变化 → 树侧轻量刷 class（problemsPanel 注入回调；wireFileTree 在 init 早期调用，
+  // setTreeHealthHandler 须在其后由 main 接线——见 main.ts 的 setTreeHealthHandler(refreshTreeHealthClasses)）
+  setTreeHealthHandler(refreshTreeHealthClasses);
 
   // 文件树工具栏按钮（新建文件/文件夹放最左，对齐 VS Code explorer 工具栏的可见入口）
   $("btn-tree-new-file").addEventListener("click", () => void createFileInteractive());
@@ -1343,4 +1380,5 @@ export function resetTreeState(): void {
   }
   treeEl.textContent = "";
   dirContainers.clear();
+  // 健康/ignored class 无需单独清：树 DOM 已整体清空，下次渲染从状态层现算
 }

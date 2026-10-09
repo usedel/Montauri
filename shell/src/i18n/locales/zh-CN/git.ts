@@ -273,6 +273,7 @@ export const git = {
   // ---- git.status ----
   "git.status.conflict": "冲突",
   "git.status.deleted": "已删除",
+  "git.status.ignored": "已忽略（.gitignore）",
   "git.status.modified": "已修改",
   "git.status.renamed": "已重命名",
   "git.status.stagedAdded": "已暂存（新增）",

@@ -12,6 +12,39 @@ export const gitStatuses = new Map<string, string>();
 /** 有变更的目录集合（相对路径，文件树目录高亮用） */
 export const gitDirtyDirs = new Set<string>();
 
+/** 被 .gitignore 忽略的路径集合（相对路径，git --ignored=matching 输出，小写归一 key）。
+ *  条目可能是目录（node_modules/）或文件；树侧判断「该条目或其祖先在集合内」即视为 ignored。
+ *  归一化原因：gitStatuses 用原始大小写 + 查询侧归一的双结构，此处直接存归一 key——
+ *  ignored 条目不需要反查原始路径（不做 add/diff 操作），单 Set + 前缀匹配足够。 */
+const ignoredPaths = new Set<string>();
+
+/** 重建 ignored 集合（git.ts 在状态刷新后调用；传入相对路径原始大小写，内部归一） */
+export function setGitIgnoredPaths(paths: string[]): void {
+  ignoredPaths.clear();
+  for (const p of paths) {
+    // git 目录条目带尾斜杠（node_modules/），统一剥掉再归一
+    const trimmed = p.replace(/[\\/]+$/, "");
+    if (trimmed) ignoredPaths.add(normalizePath(trimmed));
+  }
+}
+
+/** 相对路径是否被忽略（自身或任一祖先是 ignored 条目；大小写/分隔符无关） */
+export function isGitIgnored(relPath: string): boolean {
+  if (ignoredPaths.size === 0) return false;
+  // 尾斜杠统一剥离（查询侧目录条目可能带 /，与存储侧 setGitIgnoredPaths 的剥法一致）
+  const norm = normalizePath(relPath).replace(/[\\/]+$/, "");
+  if (ignoredPaths.has(norm)) return true;
+  // 祖先前缀匹配：a/b/c.py → a/b、a
+  let dir = norm;
+  let idx = Math.max(dir.lastIndexOf("/"), dir.lastIndexOf("\\"));
+  while (idx > 0) {
+    if (ignoredPaths.has(dir.slice(0, idx))) return true;
+    dir = dir.slice(0, idx);
+    idx = Math.max(dir.lastIndexOf("/"), dir.lastIndexOf("\\"));
+  }
+  return false;
+}
+
 /** 是否为 git 仓库（文件树装饰总开关） */
 export const gitRepoActive = { value: false };
 

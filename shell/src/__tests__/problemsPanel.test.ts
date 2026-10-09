@@ -5,6 +5,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { app } from "../state";
 import { renderProblems, activeFileProblemCounts } from "../problemsPanel";
+import { treeHealthOf } from "../treeHealthState";
 
 const ERR = 8; // MarkerSeverity.Error
 const WARN = 4; // MarkerSeverity.Warning
@@ -124,5 +125,30 @@ describe("问题面板渲染", () => {
       "a.py",
     );
     expect(activeFileProblemCounts()).toEqual({ errors: 2, warnings: 1 });
+  });
+
+  it("树健康度投影：error 优先 / 仅 warning 黄 / 清空后消失", () => {
+    mockApp(
+      {
+        "both.py": [
+          { line: 1, col: 1, severity: ERR, message: "e", source: "pyrefly" },
+          { line: 2, col: 1, severity: WARN, message: "w", source: "ruff" },
+        ],
+        "warn-only.py": [{ line: 1, col: 1, severity: WARN, message: "w", source: "ruff" }],
+      },
+      "both.py",
+    );
+    renderProblems();
+    // 同文件 error+warning → error 优先（VSCode list.errorForeground 同款仲裁）
+    expect(treeHealthOf("both.py")).toBe("error");
+    expect(treeHealthOf("warn-only.py")).toBe("warning");
+    // 无诊断文件 → undefined（不着色）
+    expect(treeHealthOf("clean.py")).toBeUndefined();
+
+    // 全部修复（marker 清空）→ 健康态清空（颜色随关 tab 消失的同款语义）
+    mockApp({ "both.py": [], "warn-only.py": [] }, null);
+    renderProblems();
+    expect(treeHealthOf("both.py")).toBeUndefined();
+    expect(treeHealthOf("warn-only.py")).toBeUndefined();
   });
 });

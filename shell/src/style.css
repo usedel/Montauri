@@ -193,6 +193,9 @@
   --git-added: #81b88b;
   --git-untracked: #73c991;
   --git-branch: #d7ba7d; /* 状态栏分支名（D3 起为中性底，浅色主题需覆盖） */
+  /* 文件树 ignored 灰显（VSCode gitDecoration.ignoredResourceForeground 同款语义）：
+     比 --fg-dim 再暗一档，与正常条目拉开「这东西不归 git 管」的视觉差 */
+  --tree-ignored: #6e6e78;
   /* diff 输出语法色（--diff-hunk 属交互色轴，已随 ADR-0005 青绿化；--diff-add 是语义色，不动） */
   --diff-hunk: #2aa88f;
   --diff-add: #6a9955;
@@ -430,6 +433,8 @@ html[data-reduce-motion] .codicon-modifier-spin { animation: none; }
      ⚠ 残留：现状浅色 --control-hover #c8c8c8 上仍只有 3.78 —— 须等批 2b 把它重算为
      #e4e4e6（新值 4.98 ✅）。审计残留登记在 tools/ui/audit_tokens.py::KNOWN_RESIDUALS。 */
   --fg-dim: #5f5f68;
+  /* 浅色主题 ignored 灰显（比 fg-dim 再暗一档，同深色主题的层级关系） */
+  --tree-ignored: #76767f;
   /* 批 2b：浅色**必须**也定义 --fg-muted。选择器级纪律「抬升面上禁用 --fg-dim」一旦落地，
      浅色若不定义该 token，var(--fg-muted) 会 invalid at computed-value time →
      color 变 unset（继承父级），层级的「次要文字」就变成了「正文」——比不改更糟。
@@ -920,6 +925,17 @@ button:focus-visible,
 .tree-item .name { overflow: hidden; text-overflow: ellipsis; }
 .tree-item.dir .name { color: var(--fg); }
 .tree-item.dir.git-dirty .name { color: var(--git-modified); }
+/* ignored 灰显（VSCode 同款语义）：.gitignore 忽略的条目——目录或文件、含子树；与
+   git badge 互斥（ignored 条目无 M/A/D 状态），与错误/警告着色也可并存但实际不会
+   （未跟踪文件若打开且有错，error 红的优先级更高，见下方规则顺序） */
+.tree-item.git-ignored .name { color: var(--tree-ignored); }
+.tree-item.git-ignored .twisty { color: var(--tree-ignored); }
+/* badge 兜底色（gitBadgeClass 已映射 i→ignored；当前 badge 渲染路径跳过 i，防御性保留） */
+.git-badge.git-ignored { color: var(--tree-ignored); }
+/* 错误/警告文件着色（VSCode list.errorForeground 同款语义）：只有打开过（被诊断过）
+   的文件才有色。规则顺序保证优先级：error > warning > ignored > 正常 */
+.tree-item.file.has-error .name { color: var(--danger); }
+.tree-item.file.has-warning .name { color: var(--warn); }
 /* 工作区根节点：名称加粗，作为树的视觉锚点（对齐 VS Code / JetBrains 的根文件夹） */
 .tree-item.tree-root .name { font-weight: 600; }
 .tree-item .twisty { width: 12px; flex: none; color: var(--fg-dim); font-size: var(--text-sm); }

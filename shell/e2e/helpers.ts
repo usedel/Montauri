@@ -162,9 +162,10 @@ function parsePorcelainZ(stdout: string): StatusFile[] {
   return files;
 }
 
-/** 对齐 git_status.rs::status_code 的合并规则 */
+/** 对齐 git_status.rs::status_code 的合并规则（含 --ignored 的 !! → i） */
 function statusCode(x: string, y: string): string {
   if (x === "?" && y === "?") return "?";
+  if (x === "!" && y === "!") return "i";
   if (x !== " " && y !== " " && x !== "M" && y !== "M") return "!";
   if (y !== " ") return y;
   if (x !== " ") return x;
@@ -186,7 +187,7 @@ async function dispatchGit(cmd: string, args: Record<string, unknown>, repo: Git
 
   switch (cmd) {
     case "git_status": {
-      const out = await inRepo(["status", "--porcelain=v1", "-z"]);
+      const out = await inRepo(["status", "--porcelain=v1", "-z", "--ignored=matching"]);
       let currentBranch: string | null = null;
       try {
         currentBranch = (await inRepo(["branch", "--show-current"])).trim() || null;

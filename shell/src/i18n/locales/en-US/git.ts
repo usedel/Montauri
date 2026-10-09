@@ -274,6 +274,7 @@ export const git: Record<GitKey, string> = {
   // ---- git.status ----
   "git.status.conflict": "conflict",
   "git.status.deleted": "deleted",
+  "git.status.ignored": "ignored (.gitignore)",
   "git.status.modified": "modified",
   "git.status.renamed": "renamed",
   "git.status.stagedAdded": "staged (added)",

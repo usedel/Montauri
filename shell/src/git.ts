@@ -59,7 +59,7 @@ export function setGitEditorBridge(bridge: GitEditorBridge | null): void {
   editorBridge = bridge;
 }
 // CR-25：状态存储下沉到零依赖的 gitStatusState（fileTree 装饰只读，不再 import 本模块）
-import { gitStatuses, gitDirtyDirs, gitRepoActive, rebuildStatusIndex } from "./gitStatusState";
+import { gitStatuses, gitDirtyDirs, gitRepoActive, rebuildStatusIndex, setGitIgnoredPaths } from "./gitStatusState";
 
 // ---------- 域内状态 ----------
 
@@ -108,6 +108,7 @@ export async function refreshGitStatus(paths?: string[]): Promise<void> {
     gitRepoActive.value = false;
     currentBranch = null;
     gitDirtyDirs.clear();
+    setGitIgnoredPaths([]);
     updateGitStatusBar();
     return;
   }
@@ -142,6 +143,9 @@ export async function refreshGitStatus(paths?: string[]): Promise<void> {
       rebuildStatusIndex();
     }
     rebuildGitDirtyDirs();
+    // ignored 灰显（--ignored=matching）：gitFiles 现含 code=i 条目（全量与增量合并后的
+    // gitFiles 都在此），抽出来喂状态层；SCM 面板再过滤掉（见 gitFileStaged / renderGitPanel）
+    setGitIgnoredPaths(gitFiles.filter((f) => f.code === "i").map((f) => f.path));
   } catch {
     gitStatuses.clear();
     rebuildStatusIndex();
@@ -149,6 +153,7 @@ export async function refreshGitStatus(paths?: string[]): Promise<void> {
     gitRepoActive.value = false;
     currentBranch = null;
     gitDirtyDirs.clear();
+    setGitIgnoredPaths([]);
   }
   updateGitStatusBar();
   refreshGitGutter(); // 迭代 2 · P0-5：状态变化后活动文件的行级装饰即时更新
@@ -192,10 +197,11 @@ async function updateSyncCount(): Promise<void> {
   } catch { /* 无上游或查询失败：保持纯分支名 */ }
 }
 
-/** 由变更文件列表重建「有变更的目录」集合（向上冒泡所有父目录） */
+/** 由变更文件列表重建「有变更的目录」集合（向上冒泡所有父目录；ignored 条目不是变更，跳过） */
 function rebuildGitDirtyDirs(): void {
   gitDirtyDirs.clear();
   for (const f of gitFiles) {
+    if (f.code === "i") continue;
     let i = f.path.lastIndexOf("/");
     while (i > 0) {
       gitDirtyDirs.add(f.path.slice(0, i));
@@ -210,7 +216,7 @@ function rebuildGitDirtyDirs(): void {
 
 /** 判断文件是否已暂存（未跟踪与冲突视作未暂存） */
 function gitFileStaged(f: GitStatusFile): boolean {
-  if (f.code === "?" || f.code === "!") return false;
+  if (f.code === "?" || f.code === "!" || f.code === "i") return false;
   return f.x !== " ";
 }
 
@@ -264,8 +270,15 @@ export function renderGitPanel(): void {
     return;
   }
 
-  const staged = gitFiles.filter((f) => gitFileStaged(f));
-  const unstaged = gitFiles.filter((f) => !gitFileStaged(f));
+  // ignored 条目（code=i）不进 SCM 变更列表——它只服务文件树灰显，不是变更
+  const visibleFiles = gitFiles.filter((f) => f.code !== "i");
+  if (visibleFiles.length === 0) {
+    box.appendChild(emptyState("check", t("git.panel.noChanges"), t("git.panel.cleanHint")));
+    return;
+  }
+
+  const staged = visibleFiles.filter((f) => gitFileStaged(f));
+  const unstaged = visibleFiles.filter((f) => !gitFileStaged(f));
 
   if (staged.length > 0) {
     box.appendChild(
@@ -2388,7 +2401,7 @@ export async function checkoutBranch(name: string, opts?: { remote?: boolean; de
       track = true; // 无同名：--track origin/x → 本地 x 跟踪 origin/x
     }
   }
-  const dirty = gitFiles.filter((f) => f.code !== "!");
+  const dirty = gitFiles.filter((f) => f.code !== "!" && f.code !== "i");
   if (dirty.length > 0) {
     const choice = await openChoice({
       title: t("git.action.switchBranch"),
@@ -3138,6 +3151,7 @@ export function resetGitState(): void {
   gitRepoActive.value = false;
   currentBranch = null;
   gitDirtyDirs.clear();
+  setGitIgnoredPaths([]);
   gitBranches = [];
   $("git-stash-panel").classList.add("hidden");
   // 第 2 步迁移：关闭全部 diff tab（工作区切换批量清理；close 回调未注入的

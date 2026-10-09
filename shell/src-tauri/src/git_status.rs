@@ -50,7 +50,7 @@ fn git_status_impl(root: &str, paths: Option<&[String]>) -> Result<GitStatusResu
     }
 
     let mut cmd = tool_command("git", ENV_GIT);
-    cmd.args(["-c", "core.quotepath=false", "status", "--porcelain=v1", "-z", "-u"])
+    cmd.args(["-c", "core.quotepath=false", "status", "--porcelain=v1", "-z", "-u", "--ignored=matching"])
         .current_dir(root);
 
     // 增量查询：仅统计指定相对路径（目录会递归展开），避免大仓库全量扫描（TD-002）
@@ -133,11 +133,15 @@ fn parse_porcelain_z(stdout: &[u8]) -> Vec<GitStatusFile> {
 
 /// 将 porcelain 的 XY 状态两字符合并为单一展示码：
 /// - `??` → `?`（未跟踪）
+/// - `!!` → `i`（被 .gitignore 忽略；--ignored=matching 下目录级输出，树侧灰显用）
 /// - 未合并冲突（双方非空格且均非 M，如 UU/AA/DD/AU/UD/UA/DU）→ `!`
 /// - 其余优先工作区（Y），其次暂存区（X）
 fn status_code(x: u8, y: u8) -> String {
     if x == b'?' && y == b'?' {
         return "?".to_string();
+    }
+    if x == b'!' && y == b'!' {
+        return "i".to_string();
     }
     if x != b' ' && y != b' ' && x != b'M' && y != b'M' {
         return "!".to_string();
@@ -226,8 +230,31 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_porcelain_z_ignored() {
+        // --ignored=matching 下被忽略条目：!! dir/\0（目录级，一条覆盖整棵）与 !! file.pyc\0
+        let mut buf = Vec::new();
+        buf.extend_from_slice(b" M mod.py\0");
+        buf.extend_from_slice(b"!! node_modules/\0");
+        buf.extend_from_slice(b"!! build.pyc\0");
+        let files = parse_porcelain_z(&buf);
+        assert_eq!(files.len(), 3);
+
+        let m = files.iter().find(|f| f.path == "mod.py").unwrap();
+        assert_eq!(m.code, "M");
+
+        let dir = files.iter().find(|f| f.path == "node_modules/").unwrap();
+        assert_eq!(dir.code, "i");
+        assert_eq!(dir.x, '!');
+        assert_eq!(dir.y, '!');
+
+        let f = files.iter().find(|f| f.path == "build.pyc").unwrap();
+        assert_eq!(f.code, "i");
+    }
+
+    #[test]
     fn test_status_code_mapping() {
         assert_eq!(status_code(b'?', b'?'), "?");
+        assert_eq!(status_code(b'!', b'!'), "i");
         assert_eq!(status_code(b'U', b'U'), "!");
         assert_eq!(status_code(b'D', b'D'), "!");
         assert_eq!(status_code(b'A', b'A'), "!");

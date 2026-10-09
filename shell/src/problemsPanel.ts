@@ -16,6 +16,7 @@ import type * as MonacoApi from "monaco-editor/esm/vs/editor/editor.api";
 import { app, $ } from "./state";
 import { basename, emptyState } from "./util";
 import { t } from "./i18n"; // 第十一批 i18n：问题面板动态文案走语言包
+import { setTreeFileHealth, type TreeHealth } from "./treeHealthState"; // 文件树错误/警告着色数据源
 
 /** 单条问题（渲染数据） */
 interface ProblemItem {
@@ -255,6 +256,11 @@ export function renderProblems(): void {
   const errors = items.filter((i) => i.severity === S.Error).length;
   const warnings = items.filter((i) => i.severity === S.Warning).length;
 
+  // 文件树健康度投影（VSCode FileDecoration 同款语义：有 error 的文件红名 / 仅 warning 黄名）。
+  // 在指纹短路**之前**执行——面板 DOM 可以因指纹相同而跳过重建，但树侧 class 刷新
+  // 是独立消费方，必须每轮都拿到最新汇总。
+  syncTreeHealth(items, S);
+
   // tab 徽标（错误数随 tab 常驻，问题面板的可见性入口之一）
   const tab = tabEl();
   const badge = errors > 0 ? ` (${errors})` : "";
@@ -318,6 +324,28 @@ export function renderProblems(): void {
   panel.dataset.rendered = "1";
 }
 
+/** items → treeHealthState 全量替换 + 变化时通知树侧轻量刷 class（不重建 DOM） */
+function syncTreeHealth(items: ProblemItem[], S: { Error: number; Warning: number }): void {
+  const health = new Map<string, TreeHealth>();
+  for (const it of items) {
+    const h: TreeHealth = it.severity === S.Error ? "error" : "warning";
+    const prev = health.get(it.path);
+    // error 优先于 warning（同一文件两类都有时取 error）
+    if (prev !== "error") health.set(it.path, h);
+  }
+  setTreeFileHealth([...health.entries()]);
+  notifyTreeHealthConsumers();
+}
+
+/** 树侧健康度刷新回调（fileTree 注入，避免 problemsPanel → fileTree 反向依赖） */
+let onTreeHealthChange: (() => void) | null = null;
+export function setTreeHealthHandler(fn: (() => void) | null): void {
+  onTreeHealthChange = fn;
+}
+function notifyTreeHealthConsumers(): void {
+  onTreeHealthChange?.();
+}
+
 /** 打开问题面板（刷新 + 显示；显示经注入回调，避免 termUi 依赖链） */
 export function openProblemsPanel(): void {
   renderProblems(); // 立即刷新一次（防抖窗口内的最新状态）
@@ -366,6 +394,7 @@ export function resetProblemsPanel(): void {
     panel.textContent = "";
     delete panel.dataset.rendered;
   }
-  // tab 徽标与状态栏芯片同步复位（collectProblems 已随 tab 全关而空，直接重渲染最省心）
+  // tab 徽标与状态栏芯片同步复位（collectProblems 已随 tab 全关而空，直接重渲染最省心）。
+  // renderProblems 内的 syncTreeHealth 顺带清空树健康态并通知刷新（tab 全关 → items 空）。
   renderProblems();
 }
