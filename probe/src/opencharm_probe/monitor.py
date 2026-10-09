@@ -33,6 +33,7 @@ import os
 import sys
 import time
 import types
+from dataclasses import replace
 from fnmatch import fnmatch
 
 from .compact import compact_type, shape_fingerprint, type_label
@@ -114,14 +115,17 @@ class Monitor:
         # 全局事件，靠「栈顶 code 匹配」守卫过滤未计时的帧（库 unwind 只付一次
         # 比较；异常路径非热路径）。⚠ 单栈为单线程语义（多线程交错会破坏配对，
         # 与 P1 的 per-code 栈同等程度的技术债）。
-        self._perf_frames: list[list[int]] = []
+        # TD-027 D10：帧元素实际为 [CodeType, t0_ns, child_ns]（int 计时值占后两位）。
+        self._perf_frames: list[list[types.CodeType | int]] = []
         # 全局事件基座（窗口外常开的事件）：perf 模式叠加 PY_UNWIND。
         self._base_events = sys.monitoring.events.RAISE
         if cfg.perf_mode:
             # 静音对耗时统计是致命失真（停 PY_RETURN 会让计时栈泄漏、样本只剩
             # 每函数前 200 次）——必须抬开静音上限。这不是调参偏好，是正确性前提
             #（runtime_profiler_dev_plan.md §3.1）。
-            cfg.max_calls_per_func = sys.maxsize
+            # TD-027 D9：抬开写入局部副本（dataclasses.replace），不改写调用方 cfg
+            #（mutator 坏味道：ProbeConfig 是共享对象，调用链外的测试同样持有引用）。
+            self._cfg = replace(cfg, max_calls_per_func=sys.maxsize)
             self._base_events |= sys.monitoring.events.PY_UNWIND
 
     # -- 生命周期 ---------------------------------------------------------

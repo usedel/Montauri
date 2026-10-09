@@ -72,8 +72,12 @@ def _cmd_show(args) -> int:
         print("[opencharm-probe] （无匹配记录）")
         return 0
     for r in rows:
-        loc = f"{os.path.relpath(r['filename'], os.path.dirname(path.parent))}" \
-              if r["filename"].startswith(os.path.dirname(path.parent)) else r["filename"]
+        # TD-027 D11：startswith 两侧同走 normcase——归一小写盘符 × 未归一 parent 恒 False，
+        # 原判定退回显示原始绝对路径（仅观感）。normcase 在 Windows 兼做斜杠归一。
+        base = os.path.normcase(os.path.dirname(path.parent))
+        fname = os.path.normcase(r["filename"])
+        loc = os.path.relpath(r["filename"], os.path.dirname(path.parent)) \
+            if fname.startswith(base) else r["filename"]
         print(f"◆ {r['qualname']}  ({loc}:{r['lineno']})  ×{r['hits']}")
         for arg, t, c in r["args"]:
             print(f"    arg {arg}: {t}  ×{c}")

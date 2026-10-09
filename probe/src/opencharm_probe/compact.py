@@ -145,6 +145,11 @@ def shape_fingerprint(value, max_keys: int = 16) -> str | None:
     try:
         if isinstance(value, dict):
             if not value or len(value) > max_keys:
+                # TD-027 D14（有意取舍）：顶层超限 → 整体放弃指纹（防巨型 dict 的指纹
+                # 爆炸）；而 _elem_shape 的元素键合并超限是**截断保留**（同构 list 的部分
+                # 结构仍有补全价值）。两分支不对称是精度取舍，不是疏漏——统一任一方向
+                # 都会改变 trace 库内容（顶层变截断 = 大 dict 出现误导性部分指纹；
+                # 元素变放弃 = list-of-dict 补全信息量骤降）。
                 return None
             if not all(isinstance(k, str) for k in value):
                 return None

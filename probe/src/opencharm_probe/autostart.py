@@ -127,6 +127,9 @@ def bootstrap() -> None:
             # TD-020：同一 run_id 的父子进程退出时都触发 _finalize，仅首个进程落库+打印
             run_id = os.environ.get("OPENCHARM_PROBE_RUN_ID", "").strip()
             if run_id and not _acquire_run_lock(run_id, lock_dir):
+                # TD-027 D15：被去重的子进程观测整段丢弃（TD-020 取舍），继续监控纯属
+                # 浪费——全局 RAISE 事件会持续派发回调到进程退出。stop 幂等，安全。
+                mon.stop()
                 return
             mon.stop()
             elapsed = time.perf_counter() - perf_started

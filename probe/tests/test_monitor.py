@@ -640,10 +640,12 @@ def test_perf_mode_off_by_default():
 
 
 def test_perf_mode_lifts_mute_and_times_every_call():
-    """正确性前提（dev plan §3.1）：性能模式抬开静音上限，超 200 次调用仍逐次计时。"""
+    """正确性前提（dev plan §3.1）：性能模式抬开静音上限，超 200 次调用仍逐次计时。
+    TD-027 D9：抬开落在 Monitor 内部副本（mon._cfg），不再改写调用方 cfg。"""
     cfg = ProbeConfig(perf_mode=True)
     mon, sink = _new_monitor(cfg)
-    assert cfg.max_calls_per_func == sys.maxsize, "perf 模式必须抬开静音上限"
+    assert mon._cfg.max_calls_per_func == sys.maxsize, "perf 模式必须抬开静音上限（内部副本）"
+    assert cfg.max_calls_per_func == 200, "调用方 cfg 不应被 Monitor 改写（D9）"
     mon.start()
 
     def hot(n):

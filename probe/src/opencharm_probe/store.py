@@ -15,6 +15,7 @@ import hashlib
 import json
 import os
 import sqlite3
+import sys
 import time
 from pathlib import Path
 
@@ -181,7 +182,6 @@ def save(cfg: ProbeConfig, sink: ObservationSink, project_root: str, script: str
         instance = os.environ.get("OPENCHARM_PROBE_INSTANCE", "")
     path = db_path(cfg, project_root)
     path.parent.mkdir(parents=True, exist_ok=True)
-    import sys
     conn = sqlite3.connect(path)
     try:
         _set_pragmas(conn)
