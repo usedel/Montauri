@@ -200,14 +200,18 @@ pub fn remove_recent_workspace(path: String) -> Result<Vec<String>, String> {
     Ok(list)
 }
 
-/// 打开文件夹选择对话框（返回所选路径或 null）
+/// 打开文件夹选择对话框（返回所选路径或 null）。
+/// TD-027 B2：recv 移入 spawn_blocking——对话框打开期间阻塞的是 blocking 线程池，
+/// 不再占用 tokio worker（用户挂着对话框不关，worker 不会被卡住）。
 #[tauri::command]
 pub async fn pick_folder(app: tauri::AppHandle) -> Result<Option<String>, String> {
     let (tx, rx) = std::sync::mpsc::channel::<Option<String>>();
     app.clone().dialog().file().pick_folder(move |folder| {
         let _ = tx.send(folder.map(|p| p.to_string()));
     });
-    Ok(rx.recv().map_err(|e| e.to_string())?)
+    tauri::async_runtime::spawn_blocking(move || rx.recv().map_err(|e| e.to_string()))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// 打开单文件选择对话框（返回所选路径或 null）。
@@ -218,7 +222,9 @@ pub async fn pick_file(app: tauri::AppHandle) -> Result<Option<String>, String> 
     app.clone().dialog().file().pick_file(move |file| {
         let _ = tx.send(file.map(|p| p.to_string()));
     });
-    Ok(rx.recv().map_err(|e| e.to_string())?)
+    tauri::async_runtime::spawn_blocking(move || rx.recv().map_err(|e| e.to_string()))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 // ---------- 单文件打开（docs/open_file_dev_plan.md 批 1） ----------
