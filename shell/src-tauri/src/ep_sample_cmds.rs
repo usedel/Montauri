@@ -21,7 +21,8 @@
 use serde::Serialize;
 use std::path::Path;
 
-use crate::fs_cmds::{pyd_collect_models, read_text_file, PydModel};
+use crate::pydantic_cmds::{pyd_collect_models, PydModel};
+use crate::search_cmds::read_text_file;
 
 /// 签名跨行拼接上限（防御：括号不闭合的异常代码不无限读）
 const MAX_SIG_LINES: usize = 40;

@@ -28,7 +28,7 @@ use rusqlite::{Connection, OpenFlags};
 use serde::Serialize;
 
 use crate::file_ops::project_hash;
-use crate::fs_cmds::collect_files;
+use crate::search_cmds::collect_files;
 use crate::util::opencharm_home;
 
 /// 单文件扫描上限（与 `fs_cmds::MAX_FILE_SIZE` 同口径：超过则跳过，防大文件拖慢扫描）。

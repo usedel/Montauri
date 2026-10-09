@@ -9,6 +9,7 @@ mod file_ops;
 mod fs_cmds;
 mod git_cmds;
 mod git_status;
+mod git_worktree_cmds;
 mod history;
 mod http_cmds;
 mod intel_cmds;
@@ -16,10 +17,12 @@ mod lib_cmds;
 mod logging;
 mod lsp;
 mod openapi_cmds;
+mod search_cmds;
 mod plugin_cmds;
 mod per_window;
 mod plugin_pkg;
 mod proc_stats;
+mod pydantic_cmds;
 mod run_config;
 mod run_env;
 mod sessions;
@@ -130,15 +133,17 @@ pub fn run() {
             fs_cmds::create_scratch,
             // 外部拖入文件落地（T5 · 微交互批）：base64 内容 + unique_target 防覆盖
             file_ops::write_dropped_file,
-            fs_cmds::format_python,
-            fs_cmds::optimize_imports,
-            fs_cmds::search_workspace,
-            fs_cmds::scan_todos,
-            fs_cmds::scan_import_aliases,
-            fs_cmds::read_import_aliases,
-            fs_cmds::list_workspace_files,
-            fs_cmds::list_workspace_dirs,
-            fs_cmds::ruff_lint,
+            // 检索域（2026-10-09 自 fs_cmds 拆分）：格式化 / Optimize Imports / 搜索 /
+            // TODO / 别名学习 / ruff lint / 文件清单
+            search_cmds::format_python,
+            search_cmds::optimize_imports,
+            search_cmds::search_workspace,
+            search_cmds::scan_todos,
+            search_cmds::scan_import_aliases,
+            search_cmds::read_import_aliases,
+            search_cmds::list_workspace_files,
+            search_cmds::list_workspace_dirs,
+            search_cmds::ruff_lint,
             // 本地历史（P1：无 Git 工作区的保存快照 / diff / 回滚）
             history::history_snapshot,
             history::history_list,
@@ -213,7 +218,8 @@ pub fn run() {
             // Pydantic 栈检测（F0 裁决 B：推荐切换静态引擎，bench/reports/pydantic-engine-probe.md）
             env_cmds::detect_pydantic_stack,
             // 端点扫描（F1：FastAPI / Flask 静态路由，docs/pycharm_framework_support_report.md §8.3）
-            fs_cmds::scan_endpoints,
+            //（2026-10-09 自 fs_cmds 拆至 pydantic_cmds）
+            pydantic_cmds::scan_endpoints,
             // 端点请求样例（A5①：handler 签名 + Pydantic 模型 → 可复制的 JSON 样例）
             ep_sample_cmds::scan_endpoint_sample,
             // 端点 OpenAPI 预览（A5④：拉运行中服务 /openapi.json → 扁平操作列表）
@@ -221,8 +227,9 @@ pub fn run() {
             // 运行时热点（A1：probe trace 库 + 项目函数定义差集，docs/improvement_and_roadmap_report.md §3）
             intel_cmds::scan_runtime_hotspots,
             // Pydantic 语义层（阶段 4：构造校验诊断 + rename 传播补充，docs/pyrefly_pydantic_support_plan.md §3.4）
-            fs_cmds::scan_pydantic_issues,
-            fs_cmds::scan_pydantic_ctor_refs,
+            //（2026-10-09 自 fs_cmds 拆至 pydantic_cmds）
+            pydantic_cmds::scan_pydantic_issues,
+            pydantic_cmds::scan_pydantic_ctor_refs,
             env_cmds::list_packages,
             env_cmds::list_outdated,
             env_cmds::pip_install,
@@ -338,13 +345,13 @@ pub fn run() {
             git_cmds::git_remote_add,
             git_cmds::git_remote_remove,
             git_cmds::git_cancel_op,
-            // Git worktree（迭代 5 · P2-9）
-            git_cmds::git_worktree_list,
-            git_cmds::git_worktree_add,
-            git_cmds::git_worktree_remove,
-            // Git Clone（迭代 6 · P3-1）
-            git_cmds::git_clone,
-            git_cmds::git_default_branch,
+            // Git worktree（迭代 5 · P2-9）+ Clone（迭代 6 · P3-1）
+            //（2026-10-09 自 git_cmds 拆至 git_worktree_cmds）
+            git_worktree_cmds::git_worktree_list,
+            git_worktree_cmds::git_worktree_add,
+            git_worktree_cmds::git_worktree_remove,
+            git_worktree_cmds::git_clone,
+            git_worktree_cmds::git_default_branch,
             // B3（docs/sqlite_tool_dev_plan.md）：SQLite 数据库工具窗
             // PR-1：连接骨架 + 列表持久化
             db_cmds::db_open,

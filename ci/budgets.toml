@@ -177,10 +177,29 @@ run_config_rs_max_lines = 900
 dep_health_rs_max_lines = 1280
 dep_fix_rs_max_lines = 2400
 
-# fs_cmds.rs / git_cmds.rs：3,885 / 1,940（fs_cmds 因 A5① 放开 5 处可见性 +3 行），同样防涨。
-#   git_cmds 余量仅 10 行，再增长须先拆或显式抬阈值并写理由。
-fs_cmds_rs_max_lines = 4000
-git_cmds_rs_max_lines = 1950
+# fs_cmds.rs 及拆分后的三个新文件（2026-10-09 已执行拆分，budget FAIL 清零行动）。
+#   拆分前：fs_cmds.rs 4,063 行 / 30 命令（行数预算 4,000 FAIL +63）。按业务域切三块，
+#   命令面与前端 invoke 字符串**零变化**，纯模块重组、无行为变更（env_cmds 四分先例同款）：
+#     · fs_cmds.rs      瘦身（基础 IO / 模板配置 / 最近工作区 / picker / 项目创建 / scratch）→ 1,057 行，上限 1,300（余量 ~23%）
+#     · search_cmds.rs  新建（ruff format / Optimize Imports / 全局搜索 / TODO / 别名学习 / ruff lint / 文件清单；
+#                        collect_files / read_text_file / MAX_FILE_SIZE / SEARCH_IGNORED_DIRS 共享走查辅助随行走
+#                        pub(crate)，intel_cmds / pydantic_cmds 引用点已同步改）                          → 1,636 行，上限 2,000（余量 ~22%）
+#     · pydantic_cmds.rs 新建（端点扫描 F1 / Pydantic 构造校验阶段 4；PydModel 等符号保持
+#                        pub(crate)——ep_sample_cmds 复用）                                             → 1,441 行，上限 1,750（余量 ~21%）
+#   冻结线纪律继续有效：新增检索类命令落 search_cmds、Pydantic/端点类落 pydantic_cmds，
+#   fs_cmds.rs 只承载基础 IO 与项目创建（纪律写在各文件头）。
+fs_cmds_rs_max_lines = 1300
+search_cmds_rs_max_lines = 2000
+pydantic_cmds_rs_max_lines = 1750
+
+# git_cmds.rs 及拆分（2026-10-09 同批）：1,954 行（预算 1,950 FAIL +4）。最小刀外提
+#   worktree + clone 域（五命令 + clone 专属校验辅助 + 四个测试）：
+#     · git_cmds.rs         瘦身（暂存/提交/分支/diff/远程/stash/log/blame/高级工作流核心）→ 1,600 行，上限 1,900（余量 ~19%）
+#     · git_worktree_cmds.rs 新建（worktree list/add/remove + clone/default_branch；
+#                        exec_git / spawn_blocking / exec_git_streaming 留 git_cmds 并
+#                        pub(crate) 化，退出钩子 git_stop_net_ops_for_exit 引用不动）    →   354 行，上限   450（余量 ~27%）
+git_cmds_rs_max_lines = 1900
+git_worktree_cmds_rs_max_lines = 450
 
 # ep_sample_cmds.rs（A5① 端点请求样例数据层，2026-10-06 新增）：1,024 行（impl 737 + 单测 287）。
 #   上限 1,280（余量 ~25%）。范围：解析 handler 签名（跨行 / 括号与引号感知的顶层切分）+
