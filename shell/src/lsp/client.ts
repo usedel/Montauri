@@ -481,14 +481,15 @@ export function didOpen(path: string, model: MonacoApi.editor.ITextModel): void 
   void broadcast("textDocument/didOpen", {
     textDocument: {
       uri: pathToFileUri(path),
-      languageId: "python",
+      languageId: model.getLanguageId(), // TD-027 A9：取模型实际语言，修 md/json/yaml 全发 python
       version: model.getVersionId(),
       text: model.getValue(),
     },
   });
 }
 
-/** 未打开文件的内容级 didOpen（重命名跨文件写盘后让引擎索引跟上，引用计数才不会错） */
+/** 未打开文件的内容级 didOpen（重命名跨文件写盘后让引擎索引跟上，引用计数才不会错）。
+ *  languageId 固定 "python"：rename 只作用于 .py（prepareRename 已按扩展名过滤）。 */
 function didOpenText(path: string, text: string): Promise<void> {
   return broadcast("textDocument/didOpen", {
     textDocument: {
