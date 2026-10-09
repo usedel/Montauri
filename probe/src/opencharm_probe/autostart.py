@@ -23,6 +23,30 @@ _LOCK_SUFFIX = ".lock"
 _LOCK_MAX_AGE = 24 * 3600  # 墓碑保留一天的秒数（覆盖同 run 内后续进程退出，按 mtime 惰性清理）
 
 
+def _print_safe(msg: str, stream=None) -> None:
+    """TD-027 B7：摘要打印的 GBK 控制台兜底（per-print 降级）。
+
+    IDE 运行链路已注入 PYTHONIOENCODING=utf-8，但用户手动跑注入命令且控制台是
+    GBK 时，✓/中文摘要会 UnicodeEncodeError——且 _finalize 的 except 里再 print
+    会二次炸出 atexit traceback。只在本函数内降级重打（errors=replace），不动
+    用户进程的全局 stdio（侵入红线）。
+    """
+    if stream is None:
+        stream = sys.stderr
+    try:
+        print(msg, file=stream)
+    except UnicodeEncodeError:
+        # GBK 无映射字符（实测 ✓ U+2713 也不在 GBK 内）→ replace 降级重打
+        enc = getattr(stream, "encoding", None) or "utf-8"
+        try:
+            fallback = msg.encode(enc, errors="replace").decode(enc, errors="replace")
+            print(fallback, file=stream)
+        except (OSError, ValueError):
+            pass  # 连降级都失败（流已关等）：静默，绝不炸 atexit
+    except (OSError, ValueError):
+        pass  # 流不可写（已关闭等）：静默（atexit 时刻流可能已被解释器回收）
+
+
 def _cleanup_stale_locks(lock_dir: Path, now: float) -> None:
     """清理过期墓碑（mtime 超过 _LOCK_MAX_AGE），防止锁文件无限累积。"""
     try:
@@ -108,10 +132,9 @@ def bootstrap() -> None:
             elapsed = time.perf_counter() - perf_started
             path = save(cfg, sink, project_root, script, wall_started, elapsed)
             if not cfg.quiet:
-                print(f"[opencharm-probe] ✓ {sink.func_count} 函数 · "
-                      f"{sink.observation_count} 类型观测 · {elapsed:.3f}s → {path}",
-                      file=sys.stderr)
+                _print_safe(f"[opencharm-probe] ✓ {sink.func_count} 函数 · "
+                            f"{sink.observation_count} 类型观测 · {elapsed:.3f}s → {path}")
         except Exception as e:  # noqa: BLE001 - 落库失败绝不改写用户进程退出码
-            print(f"[opencharm-probe] ⚠ 落库失败：{e}", file=sys.stderr)
+            _print_safe(f"[opencharm-probe] ⚠ 落库失败：{e}")
 
     atexit.register(_finalize)
