@@ -361,6 +361,187 @@ fn last_segment(qualname: &str) -> &str {
     qualname.rsplit('.').next().unwrap_or(qualname)
 }
 
+// ---------- P1 调用链推断（2026-10-10）----------
+//
+// 动机：属性/下标补全此前只认「单段标识符 receiver」（`x.` / `x["`），爬虫画像的
+// 第一高频形态 `order.get_total().` / `parse_page(html)["` 完全无补全。本节把类型
+// 推断从「变量」扩展到「调用链表达式」：
+//
+//     parse_page(html).title      首段函数 ret → dict[str, …] 的键
+//     order.get_total().amount    head 变量类型 → 方法 qualname 段链匹配 → 方法 ret
+//     make_order(c).items         类构造约定：有 `Cls.__init__` 观测 → 类型 = Cls
+//     get_quotes()["data"         调用后下标：ret 类型沿 Access 链解析（chain 为空 = 顶层键）
+//
+// MVP 边界（登记不实现）：
+// - 下标后再属性（`get_quotes()["data"][0].`）——shape 子节点不携带类型标签
+//   （node_from 丢弃 "t" 字段），需要扩展 ParsedShape 才能支持；
+// - 嵌套调用只解析最外层（`a(b()).` 的 receiver 是 `a(...)` 整体）；
+// - 首段 head 是点链（`mod.func().`）——模块名推不出类型，返回 None。
+//
+// 机器全部复用既有倒排：ret_type_of / by_second_last_segment（方法粗筛）/段边界校验
+// （与 completion::resolve_callee 的 A8 类构造回落同一约定，逻辑自包含不反向依赖）。
+
+/// 调用链分段：首段完整点链 callee + 后续方法名序列（`order.get_total().fmt` →
+/// `["order.get_total", "fmt"]`）。非调用链形态返回 None。
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct CallChain {
+    /// 首段 callee（可含点：`parse_page` / `order.get_total`）。
+    pub head: String,
+    /// 后续方法名（均不含点——`a().b.c()` 的 b.c 视为不支持，返回 None）。
+    pub methods: Vec<String>,
+}
+
+/// 正向解析调用链表达式：`name(…)` (`.method(…)`)*，实参整体跳过（括号计数）。
+/// 实参中出现引号或括号不配对 → None（保守：宁可无补全不可错配）。
+pub(crate) fn parse_call_chain(s: &str) -> Option<CallChain> {
+    let s = s.trim();
+    let bytes = s.as_bytes();
+    let mut i = 0usize;
+
+    // 段名读取：标识符（点由调用方结构分隔，段内不含点）
+    let read_name = |i: &mut usize| -> Option<String> {
+        let start = *i;
+        while *i < bytes.len() && (bytes[*i].is_ascii_alphanumeric() || bytes[*i] == b'_') {
+            *i += 1;
+        }
+        if *i == start {
+            return None;
+        }
+        Some(s[start..*i].to_string())
+    };
+
+    // 读首段（允许点链：`order.get_total`）
+    let mut head = read_name(&mut i)?;
+    while i < bytes.len() && bytes[i] == b'.' {
+        i += 1;
+        let seg = read_name(&mut i)?;
+        head.push('.');
+        head.push_str(&seg);
+    }
+    // 首段必须是调用（`(` 紧随）——纯点链（无调用）不是本函数职责
+    if i >= bytes.len() || bytes[i] != b'(' {
+        return None;
+    }
+
+    // 跳过配对实参（括号计数；遇引号 → None：字符串内括号/引号语义不可知）
+    let skip_args = |i: &mut usize| -> Option<()> {
+        if *i >= bytes.len() || bytes[*i] != b'(' {
+            return None;
+        }
+        let mut depth = 0usize;
+        while *i < bytes.len() {
+            match bytes[*i] {
+                b'(' => depth += 1,
+                b')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        *i += 1;
+                        return Some(());
+                    }
+                }
+                b'"' | b'\'' => return None,
+                _ => {}
+            }
+            *i += 1;
+        }
+        None
+    };
+
+    skip_args(&mut i)?;
+
+    let mut methods = Vec::new();
+    while i < bytes.len() {
+        if bytes[i] != b'.' {
+            return None; // 调用后只能是 `.method(…)` 序列
+        }
+        i += 1;
+        let m = read_name(&mut i)?;
+        skip_args(&mut i)?;
+        methods.push(m);
+    }
+    Some(CallChain { head, methods })
+}
+
+/// 调用链表达式的类型求值（属性补全的 receiver 类型来源）。
+///
+/// 传播规则：首段类型（`ret_type_of` / 类构造约定 / head 变量类型 × 方法匹配）→
+/// 逐方法 `method_ret_type`（沿 by_second_last_segment 段链匹配取证据最高 ret）。
+/// 任一步推不出 → None（调用方据此不出候选）。
+pub(crate) fn infer_call_chain_type(
+    index: &TraceIndex,
+    text: &str,
+    expr: &str,
+    line: u32,
+) -> Option<String> {
+    let chain = parse_call_chain(expr)?;
+    let mut ty = first_call_type(index, text, &chain.head, line)?;
+    for m in &chain.methods {
+        ty = method_ret_type(index, &ty, m)?;
+    }
+    Some(ty)
+}
+
+/// 首段 callee 的类型：无点 → ret 观测 / 类构造；带点（`order.get_total`）→
+/// head 变量类型 × 方法匹配（head 必须是单标识符——`mod.func` 的模块名推不出类型）。
+fn first_call_type(index: &TraceIndex, text: &str, callee: &str, line: u32) -> Option<String> {
+    match callee.rfind('.') {
+        None => {
+            if let Some(t) = ret_type_of(index, callee) {
+                return Some(t);
+            }
+            // 类构造约定（与 completion::resolve_callee 的 A8 回落同一裁决）：
+            // 无函数观测但存在 `Cls.__init__` 观测 → 实例类型 = 类名。
+            class_ctor_observed(index, callee).then(|| callee.to_string())
+        }
+        Some(pos) => {
+            let head = &callee[..pos];
+            let method = &callee[pos + 1..];
+            if !is_identifier(head) {
+                return None;
+            }
+            let head_ty = infer_receiver_type(index, text, head, line)?;
+            method_ret_type(index, &head_ty, method)
+        }
+    }
+}
+
+/// head 类型 + 方法名 → 方法返回类型：`by_second_last_segment(parent段)` 粗筛，
+/// 最后段 == 方法名命中（倒数第二段 == 类型最后段即段链匹配），取证据最高 ret。
+/// 与符号补全 `symbol_candidates` 的 parent 分支同一匹配口径（此处自包含，不反向
+/// 依赖 completion——两 crate 模块分层：类型机器在 type_infer）。
+fn method_ret_type(index: &TraceIndex, head_ty: &str, method: &str) -> Option<String> {
+    let parent = last_segment(head_ty);
+    let mut best: Option<(String, i64)> = None;
+    for f in index.by_second_last_segment(parent) {
+        if f.stale || last_segment(&f.qualname) != method {
+            continue;
+        }
+        if let Some(r) = f.rets.iter().max_by_key(|r| r.count) {
+            if best.as_ref().is_none_or(|(_, c)| r.count > *c) {
+                best = Some((r.type_label.clone(), r.count));
+            }
+        }
+    }
+    best.map(|(t, _)| t)
+}
+
+/// 类构造观测判定：qualname == `{name}.__init__`，或以 `.{name}.__init__` 结尾
+/// （段边界，嵌套类 `Outer.Cls.__init__` 也算）——与 completion::resolve_callee
+/// 的 A8 修复同款约定。
+fn class_ctor_observed(index: &TraceIndex, name: &str) -> bool {
+    if name.is_empty() {
+        return false;
+    }
+    let suffix = format!("{name}.__init__");
+    index.functions().iter().any(|f| {
+        f.qualname == suffix
+            || (f.qualname.ends_with(&suffix) && {
+                let head = &f.qualname[..f.qualname.len() - suffix.len()];
+                head.ends_with('.')
+            })
+    })
+}
+
 /// 调用路径名：标识符 + 点（如 `scraper.parse_page`）。
 fn is_path_name(s: &str) -> bool {
     !s.is_empty() && s.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '.')

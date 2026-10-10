@@ -257,6 +257,79 @@ fn is_identifier(s: &str) -> bool {
     !s.is_empty() && s.chars().all(|c| c.is_alphanumeric() || c == '_')
 }
 
+/// 提取光标前的**调用链 receiver** 上下文（P1 调用链推断用）。
+///
+/// 从光标回扫标识符/点/配对括号得到 receiver 串，再按「回扫遇到的第一个顶层 `.`」
+/// 切分为 `(表达式, 前缀)`：
+/// - `order.get_total().`   → (`order.get_total()`, ``)
+/// - `order.get_total().am` → (`order.get_total()`, `am`)
+/// - `parse_page(html).`    → (`parse_page(html)`, ``)
+///
+/// 只在 receiver **含配对括号**（即有调用）且存在顶层 `.` 时返回 Some——纯点链
+/// （`x.` / `x.fi`，无括号）返回 None 让位原 dot_chain_at 路径；行内括号不配对
+/// （跨行调用未闭合）同样 None。
+pub(crate) fn call_receiver_at(text: &str, line: u32, character: u32) -> Option<(String, String)> {
+    let target_line = text.lines().nth(line as usize)?;
+    let target_line = target_line.trim_end_matches('\r');
+    let byte_end = utf16_to_byte(target_line, character);
+    let bytes = target_line.as_bytes();
+
+    // 回扫：标识符/点直接过；`)` 跳配对括号；其余停。
+    // 顶层 dot_pos = 回扫中遇到的第一个 `.`（此时尚未进入任何括号——回扫是从
+    // 光标向左，遇到 `)` 才进括号，其后的 `.` 都在括号内不算顶层）。
+    let mut start = byte_end;
+    let mut dot_pos: Option<usize> = None;
+    let mut has_paren = false;
+    while start > 0 {
+        let c = bytes[start - 1];
+        if c.is_ascii_alphanumeric() || c == b'_' {
+            start -= 1;
+        } else if c == b'.' {
+            if dot_pos.is_none() {
+                dot_pos = Some(start - 1);
+            }
+            start -= 1;
+        } else if c == b')' {
+            has_paren = true;
+            let mut depth = 0usize;
+            let mut j = start;
+            let mut ok = false;
+            while j > 0 {
+                match bytes[j - 1] {
+                    b')' => depth += 1,
+                    b'(' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            ok = true;
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+                j -= 1;
+            }
+            if !ok {
+                return None;
+            }
+            start = j - 1;
+        } else {
+            break;
+        }
+    }
+    // 必须是「调用 + 点」形态：无括号（纯点链）或无顶层点（`x` / `f(x)` 后未打点）都让位
+    if !has_paren {
+        return None;
+    }
+    let dot = dot_pos?;
+
+    let expr = target_line[start..dot].to_string();
+    let prefix = target_line[dot + 1..byte_end].to_string();
+    if expr.is_empty() {
+        return None;
+    }
+    Some((expr, prefix))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -298,9 +371,9 @@ mod tests {
     }
 
     /// C3 复核修复的回归钉子：窗口起点回退逻辑首版写成「光标前最后一个换行」，
-    /// >64 KB 文档下窗口缩成当前行。真正被它咬坏的场景：**光标行有一个已闭合的
-    /// 调用（过前置过滤），且光标处于跨行的外层调用实参内**——窗口缩成当前行后
-    /// 括号栈被弹空，外层帧丢失。本用例钉住：窗口必须覆盖「光标前的完整多行调用」。
+    /// 64 KB+ 文档下窗口缩成当前行。真正被它咬坏的场景：光标行有一个已闭合的
+    /// 调用（过前置过滤），且光标处于跨行的外层调用实参内——窗口缩成当前行后
+    /// 括号栈被弹空，外层帧丢失。本用例钉住：窗口必须覆盖光标前的完整多行调用。
     ///
     /// 注：跨行调用若光标所在行完全没有 `(`（如 `foo(1,\n    2`），会被开头的
     /// 前置过滤挡掉返回 None——这是**前置过滤的既有边界**（非本批引入），

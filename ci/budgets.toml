@@ -230,19 +230,28 @@ intel_cmds_rs_max_lines = 600
 # 注意：`trace.rs` 属另一个 crate（opencharm-intel-index），同样未纳入。
 #
 # completion.rs（A3① 调用实参补全 +519 · A3③ 抽出共用 `call_frame_at` +40）：1,672 → 1,943（TD-027
-#   复核期的补全测试扩充）→ **1,728（2026-10-10 TD-027 C3 拆分：调用上下文扫描群外提
-#   `call_context.rs`，本文件只留补全语义层）**。上限 1,950 → 1,800（拆分即降阈值）。
-#   范围：符号 / 属性 / 下标 / 调用实参四类补全的统一入口 + 各自的上下文解析；
-#   括号栈扫描 / 顶层切分 / 字符串扫描 / UTF-16 定位等纯文本辅助已全部外提。
-intel_completion_rs_max_lines = 1800
+#   复核期测试扩充）→ 1,729（C3 拆出 call_context.rs）→ **849（2026-10-10 P1 调用链批：
+#   测试区整体外提 completion_tests.rs，#[path] 模块与内联等价）**。上限 1,800 → **950**。
+#   范围：符号 / 属性 / 下标 / 调用实参 / 调用链五类补全的统一入口 + 上下文分发。
+intel_completion_rs_max_lines = 950
 
-# call_context.rs（TD-027 C3 拆分 + 窗口化，2026-10-10 新增；复核期补窗口回归钉子后 412 行）。
-#   上限 450（余量 ~9%）。范围：`CallFrame` / `call_frame_at`（64 KB 有界窗口扫描，
-#   O(文档) → O(窗口)；截断时起点前进到窗口内首个行首） / `written_args` /
-#   `split_top_level` / `top_level_eq` / `scan_string_end` / `text_offset` /
-#   `utf16_to_byte`——补全（A3①）与签名帮助（A3③）共用的唯一一份上下文解析；
-#   diagnostics / hover 也从这里 import。含窗口语义 + 跨行调用回归 + 性能哨兵（--ignored）测试。
-intel_call_context_rs_max_lines = 450
+# completion_tests.rs（P1 批外提，2026-10-10 新增）：1,158 行。上限 1,450（余量 ~25%）。
+#   范围：completion.rs 的全部内联测试（#[path] 引用，use super::* 访问私有项等价），
+#   含 Gate D 运行时补全准确率红线（85%）与 P1 调用链六形态用例。
+intel_completion_tests_rs_max_lines = 1450
+
+# type_infer.rs（P1 调用链批首次登记，2026-10-10）：891 行（调用链推断 +186）。
+#   上限 1,050（余量 ~18%）。范围：变量/参数/字面量/for 循环/调用链五路类型推断 +
+#   shape 解析（chain_keys/validate_chain）+ 成员聚合。
+intel_type_infer_rs_max_lines = 1050
+
+# call_context.rs（TD-027 C3 拆分 + 窗口化，2026-10-10 新增；复核期补窗口回归钉子 412 行；
+#   **P1 调用链批 +73**：`call_receiver_at`（括号感知的光标前调用链 receiver 提取器，属性
+#   补全链式形态的入口）——功能性增长而非膨胀，上限 450 → **560**（实测 485，余量 ~15%）。
+#   范围：`CallFrame` / `call_frame_at`（64 KB 有界窗口扫描）/ `call_receiver_at` /
+#   `written_args` / `split_top_level` / `top_level_eq` / `scan_string_end` / `text_offset` /
+#   `utf16_to_byte`——补全与签名帮助共用的唯一一份上下文解析；含窗口回归 + 性能哨兵测试。
+intel_call_context_rs_max_lines = 560
 
 # hover.rs（A3② 观测签名 + 常见键/属性 +106 行）：392 行。上限 470（余量 ~17%）。
 #   范围：函数 hover（args/rets/excs 观测聚合）与变量 hover（类型推断 + shape 字段）。

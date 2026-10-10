@@ -159,6 +159,19 @@ intel 链路都不出结果**（既有设计，非本项引入）；若要让 in
 
 已知边界（MVP，逐行回溯 + 前缀匹配，无完整解析器）：链式 receiver（`a.b.c` 的字段级类型传播——受 shape 无「字段→类型」映射限制）、条件分支内的类型收窄不追踪。**循环变量（`for x in …`）已在 P3-T08 支持**（容器元素类型推断）。
 
+**调用链推断**（`type_infer.rs::infer_call_chain_type`，P1 批 2026-10-10）：receiver 是**调用表达式**时的类型传播，覆盖爬虫画像第一高频形态：
+
+| 输入形态 | 推断路径 | 示例 |
+|---|---|---|
+| `parse_page(html).` | 首段函数 ret 观测 → 类型 | dict 键 / 实例属性 |
+| `order.get_total().` | head 变量类型 × 方法 qualname 段链匹配（`by_second_last_segment` 粗筛）→ 方法 ret | 方法返回类型的成员 |
+| `make_order(c).` / `Order(...).` | 工厂 ret / 类构造约定（存在 `Cls.__init__` 观测 → 实例类型 = 类名） | 实例属性 |
+| `get_quotes()["data"]["` | 调用后下标：ret 类型沿 `Access` 链解析嵌套 shape | 深层 dict 键 |
+
+- 光标上下文由 `call_context.rs::call_receiver_at` 提取（括号感知回扫，纯点链让位原路径）；
+- MVP 边界（登记不实现）：下标后再属性（shape 子节点不携带类型标签）、嵌套调用只解析最外层、首段 head 是模块点链（`mod.func().`——模块名推不出类型）；
+- 全链路无命中时返回空候选（不回落符号补全——链形态下 parent 切分语义不成立）。
+
 **Hover**（`hover.rs`，P3-T05）：悬停展示运行时观测（markdown）：
 
 - 悬停函数名 → `⟳ runtime · <qualname> · <hits> hits` + **签名（观测）**（A3②）+ 参数/返回/异常观测（按 count 降序）；每条参数观测附 shape 派生的**常见键 / 常见属性**；
