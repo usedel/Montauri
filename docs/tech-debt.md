@@ -28,6 +28,19 @@
 
 > 2026-10-09 D 组卫生批清偿：**D1~D17 共 16 条全部清偿**（probe 域 `6349b4d` / intel 域 `17f531b` / shell-ts 域 `670af2d` / shell-rust 域 `1e7a7d6`，按域四提交 + 本 docs 提交）——**TD-027 至此 42/42 全部处置完毕**（A9 + B6 + C7 留置 + D16 清偿 + 5 项已随 P1）。C 组 7 条留置绑定 bench 节奏；B1/B3/B9/B10 留置见上。门禁：probe pytest 114 / intel cargo test 85（含准确率红线 + bench_load 1318ms PASS）/ shell cargo test 340 / vitest 1342 / e2e editor·lsp 12/12 / budget 全 PASS（client.ts 1850/1850 顶格未越线）。
 
+> 2026-10-10 全量复核（四域并行深审 + 主线探针实证）：**发现并修复 D8 首版引入的 P0 回归**——`comment_at` 取整行首个 `#` 不感知字符串，`s = "a#b"; jmespath.search("data.dff", …)` 的字符串内 `#` 把同行后续调用吞成注释（诊断静默丢失）。改为字符串感知边界（引号走 scan_string_end 跳过、字符串外 `#` 才截断），删两处错误防御（反斜杠特判的 Python 语义不成立 + min/max 钳制为不可达死分支），附 2 回归测试（`bd9eda0`）。另修 P2 三项：runner ⚠ 告警 ASCII 化（UnicodeEncodeError 会逃逸 except OSError，复现 B5 要防的异常替换）/ check --timeout 钳制值与提示同步 / termUi 重跑同 id 前 dropServiceTail（`361030a`）。其余 12 项全部通过。**复核遗留 P2×5 登记为 TD-028**。门禁：probe 114 / intel 87 / tsc 0 错 / vitest 1342。
+
+### TD-028 2026-10-10 全量复核遗留项（P2×5，均为窄触发或记录性）
+
+- **起因**：TD-027 三批清偿后的全量代码复核（上方复核记录）。已修项见 `bd9eda0`/`361030a`；以下为裁决**留置**的窄触发/记录性项。
+- **① B8 UNC 路径**：`store.py::load_summary` 的 `as_uri()` 在 db_dir 为 UNC 网络盘（`\\server\share`）时产出 `file://server/...`，而 SQLite URI 只接受空/localhost authority → 报错；save 端普通 connect 可用，形成「可写不可读」不对称。修法：UNC 检测回落普通 connect + `PRAGMA query_only=ON`。触发面：`OPENCHARM_PROBE_HOME` 指向网络盘。
+- **② D11 残余**：`_cmd_show` 的 startswith 无路径边界分隔符（`f:\proj` 前缀误匹配 `f:\project\app.py`）且 dirname 计算两次。观感项，修法一行。
+- **③ B4 overrides 路径不校验**：`load_config(**overrides)` 只护手写 JSON，代码传参不校验（IDE/测试可抓，docstring 未声明取舍）。
+- **④ B4 定长 tuple 标注**：`_matches` 对 `tuple[int, str]` 只校验首元素；当前无 tuple 字段，未来陷阱，登记备查。
+- **⑤ D4 记录修正**：原文「functions/by_location/by_file 有真实调用方保留」不精确——`functions()` 有 src 调用（type_infer.rs:335），`by_location` 仅 examples、`by_file`/`by_qualname` 仅 tests。按 ParsedShape::keys 同标准可再删三个，下批卫生顺手处理。
+- **处理时机**：随下个卫生批顺手清；①② 各约 5-10 行 + 测试。
+- **涉及文件**：`probe/src/opencharm_probe/store.py`、`probe/src/opencharm_probe/cli.py`、`probe/src/opencharm_probe/config.py`、`intel/crates/opencharm-intel-index/src/trace.rs`。
+
 ### TD-027 2026-10-08 全项目代码审查批次（P2×42，其中 1 项已随 P1 修复；intel 杂项 1 项拆为 3 个卫生点）
 
 - **起因**：全项目代码审查（四个并行深审：shell/src TS、shell/src-tauri Rust、probe Python、intel Rust，逐行通读；全部 P0/P1 经主线读码复核实证）。
