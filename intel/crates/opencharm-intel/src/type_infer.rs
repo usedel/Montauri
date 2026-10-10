@@ -394,11 +394,8 @@ pub(crate) enum ParsedShape {
     /// 顶层 list（`{"e": ...}`）：元素结构。
     List(ShapeNode),
 }
-
-impl ParsedShape {
-    // TD-027 D5 顺手清：keys() 自 CR-27 改走 chain_keys 后零调用（含测试），
-    // #[cfg(test)] 属性掩盖了 dead_code 警告——删除。
-}
+// TD-027 D5 顺手清：keys() 自 CR-27 改走 chain_keys 后零调用（含测试），
+// #[cfg(test)] 属性掩盖了 dead_code 警告——已删除（原 impl 壳一并移除）。
 
 /// `shape` 为 compact.py 的 shape_fingerprint：数组（键名）或递归对象（键→值信息）。
 ///

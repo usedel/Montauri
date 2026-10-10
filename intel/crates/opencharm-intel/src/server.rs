@@ -48,7 +48,7 @@ struct Inner {
 }
 
 pub struct Backend {
-    // TD-027 D5：client 在用（publish_diagnostics ×2 + send_notification），allow 属性
+    // TD-027 D5：client 在用（publish_diagnostics ×2 + log_message），allow 属性
     // 已失效（掩盖真实使用），删除。
     client: Client,
     inner: RwLock<Inner>,

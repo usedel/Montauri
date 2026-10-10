@@ -36,24 +36,26 @@ fn scan_line(
     out: &mut Vec<RuntimeDiagnostic>,
 ) {
     // TD-027 D8：注释/转义感知的行扫描。
-    // - `#` 后的内容是注释：其内引号不再开启伪字符串（原实现会把 `# it's fine`
-    //   的撇号当字符串起点，吞掉后续真实代码）；
+    // - 注释边界（复核修复）：**字符串感知**——先跳过字符串字面量再找 `#`，
+    //   否则 `"a#b"; jmespath.search(...)` 的字符串内 # 会把同行后续代码吞成注释；
     // - 字符串跳过走 completion 侧同款 `scan_string_end`（转义感知，`\"` 不再被
     //   当闭合引号——原 `find` 对 `"a\"b"` 会提前闭合，路径串截断错位）。
     let bytes = line.as_bytes();
     let n = bytes.len();
-    let comment_at = bytes.iter().position(|&b| b == b'#');
-    let code_end = match comment_at {
-        Some(pos) => {
-            // 前一个反斜杠可能转义了 '#'（行尾续行）——非转义 # 才是注释
-            if pos == 0 || bytes[pos - 1] != b'\\' {
-                pos
-            } else {
-                n
+    let mut code_end = n;
+    {
+        let mut j = 0;
+        while j < n {
+            match bytes[j] {
+                b'"' | b'\'' => j = scan_string_end(bytes, j),
+                b'#' => {
+                    code_end = j;
+                    break;
+                }
+                _ => j += 1,
             }
         }
-        None => n,
-    };
+    }
     let mut i = 0;
     while i < code_end {
         let c = bytes[i];
@@ -61,11 +63,12 @@ fn scan_line(
             i += 1;
             continue;
         }
-        // 字符串整体跳过（转义感知）；scan_string_end 返回闭合引号之后
-        let str_end = scan_string_end(bytes, i).min(code_end.max(i + 1));
+        // 字符串整体跳过（转义感知）；scan_string_end 返回闭合引号之后。
+        // 未闭合返回 bytes.len() > code_end → i 越过边界自然终止本行。
+        let str_end = scan_string_end(bytes, i);
         let close = str_end.saturating_sub(1); // 闭合引号位置
-        if close <= i || close >= code_end {
-            break; // 未闭合或被注释边界截断：跳过
+        if close <= i {
+            break; // 空串或未闭合：跳过
         }
         let path = &line[i + 1..close];
         let before = line[..i].trim_end();
@@ -225,5 +228,30 @@ result = jmespath.search("data.diff", quotes)  # ok \" not a closer"#;
         let text = "quotes = get_quotes()\n# result = jmespath.search(\"data.dff\", quotes)";
         let diags = diagnose(&idx, text);
         assert!(diags.is_empty(), "注释内调用不应诊断，实际 {diags:?}");
+    }
+
+    /// TD-027 D8（复核修复）：字符串内的 `#` 不是注释——`"a#b"` 后同一行的
+    /// 真实调用必须照常诊断。原首版实现取整行首个 #，会吞掉后续代码。
+    #[test]
+    fn hash_inside_string_does_not_eat_following_call() {
+        let idx = fixture();
+        let text = "quotes = get_quotes()\ns = \"a#b\"; result = jmespath.search(\"data.dff\", quotes)";
+        let diags = diagnose(&idx, text);
+        assert!(
+            diags.iter().any(|d| d.message.contains("dff")),
+            "字符串内 # 不应吞掉同行后续调用，实际 {diags:?}"
+        );
+    }
+
+    /// TD-027 D8（复核修复）：字符串内 `#` + 伪路径——路径串含 # 时按非法段
+    /// 处理（非标识符被丢弃 → 空 chain → 不诊断），不得截断成部分路径做校验。
+    #[test]
+    fn hash_inside_path_string_yields_no_truncated_validation() {
+        let idx = fixture();
+        let text = "quotes = get_quotes()\nresult = jmespath.search(\"data#diff\", quotes)";
+        let diags = diagnose(&idx, text);
+        // "data#diff" 整段非合法 jmespath 标识符（# 拆出的 data 与 #diff 中后者被丢弃）
+        // → chain 非空但来自 "data"——不应产生截断伪诊断（data 是合法键）
+        assert!(diags.is_empty(), "含 # 的非法路径不应产生伪诊断，实际 {diags:?}");
     }
 }
