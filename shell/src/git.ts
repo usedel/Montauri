@@ -10,7 +10,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { app, $, $btn, lazyEl, outputEl, type Tab } from "./state";
 import { basename, codicon, emptyState, errMsg, languageOf, gitBadgeClass, gitLineClass, joinPath, normalizePath, renderFileIcon, setBusy } from "./util";
 import { appendOutputLine } from "./output";
-import { refreshTreeWithExpandedState } from "./fileTree";
+import { refreshTreeGitClasses, refreshTreeWithExpandedState } from "./fileTree";
 import { setBottomTab } from "./termUi";
 import { setSidebarTab } from "./views";
 import { motionDisabled } from "./anim"; // UI-11：diff 编辑器不走 buildEditorOptions，需单独接管光标闪烁
@@ -106,6 +106,9 @@ let conflictEditHandler: MonacoApi.IDisposable | null = null;
 /** CR-20：git 状态刷新令牌——响应乱序时旧结果不得覆盖新结果（SCM 面板显示过时暂存态） */
 let gitStatusToken = 0;
 
+/** 上一轮刷新的状态签名（文件树装饰同步的短路判据，见 refreshGitStatus 末尾） */
+let lastGitStatusSignature = "";
+
 /** 后端分类码前缀（与 `git_cmds.rs` 的同名常量逐字一致）：git 二进制缺失 */
 const GIT_MISSING_PREFIX = "GitMissing:";
 /** 后端分类码前缀：`git` 在，但工作区不是仓库 */
@@ -136,6 +139,9 @@ export async function refreshGitStatus(paths?: string[]): Promise<void> {
     gitDirtyDirs.clear();
     setGitIgnoredPaths([]);
     updateGitStatusBar();
+    // 无工作区：树上的 git 装饰（黄/徽标/灰显）同步清掉，免得残留到下一个工作区
+    lastGitStatusSignature = "";
+    refreshTreeGitClasses();
     return;
   }
   const token = ++gitStatusToken;
@@ -190,6 +196,14 @@ export async function refreshGitStatus(paths?: string[]): Promise<void> {
   }
   updateGitStatusBar();
   refreshGitGutter(); // 迭代 2 · P0-5：状态变化后活动文件的行级装饰即时更新
+  // 文件树 git 装饰（目录黄/M U A 徽标/ignored 灰显）与状态同步：此前树要等下次重建才
+  // 更新，导致「目录变黄但面板无更改」的错位。签名短路——状态无变化（watcher 抖动重复
+  // 刷新）不遍历树，避免大仓展开态下的无谓开销。
+  const signature = `${gitRepoActive.value}|${gitFiles.map((f) => `${f.code}:${f.path}`).join("")}`;
+  if (signature !== lastGitStatusSignature) {
+    lastGitStatusSignature = signature;
+    refreshTreeGitClasses();
+  }
 }
 
 /** 更新状态栏当前分支显示（迭代 3 · P0-4：可点击 + 同步计数 ↑n ↓m） */
@@ -3197,6 +3211,7 @@ export function resetGitState(): void {
   currentBranch = null;
   gitDirtyDirs.clear();
   setGitIgnoredPaths([]);
+  lastGitStatusSignature = ""; // 复位短路判据：换工作区后即使状态签名相同也要重刷树装饰
   gitBranches = [];
   $("git-stash-panel").classList.add("hidden");
   // 第 2 步迁移：关闭全部 diff tab（工作区切换批量清理；close 回调未注入的

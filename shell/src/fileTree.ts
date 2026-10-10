@@ -1207,6 +1207,49 @@ export function refreshTreeRunningClasses(): void {
   }
 }
 
+/** 已渲染树节点的 git 装饰全量同步（git.ts::refreshGitStatus 回调）。
+ *  与上面两个同款：只换 class / badge 不重建节点——展开态、选中态、滚动位置全保留，
+ *  数百节点量级毫秒级。
+ *  背景：refreshGitStatus 只更新内存状态（此前仅联动状态栏与 gutter），树装饰要等下次
+ *  重建（refreshTreeWithExpandedState / 手动刷新）才跟上，于是出现「目录变黄但 SCM 面板
+ *  无更改」的错位——两者读的是同一份状态，只是树的渲染时机落后一轮。 */
+export function refreshTreeGitClasses(): void {
+  const root = app.workspaceRoot;
+  const active = isGitRepoActive() && !!root;
+  for (const el of treeEl.querySelectorAll<HTMLElement>(".tree-item")) {
+    const path = el.dataset.path;
+    if (!path) continue;
+    const isDir = el.classList.contains("dir");
+    if (!active || !root) {
+      el.classList.remove("git-dirty", "git-ignored");
+      el.querySelector(".git-badge")?.remove();
+      continue;
+    }
+    const rel = relativePath(root, path);
+    el.classList.toggle("git-dirty", isDir && isGitDirtyDir(rel));
+    el.classList.toggle("git-ignored", !!rel && isGitIgnored(rel));
+    if (isDir) continue;
+    // 文件徽标：ignored（i）走灰显不挂 badge（与 renderTreeItem 同款语义）
+    const st = gitStatusOf(rel);
+    const badge = el.querySelector<HTMLElement>(".git-badge");
+    if (!st || st === "i") {
+      badge?.remove();
+      continue;
+    }
+    if (badge) {
+      badge.className = gitBadgeClass(st);
+      badge.textContent = st;
+      badge.title = gitStatusLabel(st);
+    } else {
+      const b = document.createElement("span");
+      b.className = gitBadgeClass(st);
+      b.textContent = st;
+      b.title = gitStatusLabel(st);
+      el.appendChild(b);
+    }
+  }
+}
+
 // ---------- 事件接线 ----------
 
 /** 接线文件树全部交互：工具栏按钮 + 过滤框 + 树全局事件（原 init 内片段 + wireFileTreeEvents） */

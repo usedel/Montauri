@@ -4,9 +4,13 @@
  * A：.gitignore 忽略的目录/文件在树中灰显（.git-ignored），子树条目同样命中
  * B：ignored 条目不进 SCM 变更列表（不是变更）；目录不触发 dirty 高亮
  * C：有语法错误的打开文件在树中红名（.has-error），修复后颜色消失
+ * D：git 状态刷新后树装饰同步——不重建树也跟上（「目录变黄但 SCM 面板无更改」回归）
  */
 import { test, expect } from "@playwright/test";
 import { equipPage, makeGitRepo, type GitRepo } from "../helpers";
+
+/** 当前用例的仓库句柄（用例 D 需要在页面加载后从 Node 侧改动文件） */
+let repo: GitRepo;
 
 test.beforeEach(async ({ page }) => {
   // ruff E 类规则映射为 error（默认 warning）——用例 C 需要红线（addInitScript 须在 goto 前）
@@ -15,8 +19,9 @@ test.beforeEach(async ({ page }) => {
       ruff_severity_e: "error",
     };
   });
-  const repo: GitRepo = await makeGitRepo({
-    files: { "main.py": "print('hello')\n" },
+  // pkg/helper.py 已提交且干净：用例 D 直接改它造出「目录内有变更」
+  repo = await makeGitRepo({
+    files: { "main.py": "print('hello')\n", "pkg/helper.py": "x = 1\n" },
     commitMsg: "baseline",
   });
   // ignored 目录 + ignored 单文件（.gitignore 本身未跟踪 → 会出现在「更改」里，正常）
@@ -85,4 +90,24 @@ test("C：语法错误文件红名，修复后消失", async ({ page }) => {
   await page.locator("#tab-files").click();
   await item.dblclick();
   await expect(item).not.toHaveClass(/has-error/, { timeout: 10_000 });
+});
+
+test("D：git 状态刷新后树装饰同步（不重建树也跟上）", async ({ page }) => {
+  await page.locator("#tab-files").click();
+  const pkg = page.locator(".tree-item.dir", { hasText: "pkg" }).first();
+  await expect(pkg).toBeVisible({ timeout: 10_000 });
+  await expect(pkg).not.toHaveClass(/git-dirty/);
+
+  // 外部改动（不经 IDE 的文件监听）：切到 git 视图触发 refreshGitStatus
+  repo.write("pkg/helper.py", "x = 2\n");
+  await page.locator("#tab-git").click();
+  await expect(page.locator("#git-changes .scm-item", { hasText: "helper.py" })).toHaveCount(1, { timeout: 10_000 });
+  // 树不会被重建（files 视图 onShow 只刷大纲），装饰靠 refreshGitStatus 末尾的同步接上
+  await expect(pkg).toHaveClass(/git-dirty/, { timeout: 10_000 });
+
+  // 还原改动 → 点 SCM 刷新按钮（同样不重建树）：dirty 跟随消失
+  repo.write("pkg/helper.py", "x = 1\n");
+  await page.locator("#git-btn-refresh").click();
+  await expect(page.locator("#git-changes .scm-item", { hasText: "helper.py" })).toHaveCount(0, { timeout: 10_000 });
+  await expect(pkg).not.toHaveClass(/git-dirty/);
 });
