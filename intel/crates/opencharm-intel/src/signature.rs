@@ -19,7 +19,8 @@
 use opencharm_intel_index::TraceIndex;
 use opencharm_intel_index::type_label::is_dict;
 
-use crate::completion::{ParamObs, call_frame_at, param_observations, resolve_callee, written_args};
+use crate::call_context::{call_frame_at, written_args};
+use crate::completion::{ParamObs, param_observations, resolve_callee};
 use crate::type_infer;
 
 /// 单个参数的展示信息。

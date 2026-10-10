@@ -131,7 +131,14 @@ pub struct TraceIndex {
     by_qualname: HashMap<String, Vec<usize>>,
     by_location: HashMap<String, HashMap<i64, Vec<usize>>>,
     by_file: HashMap<String, Vec<usize>>,
-    by_last_segment: HashMap<String, Vec<usize>>,
+    /// C2（2026-10-10 清偿）：最后段 → 函数下标的**排序数组**（原 HashMap）。
+    ///
+    /// 顶级符号补全 `functions_by_last_segment_prefix` 原来对 HashMap 全键做
+    /// `starts_with` 线性扫（10 万函数 ≈ 5 万键，实测 ~4.8ms/查询，且未命中前缀
+    /// 同样全扫）。排序后前缀查询 = 二分下界 + 顺序扫描命中区段；精确查询
+    /// `by_last_segment` 同享二分（原哈希查询本就 O(1)，此处统一容器避免两份数据）。
+    /// 内存不变（键与值从哈希桶搬进一个 Vec），加载期多一次排序 O(K log K)。
+    by_last_segment: Vec<(String, Vec<usize>)>,
     /// CR-17：qualname 倒数第二段 → 函数下标（符号补全 parent 段链匹配的粗筛）。
     by_second_last_segment: HashMap<String, Vec<usize>>,
     /// A-P2-1（2026-09-29 review）：type_label → 函数下标 → 观测定位列表（args+rets 合并，
@@ -244,6 +251,10 @@ impl TraceIndex {
                     .push((true, j));
             }
         }
+
+        // C2：最后段倒排转排序数组（前缀查询二分化的前置）。
+        let mut by_last_segment: Vec<(String, Vec<usize>)> = by_last_segment.into_iter().collect();
+        by_last_segment.sort_unstable_by(|a, b| a.0.cmp(&b.0));
 
         Ok(TraceIndex {
             functions,
@@ -367,12 +378,21 @@ impl TraceIndex {
 
     /// CR-17：按 qualname **最后段**查询（调用点写短名 `parse_page()` 与全限定名
     /// `scraper.parse_page()` 都命中）。hover/definition/推断原全量扫描的替代。
+    /// C2：容器改排序数组，精确查询走 `partition_point` 二分（原 HashMap get）。
     pub fn by_last_segment(&self, last: &str) -> impl Iterator<Item = &Function> {
+        let idx = self.last_segment_slot(last);
+        idx.into_iter().flatten().map(|&i| &self.functions[i])
+    }
+
+    /// C2：排序数组内二分定位 `last` 的槽位（精确匹配；未命中 None）。
+    fn last_segment_slot(&self, last: &str) -> Option<&Vec<usize>> {
+        let pos = self
+            .by_last_segment
+            .partition_point(|(k, _)| k.as_str() < last);
         self.by_last_segment
-            .get(last)
-            .into_iter()
-            .flatten()
-            .map(|&i| &self.functions[i])
+            .get(pos)
+            .filter(|(k, _)| k == last)
+            .map(|(_, v)| v)
     }
 
     /// CR-17：按 type_label 拉出全部观测（args+rets 合并）。
@@ -398,13 +418,20 @@ impl TraceIndex {
 
     /// CR-17：符号补全迭代入口——只遍历「最后段以 prefix 开头」的函数
     /// （原全量扫描 + 每函数 split('.')）。
+    /// C2（2026-10-10 清偿）：原实现对 HashMap 全键 `starts_with` 线性扫，10 万函数
+    /// 实测 ~4.8ms/查询（未命中前缀同样全扫）；排序数组上改为二分下界 + 命中区段
+    /// 顺序扫描，查询成本 O(log K + 命中数)。对照数据见 `examples/bench_prefix.rs`。
     pub fn functions_by_last_segment_prefix<'a>(
         &'a self,
         prefix: &'a str,
     ) -> impl Iterator<Item = &'a Function> + 'a {
-        self.by_last_segment
+        // 二分下界：第一个 >= prefix 的槽（starts_with(prefix) 的键都 >= prefix）
+        let start = self
+            .by_last_segment
+            .partition_point(|(k, _)| k.as_str() < prefix);
+        self.by_last_segment[start..]
             .iter()
-            .filter(move |(last, _)| last.starts_with(prefix))
+            .take_while(move |(k, _)| k.starts_with(prefix))
             .flat_map(|(_, idxs)| idxs.iter().map(|&i| &self.functions[i]))
     }
 

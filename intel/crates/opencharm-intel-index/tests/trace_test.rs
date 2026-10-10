@@ -156,6 +156,56 @@ fn by_last_segment_queries() {
     assert_eq!(pref[0].qualname, "A.foo");
 }
 
+/// C2（2026-10-10）：最后段倒排改排序数组 + 二分查询的行为钉死——
+/// 前缀查询必须恰好覆盖 `[prefix, prefix+∞)` 的字典序区段：
+/// - `fo` 命中 `foo` 但不命中 `bar`；
+/// - 未命中前缀返回空（二分下界直接落到区段外）；
+/// - 前缀与某个键完全相同时也命中（`starts_with` 语义）；
+/// - 精确查询 `by_last_segment` 与前缀查询在相同键上结果一致。
+#[test]
+fn by_last_segment_prefix_sorted_array_semantics() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("ls2.db");
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(SCHEMA).unwrap();
+        // 刻意乱序插入，验证排序发生在加载期而非依赖插入序
+        for (i, q) in ["m.fetch", "m.parse_page", "top.fetch_all", "zzz", "m.parse"]
+            .iter()
+            .enumerate()
+        {
+            conn.execute(
+                "INSERT INTO functions(filename, qualname, lineno, hits, stale) VALUES('x.py',?1,?2,1,0)",
+                rusqlite::params![q, i as i64 + 1],
+            )
+            .unwrap();
+        }
+    }
+    let idx = TraceIndex::open(&path).unwrap();
+
+    let get = |p: &str| -> Vec<String> {
+        idx.functions_by_last_segment_prefix(p)
+            .map(|f| f.qualname.clone())
+            .collect()
+    };
+
+    // `f` 命中 fetch / fetch_all（不同函数，非前缀包含关系）
+    let mut v = get("f");
+    v.sort();
+    assert_eq!(v, vec!["m.fetch", "top.fetch_all"]);
+    // `parse` 命中 parse 与 parse_page（前缀与完整键相等也算）
+    let mut v = get("parse");
+    v.sort();
+    assert_eq!(v, vec!["m.parse", "m.parse_page"]);
+    // 未命中
+    assert!(get("q").is_empty());
+    assert!(get("parse_page_x").is_empty());
+    // 精确查询一致性
+    assert_eq!(idx.by_last_segment("fetch").count(), 1);
+    assert_eq!(idx.by_last_segment("parse").count(), 1);
+    assert_eq!(idx.by_last_segment("nope").count(), 0);
+}
+
 /// A3①：同一函数的参数位顺序必须按**插入序**（probe `monitor._record_args` 按
 /// `co_varnames` 声明顺序逐位写入）。`ORDER BY fid` 在 fid 相同时不保序，会打乱
 /// 「位置参数前跳」的依据 —— 本用例钉住 `rowid` 决胜键。

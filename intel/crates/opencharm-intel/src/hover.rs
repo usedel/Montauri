@@ -12,7 +12,8 @@
 use opencharm_intel_index::TraceIndex;
 use opencharm_intel_index::type_label::is_dict;
 
-use crate::completion::{best_function, param_observations, utf16_to_byte};
+use crate::call_context::utf16_to_byte;
+use crate::completion::{best_function, param_observations};
 use crate::type_infer;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

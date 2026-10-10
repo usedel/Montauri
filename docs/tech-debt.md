@@ -30,6 +30,8 @@
 
 > 2026-10-10 全量复核（四域并行深审 + 主线探针实证）：**发现并修复 D8 首版引入的 P0 回归**——`comment_at` 取整行首个 `#` 不感知字符串，`s = "a#b"; jmespath.search("data.dff", …)` 的字符串内 `#` 把同行后续调用吞成注释（诊断静默丢失）。改为字符串感知边界（引号走 scan_string_end 跳过、字符串外 `#` 才截断），删两处错误防御（反斜杠特判的 Python 语义不成立 + min/max 钳制为不可达死分支），附 2 回归测试（`bd9eda0`）。另修 P2 三项：runner ⚠ 告警 ASCII 化（UnicodeEncodeError 会逃逸 except OSError，复现 B5 要防的异常替换）/ check --timeout 钳制值与提示同步 / termUi 重跑同 id 前 dropServiceTail（`361030a`）。其余 12 项全部通过。**复核遗留 P2×5 登记为 TD-028**。门禁：probe 114 / intel 87 / tsc 0 错 / vitest 1342。
 
+> 2026-10-10 补全延迟批 P1 清偿：**C2 + C3 两项性能债当日修复**（intel 域，详见 C 组表格 ✅ 标记）。C2 = `by_last_segment` 排序数组二分化（未命中前缀 ~1000x）；C3 = `call_frame_at` 外提 `call_context.rs` + 64 KB 有界窗口（1 MB 文档 849µs，O(文档) → O(窗口)）。门禁：intel cargo test 92 全绿（含 1 个 --ignored 性能哨兵）+ bench_load 826ms/2s PASS + budget 全 PASS（completion.rs 1,950 → 1,800 拆分即降阈值，call_context.rs 367/450 新登记）。C 组余 C1/C4/C5/C6 + C7 留置。
+
 ### TD-028 2026-10-10 全量复核遗留项（P2×5，均为窄触发或记录性）
 
 - **起因**：TD-027 三批清偿后的全量代码复核（上方复核记录）。已修项见 `bd9eda0`/`361030a`；以下为裁决**留置**的窄触发/记录性项。
@@ -81,8 +83,8 @@
 | # | 条目 | 位置 | 要点 |
 |---|---|---|---|
 | C1 | intel 索引 6 张 HashMap 字符串克隆 | trace.rs:123-243 | qualname/filename/segment 重复克隆 3-5 份，10 万函数估数十 MB 额外开销（ADR-0010 张力）；可 String 驻留或 Arc 共享 |
-| C2 | 顶级符号补全线性扫全键 | trace.rs:407-415 | starts_with 遍历 HashMap 全部键，10 万函数 ≈ 每键入 5 万+ 次字符串比较 |
-| C3 | call_frame_at 全文扫描 | intel completion.rs:355-379 | 括号栈从字节 0 起 O(文档)/请求，每次键入（含 `,` 触发）重扫 |
+| ~~C2~~ | ~~顶级符号补全线性扫全键~~ | ~~trace.rs:407-415~~ | ✅ 已修（2026-10-10，补全延迟批 P1）：`by_last_segment` HashMap → 排序数组，前缀查询 `partition_point` 二分下界 + 命中区段扫描，精确查询同容器二分；新增 `examples/bench_prefix.rs` 对照——10 万函数下未命中前缀 **4.8ms → 0.2-6.5µs（~1000x）**，命中 1.1 万前缀 4.8ms → 0.4ms；`by_last_segment_prefix_sorted_array_semantics` 钉语义；bench_load 826ms/2s PASS（排序开销不破加载红线） |
+| ~~C3~~ | ~~call_frame_at 全文扫描~~ | ~~intel completion.rs:355-379~~ | ✅ 已修（2026-10-10，补全延迟批 P1）：扫描群外提 `call_context.rs`（completion.rs 1,943 → 1,729，预算 1,950 → 1,800 拆分即降阈值；新文件 412/450）+ **64 KB 有界窗口**（发生截断时起点前进到窗口内首个行首，保证状态机从完整行开头起步），O(文档) → O(64KB)；A3①/A3③/diagnostics/hover 四方 import 统一指向新模块；性能哨兵 `call_frame_bounded_scan_does_not_scale_with_document`（--ignored，1 MB 文档 < 2ms，实测 ~1ms）。**首版窗口起点 bug 被复核抓出**：`rfind('\n')` 定位到当前行行首，>64KB 文档下窗口缩成当前行，混合场景（光标行含已闭合调用 + 光标处于跨行外层调用实参内）外层帧丢失——改为截断点后**第一个**行首（`find`）+ UTF-8 字符边界对齐，`call_frame_at_multiline_call_in_large_document` 回归钉子（实证：首版逻辑下该测试必 FAIL） |
 | C4 | 诊断无服务端防抖 | intel server.rs + type_infer.rs:18-26 | 每次键入全文重扫 + `lines().collect()` 每调用重新分配整篇行表 |
 | C5 | model_inherits_from O(N×全仓) | pydantic_cmds.rs:936+ | 每个候选子类触发 `pyd_collect_models` 整仓重扫；外层已收集的 models 清单应作参数传入（原 fs_cmds.rs:2406-2430，随拆分批迁入） |
 | C6 | scan_pydantic_issues O(行×模型数) | pydantic_cmds.rs:626+ | 每行对全部模型做 substring 扫描；可按行含 `(` 粗筛或建前缀索引（原 fs_cmds.rs:2102-2135，随拆分批迁入） |

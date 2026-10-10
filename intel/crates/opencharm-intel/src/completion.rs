@@ -11,6 +11,9 @@
 //! `resolve_callee` / `param_observations`——**上下文扫描与 callee 解析只有这一份**，
 //! 差别只在产出物（补全是候选列表，签名帮助是单条签名 + 当前参数位）。
 //!
+//! TD-027 C3 拆分（2026-10-10）：括号栈扫描与文本辅助函数外提至 `call_context.rs`
+//! （有界窗口扫描，O(文档) → O(窗口)）；本模块保留补全语义层。
+//!
 //! 纯函数设计：不依赖 tower-lsp，便于单元测试（server.rs 负责 LSP 类型转换）。
 
 use std::collections::HashMap;
@@ -18,6 +21,7 @@ use std::collections::HashMap;
 use opencharm_intel_index::{Function, TraceIndex};
 use opencharm_intel_index::type_label::is_dict;
 
+use crate::call_context::{call_frame_at, utf16_to_byte, written_args};
 use crate::type_infer;
 
 const MAX_CANDIDATES: usize = 50;
@@ -358,108 +362,10 @@ pub(crate) fn best_function<'a>(index: &'a TraceIndex, name: &str) -> Option<&'a
     best
 }
 
-/// 调用栈帧：光标位于某次调用的 `(` 与（尚未闭合的）`)` 之间时的**原始**信息。
-///
-/// A3①（调用实参补全）与 A3③（签名帮助）共用同一次扫描——括号栈 / 字符串跳过 / callee 回溯
-/// 只此一份，避免两处逻辑各自漂移。补全在其上再叠「光标段必须是空或纯标识符」的额外约束
-/// （见 `call_ctx_at`），签名帮助不需要（光标落在 `foo(a + |` 里也照样该显示签名）。
-pub(crate) struct CallFrame {
-    /// callee 点链（`foo` / `scraper.parse_page`）。
-    pub callee: String,
-    /// 顶层逗号切分后的实参段；**末段含光标所在段**（未闭合，可能不完整）。
-    pub segments: Vec<String>,
-}
-
-/// 提取调用栈帧；光标不在「某次调用的实参列表」内时返回 `None`。
-///
-/// 只做「够用」的静态判定（与 A5 `ep_sample_cmds` 同一条纪律：纯文本、零子进程、只读）：
-/// 前向扫描跟踪括号栈 + 字符串/注释，取**最内层**未闭合 `(`，再回溯取 callee 点链。
-pub(crate) fn call_frame_at(text: &str, line: u32, character: u32) -> Option<CallFrame> {
-    // 廉价前置过滤：本行光标前没有 `(` 就不可能处于调用实参内（`,` 触发时挡住绝大多数行）
-    let line_text = text.lines().nth(line as usize)?;
-    let line_text = line_text.trim_end_matches('\r');
-    let byte = utf16_to_byte(line_text, character);
-    if !line_text.get(..byte)?.contains('(') {
-        return None;
-    }
-
-    let cursor = text_offset(text, line, character)?;
-    let bytes = text.as_bytes();
-
-    // 前向扫描：括号栈 + 字符串/注释跳过；光标落在字符串内 → 不是调用实参上下文
-    let mut stack: Vec<usize> = Vec::new();
-    let mut i = 0usize;
-    while i < cursor {
-        match bytes[i] {
-            b'#' => {
-                while i < cursor && bytes[i] != b'\n' {
-                    i += 1;
-                }
-                continue;
-            }
-            b'"' | b'\'' => {
-                let end = scan_string_end(bytes, i);
-                if end > cursor {
-                    return None; // 光标落在**已闭合**字符串内（如 `foo("a|b")`）
-                }
-                i = end;
-                continue;
-            }
-            b'(' | b'[' | b'{' => stack.push(i),
-            b')' | b']' | b'}' => {
-                stack.pop();
-            }
-            _ => {}
-        }
-        i += 1;
-    }
-
-    let paren = *stack.last()?;
-    if bytes[paren] != b'(' {
-        return None; // 最内层是 `[` / `{` —— 由下标补全分支处理
-    }
-
-    // 回溯 callee 点链；空 / 首尾带点 → 不是调用（如分组括号 `(a + b`）
-    let mut s = paren;
-    while s > 0 && matches!(bytes[s - 1], b'0'..=b'9' | b'A'..=b'Z' | b'a'..=b'z' | b'_' | b'.') {
-        s -= 1;
-    }
-    let callee = &text[s..paren];
-    if callee.is_empty() || callee.starts_with('.') || callee.ends_with('.') {
-        return None;
-    }
-    // `def foo(` / `class Foo(` 是定义不是调用
-    let before = text[..s].trim_end();
-    let last_word = before
-        .rsplit(|c: char| !(c.is_alphanumeric() || c == '_'))
-        .next()
-        .unwrap_or("");
-    if last_word == "def" || last_word == "class" {
-        return None;
-    }
-
-    Some(CallFrame {
-        callee: callee.to_string(),
-        segments: split_top_level(&text[paren + 1..cursor]),
-    })
-}
-
-/// 已写出的实参 → `(keyword 参数名, 位置参数个数)`；只看**除末段外**的段（末段是光标所在段）。
-pub(crate) fn written_args(segments: &[String]) -> (Vec<String>, usize) {
-    let mut keywords = Vec::new();
-    let mut positional = 0usize;
-    for seg in &segments[..segments.len().saturating_sub(1)] {
-        let t = seg.trim();
-        if t.is_empty() {
-            continue;
-        }
-        match top_level_eq(t) {
-            Some((lhs, _)) if is_identifier(lhs.trim()) => keywords.push(lhs.trim().to_string()),
-            _ => positional += 1,
-        }
-    }
-    (keywords, positional)
-}
+// TD-027 C3：`CallFrame` / `call_frame_at` / `written_args` / `split_top_level` /
+// `top_level_eq` / `scan_string_end` / `text_offset` / `utf16_to_byte` 已外提至
+// `call_context.rs`（有界窗口扫描）；本模块与 signature.rs / diagnostics.rs / hover.rs
+// 统一从那里 import。
 
 /// 提取调用实参上下文；光标不在「调用的实参列表」内时返回 `None`（让位给其余补全分支）。
 fn call_ctx_at(text: &str, line: u32, character: u32) -> Option<CallCtx> {
@@ -484,101 +390,6 @@ fn call_ctx_at(text: &str, line: u32, character: u32) -> Option<CallCtx> {
         positional,
         segment,
     })
-}
-
-/// 顶层（相对实参列表）按逗号切分；括号/引号感知。空输入返回 `[""]`。
-fn split_top_level(s: &str) -> Vec<String> {
-    let bytes = s.as_bytes();
-    let mut out = Vec::new();
-    let mut start = 0usize;
-    let mut depth = 0i32;
-    let mut i = 0usize;
-    while i < bytes.len() {
-        match bytes[i] {
-            b'"' | b'\'' => {
-                i = scan_string_end(bytes, i);
-                continue;
-            }
-            b'(' | b'[' | b'{' => depth += 1,
-            b')' | b']' | b'}' => depth -= 1,
-            b',' if depth == 0 => {
-                out.push(s[start..i].to_string());
-                start = i + 1;
-            }
-            _ => {}
-        }
-        i += 1;
-    }
-    out.push(s[start..].to_string());
-    out
-}
-
-/// 顶层 `=` 切分（排除 `==` `!=` `<=` `>=` `:=` 与复合赋值），返回 `(lhs, rhs)`。
-fn top_level_eq(s: &str) -> Option<(&str, &str)> {
-    let bytes = s.as_bytes();
-    let mut depth = 0i32;
-    let mut i = 0usize;
-    while i < bytes.len() {
-        match bytes[i] {
-            b'"' | b'\'' => {
-                i = scan_string_end(bytes, i);
-                continue;
-            }
-            b'(' | b'[' | b'{' => depth += 1,
-            b')' | b']' | b'}' => depth -= 1,
-            b'=' if depth == 0 => {
-                let prev = if i > 0 { bytes[i - 1] } else { 0 };
-                let next = bytes.get(i + 1).copied().unwrap_or(0);
-                // 排除 `==` 与复合赋值（`+=` / `:=` / `<=` …）：`=` 左侧紧邻这些字符即非关键字实参
-                let compound = b"=!<>:+-*/%&|^@".contains(&prev);
-                if next != b'=' && !compound {
-                    return Some((&s[..i], &s[i + 1..]));
-                }
-            }
-            _ => {}
-        }
-        i += 1;
-    }
-    None
-}
-
-/// 从 `start`（引号位置）跳过整个字符串字面量，返回闭合引号**之后**的偏移。
-/// 支持 `"` / `'` 与三引号；未闭合返回 `bytes.len()`。转义按非 raw 处理（尽力而为）。
-/// TD-027 D8：pub(crate)——diagnostics 的行扫描复用同一转义口径（两处原本不一致：
-/// 诊断侧 `\"` 转义未处理、注释内引号会开启伪字符串）。
-pub(crate) fn scan_string_end(bytes: &[u8], start: usize) -> usize {
-    let q = bytes[start];
-    let triple = start + 2 < bytes.len() && bytes[start + 1] == q && bytes[start + 2] == q;
-    let mut i = if triple { start + 3 } else { start + 1 };
-    while i < bytes.len() {
-        if bytes[i] == b'\\' {
-            i += 2;
-            continue;
-        }
-        if bytes[i] == q {
-            if !triple {
-                return i + 1;
-            }
-            if i + 2 < bytes.len() && bytes[i + 1] == q && bytes[i + 2] == q {
-                return i + 3;
-            }
-        }
-        i += 1;
-    }
-    bytes.len()
-}
-
-/// `(line, character)` → 全文字节偏移（LSP 0 基 UTF-16 列）。
-fn text_offset(text: &str, line: u32, character: u32) -> Option<usize> {
-    let mut off = 0usize;
-    for (i, l) in text.split_inclusive('\n').enumerate() {
-        if i as u32 == line {
-            let l = l.trim_end_matches('\n').trim_end_matches('\r');
-            return Some(off + utf16_to_byte(l, character));
-        }
-        off += l.len();
-    }
-    None
 }
 
 /// 符号补全：qualname 命名空间链匹配。
@@ -897,18 +708,6 @@ fn strip_quotes(s: &str) -> Option<String> {
         }
     }
     None
-}
-
-/// LSP 0 基 UTF-16 列 → 行内字节偏移（hover 模块复用）。
-pub(crate) fn utf16_to_byte(line: &str, char_idx: u32) -> usize {
-    let mut utf16 = 0u32;
-    for (byte, ch) in line.char_indices() {
-        if utf16 >= char_idx {
-            return byte;
-        }
-        utf16 += ch.len_utf16() as u32;
-    }
-    line.len()
 }
 
 /// 判断 qualname 段链与输入链的匹配；命中返回成员名（最后一段）。
@@ -1926,19 +1725,5 @@ mod tests {
         assert_eq!(obs[0].type_label, "str");
         assert_eq!(obs[0].count, 11);
         assert_eq!(obs[1].count, 5);
-    }
-
-    /// 顶层切分与 `=` 定位的边界（括号嵌套 / 引号 / 复合运算符）。
-    #[test]
-    fn split_and_eq_helpers() {
-        assert_eq!(split_top_level(""), vec![""]);
-        assert_eq!(split_top_level("a, b"), vec!["a", " b"]);
-        // 嵌套括号与字符串内的逗号不切分
-        assert_eq!(split_top_level(r#"f(1, 2), "x,y""#), vec!["f(1, 2)", r#" "x,y""#]);
-        assert_eq!(top_level_eq("a=1"), Some(("a", "1")));
-        assert_eq!(top_level_eq("a == 1"), None);
-        assert_eq!(top_level_eq("a := 1"), None);
-        assert_eq!(top_level_eq("f(x=1)"), None); // 嵌套内的 `=` 非顶层
-        assert_eq!(top_level_eq("a"), None);
     }
 }

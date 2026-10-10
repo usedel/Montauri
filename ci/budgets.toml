@@ -229,10 +229,20 @@ intel_cmds_rs_max_lines = 600
 # definition / diagnostics / inlay / main）待后续按同一口径补登——**不假装整个 crate 已覆盖**。
 # 注意：`trace.rs` 属另一个 crate（opencharm-intel-index），同样未纳入。
 #
-# completion.rs（A3① 调用实参补全 +519 · A3③ 抽出共用 `call_frame_at` +40）：1,672 行。上限 1,950。
-#   范围：符号 / 属性 / 下标 / 调用实参四类补全的统一入口 + 各自的上下文解析；另含 A3③ 复用的
-#   `call_frame_at` / `written_args` / `param_observations` / `resolve_callee`（一份解析两处用）。
-intel_completion_rs_max_lines = 1950
+# completion.rs（A3① 调用实参补全 +519 · A3③ 抽出共用 `call_frame_at` +40）：1,672 → 1,943（TD-027
+#   复核期的补全测试扩充）→ **1,728（2026-10-10 TD-027 C3 拆分：调用上下文扫描群外提
+#   `call_context.rs`，本文件只留补全语义层）**。上限 1,950 → 1,800（拆分即降阈值）。
+#   范围：符号 / 属性 / 下标 / 调用实参四类补全的统一入口 + 各自的上下文解析；
+#   括号栈扫描 / 顶层切分 / 字符串扫描 / UTF-16 定位等纯文本辅助已全部外提。
+intel_completion_rs_max_lines = 1800
+
+# call_context.rs（TD-027 C3 拆分 + 窗口化，2026-10-10 新增；复核期补窗口回归钉子后 412 行）。
+#   上限 450（余量 ~9%）。范围：`CallFrame` / `call_frame_at`（64 KB 有界窗口扫描，
+#   O(文档) → O(窗口)；截断时起点前进到窗口内首个行首） / `written_args` /
+#   `split_top_level` / `top_level_eq` / `scan_string_end` / `text_offset` /
+#   `utf16_to_byte`——补全（A3①）与签名帮助（A3③）共用的唯一一份上下文解析；
+#   diagnostics / hover 也从这里 import。含窗口语义 + 跨行调用回归 + 性能哨兵（--ignored）测试。
+intel_call_context_rs_max_lines = 450
 
 # hover.rs（A3② 观测签名 + 常见键/属性 +106 行）：392 行。上限 470（余量 ~17%）。
 #   范围：函数 hover（args/rets/excs 观测聚合）与变量 hover（类型推断 + shape 字段）。

@@ -5,7 +5,8 @@
 
 use opencharm_intel_index::TraceIndex;
 
-use crate::completion::{is_jmespath_call_prefix, parse_jmespath_segments, scan_string_end};
+use crate::call_context::scan_string_end;
+use crate::completion::{is_jmespath_call_prefix, parse_jmespath_segments};
 use crate::type_infer;
 
 /// 一条运行时诊断（LSP 0 基坐标）。
