@@ -67,10 +67,19 @@ const TEST_PY = [
   'def get_quotes():',
   '    return {"data": [{"code": "000001", "name": "PINGAN"}], "total": 1}',
   '',
+  'def risky(v):',
+  '    if v < 0:',
+  '        raise ValueError("negative")',
+  '    return v',
+  '',
   'def main():',
   '    order = make_order(15, [1, 2])',
   '    best = find_best([order])',
   '    quotes = get_quotes()',
+  '    try:',
+  '        risky(-1)',
+  '    except ValueError:',
+  '        pass',
   '    print("RESULT", best.get_total(), order.price, quotes["total"])',
   '',
   'main()',
@@ -100,6 +109,10 @@ async function waitForRuntimeSuggest(page, { timeoutMs = 15000, needCount = 1 } 
   const dump = await page.evaluate(() => {
     const w = document.querySelector('.suggest-widget');
     const rows = document.querySelectorAll('.suggest-widget .monaco-list-row');
+    const ed = window.monaco?.editor?.getModels?.()[0];
+    const edCtl = window.monaco?.editor?.getEditors?.()[0];
+    const pos = edCtl?.getPosition?.();
+    const ln = pos ? ed.getModel().getLineContent(pos.lineNumber) : null;
     return {
       widgetExists: !!w,
       widgetHidden: w ? w.classList.contains('hidden') : null,
@@ -107,6 +120,8 @@ async function waitForRuntimeSuggest(page, { timeoutMs = 15000, needCount = 1 } 
       rowCount: rows.length,
       texts: Array.from(rows).slice(0, 6).map((r) => (r.textContent || '').trim().slice(0, 80)),
       activeEl: document.activeElement?.tagName + '.' + (document.activeElement?.className || '').slice(0, 40),
+      cursorLine: pos ? `${pos.lineNumber}:${pos.column}` : null,
+      cursorLineText: ln != null ? ln.slice(-80) : null,
     };
   }).catch((e) => ({ err: String(e) }));
   return { ok: false, labels: lastLabels, dump };
@@ -148,23 +163,56 @@ runWithRealApp(
   async (s) => {
     const { page, dataRoot } = s;
 
-    // —— 预检：intel 二进制必须已构建且足够新（对齐 lsp.rs::locate_intel_binary 的
-    // dev 布局查找：从 shell exe 上溯，release 优先于 debug——旧 release 会静默盖过
-    // 新 debug，真机验收栽过：debug 修了 bug 但真机跑的还是 3 小时前的 release exe）。
-    // 这里取两级中较新者，且要求晚于最近一次 intel 源码提交（宽松：只提示不硬拦）。 ——
-    const intelRepo = path.join(__dirname, '..', '..', 'intel', 'target');
-    const cands = ['release', 'debug']
-      .map((p) => path.join(intelRepo, p, 'opencharm-intel.exe'))
+    // 收集 intel 引擎全部 stderr 行 + [intel] 前缀 console（启动失败 warn 等）——
+    // 「请求没到 intel」与「intel 返回空」用有无请求级日志区分，EXC-1 结束后输出
+    const intelErrs = [];
+    page.on('console', (msg) => {
+      const t = msg.text();
+      if (t.includes('[lsp-stderr:intel]') || t.includes('[intel]')) intelErrs.push(t);
+    });
+
+    // —— 预检：模拟 lsp.rs::locate_intel_binary **修复后**的完整查找顺序，报告
+    // 「真机实际会执行的 exe」。教训两则：① dev 布局回扫 release 优先于 debug，
+    // 旧 release 静默盖过新 debug（上一批）；② resource 候选（tauri dev 下 =
+    // src-tauri/target/<profile>/）里的 intel exe 旧副本静默盖过 intel/target 工作副本，
+    // 「链式用例过 + except 新用例挂 + 无新代码日志」三现象并存（本批实锤）。
+    const os = require('os');
+    const exeName = 'opencharm-intel.exe';
+    const newestOf = (paths) => paths
       .filter((p) => fs.existsSync(p))
-      .map((p) => ({ p, mtime: fs.statSync(p).mtimeMs }));
-    const picked = cands.sort((a, b) => b.mtime - a.mtime)[0];
+      .map((p) => ({ p, mtime: fs.statSync(p).mtimeMs }))
+      .sort((a, b) => b.mtime - a.mtime)[0];
+    const home = os.homedir();
+    const shellTarget = path.join(__dirname, '..', 'src-tauri', 'target');
+    const intelTarget = path.join(__dirname, '..', '..', 'intel', 'target');
+    const pickOrder = [];
+    if (process.env.OPENCHARM_INTEL_BIN) {
+      pickOrder.push(['env OPENCHARM_INTEL_BIN', [process.env.OPENCHARM_INTEL_BIN]]);
+    }
+    pickOrder.push(
+      ['runtime_dir', [path.join(home, '.opencharm', 'runtime', exeName)]],
+      // tauri dev = debug 构建 → lsp.rs 的 dev 分支（intel/target mtime 新者）优先于 resource
+      ['dev(intel/target 新者)', ['debug', 'release'].map((d) => path.join(intelTarget, d, exeName))],
+      ['resource(src-tauri/target 新者)', ['debug', 'release'].map((d) => path.join(shellTarget, d, exeName))],
+      ['回扫(intel/target 新者)', ['debug', 'release'].map((d) => path.join(intelTarget, d, exeName))],
+    );
+    let picked = null;
+    let pickedStage = '';
+    for (const [stage, paths] of pickOrder) {
+      const hit = newestOf(paths.filter(Boolean));
+      if (hit) { picked = hit; pickedStage = stage; break; }
+    }
     if (!picked) {
-      record('CHAIN-0', 'opencharm-intel.exe 已构建（dev 布局查找）', false, `未找到 ${intelRepo}/{release,debug}/opencharm-intel.exe，先 cargo build -p opencharm-intel`);
+      record('CHAIN-0', 'opencharm-intel.exe 已定位（完整查找顺序）', false,
+        '未在任何候选位置找到 opencharm-intel.exe，先 cargo build -p opencharm-intel');
       return;
     }
     const ageMin = Math.round((Date.now() - picked.mtime) / 60000);
-    record('CHAIN-0', 'opencharm-intel.exe 已构建（dev 布局查找，取 release/debug 较新者）', true,
-      `${picked.p}（mtime 距今 ${ageMin} 分钟${cands.length > 1 ? `；共 ${cands.length} 个候选` : ''}）`);
+    const newestWorkspace = newestOf(['debug', 'release'].map((d) => path.join(intelTarget, d, exeName)));
+    const lagNote = newestWorkspace && newestWorkspace.p !== picked.p
+      ? `；⚠ intel/target 最新为 ${newestWorkspace.p}` : '';
+    record('CHAIN-0', 'opencharm-intel.exe 已定位（按修复后查找顺序=真机实际执行者）', true,
+      `命中 ${pickedStage}：${picked.p}（mtime 距今 ${ageMin} 分钟）${lagNote}`);
 
     await dismissBlockingModals(page);
     await page.locator('#tree .tree-item .name', { hasText: 'chain_demo.py' })
@@ -247,6 +295,22 @@ runWithRealApp(
     const runtime6 = await runtimeSuggestCount(page);
     record('CHAIN-6', '无观测调用 `unknown_fn(x).` 不出 runtime 候选（降级不产垃圾）', runtime6 === 0,
       `runtime 候选数=${runtime6}`);
+    await closeSuggest(page);
+
+    // —— P2 EXC-1：except 异常补全 `except ValueErr` → ValueError（exc_types 观测）——
+    // 采样点：main() 里 risky(-1) 抛 ValueError 被 except 捕获（probe RAISE 事件入库）。
+    // 触发说明：20ms/字符快速连打时弹层先被静态候选打开，此后字母只做 Monaco 本地过滤
+    // 不再请求 provider（真机多轮实测）——故 Escape 关层后补一个 trigger 字符 `(` 强制
+    // 重新请求；intel 侧空前缀返回全部观测异常（含 ValueError），与用户慢速键入行为等价。
+    await typeAtTail('except ValueErr');
+    await sleep(400);
+    await page.keyboard.press('Escape').catch(() => {});
+    await page.keyboard.type('(', { delay: 60 });
+    const rexc = await waitForRuntimeSuggest(page, { timeoutMs: 12000 });
+    const exchit = rexc.ok && /ValueError/.test(rexc.labels.join(' '));
+    record('EXC-1', 'except 头部 `except ValueErr(` 出 ValueError（异常观测候选）', exchit,
+      exchit ? `候选: ${rexc.labels.slice(0, 6).join(' | ')}`
+        : `12s 内无候选；dump=${JSON.stringify(rexc.dump)}；intel 相关 console ${intelErrs.length} 行:\n${intelErrs.join('\n')}`);
     await closeSuggest(page);
   },
 );

@@ -1322,3 +1322,118 @@ fn call_chain_parser_shapes() {
     assert_eq!(parse_call_chain("f(\"a(b\")"), None);
     assert_eq!(parse_call_chain("f(g(x)"), None);
 }
+
+// ---------- P2 except 异常补全（2026-10-10）----------
+
+fn exc_fixture() -> TraceIndex {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("exc.db");
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(SCHEMA).unwrap();
+        // 两个函数观测到 ValueError（跨文件复用 → 聚合求和），一个观测到模块限定异常
+        conn.execute(
+            "INSERT INTO functions(filename,qualname,lineno,hits,stale) VALUES('scraper.py','scraper.parse_page',1,12,0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO functions(filename,qualname,lineno,hits,stale) VALUES('api.py','api.call',2,7,0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO exc_types(fid,exc_label,count) VALUES(1,'ValueError',3)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO exc_types(fid,exc_label,count) VALUES(2,'ValueError',2)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO exc_types(fid,exc_label,count) VALUES(2,'requests.HTTPError',4)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO exc_types(fid,exc_label,count) VALUES(2,'KeyError',1)",
+            [],
+        )
+        .unwrap();
+    }
+    TraceIndex::open(&path).unwrap()
+}
+
+/// `except ValueErr` → ValueError（Exception 种类 + 观测 detail）。
+#[test]
+fn completes_except_by_prefix() {
+    let idx = exc_fixture();
+    let doc = "try:\n    call(u)\nexcept ValueErr";
+    let cands = complete(&idx, doc, 2, doc.lines().nth(2).unwrap().len() as u32);
+    let labels = labels_of(&cands);
+    assert_eq!(labels, vec!["ValueError"], "实际 {labels:?}");
+    let c = &cands[0];
+    assert_eq!(c.kind, CandidateKind::Exception);
+    assert!(c.detail.contains("⟳ runtime"), "{:?}", c.detail);
+    assert!(c.detail.contains('5'), "跨函数 count 求和 3+2=5：{:?}", c.detail);
+}
+
+/// `except `（空前缀）→ 全部观测异常，count 降序（HTTPError 4 > ValueError 5?——
+/// ValueError 聚合 5 最高，HTTPError 4 次之，KeyError 1 末位）。
+#[test]
+fn completes_except_empty_prefix_sorted_by_evidence() {
+    let idx = exc_fixture();
+    let doc = "try:\n    call(u)\nexcept ";
+    let cands = complete(&idx, doc, 2, doc.lines().nth(2).unwrap().len() as u32);
+    let labels = labels_of(&cands);
+    assert_eq!(
+        labels,
+        vec!["ValueError", "requests.HTTPError", "KeyError"],
+        "实际 {labels:?}"
+    );
+}
+
+/// 裸前缀按标签最后段匹配：`except HTTPErr` → requests.HTTPError。
+#[test]
+fn completes_except_matches_last_segment() {
+    let idx = exc_fixture();
+    let doc = "except HTTPErr";
+    let cands = complete(&idx, doc, 0, doc.len() as u32);
+    assert_eq!(labels_of(&cands), vec!["requests.HTTPError"]);
+}
+
+/// 元组形态：`except (Key` → KeyError。
+#[test]
+fn completes_except_tuple_form() {
+    let idx = exc_fixture();
+    let doc = "except (Key";
+    let cands = complete(&idx, doc, 0, doc.len() as u32);
+    assert_eq!(labels_of(&cands), vec!["KeyError"]);
+}
+
+/// 负例：as 绑定 / 冒号后 body / 字符串内 / 注释 → 不出异常候选。
+#[test]
+fn except_ctx_negative_cases() {
+    let idx = exc_fixture();
+    // `except ValueError as`（绑定名位置）→ 无 Exception 候选
+    let doc = "except ValueError as";
+    let cands = complete(&idx, doc, 0, doc.len() as u32);
+    assert!(
+        cands.iter().all(|c| c.kind != CandidateKind::Exception),
+        "as 后不出异常候选：{cands:?}"
+    );
+    // 冒号后（body 区）
+    let doc2 = "except ValueError:";
+    assert_eq!(except_ctx_at(doc2, 0, doc2.len() as u32), None);
+    // 字符串内
+    let doc3 = r#"x = "except "#;
+    assert_eq!(except_ctx_at(doc3, 0, doc3.len() as u32), None);
+    // 注释行
+    let doc4 = "# except ";
+    assert_eq!(except_ctx_at(doc4, 0, doc4.len() as u32), None);
+    // 非词边界：handle_except 不触发
+    let doc5 = "handle_except ";
+    assert_eq!(except_ctx_at(doc5, 0, doc5.len() as u32), None);
+}

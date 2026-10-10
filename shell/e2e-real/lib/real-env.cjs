@@ -467,6 +467,12 @@ async function runWithRealApp(options, checks) {
     if (consoleWarns.length) {
       console.log(`\n[提示] console warning/error ${consoleWarns.length} 条（不计入失败，仅供排查）:`);
       for (const e of consoleWarns.slice(0, 30)) console.log('  - ' + e.split('\n')[0]);
+      // intel 专项：启动失败 / 二次启动等早期 console warn 摘录只显示前 30 条会漏——全量过滤输出
+      const intelLines = consoleWarns.filter((e) => e.includes('[intel]'));
+      if (intelLines.length) {
+        console.log(`\n[提示] intel 相关 console ${intelLines.length} 条:`);
+        for (const e of intelLines) console.log('  - ' + e.split('\n')[0]);
+      }
     }
   } catch (e) {
     console.error(`\n[运行中断] ${e.message || e}`);

@@ -171,7 +171,9 @@ intel 链路都不出结果**（既有设计，非本项引入）；若要让 in
 - 光标上下文由 `call_context.rs::call_receiver_at` 提取（括号感知回扫——圆/方括号对都跳过（实参带列表字面量 `make_order(9, [1]).` 是爬虫画像高频形态，真机探针实锤旧版在 `]` 上 break），纯点链让位原路径）；
 - MVP 边界（登记不实现）：下标后再属性（shape 子节点不携带类型标签）、嵌套调用只解析最外层、首段 head 是模块点链（`mod.func().`——模块名推不出类型）；
 - 全链路无命中时返回空候选（不回落符号补全——链形态下 parent 切分语义不成立）；
-- 真机全链路验收：`shell/e2e-real/chain-completion-real.cjs`（运行 → probe 入库 → intel mtime+size 重载 → Monaco 弹层，9/9 PASS，2026-10-10）。注意 dev 布局查找 **release 优先于 debug**（`lsp.rs::locate_intel_binary`）——只重建 debug 时真机仍跑旧 release exe。
+- 真机全链路验收：`shell/e2e-real/chain-completion-real.cjs`（运行 → probe 入库 → intel mtime+size 重载 → Monaco 弹层，2026-10-10 P2 批起含 EXC-1 共 10 项）。exe 查找两大坑（都在 `lsp.rs::locate_intel_binary`）：① 旧版 dev 布局回扫 release 优先于 debug；② **resource 候选（tauri dev 下 = `src-tauri/target/<profile>/`）中的 intel exe 旧副本静默盖过 `intel/target` 工作副本**——「旧用例全过 + 新用例全挂 + 无新代码日志」三现象并存即此坑。现 dev 构建下 `intel/target`（mtime 新者）优先于 resource，验收脚本 CHAIN-0 按同序报告真机实际执行者。
+
+**except 异常补全**（`except_completion.rs`，P2 批 2026-10-10）：`except ValueErr` / `except ` / 元组 `except (A, B` → 全库聚合的 exc_types 观测异常（`⟳ runtime · 异常观测 · N 次`，count 降序）。数据源是 probe RAISE 事件——**被 except 捕获的异常同样入库**，正是用户写 except 时最想补的类型。守卫：`as` 绑定名 / 冒号后 body / 字符串 / 注释不误触；裸前缀按标签最后段匹配（`HTTPErr` → `requests.HTTPError`），空前缀不并符号候选。真机坑：快速连打时 Monaco 用已打开弹层本地过滤而不重新请求 provider，except 行（字母收尾无 trigger 字符）会让 intel 零请求——验收用例以 `(` trigger 字符收尾强制重请求（用户慢速键入不受影响，quickSuggestions 会正常触发）。
 
 **Hover**（`hover.rs`，P3-T05）：悬停展示运行时观测（markdown）：
 

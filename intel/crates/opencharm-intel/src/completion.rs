@@ -55,7 +55,7 @@ pub struct Candidate {
 
 impl Candidate {
     /// 统一构造（`insert_text` 默认 `None`）——新增字段时只需改这一处。
-    fn new(label: impl Into<String>, kind: CandidateKind, detail: String, score: i64) -> Self {
+    pub(crate) fn new(label: impl Into<String>, kind: CandidateKind, detail: String, score: i64) -> Self {
         Candidate {
             label: label.into(),
             kind,
@@ -72,6 +72,8 @@ pub enum CandidateKind {
     Field,
     /// A3①：调用实参名（LSP `VARIABLE`）。
     Param,
+    /// P2：except 处观测过的异常类型（LSP `CLASS`）。
+    Exception,
 }
 
 /// 补全结果：候选列表 + 是否因 `MAX_CANDIDATES` 截断。
@@ -140,6 +142,20 @@ pub fn complete_with_meta(
         }
         // 下标访问但推断不到 base 类型：不产生补全
         return CompletionOutcome::default();
+    }
+
+    // P2（2026-10-10）except 异常补全：`except ValueErr` / `except (A, B` →
+    // 运行时观测过的异常类型（exc_types 表全库聚合）。必须在 call_ctx 之前——
+    // `except (` 会被 call_ctx_at 判为分组括号而拒绝。
+    if let Some(prefix) = except_ctx_at(text, line, character) {
+        let mut candidates = exc_candidates(index, &prefix);
+        // 空前缀（`except `）不并符号候选——否则全量函数灌入 except 头部成噪声；
+        // 非空前缀保留符号补全（自定义异常工厂等仍可见）。
+        if !prefix.is_empty() {
+            candidates.extend(symbol_candidates(index, &[], &prefix));
+        }
+        let (candidates, truncated) = dedup_sort_truncate(candidates);
+        return CompletionOutcome { candidates, truncated };
     }
 
     // 调用实参补全（A3①）：`foo(|` / `foo(a, |` → 该函数的参数名候选（带运行时观测类型）。
@@ -644,6 +660,11 @@ struct SubscriptCtx {
     receiver: Receiver,
     prefix: String,
 }
+
+// P2 except 异常补全（2026-10-10）已外提 except_completion.rs——预算纪律
+// 「拆分即降阈值」（P2 批 +109 行使本文件 958/950 超限）。use 引入的名字
+// 对 `use super::*` 的测试子模块同样可见。
+use crate::except_completion::{exc_candidates, except_ctx_at};
 
 /// 提取下标访问上下文：`id["prefix` / `id["key"]["prefix` / `id["a"][0]["prefix` 等。
 /// 链式最多 MAX_CHAIN 层；点链 receiver、变量索引暂不处理。

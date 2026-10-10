@@ -275,6 +275,18 @@ fn locate_intel_binary(app: &AppHandle) -> Option<std::path::PathBuf> {
     if runtime.is_file() {
         return Some(runtime);
     }
+
+    // dev 构建（cargo tauri dev）：resource_dir() 解析到 src-tauri/target/<profile>/，
+    // 其中若残留早期构建/复制的 intel exe 副本，会**静默盖过**开发者刚构建的
+    // intel/target 工作副本——真机验收实锤（链式用例过、except 新用例全挂、
+    // stderr 无任何新代码日志并存）。dev 下 intel/target 优先（debug/release 取
+    // mtime 新者）；打包安装场景无 dev_assertions，resource 优先语义不变。
+    if cfg!(debug_assertions) {
+        if let Some(picked) = dev_workspace_intel(exe_name) {
+            return Some(picked);
+        }
+    }
+
     for dir in crate::util::resource_candidates(app) {
         let cand = dir.join(exe_name);
         if cand.is_file() {
@@ -293,6 +305,25 @@ fn locate_intel_binary(app: &AppHandle) -> Option<std::path::PathBuf> {
         }
     }
     None
+}
+
+/// dev 专用：从 shell exe 上溯 6 级找 `intel/target/{release,debug}/<exe>`，
+/// 取 mtime 较新者（对齐开发工作流：最后一次 cargo build 的版本即最新语义）。
+fn dev_workspace_intel(exe_name: &str) -> Option<std::path::PathBuf> {
+    let mut dir = std::env::current_exe().ok()?;
+    let mut best: Option<(std::path::PathBuf, std::time::SystemTime)> = None;
+    for _ in 0..6 {
+        dir.pop();
+        for profile in ["release", "debug"] {
+            let cand = dir.join("intel").join("target").join(profile).join(exe_name);
+            let Ok(md) = std::fs::metadata(&cand) else { continue };
+            let mtime = md.modified().unwrap_or(std::time::UNIX_EPOCH);
+            if best.as_ref().is_none_or(|(_, t)| mtime > *t) {
+                best = Some((cand, mtime));
+            }
+        }
+    }
+    best.map(|(p, _)| p)
 }
 
 /// 供前端启动 intel：返回 { command, traceDbPath }（command 为 null 表示二进制未构建）。

@@ -6,6 +6,7 @@ mod call_context;
 mod completion;
 mod definition;
 mod diagnostics;
+mod except_completion;
 mod hover;
 mod inlay;
 mod server;

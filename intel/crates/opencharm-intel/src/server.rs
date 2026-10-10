@@ -95,8 +95,10 @@ impl Backend {
     /// 连续失败 N 次后改为每 8 次请求重试一次（约等于用户停顿间隔）。
     ///
     /// A-P2-3（2026-09-29 review）：`index_load_lock` 互斥——并发请求只有一个执行
-    /// 加载，其余直接返回（不排队不重复 IO）。try_lock 而非 lock：排队等加载结果
-    /// 会把 N 个并发请求的时延串成一列，返回空候选让下一次键入命中缓存更简单。
+    /// 加载。原实现 try_lock 拿不到锁直接返回（空候选），真机验收实锤其缺陷：
+    /// 「单触发字符」场景（`x.` 后不再键入）空响应即终局——弹层永远停在静态候选。
+    /// 改为 lock().await 排队等待在途加载完成后**复查新鲜度**：等待者通常直接命中
+    /// 刚完成的缓存，只多等一次加载时长，换来补全永不因加载竞态丢候选。
     async fn ensure_index_loaded(&self) {
         let path = {
             let g = self.inner.read();
@@ -141,8 +143,21 @@ impl Backend {
             return; // 本次请求被退避拦下（计数已推进，重试窗口到来时自然放行）
         }
 
-        // A-P2-3：在途加载互斥——拿不到锁说明已有加载在进行，本次直接返回
-        let Ok(_guard) = self.index_load_lock.try_lock() else { return };
+        // A-P2-3：在途加载互斥——排队等待在途加载完成，完成后复查新鲜度
+        //（拿锁期间其他请求可能已完成加载，此时直接命中缓存返回，不再重复 IO）
+        let _guard = self.index_load_lock.lock().await;
+        {
+            let g = self.inner.read();
+            let loaded = g
+                .index_mtime
+                .zip(g.index_size)
+                .zip(stamp)
+                .map(|((mt, sz), (t, s))| mt == t && sz == s)
+                .unwrap_or(false);
+            if g.index.is_some() && loaded {
+                return;
+            }
+        }
 
         let display_path = path.display().to_string();
         match tokio::task::spawn_blocking(move || TraceIndex::open(&path)).await {
@@ -234,6 +249,7 @@ fn to_completion_response(outcome: CompletionOutcome) -> CompletionResponse {
                 CandidateKind::Function => CompletionItemKind::FUNCTION,
                 CandidateKind::Field => CompletionItemKind::FIELD,
                 CandidateKind::Param => CompletionItemKind::VARIABLE,
+                CandidateKind::Exception => CompletionItemKind::CLASS,
             }),
             detail: Some(c.detail.clone()),
             // A3①：实参候选插入 `name=`；其余候选无 insertText（客户端回落 label）
