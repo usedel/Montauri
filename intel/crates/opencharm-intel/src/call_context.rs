@@ -268,15 +268,19 @@ fn is_identifier(s: &str) -> bool {
 /// 只在 receiver **含配对括号**（即有调用）且存在顶层 `.` 时返回 Some——纯点链
 /// （`x.` / `x.fi`，无括号）返回 None 让位原 dot_chain_at 路径；行内括号不配对
 /// （跨行调用未闭合）同样 None。
+///
+/// 真机验收补充（2026-10-10）：实参里的**列表字面量**（`make_order(9, [1]).`）极常见，
+/// 回扫必须把 `[`/`]` 也当配对括号跳过——否则在 `]` 上 break，`has_paren` 误判为
+/// false，整条链让位符号补全（真机探针实锤：`make_order(9, []).` 无 runtime 候选）。
 pub(crate) fn call_receiver_at(text: &str, line: u32, character: u32) -> Option<(String, String)> {
     let target_line = text.lines().nth(line as usize)?;
     let target_line = target_line.trim_end_matches('\r');
     let byte_end = utf16_to_byte(target_line, character);
     let bytes = target_line.as_bytes();
 
-    // 回扫：标识符/点直接过；`)` 跳配对括号；其余停。
+    // 回扫：标识符/点直接过；配对括号（圆/方）跳配对；其余停。
     // 顶层 dot_pos = 回扫中遇到的第一个 `.`（此时尚未进入任何括号——回扫是从
-    // 光标向左，遇到 `)` 才进括号，其后的 `.` 都在括号内不算顶层）。
+    // 光标向左，遇到闭括号才进括号，其后的 `.` 都在括号内不算顶层）。
     let mut start = byte_end;
     let mut dot_pos: Option<usize> = None;
     let mut has_paren = false;
@@ -289,22 +293,26 @@ pub(crate) fn call_receiver_at(text: &str, line: u32, character: u32) -> Option<
                 dot_pos = Some(start - 1);
             }
             start -= 1;
-        } else if c == b')' {
+        } else if c == b')' || c == b']' {
             has_paren = true;
+            let (open_ch, close_ch) = if c == b')' {
+                (b'(', b')')
+            } else {
+                (b'[', b']')
+            };
             let mut depth = 0usize;
             let mut j = start;
             let mut ok = false;
             while j > 0 {
-                match bytes[j - 1] {
-                    b')' => depth += 1,
-                    b'(' => {
-                        depth -= 1;
-                        if depth == 0 {
-                            ok = true;
-                            break;
-                        }
+                let b = bytes[j - 1];
+                if b == close_ch {
+                    depth += 1;
+                } else if b == open_ch {
+                    depth -= 1;
+                    if depth == 0 {
+                        ok = true;
+                        break;
                     }
-                    _ => {}
                 }
                 j -= 1;
             }
@@ -481,5 +489,38 @@ mod tests {
             "call_frame_at 退化：1 MB 文档耗时 {:?}（有界窗口应 < 2ms）",
             el
         );
+    }
+
+    /// 真机验收补充（2026-10-10）：`call_receiver_at` 回扫必须跳过**方括号对**——
+    /// 实参里的列表字面量（`make_order(9, [1]).`）是爬虫画像的高频形态。旧实现只认
+    /// 圆括号，在 `]` 上 break → has_paren 误判 false → 整条链让位符号补全（真机
+    /// 探针实锤：`make_order(9, []).` 无 runtime 候选）。
+    #[test]
+    fn call_receiver_at_skips_square_bracket_args() {
+        // 列表字面量实参：`make_order(9, [1]).` 光标在行尾（`.` 后，col=19）
+        let text = "make_order(9, [1]).";
+        assert_eq!(
+            call_receiver_at(text, 0, 19),
+            Some(("make_order(9, [1])".into(), "".into()))
+        );
+
+        // 带前缀：`make_order(9, []).pr` 光标行尾 col=20
+        let text = "make_order(9, []).pr";
+        assert_eq!(
+            call_receiver_at(text, 0, 20),
+            Some(("make_order(9, [])".into(), "pr".into()))
+        );
+
+        // 嵌套：实参同时含圆括号与方括号（wrap 行尾 col=21）
+        let text = "wrap(fn(a), [1, 2]).x";
+        assert_eq!(
+            call_receiver_at(text, 0, 21),
+            Some(("wrap(fn(a), [1, 2])".into(), "x".into()))
+        );
+
+        // 未闭合的列表字面量实参（光标前是开 `[`，回扫在其上截断，has_paren=false）：
+        // 返回 None（保守让位——真实语法下单行内构造不出「`]` 无配对 `[`」的形态）
+        let text = "make_order(9, [1.";
+        assert_eq!(call_receiver_at(text, 0, 16), None);
     }
 }

@@ -168,9 +168,10 @@ intel 链路都不出结果**（既有设计，非本项引入）；若要让 in
 | `make_order(c).` / `Order(...).` | 工厂 ret / 类构造约定（存在 `Cls.__init__` 观测 → 实例类型 = 类名） | 实例属性 |
 | `get_quotes()["data"]["` | 调用后下标：ret 类型沿 `Access` 链解析嵌套 shape | 深层 dict 键 |
 
-- 光标上下文由 `call_context.rs::call_receiver_at` 提取（括号感知回扫，纯点链让位原路径）；
+- 光标上下文由 `call_context.rs::call_receiver_at` 提取（括号感知回扫——圆/方括号对都跳过（实参带列表字面量 `make_order(9, [1]).` 是爬虫画像高频形态，真机探针实锤旧版在 `]` 上 break），纯点链让位原路径）；
 - MVP 边界（登记不实现）：下标后再属性（shape 子节点不携带类型标签）、嵌套调用只解析最外层、首段 head 是模块点链（`mod.func().`——模块名推不出类型）；
-- 全链路无命中时返回空候选（不回落符号补全——链形态下 parent 切分语义不成立）。
+- 全链路无命中时返回空候选（不回落符号补全——链形态下 parent 切分语义不成立）；
+- 真机全链路验收：`shell/e2e-real/chain-completion-real.cjs`（运行 → probe 入库 → intel mtime+size 重载 → Monaco 弹层，9/9 PASS，2026-10-10）。注意 dev 布局查找 **release 优先于 debug**（`lsp.rs::locate_intel_binary`）——只重建 debug 时真机仍跑旧 release exe。
 
 **Hover**（`hover.rs`，P3-T05）：悬停展示运行时观测（markdown）：
 
