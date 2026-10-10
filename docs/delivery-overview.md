@@ -1,5 +1,7 @@
 # OpenCharm 交付总览（Delivery Overview）
 
+> 版本：**v1.20** · 日期：**2026-10-10** · 状态：**现行** · 取数依据：**VS Code 插件调研报告落档 + docs 篇数不一致登记**（新增 `docs/vscode_extension_research_report.md` v1.0）
+> **v1.20 修订（2026-10-10，维护态）**：① **新增调研报告 `docs/vscode_extension_research_report.md` v1.0**（§3.4 已登记，README 索引已加行）——榜单前 10 名**逐项源码核对**结论：**9 项已有等价物**（Pylance→pyrefly+intel · Python 扩展→运行/调试 · Python Debugger→DAP/debugpy 含条件断点/命中次数/Logpoint · Ruff→`src/format.ts` · GitLens→Git 六迭代 · SQLite Viewer→B3 · REST Client→B4 · autoDocstring→live template · 括号着色/缩进参考线→设置项）、**4 项真空白**（Error Lens 行内诊断 / Scratch 执行（= 候选池 B2）/ 字符串路径补全 / CSV 查看器）、**5 项明确不学**（AI 三件 · Test Explorer · Remote-SSH/WSL · Mermaid · 「装 N 个扩展」模式）。该报告**不改动候选池**，性质与 `pycharm_feature_research_report.md` 同（非排期依据）。② **新登记第 19 条文档不一致**：§1 规模行的「39 篇 `docs/*.md` + 8 篇 ADR」与磁盘实测（`docs/*.md` **46** / `docs/adr/*.md` **9**）不符；复核脚本 `tools/stats/repo-stats.mjs` 本机跑不起来（`spawnSync cmd.exe` **EBUSY**，会话环境已知问题）→ 口径待可跑时复核，本轮只登记不猜改。③ 数字无变化（v1.19 基准）。
 > 版本：**v1.19** · 日期：2026-10-08 · 状态：**现行** · 取数依据：**补全交互层 P0-C 落地、四批全收官**（`docs/completion_interaction_dev_plan.md`，commits `a800416`/`93b4c9a`/`d97e7ea`/`63693ff` + 本轮 P0-C）
 > 　⚠ **同日治理（2026-10-08）**：`bench/reports/` 整目录**已进 `.gitignore` 并从索引移除**（`git rm -r --cached bench/reports`）——与 `shell/real-reports/` 同性质的**原始运行产物**（`budget-*.md` 滚动预算快照 + 各探针 JSON/报告），结论与证据以「**写进 docs 的数字**」为准；里程碑跑确需留证时用 `git add -f bench/reports/<file>` 单独提升。本页及 ADR/方案文档里出现的 `bench/reports/*` 引用，今后一律按「本地证据指引」理解（文件在本机磁盘保留、不入库）。
 > 　**补全交互层 spike 结清（2026-10-08 同日）**：裸会话实测 **pyrefly / basedpyright 均不下发 `commitCharacters`**（engine capability 无 `commitCharactersSupport`，66/84 个 item 均无该字段）→ P1-B「默认关」门控正确、本项当前无观察对象（保留为未来引擎预埋）；P1-A 的「动态 Tab 规则覆盖 Monaco 内建 Tab」与「`acceptAlternativeSelectedSuggestion` 可触发」两处 ⚠spike 由 e2e `lsp/06` C-6 一并钉住。
@@ -113,7 +115,7 @@
 
 ### 3.4 调研报告（**非排期依据**）
 
-`pycharm_feature_research_report.md` v1.1 · `pycharm_ux_review_and_proposal.md` v1.0（含 F-1 pytest 裁决）· `pycharm_framework_support_report.md` v1.2 · `python_library_support_research.md` v1.5 · `edit_prediction_research_plan.md` v0.1（探索中）· `git_improvement_report.md`
+`pycharm_feature_research_report.md` v1.1 · `pycharm_ux_review_and_proposal.md` v1.0（含 F-1 pytest 裁决）· `pycharm_framework_support_report.md` v1.2 · **`vscode_extension_research_report.md` v1.0（2026-10-10；榜单前 10 名逐项源码核对 → 9 项已有等价物 / 4 项真空白 / 5 项明确不学；**不改动候选池**，借鉴-2 等同候选池 B2）** · `python_library_support_research.md` v1.5 · `edit_prediction_research_plan.md` v0.1（探索中）· `git_improvement_report.md`
 
 ### 3.5 计划（待开工 / 部分开工）
 
@@ -152,10 +154,12 @@
 | 15 | **`openHttpTool` 传裸工具 id**（A5① 顺带发现）：内置工具的全局 id 是 `<pluginId>.<toolId>`（`dslLens.ts` / `jsonLiteral.ts` 都写全 id），而 `devtools/index.ts` 调的是 `openDevTools("http")` → `getDevTool` 返回 undefined → 静默回落到「最近使用」工具。**表现为「B4 PR-B4-3 的『端点 → HTTP 工具』联动从来没打开过 HTTP 工具」**，此前无 e2e 覆盖 | `shell/src/devtools/index.ts:28` | ✅ 2026-10-06 已修（改 `HTTP_TOOL_ID = "opencharm.builtin.http"` 并加注释说明回落陷阱）；由 e2e EP-S2 钉住 |
 | 16 | **http 面板两个 textarea 同类名**（A5① 顺带发现）：请求体与「环境变量」都用 `kit.textarea` → 各 1 个 `.tool-textarea`，e2e 选择器不唯一 | `shell/src/devtools/builtin/http.ts` | ✅ 2026-10-06 已修（请求体补 `.http-body` 专用类，同 `.http-url` 既有约定） |
 | 17 | **`arg_types` 加载顺序不确定**（A3① 顺带发现）：`trace.rs::load_args` 用 `ORDER BY fid`，而 SQLite 排序**不保证稳定**——同一函数的多条 `arg_types` 行会被打乱。probe 侧 `monitor._record_args` 按 `co_varnames`（**声明顺序**）逐参数位写入，故插入序 = 声明序，是该顺序的唯一依据；A3① 的「位置参数前跳」正依赖它。**实测确已乱序**（`url, timeout, retries` 读成 `retries` 打头） | `intel/crates/opencharm-intel-index/src/trace.rs::load_args` | ✅ 2026-10-06 已修（`ORDER BY fid` → `ORDER BY fid, rowid`，零额外代价：arg_types 无 fid 索引，排序本就发生）；由 `trace_test.rs::arg_observation_order_is_insertion_order` 钉住 |
-
 | 18 | **A4 交付的 `.sel-item:focus-visible` 用了裸 box-shadow**（A3③ 轮次跑 `audit_tokens.py` 时检出）：`box-shadow: inset 0 0 0 1px var(--focus-ring)` 不引用任何阴影 token → 违反「阴影一律走 `--elev-*` / `--shadow`」纪律，审计第 87 项 **FAIL**。⚠ **A4 门禁记录写的「98 项 0 FAIL」与实测不符**——该 FAIL 在 A4 提交后即存在于 HEAD，本轮才被检出 | `shell/src/styles/selector.css:78` | ✅ 2026-10-06 已修（改 `outline: 1px solid var(--focus-ring); outline-offset: -1px`，与 `.todo-item` / `.db-tree-item` / `.db-conn-node` 同口径；**顺带更契合场景**——命中列表在滚动容器内，外扩环会被 `overflow` 裁掉）。复跑 `audit_tokens.py` 98 项 **0 FAIL** |
+| 19 | **§1 规模行的文档篇数已陈旧**：写「39 篇 `docs/*.md` + 8 篇 ADR」，磁盘实测 **`docs/*.md` 46 / `docs/adr/*.md` 9**（2026-10-10 直接 `ls \| wc -l` 计数，已含本轮新增的 `vscode_extension_research_report.md`，故原值差 ≥6 篇）。**未就地改数的原因**：该数字的取数口径在 `tools/stats/repo-stats.mjs`，而该脚本本机跑不起来（`spawnSync C:\WINDOWS\system32\cmd.exe` → **EBUSY**，会话环境已知问题，非本次引入）→ 无法确认脚本是否排除某些文件，**猜改会造出第二个错值** | `docs/delivery-overview.md` §1 | ⏳ **待复核**（登记不猜改）：脚本可跑时按其口径刷新 §1；若脚本口径与「`ls` 计数」一致，则本次实测值可直接采用 |
 
-> **2026-10-06 收口**：10~12 三条已关闭；**第 13 条是本表唯一未闭环项，且它决定了 §0 缺口 1 能不能关**；第 14 条为 A1 交付时顺带发现的 i18n 生成链缺陷，第 15 / 16 条为 A5① 交付时顺带发现的两处静默失效，第 17 条为 A3① 交付时顺带发现的索引层顺序缺陷，**均已修并沉淀成取数禁则 / 注释 / 单测**。**A4 交付（同日）当时判定无新增，但第 18 条说明它其实漏掉了一处**——A4 唯一"意外发现"（CSS `.item` 按类列表匹配、XPath `@class='item'` 是精确串匹配，故 `class="item promo"` 前者命中后者不命中）属**领域事实**而非文档债务，已写进 e2e SEL-4 作现场证据。**教训：新 CSS 落地后必须复跑 `audit_tokens.py` 取实测值，不能沿用"本轮无新增 CSS 变更"的推论**（第 18 条正是 A4 新增 CSS 引入的）。新增不一致请就地登记在此表，**发现即登记，登记即修**。
+> **2026-10-06 收口**：10~12 三条已关闭；**第 13 条与第 19 条是本表未闭环项**（第 13 条决定 §0 缺口 1 能否关闭；第 19 条为 2026-10-10 新登记，待复核脚本口径）；第 14 条为 A1 交付时顺带发现的 i18n 生成链缺陷，第 15 / 16 条为 A5① 交付时顺带发现的两处静默失效，第 17 条为 A3① 交付时顺带发现的索引层顺序缺陷，**均已修并沉淀成取数禁则 / 注释 / 单测**。**A4 交付（同日）当时判定无新增，但第 18 条说明它其实漏掉了一处**——A4 唯一"意外发现"（CSS `.item` 按类列表匹配、XPath `@class='item'` 是精确串匹配，故 `class="item promo"` 前者命中后者不命中）属**领域事实**而非文档债务，已写进 e2e SEL-4 作现场证据。**教训：新 CSS 落地后必须复跑 `audit_tokens.py` 取实测值，不能沿用"本轮无新增 CSS 变更"的推论**（第 18 条正是 A4 新增 CSS 引入的）。新增不一致请就地登记在此表，**发现即登记，登记即修**。
+
+> **2026-10-10 补记**：① 新增**第 19 条**（§1「39 篇 `docs/*.md` + 8 篇 ADR」与磁盘实测 46 / 9 不符）——因复核脚本 `tools/stats/repo-stats.mjs` 本机 **EBUSY** 跑不起来，按「**登记不猜改**」处理，待脚本可跑时按口径刷新。② 顺带修掉本表第 18 / 19 行前的**空行**（GFM 规范下表格内空行会截断表格，第 18 行原已存在此问题，此前未察觉）。
 
 ---
 
