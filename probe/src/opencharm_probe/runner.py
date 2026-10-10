@@ -66,19 +66,23 @@ def run_with_probe(cfg: ProbeConfig, script: str, argv: list[str] | None = None)
         sys.path[:] = old_path
         # TD-027 B5：old_dir 被脚本删除时 chdir 抛 OSError，会替换掉 finally 链上
         # 更有价值的原始异常——单独隔离，降级为停留当前目录（不吞原始异常）。
+        # 复核修复：告警前缀用纯 ASCII（[WARN]）——⚠ 不在 GBK 映射，告警 print 自身
+        # 抛 UnicodeEncodeError（ValueError 子类）会逃逸 except OSError 之外，恰好
+        # 复现 B5 要防的「新异常替换原始异常」（与 B7 的 _print_safe 同根）。
         try:
             os.chdir(old_dir)
         except OSError:
-            print(f"[opencharm-probe] ⚠ 恢复工作目录失败（{old_dir}），"
+            print(f"[opencharm-probe][WARN] 恢复工作目录失败（{old_dir}），"
                   f"进程停留在 {os.getcwd()}", file=sys.stderr)
 
     # P2-3（2026-09-29 review）：save 失败只告警不吞脚本原始异常——脚本崩溃（error
     # 非 None）且落库同时失败（盘满等）时，原实现 save 的异常会替换原始异常传播，
     # 最有价值的异常路径 trace 连同原始错误一起丢失。铁律「探针失败只打警告」。
+    # 复核修复：同上，⚠ 换 [WARN]（GBK 控制台下告警自身不得再抛异常）。
     try:
         path = save(cfg, sink, project_root, script, wall_started, elapsed)
     except Exception as e:  # noqa: BLE001 - 探针侧失败不吞脚本异常
-        print(f"[opencharm-probe] ⚠ 落库失败（观测未写入 trace 库）：{e}", file=sys.stderr)
+        print(f"[opencharm-probe][WARN] 落库失败（观测未写入 trace 库）：{e}", file=sys.stderr)
         path = None
     if error is not None:
         raise error

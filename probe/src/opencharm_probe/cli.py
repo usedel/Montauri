@@ -183,13 +183,14 @@ def _cmd_check(args) -> int:
     env = _inject_env(script)
     env["OPENCHARM_PROBE_QUIET"] = "1"
     cmd = ["uv", "run", "python", script] if args.uv else [sys.executable, script]
+    timeout = max(args.timeout, 0.1)  # 复核修复：钳制后的值与提示共用（防「>-5s」误导）
     try:
         proc = subprocess.run(cmd, env=env, cwd=os.path.dirname(script),
                               capture_output=True, text=True,
                               encoding="utf-8", errors="replace",
-                              timeout=max(args.timeout, 0.1))
+                              timeout=timeout)
     except subprocess.TimeoutExpired:
-        print(f"[opencharm-probe] ✗ 脚本运行超时（>{args.timeout}s，可能是交互脚本 "
+        print(f"[opencharm-probe] ✗ 脚本运行超时（>{timeout}s，可能是交互脚本 "
               f"input() 挂起；用 --timeout N 调整）", file=sys.stderr)
         return 2
     if proc.returncode != 0:

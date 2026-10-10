@@ -595,8 +595,11 @@ export async function runScriptInTerminal(opts: RunTerminalOptions): Promise<voi
   // 消费者自行按 instanceId 过滤，注册一次即可跨实例生效。
   // canceled 只在新会话上清零：既有会话可能已被 stopRunById 标记 canceled（preparing 期
   // 停止），无条件清零会让 spawn 落地后的补杀失效 → 孤儿进程（复查修复）。
+  // 复核修复（TD-027 A5）：term_kill 停止不发 term-exit → 复用同 id 重跑时旧 tail 残留，
+  // 旧进程尾巴会污染新进程的就绪行拼接——复用分支在此清一次。
   s.runExit = opts.onExit;
   if (isNewSession) s.canceled = false;
+  dropServiceTail(id);
   if (kind === "script") s.label = t("ide.term.runLabel", { name: basename(path) });
   activeTermId = s.id;
   // **先落好运行终端再切标签**：setBottomTab 会触发 ensureAnyTerminal，
