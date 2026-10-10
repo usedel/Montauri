@@ -38,3 +38,8 @@ rusqlite = { version = "0.32.1", features = ["bundled"] }
 #   协作式取消与分块进度上报（async + abort 方案在本项目的 async_runtime 下无法轮询取消）
 # 版本锁 0.13.4（随 Cargo.lock；升级须走 bench/CI 回归并同步 ci/versions.toml）。
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "rustls"] }
+# 单实例 + 启动路由（2026-10-10）：第二实例被拦截退出，argv 转发第一实例按「文件 ∈ 已开
+# 工作区」路由。**精确钉版**：2.5.x 要求 tauri ^2.12，与 ci/versions.toml 锁定的 2.11.5
+# 冲突；升级本插件须同步评估 tauri 升级（窗口栈 tao/wry 联动，须 bench 回归）。
+tauri-plugin-single-instance = { version = "=2.4.1", default-features = false }
+same-file = "1.0.6"

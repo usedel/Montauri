@@ -81,6 +81,7 @@ Linux `~/.config/opencharm/data-root`、macOS `~/Library/Application Support/Ope
     settings.json                     全局设置
     templates.json                    Live Templates 用户层
     recent-workspaces.json            最近工作区
+    last-session.json                 上次会话终态（启动恢复依据：open=false 不恢复）
     probe.json                        probe 配置
   workspaces/<hash>.json              工作区解释器选择
   recent/<hash>.json                  最近打开文件

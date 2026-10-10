@@ -11,6 +11,9 @@ libsqlite3-sys = "0.30.1" # rusqlite bundled 的底层绑定（随 rusqlite 版�
 reqwest = "0.13.4"        # B4 HTTP 客户端（rustls-tls + blocking；随 Cargo.lock，勿单独改）
 xterm = "5.5.0"           # 集成终端前端（@xterm/xterm）
 xterm-addon-fit = "0.10.0" # xterm 自适应尺寸插件（@xterm/addon-fit）
+# 单实例 + 启动路由（2026-10-10）：**精确钉版 2.4.1**——2.5.x 要求 tauri ^2.12 与上面锁定的
+# 2.11.5 冲突；升级本插件须同步评估 tauri 升级（窗口栈 tao/wry 联动，须 bench 回归）。
+tauri-plugin-single-instance = "2.4.1"
 vite = "6.4.3"
 typescript = "5.x"
 node = "22.12.0"

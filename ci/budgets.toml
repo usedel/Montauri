@@ -112,6 +112,12 @@ ep_jump_core_ts_max_lines = 110
 open_api_panel_ts_max_lines = 220
 open_api_core_ts_max_lines = 110
 
+# startupRestore.ts（启动恢复决策域，2026-10-10 新增）：87 行。上限 130（余量 ~49%）。
+#   范围：last-session 终态读取 + 启动恢复决策（open=false 不恢复 / 无记录回落 recents）+
+#   argv 启动文件优先级（argv > 项目窗口 > 恢复最近）。动作（openWorkspace / openSingleFile）
+#   经 handlers 注入解环（同 openFileEntry 范式）；main.ts 只留 setLastSession 两个调用点。
+startup_restore_ts_max_lines = 130
+
 # styles/endpointJump.css（A5③④ 新样式，2026-10-07 新增）：144 行。上限 175（余量 ~21%）。
 #   范围：oc-epj-popup*（CodeLens 弹层）+ ep-preview*（OpenAPI 预览块）+ ep-highlight 闪类。
 #   @import 内联进 bundle，audit_tokens 覆盖。⚠ 计划估 90，实测 144（弹层 + 预览块两套
@@ -239,10 +245,12 @@ intel_signature_rs_max_lines = 450
 intel_server_rs_max_lines = 700
 
 # —— 命令面 ——
-# 196 个 #[tauri::command]（2026-10-06 实测；B4 新增 http_cmds，A1 新增 intel_cmds，
-# A5① 新增 ep_sample_cmds）。插件化启动前 Rust 侧会继续膨胀，200 是"必须先讨论插件化"
-# 的信号线（超限只告警，见 [policy]）。余量仅 4 个。
-max_tauri_commands = 200
+# 200 → 203 → 205 个 #[tauri::command]（2026-10-10 显式调整：启动恢复三命令 get/set_last_session
+# + get_startup_file，及单实例路由配套 report_main_workspace / take_startup_file——用户报告双
+# bug 的修复与方案 A 收口：①关闭工作区后重启不再盲恢复 recents[0]；②双击关联文件优先于恢复
+# 最近；③第二实例拦截去重（命中已开工作区聚焦+开文件，未命中开新项目窗口））。
+# 205 = 信号线（policy warn_only），**下一个新命令必须先讨论插件化或扩本条**。
+max_tauri_commands = 205
 
 # —— 前端产物 ——
 # dist/assets 下 JS+CSS 合计上限（KB，未压缩原始体积）= 4,989 实测（2026-10-06 重新构建）+ ~2.6% 余量。

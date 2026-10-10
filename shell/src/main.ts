@@ -145,7 +145,8 @@ import {
   expandDepDetail,
 } from "./depHealthPanel";
 import { wireMenuBar } from "./menuBar";
-import { openFileFromDisk, setOpenFileEntryHandlers } from "./openFileEntry";
+import { openFileFromDisk, openSingleFile, setOpenFileEntryHandlers } from "./openFileEntry";
+import { openInitialWorkspace, setLastSession, setStartupRestoreHandlers, wireStartupFileEvent } from "./startupRestore";
 import {
   cleanupMdPreviewTab, dismissMdPreviewHost, mdPreviewSourcePath, mdPreviewTabIcon, mdPreviewTabLabel,
   openPreviewTab, presentMdPreviewTab, setMdPreviewTabHandlers,
@@ -387,6 +388,10 @@ async function openWorkspace(root: string): Promise<void> {
     // 「未打开工作区」空态且无 onShow 触发——工作区就绪后补一次状态刷新。
     refreshDbWorkspace();
     updateEditorOverlay();
+    // 启动恢复终态：工作区成功打开 → 记录 (true, root)，下次启动据此恢复
+    await setLastSession(true, root);
+    // 单实例路由注册表：主窗口工作区上报（Rust 侧「文件 ∈ 已开工作区」判定用）
+    await invoke("report_main_workspace", { workspace: root }).catch(console.error);
   } finally {
     wsSwitching = false;
   }
@@ -426,6 +431,11 @@ async function closeWorkspace(): Promise<void> {
     resetPydanticRenameWarn();
     renderRunWidget(runWidgetState());
     updateEditorOverlay();
+    // 启动恢复终态：用户明确关闭工作区 → 记 (false, null)，下次启动不再自动恢复
+    //（recent-workspaces 列表保留——菜单「最近的工作区」语义不变）
+    await setLastSession(false, null);
+    // 单实例路由注册表：主窗口已无工作区（第二实例双击的文件不再命中本窗口）
+    await invoke("report_main_workspace", { workspace: null }).catch(console.error);
   } finally {
     wsSwitching = false;
   }
@@ -554,23 +564,10 @@ async function removeRecentWorkspace(path: string): Promise<void> {
   void renderEditorWelcomeRecents();
 }
 
-/** 启动时的自动恢复：有记录打开最近，无记录则保持 Welcome 页，不弹目录框 */
-async function autoOpenRecentWorkspace(): Promise<void> {
-  const recents = await getRecentWorkspaces();
-  if (recents.length > 0) {
-    await openWorkspace(recents[0]);
-  }
-}
+/** 启动恢复终态 + argv 启动文件（2026-10-10 用户报告双 bug）已外提 startupRestore.ts；
+ *  本文件只保留 openWorkspace / closeWorkspace 末尾的 setLastSession 写入（一行一调用）。 */
 
-/** 多窗口启动路径：项目窗口（label→path）优先于「恢复最近」。 */
-async function openInitialWorkspace(): Promise<void> {
-  const winProject = await invoke<string | null>("get_window_project").catch(() => null);
-  if (winProject) {
-    await openWorkspace(winProject).catch((e) => console.error("打开窗口项目失败", e));
-  } else {
-    await autoOpenRecentWorkspace();
-  }
-}
+/** 多窗口启动路径（含 argv 双击文件 / last-session 终态恢复）——startupRestore.ts 承担 */
 
 /** 工具栏「📂 打开」：弹文件夹选择框并切换工作区 */
 async function openFolderFromToolbar(): Promise<void> {
@@ -1656,6 +1653,10 @@ async function init(): Promise<void> {
   setSettingsPanelHandlers({ startLsp });
   // 单文件打开（open_file_dev_plan 批 1）：openWorkspace / openFile 注入 openFileEntry 域
   setOpenFileEntryHandlers({ openWorkspace, openFile });
+  // 启动恢复（last-session 终态 + argv 启动文件 + 单实例路由）：注入 openWorkspace /
+  // openSingleFile / openFile / getRecentWorkspaces（startupRestore 只做决策编排，动作经注入解环）
+  setStartupRestoreHandlers({ openWorkspace, openSingleFile, openFile, getRecentWorkspaces });
+  void wireStartupFileEvent(); // 第二实例双击文件命中本窗口工作区 → 直接定位打开
   // md 预览 Tab（批 2）：activateTab / openFile / 占位模型创建注入 mdPreviewTab 域。
   // openFile 绑定 mdMode:"edit"——「编辑源码」/预览内链接跳转都是显式编辑/打开意图
   // （mdMode 缺省时会按 settings.markdown_open_mode 分流，preview 模式下会开回预览死循环）。
@@ -2365,7 +2366,8 @@ async function init(): Promise<void> {
   await maybePromptToolchain();
   initMark("事件接线+工具链引导");
 
-  // 多窗口：项目窗口按其绑定目录打开；主窗口回落「恢复最近」
+  // 多窗口/启动恢复（startupRestore.ts）：项目窗口按绑定目录打开；主窗口依次回落
+  // argv 双击文件 → 恢复最近（last-session 终态优先，open=false 不恢复）
   await openInitialWorkspace();
   initMark("openInitialWorkspace 返回（含 openWorkspace 全链）");
   updateEditorOverlay();

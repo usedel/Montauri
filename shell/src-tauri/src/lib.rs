@@ -40,7 +40,15 @@ use tauri::WebviewUrl;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()        .setup(|app| {
+    tauri::Builder::default()
+        // 单实例 + 启动路由（2026-10-10）：插件要求**首个注册**（setup 之前）。第二实例被
+        // 拦截退出，argv 转发第一实例；路由按「文件 ∈ 已开工作区」判定（window_mgr）。
+        // ⚠ dev 与安装版共用 identifier 互斥（想同时跑两个调试版会互拦）——已知边界，
+        // 不做 debug/release 双 identifier 特判（会波及数据目录语义）。
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            window_mgr::route_second_instance(app, argv);
+        }))
+        .setup(|app| {
             // 手动创建主窗口：初始隐藏（visible:false），待页面加载完成（DOM/CSS 就绪）后再显示，
             // 消除启动白屏 / 无样式闪烁（FOUC）。相比前端 JS 调用 show()，此处由 Rust 侧监听
             // WebView 的页面加载事件可靠触发，不依赖 WebView 内脚本是否执行到位。
@@ -125,6 +133,10 @@ pub fn run() {
             fs_cmds::add_recent_workspace,
             fs_cmds::clear_recent_workspaces,
             fs_cmds::remove_recent_workspace,
+            // 启动恢复终态 + 启动参数（关闭工作区后重启不恢复 / 双击关联文件打开）
+            fs_cmds::get_last_session,
+            fs_cmds::set_last_session,
+            fs_cmds::get_startup_file,
             fs_cmds::pick_folder,
             fs_cmds::pick_file,
             fs_cmds::find_project_root,
@@ -297,6 +309,9 @@ pub fn run() {
             // 多窗口（阶段 2）：新开项目窗口 + 窗口项目目录反查
             window_mgr::open_workspace_window,
             window_mgr::get_window_project,
+            // 单实例路由配套：主窗口工作区上报 + 新窗口 pending 启动文件 take
+            window_mgr::report_main_workspace,
+            window_mgr::take_startup_file,
             // Git 状态
             git_status::git_status,
             // Git 写操作（暂存/取消暂存/提交/diff/分支）

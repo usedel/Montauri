@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 use tauri_plugin_dialog::DialogExt;
@@ -186,6 +186,118 @@ pub fn clear_recent_workspaces() -> Result<(), String> {
     let p = opencharm_home().join("config").join("recent-workspaces.json");
     let _ = fs::remove_file(&p);
     Ok(())
+}
+
+// ---------- 启动恢复终态（last-session）----------
+//
+// 「关闭所有工作区后重启仍自动恢复」的修复：启动恢复不再盲取 recents[0]，而是读
+// <data_root>/config/last-session.json 里记录的「上次会话终态」：
+//   {"open": true,  "workspace": "D:\\proj"}   上次退出时仍有工作区 → 恢复它
+//   {"open": false}                            上次「关闭工作区」后退出 → 保持欢迎页
+// recent-workspaces.json（菜单「最近的工作区」）语义不变——它是历史列表，不是恢复依据。
+
+/// 上次会话终态：open=false 表示用户明确关闭过工作区（启动不再自动恢复）
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct LastSession {
+    /// 上次退出时是否有已打开的工作区
+    pub open: bool,
+    /// 工作区绝对路径（open=false 时缺省）
+    #[serde(default)]
+    pub workspace: Option<String>,
+}
+
+fn last_session_path() -> PathBuf {
+    opencharm_home().join("config").join("last-session.json")
+}
+
+/// 读取上次会话终态；文件不存在（首启 / 旧版本升级）返回 None = 沿用 recents 恢复（向后兼容）
+#[tauri::command]
+pub fn get_last_session() -> Result<Option<LastSession>, String> {
+    let p = last_session_path();
+    if !p.exists() {
+        return Ok(None);
+    }
+    let s = fs::read_to_string(&p).map_err(|e| e.to_string())?;
+    let v: LastSession = serde_json::from_str(&s).map_err(|e| e.to_string())?;
+    // 防护：记录的工作区目录已被删除 → 视同未打开（恢复无意义，前端免校验）
+    if v.open && v.workspace.as_deref().map_or(true, |ws| !Path::new(ws).is_dir()) {
+        return Ok(Some(LastSession { open: false, workspace: None }));
+    }
+    Ok(Some(v))
+}
+
+/// 写入上次会话终态：openWorkspace 成功后记 (true, root)；closeWorkspace 后记 (false, None)。
+/// **label 守卫**（与 window_mgr::report_main_workspace 对称）：last-session 语义是
+/// 「主窗口的上次终态」——项目窗口的 openWorkspace/closeWorkspace 同样会走到 main.ts
+/// 的本调用，不守卫会污染（主窗口开 A、项目窗口开 B → 终态变 B，重启后主窗口恢复错工作区）。
+#[tauri::command]
+pub fn set_last_session(window: tauri::WebviewWindow, open: bool, workspace: Option<String>) -> Result<(), String> {
+    if window.label() != "main" {
+        return Ok(()); // 项目窗口的生命周期不反映主窗口的启动恢复意图
+    }
+    let dir = opencharm_home().join("config");
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let v = LastSession { open, workspace };
+    let payload = serde_json::to_string(&v).map_err(|e| e.to_string())?;
+    fs::write(last_session_path(), payload).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+// ---------- 启动参数（文件关联 / 命令行文件参数）----------
+//
+// 「双击 md 却恢复上次工作区」的修复：资源管理器双击关联文件 = `opencharm.exe D:\x\note.md`。
+// 启动时提取 argv 里第一个「存在的文件」路径交给前端（openSingleFile 链路：探测项目根 →
+// openWorkspace → 定位文件），优先级高于恢复最近工作区。
+// 注意 tauri run() 自身会吞掉非 flag 的位置参数（如 `--flag`），这里只挑「存在的文件」，
+// 不会误把 --remote-debugging-port 之类的 flag 当路径。
+
+/// 提取启动参数中第一个存在的文件路径（单文件打开入口，文件关联用）。
+/// 找不到（正常双击 exe 启动）返回 None。
+#[tauri::command]
+pub fn get_startup_file() -> Result<Option<String>, String> {
+    Ok(extract_startup_file(&std::env::args().skip(1).collect::<Vec<_>>()))
+}
+
+/// argv → 启动文件的提取纯函数（get_startup_file 与 window_mgr 单实例路由共用）。
+/// 只挑「存在的文件」：`is_file` 判定天然滤过 `--flag` 参数与不存在的路径；
+/// **排除 exe 自身**（single-instance 回调转发的是完整 argv 含 argv[0]=exe 路径，
+/// 不排除会把 exe 当启动文件——真机 SI-2c/SI-3b 实锤过）。
+pub(crate) fn extract_startup_file(argv: &[String]) -> Option<String> {
+    let exe = std::env::current_exe().ok();
+    argv.iter()
+        .find(|a| {
+            Path::new(a).is_file()
+                && exe.as_ref().map_or(true, |e| !same_file::is_same_file(a, e).unwrap_or(false))
+        })
+        .cloned()
+}
+
+#[cfg(test)]
+mod extract_startup_file_tests {
+    use super::*;
+
+    #[test]
+    fn skips_exe_path_and_flags_and_missing_paths() {
+        // exe 路径（argv[0]）与 flag、不存在的路径都不是启动文件
+        let exe = std::env::current_exe().unwrap().to_string_lossy().to_string();
+        let argv = vec![exe.clone(), "--flag".to_string(), exe];
+        assert_eq!(extract_startup_file(&argv), None);
+        assert_eq!(extract_startup_file(&["--remote-debugging-port=9223".into()]), None);
+        // 不存在的路径不算
+        assert_eq!(extract_startup_file(&["D:\\definitely\\not\\here\\x.py".into()]), None);
+    }
+
+    #[test]
+    fn picks_first_existing_non_exe_file() {
+        // 本源文件在编译期必然存在：env!("CARGO_MANIFEST_DIR") 定位
+        let src = concat!(env!("CARGO_MANIFEST_DIR"), "\\src\\fs_cmds.rs");
+        assert!(Path::new(src).is_file());
+        let exe = std::env::current_exe().unwrap().to_string_lossy().to_string();
+        assert_eq!(
+            extract_startup_file(&[exe, "--flag".into(), src.to_string()]),
+            Some(src.to_string())
+        );
+    }
 }
 
 /// 删除单条最近工作区，返回更新后的列表

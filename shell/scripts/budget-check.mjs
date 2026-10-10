@@ -150,6 +150,7 @@ addLine("shell/src/epJump.ts", "ep_jump_ts_max_lines");
 addLine("shell/src/epJumpCore.ts", "ep_jump_core_ts_max_lines");
 addLine("shell/src/openApiPanel.ts", "open_api_panel_ts_max_lines");
 addLine("shell/src/openApiCore.ts", "open_api_core_ts_max_lines");
+addLine("shell/src/startupRestore.ts", "startup_restore_ts_max_lines");
 addLine("shell/src/styles/endpointJump.css", "endpoint_jump_css_max_lines");
 addLine("shell/src-tauri/src/openapi_cmds.rs", "openapi_cmds_rs_max_lines");
 addLine("shell/src/terminalBackpressure.ts", "terminal_backpressure_ts_max_lines");

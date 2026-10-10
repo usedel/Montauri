@@ -107,6 +107,34 @@
     add_recent_workspace: function () { return null; },
     clear_recent_workspaces: function () { return null; },
     remove_recent_workspace: function () { return null; },
+    // 启动恢复终态（last-session）：内存桩 + __E2E_STARTUP__ 预置通道（get_last_session
+    // 经 __E2E_STARTUP__.lastSession 预设；set_last_session 写入 window.__E2E_LAST_SESSION__）
+    get_last_session: function () {
+      var st = window.__E2E_STARTUP__ || {};
+      return st.lastSession !== undefined ? st.lastSession : null;
+    },
+    set_last_session: function (args) {
+      window.__E2E_LAST_SESSION__ = args ? { open: !!args.open, workspace: args.workspace !== undefined ? args.workspace : null } : null;
+      return null;
+    },
+    // 启动参数（argv 双击文件）：经 __E2E_STARTUP__.startupFile 预设（默认 null = 正常启动）
+    get_startup_file: function () {
+      var st = window.__E2E_STARTUP__ || {};
+      return st.startupFile !== undefined ? st.startupFile : null;
+    },
+    // 多窗口：主窗口无绑定项目（返回 null → 前端回落启动恢复路径）
+    get_window_project: function () { return null; },
+    // 单实例路由配套：工作区上报（记录供断言）+ pending 启动文件（__E2E_STARTUP__.pendingFile 预设，take 即清）
+    report_main_workspace: function (args) {
+      window.__E2E_MAIN_WORKSPACE__ = args && args.workspace !== undefined && args.workspace !== null ? args.workspace : null;
+      return null;
+    },
+    take_startup_file: function () {
+      var st = window.__E2E_STARTUP__ || {};
+      var f = st.pendingFile !== undefined ? st.pendingFile : null;
+      if (st.pendingFile !== undefined) { delete st.pendingFile; } // take 即清（对齐 Rust remove 语义）
+      return f;
+    },
     // 数组型命令：前端多处 for...of 直接迭代，null 会抛 "list is not iterable"
     get_breakpoints: function () { return []; },
     get_bookmarks: function () { return []; },
