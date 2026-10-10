@@ -74,6 +74,9 @@ export interface Settings {
   format_on_save: boolean;
   /** 保存时用 ruff 整理导入（Ctrl+Alt+O 的保存联动；与 format_on_save 同模式） */
   optimize_imports_on_save: boolean;
+  /** 首启工具链引导里点过「稍后」的工具（"uv" / "engine" / "ruff"）。
+   *  防打扰：没有它，忽略了引导下次启动还会再弹；忽略后由设置面板的常驻入口兜底。 */
+  toolchain_prompt_dismissed: string[];
   /** 保存时清理行尾空白（PR-C · dx_features_backlog §6.3；仅显式保存，autosave/运行前跳过） */
   trim_trailing_whitespace: boolean;
   /** 保存时确保文件以换行结束（PR-C；仅显式保存） */
@@ -233,6 +236,9 @@ export const DEFAULT_SETTINGS: Settings = {
   lsp_engine: "pyrefly",
   format_on_save: false,
   optimize_imports_on_save: false,
+  // 首启引导里点过「稍后」的工具（"uv"/"engine"/"ruff"）：空 = 未忽略过任何项
+  //（须与 Rust Settings::default 保持同步）
+  toolchain_prompt_dismissed: [],
   // PR-C（PyCharm 对标）：保存清理默认开——「保存即干净」，不影响 autosave 静默落盘
   trim_trailing_whitespace: true,
   final_newline: true,

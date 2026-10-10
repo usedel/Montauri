@@ -137,6 +137,8 @@ export const main = {
   "main.recent.remove": "从列表移除",
   "main.recent.removeOne": "删除最近工作区",
   // ---- main.run ----
+  "main.ruff.install": "安装 ruff",
+  "main.ruff.missing": "未检测到 ruff：格式化 / 整理导入不可用（安装：uv tool install ruff）",
   "main.run.config": "运行配置…",
   "main.run.needWorkspace": "需先打开工作区",
   "main.run.noneRunning": "没有正在运行",

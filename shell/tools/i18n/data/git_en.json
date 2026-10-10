@@ -1,4 +1,8 @@
 {
+  "git.err.missing": "Git not detected (it may not be installed)",
+  "git.err.notRepo": "The current directory is not a Git repository (or .git is missing)",
+  "git.panel.gitMissing": "Git not detected",
+  "git.panel.gitMissingHint": "Source control requires Git; install it and restart OpenCharm to enable it",
   "git.status.conflict": "conflict",
   "git.status.deleted": "deleted",
   "git.status.modified": "modified",

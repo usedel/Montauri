@@ -45,6 +45,8 @@
     runtime_intel_enabled: false,
     probe_perf_enabled: false, // A2 性能模式默认关（e2e/settings/01-perf-mode 断言保存值）
     reduce_motion: false,
+    // 工具链引导的忽略记录：空 = 没忽略过任何项（e2e/settings/02 断言点「稍后」后写入）
+    toolchain_prompt_dismissed: [],
     keybindings: {},
   };
 
@@ -82,18 +84,30 @@
       window.__E2E_SETTINGS_SAVED__ = args ? args.settings : null;
       return null;
     },
-    // 工具链探测：全就绪 → 不弹安装引导（maybePromptToolchain 静默通过）
+    // 工具链探测：默认全就绪 → 不弹安装引导（maybePromptToolchain 静默通过）。
+    // ⚠ 形状必须与 Rust `detect_toolchain` 逐字段一致（uv / ruff / git 是布尔，engine 是对象，
+    //   外加 allOk）。此前这里是 engines / current_engine / all_ok 的**错误形状**，于是
+    //   maybePromptToolchain 读 `st.engine.ok` 直接抛 TypeError、被 catch 吞掉 ——
+    //   结果整条引导路径（含后来的 ruff 分支）在 e2e 里**从未被走到过**，等于零覆盖。
+    // 测试经 window.__E2E_TOOLCHAIN_MISSING__ = ["ruff"] 预置缺失项。
     detect_toolchain: function () {
+      var missing = window.__E2E_TOOLCHAIN_MISSING__ || [];
+      var has = function (n) { return missing.indexOf(n) < 0; };
       return {
-        uv: { name: "uv", command: "uv", ok: true },
-        engines: [
-          { name: "pyrefly", command: "pyrefly", ok: true },
-          { name: "basedpyright", command: "basedpyright", ok: true },
-        ],
-        ruff: { name: "ruff", command: "ruff", ok: true },
-        current_engine: { name: "pyrefly", command: "pyrefly", ok: true },
-        all_ok: true,
+        uv: has("uv"),
+        engine: { name: "pyrefly", command: "pyrefly", ok: has("engine") },
+        ruff: has("ruff"),
+        git: has("git"),
+        allOk: has("uv") && has("engine"),
       };
+    },
+    // 按件安装：记录 only 入参供断言；装完清掉 missing（模拟真实安装效果，让后续探测返回就绪）
+    install_toolchain: function (args) {
+      (window.__E2E_TOOLCHAIN_INSTALLS__ = window.__E2E_TOOLCHAIN_INSTALLS__ || []).push(
+        args && args.only ? args.only.join(",") : "all",
+      );
+      window.__E2E_TOOLCHAIN_MISSING__ = [];
+      return true;
     },
     // 首启/存储：空态
     storage_stats: function () { return null; },
@@ -165,9 +179,24 @@
     },
     // ruff lint / 保存时动作（FormatResult 形状：formatted=null = 失败不阻断保存；
     // mock 不接真实 ruff，仅让 format_python/optimize_imports 命令出现在 invoke 流水里
-    // 供 A-S-3 断言「autosave 不跑 ruff、显式保存才跑」的调用时序）
-    format_python: function () { return { formatted: null, message: "E2E mock：ruff 未接入" }; },
-    optimize_imports: function () { return { formatted: null, message: "E2E mock：ruff 未接入" }; },
+    // 供 A-S-3 断言「autosave 不跑 ruff、显式保存才跑」的调用时序）。
+    // 正向用例（save/01）另可经 window.__E2E_FORMAT_PYTHON__ / __E2E_OPTIMIZE_IMPORTS__
+    // 预置「格式化 / 整理后的全文」，从而断言保存动作**真的把结果写回模型与磁盘**——
+    // 此前只有 A-S-3 那种「命令被调用过」的时序断言，结果有没有生效无人验证。
+    // 预置形态：string = 成功全文；{ formatted, message } = 原样返回（失败路径用，
+    // 如 `RuffMissing:` 分类码）；未预置 = 默认 null 失败。
+    format_python: function () {
+      var preset = window.__E2E_FORMAT_PYTHON__;
+      if (typeof preset === "string") return { formatted: preset, message: "" };
+      if (preset && typeof preset === "object") return preset;
+      return { formatted: null, message: "E2E mock：ruff 未接入" };
+    },
+    optimize_imports: function () {
+      var preset = window.__E2E_OPTIMIZE_IMPORTS__;
+      if (typeof preset === "string") return { formatted: preset, message: "" };
+      if (preset && typeof preset === "object") return preset;
+      return { formatted: null, message: "E2E mock：ruff 未接入" };
+    },
     // ruff lint / 终端 shell 探测（近期功能：mock 兜底防 null 被迭代 pageerror）
     // PR-L：测试可经 window.__E2E_RUFF_LINT__ 预置诊断数组（RuffDiagnostic 形状）；无预置返回空
     ruff_lint: function () {

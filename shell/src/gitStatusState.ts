@@ -48,6 +48,11 @@ export function isGitIgnored(relPath: string): boolean {
 /** 是否为 git 仓库（文件树装饰总开关） */
 export const gitRepoActive = { value: false };
 
+/** git 二进制缺失（后端 `git_status.git_missing`：spawn 失败，与「不是仓库」区分）。
+ *  ❗ 这不是「不是仓库」：以前两者都降级成 is_git=false，SCM 面板一律显示「不是 Git 仓库」，
+ *  用户因此不知道该装 Git。写入方仍只有 git.ts::refreshGitStatus。 */
+export const gitMissing = { value: false };
+
 /** 归一化索引（小写 key → 原始 key）：gitStatusOf 的大小写无关查询用（E2E 验收实测：
  *  写入侧原始大小写 + 调用方归一化小写 → 直接 Map.get 必 miss，git 右键菜单消失） */
 const statusIndex = new Map<string, string>();

@@ -121,6 +121,8 @@
   "main.recent.openInNewWindow": "Open workspace in new window",
   "main.recent.remove": "Remove from list",
   "main.recent.removeOne": "Remove recent workspace",
+  "main.ruff.install": "Install ruff",
+  "main.ruff.missing": "ruff not detected: formatting and Optimize Imports are unavailable (install with: uv tool install ruff)",
   "main.run.config": "Run Configurations…",
   "main.run.needWorkspace": "Open a workspace first",
   "main.run.noneRunning": "Nothing is running",

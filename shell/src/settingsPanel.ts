@@ -34,6 +34,15 @@ import { renderWelcomeShortcuts } from "./welcomeShortcuts";
 // 零引擎关键字补全开关（provider 只注册一次，此处只翻运行时真值）
 import { setKeywordCompletionEnabled } from "./completion/keywordCompletion";
 import { getLocale, onLocaleChange, setLocale, t } from "./i18n"; // 第八批 i18n：设置域动态文案走语言包
+// 工具链常驻入口（忽略首启引导后的补装路径）：按件安装复用 envPanel 的收尾逻辑
+// （envPanel 不 import 本模块，无环）；状态探测走 toolchain.ts 的共享缓存，避免三处各查各的。
+import { installToolNamed } from "./envPanel";
+import {
+  getToolchainStatus,
+  invalidateToolchainStatus,
+  type InstallableTool,
+  type ToolchainStatus,
+} from "./toolchain";
 
 // ---------- 注入（main 的 init 中 setSettingsPanelHandlers） ----------
 // TD-13：解「settingsPanel.ts → main.ts」循环边——切换静态引擎后需重启 LSP，
@@ -123,6 +132,10 @@ const settingsIntelEl = lazyEl<HTMLInputElement>("settings-intel");
 const settingsEngineEl = lazyEl<HTMLSelectElement>("settings-engine");
 const settingsFormatOnSaveEl = lazyEl<HTMLInputElement>("settings-format-on-save");
 const settingsOptimizeImportsOnSaveEl = lazyEl<HTMLInputElement>("settings-optimize-imports-on-save");
+// 工具链常驻入口（两个容器由本模块渲染，index.html 只留空壳——动态文案走语言包，
+// 不走 index.html 的 html_dict 冻结产物）
+const settingsRuffHintEl = lazyEl<HTMLElement>("settings-ruff-hint");
+const settingsToolchainGroupEl = lazyEl<HTMLElement>("settings-toolchain-group");
 // D-4（PyCharm 调研）：ruff 规则严重度映射（E/W/F 三类）
 const settingsRuffSeverityEEl = lazyEl<HTMLSelectElement>("settings-ruff-severity-e");
 const settingsRuffSeverityWEl = lazyEl<HTMLSelectElement>("settings-ruff-severity-w");
@@ -809,6 +822,126 @@ function onSettingsKeydown(e: KeyboardEvent): void {
   closeSettingsPanel();
 }
 
+// ---------- 工具链常驻入口（设置 → Python 状态块 / 设置 → 保存 内联提示）----------
+
+/** 「安装 X」按钮：点击走按件安装（不会顺带重装 uv / 引擎），完成后由 after 回调重渲染 */
+function toolInstallButton(tool: InstallableTool): HTMLButtonElement {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "btn btn--sm";
+  btn.textContent = t("settings.toolchain.install");
+  btn.addEventListener("click", () => {
+    // 守卫同步置位（防连点穿透）：安装可能持续数十秒（下载）
+    if (btn.disabled) return;
+    btn.disabled = true;
+    btn.textContent = t("settings.toolchain.installing");
+    void installToolNamed(tool, () => void refreshToolchainUi());
+  });
+  return btn;
+}
+
+/** 一行「标签 | 状态（+ 可选安装按钮）」；label 用 settings-label-gap 保持控件列左边界一致 */
+function toolStatusRow(label: string, state: string, tool?: InstallableTool): HTMLElement {
+  const row = document.createElement("div");
+  row.className = "settings-row";
+  const nameEl = document.createElement("span");
+  nameEl.className = "settings-label-gap";
+  nameEl.textContent = label;
+  const field = document.createElement("div");
+  field.className = "settings-field";
+  const stateEl = document.createElement("div");
+  stateEl.className = "settings-row-desc";
+  stateEl.textContent = state;
+  field.appendChild(stateEl);
+  if (tool) field.appendChild(toolInstallButton(tool));
+  row.appendChild(nameEl);
+  row.appendChild(field);
+  return row;
+}
+
+/** 设置 →「Python」：工具链状态块（uv / 引擎 / ruff / git；git 非 PyPI 包，只显示状态） */
+function renderToolchainGroup(st: ToolchainStatus): void {
+  const host = settingsToolchainGroupEl;
+  host.textContent = "";
+  const title = document.createElement("h3");
+  title.className = "settings-group-title";
+  title.textContent = t("settings.toolchain.title");
+  host.appendChild(title);
+
+  const grid = document.createElement("div");
+  grid.className = "settings-grid";
+  const missing = t("settings.toolchain.missing");
+  const installed = t("settings.toolchain.installed");
+  grid.appendChild(toolStatusRow(t("env.tool.uv"), st.uv ? installed : missing, st.uv ? undefined : "uv"));
+  grid.appendChild(
+    toolStatusRow(
+      t("env.tool.engine", { name: st.engine.name }),
+      st.engine.ok ? installed : missing,
+      st.engine.ok ? undefined : "engine",
+    ),
+  );
+  grid.appendChild(toolStatusRow(t("env.tool.ruff"), st.ruff ? installed : missing, st.ruff ? undefined : "ruff"));
+  // git 不是 PyPI 包，`uv tool install` 装不了 → 不给按钮，只说明需自行安装
+  grid.appendChild(toolStatusRow(t("env.tool.git"), st.git ? installed : t("settings.toolchain.gitManual")));
+  host.appendChild(grid);
+
+  const hint = document.createElement("div");
+  hint.className = "settings-row-desc";
+  hint.textContent = t("settings.toolchain.hint");
+  host.appendChild(hint);
+}
+
+/** 内联提示行的原插入位置（父容器）。⚠ 必须缓存：本函数用「摘除/挂回」控制显隐，
+ *  行被摘除后 `host.parentElement` 就是 null 了，拿不到回插位置。 */
+let ruffHintGrid: HTMLElement | null = null;
+
+/**
+ * 设置 →「保存」：ruff 缺席时在这两个开关下方给安装入口（首启引导被「稍后」忽略后的兜底）。
+ *
+ * ⚠ 用「摘除 DOM」而非 `.hidden` 类控制显隐：设置搜索的恢复分支会
+ * `querySelectorAll(".settings-row").forEach(r => r.classList.remove("hidden"))`
+ * （见 applySettingsFilter 的无查询分支）——挂在 DOM 里的隐藏行会被它**复活**成一行空白。
+ * 摘掉就没人能复活它。
+ */
+function renderRuffHint(st: ToolchainStatus): void {
+  const host = settingsRuffHintEl;
+  const parent = host.parentElement;
+  if (parent) ruffHintGrid = parent;
+  const field = host.querySelector<HTMLElement>(".settings-field");
+  if (!field) return;
+  field.textContent = "";
+  if (st.ruff) {
+    host.remove(); // 已就绪：整行摘除（不是加 .hidden）
+    return;
+  }
+  const desc = document.createElement("div");
+  desc.className = "settings-row-desc";
+  desc.textContent = t("settings.save.ruffMissing");
+  field.appendChild(desc);
+  field.appendChild(toolInstallButton("ruff"));
+  host.classList.remove("hidden");
+  if (!host.isConnected && ruffHintGrid) ruffHintGrid.appendChild(host); // 回插到原容器末尾
+}
+
+/**
+ * 两个入口共用一次探测（状态来自 toolchain.ts 的缓存）。
+ * @param force 面板**打开时传 true**——用户可能在 OpenCharm 之外自己装了工具，
+ *   走缓存会一直显示「未安装」；面板打开是低频动作，四次 `is_available` 的代价可忽略。
+ *   安装完成后的刷新不必 force：`installToolNamed` 已失效缓存。
+ * 探测失败静默——设置面板不该因探测挂掉。
+ */
+async function refreshToolchainUi(force = false): Promise<void> {
+  let st: ToolchainStatus;
+  try {
+    st = await getToolchainStatus(force);
+  } catch (e) {
+    console.warn("[settings] 工具链探测失败:", e);
+    return;
+  }
+  renderToolchainGroup(st);
+  renderRuffHint(st);
+}
+
 /** 打开设置面板（可指定初始分类；「视图 → Live Templates」快捷入口复用） */
 export function openSettingsPanel(category: SettingsCategory = "appearance"): void {
   clearSettingsSearch(); // E-1：每次打开重置搜索状态
@@ -817,6 +950,7 @@ export function openSettingsPanel(category: SettingsCategory = "appearance"): vo
   fillForm(app.settings);
   void refreshTerminalShellSelect(); // 异步探测可用 shell，完成后重建下拉
   switchCategory(category);
+  void refreshToolchainUi(true); // 工具链状态块 / ruff 内联提示（强制重查；异步，不阻塞面板打开）
   showEl(settingsModalEl);
   document.addEventListener("keydown", onSettingsKeydown); // tech-debt #18：Esc 关闭
   // UI-05：焦点陷阱（防御性先解除上一次未释放的陷阱，避免异常路径下重复叠加）
@@ -954,6 +1088,8 @@ async function commitSettingsPanel(closeAfter: boolean): Promise<boolean> {
     lsp_engine: lspEngine,
     format_on_save: formatOnSave,
     optimize_imports_on_save: optimizeImportsOnSave,
+    // 引导忽略记录不属面板可编辑项：原样透传（丢了它 → 下次启动又弹已忽略的引导）
+    toolchain_prompt_dismissed: app.settings.toolchain_prompt_dismissed ?? [],
     ruff_severity_e: ruffSeverityE,
     ruff_severity_w: ruffSeverityW,
     ruff_severity_f: ruffSeverityF,
@@ -1017,6 +1153,9 @@ async function commitSettingsPanel(closeAfter: boolean): Promise<boolean> {
   if (engineChanged) {
     renderEngineChip(); // 真值已写入 app.settings.lsp_engine，chip 从 settings 读取（不再写 DOM select）
     await sh().startLsp();
+    // 换了静态引擎 → 旧探测缓存里的引擎名/可用性都过期了
+    invalidateToolchainStatus();
+    void refreshToolchainUi();
   } else if (intelChanged) {
     // 运行时智能层开关变化：只起停 intel，不重启静态引擎（P3-T09 一键关闭）
     await applyIntelToggle(runtimeIntelEnabled);

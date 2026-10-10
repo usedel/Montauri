@@ -3,6 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tauri_plugin_dialog::DialogExt;
 
+use crate::git_cmds::GIT_MISSING_PREFIX;
 use crate::search_cmds::SEARCH_IGNORED_DIRS;
 use crate::tool_paths::{tool_command, ENV_GIT, ENV_UV};
 use crate::util::{no_window, opencharm_home};
@@ -545,9 +546,10 @@ fn valid_project_name(name: &str) -> bool {
 fn git_init_at(root: &Path) -> Result<(), String> {
     let mut cmd = tool_command("git", ENV_GIT);
     cmd.arg("init").arg("--quiet").current_dir(root);
+    // 与 git_cmds::exec_git 同款分类码：spawn 失败 = 没装 Git（前端据此提示安装而非「初始化失败」）
     let out = no_window(&mut cmd)
         .output()
-        .map_err(|e| format!("无法启动 git（可能未安装）：{e}"))?;
+        .map_err(|e| format!("{GIT_MISSING_PREFIX}无法启动 git（可能未安装）：{e}"))?;
     if out.status.success() {
         Ok(())
     } else {

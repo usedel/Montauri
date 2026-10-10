@@ -63,6 +63,7 @@ export const settings = {
   "settings.logging.runLogsMaxLines": "保留行数上限",
   "settings.logging.runLogsMaxLinesDesc": "超出上限后丢弃最早的日志行（保尾弃头），状态条会显示已丢弃条数",
   // ---- settings ----
+  "settings.save.ruffMissing": "未检测到 ruff：保存时格式化 / 整理导入不可用",
   "settings.saved": "设置已保存",
   "settings.shellAuto": "自动（PowerShell 优先，回退 cmd）",
   "settings.shellCmd": "命令提示符（cmd）",
@@ -70,6 +71,13 @@ export const settings = {
   // ---- settings.theme ----
   "settings.theme.dark": "深色",
   "settings.theme.light": "浅色",
+  "settings.toolchain.gitManual": "需自行安装",
+  "settings.toolchain.hint": "缺失项可一键安装到用户目录（~/.local/bin），不影响系统；Git 不是 Python 包，需自行安装。",
+  "settings.toolchain.install": "安装",
+  "settings.toolchain.installed": "已安装",
+  "settings.toolchain.installing": "安装中…",
+  "settings.toolchain.missing": "未安装",
+  "settings.toolchain.title": "工具链状态",
 };
 
 /** 本域文案 key：en-US/settings.ts 的 Record<SettingsKey, string> 由它派生。 */

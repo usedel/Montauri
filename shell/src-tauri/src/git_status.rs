@@ -32,6 +32,10 @@ pub struct GitStatusResult {
     pub current_branch: Option<String>,
     /// 变更文件列表（按路径排序）
     pub files: Vec<GitStatusFile>,
+    /// git 二进制缺失（spawn 失败）——与「不是 git 仓库」是两回事：
+    /// 以前两者都静默降级成 `is_git: false`，SCM 面板一律显示「不是 Git 仓库」，
+    /// 用户装了 Git 也不知道该装。前端据此给不同空态。
+    pub git_missing: bool,
 }
 
 /// 获取工作区 git 状态（`--porcelain=v1 -z` 格式解析）
@@ -43,7 +47,12 @@ pub async fn git_status(root: String, paths: Option<Vec<String>>) -> Result<GitS
 }
 
 fn git_status_impl(root: &str, paths: Option<&[String]>) -> Result<GitStatusResult, String> {
-    let empty = || GitStatusResult { is_git: false, current_branch: None, files: Vec::new() };
+    let empty = || GitStatusResult {
+        is_git: false,
+        current_branch: None,
+        files: Vec::new(),
+        git_missing: false,
+    };
     let root_path = Path::new(root);
     if !root_path.is_dir() {
         return Ok(empty());
@@ -65,7 +74,15 @@ fn git_status_impl(root: &str, paths: Option<&[String]>) -> Result<GitStatusResu
 
     let out = match no_window(&mut cmd).output() {
         Ok(o) => o,
-        Err(_) => return Ok(empty()),
+        // git 二进制缺失：与「非仓库」区分（后者是 exit != 0）。同类判定见 git_cmds::exec_git。
+        Err(_) => {
+            return Ok(GitStatusResult {
+                is_git: false,
+                current_branch: None,
+                files: Vec::new(),
+                git_missing: true,
+            })
+        }
     };
     if !out.status.success() {
         // 非 git 仓库或其他错误
@@ -75,7 +92,12 @@ fn git_status_impl(root: &str, paths: Option<&[String]>) -> Result<GitStatusResu
     let mut files = parse_porcelain_z(&out.stdout);
     files.sort_by(|a, b| a.path.cmp(&b.path));
     let current_branch = current_branch(root);
-    Ok(GitStatusResult { is_git: true, current_branch, files })
+    Ok(GitStatusResult {
+        is_git: true,
+        current_branch,
+        files,
+        git_missing: false,
+    })
 }
 
 /// 获取当前分支名（detached HEAD 或失败时返回 None）。

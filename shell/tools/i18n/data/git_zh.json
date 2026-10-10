@@ -1,4 +1,8 @@
 {
+  "git.err.missing": "未检测到 Git（可能未安装）",
+  "git.err.notRepo": "当前目录不是 Git 仓库（或找不到 .git）",
+  "git.panel.gitMissing": "未检测到 Git",
+  "git.panel.gitMissingHint": "源代码管理需要 Git；安装 Git 后重启 OpenCharm 即可启用",
   "git.status.conflict": "冲突",
   "git.status.deleted": "已删除",
   "git.status.modified": "已修改",

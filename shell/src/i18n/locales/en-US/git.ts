@@ -134,6 +134,8 @@ export const git: Record<GitKey, string> = {
   "git.discard.untrackedConfirm": "“{path}” is untracked; discarding will delete the file.",
   "git.discard.untrackedWarning": "Delete untracked file",
   // ---- git.history ----
+  "git.err.missing": "Git not detected (it may not be installed)",
+  "git.err.notRepo": "The current directory is not a Git repository (or .git is missing)",
   "git.history.back": "← Back to the change list",
   "git.history.branchFrom": "New branch at this commit…",
   "git.history.branchFromTitle": "New branch at {hash}",
@@ -214,6 +216,8 @@ export const git: Record<GitKey, string> = {
   "git.panel.changesGroup": "Changes ({n})",
   "git.panel.cleanHint": "Working tree is clean",
   "git.panel.commitBtn": "Commit ({n})",
+  "git.panel.gitMissing": "Git not detected",
+  "git.panel.gitMissingHint": "Source control requires Git; install it and restart OpenCharm to enable it",
   "git.panel.initHint": "Runs git init in the workspace root",
   "git.panel.noChanges": "No changes",
   "git.panel.noWorkspace": "No workspace open",

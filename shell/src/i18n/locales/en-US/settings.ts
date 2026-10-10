@@ -64,6 +64,7 @@ export const settings: Record<SettingsKey, string> = {
   "settings.logging.runLogsMaxLines": "Max lines kept",
   "settings.logging.runLogsMaxLinesDesc": "Oldest lines are dropped once the limit is reached (the status bar shows the dropped count)",
   // ---- settings ----
+  "settings.save.ruffMissing": "ruff not detected: format on save and Optimize Imports are unavailable",
   "settings.saved": "Settings saved",
   "settings.shellAuto": "Auto (PowerShell first, falls back to cmd)",
   "settings.shellCmd": "Command Prompt (cmd)",
@@ -71,4 +72,11 @@ export const settings: Record<SettingsKey, string> = {
   // ---- settings.theme ----
   "settings.theme.dark": "Dark",
   "settings.theme.light": "Light",
+  "settings.toolchain.gitManual": "install manually",
+  "settings.toolchain.hint": "Missing tools can be installed into your user directory (~/.local/bin) without touching the system; Git is not a Python package and must be installed manually.",
+  "settings.toolchain.install": "Install",
+  "settings.toolchain.installed": "installed",
+  "settings.toolchain.installing": "Installing…",
+  "settings.toolchain.missing": "not installed",
+  "settings.toolchain.title": "Toolchain status",
 };

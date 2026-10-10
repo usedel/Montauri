@@ -22,6 +22,14 @@ use crate::util::no_window;
 
 // ---------- 代码格式化（ruff，独立子进程，不走 LSP 桥） ----------
 
+/// 前后端约定的分类码前缀（同 `git_cmds::GIT_MISSING_PREFIX` / `Db*` / `Http*` 先例）：
+/// ruff 二进制缺失（spawn 失败）。
+///
+/// 为什么需要它：格式化 / 整理导入失败后前端只往输出面板写一行，ruff 没装时用户完全看不到
+/// ——表现为「开关开了却没反应」。有了分类码，前端才能把「没装 ruff」与「源码有语法错误」
+/// 分开：前者提示安装，后者照旧只写输出面板（保存动作不该被 toast 刷屏）。
+pub const RUFF_MISSING_PREFIX: &str = "RuffMissing:";
+
 #[derive(Serialize)]
 pub struct FormatResult {
     /// 格式化后的全文（失败时为 None）
@@ -56,7 +64,7 @@ fn format_python_impl(path: String, content: String) -> Result<FormatResult, Str
         Err(e) => {
             return Ok(FormatResult {
                 formatted: None,
-                message: format!("无法启动 ruff（可能未安装）：{e}"),
+                message: format!("{RUFF_MISSING_PREFIX}无法启动 ruff（可能未安装）：{e}"),
             })
         }
     };
@@ -115,7 +123,7 @@ fn optimize_imports_impl(path: String, content: String) -> Result<FormatResult, 
         Err(e) => {
             return Ok(FormatResult {
                 formatted: None,
-                message: format!("无法启动 ruff（可能未安装）：{e}"),
+                message: format!("{RUFF_MISSING_PREFIX}无法启动 ruff（可能未安装）：{e}"),
             })
         }
     };

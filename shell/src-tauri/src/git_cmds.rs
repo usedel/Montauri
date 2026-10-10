@@ -21,13 +21,26 @@ use crate::per_window::PerWindow;
 use crate::tool_paths::{tool_command, ENV_GIT};
 use crate::util::{kill_process_tree, no_window};
 
+/// 前后端约定的分类码前缀（同 `Db*` / `Http*` 前缀先例）：git 二进制缺失（spawn 失败）与
+/// 「不是 Git 仓库」是两种完全不同的故障——前者要引导装 Git，后者要引导 `git init`。
+/// 以前两者都被糊成一条 stderr 原文，SCM 面板一律显示「不是 Git 仓库」。
+pub const GIT_MISSING_PREFIX: &str = "GitMissing:";
+/// 同上：`git` 在（工作区不是仓库 / 找不到 .git）。
+pub const GIT_NOT_REPO_PREFIX: &str = "GitNotRepo:";
+
+/// 判定 git 的 stderr 是否为「不是仓库」（官方文案为英文；中文环境 git 一般也不本地化，
+/// 故只认英文——命中不了就退回原文，宁可露原文也不误判）。
+fn is_not_a_repo(msg: &str) -> bool {
+    msg.contains("not a git repository")
+}
+
 /// 执行一个已构建好的 git 子命令（cwd 锚定到仓库根），成功返回 stdout，失败返回 stderr。
 /// pub(crate)：git_worktree_cmds（worktree/clone 域）复用。
 pub(crate) fn exec_git(root: &str, mut cmd: Command) -> Result<String, String> {
     let out = no_window(&mut cmd)
         .current_dir(root)
         .output()
-        .map_err(|e| format!("无法启动 git（可能未安装）：{e}"))?;
+        .map_err(|e| format!("{GIT_MISSING_PREFIX}无法启动 git（可能未安装）：{e}"))?;
     if out.status.success() {
         Ok(String::from_utf8_lossy(&out.stdout).to_string())
     } else {
@@ -35,6 +48,8 @@ pub(crate) fn exec_git(root: &str, mut cmd: Command) -> Result<String, String> {
         let msg = stderr.trim();
         Err(if msg.is_empty() {
             format!("git 命令执行失败（退出码 {:?}）", out.status.code())
+        } else if is_not_a_repo(msg) {
+            format!("{GIT_NOT_REPO_PREFIX}{msg}")
         } else {
             msg.to_string()
         })

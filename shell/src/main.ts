@@ -28,7 +28,13 @@ import {
   wireWelcomeGuide, isWelcomeForced, setWelcomeOverlayRefresh, setWelcomeGuideHandlers,
   renderQuickstartCards, renderTour, consumeWelcomeForce,
 } from "./welcomeGuide";
-import { formatPythonSource, optimizeImportsSource, registerRuffFormatter, setFormatErrorHandler } from "./format";
+import {
+  formatPythonSource,
+  optimizeImportsSource,
+  registerRuffFormatter,
+  setFormatErrorHandler,
+  setRuffInstallAction,
+} from "./format";
 import { runSearch, resetSearch, setOpenMatchHandler, type SearchMatch, type SearchScope, type SearchScopeMode } from "./search";
 import { findUsagesAtCursor, renameSymbolAtCursor, resetFindUsages, setOpenRefHandler, queryAndRender, initFindUsagesAction, installCtrlShiftDblclickUsages } from "./findUsages";
 import { wireProblemsPanel, resetProblemsPanel, setOpenProblemHandler, setShowPanelHandler, renderProblemsChip } from "./problemsPanel"; // 问题面板（对标 PyCharm Problems）
@@ -132,7 +138,7 @@ import * as mdPreview from "./markdownPreview"; // Markdown 预览（markdown pr
 // TD-14 拆分出的功能域：环境面板 / 新建项目 / 菜单栏机制 / 运行域 / 运行配置面板 / 输出链接
 import {
   clearInterpreterStatus, currentInterpreter, declarePackage, initEnvPanel, initEnvPanelEvents,
-  installMissingPackage, maybePromptToolchain, maybePromptVenv, refreshInterpreterStatus,
+  installMissingPackage, installToolNamed, maybePromptToolchain, maybePromptVenv, refreshInterpreterStatus,
   resetEnvPanelState, openEnvPanel, onEnvPanelOpened, refreshPackagesIfOpen, repaintPkgBadgesIfOpen,
 } from "./envPanel";
 import { openNewProjectPanel, wireNewProject } from "./newProject";
@@ -1940,6 +1946,8 @@ async function init(): Promise<void> {
   });
   registerRuffFormatter(app.monaco); // Shift+Alt+F / 右键「Format Document」
   setFormatErrorHandler((msg) => appendOutputLine(outputEl, msg, "stderr", gotoFromLink));
+  // ruff 缺席 toast 的「安装 ruff」动作：忽略首启引导之后的补装入口（按件安装，不动 uv / 引擎）
+  setRuffInstallAction(() => void installToolNamed("ruff"));
   setOpenMatchHandler((m) => openSearchMatch(m).catch(console.error));
   // 查找引用结果跳转：打开文件 + **选中标识符**（范围来自引用 Location）+ 居中聚焦，
   // 对齐 PyCharm「点击引用后落点一目了然」的体验（复用 openFile 的 tab/model 管理）

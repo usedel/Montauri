@@ -15,6 +15,7 @@ import { openAlert } from "./dialog";
 import { toast, toastFail } from "./toast";
 import { refreshInterpreterStatus, type CreateVenvResult, type PythonVersionOption } from "./envPanel";
 import { resetCloneForm, cancelCloneInspect, ensureCloneTabRendered } from "./cloneRepository";
+import { gitErrText } from "./git"; // create_project 的 git_message 带后端的 GitMissing/GitNotRepo 分类码，需翻成人话
 
 interface CreateProjectResult {
   path: string;
@@ -216,8 +217,10 @@ async function createProject(): Promise<void> {
     return;
   }
   if (!result.git_ok) {
-    appendOutputLine(outputEl, t("newproject.gitInitFailed", { message: result.git_message }), "stderr", gotoFromLink, "env");
-    toastFail("git init", result.git_message);
+    // 分类码（GitMissing:/GitNotRepo:）在此翻成人话；否则 toast 里会露出「GitMissing:…」裸前缀
+    const reason = gitErrText(result.git_message);
+    appendOutputLine(outputEl, t("newproject.gitInitFailed", { message: reason }), "stderr", gotoFromLink, "env");
+    toastFail("git init", reason);
   }
   // P2（建议 1）：回显 pyproject.toml 的生成路径（uv 脚手架 / 模板回退），让“裸目录 uv run 语义不明”可见地收敛
   if (result.pyproject_note) {

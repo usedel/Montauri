@@ -59,7 +59,14 @@ export function setGitEditorBridge(bridge: GitEditorBridge | null): void {
   editorBridge = bridge;
 }
 // CR-25：状态存储下沉到零依赖的 gitStatusState（fileTree 装饰只读，不再 import 本模块）
-import { gitStatuses, gitDirtyDirs, gitRepoActive, rebuildStatusIndex, setGitIgnoredPaths } from "./gitStatusState";
+import {
+  gitStatuses,
+  gitDirtyDirs,
+  gitRepoActive,
+  gitMissing,
+  rebuildStatusIndex,
+  setGitIgnoredPaths,
+} from "./gitStatusState";
 
 // ---------- 域内状态 ----------
 
@@ -99,6 +106,24 @@ let conflictEditHandler: MonacoApi.IDisposable | null = null;
 /** CR-20：git 状态刷新令牌——响应乱序时旧结果不得覆盖新结果（SCM 面板显示过时暂存态） */
 let gitStatusToken = 0;
 
+/** 后端分类码前缀（与 `git_cmds.rs` 的同名常量逐字一致）：git 二进制缺失 */
+const GIT_MISSING_PREFIX = "GitMissing:";
+/** 后端分类码前缀：`git` 在，但工作区不是仓库 */
+const GIT_NOT_REPO_PREFIX = "GitNotRepo:";
+
+/**
+ * git 命令失败文案：把后端分类码翻成用户可读的原因。
+ * 为什么要分流——spawn 失败（没装 Git）与 exit!=0（不是仓库）以前都糊成一条 git 原始
+ * stderr，SCM 面板一律显示「不是 Git 仓库」，用户装了 Git 也不知道该装。
+ * 未命中前缀时行为与改造前完全一致（走后端文案翻译层）。
+ */
+export function gitErrText(e: unknown): string {
+  const raw = errMsg(e);
+  if (raw.startsWith(GIT_MISSING_PREFIX)) return t("git.err.missing");
+  if (raw.startsWith(GIT_NOT_REPO_PREFIX)) return t("git.err.notRepo");
+  return localizeBackendError(raw);
+}
+
 /** 刷新 git 状态（非 git 仓库时静默跳过）；传入 paths 时按子集增量刷新（TD-002） */
 export async function refreshGitStatus(paths?: string[]): Promise<void> {
   if (!app.workspaceRoot) {
@@ -106,6 +131,7 @@ export async function refreshGitStatus(paths?: string[]): Promise<void> {
     gitStatuses.clear();
     gitFiles = [];
     gitRepoActive.value = false;
+    gitMissing.value = false;
     currentBranch = null;
     gitDirtyDirs.clear();
     setGitIgnoredPaths([]);
@@ -115,12 +141,16 @@ export async function refreshGitStatus(paths?: string[]): Promise<void> {
   const token = ++gitStatusToken;
   try {
     const scoped = paths && paths.length > 0 ? paths : null;
-    const result = await invoke<{ files: GitStatusFile[]; is_git: boolean; current_branch: string | null }>(
-      "git_status",
-      { root: app.workspaceRoot, paths: scoped },
-    );
+    const result = await invoke<{
+      files: GitStatusFile[];
+      is_git: boolean;
+      current_branch: string | null;
+      git_missing?: boolean;
+    }>("git_status", { root: app.workspaceRoot, paths: scoped });
     if (token !== gitStatusToken) return; // 已有更新一轮的刷新，丢弃旧结果
     gitRepoActive.value = result.is_git;
+    // git 二进制缺失 ≠ 不是仓库：面板据此给不同空态（详见 renderGitPanel）
+    gitMissing.value = result.git_missing === true;
     currentBranch = result.current_branch ?? null;
     if (scoped && gitRepoActive.value && gitFiles.length > 0) {
       // 增量：移除命中查询路径（目录前缀）的旧记录，再合并最新结果
@@ -151,6 +181,9 @@ export async function refreshGitStatus(paths?: string[]): Promise<void> {
     rebuildStatusIndex();
     gitFiles = [];
     gitRepoActive.value = false;
+    // invoke 本身抛错（后端异常 / mock 未覆盖）：git 可用性未知，清掉遗留标记，
+    // 免得上一轮的 gitMissing=true 一直挂在面板上
+    gitMissing.value = false;
     currentBranch = null;
     gitDirtyDirs.clear();
     setGitIgnoredPaths([]);
@@ -259,6 +292,12 @@ export function renderGitPanel(): void {
     box.appendChild(emptyState("source-control", t("git.panel.noWorkspace"), t("git.panel.noWorkspaceHint")));
     return;
   }
+  // git 二进制缺失 ≠ 不是仓库：分两个空态——此处不给「初始化仓库」入口
+  //（git 都不可用，gitInitRepo 必然失败，给了就是个点了就报错的按钮）。
+  if (gitMissing.value) {
+    box.appendChild(emptyState("source-control", t("git.panel.gitMissing"), t("git.panel.gitMissingHint")));
+    return;
+  }
   if (!gitRepoActive.value) {
     // P0-7：非仓库空态提供「初始化仓库」按钮（此前仅文案提示，无入口）
     const empty = emptyState("source-control", t("git.panel.notRepo"), t("git.panel.notRepoHint"));
@@ -343,7 +382,7 @@ export async function gitInitRepo(): Promise<void> {
     const out = await invoke<string>("git_init", { root: app.workspaceRoot });
     appendOutputLine(outputEl, out, "stdout", gotoFromLink, "git");
   } catch (e) {
-    appendOutputLine(outputEl, t("git.out.initFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "git");
+    appendOutputLine(outputEl, t("git.out.initFailed", { error: gitErrText(e) }), "stderr", gotoFromLink, "git");
     toastFail(t("git.action.init"), e);
     return;
   }
@@ -486,7 +525,7 @@ export async function stageFiles(paths: string[]): Promise<void> {
   try {
     await invoke("git_stage", { root: app.workspaceRoot, paths });
   } catch (e) {
-    appendOutputLine(outputEl, t("git.out.stageFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "git");
+    appendOutputLine(outputEl, t("git.out.stageFailed", { error: gitErrText(e) }), "stderr", gotoFromLink, "git");
     toastFail(t("git.action.stageShort"), e);
     return;
   }
@@ -507,7 +546,7 @@ export async function unstageFiles(paths: string[]): Promise<void> {
   try {
     await invoke("git_unstage", { root: app.workspaceRoot, paths });
   } catch (e) {
-    appendOutputLine(outputEl, t("git.out.unstageFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "git");
+    appendOutputLine(outputEl, t("git.out.unstageFailed", { error: gitErrText(e) }), "stderr", gotoFromLink, "git");
     toastFail(t("git.action.unstage"), e);
     return;
   }
@@ -554,7 +593,7 @@ async function discardFiles(files: GitStatusFile[]): Promise<void> {
       await invoke("git_clean", { root: app.workspaceRoot, paths: untracked.map((f) => f.path) });
     }
   } catch (e) {
-    appendOutputLine(outputEl, t("git.out.discardFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "git");
+    appendOutputLine(outputEl, t("git.out.discardFailed", { error: gitErrText(e) }), "stderr", gotoFromLink, "git");
     toastFail(t("git.action.discard"), e);
     return;
   }
@@ -594,7 +633,7 @@ async function acceptConflict(side: "current" | "incoming", f: GitStatusFile): P
       path: f.path,
     });
   } catch (e) {
-    appendOutputLine(outputEl, t("git.out.acceptFailed", { side: label, error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "git");
+    appendOutputLine(outputEl, t("git.out.acceptFailed", { side: label, error: gitErrText(e) }), "stderr", gotoFromLink, "git");
     toastFail(t("git.action.resolveConflict"), e);
     return false;
   }
@@ -658,7 +697,7 @@ async function markResolved(path: string): Promise<void> {
   try {
     await invoke("git_stage", { root: app.workspaceRoot, paths: [path] });
   } catch (e) {
-    appendOutputLine(outputEl, t("git.out.markResolvedFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "git");
+    appendOutputLine(outputEl, t("git.out.markResolvedFailed", { error: gitErrText(e) }), "stderr", gotoFromLink, "git");
     toastFail(t("git.action.markResolved"), e);
     return;
   }
@@ -731,7 +770,7 @@ export async function commitChanges(amend = false): Promise<void> {
       const out = await invoke<string>("git_commit", { root: app.workspaceRoot, message, amend });
       for (const line of out.split("\n")) appendOutputLine(outputEl, line, "stdout", gotoFromLink, "git");
     } catch (e) {
-      appendOutputLine(outputEl, t("git.out.commitFailed", { label: amend ? t("git.action.amendShort") : t("git.action.commit"), error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "git");
+      appendOutputLine(outputEl, t("git.out.commitFailed", { label: amend ? t("git.action.amendShort") : t("git.action.commit"), error: gitErrText(e) }), "stderr", gotoFromLink, "git");
       toastFail(amend ? t("git.action.amend") : t("git.action.commit"), e);
       return;
     } finally {
@@ -841,7 +880,7 @@ async function applyConflictEdit(): Promise<void> {
     await invoke("write_file", { path: joinPath(root, diffConflictPath), content: diffModifiedModel.getValue() });
     await invoke("git_stage", { root, paths: [diffConflictPath] });
   } catch (e) {
-    appendOutputLine(outputEl, t("git.out.applyEditFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "git");
+    appendOutputLine(outputEl, t("git.out.applyEditFailed", { error: gitErrText(e) }), "stderr", gotoFromLink, "git");
     toastFail(t("git.action.applyEdit"), e);
     return;
   }
@@ -922,7 +961,7 @@ async function showDiffImpl(f: GitStatusFile, base: DiffBase, activate: boolean)
     await loadDiffHunks(f.path);
   } catch (e) {
     if (token !== diffLoadToken) return; // P2-5：过期失败也不关新内容正在展示的 tab
-    appendOutputLine(outputEl, t("git.out.diffFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "git");
+    appendOutputLine(outputEl, t("git.out.diffFailed", { error: gitErrText(e) }), "stderr", gotoFromLink, "git");
     toastFail(t("git.action.readDiff"), e);
     closeDiffTabByPath(f.path);
   }
@@ -1201,7 +1240,7 @@ async function applyCurrentHunk(mode: "stage" | "unstage" | "discard"): Promise<
   try {
     await invoke("git_apply_hunk", { root, path: diffFilePath, patch, mode });
   } catch (e) {
-    appendOutputLine(outputEl, t("git.out.hunkFailed", { mode: mode, error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "git");
+    appendOutputLine(outputEl, t("git.out.hunkFailed", { mode: mode, error: gitErrText(e) }), "stderr", gotoFromLink, "git");
     toastFail(mode === "stage" ? t("git.action.stageHunk") : mode === "unstage" ? t("git.action.unstageHunk") : t("git.action.discardHunk"), e);
     return;
   }
@@ -1291,7 +1330,7 @@ async function showConflictDiff(f: GitStatusFile): Promise<void> {
     enableConflictEditing(true, f.path);
   } catch (e) {
     if (token !== diffLoadToken) return; // P2-5：过期失败不影响新内容展示
-    appendOutputLine(outputEl, t("git.out.conflictDiffFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "git");
+    appendOutputLine(outputEl, t("git.out.conflictDiffFailed", { error: gitErrText(e) }), "stderr", gotoFromLink, "git");
     toastFail(t("git.action.readConflictDiff"), e);
     closeDiffTabByPath(f.path);
     toggleConflictDiffButtons(false);
@@ -1375,7 +1414,7 @@ async function applyMergeResolve(): Promise<void> {
     await invoke("write_file", { path: joinPath(root, diffConflictPath), content });
     await invoke("git_stage", { root, paths: [diffConflictPath] });
   } catch (e) {
-    appendOutputLine(outputEl, t("git.out.blockResolveFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "git");
+    appendOutputLine(outputEl, t("git.out.blockResolveFailed", { error: gitErrText(e) }), "stderr", gotoFromLink, "git");
     toastFail(t("git.action.blockResolve"), e);
     return;
   }
@@ -1456,7 +1495,7 @@ export async function gitRemoteOp(
     for (const line of out.split("\n")) if (line.trim()) appendOutputLine(outputEl, line, "stdout", gotoFromLink, "git");
   } catch (e) {
     const msg = String(e);
-    appendOutputLine(outputEl, t("git.out.remoteFailed", { label: label, error: localizeBackendError(errMsg(msg)) }), "stderr", gotoFromLink, "git");
+    appendOutputLine(outputEl, t("git.out.remoteFailed", { label: label, error: gitErrText(msg) }), "stderr", gotoFromLink, "git");
     // 取消语义走双语匹配：Rust 侧取消哨兵为「已取消」（git_cmds.rs），但错误串可能来自
     // 未过 localize 的原始输出或英文工具链（cancelled/canceled），只匹配中文在英文环境会漏判
     if (msg.includes("已取消") || /cancel/i.test(msg)) toast(t("git.toast.cancelled", { label: label }), "info");
@@ -1659,7 +1698,7 @@ export async function gitStash(): Promise<void> {
     for (const line of out.split("\n")) appendOutputLine(outputEl, line, "stdout", gotoFromLink, "git");
     toast(t("git.toast.stashed"), "success");
   } catch (e) {
-    appendOutputLine(outputEl, t("git.out.stashFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "git");
+    appendOutputLine(outputEl, t("git.out.stashFailed", { error: gitErrText(e) }), "stderr", gotoFromLink, "git");
     toastFail("Stash", e);
   }
   await refreshGitStatus();
@@ -1678,7 +1717,7 @@ export async function gitStashPop(): Promise<void> {
     const out = await invoke<string>("git_stash_pop", { root: app.workspaceRoot });
     for (const line of out.split("\n")) appendOutputLine(outputEl, line, "stdout", gotoFromLink, "git");
   } catch (e) {
-    appendOutputLine(outputEl, t("git.out.stashPopFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "git");
+    appendOutputLine(outputEl, t("git.out.stashPopFailed", { error: gitErrText(e) }), "stderr", gotoFromLink, "git");
     toastFail("Stash pop", e);
   }
   await refreshGitStatus();
@@ -1700,7 +1739,7 @@ async function stashPopAt(index: number): Promise<void> {
     const out = await invoke<string>("git_stash_pop_at", { root: app.workspaceRoot, index });
     for (const line of out.split("\n")) appendOutputLine(outputEl, line, "stdout", gotoFromLink, "git");
   } catch (e) {
-    appendOutputLine(outputEl, t("git.out.stashPopFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "git");
+    appendOutputLine(outputEl, t("git.out.stashPopFailed", { error: gitErrText(e) }), "stderr", gotoFromLink, "git");
     toastFail(t("git.action.stashPop"), e);
   }
   await refreshGitStatus();
@@ -1774,7 +1813,7 @@ async function showStashDiff(index: number): Promise<void> {
     const out = await invoke<string>("git_stash_show", { root: app.workspaceRoot, index });
     for (const line of out.split("\n")) appendDetailLine(line, gitLineClass(line));
   } catch (e) {
-    appendDetailLine(t("git.out.stashDiffFailed", { error: localizeBackendError(errMsg(e)) }), "stderr");
+    appendDetailLine(t("git.out.stashDiffFailed", { error: gitErrText(e) }), "stderr");
     toastFail(t("git.action.readStashDiff"), e);
   }
 }
@@ -1793,7 +1832,7 @@ async function stashDropAt(index: number): Promise<void> {
   try {
     await invoke("git_stash_drop_at", { root: app.workspaceRoot, index });
   } catch (e) {
-    appendOutputLine(outputEl, t("git.out.stashDropFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "git");
+    appendOutputLine(outputEl, t("git.out.stashDropFailed", { error: gitErrText(e) }), "stderr", gotoFromLink, "git");
     toastFail(t("git.action.dropStash"), e);
     return;
   }
@@ -1844,7 +1883,7 @@ async function showCommitDetail(hash: string): Promise<void> {
     const out = await invoke<string>("git_show", { root: app.workspaceRoot, hash });
     for (const line of out.split("\n")) appendDetailLine(line, gitLineClass(line));
   } catch (e) {
-    appendDetailLine(t("git.out.commitDetailFailed", { error: localizeBackendError(errMsg(e)) }), "stderr");
+    appendDetailLine(t("git.out.commitDetailFailed", { error: gitErrText(e) }), "stderr");
     toastFail(t("git.action.readCommitDetail"), e);
   }
 }
@@ -1897,7 +1936,7 @@ export async function showBlame(path: string): Promise<void> {
       gitDetailViewEl.appendChild(row);
     }
   } catch (e) {
-    appendDetailLine(t("git.out.blameFailed", { error: localizeBackendError(errMsg(e)) }), "stderr");
+    appendDetailLine(t("git.out.blameFailed", { error: gitErrText(e) }), "stderr");
     toastFail(t("git.action.readBlame"), e);
   }
 }
@@ -1933,7 +1972,7 @@ export async function showFileHistory(relPath: string): Promise<void> {
       gitDetailViewEl.appendChild(row);
     }
   } catch (e) {
-    appendDetailLine(t("git.out.fileHistoryFailed", { error: localizeBackendError(errMsg(e)) }), "stderr");
+    appendDetailLine(t("git.out.fileHistoryFailed", { error: gitErrText(e) }), "stderr");
     toastFail(t("git.action.readFileHistory"), e);
   }
 }
@@ -2061,7 +2100,7 @@ async function cherryPickCommit(hash: string, subject: string): Promise<void> {
     for (const line of out.split("\n")) appendOutputLine(outputEl, line, "stdout", gotoFromLink, "git");
     toast(t("git.toast.cherryPicked", { subject: subject }), "success");
   } catch (e) {
-    appendOutputLine(outputEl, t("git.out.cherryPickFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "git");
+    appendOutputLine(outputEl, t("git.out.cherryPickFailed", { error: gitErrText(e) }), "stderr", gotoFromLink, "git");
     toastFail("Cherry-pick", e);
   }
   await refreshAfterBranchChange();
@@ -2085,7 +2124,7 @@ async function revertCommit(hash: string, subject: string): Promise<void> {
     for (const line of out.split("\n")) appendOutputLine(outputEl, line, "stdout", gotoFromLink, "git");
     toast(t("git.toast.reverted", { subject: subject }), "success");
   } catch (e) {
-    appendOutputLine(outputEl, t("git.out.revertFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "git");
+    appendOutputLine(outputEl, t("git.out.revertFailed", { error: gitErrText(e) }), "stderr", gotoFromLink, "git");
     toastFail("Revert", e);
   }
   await refreshAfterBranchChange();
@@ -2187,7 +2226,7 @@ async function doReset(hash: string, mode: "soft" | "mixed" | "hard"): Promise<v
     for (const line of out.split("\n")) appendOutputLine(outputEl, line, "stdout", gotoFromLink, "git");
     toast(t("git.toast.reset", { mode: mode, hash: hash.slice(0, 8) }), "success");
   } catch (e) {
-    appendOutputLine(outputEl, t("git.out.resetFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "git");
+    appendOutputLine(outputEl, t("git.out.resetFailed", { error: gitErrText(e) }), "stderr", gotoFromLink, "git");
     toastFail(t("git.action.reset"), e);
   }
   // hard 重置改写了磁盘内容：重载已打开的干净 tab（dirty 保护统一在
@@ -2432,7 +2471,7 @@ export async function checkoutBranch(name: string, opts?: { remote?: boolean; de
           // pop 发生在 doCheckout 的刷新之后：贮藏的改动刚写回工作区，补一次重载
           await reloadTabsFromGitChange();
         } catch (e) {
-          appendOutputLine(outputEl, t("git.out.stashPopRestoreFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "git");
+          appendOutputLine(outputEl, t("git.out.stashPopRestoreFailed", { error: gitErrText(e) }), "stderr", gotoFromLink, "git");
           toastFail(t("git.action.restoreStash"), e);
         }
       }
@@ -2454,7 +2493,7 @@ async function doCheckout(name: string, track = false): Promise<boolean> {
   try {
     await invoke("git_checkout", { root: app.workspaceRoot, branch: name, track });
   } catch (e) {
-    appendOutputLine(outputEl, t("git.out.switchFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "git");
+    appendOutputLine(outputEl, t("git.out.switchFailed", { error: gitErrText(e) }), "stderr", gotoFromLink, "git");
     toastFail(t("git.action.switchBranch"), e);
     return false;
   }
@@ -2489,7 +2528,7 @@ async function createBranchAndSwitch(name: string): Promise<void> {
   try {
     await invoke("git_create_branch", { root: app.workspaceRoot, name: n });
   } catch (e) {
-    appendOutputLine(outputEl, t("git.out.createBranchFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "git");
+    appendOutputLine(outputEl, t("git.out.createBranchFailed", { error: gitErrText(e) }), "stderr", gotoFromLink, "git");
     toastFail(t("git.action.createBranch"), e);
     return;
   }
@@ -2550,7 +2589,7 @@ async function mergeBranch(branch: string, opts: { no_ff: boolean; squash: boole
     for (const line of out.split("\n")) appendOutputLine(outputEl, line, "stdout", gotoFromLink, "git");
     toast(t("git.toast.merged", { branch: branch }), "success");
   } catch (e) {
-    appendOutputLine(outputEl, t("git.out.mergeFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "git");
+    appendOutputLine(outputEl, t("git.out.mergeFailed", { error: gitErrText(e) }), "stderr", gotoFromLink, "git");
     toastFail(t("git.action.merge"), e);
   }
   await refreshAfterBranchChange();
@@ -2575,7 +2614,7 @@ async function rebaseOnto(branch: string): Promise<void> {
     for (const line of out.split("\n")) appendOutputLine(outputEl, line, "stdout", gotoFromLink, "git");
     toast(t("git.toast.rebased", { branch: branch }), "success");
   } catch (e) {
-    appendOutputLine(outputEl, t("git.out.rebaseFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "git");
+    appendOutputLine(outputEl, t("git.out.rebaseFailed", { error: gitErrText(e) }), "stderr", gotoFromLink, "git");
     toastFail(t("git.action.rebase"), e);
   }
   await refreshAfterBranchChange();

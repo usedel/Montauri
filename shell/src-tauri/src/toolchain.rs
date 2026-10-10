@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 
 use tauri::{AppHandle, Emitter};
 
-use crate::tool_paths::{is_available, resolve_tool, ENV_RUFF, ENV_UV};
+use crate::tool_paths::{is_available, resolve_tool, ENV_GIT, ENV_RUFF, ENV_UV};
 use crate::util::no_window;
 
 /// 安装类命令超时（含网络下载）。
@@ -44,26 +44,49 @@ pub fn detect_toolchain(engine: String) -> Result<Value, String> {
     let uv_ok = is_available("uv", ENV_UV);
     let engine_ok = is_available(cmd, "");
     let ruff_ok = is_available("ruff", ENV_RUFF);
+    let git_ok = is_available("git", ENV_GIT);
     Ok(json!({
         "uv": uv_ok,
         "engine": { "name": engine, "command": cmd, "ok": engine_ok },
         "ruff": ruff_ok,
+        // git 只探测不引导安装：它不是 PyPI 包，uv 装不了，只能提示用户自行安装。
+        "git": git_ok,
         "allOk": uv_ok && engine_ok,
     }))
 }
 
-/// 一键安装缺失工具（uv → 静态引擎），进度经 toolchain-stdout / toolchain-stderr 流式推送。
+/// 一键安装缺失工具（uv → 静态引擎 → ruff），进度经 toolchain-stdout / toolchain-stderr 流式推送。
+///
+/// `only` 为**按件安装**：给定 `["ruff"]` 时只装 ruff（uv 仍会自动作为前置——引擎与 ruff 都靠
+/// `uv tool install` 落地）。为什么要它：设置面板 / toast 上的「安装 ruff」入口若走全量，
+/// 会把用户已装好的 uv 与静态引擎再装一遍（慢、可能失败、还可能覆盖版本）。
+/// **刻意用可选参数而非新增命令**：命令面预算已到顶（`ci/budgets.toml` 205/205）。
 #[tauri::command]
-pub async fn install_toolchain(app: AppHandle, window: tauri::WebviewWindow, engine: String) -> Result<bool, String> {
+pub async fn install_toolchain(
+    app: AppHandle,
+    window: tauri::WebviewWindow,
+    engine: String,
+    only: Option<Vec<String>>,
+) -> Result<bool, String> {
     let wid = window.label().to_string();
-    tauri::async_runtime::spawn_blocking(move || install_toolchain_impl(app, &engine, &wid))
+    tauri::async_runtime::spawn_blocking(move || install_toolchain_impl(app, &engine, &wid, only))
         .await
         .map_err(|e| format!("安装任务异常：{e}"))?
 }
 
-fn install_toolchain_impl(app: AppHandle, engine: &str, wid: &str) -> Result<bool, String> {
+fn install_toolchain_impl(
+    app: AppHandle,
+    engine: &str,
+    wid: &str,
+    only: Option<Vec<String>>,
+) -> Result<bool, String> {
     let pkg = engine_package(engine);
     let cmd = engine_command(engine);
+    // 该项是否在本次安装范围内；`only` 为 None = 全量
+    let want = |name: &str| match only.as_deref() {
+        None => true,
+        Some(v) => v.iter().any(|x| x == name),
+    };
 
     // 1. 确保 uv 就绪（缺失则走官方安装脚本，装到官方默认位置 ~/.local/bin，不重定向）
     if !is_available("uv", ENV_UV) {
@@ -100,7 +123,7 @@ fn install_toolchain_impl(app: AppHandle, engine: &str, wid: &str) -> Result<boo
     emit(&app, "toolchain-stdout", &format!("uv 位置：{}\n", uv.display()), wid)?;
 
     // 3. 安装静态引擎（uv tool install，走用户 uv 默认工具目录，入口脚本落 ~/.local/bin）
-    if !is_available(cmd, "") {
+    if want("engine") && !is_available(cmd, "") {
         emit(&app, "toolchain-stdout", &format!("安装静态引擎 `{pkg}`（uv tool install）…\n"), wid)?;
         // 不设 UV_TOOL_BIN_DIR / UV_TOOL_DIR——工具落用户 uv 默认目录，跨项目可复用；
         // tool_command 仅注入 UV_DEFAULT_INDEX（PyPI 包源设置）。
@@ -109,8 +132,39 @@ fn install_toolchain_impl(app: AppHandle, engine: &str, wid: &str) -> Result<boo
         run_streaming_cmd(&app, cmd, INSTALL_TIMEOUT, wid)?;
     }
 
-    // 4. 复核
-    let ok = is_available(cmd, "");
+    // 4. 安装 ruff（格式化 / 保存时整理导入 / 实时 lint 共用；与引擎同为 uv tool install）。
+    //    ruff 是增强件而非「补全 + 运行」最低门槛：装不上不拉低返回值 ok（ok 只复核静态引擎），
+    //    只在输出面板留一行说明——避免弱网把整轮引导判成失败。
+    if want("ruff") && !is_available("ruff", ENV_RUFF) {
+        emit(
+            &app,
+            "toolchain-stdout",
+            "安装 ruff（`uv tool install ruff`，格式化 / 整理导入 / 实时检查依赖）…\n",
+            wid,
+        )?;
+        let mut ruff_cmd = crate::tool_paths::tool_command("uv", ENV_UV);
+        ruff_cmd.args(["tool", "install", "ruff"]);
+        let _ = run_streaming_cmd(&app, ruff_cmd, INSTALL_TIMEOUT, wid);
+        if !is_available("ruff", ENV_RUFF) {
+            emit(
+                &app,
+                "toolchain-stdout",
+                "ruff 未就绪（格式化 / 整理导入暂不可用）；可稍后在终端执行 `uv tool install ruff`。\n",
+                wid,
+            )?;
+        }
+    }
+
+    // 5. 复核。全量安装只认静态引擎（ruff 缺失不影响「环境就绪」判定）；按件安装则复核本次点名的项。
+    let ok = match only.as_deref() {
+        None => is_available(cmd, ""),
+        Some(names) => names.iter().all(|n| match n.as_str() {
+            "uv" => is_available("uv", ENV_UV),
+            "engine" => is_available(cmd, ""),
+            "ruff" => is_available("ruff", ENV_RUFF),
+            _ => true,
+        }),
+    };
     emit(
         &app,
         "toolchain-stdout",

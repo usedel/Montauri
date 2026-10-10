@@ -1066,10 +1066,18 @@
                       <div data-i18n="settings.save.sectionSaveDiv" class="settings-row-desc">整理导入 = 移除未使用的导入 + 按 isort 规则排序；手动触发见「快捷键 → Optimize Imports」。</div>
                     </div>
                   </div>
+                  <!-- ruff 缺席内联提示（TS 渲染，见 settingsPanel.refreshToolchainUi）。
+                       刻意不写 data-i18n：index.html 的静态文案走 html_dict 冻结产物，动态提示走语言包更稳 -->
+                  <div class="settings-row hidden" id="settings-ruff-hint">
+                    <span class="settings-label-gap" aria-hidden="true"></span>
+                    <div class="settings-field"></div>
+                  </div>
                 </div>
               </div>
             </div>
             <div id="settings-section-python" class="settings-section hidden" role="tabpanel">
+              <!-- 工具链状态块（TS 渲染，见 settingsPanel.refreshToolchainUi）：uv / 引擎 / ruff / git 四行 -->
+              <div class="settings-group" id="settings-toolchain-group"></div>
               <div class="settings-group">
                 <h3 data-i18n="settings.group.pythonRuntime" class="settings-group-title">引擎与运行时</h3>
                 <div class="settings-grid">

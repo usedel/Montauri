@@ -19,6 +19,7 @@ import { hideEl, showEl } from "./anim";
 import { trapFocus } from "./focusTrap";
 import { toast, toastFail } from "./toast";
 import * as toolchain from "./toolchain";
+import { resetRuffMissingNotice } from "./format"; // 装好后复位「ruff 缺席」提示去重（format 不 import 本模块，无环）
 import {
   NULL_DIST_WARNING, fixCommandPreview, latestDiff, resolveDistForInstall,
   resetDepHealth, runDepFix, runDepScan,
@@ -969,27 +970,100 @@ export async function maybePromptVenv(): Promise<void> {
   }
 }
 
-/** 首次启动环境引导（Phase 4 第 4 步）：探测 uv / 静态引擎，缺失则引导一键安装 */
+/** 工具 id → 展示名（三个入口的文案统一走这里） */
+function toolLabel(name: toolchain.InstallableTool): string {
+  if (name === "uv") return t("env.tool.uv");
+  if (name === "ruff") return t("env.tool.ruff");
+  return t("env.tool.engine", { name: app.settings.lsp_engine ?? "pyrefly" });
+}
+
+/** 记住被「稍后」的工具（落盘）。不记的话下次启动还会再弹——引导只看「缺不缺」，不看「问没问过」。 */
+async function rememberToolchainDismissed(ids: toolchain.InstallableTool[]): Promise<void> {
+  const cur = new Set(app.settings.toolchain_prompt_dismissed ?? []);
+  for (const id of ids) cur.add(id);
+  app.settings = { ...app.settings, toolchain_prompt_dismissed: [...cur] };
+  await invoke("set_settings", { settings: app.settings }).catch((e) =>
+    console.warn("[toolchain] 记录忽略项失败", e),
+  );
+}
+
+/** 工具齐了就把忽略记录清空：留着会掩盖将来真正的缺失（旧记录把新引导也一起静音） */
+async function clearToolchainDismissed(): Promise<void> {
+  if ((app.settings.toolchain_prompt_dismissed ?? []).length === 0) return;
+  app.settings = { ...app.settings, toolchain_prompt_dismissed: [] };
+  await invoke("set_settings", { settings: app.settings }).catch(() => {});
+}
+
+/**
+ * 按件安装 + 统一收尾。三个入口共用：
+ * 首启引导走全量（不传 name），toast「安装 ruff」与设置面板的「安装」按钮走按件。
+ * 收尾三件事：失效探测缓存（否则「装了还提示」）、清忽略记录、刷新调用方 UI。
+ * @param after 调用方自己的 UI 刷新（设置面板传它的状态块重渲染；envPanel 不 import settingsPanel，避免成环）
+ */
+export async function installToolNamed(name: toolchain.InstallableTool, after?: () => void): Promise<boolean> {
+  const label = toolLabel(name);
+  $("bottom").classList.remove("collapsed");
+  appendOutputLine(outputEl, t("env.tool.installEcho", { tool: label }), "cmd", gotoFromLink, "env");
+  let ok = false;
+  try {
+    ok = await toolchain.installToolchain(app.settings.lsp_engine ?? "pyrefly", [name]);
+  } catch (e) {
+    appendOutputLine(outputEl, t("env.installFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "env");
+  }
+  toolchain.invalidateToolchainStatus();
+  if (ok) {
+    await clearToolchainDismissed();
+    resetRuffMissingNotice(); // 装好了，本次会话若再失败仍应能提示
+  }
+  toast(ok ? t("env.tool.installOk", { tool: label }) : t("env.tool.installFailed", { tool: label }), ok ? "success" : "error");
+  after?.();
+  return ok;
+}
+
+/**
+ * 首次启动环境引导（Phase 4 第 4 步）：探测 uv / 静态引擎 / ruff，缺失则引导一键安装。
+ * - **已点过「稍后」的项不再重复打扰**（`settings.toolchain_prompt_dismissed`）；
+ *   忽略不等于放弃——设置面板有常驻入口（设置 → Python 工具链状态块 / 保存分类内联提示）。
+ * - git 不在一键安装清单里（非 PyPI 包，`uv tool install` 装不了），只做一次提示。
+ */
 export async function maybePromptToolchain(): Promise<void> {
   try {
-    const engine = app.settings.lsp_engine ?? "pyrefly";
-    const st = await toolchain.detectToolchain(engine);
-    if (st.allOk) return;
-    const missing: string[] = [];
-    if (!st.uv) missing.push(t("env.tool.uv"));
-    if (!st.engine.ok) missing.push(t("env.tool.engine", { name: st.engine.name }));
+    const st = await toolchain.getToolchainStatus(true);
+    // ruff 不进 allOk（它是格式化/整理导入/实时 lint 的增强件，不是「补全 + 运行」的最低门槛），
+    // 故与 uv/引擎并列单独判：否则 uv + 引擎齐备时这里直接 return，ruff 缺失永远不问、功能永远静默失效。
+    const missing: { id: toolchain.InstallableTool; label: string }[] = [];
+    if (!st.uv) missing.push({ id: "uv", label: t("env.tool.uv") });
+    if (!st.engine.ok) missing.push({ id: "engine", label: t("env.tool.engine", { name: st.engine.name }) });
+    if (!st.ruff) missing.push({ id: "ruff", label: t("env.tool.ruff") });
+
+    // git 单独处理：它不在 PyPI 上，装不了，只能提示用户自行安装（每启动一次，不参与忽略记录）
+    if (!st.git) toast(t("env.gitMissing"), "info");
+
+    const dismissed = app.settings.toolchain_prompt_dismissed ?? [];
+    const pending = missing.filter((m) => !dismissed.includes(m.id));
+    if (pending.length === 0) return;
+
     const proceed = await openConfirm({
       title: t("env.dialog.bootstrapTitle"),
-      message: `${t("env.bootstrapMissing")}\n\n${missing.map((m) => t("env.bootstrapBullet", { tool: m })).join("\n")}\n\n${t("env.bootstrapWhy")}\n\n${t("env.bootstrapAsk")}`,
+      message: `${t("env.bootstrapMissing")}\n\n${pending.map((m) => t("env.bootstrapBullet", { tool: m.label })).join("\n")}\n\n${t("env.bootstrapWhy")}\n\n${t("env.bootstrapAsk")}`,
       okLabel: t("env.action.installNow"),
       cancelLabel: t("env.action.later"),
       kind: "primary",
     });
-    if (!proceed) return;
+    if (!proceed) {
+      await rememberToolchainDismissed(pending.map((m) => m.id));
+      return;
+    }
     // 展开底部输出面板，展示安装进度
     $("bottom").classList.remove("collapsed");
-    appendOutputLine(outputEl, t("env.bootstrapEcho", { tools: missing.join("、") }), "cmd", gotoFromLink, "env");
-    const ok = await toolchain.installToolchain(engine);
+    appendOutputLine(
+      outputEl,
+      t("env.bootstrapEcho", { tools: pending.map((m) => m.label).join("、") }),
+      "cmd",
+      gotoFromLink,
+      "env",
+    );
+    const ok = await toolchain.installToolchain(app.settings.lsp_engine ?? "pyrefly");
     appendOutputLine(
       outputEl,
       ok ? t("env.bootstrapOk") : t("env.bootstrapPartial"),
@@ -997,6 +1071,8 @@ export async function maybePromptToolchain(): Promise<void> {
       gotoFromLink,
       "env",
     );
+    toolchain.invalidateToolchainStatus();
+    if (ok) await clearToolchainDismissed();
   } catch (e) {
     console.warn("[toolchain] 探测失败，跳过引导:", e);
   }

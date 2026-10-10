@@ -133,6 +133,8 @@ export const git = {
   "git.discard.untrackedConfirm": "「{path}」是未跟踪文件，丢弃将删除该文件。",
   "git.discard.untrackedWarning": "删除未跟踪文件",
   // ---- git.history ----
+  "git.err.missing": "未检测到 Git（可能未安装）",
+  "git.err.notRepo": "当前目录不是 Git 仓库（或找不到 .git）",
   "git.history.back": "← 返回更改列表",
   "git.history.branchFrom": "在此提交上新建分支…",
   "git.history.branchFromTitle": "在 {hash} 上新建分支",
@@ -213,6 +215,8 @@ export const git = {
   "git.panel.changesGroup": "更改（{n}）",
   "git.panel.cleanHint": "工作区干净",
   "git.panel.commitBtn": "提交({n})",
+  "git.panel.gitMissing": "未检测到 Git",
+  "git.panel.gitMissingHint": "源代码管理需要 Git；安装 Git 后重启 OpenCharm 即可启用",
   "git.panel.initHint": "在工作区根目录执行 git init",
   "git.panel.noChanges": "无更改",
   "git.panel.noWorkspace": "尚未打开工作区",

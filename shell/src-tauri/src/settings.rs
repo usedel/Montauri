@@ -166,6 +166,10 @@ pub struct Settings {
     pub format_on_save: bool,
     /// 保存时用 ruff 整理导入（Ctrl+Alt+O 的保存联动，与 format_on_save 同模式）
     pub optimize_imports_on_save: bool,
+    /// 首启工具链引导里用户点过「稍后」的工具（"uv" / "engine" / "ruff"）。
+    /// 没有它的话，用户忽略了引导，下次启动还会再弹一次（引导只认「缺不缺」，不认「问没问过」）；
+    /// 忽略后仍有常驻入口（设置 → Python 工具链状态块 / 保存分类内联提示）兜底。
+    pub toolchain_prompt_dismissed: Vec<String>,
     /// D-4：ruff 规则严重度映射——E（pycodestyle 风格）/ W（pycodestyle 警告）/
     /// F（pyflakes）三类规则的显示级别："hint" | "info" | "warning" | "error"
     /// （与前端字段逐一对应；非法值由前端归一化为 warning）
@@ -273,6 +277,8 @@ impl Default for Settings {
             lsp_engine: "pyrefly".into(),
             format_on_save: false,
             optimize_imports_on_save: false,
+            // 空 = 还没忽略过任何工具（旧配置无此字段时同样落到这里）
+            toolchain_prompt_dismissed: Vec::new(),
             // D-4：默认全 Warning（维持映射引入前的行为，与前端 DEFAULT_SETTINGS 一致）
             ruff_severity_e: "warning".into(),
             ruff_severity_w: "warning".into(),

@@ -43,6 +43,7 @@ export const env: Record<EnvKey, string> = {
   "env.fail.refreshDiagnostics": "Refresh diagnostics",
   "env.fail.setInterpreter": "Set interpreter",
   // ---- env.group ----
+  "env.gitMissing": "Git not detected: source control is unavailable. Git is not a Python package, install it manually (https://git-scm.com/downloads)",
   "env.group.systemUv": "System / uv",
   "env.group.workspace": "Workspace",
   // ---- env ----
@@ -103,6 +104,11 @@ export const env: Record<EnvKey, string> = {
   "env.tag.notDeclared": "not declared",
   // ---- env.tool ----
   "env.tool.engine": "{name} (completion / navigation)",
+  "env.tool.git": "git (source control)",
+  "env.tool.installEcho": "Installing {tool} …",
+  "env.tool.installFailed": "{tool} installation did not finish; see the output panel",
+  "env.tool.installOk": "{tool} is ready",
+  "env.tool.ruff": "ruff (formatting / import sorting / live lint)",
   "env.tool.uv": "uv (Python environment & running)",
   // ---- env ----
   "env.uninstallFailed": "Uninstall failed: {error}",

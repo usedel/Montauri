@@ -42,6 +42,7 @@ export const env = {
   "env.fail.refreshDiagnostics": "刷新诊断",
   "env.fail.setInterpreter": "设置解释器",
   // ---- env.group ----
+  "env.gitMissing": "未检测到 Git：源代码管理不可用。Git 不是 Python 包，需自行安装（https://git-scm.com/downloads）",
   "env.group.systemUv": "系统 / uv",
   "env.group.workspace": "工作区",
   // ---- env ----
@@ -102,6 +103,11 @@ export const env = {
   "env.tag.notDeclared": "未声明",
   // ---- env.tool ----
   "env.tool.engine": "{name}（补全 / 跳转）",
+  "env.tool.git": "git（源代码管理）",
+  "env.tool.installEcho": "安装 {tool} …",
+  "env.tool.installFailed": "{tool} 安装未完成，详见输出面板",
+  "env.tool.installOk": "{tool} 已就绪",
+  "env.tool.ruff": "ruff（格式化 / 整理导入 / 实时检查）",
   "env.tool.uv": "uv（Python 环境与运行）",
   // ---- env ----
   "env.uninstallFailed": "卸载失败：{error}",
