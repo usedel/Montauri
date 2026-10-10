@@ -17,7 +17,7 @@ function tool(id: string, category: string): DevTool {
 }
 
 describe("categoryOrderKey", () => {
-  it("预置值按预置序（编码 0 … 文本 6），「其他」恒垫底", () => {
+  it("预置值按预置序（编码 0 … 网络 7），「其他」恒垫底", () => {
     expect(categoryOrderKey("编码")[0]).toBe(0);
     expect(categoryOrderKey("哈希")[0]).toBe(1);
     expect(categoryOrderKey("格式化")[0]).toBe(2);
@@ -25,12 +25,13 @@ describe("categoryOrderKey", () => {
     expect(categoryOrderKey("生成")[0]).toBe(4);
     expect(categoryOrderKey("提取")[0]).toBe(5);
     expect(categoryOrderKey("文本")[0]).toBe(6);
+    expect(categoryOrderKey("网络")[0]).toBe(7);
     expect(categoryOrderKey("其他")[0]).toBe(99);
   });
 
   it("自定义值排在「其他」之前（同档按名称字母序）", () => {
     const [tier] = categoryOrderKey("自定义");
-    expect(tier).toBe(7); // 预置「文本」(6) 之后、「其他」之前
+    expect(tier).toBe(8); // 预置「网络」(7) 之后、「其他」之前
     expect(categoryOrderKey("其他")[0]).toBe(99); // 「其他」恒垫底
   });
 });

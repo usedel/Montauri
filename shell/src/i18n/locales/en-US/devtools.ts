@@ -25,6 +25,7 @@ export const devtools: Record<DevtoolsKey, string> = {
   "devtools.cat.format": "Formatting",
   "devtools.cat.generate": "Generate",
   "devtools.cat.hash": "Hashing",
+  "devtools.cat.network": "Network",
   "devtools.cat.other": "Other",
   "devtools.cat.text": "Text",
   // ---- devtools.color ----

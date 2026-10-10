@@ -59,14 +59,14 @@ export interface ToolInstance {
 }
 
 /** 预置 category 有序集（plugin_system_design §9.8）：菜单 / picker / 命令面板三处同源 */
-export const PRESET_CATEGORIES = ["编码", "哈希", "格式化", "转换", "生成", "提取", "文本", "其他"] as const;
+export const PRESET_CATEGORIES = ["编码", "哈希", "格式化", "转换", "生成", "提取", "文本", "网络", "其他"] as const;
 
-/** category 排序键：预置值按预置序（0..6）；自定义值档位 7（按字母序）；「其他」恒最后（99） */
+/** category 排序键：预置值按预置序（0..7）；自定义值档位 8（按字母序）；「其他」恒最后（99） */
 export function categoryOrderKey(category: string): [number, string] {
   const i = (PRESET_CATEGORIES as readonly string[]).indexOf(category);
   if (i === PRESET_CATEGORIES.length - 1) return [99, ""]; // 「其他」垫底
   if (i >= 0) return [i, ""];
-  return [PRESET_CATEGORIES.length - 1, category]; // 自定义：在「文本」后、「其他」前
+  return [PRESET_CATEGORIES.length - 1, category]; // 自定义：在「网络」后、「其他」前
 }
 
 /** 预置分组的语言包 key（manifest.category 存中文原文作恒定标识，展示时经此翻译） */
@@ -78,6 +78,7 @@ const CATEGORY_KEYS: Record<string, string> = {
   生成: "devtools.cat.generate",
   提取: "devtools.cat.extract",
   文本: "devtools.cat.text",
+  网络: "devtools.cat.network",
   其他: "devtools.cat.other",
 };
 

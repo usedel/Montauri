@@ -157,14 +157,29 @@ test.describe("工具插件 E2E 验收", () => {
   test("01 内置工具：菜单分类子菜单（dogfooding #8）", async ({ page }) => {
     await equip(page);
     await page.locator('.menubar-item[data-menu="tools"]').click();
-    // 预置分类分组（flyout 父项）
-    for (const cat of ["编码", "哈希", "格式化", "转换", "生成", "提取"]) {
+    // 预置分类分组（flyout 父项）——「网络」为 B4 HTTP 工具引入（i18n 修复回归）
+    for (const cat of ["编码", "哈希", "格式化", "转换", "生成", "提取", "网络"]) {
       await expect(page.locator('#menu-dropdown .ctx-menu-item.with-submenu', { hasText: cat })).toBeVisible();
     }
     await expect(page.locator('#menu-dropdown .ctx-menu-item', { hasText: "插件管理…" })).toBeVisible();
     // hover 展开「编码」→ 内置工具
     await page.locator('#menu-dropdown .ctx-menu-item.with-submenu', { hasText: "编码" }).hover();
     await expect(page.locator("#menu-submenu .ctx-menu-item", { hasText: "Base64 编码/解码" })).toBeVisible({ timeout: 5_000 });
+  });
+
+  test("01b 工具菜单分组名随语言切换（网络 → Network，i18n 修复回归）", async ({ page }) => {
+    await equip(page);
+    await page.locator('.menubar-item[data-menu="tools"]').click();
+    await expect(page.locator('#menu-dropdown .ctx-menu-item.with-submenu', { hasText: "网络" })).toBeVisible();
+    // 切英文：设置面板走 #btn-settings 点击（xterm 焦点坑），关闭设置后重开工具菜单
+    await page.locator("#btn-settings").click();
+    await page.locator("#settings-locale").selectOption("en-US");
+    await page.locator("#settings-close").click();
+    await page.locator('.menubar-item[data-menu="tools"]').click();
+    await expect(page.locator('#menu-dropdown .ctx-menu-item.with-submenu', { hasText: "Network" })).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator('#menu-dropdown .ctx-menu-item.with-submenu', { hasText: "网络" })).toHaveCount(0);
+    // 「编码」等其余分组同样翻译
+    await expect(page.locator('#menu-dropdown .ctx-menu-item.with-submenu', { hasText: "Encoding" })).toBeVisible();
   });
 
   test("02 内置工具面板：picker 分组 + 搜索 + 实例缓存", async ({ page }) => {

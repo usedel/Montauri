@@ -102,6 +102,17 @@ test("OF-5 纯 md 工作区状态栏显示 LSP 跳过原因", async ({ page }) =
   await expect(page.locator("#status-lsp")).toContainText("无 Python", { timeout: 20_000 });
 });
 
+test("OF-5c 纯 md 工作区切英文后 LSP 跳过文案同步重取词（i18n 修复回归）", async ({ page }) => {
+  const repo = await makePlainDir({ "a.md": "x\n", "b.md": "y\n" });
+  await bootMdRepo(page, repo, { hasPy: false });
+  await expect(page.locator("#status-lsp")).toContainText("无 Python", { timeout: 20_000 });
+  // 切英文：设置面板走 #btn-settings（xterm 抢焦点风险，见既有 spec 注释）
+  await page.locator("#btn-settings").click();
+  await page.locator("#settings-locale").selectOption("en-US");
+  await expect(page.locator("#status-lsp")).toContainText("no Python files (skipped)", { timeout: 10_000 });
+  await expect(page.locator("#status-lsp")).not.toContainText("无 Python");
+});
+
 test("OF-5b 有 py 工作区照常启动 LSP（对照组）", async ({ page }) => {
   const repo = await makePlainDir({ "a.md": "x\n", "main.py": "print(1)\n" });
   await bootMdRepo(page, repo, { hasPy: true });

@@ -137,6 +137,7 @@ addLine("shell/src/styles/hotspots.css", "styles_hotspots_max_lines");
 addLine("shell/src/styles/endpointSample.css", "styles_endpointsample_max_lines");
 addLine("shell/src/styles/selector.css", "styles_selector_max_lines");
 addLine("shell/src/main.ts", "main_ts_max_lines");
+addLine("shell/src/lspStatus.ts", "lsp_status_ts_max_lines");
 addLine("shell/src/debugEntry.ts", "debug_entry_ts_max_lines");
 addLine("shell/src/menuItems.ts", "menu_items_ts_max_lines");
 addLine("shell/src/windowKeys.ts", "window_keys_ts_max_lines");

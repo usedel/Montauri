@@ -18,6 +18,7 @@
   "devtools.cat.format": "Formatting",
   "devtools.cat.generate": "Generate",
   "devtools.cat.hash": "Hashing",
+  "devtools.cat.network": "Network",
   "devtools.cat.other": "Other",
   "devtools.cat.text": "Text",
   "devtools.color.badColor": "Unrecognized color (like #f80 / #ff8000 / #ff8000cc)",

@@ -24,6 +24,7 @@ export const devtools = {
   "devtools.cat.format": "格式化",
   "devtools.cat.generate": "生成",
   "devtools.cat.hash": "哈希",
+  "devtools.cat.network": "网络",
   "devtools.cat.other": "其他",
   "devtools.cat.text": "文本",
   // ---- devtools.color ----

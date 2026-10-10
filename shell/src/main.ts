@@ -83,6 +83,7 @@ import { restoreLayout, wireSplitters } from "./layout";
 import { motionDisabled, restoreReduceMotion } from "./anim";
 import { wireTooltip } from "./tooltip";
 import { renderEngineChip, setEngineBusy, setEngineChipHandlers, wireEngineChip } from "./engineChip";
+import { setLspEngineStatus, setLspNote } from "./lspStatus";
 import { renderRunWidget, setRunWidgetHandlers, setRunWidgetRepaint, wireRunWidget } from "./runWidget";
 import { clearRunGutter, isRunGutterLine, refreshRunGutter, setRunGutterHandlers, wireRunGutter } from "./runGutter";
 import { clearGitGutter, refreshGitGutter, scheduleGitGutter, wireGitGutter } from "./gitGutter"; // 迭代 2 · P0-5
@@ -185,7 +186,6 @@ let fsWatchTimer: number | undefined;
 // 精简 DOM 测试环境 import 即炸，main 域因此一直无法单测）。
 const tabbarEl = lazyEl("tabbar");
 const outlineEl = lazyEl("outline");
-const statusLspEl = lazyEl("status-lsp");
 
 // ---------- 工作区 ----------
 
@@ -1511,7 +1511,7 @@ async function shouldStartStaticEngine(): Promise<boolean> {
     const hasPy = await invoke<boolean>("workspace_has_python", { root });
     if (!hasPy) {
       lspSkippedForNoPy = root;
-      statusLspEl.textContent = t("main.lsp.skippedNoPy");
+      setLspNote("main.lsp.skippedNoPy");
       return false;
     }
   } catch (e) {
@@ -1536,7 +1536,7 @@ export async function startLsp(): Promise<void> {
   } catch (e) {
     // 静态引擎启动失败**不阻断**运行时引擎（P0-C 观察点2）：intel 是完全独立的进程/包，
     // 架构铁律要求它失败静默降级、互不拖累；此处只提示，不 return（return 会让 intel 不启动）。
-    statusLspEl.textContent = t("main.lsp.startFailed", { msg: String(e) });
+    setLspNote("main.lsp.startFailed", { msg: String(e) });
   }
   // 运行时引擎（opencharm-intel）：开关控制（P3-T09），失败静默降级（静态引擎照常工作）
   if (app.settings.runtime_intel_enabled) {
@@ -2002,20 +2002,10 @@ async function init(): Promise<void> {
     setEngineBusy(s === "starting"); // E-2：引擎启动期 chip 显示忙碌态
     if (s === "ready") {
       // 阶段 4 子项 1c：引擎切换只清了引擎桶，重放自研桶（pydantic 等）的缓存诊断
-      lsp.replayPersistentDiagnostics(setMarkers, app.tabs.map((t) => t.path));
+      lsp.replayPersistentDiagnostics(setMarkers, app.tabs.map((tb) => tb.path));
     }
-    const map: Record<lsp.EngineStatus, string> = {
-      off: t("main.lsp.off"), starting: t("main.lsp.starting"), ready: t("main.lsp.ready"),
-      error: t("main.lsp.error"), exited: t("main.lsp.exited"),
-    };
-    // D3 P-09：状态点（灰未启动 / 黄启动中 / 绿就绪 / 红错误）
-    const dotClass: Record<lsp.EngineStatus, string> = {
-      off: "dot-off", starting: "dot-starting", ready: "dot-ready",
-      error: "dot-error", exited: "dot-off",
-    };
-    const dot = document.createElement("span");
-    dot.className = `lsp-dot ${dotClass[s]}`;
-    statusLspEl.replaceChildren(dot, map[s]);
+    // D3 P-09：状态点 + 文案渲染收敛到 lspStatus（语言切换重取词）
+    setLspEngineStatus(s);
   });
 
   // 全局键位路由（window 级 keydown + Double Shift）——阶段二外提到 windowKeys.ts；
