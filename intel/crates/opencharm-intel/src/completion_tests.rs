@@ -1151,6 +1151,9 @@ fn chain_fixture() -> TraceIndex {
             ("users.py", "User.__init__", 8, 40, 0),
             // fid 9: User.get_name → str（通过 list 元素类型再走方法）
             ("users.py", "User.get_name", 9, 35, 0),
+            // fid 10: Order 类 body 本身（probe 真实形态：qualname=Order、ret=None——
+            // e2e 抓出的盲区：若类构造不优先于 ret_type_of，None 会截胡）
+            ("order.py", "Order", 10, 1, 0),
         ];
         for (f, q, l, h, s) in funcs {
             conn.execute(
@@ -1187,12 +1190,23 @@ fn chain_fixture() -> TraceIndex {
             )
             .unwrap();
         }
-        // Order.__init__ 参数观测（self 之外有 amount 参数——证明构造观测存在）
+        // Order.__init__ 参数观测（对齐真实 probe 形态：self 的类型标签 = 实例类型）
         conn.execute(
-                "INSERT INTO arg_types(fid,arg,type_label,shape,count) VALUES(5,'amount','float','',20)",
-                [],
-            )
-            .unwrap();
+            "INSERT INTO arg_types(fid,arg,type_label,shape,count) VALUES(5,'self','Order','',80)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO arg_types(fid,arg,type_label,shape,count) VALUES(5,'amount','float','',20)",
+            [],
+        )
+        .unwrap();
+        // 类 body 行的 ret 观测 = None（probe 对类 body 的真实记录形态）
+        conn.execute(
+            "INSERT INTO ret_types(fid,type_label,shape,count) VALUES(10,'None','',1)",
+            [],
+        )
+        .unwrap();
         // User 的实例属性（User.get_name 的 receiver 是 User 实例——属性来自 rets/args 的 shape 聚合）
         conn.execute(
                 "INSERT INTO ret_types(fid,type_label,shape,count) VALUES(8,'User','[\"email\",\"name\"]',40)",

@@ -481,17 +481,21 @@ pub(crate) fn infer_call_chain_type(
     Some(ty)
 }
 
-/// 首段 callee 的类型：无点 → ret 观测 / 类构造；带点（`order.get_total`）→
+/// 首段 callee 的类型：无点 → **类构造优先** / ret 观测；带点（`order.get_total`）→
 /// head 变量类型 × 方法匹配（head 必须是单标识符——`mod.func` 的模块名推不出类型）。
+///
+/// 类构造优先的依据（e2e 实测根因，2026-10-10）：probe 把**类 body 本身**也记为
+/// qualname=`Order`、ret=`None` 的函数——若先走 `ret_type_of`，`Order(...)` 会被
+/// 类 body 的 `None` 截胡，类构造约定永远走不到。而 `Cls.__init__` 的 **self 参数
+/// 观测标签**（如 `shop.Order`）就是构造出的实例类型——比「类型=类名」假设更强，
+/// 连模块前缀都对齐（成员聚合 `members_for_type` 按标签精确匹配，标签错则全空）。
 fn first_call_type(index: &TraceIndex, text: &str, callee: &str, line: u32) -> Option<String> {
     match callee.rfind('.') {
         None => {
-            if let Some(t) = ret_type_of(index, callee) {
-                return Some(t);
+            if let Some(ty) = ctor_instance_type(index, callee) {
+                return Some(ty);
             }
-            // 类构造约定（与 completion::resolve_callee 的 A8 回落同一裁决）：
-            // 无函数观测但存在 `Cls.__init__` 观测 → 实例类型 = 类名。
-            class_ctor_observed(index, callee).then(|| callee.to_string())
+            ret_type_of(index, callee)
         }
         Some(pos) => {
             let head = &callee[..pos];
@@ -503,6 +507,33 @@ fn first_call_type(index: &TraceIndex, text: &str, callee: &str, line: u32) -> O
             method_ret_type(index, &head_ty, method)
         }
     }
+}
+
+/// 类构造实例类型：存在 `Cls.__init__` 观测（qualname == 或段边界后缀匹配，与
+/// completion::resolve_callee 的 A8 回落同款约定）时，取其 **self 参数**的证据最高
+/// 类型观测——即真实实例标签。无观测/无 self → None。
+fn ctor_instance_type(index: &TraceIndex, name: &str) -> Option<String> {
+    if name.is_empty() {
+        return None;
+    }
+    let suffix = format!("{name}.__init__");
+    let mut best: Option<(String, i64)> = None;
+    for f in index.functions() {
+        if !(f.qualname == suffix
+            || (f.qualname.ends_with(&suffix) && {
+                let head = &f.qualname[..f.qualname.len() - suffix.len()];
+                head.ends_with('.')
+            }))
+        {
+            continue;
+        }
+        for a in &f.args {
+            if a.arg == "self" && best.as_ref().is_none_or(|(_, c)| a.count > *c) {
+                best = Some((a.type_label.clone(), a.count));
+            }
+        }
+    }
+    best.map(|(t, _)| t)
 }
 
 /// head 类型 + 方法名 → 方法返回类型：`by_second_last_segment(parent段)` 粗筛，
@@ -523,23 +554,6 @@ fn method_ret_type(index: &TraceIndex, head_ty: &str, method: &str) -> Option<St
         }
     }
     best.map(|(t, _)| t)
-}
-
-/// 类构造观测判定：qualname == `{name}.__init__`，或以 `.{name}.__init__` 结尾
-/// （段边界，嵌套类 `Outer.Cls.__init__` 也算）——与 completion::resolve_callee
-/// 的 A8 修复同款约定。
-fn class_ctor_observed(index: &TraceIndex, name: &str) -> bool {
-    if name.is_empty() {
-        return false;
-    }
-    let suffix = format!("{name}.__init__");
-    index.functions().iter().any(|f| {
-        f.qualname == suffix
-            || (f.qualname.ends_with(&suffix) && {
-                let head = &f.qualname[..f.qualname.len() - suffix.len()];
-                head.ends_with('.')
-            })
-    })
 }
 
 /// 调用路径名：标识符 + 点（如 `scraper.parse_page`）。
