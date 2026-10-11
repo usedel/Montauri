@@ -9,6 +9,8 @@ export type KeybindingId =
   | "run_project"
   | "stop"
   | "run_selection"
+  // VS Code 调研 借鉴-2（对标 Jupyter cell）：`# %%` 单元格执行（scratch.ts）
+  | "run_cell"
   | "global_search"
   | "goto_definition"
   | "duplicate_line"
@@ -128,6 +130,8 @@ export const KEYBINDING_META: KeybindingMeta[] = [
   { id: "run_project", label: "运行项目", def: "Ctrl+Shift+F10", scope: "window" },
   { id: "stop", label: "停止运行", def: "Ctrl+F2", scope: "window" },
   { id: "run_selection", label: "运行选区 / 行", def: "Alt+Shift+E", scope: "editor" },
+  // VS Code 调研 借鉴-2：单元格执行（Ctrl+Enter = Jupyter/Colab 同款；与 Alt+Shift+E 选区运行并存）
+  { id: "run_cell", label: "运行单元格（# %%）", def: "Ctrl+Enter", scope: "editor" },
   { id: "global_search", label: "全局搜索", def: "Ctrl+Shift+F", scope: "window" },
   { id: "goto_definition", label: "跳转定义（F12 / Ctrl+点击固定保留）", def: "Ctrl+B", scope: "editor" },
   // P1（查找引用）：完整引用列表（PyCharm Alt+F7 同款）；Shift+F12 仍保留 Monaco peek 快速预览
@@ -296,6 +300,7 @@ export const KEYBINDING_GROUP: Record<KeybindingId, KeybindingGroup> = {
   run_project: "run",
   stop: "run",
   run_selection: "run",
+  run_cell: "run",
   run_history: "run",
   // 调试
   debug: "debug",

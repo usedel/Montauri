@@ -299,12 +299,12 @@ export function appendOutputLine(
   container: HTMLElement,
   text: string,
   cls: string,
-  onLink: (link: OutputLink) => void,
+  onLink?: (link: OutputLink) => void,
   channel?: OutputChannel,
 ): HTMLElement {
   if (cls === "stderr") tracebackHandler?.(text);
   const line = document.createElement("div");
-  renderLineContent(line, text, cls, onLink);
+  renderLineContent(line, text, cls, onLink ?? (() => undefined));
   const lvl = levelColorsEnabled() ? detectLogLevel(text) : null;
   if (lvl) {
     line.classList.add(`lvl-${lvl}`); // 着色（左侧色条 + 级别文字色），不影响既有 cls 语义

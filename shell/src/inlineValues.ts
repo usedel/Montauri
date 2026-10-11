@@ -84,6 +84,11 @@ export function updateInlineValues(path: string, vars: Array<{ name: string; val
       found.push({
         range: new monaco.Range(line, endCol, line, endCol),
         options: {
+          // 空区间锚点必须配 showIfCollapsed: true：Monaco 的
+          // getInjectedTextInInterval 按 `showIfCollapsed || !range.isEmpty()` 过滤，
+          // 缺它时装饰进了 model 却永不渲染（静默，无报错）
+          // ——2026-10-11 借行内诊断（借鉴-1）的 e2e 探针实测确认。
+          showIfCollapsed: true,
           after: { content: ` = ${value}`, inlineClassName: "debug-inline-value" },
         },
       });
@@ -96,6 +101,11 @@ export function updateInlineValues(path: string, vars: Array<{ name: string; val
 export function clearInlineValues(): void {
   collection?.clear();
   collection = null;
+}
+
+/** 行内变量值当前是否上屏（行内诊断据此整体让位——同一行尾两处注入文本会叠字） */
+export function inlineValuesActive(): boolean {
+  return collection !== null;
 }
 
 function escapeRe(s: string): string {

@@ -18,6 +18,7 @@ mod logging;
 mod lsp;
 mod openapi_cmds;
 mod search_cmds;
+mod scratch_cmds;
 mod plugin_cmds;
 mod per_window;
 mod plugin_pkg;
@@ -155,6 +156,7 @@ pub fn run() {
             search_cmds::read_import_aliases,
             search_cmds::list_workspace_files,
             search_cmds::list_workspace_dirs,
+            scratch_cmds::scratch_eval,
             search_cmds::ruff_lint,
             // 本地历史（P1：无 Git 工作区的保存快照 / diff / 回滚）
             history::history_snapshot,

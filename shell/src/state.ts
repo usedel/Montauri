@@ -21,8 +21,9 @@ export interface Tab {
   dirty: boolean;
   /** 切标签时的编辑器视图状态（光标/滚动/选区），activateTab 保存与恢复 */
   viewState?: MonacoApi.editor.ICodeEditorViewState;
-  /** tab 类型：普通文件（默认）| git diff 视图 | 数据库视图（表数据 / SQL 查询）| Markdown 预览（只读） */
-  kind?: "file" | "diff" | "db" | "md";
+  /** tab 类型：普通文件（默认）| git diff 视图 | 数据库视图（表数据 / SQL 查询）
+   *  | Markdown 预览（只读）| CSV 数据查看（只读，VS Code 调研 借鉴-4） */
+  kind?: "file" | "diff" | "db" | "md" | "csv";
   /** kind="diff" 时的元数据 */
   diff?: {
     /** 三态基准（auto/index/head），切 tab 恢复 */
@@ -61,6 +62,10 @@ export interface Settings {
   /** 括号对参考线（T6a · 微交互批：Monaco guides.bracketPairs，VSCode 默认开；
    *  嵌套 dict/JSON 深的代码可读性受益） */
   bracket_pair_guides: boolean;
+  /** 行内诊断文案（VS Code 调研 借鉴-1 · 对标 Error Lens）：光标附近行的行尾就地显示
+   *  error/warning 消息。**默认关**——行尾文案属代码区装饰，常开会变成噪音墙
+   *  （须与 Rust settings.rs 同步） */
+  inline_diagnostics: boolean;
   /** 调试「只步进我的代码」（B-3：不误入 site-packages；改动需重启调试会话生效） */
   debug_just_my_code: boolean;
   autosave: string;
@@ -224,6 +229,9 @@ export const DEFAULT_SETTINGS: Settings = {
   inlay_param_hints: true,
   // T6a：括号对参考线默认开（VSCode guides.bracketPairs 同款默认；!== false 兼容旧配置）
   bracket_pair_guides: true,
+  // VS Code 调研 借鉴-1：行内诊断文案默认关（噪音纪律第 4 条；旧配置缺字段时同样兜底关，
+  // 故**不能**沿用 `!== false` 的开向兼容，须与 Rust Settings::default 同步）
+  inline_diagnostics: false,
   // B-3（PyCharm 调研）：只步进我的代码，默认开（与 DAP attach 硬编码时代行为一致）
   debug_just_my_code: true,
   // autosave 默认 delay 2s（PyCharm 式数据安全优先，对标 VSCode/PyCharm 调研结论）；

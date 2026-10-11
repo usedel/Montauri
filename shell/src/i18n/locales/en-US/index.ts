@@ -6,6 +6,7 @@
 import type { TKey } from "../zh-CN";
 import { cloneRepository } from "./cloneRepository";
 import { core } from "./core";
+import { csv } from "./csv";
 import { database } from "./database";
 import { debug } from "./debug";
 import { dep } from "./dep";
@@ -23,10 +24,11 @@ import { lt } from "./lt";
 import { main } from "./main";
 import { newproject } from "./newproject";
 import { run } from "./run";
+import { scratch } from "./scratch";
 import { search } from "./search";
 import { settings } from "./settings";
 import { storage } from "./storage";
 import { welcome } from "./welcome";
 import { workbench } from "./workbench";
 
-export const enUS: Record<TKey, string> = { ...core, ...git, ...hotspots, ...debug, ...filetree, ...run, ...env, ...storage, ...dep, ...settings, ...newproject, ...welcome, ...search, ...workbench, ...editor, ...ide, ...lt, ...logs, ...devtools, ...ext, ...endpoints, ...database, ...main, ...cloneRepository };
+export const enUS: Record<TKey, string> = { ...core, ...git, ...hotspots, ...debug, ...filetree, ...run, ...env, ...storage, ...dep, ...settings, ...newproject, ...welcome, ...search, ...workbench, ...editor, ...ide, ...lt, ...logs, ...devtools, ...ext, ...endpoints, ...database, ...main, ...cloneRepository, ...csv, ...scratch };

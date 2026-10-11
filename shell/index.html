@@ -247,6 +247,10 @@
                  #editor-row 内与 #editor 互斥的浮层，内容由 mdPreviewTab.ts 惰性构建
                  （工具栏 + 渲染主体，多 Tab 共享同一份 DOM）。 -->
             <div id="md-preview-tab-panel" class="hidden"></div>
+            <!-- CSV 数据查看 Tab 宿主（VS Code 调研 借鉴-4）：照 #md-preview-tab-panel 范式——
+                 #editor-row 内与 #editor 互斥的浮层，内容由 csvTab.ts 惰性构建
+                 （状态条 + 复用 sqliteGrid 的表格，多 Tab 共享同一份 DOM）。 -->
+            <div id="csv-tab-panel" class="hidden"></div>
             <!-- Git 差异视图宿主（第 2 步迁移：diff tab 激活时显示，与 #editor 互斥；
                  DOM 从底部面板整体迁入，Monaco diffEditor 单实例不重建。
                  布局改纵向：工具栏行（原 git-diff-header）+ 块级合并面板 + diff 编辑器 -->
@@ -946,6 +950,12 @@
                   <div class="settings-row">
                     <label data-i18n="settings.editor.sectionEditorLabel22" for="settings-bracket-pair-guides">括号对参考线（嵌套层级竖线）</label>
                     <input id="settings-bracket-pair-guides" type="checkbox" />
+                  </div>
+                  <!-- VS Code 调研 借鉴-1（对标 Error Lens）：行尾就地显示诊断消息。
+                       默认关——行尾文案属「代码区装饰」，全量常开会变成噪音墙，故沿用 A2 性能模式同款默认关纪律。 -->
+                  <div class="settings-row">
+                    <label data-i18n="settings.editor.sectionEditorLabel23" for="settings-inline-diagnostics">行内显示诊断消息（光标附近行行尾）</label>
+                    <input id="settings-inline-diagnostics" type="checkbox" />
                   </div>
                 </div>
               </div>

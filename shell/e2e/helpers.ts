@@ -592,6 +592,8 @@ async function dispatchGit(cmd: string, args: Record<string, unknown>, repo: Git
 /** fs 命令白名单（未列出的 fs 命令直接报错，避免静默 null 引发前端崩溃难排查） */
 const FS_DISPATCH_CMDS = new Set(["list_dir", "read_dir", "read_file", "read_file_base64", "write_file",
   "create_dir", "create_file", "create_py_package", "rename_path", "paste_path", "delete_file", "watch_start", "watch_stop", "list_workspace_files",
+  // VS Code 调研 借鉴-3：路径补全数据源（对齐 Rust list_workspace_dirs 的两种语义）
+  "list_workspace_dirs",
   "write_dropped_file", "create_project"]);
 
 async function dispatchFs(cmd: string, args: Record<string, unknown>, repo: GitRepo): Promise<unknown> {
@@ -691,6 +693,45 @@ async function dispatchFs(cmd: string, args: Record<string, unknown>, repo: GitR
       }
       writeFileSync(final, bytes);
       return final;
+    }
+    // VS Code 调研 借鉴-3：对齐 Rust search_cmds::list_workspace_dirs
+    //   · files !== true（缺省）→ 递归子目录清单（Vec<String> → 此处按 DirEntry 兼容返回）
+    //   · files === true        → 只列 sub 单个目录的条目，目录优先 + 名称升序 + 隐藏过滤
+    case "list_workspace_dirs": {
+      const root = guard(String(args.root ?? repo.root));
+      const sub = String(args.sub ?? "");
+      if (args.files === true) {
+        let target = root;
+        for (const part of sub.split("/")) {
+          const p = part.trim();
+          if (!p || p === "." || p === "..") continue; // 与 Rust resolve_sub_dir 同款夹回
+          target = join(target, p);
+        }
+        if (!existsSync(target)) return [];
+        const dirs: Array<{ name: string; is_dir: boolean }> = [];
+        const files: Array<{ name: string; is_dir: boolean }> = [];
+        for (const e of readdirSync(target, { withFileTypes: true })) {
+          if (e.name.startsWith(".") || e.name === "node_modules") continue;
+          const item = { name: e.name, is_dir: e.isDirectory() };
+          (e.isDirectory() ? dirs : files).push(item);
+        }
+        dirs.sort((a, b) => a.name.localeCompare(b.name));
+        files.sort((a, b) => a.name.localeCompare(b.name));
+        return [...dirs, ...files];
+      }
+      const out: string[] = [];
+      const walk = (dir: string, prefix: string): void => {
+        if (!existsSync(dir)) return;
+        for (const e of readdirSync(dir, { withFileTypes: true })) {
+          if (!e.isDirectory() || e.name === ".git" || e.name === "node_modules") continue;
+          const rel = prefix ? `${prefix}/${e.name}` : e.name;
+          out.push(rel);
+          walk(join(dir, e.name), rel);
+        }
+      };
+      walk(root, "");
+      out.sort();
+      return out.map((name) => ({ name, is_dir: true }));
     }
     case "list_workspace_files": {
       // quickOpen 文件源：递归列出仓库内文件（对齐后端 ignore 走查的粗粒度——跳 .git 即可）

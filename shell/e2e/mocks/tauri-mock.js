@@ -1375,8 +1375,20 @@
     // 5) 静态表（args 透传给 handler——set_settings 等需要读入参）
     var h = staticHandlers[cmd];
     if (h) return h(args);
-    // 5.5) 工作区文件列表（quickOpen 文件源）：经 bridge 走真实磁盘
-    if (cmd === "list_workspace_files") {
+    // 5.6) Scratch 单元格执行（VS Code 调研 借鉴-2）：记录入参 + 回罐头输出
+    //      （浏览器侧没有真实解释器进程；协议形状对齐 Rust ScratchOut）
+    if (cmd === "scratch_eval") {
+      window.__E2E_SCRATCH_LOG__ = window.__E2E_SCRATCH_LOG__ || [];
+      window.__E2E_SCRATCH_LOG__.push(args || {});
+      if (args && args.action === "run") {
+        var c = String(args.code || "");
+        return { out: "[mock] " + c.split("\n")[0], running: true, timed_out: false };
+      }
+      return { out: "", running: false, timed_out: false };
+    }
+    // 5.5) 工作区文件列表（quickOpen 文件源）/ 工作区目录条目（VS Code 调研 借鉴-3
+    //      路径补全数据源）：经 bridge 走真实磁盘
+    if (cmd === "list_workspace_files" || cmd === "list_workspace_dirs") {
       var wb = bridge();
       if (wb) return await wb("fs", cmd, args);
       return [];

@@ -33,6 +33,7 @@ import { getSelectedTheme, setSelectedTheme, wireThemePicker } from "./themePick
 import { renderWelcomeShortcuts } from "./welcomeShortcuts";
 // 零引擎关键字补全开关（provider 只注册一次，此处只翻运行时真值）
 import { setKeywordCompletionEnabled } from "./completion/keywordCompletion";
+import { refreshInlineDiagnostics } from "./inlineDiagnostics"; // VS Code 调研 借鉴-1：行内诊断开关即时生效
 import { getLocale, onLocaleChange, setLocale, t } from "./i18n"; // 第八批 i18n：设置域动态文案走语言包
 // 工具链常驻入口（忽略首启引导后的补装路径）：按件安装复用 envPanel 的收尾逻辑
 // （envPanel 不 import 本模块，无环）；状态探测走 toolchain.ts 的共享缓存，避免三处各查各的。
@@ -90,6 +91,8 @@ const settingsBracketColorsEl = lazyEl<HTMLInputElement>("settings-bracket-color
 const settingsStickyScrollEl = lazyEl<HTMLInputElement>("settings-sticky-scroll");
 // T6a（微交互批）：括号对参考线
 const settingsBracketPairGuidesEl = lazyEl<HTMLInputElement>("settings-bracket-pair-guides");
+// VS Code 调研 借鉴-1（对标 Error Lens）：行内诊断文案（默认关）
+const settingsInlineDiagnosticsEl = lazyEl<HTMLInputElement>("settings-inline-diagnostics");
 // PR-N（dx_features_backlog §6.8）：参数名行内提示
 const settingsInlayParamHintsEl = lazyEl<HTMLInputElement>("settings-inlay-param-hints");
 // PR-C（dx_features_backlog §6.3）：保存清理
@@ -188,6 +191,7 @@ let SETTINGS_ROW_KEYWORDS: Record<string, string> = {
   "settings-indent-guides": t("settings.kw.indentGuides"),
   "settings-bracket-colors": t("settings.kw.bracketColors"),
   "settings-bracket-pair-guides": t("settings.kw.bracketPairGuides"),
+  "settings-inline-diagnostics": t("settings.kw.inlineDiagnostics"),
   "settings-debug-jmc": t("settings.kw.debugJmc"),
   "settings-autosave": t("settings.kw.autosave"),
   "settings-format-on-save": t("settings.kw.formatOnSave"),
@@ -748,6 +752,9 @@ function fillForm(settings: Settings): void {
   settingsStickyScrollEl.checked = settings.sticky_scroll !== false; // PR-B
   settingsInlayParamHintsEl.checked = settings.inlay_param_hints !== false; // PR-N
   settingsBracketPairGuidesEl.checked = settings.bracket_pair_guides !== false; // T6a
+  // VS Code 调研 借鉴-1：默认关——旧配置缺字段时兜底关（与 DEFAULT_SETTINGS 同向，
+  // `!== true` 的反向兼容在此不适用，理由同 PR-K）
+  settingsInlineDiagnosticsEl.checked = settings.inline_diagnostics ?? DEFAULT_SETTINGS.inline_diagnostics;
   settingsTrimTrailingEl.checked = settings.trim_trailing_whitespace !== false; // PR-C
   settingsFinalNewlineEl.checked = settings.final_newline !== false;
   // PR-K：默认关，旧配置缺字段时兜底关（与 DEFAULT_SETTINGS 同向，!== true 反向兼容不适用）
@@ -1012,6 +1019,7 @@ async function commitSettingsPanel(closeAfter: boolean): Promise<boolean> {
   const stickyScroll = settingsStickyScrollEl.checked; // PR-B
   const inlayParamHints = settingsInlayParamHintsEl.checked; // PR-N
   const bracketPairGuides = settingsBracketPairGuidesEl.checked; // T6a
+  const inlineDiagnostics = settingsInlineDiagnosticsEl.checked; // VS Code 调研 借鉴-1
   const trimTrailing = settingsTrimTrailingEl.checked; // PR-C
   const finalNewline = settingsFinalNewlineEl.checked;
   const newFileTemplate = settingsNewFileTemplateEl.checked; // PR-K
@@ -1054,6 +1062,7 @@ async function commitSettingsPanel(closeAfter: boolean): Promise<boolean> {
     sticky_scroll: stickyScroll,
     inlay_param_hints: inlayParamHints,
     bracket_pair_guides: bracketPairGuides, // T6a
+    inline_diagnostics: inlineDiagnostics, // VS Code 调研 借鉴-1
     trim_trailing_whitespace: trimTrailing,
     final_newline: finalNewline,
     new_file_template: newFileTemplate, // PR-K
@@ -1126,6 +1135,8 @@ async function commitSettingsPanel(closeAfter: boolean): Promise<boolean> {
   applyModelIndent(app.settings);
   // 关键字补全开关：provider 内部短路，不重注册（「恢复默认」同样经本路径落地）
   setKeywordCompletionEnabled(app.settings.keyword_completion);
+  // VS Code 调研 借鉴-1：行内诊断文案开关即时生效（关 → 清空装饰；开 → 按当前光标行重算）
+  refreshInlineDiagnostics();
   applyFontStatus();
   applyEditorKeybindings(); // 编辑器级键位即时重建（window 级实时匹配无需处理）
   refreshSplitEditorOptions(); // C-4：分屏编辑器同源 options（字号/主题/连字等即时生效）
@@ -1210,6 +1221,7 @@ export function wireSettingsPanel(): void {
       "settings-indent-guides": t("settings.kw.indentGuides"),
       "settings-bracket-colors": t("settings.kw.bracketColors"),
       "settings-bracket-pair-guides": t("settings.kw.bracketPairGuides"),
+      "settings-inline-diagnostics": t("settings.kw.inlineDiagnostics"),
       "settings-debug-jmc": t("settings.kw.debugJmc"),
       "settings-autosave": t("settings.kw.autosave"),
       "settings-format-on-save": t("settings.kw.formatOnSave"),

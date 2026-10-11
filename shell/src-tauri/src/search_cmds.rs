@@ -1043,22 +1043,96 @@ fn list_workspace_files_impl(root: &str) -> Result<Vec<String>, String> {
 
 const MAX_DIR_LIST: usize = 2_000;
 
-/// 列出工作区内的子目录（相对工作区根、统一正斜杠；复用 list_workspace_files 同一套
-/// `ignore` 走查：.gitignore 感知 + 隐藏过滤 + 噪声目录剪枝）。运行配置「工作目录」候选用；
-/// 不含根自身（根由前端以 `${workspaceRoot}` 单列），按路径排序、去重、截断。
+/// 单个目录的条目上限（VS Code 调研 借鉴-3 路径补全）：目录里几千个文件时全量返回
+/// 既拖慢补全又糊屏，按「目录优先、名称升序」截断（与 MAX_DIR_LIST 的递归口径分开）。
+const MAX_DIR_ENTRIES: usize = 300;
+
+/// 目录条目（路径补全用）
+#[derive(Serialize, Clone)]
+pub struct DirEntry {
+    pub name: String,
+    pub is_dir: bool,
+}
+
+/// 列出工作区目录条目。两种语义（**同一命令面，不加命令**——命令面已 205/205 压线）：
+///   · 缺省（`files` 不为 true）：递归列出全部子目录（相对工作区根、统一正斜杠，
+///     复用 list_workspace_files 同一套 `ignore` 走查：.gitignore 感知 + 隐藏过滤 +
+///     噪声目录剪枝）——运行配置「工作目录」候选用，不含根自身，按路径排序、去重、截断；
+///   · `files = true`：**只列 `sub` 指定的单个目录**的条目（名称 + 是否目录），供
+///     字符串字面量路径补全用。目录优先、名称升序，`..` 与绝对路径一律夹回工作区根内。
 #[tauri::command]
-pub async fn list_workspace_dirs(root: String) -> Result<Vec<String>, String> {
-    tauri::async_runtime::spawn_blocking(move || list_workspace_dirs_impl(&root))
+pub async fn list_workspace_dirs(
+    root: String,
+    sub: Option<String>,
+    files: Option<bool>,
+) -> Result<Vec<DirEntry>, String> {
+    let sub = sub.unwrap_or_default();
+    let files = files.unwrap_or(false);
+    tauri::async_runtime::spawn_blocking(move || list_workspace_dirs_impl(&root, &sub, files))
         .await
         .map_err(|e| format!("任务执行异常：{e}"))?
 }
 
-fn list_workspace_dirs_impl(root: &str) -> Result<Vec<String>, String> {
+fn list_workspace_dirs_impl(root: &str, sub: &str, with_files: bool) -> Result<Vec<DirEntry>, String> {
     let root_path = Path::new(root);
     if !root_path.is_dir() {
         return Err(format!("工作区目录不存在：{root}"));
     }
-    let root_norm = root.replace('\\', "/");
+    if !with_files {
+        return Ok(walk_dirs_recursive(root_path)?
+            .into_iter()
+            .map(|name| DirEntry { name, is_dir: true })
+            .collect());
+    }
+    Ok(list_single_dir(root_path, sub)?)
+}
+
+/// 把前端给的片段目录（`""` / `"data/"` / `"./data"` / `"/data/sub"`）解析成工作区内的真实目录。
+/// **越界一律夹回工作区根**：`..` 与绝对路径前缀都被丢弃，路径补全不得逃出工作区。
+fn resolve_sub_dir(root: &Path, sub: &str) -> PathBuf {
+    let mut out = root.to_path_buf();
+    for part in sub.replace('\\', "/").split('/') {
+        let part = part.trim();
+        if part.is_empty() || part == "." || part == ".." {
+            continue;
+        }
+        out.push(part);
+    }
+    out
+}
+
+fn list_single_dir(root: &Path, sub: &str) -> Result<Vec<DirEntry>, String> {
+    let target = resolve_sub_dir(root, sub);
+    if !target.is_dir() {
+        return Ok(Vec::new()); // 目录不存在（用户刚敲错的片段）→ 静默给空，不弹错误
+    }
+    let mut dirs: Vec<DirEntry> = Vec::new();
+    let mut files: Vec<DirEntry> = Vec::new();
+    let rd = fs::read_dir(&target).map_err(|e| format!("读取目录失败：{e}"))?;
+    for entry in rd.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.starts_with('.') || SEARCH_IGNORED_DIRS.contains(&name.as_str()) {
+            continue; // 隐藏项与噪声目录剪枝（与递归走查同一口径）
+        }
+        let is_dir = entry.file_type().map_or(false, |ft| ft.is_dir());
+        let item = DirEntry { name, is_dir };
+        if is_dir {
+            dirs.push(item);
+        } else {
+            files.push(item);
+        }
+    }
+    // 目录优先、各自按名称升序（前端按返回序给 sortText，不再二次排序）
+    dirs.sort_by(|a, b| a.name.cmp(&b.name));
+    files.sort_by(|a, b| a.name.cmp(&b.name));
+    dirs.truncate(MAX_DIR_ENTRIES);
+    files.truncate(MAX_DIR_ENTRIES);
+    dirs.append(&mut files);
+    Ok(dirs)
+}
+
+fn walk_dirs_recursive(root_path: &Path) -> Result<Vec<String>, String> {
+    let root_norm = root_path.to_string_lossy().replace('\\', "/");
     let root_norm = root_norm.trim_end_matches('/');
     let mut dirs: Vec<String> = Vec::new();
     let mut builder = ignore::WalkBuilder::new(root_path);
@@ -1596,16 +1670,56 @@ mod tests {
         // 噪声目录（.venv 在 SEARCH_IGNORED_DIRS + hidden 双重过滤）不应出现
         fs::create_dir_all(base.join(".venv").join("lib")).unwrap();
 
-        let dirs = list_workspace_dirs_impl(&base.to_string_lossy()).unwrap();
-        assert!(dirs.contains(&"src".to_string()), "应含 src");
-        assert!(dirs.contains(&"src/pkg".to_string()), "应含 src/pkg（正斜杠相对路径）");
-        assert!(!dirs.iter().any(|d| d.contains(".venv")), "噪声目录应被剪枝");
-        assert!(!dirs.iter().any(|d| d.is_empty()), "不含根自身（空串）");
+        let dirs = list_workspace_dirs_impl(&base.to_string_lossy(), "", false).unwrap();
+        let names: Vec<String> = dirs.iter().map(|d| d.name.clone()).collect();
+        assert!(names.contains(&"src".to_string()), "应含 src");
+        assert!(names.contains(&"src/pkg".to_string()), "应含 src/pkg（正斜杠相对路径）");
+        assert!(!names.iter().any(|d| d.contains(".venv")), "噪声目录应被剪枝");
+        assert!(!names.iter().any(|d| d.is_empty()), "不含根自身（空串）");
+        assert!(dirs.iter().all(|d| d.is_dir), "旧语义只返目录");
         // 排序 + 去重
-        let mut sorted = dirs.clone();
+        let mut sorted = names.clone();
         sorted.sort();
         sorted.dedup();
-        assert_eq!(dirs, sorted);
+        assert_eq!(names, sorted);
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    // VS Code 调研 借鉴-3：单目录条目（路径补全数据源）
+    #[test]
+    fn test_list_workspace_dirs_single_dir() {
+        let base = tmpdir("direntries");
+        fs::create_dir_all(base.join("data").join("raw")).unwrap();
+        fs::write(base.join("data").join("a.csv"), "x").unwrap();
+        fs::write(base.join("main.py"), "x=1").unwrap();
+        fs::create_dir_all(base.join(".venv")).unwrap(); // 噪声 + hidden
+        fs::write(base.join(".hidden"), "x").unwrap();
+
+        // 根：目录优先，其次文件；隐藏项与噪声目录剪枝
+        let root_entries = list_workspace_dirs_impl(&base.to_string_lossy(), "", true).unwrap();
+        assert_eq!(root_entries[0].name, "data", "目录优先");
+        assert!(root_entries[0].is_dir);
+        assert!(root_entries.iter().any(|e| e.name == "main.py" && !e.is_dir));
+        assert!(!root_entries.iter().any(|e| e.name.starts_with('.')), "隐藏项应被剪枝");
+
+        // 子目录：`data/` 与 `/data` 与 `./data` 三种写法等价
+        for sub in ["data/", "/data", "./data", "data"] {
+            let es = list_workspace_dirs_impl(&base.to_string_lossy(), sub, true).unwrap();
+            assert_eq!(es.len(), 2, "sub={sub} 应含 raw 与 a.csv");
+            assert_eq!(es[0].name, "raw");
+            assert!(es[0].is_dir);
+            assert_eq!(es[1].name, "a.csv");
+            assert!(!es[1].is_dir);
+        }
+
+        // 越界夹回工作区根：`..` 与绝对前缀都不得逃出根
+        let esc = list_workspace_dirs_impl(&base.to_string_lossy(), "../../..", true).unwrap();
+        assert_eq!(esc.len(), root_entries.len(), "`..` 应被夹回根");
+
+        // 目录不存在 → 静默空（用户敲错的片段不该弹错误）
+        assert!(list_workspace_dirs_impl(&base.to_string_lossy(), "nope/", true)
+            .unwrap()
+            .is_empty());
         fs::remove_dir_all(&base).unwrap();
     }
 

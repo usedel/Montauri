@@ -1,0 +1,46 @@
+/* CSV 数据查看 Tab 宿主（VS Code 调研 借鉴-4 · csvTab.ts）
+   照 #md-preview-tab-panel 范式：#editor-row 内 absolute 浮层，与 #editor 互斥显隐。
+   表格本体**完全复用** sqliteGrid 的 .db-grid（B3 的虚拟化表格 / 列筛选 / 复制整行），
+   这里只补宿主布局与状态条——不重复造表格样式（改一处漏一处的漂移面）。
+
+   分文件理由同 hotspots.css / inlineDiagnostics.css：style.css 余量已不足（budgets.toml），
+   新功能一律不再往主样式表堆。经 style.css 顶部 @import 内联进 bundle，
+   audit_tokens.py 已支持 @import 解析（拆分不得缩小审计面）。 */
+
+#csv-tab-panel {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+.csv-tab-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+
+/* 状态条：行数 / 截断提示由 sqliteGrid::statusText 生成（走 database.* 词条） */
+.csv-tab-status {
+  color: var(--fg-dim);
+  font-size: var(--text-xs);
+}
+
+.csv-tab-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* 空态 / 读失败 / 非 UTF-8：与 md 预览的 read-failed 同款弱化排版 */
+.csv-empty {
+  padding: var(--space-6);
+  color: var(--fg-dim);
+  font-style: italic;
+}

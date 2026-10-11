@@ -1,0 +1,31 @@
+/* 行内诊断文案（VS Code 调研 借鉴-1 · Error Lens 对标；inlineDiagnostics.ts）
+   —— 代码行尾就地显示 error / warning 消息。
+
+   噪音纪律（改动前先读 inlineDiagnostics.ts 文件头）：
+   · 只显示 error / warning，且只在「光标行 ± 2 行」窗口内；
+   · 单行不换行、不撑行高（ui-baseline 截图基线的硬要求）；
+   · 级别只靠**颜色**表达（--danger / --warn），不加图标、不加背景块——
+     背景块会在深浅两主题下各造出一块新色面，与「装饰有害」的判断冲突。
+
+   分文件理由同 hotspots.css / endpointSample.css：style.css 余量已不足（budgets.toml），
+   新功能一律不再往主样式表堆。经 style.css 顶部 @import 内联进 bundle，
+   audit_tokens.py 已支持 @import 解析（拆分不得缩小审计面）。 */
+
+.oc-inline-diag {
+  /* 与 .debug-inline-value（行内变量值）同一视觉语言：弱化、不抢代码主体 */
+  font-size: 0.9em;
+  opacity: 0.85;
+  /* 提示文本：不可选中也不可点击，避免复制代码时把诊断文案一起带走 */
+  pointer-events: none;
+  /* 单行不换行：诊断消息常含换行，压成一行由 normalizeMessage 负责，这里兜底防撑行高 */
+  white-space: pre;
+  overflow: hidden;
+}
+
+.oc-inline-diag--error {
+  color: var(--danger);
+}
+
+.oc-inline-diag--warning {
+  color: var(--warn);
+}

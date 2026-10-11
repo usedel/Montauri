@@ -27,6 +27,7 @@ export const settings: Record<SettingsKey, string> = {
   "settings.kw.fontFamily": "font family",
   "settings.kw.formatOnSave": "format ruff",
   "settings.kw.indentGuides": "indent guides",
+  "settings.kw.inlineDiagnostics": "inline diagnostics error lens line end message",
   "settings.kw.insertSpaces": "indent spaces",
   "settings.kw.intel": "intel runtime intelligence",
   "settings.kw.ligatures": "ligatures",

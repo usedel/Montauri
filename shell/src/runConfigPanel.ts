@@ -192,14 +192,15 @@ async function provideCwdCandidates(): Promise<ComboboxItem[]> {
     { label: "${workspaceRoot}", detail: t("run.cfg.workspaceRoot"), value: "${workspaceRoot}" },
   ];
   if (!app.workspaceRoot) return out;
-  let dirs: string[] = [];
+  let dirs: Array<{ name: string; is_dir: boolean }> = [];
   try {
-    dirs = await invoke<string[]>("list_workspace_dirs", { root: app.workspaceRoot });
+    // 缺省语义（不带 files）= 递归子目录清单；`files=true` 是路径补全的单目录模式
+    dirs = await invoke<Array<{ name: string; is_dir: boolean }>>("list_workspace_dirs", { root: app.workspaceRoot });
   } catch (e) {
     toastFail(t("run.cfg.failReadDirs"), e);
   }
   for (const d of dirs) {
-    out.push({ label: d, detail: "${workspaceRoot}/" + d, value: "${workspaceRoot}/" + d });
+    out.push({ label: d.name, detail: "${workspaceRoot}/" + d.name, value: "${workspaceRoot}/" + d.name });
   }
   return out;
 }

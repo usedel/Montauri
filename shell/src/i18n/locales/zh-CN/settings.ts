@@ -26,6 +26,7 @@ export const settings = {
   "settings.kw.fontFamily": "font family 字体",
   "settings.kw.formatOnSave": "format ruff 格式化",
   "settings.kw.indentGuides": "indent guides 参考线",
+  "settings.kw.inlineDiagnostics": "inline diagnostics error lens 行内诊断 行尾 错误提示",
   "settings.kw.insertSpaces": "indent spaces 缩进空格",
   "settings.kw.intel": "intel runtime 运行时智能",
   "settings.kw.ligatures": "ligatures 连字",

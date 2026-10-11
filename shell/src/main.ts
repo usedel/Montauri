@@ -119,6 +119,10 @@ import {
 } from "./breadcrumbs";
 import { initDebugConsole, clearDebugConsole } from "./debugConsole";
 import { initInlineValues } from "./inlineValues";
+// VS Code 调研 借鉴-1（对标 Error Lens）：行内诊断文案（光标附近行行尾；默认关）
+import { initInlineDiagnostics, noteMarkersChanged, refreshInlineDiagnostics } from "./inlineDiagnostics";
+// VS Code 调研 借鉴-3（对标 Path Intellisense）：字符串字面量路径补全
+import { registerPathCompletion } from "./completion/pathCompletion";
 import { lintActiveFile, resetRuffLint, scheduleRuffLint, setRuffLintHandlers } from "./ruffLint";
 import { applyPydanticMarkersOnOpen, initPydanticDiagnostics, resetPydanticDiagnostics, schedulePydanticRescan, setPydanticDiagnosticsHandlers } from "./pydanticDiagnostics";
 import { cleanupSaveContent } from "./saveCleanup"; // PR-C（dx_features_backlog §6.3）：保存清理
@@ -154,10 +158,14 @@ import {
 import { wireMenuBar } from "./menuBar";
 import { openFileFromDisk, openSingleFile, setOpenFileEntryHandlers } from "./openFileEntry";
 import { openInitialWorkspace, setLastSession, setStartupRestoreHandlers, wireStartupFileEvent } from "./startupRestore";
+import { openPreviewTab } from "./mdPreviewTab";
+// VS Code 调研 借鉴-4：CSV 数据查看 Tab + md/csv 只读预览链路的统一分派
+import { isCsvPath, openCsvTab } from "./csvTab";
+import { initScratch } from "./scratch"; // VS Code 调研 借鉴-2：# %% 单元格执行（handler 在模块内，不占本文件）
 import {
-  cleanupMdPreviewTab, dismissMdPreviewHost, mdPreviewSourcePath, mdPreviewTabIcon, mdPreviewTabLabel,
-  openPreviewTab, presentMdPreviewTab, setMdPreviewTabHandlers,
-} from "./mdPreviewTab";
+  cleanupVirtualTab, dismissVirtualHosts, isVirtualTab, presentVirtualTab, setVirtualTabHandlers,
+  virtualTabIcon, virtualTabLabel, virtualTabSourcePath,
+} from "./virtualTabs";
 import {
   initRunEvents, maybeSuggestFramework,
   resetRunSessionState, runScript, runProject, stopAllRuns,
@@ -892,6 +900,7 @@ export interface OpenFileOptions {
   /** open_file_dev_plan §1.3：md 文件打开方式覆盖（默认读 settings.markdown_open_mode）。
    *  "edit" = 强制编辑 tab（文件树双击 / 预览「编辑源码」/ markdown 链接跳转等显式编辑意图）。 */
   mdMode?: "edit";
+  csvMode?: "edit"; // VS Code 调研 借鉴-4：强制以文本编辑打开 .csv（查看器工具栏「以文本编辑」）
 }
 
 export async function openFile(path: string, revealLine?: number, opts?: OpenFileOptions): Promise<void> {
@@ -939,6 +948,8 @@ async function doOpenFile(path: string, revealLine?: number, opts?: OpenFileOpti
       mdPreview.setPreviewOpen(true);
     }
   }
+  // VS Code 调研 借鉴-4：.csv 默认开只读数据查看 Tab（文本编辑走显式 csvMode:"edit"）
+  if (isCsvPath(path) && opts?.csvMode !== "edit") { openCsvTab(path); return; }
   // P1：导航历史——先记「离开前的位置」，末尾记「到达的位置」，后退才能回到出发点
   pushCurrent();
   // 路径等价比较用 samePath（斜杠/大小写无关）：会话恢复的 tab 路径与文件树/Rust
@@ -1040,6 +1051,7 @@ function activateTab(tab: Tab, opts?: { focusEditor?: boolean }): void {
     // 模型不动（占位）、状态栏显示 diff: 前缀路径、编辑器专属装饰全部跳过
     app.editor.setModel(null);
     dismissDbHost(); // v1.4：db Tab 宿主与 diff 宿主同为 #editor-row 浮层，互斥
+    dismissVirtualHosts(); // 预览宿主（md / csv）同为 #editor-row 浮层，互斥
     presentDiffHost(tab);
     splitEditor.setDiffActive(true); // C-4：diff 占满编辑区，分屏（若开着）一并隐藏
     renderTabs();
@@ -1055,6 +1067,7 @@ function activateTab(tab: Tab, opts?: { focusEditor?: boolean }): void {
     app.editor.setModel(null);
     dismissDiffHost(); // P0（2026-10-08 review）：db 宿主与 diff 宿主同为 #editor-row 浮层互斥——
     // 漏掉时 diff→db 切换后旧 diff 面板残留遮挡 db 面板（diff 分支与文件分支均已互调 dismiss）
+    dismissVirtualHosts(); // 预览宿主（md / csv）同理
     presentDbTab(tab);
     splitEditor.setDiffActive(true); // db Tab 占满编辑区，分屏（若开着）一并隐藏
     renderTabs();
@@ -1063,17 +1076,17 @@ function activateTab(tab: Tab, opts?: { focusEditor?: boolean }): void {
     mdPreview.updatePreviewVisibility();
     return;
   }
-  if (tab.kind === "md") {
-    // open_file_dev_plan §1.3：Markdown 预览 Tab（只读）——主编辑器隐藏，
-    // 宿主由 mdPreviewTab.presentMdPreviewTab 显示（激活即重读源文件，外部修改可见）。
-    // 互斥链三方：diff / db / md 宿主都是 #editor-row 浮层，切走时统一 dismiss。
+  if (isVirtualTab(tab)) {
+    // open_file_dev_plan §1.3：Markdown 预览 Tab（只读）；VS Code 调研 借鉴-4：CSV 数据查看
+    // Tab（只读）——主编辑器隐藏，宿主由 virtualTabs 分派（md / csv 互斥，激活即重读源文件）。
+    // 互斥链四方：diff / db / md / csv 宿主都是 #editor-row 浮层，切走时统一 dismiss。
     app.editor.setModel(null);
     dismissDiffHost();
     dismissDbHost();
-    void presentMdPreviewTab(tab);
+    void presentVirtualTab(tab);
     splitEditor.setDiffActive(true); // 预览 Tab 占满编辑区，分屏（若开着）一并隐藏
     renderTabs();
-    statusFileEl.textContent = mdPreviewSourcePath(tab.path);
+    statusFileEl.textContent = virtualTabSourcePath(tab.path);
     updateEditorOverlay(); // 预览 Tab 也是「有活动内容」，欢迎页覆盖层必须隐藏
     mdPreview.updatePreviewVisibility(); // 预览 Tab 激活时分栏预览必须隐藏（防预览套预览）
     return;
@@ -1081,7 +1094,7 @@ function activateTab(tab: Tab, opts?: { focusEditor?: boolean }): void {
   // 文件 tab：从 diff/db/md tab 切回时恢复主编辑器
   dismissDiffHost();
   dismissDbHost(); // v1.4：db Tab 宿主随切回文件隐藏（互斥，不动各 Tab 的 state）
-  dismissMdPreviewHost(); // 预览宿主同理（互斥）
+  dismissVirtualHosts(); // 预览宿主（md / csv）同理（互斥）
   splitEditor.setDiffActive(false); // C-4：分屏若开着则恢复显示
   app.editor.setModel(tab.model);
   if (tab.viewState) app.editor.restoreViewState(tab.viewState);
@@ -1118,7 +1131,7 @@ async function closeTab(tab: Tab): Promise<void> {
   const idx = app.tabs.indexOf(tab);
   if (idx === -1) return;
   // diff/db/md tab 恒不 dirty（占位模型/只读视图），无需确认直接关
-  const virtualTab = tab.kind === "diff" || tab.kind === "db" || tab.kind === "md";
+  const virtualTab = tab.kind === "diff" || tab.kind === "db" || isVirtualTab(tab);
   if (!virtualTab && tab.dirty && !(await openConfirm({ message: t("main.confirm.closeDirty", { name: basename(tab.path) }), kind: "danger" }))) return;
   closeTabSilent(tab);
   if (!virtualTab) recordClosedTab(tab.path); // PR-A：用户主动关闭入重开栈（工作区切换的批量清理不入栈）
@@ -1136,10 +1149,10 @@ export function closeTabSilent(tab: Tab): void {
     // v1.4：db tab 不走 LSP/诊断/标记链（path 是 db-data:/db-query: 虚拟路径）；
     // model（查询 Tab 的 SQL model / 占位模型）与状态表由域内统一清理
     cleanupDbTab(tab);
-  } else if (tab.kind === "md") {
-    // 预览 tab 同 diff/db：不走 LSP/诊断/标记链（path 是 mdpreview: 虚拟路径）；
-    // 占位模型与在途渲染令牌由域内统一清理
-    cleanupMdPreviewTab(tab);
+  } else if (isVirtualTab(tab)) {
+    // 预览 / 查看 tab（md · csv）同 diff/db：不走 LSP/诊断/标记链（path 是 mdpreview: /
+    // csvtab: 虚拟路径）；占位模型与在途渲染令牌由域内统一清理
+    cleanupVirtualTab(tab);
   } else {
     editorTimers.clearAutosave(tab.path); // 在途 autosave 计时器随 tab 关闭作废（防 dispose 后写盘复活内容）
     lsp.didClose(tab.path);
@@ -1157,7 +1170,7 @@ export function closeTabSilent(tab: Tab): void {
       statusFileEl.textContent = "";
       dismissDiffHost(); // 最后一个 diff tab 关闭（无下一个 tab）：宿主一并隐藏
       dismissDbHost(); // v1.4：最后一个 db tab 关闭同理
-      dismissMdPreviewHost(); // 预览 tab 同理
+      dismissVirtualHosts(); // 预览 / 查看 tab（md · csv）同理
       updateEditorOverlay();
     }
   }
@@ -1179,7 +1192,7 @@ export function renderTabs(): void {
     const active = tab === app.activeTab;
     const isDiff = tab.kind === "diff";
     const isDb = tab.kind === "db";
-    const isMd = tab.kind === "md";
+    const isMd = isVirtualTab(tab); // md 预览 / CSV 查看（两者共用同一条只读预览链路）
     // diff tab 的显示名：剥 diff: 前缀（VS Code 同款「文件名 (Working Tree)」语义）
     // db tab 的显示名由域内解析（`表名 · 库名` / `查询 N · 库名`），path 里是 connId 哈希
     // md 预览 tab：`文件名 预览`（与同名编辑 tab 区分）
@@ -1188,7 +1201,7 @@ export function renderTabs(): void {
       : isDb
         ? dbTabLabel(tab)
         : isMd
-          ? mdPreviewTabLabel(tab)
+          ? virtualTabLabel(tab)
           : basename(tab.path);
     const el = document.createElement("div");
     el.className = `tab ${active ? "active" : ""}`;
@@ -1203,7 +1216,7 @@ export function renderTabs(): void {
     // tab 内部无 data-tip，不触发规则 5 的父子不同轨冲突）
     // db tab 的 path 是 connId 哈希虚拟路径，对用户无意义——title 用显示名
     // md 预览 tab 的 path 是 mdpreview: 虚拟路径——title 用源文件路径
-    el.title = isDb ? displayName : isMd ? tab.path.slice("mdpreview:".length) : tab.path;
+    el.title = isDb ? displayName : isMd ? virtualTabSourcePath(tab.path) : tab.path;
     // diff/db/md tab 用专属图标（与文件类型图标区分）；文件 tab 保持类型图标
     el.appendChild(
       isDiff
@@ -1211,7 +1224,7 @@ export function renderTabs(): void {
         : isDb
           ? codicon(dbTabIcon(tab))
           : isMd
-            ? codicon(mdPreviewTabIcon())
+            ? codicon(virtualTabIcon(tab))
             : renderFileIcon(basename(tab.path)),
     ); // D2 P-08：标签页文件类型图标
     const name = document.createElement("span");
@@ -1663,16 +1676,14 @@ async function init(): Promise<void> {
   // openSingleFile / openFile / getRecentWorkspaces（startupRestore 只做决策编排，动作经注入解环）
   setStartupRestoreHandlers({ openWorkspace, openSingleFile, openFile, getRecentWorkspaces });
   void wireStartupFileEvent(); // 第二实例双击文件命中本窗口工作区 → 直接定位打开
-  // md 预览 Tab（批 2）：activateTab / openFile / 占位模型创建注入 mdPreviewTab 域。
-  // openFile 绑定 mdMode:"edit"——「编辑源码」/预览内链接跳转都是显式编辑/打开意图
-  // （mdMode 缺省时会按 settings.markdown_open_mode 分流，preview 模式下会开回预览死循环）。
-  setMdPreviewTabHandlers({
+  // 只读预览 Tab（md 批 2 / CSV 借鉴-4）统一注入：*Mode:"edit" 绑定与占位模型 URI 命名空间由 virtualTabs.ts 按 kind 决定。
+  setVirtualTabHandlers({
     activateTab,
-    openFile: (path) => openFile(path, undefined, { mdMode: "edit" }),
-    createModel: (path) => {
-      // 占位模型（照 diff tab 先例）：唯一 URI，随 Tab 关闭 dispose；语言标记 markdown 供语法无关功能使用
-      const uri = app.monaco.Uri.parse(`inmemory://mdpreview/${normalizePath(path)}`);
-      return app.monaco.editor.getModel(uri) ?? app.monaco.editor.createModel("", "markdown", uri);
+    openFile: (path, opts) => openFile(path, undefined, opts),
+    createModel: (ns, lang, path) => {
+      // 占位模型（照 diff tab 先例）：唯一 URI，随 Tab 关闭 dispose
+      const uri = app.monaco.Uri.parse(`inmemory://${ns}/${normalizePath(path)}`);
+      return app.monaco.editor.getModel(uri) ?? app.monaco.editor.createModel("", lang, uri);
     },
   });
 
@@ -1889,6 +1900,7 @@ async function init(): Promise<void> {
   kb.setKeybindingHandler("goto_symbol", () => void openQuickOpen("symbol"));
   // 运行选区 / 行（默认 Alt+Shift+E）
   kb.setKeybindingHandler("run_selection", () => void runSelection());
+  initScratch(app.editor, app.monaco); // VS Code 调研 借鉴-2：# %% 单元格执行（键位 + 右键菜单在模块内接线）
   // P0：Optimize Imports（默认 Ctrl+Alt+O，PyCharm 同款）
   kb.setKeybindingHandler("optimize_imports", () => void optimizeImportsActive());
   // P1：查找引用（默认 Alt+F7，PyCharm 同款）——完整列表落底部「引用」面板
@@ -1904,6 +1916,7 @@ async function init(): Promise<void> {
   lspProviders.add(lsp.registerLspCompletion());
   lspProviders.add(registerImportAliasCompletion(app.monaco)); // import 别名（纯前端静态，与引擎无关）
   lspProviders.add(registerAutoImportCompletion(app.monaco)); // PR-E：auto-import（自研 G-1 索引数据源，与引擎无关）
+  lspProviders.add(registerPathCompletion(app.monaco)); // VS Code 调研 借鉴-3：字符串字面量路径补全（段位 2aNN）
   lspProviders.add(lsp.registerLspHover());
   lspProviders.add(lsp.registerLspDefinition());
   lspProviders.add(lsp.registerLspReferences()); // Shift+F12 查找引用（peek 视图）
@@ -1985,6 +1998,18 @@ async function init(): Promise<void> {
   // 面板显示经回调注入（problemsPanel 不 import termUi，避免其 git→DOM 依赖链进单测）
   setShowPanelHandler(() => setBottomTab("problems"));
   lspProviders.add(wireProblemsPanel()); // marker 订阅入应用级 DisposableStore 收口（CR-24 纪律）
+  // VS Code 调研 借鉴-1：行内诊断文案。三个刷新时机——marker 变化（诊断到达/清理）、
+  // 光标移动（窗口随行）、切 model（换 tab）；刷新内部带「model + 光标行 + marker 世代」
+  // 指纹短路，光标在同一行内左右移动不重算。
+  initInlineDiagnostics(app.editor, app.monaco);
+  lspProviders.add(
+    app.monaco.editor.onDidChangeMarkers(() => {
+      noteMarkersChanged();
+      refreshInlineDiagnostics();
+    }),
+  );
+  lspProviders.add(app.editor.onDidChangeCursorPosition(() => refreshInlineDiagnostics()));
+  lspProviders.add(app.editor.onDidChangeModel(() => refreshInlineDiagnostics()));
   // P1-BUG-002：补全请求前冲刷防抖窗口内未同步的 didChange——`.` 触发的补全请求会赶在
   // 200ms 防抖同步之前到达引擎，引擎按旧文档计算（补全位置越界 → 空结果）
   lsp.setBeforeCompletionHook(async (model) => {

@@ -97,6 +97,8 @@ fn default_keybindings() -> HashMap<String, String> {
     m.insert("trigger_suggest".into(), "Alt+/".into());
     // 库特别支持 PR-2（python_library_support_dev_plan §4.2）：正则测试器（editor 级）
     m.insert("open_regex_tester".into(), "Ctrl+Alt+R".into());
+    // VS Code 调研 借鉴-2（对标 Jupyter cell）：`# %%` 单元格执行（与前端 KEYBINDING_META 三处同步）
+    m.insert("run_cell".into(), "Ctrl+Enter".into());
     // 诊断导航（PyCharm 同款 F8 / Shift+F8）：下一个 / 上一个错误（与前端 KEYBINDING_META 三处同步）
     m.insert("goto_next_problem".into(), "F8".into());
     m.insert("goto_prev_problem".into(), "Shift+F8".into());
@@ -140,6 +142,9 @@ pub struct Settings {
     pub inlay_param_hints: bool,
     /// 括号对参考线（T6a 微交互批：Monaco guides.bracketPairs；须与前端 bracket_pair_guides 同步）
     pub bracket_pair_guides: bool,
+    /// 行内诊断文案（VS Code 调研 借鉴-1：行尾就地显示 error/warning；默认关——
+    /// 行尾文案属代码区装饰，全量常开会变成噪音墙；须与前端 inline_diagnostics 同步）
+    pub inline_diagnostics: bool,
     /// 保存时清理行尾空白（PR-C；仅显式保存触发，autosave/运行前跳过；须与前端同步）
     pub trim_trailing_whitespace: bool,
     /// 保存时确保文件以换行结束（PR-C；仅显式保存触发；须与前端同步）
@@ -260,6 +265,8 @@ impl Default for Settings {
             inlay_param_hints: true,
             // T6a：默认开（VSCode guides.bracketPairs 同款默认；与前端 DEFAULT_SETTINGS 同步）
             bracket_pair_guides: true,
+            // VS Code 调研 借鉴-1：默认关（噪音纪律 4；与前端 DEFAULT_SETTINGS 同步）
+            inline_diagnostics: false,
             trim_trailing_whitespace: true,
             final_newline: true,
             // PR-K：默认关（避免污染草稿流；与前端 DEFAULT_SETTINGS 保持一致）
@@ -499,8 +506,10 @@ mod tests {
         // 2026-10-08 复核：62 = 60 + accept_suggestion_replace（P1-A，当时漏改此断言）+
         // force_show_templates（⚡ 强制全显补口）。另注意 TS 侧该条目是多行对象，
         // 用行内正则数 KEYBINDING_META 会漏数它（探针教训），以两侧各 62 为准。
-        assert_eq!(d.keybindings.len(), 62);
+        assert_eq!(d.keybindings.len(), 63);
         assert_eq!(d.optimize_imports_on_save, false);
+        // VS Code 调研 借鉴-1：行内诊断文案默认关（噪音纪律）
+        assert_eq!(d.inline_diagnostics, false);
     }
 
     #[test]
@@ -567,7 +576,7 @@ mod tests {
         assert_eq!(s.keybindings.get("goto_next_problem").map(String::as_str), Some("F8"));
         assert_eq!(s.keybindings.get("goto_prev_problem").map(String::as_str), Some("Shift+F8"));
         // 与 test_defaults 的漂移锁同步（62，见彼处注释）
-        assert_eq!(s.keybindings.len(), 62);
+        assert_eq!(s.keybindings.len(), 63);
         assert_eq!(s.optimize_imports_on_save, false); // 旧配置文件无此字段 → 默认关闭
     }
 }

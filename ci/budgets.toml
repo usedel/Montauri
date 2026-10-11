@@ -47,6 +47,58 @@ styles_endpointsample_max_lines = 125
 #   新功能落新文件的纪律同 hotspots.css / endpointSample.css（不再往 style.css 里堆）。
 styles_selector_max_lines = 165
 
+# inlineDiagnostics.ts（VS Code 调研 借鉴-1：行内诊断文案，2026-10-11 新增）：181 行。上限 220（余量 ~21%）。
+#   范围：纯逻辑（消息归一 / 光标行 ±2 窗口 / 同行归并与 +N 折叠 / 文案与 class）+ 编辑器接线
+#   （注入文本装饰 + 指纹短路）。单测以 vi.mock 替掉 state / inlineValues，可在 node 环境直测。
+inline_diagnostics_ts_max_lines = 220
+
+# styles/inlineDiagnostics.css（同上，2026-10-11 新增）：33 行。上限 60（余量 ~45%）。
+#   小文件按**绝对行数**给余量（同 hotspots.css 口径——比例余量只剩几行，改两条规则就破线）。
+#   范围：.oc-inline-diag 基类 + --error / --warn 两级色；经 style.css 顶部 @import 内联。
+styles_inlinediagnostics_css_max_lines = 60
+
+# csvCore.ts（VS Code 调研 借鉴-4：零依赖 CSV 解析，2026-10-11 新增）：131 行。上限 170（余量 ~30%）。
+#   范围：BOM 剥离 / UTF-8 fatal 判定 / RFC 4180 状态机解析（是 sqliteGrid::csvCell·toCsv 的反向实现）。
+#   零第三方依赖是本项立项的前提（报告「不做的条件」）——改解析逻辑不得引入依赖。
+csv_core_ts_max_lines = 170
+
+# csvTab.ts（同上：CSV 数据查看 Tab，2026-10-11 新增）：227 行。上限 285（余量 ~25%）。
+#   范围：csvtab: 命名空间 / 打开与提升 / 宿主呈现（read_file_base64 → 解析 → buildGridTable）/
+#   清理与 Tab 标题图标。表格样式与交互全部复用 sqliteGrid，不在本文件重造。
+csv_tab_ts_max_lines = 285
+
+# virtualTabs.ts（md 预览 + CSV 查看的统一分派，2026-10-11 新增）：101 行。上限 150（余量 ~48%）。
+#   存在理由：两个只读 kind 在 activateTab / renderTabs / closeTabSilent 走同一条链路，
+#   各写一份会把 main.ts 推过 2 400 上限——分派收敛到此，main 只认 isVirtualTab。
+virtual_tabs_ts_max_lines = 150
+
+# styles/csvTab.css（同上，2026-10-11 新增）：46 行。上限 65（余量 ~41%）。
+#   小文件按**绝对行数**给余量（同 hotspots.css 口径）。范围：#csv-tab-panel 宿主布局 +
+#   工具栏 / 状态条 / 空态；表格本体复用 .db-grid，不在此重复。
+styles_csvtab_css_max_lines = 65
+
+# scratchCore.ts（VS Code 调研 借鉴-2：`# %%` 单元格解析纯函数层，2026-10-11 新增）：46 行。上限 75（余量 ~63%）。
+#   分层同 epSampleCore 惯例：零 app/monaco/termUi 依赖——scratch.ts 那层 import termUi 会把
+#   xterm 的 `self` 依赖带进单测（表现为「self is not defined」），故解析必须独立成层。
+scratch_core_ts_max_lines = 75
+
+# scratch.ts（同上：单元格执行接线，2026-10-11 新增）：133 行。上限 175（余量 ~32%）。
+#   范围：runCell（连点守卫 + 输出面板）/ 空闲回收计时器（ADR-0010 立项前提）/ editor.addAction。
+#   ⚠ 改动不得绕过「按需起 / 可显式关闭 / 空闲即回收」三条款。
+scratch_ts_max_lines = 175
+
+# scratch_cmds.rs（同上：按需解释器会话，2026-10-11 新增）：385 行。上限 460（余量 ~19%）。
+#   范围：长度前缀协议 driver（嵌入 Python 源码）+ 会话生命周期（spawn / 哨兵等待 / 超时杀树 /
+#   空闲回收）。**一个命令承载 run/stop/status 三动作**——命令面已压信号线，不为本功能再开两条。
+#   上限 320 → 460（2026-10-11 显式调整，同日复核发现的两处缺陷修复）：
+#     ① `stop` 无法打断正在执行的单元格——原实现全程持会话锁做 30s 轮询，stop/status 被一并阻塞；
+#        修法是把「执行等待」移出会话锁，拆出 `Inner`（child+stdin+计时）+ `RUN_LOCK`（只串行化
+#        并发 run）+ `reap_session`/`session_renew` 两个辅助（含各自的不变式注释）；
+#     ② 会话不绑定工作区——切项目后复用旧解释器（sys.path / cwd 都是旧的），加 `Session.root`
+#        + spawn 时 `current_dir(root)`，`session_renew` 里以 root 不符判作废。
+#   **属缺陷修复的结构性增长，不是功能膨胀**；后续接线类需求仍应优先拆模块而非继续抬本条。
+scratch_cmds_rs_max_lines = 460
+
 # main.ts：2,897 → 2,312（第一刀）→ **2,094（2026-10-06 阶段二拆分第二刀，init 阶段化，−218 行）**。
 #   真实故事不是"UI 六批顺带拆了"（同期它是 +58，不是 -336），而是 tech-debt 记录的 TD-014
 #   拆分成果（~1,196）已被后续功能吃回 +1,701。
@@ -166,6 +218,12 @@ lsp_client_ts_max_lines = 1850
 #   余量留给 P0-D（`mapAdditionalTextEdits` 已在此）与 P1-A（`mapLspTextEdit` 计划落此处）。
 completion_lsp_ts_max_lines = 150
 
+# completion/pathCompletion.ts（VS Code 调研 借鉴-3：字符串字面量路径补全，2026-10-11 新增）：225 行。
+#   上限 280（余量 ~24%）。范围：触发判定（未闭合字符串 + 路径形态 / 调用白名单首参位）+
+#   目录-前缀拆分 + 候选构造 + provider 接线。分层同 keywordCompletion（纯函数零 monaco 依赖，
+#   单测可直接 import）；段位 `2aNN` 是四层合并契约的一部分，改动须同步更新单测里的段位自证。
+completion_path_ts_max_lines = 280
+
 # live-templates/ui/manager.ts（Live Templates 管理面板，首次登记 2026-10-08）：1,128 行。
 #   improvement_and_roadmap_report v1.3 已把它点名为「前十门槛新面孔」（大文件向新模块扩散的
 #   证据）——按 endpointView「首次登记」先例纳入预算面。范围：列表渲染 / 编辑器表单 /
@@ -280,8 +338,11 @@ intel_server_rs_max_lines = 700
 # + get_startup_file，及单实例路由配套 report_main_workspace / take_startup_file——用户报告双
 # bug 的修复与方案 A 收口：①关闭工作区后重启不再盲恢复 recents[0]；②双击关联文件优先于恢复
 # 最近；③第二实例拦截去重（命中已开工作区聚焦+开文件，未命中开新项目窗口））。
-# 205 = 信号线（policy warn_only），**下一个新命令必须先讨论插件化或扩本条**。
-max_tauri_commands = 205
+# 205 → 206（2026-10-11 显式调整：+1 = `scratch_eval`，VS Code 调研 借鉴-2 的单元格执行）。
+#   该命令已把 run / stop / status 三个动作**合成一个命令**（靠 action 参数分派）——为省命令面
+#   已做过一次压缩，无法再合并（run 是长任务、stop 必须能打断它，两者不能塞进同一次调用）。
+# 206 = 信号线（policy warn_only），**下一个新命令必须先讨论插件化或扩本条**。
+max_tauri_commands = 206
 
 # —— 前端产物 ——
 # dist/assets 下 JS+CSS 合计上限（KB，未压缩原始体积）= 4,989 实测（2026-10-06 重新构建）+ ~2.6% 余量。
