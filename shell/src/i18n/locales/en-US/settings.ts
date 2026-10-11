@@ -42,6 +42,7 @@ export const settings: Record<SettingsKey, string> = {
   "settings.kw.probe": "probe profiling",
   "settings.kw.probePerf": "perf performance timing",
   "settings.kw.pypiIndex": "pypi mirror pip index",
+  "settings.kw.pythonInstallMirror": "python install mirror cpython download",
   "settings.kw.reduceMotion": "motion animation reduce",
   "settings.kw.ruffSeverityE": "ruff severity pycodestyle E style diagnostic",
   "settings.kw.ruffSeverityF": "ruff severity pyflakes F diagnostic",

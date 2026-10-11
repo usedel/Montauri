@@ -33,6 +33,8 @@ describe("Settings 前端单源一致性（P2-A）", () => {
     expect(DEFAULT_SETTINGS.keyword_completion).toBe(true);
     expect(DEFAULT_SETTINGS.terminal_cwd).toBe("workspace");
     expect(DEFAULT_SETTINGS.pypi_index).toBe("https://pypi.org/simple");
+    // Q3：Python 安装包镜像默认空 = 官方源（与 Rust Settings::default 同步）
+    expect(DEFAULT_SETTINGS.python_install_mirror).toBe("");
     // 快捷键默认（PyCharm 风格；完整漂移锁见 keybindings.test.ts）
     expect(DEFAULT_SETTINGS.keybindings.save).toBe("Ctrl+S");
     expect(DEFAULT_SETTINGS.keybindings.duplicate_line).toBe("Ctrl+D");

@@ -33,6 +33,7 @@
   "settings.kw.probe": "probe profiling 探针",
   "settings.kw.probePerf": "perf performance 性能 计时",
   "settings.kw.pypiIndex": "pypi mirror pip 源",
+  "settings.kw.pythonInstallMirror": "python 安装 镜像 cpython 下载",
   "settings.kw.reduceMotion": "motion animation 动画",
   "settings.kw.ruffSeverityE": "ruff severity pycodestyle E 风格 级别 诊断",
   "settings.kw.ruffSeverityF": "ruff severity pyflakes F 级别 诊断",

@@ -111,6 +111,10 @@ export interface Settings {
   markdown_open_mode: string;
   /** PyPI 包源（uv 拉取依赖用；默认官方源，国内网络可切镜像） */
   pypi_index: string;
+  /** Python 安装包镜像（uv 下载 CPython 用，对应 UV_PYTHON_INSTALL_MIRROR）。
+   *  空串 = 官方源。与 pypi_index 分开：装 Python 走 python-build-standalone 的 GitHub
+   *  发布资产，与 PyPI 是两条链路（体验审查 Q3）。 */
+  python_install_mirror: string;
   /** 快捷键自定义（id → 键位串如 "Ctrl+D"；空串 = 解绑）。
    *  id 清单与出厂默认见 keybindings.ts 的 KEYBINDING_META（两处须同步）。 */
   keybindings: Record<string, string>;
@@ -269,6 +273,8 @@ export const DEFAULT_SETTINGS: Settings = {
   markdown_open_mode: "preview",
   // PyPI 包源默认官方源（须与 Rust Settings::default 保持同步）
   pypi_index: "https://pypi.org/simple",
+  // Python 安装包镜像默认空 = 官方源（须与 Rust Settings::default 保持同步；体验审查 Q3）
+  python_install_mirror: "",
   // 出厂默认键位（PyCharm 风格）：由 keybindingDefaults.ts 单一来源派生（tech-debt #6），
   // 与 Rust settings.rs default_keybindings 保持同步（keybindings.test.ts 有漂移锁）。
   keybindings: defaultKeybindings(),

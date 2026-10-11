@@ -197,6 +197,11 @@ pub struct Settings {
     pub markdown_open_mode: String,
     /// PyPI 包源（uv 拉取依赖用；默认官方源，国内网络可在设置面板切镜像）
     pub pypi_index: String,
+    /// Python 安装包镜像（uv 下载 CPython 用，对应 uv 的 `UV_PYTHON_INSTALL_MIRROR`）。
+    /// 空串 = 官方源（不注入该环境变量）。与 `pypi_index` **分开**：装 Python 走的是
+    /// python-build-standalone 的 GitHub 发布资产，与 PyPI 是两条链路，国内常见
+    /// 「PyPI 通、GitHub 不通」——体验审查 Q3。
+    pub python_install_mirror: String,
     /// 快捷键自定义（id → 键位串如 "Ctrl+D"；空串 = 解绑）。
     /// 旧配置文件缺此字段时经 struct 级 #[serde(default)] 整体回落 default_keybindings；
     /// 部分键缺失（手改文件）由前端 loadSettings 逐项兜底。
@@ -299,6 +304,7 @@ impl Default for Settings {
             terminal_shell: "auto".into(),
             markdown_open_mode: "preview".into(),
             pypi_index: "https://pypi.org/simple".into(),
+            python_install_mirror: String::new(), // 空 = 官方源（不注入 UV_PYTHON_INSTALL_MIRROR）
             keybindings: default_keybindings(),
             log_enabled: true,
             log_level: "info".into(),
@@ -536,6 +542,7 @@ mod tests {
         assert_eq!(s.terminal_shell, "auto"); // 旧配置文件无此字段 → 默认自动回退
         assert_eq!(s.markdown_open_mode, "preview"); // 旧配置文件无此字段 → 默认预览 tab
         assert_eq!(s.pypi_index, "https://pypi.org/simple"); // 旧配置文件无此字段 → 默认官方源
+        assert_eq!(s.python_install_mirror, ""); // 旧配置文件无此字段 → 空 = 官方源（Q3）
         // 编辑器新增项（P1）：旧配置文件无此字段 → 回落默认
         assert_eq!(s.tab_size, 4);
         assert_eq!(s.insert_spaces, true);

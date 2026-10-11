@@ -153,6 +153,7 @@ const settingsLocaleEl = lazyEl<HTMLSelectElement>("settings-locale");
 const settingsFontFamilyPresetEl = lazyEl<HTMLSelectElement>("settings-font-family-preset");
 const settingsPypiIndexPresetEl = lazyEl<HTMLSelectElement>("settings-pypi-index-preset");
 const settingsPypiIndexEl = lazyEl<HTMLInputElement>("settings-pypi-index");
+const settingsPythonInstallMirrorEl = lazyEl<HTMLInputElement>("settings-python-install-mirror");
 const settingsLogEnabledEl = lazyEl<HTMLInputElement>("settings-log-enabled");
 const settingsLogLevelEl = lazyEl<HTMLSelectElement>("settings-log-level");
 const settingsLogKeepEl = lazyEl<HTMLInputElement>("settings-log-keep");
@@ -205,6 +206,7 @@ let SETTINGS_ROW_KEYWORDS: Record<string, string> = {
   "settings-intel": t("settings.kw.intel"),
   "settings-pypi-index": t("settings.kw.pypiIndex"),
   "settings-pypi-index-preset": t("settings.kw.pypiIndex"),
+  "settings-python-install-mirror": t("settings.kw.pythonInstallMirror"),
   "settings-terminal-cwd": t("settings.kw.terminalCwd"),
   "settings-terminal-shell": t("settings.kw.terminalShell"),
   "settings-md-open-mode": t("settings.kw.mdOpenMode"),
@@ -804,6 +806,8 @@ function fillForm(settings: Settings): void {
   // 旧配置缺 pypi_index 时兜底出厂默认（官方源）
   settingsPypiIndexEl.value = settings.pypi_index || DEFAULT_SETTINGS.pypi_index;
   syncPypiIndexPreset(settingsPypiIndexEl.value);
+  // 旧配置缺 python_install_mirror 时兜底空串（= 官方源，Q3）
+  settingsPythonInstallMirrorEl.value = settings.python_install_mirror || DEFAULT_SETTINGS.python_install_mirror;
   // 日志配置（旧配置缺字段时兜底出厂默认）
   settingsLogEnabledEl.checked = settings.log_enabled ?? DEFAULT_SETTINGS.log_enabled;
   settingsLogLevelEl.value = settings.log_level || DEFAULT_SETTINGS.log_level;
@@ -1041,6 +1045,7 @@ async function commitSettingsPanel(closeAfter: boolean): Promise<boolean> {
   const terminalShell = settingsTerminalShellEl.value;
   const markdownOpenMode = settingsMdOpenModeEl.value;
   const pypiIndex = settingsPypiIndexEl.value.trim();
+  const pythonInstallMirror = settingsPythonInstallMirrorEl.value.trim(); // Q3：空 = 官方源
   const logEnabled = settingsLogEnabledEl.checked;
   const logLevel = settingsLogLevelEl.value;
   const logKeep = Math.max(1, Math.min(10, Number(settingsLogKeepEl.value) || DEFAULT_SETTINGS.log_keep));
@@ -1108,6 +1113,7 @@ async function commitSettingsPanel(closeAfter: boolean): Promise<boolean> {
     terminal_shell: terminalShell,
     markdown_open_mode: markdownOpenMode,
     pypi_index: pypiIndex,
+    python_install_mirror: pythonInstallMirror,
     keybindings,
     log_enabled: logEnabled,
     log_level: logLevel,
@@ -1235,6 +1241,7 @@ export function wireSettingsPanel(): void {
       "settings-intel": t("settings.kw.intel"),
       "settings-pypi-index": t("settings.kw.pypiIndex"),
       "settings-pypi-index-preset": t("settings.kw.pypiIndex"),
+      "settings-python-install-mirror": t("settings.kw.pythonInstallMirror"),
       "settings-terminal-cwd": t("settings.kw.terminalCwd"),
       "settings-terminal-shell": t("settings.kw.terminalShell"),
       "settings-log-enabled": t("settings.kw.logEnabled"),

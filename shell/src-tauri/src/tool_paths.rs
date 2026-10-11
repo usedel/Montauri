@@ -32,6 +32,20 @@ fn inject_pypi_mirror(cmd: &mut Command) {
     }
 }
 
+/// 为 uv 子进程注入 Python 安装包镜像（值来自设置项 `Settings.python_install_mirror`，空 = 官方源）。
+///
+/// 与 `inject_pypi_mirror` **分开**的原因：装 Python 走的是 python-build-standalone 的 GitHub 发布资产，
+/// 与 PyPI 是两条链路——国内常见「PyPI 通、GitHub 不通」，一个镜像配好不代表另一个也通（体验审查 Q3）。
+/// 用户已显式设置 `UV_PYTHON_INSTALL_MIRROR` 时保持原样。
+fn inject_python_install_mirror(cmd: &mut Command) {
+    if std::env::var("UV_PYTHON_INSTALL_MIRROR").is_err() {
+        let mirror = crate::settings::load().python_install_mirror.trim().to_string();
+        if !mirror.is_empty() {
+            cmd.env("UV_PYTHON_INSTALL_MIRROR", mirror);
+        }
+    }
+}
+
 /// OpenCharm 运行时组件目录：<data_root>/runtime（放置随包分发的自研组件——
 /// opencharm-intel 二进制、probe/src 源码等，见第 2 步 locate_* 函数）。
 pub fn runtime_dir() -> PathBuf {
@@ -122,6 +136,8 @@ pub fn tool_command(name: &str, env_override: &str) -> Command {
     if name == "uv" {
         // 所有 uv 网络操作（tool install / pip install / uv add / uv run 等）统一走设置中的 PyPI 包源
         inject_pypi_mirror(&mut cmd);
+        // Q3：`uv venv --python X` / `uv python install` 下载 CPython 走独立镜像（与 PyPI 不同链路）
+        inject_python_install_mirror(&mut cmd);
     }
     cmd
 }

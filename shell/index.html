@@ -1152,6 +1152,16 @@
                       <input data-i18n-aria="settings.python.pypiIndex" id="settings-pypi-index" class="hidden" type="text" autocomplete="off" placeholder="https://pypi.org/simple" aria-label="自定义包源地址" spellcheck="false" />
                     </div>
                   </div>
+                  <!-- 体验审查 Q3：uv 下载 CPython 的镜像。与 PyPI 是**两条链路**（走 python-build-standalone
+                       的 GitHub 发布资产），国内常见「PyPI 通、GitHub 不通」，故必须能单独配。
+                       留空 = 官方源（不注入 UV_PYTHON_INSTALL_MIRROR）。 -->
+                  <div class="settings-row">
+                    <label data-i18n="settings.python.sectionPythonLabel10" for="settings-python-install-mirror">Python 安装包镜像</label>
+                    <div class="settings-field">
+                      <input data-i18n-aria="settings.python.pythonInstallMirror" data-i18n-ph="settings.python.pythonInstallMirrorPh" id="settings-python-install-mirror" type="text" autocomplete="off" aria-label="Python 安装包镜像地址" spellcheck="false" />
+                      <div data-i18n="settings.python.pythonInstallMirrorHint" class="settings-row-desc">装 Python 走 python-build-standalone 的 GitHub 发布资产，与 PyPI 是两条链路——国内常见「PyPI 通、GitHub 不通」，故可单独配镜像；留空用官方源。</div>
+                    </div>
+                  </div>
                 </div>
               </div>
               <div class="settings-group">
