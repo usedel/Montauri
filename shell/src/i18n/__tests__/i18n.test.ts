@@ -4,7 +4,7 @@
 // 需要宿主提供（缺 localStorage 时 i18n 回落默认语言，不应抛错——见 index.ts 的 try/catch）。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { applyDomI18n, getLocale, initI18n, onLocaleChange, setLocale, t } from "..";
+import { applyDomI18n, getLocale, i18nBind, initI18n, onLocaleChange, setLocale, t } from "..";
 import { localizeBackendError } from "../backendError";
 import { enUS } from "../locales/en-US";
 import { zhCN, zhDomains } from "../locales/zh-CN";
@@ -112,6 +112,84 @@ describe("applyDomI18n 静态骨架套用", () => {
     expect(document.documentElement.lang).toBe("zh-CN");
     setLocale("en-US");
     expect(document.documentElement.lang).toBe("en-US");
+  });
+});
+
+describe("i18nBind 动态元素绑定", () => {
+  afterEach(() => {
+    setLocale("zh-CN");
+    document.body.innerHTML = "";
+  });
+
+  it("写初值并打标记，语言切换后随之刷新（回归：面板 chrome 只构建一次）", () => {
+    const span = document.createElement("span");
+    document.body.appendChild(span);
+    i18nBind(span, "mdtab.editSource");
+    expect(span.textContent).toBe("编辑源码");
+    expect(span.getAttribute("data-i18n")).toBe("mdtab.editSource");
+
+    setLocale("en-US");
+    expect(span.textContent).toBe("Edit Source");
+  });
+
+  it("目标可指向 tip / aria / placeholder", () => {
+    const btn = document.createElement("button");
+    const input = document.createElement("input");
+    document.body.append(btn, input);
+    i18nBind(btn, "database.prevPage", "aria");
+    i18nBind(btn, "database.prevPage", "tip");
+    i18nBind(input, "database.dataFilterPlaceholder", "ph");
+    expect(btn.getAttribute("aria-label")).toBe("上一页");
+    expect(btn.getAttribute("data-tip")).toBe("上一页");
+
+    setLocale("en-US");
+    expect(btn.getAttribute("aria-label")).toBe("Previous page");
+    expect(btn.getAttribute("data-tip")).toBe("Previous page");
+    expect(input.getAttribute("placeholder")).toBe("Filter rows, e.g. status = 'paid' (Enter applies, Esc clears)");
+  });
+
+  it("带参数词条把参数存进 data-i18n-params，切换后按参数重取（不露 {page} 字面量）", () => {
+    const span = document.createElement("span");
+    document.body.appendChild(span);
+    i18nBind(span, "database.pageLabel", "text", { page: 2, pages: 7 });
+    expect(span.textContent).toBe("第 2/7 页");
+
+    setLocale("en-US");
+    expect(span.textContent).toBe("Page 2/7");
+    expect(span.textContent).not.toContain("{");
+  });
+
+  it("渲染路径重复调用会同步刷新标记与参数（页码翻页）", () => {
+    const span = document.createElement("span");
+    document.body.appendChild(span);
+    i18nBind(span, "database.pageLabel", "text", { page: 1, pages: 3 });
+    expect(span.textContent).toBe("第 1/3 页");
+    i18nBind(span, "database.pageLabel", "text", { page: 2, pages: 3 });
+    expect(span.textContent).toBe("第 2/3 页");
+
+    setLocale("en-US");
+    expect(span.textContent).toBe("Page 2/3"); // 切换后用的是最后一次的参数
+  });
+
+  it("无参重绑会清掉遗留参数（否则切换后按旧参数重取，静默错译）", () => {
+    const span = document.createElement("span");
+    document.body.appendChild(span);
+    i18nBind(span, "database.pageLabel", "text", { page: 3, pages: 9 });
+    expect(span.textContent).toBe("第 3/9 页");
+    i18nBind(span, "database.pageSize"); // 换成无参词条：参数必须一并清掉
+    expect(span.getAttribute("data-i18n-params")).toBeNull();
+    expect(span.textContent).toBe("每页");
+    setLocale("en-US");
+    expect(span.textContent).toBe("Rows per page");
+  });
+
+  it("data-i18n-params 坏值不炸（手改坏的属性只影响该元素）", () => {
+    const span = document.createElement("span");
+    span.setAttribute("data-i18n", "database.pageLabel");
+    span.setAttribute("data-i18n-params", "{not json");
+    document.body.appendChild(span);
+    expect(() => applyDomI18n(document)).not.toThrow();
+    expect(span.textContent).toBe("第 {page}/{pages} 页"); // 缺参数时占位原样保留
   });
 });
 

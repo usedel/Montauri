@@ -22,7 +22,7 @@ import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import type * as MonacoApi from "monaco-editor/esm/vs/editor/editor.api";
 import { app, $ } from "./state";
 import type { Tab } from "./state";
-import { t } from "./i18n";
+import { i18nBind, t } from "./i18n";
 import { localizeBackendError } from "./i18n/backendError";
 import { openConfirm } from "./dialog";
 import { showMenu, type MenuItem } from "./menu";
@@ -276,8 +276,8 @@ function buildPager(opts: {
   prev.id = `${opts.idPrefix}-prev`;
   prev.className = "btn btn--sm btn--icon";
   prev.appendChild(codicon("chevron-left"));
-  prev.setAttribute("aria-label", t("database.prevPage"));
-  prev.dataset.tip = t("database.prevPage");
+  i18nBind(prev, "database.prevPage", "aria");
+  i18nBind(prev, "database.prevPage", "tip");
   prev.addEventListener("click", opts.onPrev);
 
   const label = document.createElement("span");
@@ -288,16 +288,16 @@ function buildPager(opts: {
   next.id = `${opts.idPrefix}-next`;
   next.className = "btn btn--sm btn--icon";
   next.appendChild(codicon("chevron-right"));
-  next.setAttribute("aria-label", t("database.nextPage"));
-  next.dataset.tip = t("database.nextPage");
+  i18nBind(next, "database.nextPage", "aria");
+  i18nBind(next, "database.nextPage", "tip");
   next.addEventListener("click", opts.onNext);
 
   const sizeLabel = document.createElement("span");
-  sizeLabel.textContent = t("database.pageSize");
+  i18nBind(sizeLabel, "database.pageSize");
   const sizeSel = document.createElement("select");
   sizeSel.id = `${opts.idPrefix}-page-size`;
   sizeSel.className = "db-page-size";
-  sizeSel.setAttribute("aria-label", t("database.pageSize"));
+  i18nBind(sizeSel, "database.pageSize", "aria");
   for (const n of [100, 200, 500, 1000]) {
     const opt = document.createElement("option");
     opt.value = String(n);
@@ -309,15 +309,15 @@ function buildPager(opts: {
   const cancel = document.createElement("button");
   cancel.id = `${opts.idPrefix}-cancel`;
   cancel.className = "btn btn--sm db-cancel hidden";
-  cancel.textContent = t("database.cancel");
+  i18nBind(cancel, "database.cancel");
   cancel.addEventListener("click", opts.onCancel);
 
   const exportBtn = document.createElement("button");
   exportBtn.id = `${opts.idPrefix}-export`;
   exportBtn.className = "btn btn--sm";
-  exportBtn.textContent = t("database.exportCsv");
-  exportBtn.dataset.tip = t("database.exportHint", { n: EXPORT_MAX_ROWS });
-  exportBtn.setAttribute("aria-label", t("database.exportHint", { n: EXPORT_MAX_ROWS }));
+  i18nBind(exportBtn, "database.exportCsv");
+  i18nBind(exportBtn, "database.exportHint", "tip", { n: EXPORT_MAX_ROWS });
+  i18nBind(exportBtn, "database.exportHint", "aria", { n: EXPORT_MAX_ROWS });
   exportBtn.addEventListener("click", opts.onExport);
 
   pager.append(prev, label, next, sizeLabel, sizeSel, exportBtn, cancel);
@@ -344,7 +344,7 @@ function syncPager(
     return;
   }
   const info = pageOf(result.total, result.offset, pageSize);
-  if (label) label.textContent = t("database.pageLabel", { page: info.page, pages: info.pages });
+  if (label) i18nBind(label, "database.pageLabel", "text", { page: info.page, pages: info.pages });
   if (prev) prev.disabled = !info.hasPrev || querying;
   if (next) next.disabled = !info.hasNext || querying;
 }
@@ -395,8 +395,8 @@ function showCellDetail(container: HTMLElement, column: string, row: number, d: 
   head.appendChild(headLabel);
   const close = document.createElement("button");
   close.className = "db-cell-detail-close";
-  close.dataset.tip = t("common.close");
-  close.setAttribute("aria-label", t("common.close"));
+  i18nBind(close, "common.close", "tip");
+  i18nBind(close, "common.close", "aria");
   close.appendChild(codicon("close"));
   close.addEventListener("click", () => hideCellDetail(container));
   head.appendChild(close);
@@ -405,7 +405,7 @@ function showCellDetail(container: HTMLElement, column: string, row: number, d: 
   body.textContent = d.kind === "null" ? t("database.null") : d.full;
   const copy = document.createElement("button");
   copy.className = "btn btn--sm";
-  copy.textContent = t("database.copyValue");
+  i18nBind(copy, "database.copyValue");
   copy.addEventListener("click", () => void copyText(d.full));
   container.append(head, body, copy);
 }
@@ -472,13 +472,13 @@ function buildDataView(): void {
   filter.type = "text";
   filter.autocomplete = "off";
   filter.spellcheck = false;
-  filter.placeholder = t("database.dataFilterPlaceholder");
-  filter.setAttribute("aria-label", t("database.dataFilterAria"));
+  i18nBind(filter, "database.dataFilterPlaceholder", "ph");
+  i18nBind(filter, "database.dataFilterAria", "aria");
   const refresh = document.createElement("button");
   refresh.id = "db-data-refresh";
   refresh.className = "btn btn--ghost btn--icon";
-  refresh.dataset.tip = t("database.refreshAria");
-  refresh.setAttribute("aria-label", t("database.refreshAria"));
+  i18nBind(refresh, "database.refreshAria", "tip");
+  i18nBind(refresh, "database.refreshAria", "aria");
   refresh.appendChild(codicon("refresh"));
   toolbar.append(title, filter, refresh);
 
@@ -688,21 +688,21 @@ function buildQueryView(): void {
   const run = document.createElement("button");
   run.id = "db-run";
   run.className = "btn btn--sm";
-  run.textContent = t("database.run");
-  run.dataset.tip = t("database.runTip");
-  run.setAttribute("aria-label", t("database.runTip"));
+  i18nBind(run, "database.run");
+  i18nBind(run, "database.runTip", "tip");
+  i18nBind(run, "database.runTip", "aria");
   run.addEventListener("click", () => void runCurrent());
   const runAll = document.createElement("button");
   runAll.id = "db-run-all";
   runAll.className = "btn btn--sm";
-  runAll.textContent = t("database.runAll");
-  runAll.dataset.tip = t("database.runAllTip");
-  runAll.setAttribute("aria-label", t("database.runAllTip"));
+  i18nBind(runAll, "database.runAll");
+  i18nBind(runAll, "database.runAllTip", "tip");
+  i18nBind(runAll, "database.runAllTip", "aria");
   runAll.addEventListener("click", () => void runAllStatements());
   const history = document.createElement("button");
   history.id = "db-history";
   history.className = "btn btn--sm";
-  history.textContent = t("database.history");
+  i18nBind(history, "database.history");
   history.addEventListener("click", () => openHistoryMenu());
   toolbar.append(run, runAll, history);
 

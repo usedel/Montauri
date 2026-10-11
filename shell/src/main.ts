@@ -1895,8 +1895,8 @@ async function init(): Promise<void> {
     .then(() => scanPlugins())
     .then(() => registerQuickOpenActions(buildQuickOpenActions()))
     .catch((e) => console.warn("[extensions] 插件首扫失败", e));
-  // 第二十批 i18n：命令面板 label 是注册时快照——语言切换后整体重注册（registerQuickOpenActions 为替换语义）
-  onLocaleChange(() => registerQuickOpenActions(buildQuickOpenActions()));
+  // 第二十批 i18n：命令面板 label（替换语义）与 tab 标题后缀（预览/查看/查询）都是构建时取词——切换后一并重做
+  onLocaleChange(() => { registerQuickOpenActions(buildQuickOpenActions()); renderTabs(); });
   void invoke("watch_plugins_dir").catch(() => undefined); // 监听失败静默（设置页「重新扫描」兜底）
   await listen("plugins-dir-changed", () => schedulePluginRescan());
   // 模板入口快捷键（可配置，默认 Ctrl+J / Ctrl+Alt+T / Ctrl+Shift+J 强制全显）

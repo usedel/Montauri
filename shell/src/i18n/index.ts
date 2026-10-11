@@ -42,17 +42,25 @@ const PACKS: Record<Locale, Record<string, string>> = {
   "en-US": enUS as Record<string, string>,
 };
 
-/** data-i18n* 属性 → 写入目标：`null` 表示写 textContent，其余为同名属性。
+/** 标记可写入的目标（`i18nBind` 用；与 DOM_ATTRS 同源，新增目标只需加一行） */
+export type I18nTarget = "text" | "tip" | "aria" | "ph" | "title" | "alt";
+
+/** 标记目标 → [标记属性, 写入目标]：`null` 写入目标表示写 textContent，其余为同名属性。
  *  与 HTML 约定一一对应（改这里必须同步 index.html 的标记用法）：
  *  `data-i18n` 文本 / `-tip` data-tip / `-aria` aria-label / `-ph` placeholder / `-title` title / `-alt` alt。 */
-const DOM_ATTRS: [attr: string, target: string | null][] = [
-  ["data-i18n", null],
-  ["data-i18n-tip", "data-tip"],
-  ["data-i18n-aria", "aria-label"],
-  ["data-i18n-ph", "placeholder"],
-  ["data-i18n-title", "title"],
-  ["data-i18n-alt", "alt"],
-];
+const TARGET_ATTR: Record<I18nTarget, [attr: string, target: string | null]> = {
+  text: ["data-i18n", null],
+  tip: ["data-i18n-tip", "data-tip"],
+  aria: ["data-i18n-aria", "aria-label"],
+  ph: ["data-i18n-ph", "placeholder"],
+  title: ["data-i18n-title", "title"],
+  alt: ["data-i18n-alt", "alt"],
+};
+
+const DOM_ATTRS: [attr: string, target: string | null][] = Object.values(TARGET_ATTR);
+
+/** 带插值词条在语言切换后重取时要用的参数（`i18nBind` 写入，见其注释） */
+const PARAMS_ATTR = "data-i18n-params";
 
 let current: Locale | null = null;
 const listeners = new Set<() => void>();
@@ -157,6 +165,50 @@ function setText(el: Element, text: string): void {
   el.textContent = text;
 }
 
+/** 读 `data-i18n-params`（JSON）：带插值词条重取时要用到参数；坏值静默忽略，
+ *  不让一条手改坏的元素把整轮重绘炸掉。 */
+function paramsOf(el: Element): Record<string, string | number> | undefined {
+  const raw = el.getAttribute(PARAMS_ATTR);
+  if (!raw) return undefined;
+  try {
+    return JSON.parse(raw) as Record<string, string | number>;
+  } catch {
+    return undefined;
+  }
+}
+
+/** 按标记目标写入一个元素（textContent 或同名属性） */
+function writeMarked(el: Element, target: string | null, key: string, params?: Record<string, string | number>): void {
+  const text = t(key as TFuncKey, params);
+  if (target === null) setText(el, text);
+  else el.setAttribute(target, text);
+}
+
+/**
+ * 动态构建元素绑定 i18n：写初值 + 打 `data-i18n*` 标记。
+ *
+ * 为什么需要它：**惰性构建的单例面板**（md 预览 / CSV / 数据库 Tab 的工具栏、分页条）chrome 只在
+ * 首次构建时取一次词，而它们不能像 Git 面板那样在语言切换时整块重绘（重绘会清空已渲染的主体）。
+ * 打上标记后 `setLocale` → `applyDomI18n()` 会顺带刷新它们，无需各自订阅 `onLocaleChange`。
+ *
+ * 带插值的词条把参数一并存进 `data-i18n-params`，供切换后重取；在渲染路径上重复调用是安全的
+ * （每次都同步刷新标记与参数，见 csvTab/sqliteTabs 的页码）。
+ */
+export function i18nBind(
+  el: Element,
+  key: TFuncKey,
+  target: I18nTarget = "text",
+  params?: Record<string, string | number>,
+): void {
+  const [attr, tgt] = TARGET_ATTR[target];
+  el.setAttribute(attr, key);
+  // 不带参数时**清掉**遗留值：同一元素先绑带参词条、后绑无参词条（或反之）时，
+  // 残留的 params 会让 applyDomI18n 用错参数重取（静默错译，不报错）。
+  if (params) el.setAttribute(PARAMS_ATTR, JSON.stringify(params));
+  else el.removeAttribute(PARAMS_ATTR);
+  writeMarked(el, tgt, key, params);
+}
+
 /** 把语言包套用到 DOM：扫描 `data-i18n*` 标记就地改写。
  *  root 可传子树（局部刷新用），默认整篇 document。 */
 export function applyDomI18n(root: ParentNode = document): void {
@@ -164,14 +216,13 @@ export function applyDomI18n(root: ParentNode = document): void {
     for (const el of Array.from(root.querySelectorAll<HTMLElement>(`[${attr}]`))) {
       const key = el.getAttribute(attr);
       if (!key) continue;
-      const text = t(key as TKey);
-      if (target === null) setText(el, text);
-      else el.setAttribute(target, text);
+      writeMarked(el, target, key, paramsOf(el));
     }
   }
   // 顶层 root 自身带标记的情况（传子树进来时常见）
   if ("getAttribute" in root && (root as Element).hasAttribute?.("data-i18n")) {
-    setText(root as Element, t((root as Element).getAttribute("data-i18n") as TKey));
+    const el = root as Element;
+    writeMarked(el, null, el.getAttribute("data-i18n") as string, paramsOf(el));
   }
 }
 

@@ -19,7 +19,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type * as MonacoApi from "monaco-editor/esm/vs/editor/editor.api";
 import { app, $ } from "./state";
 import type { Tab } from "./state";
-import { t } from "./i18n";
+import { i18nBind, t } from "./i18n";
 import { codicon, parentDirOf, samePath } from "./util";
 import * as mdPreview from "./markdownPreview";
 
@@ -193,7 +193,7 @@ function ensurePanel(): void {
   editBtn.className = "btn btn--sm";
   editBtn.appendChild(codicon("edit"));
   const label = document.createElement("span");
-  label.textContent = t("mdtab.editSource");
+  i18nBind(label, "mdtab.editSource");
   editBtn.appendChild(label);
   editBtn.addEventListener("click", () => {
     const cur = app.activeTab;

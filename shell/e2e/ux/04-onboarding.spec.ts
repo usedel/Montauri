@@ -6,6 +6,7 @@
  *  - OG-1c 英文界面下同一入口 → 取英文正文 opencharm-help.en.md（语言路由）
  *  - OG-1d 中文目录锚点可跳转（回归：marked 对中文 href 施加 encodeURI，点击需解码）
  *  - OG-1e 预览 Tab 右键「在终端中打开」→ 终端 cwd 为文档真实目录（回归：mdpreview: 虚拟 path）
+ *  - OG-1f 语言切换 → 预览工具栏与 tab 标题同步重取词（回归：面板 chrome 惰性构建一次不刷词）
  *  - OG-2 欢迎页三步卡可见 + 指南链接可点
  *  - OG-3 有工作区时帮助菜单「欢迎页」→ overlay 完整版显示 → 点关闭恢复编辑器
  *  - OG-4 命令面板「新手指南」可达（打开指南）
@@ -164,6 +165,30 @@ test.describe("OG-1/2：指南入口 + 欢迎页三步卡", () => {
     });
     expect(cwd).toBe(repo.abs("docs"));
     expect(cwd ?? "").not.toContain("mdpreview:");
+  });
+
+  test("OG-1f 语言切换后预览 Tab 工具栏与标题同步重取词", async ({ page }) => {
+    const repo = await makePlainDir({ "a.py": "x = 1\n" });
+    await bootEmpty(page, repo);
+
+    await clickHelpMenu(page, "帮助文档");
+    const barBtn = page.locator(".md-preview-tab-toolbar button").first();
+    await expect(barBtn).toHaveText("编辑源码", { timeout: 15_000 });
+    await expect(page.locator("#tabbar .tab.active .name")).toContainText("预览");
+
+    // 回归判据（2026-10-11）：md/csv/db 三个 Tab 面板的 chrome 是**惰性构建一次**的，
+    // 构建时取词后就不再变；不给元素打 data-i18n 标记就会停在旧语言（applyDomI18n 只扫带标记的元素）。
+    // 走设置面板的 select（change 监听在 init 时已挂，不必真的打开面板）。
+    await page.evaluate(() => {
+      const sel = document.getElementById("settings-locale") as HTMLSelectElement;
+      sel.value = "en-US";
+      sel.dispatchEvent(new Event("change"));
+    });
+
+    await expect(barBtn).toHaveText("Edit Source", { timeout: 10_000 });
+    // tab 标题含语言包后缀（mdtab.labelSuffix）：main 的 renderTabs 也须在切换时重跑
+    await expect(page.locator("#tabbar .tab.active .name")).toContainText("Preview");
+    await expect(page.locator("#tabbar .tab.active .name")).not.toContainText("预览");
   });
 
   test("OG-2 欢迎页三步卡可见 + 指南链接可点", async ({ page }) => {

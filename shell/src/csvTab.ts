@@ -23,7 +23,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type * as MonacoApi from "monaco-editor/esm/vs/editor/editor.api";
 import { app, $, type Tab } from "./state";
-import { t } from "./i18n";
+import { i18nBind, t, type TFuncKey } from "./i18n";
 import { toast } from "./toast";
 import { CSV_MAX_ROWS, parseCsv, stripBom, type CsvTable } from "./csvCore";
 import { buildGridTable, statusText, type DbQueryResult } from "./sqliteGrid";
@@ -221,7 +221,7 @@ function ensurePanel(): void {
   editBtn.className = "btn btn--sm";
   editBtn.appendChild(codicon("edit"));
   const label = document.createElement("span");
-  label.textContent = t("csv.editSource");
+  i18nBind(label, "csv.editSource");
   editBtn.appendChild(label);
   editBtn.addEventListener("click", () => {
     const cur = app.activeTab;
@@ -233,7 +233,7 @@ function ensurePanel(): void {
   extBtn.className = "btn btn--sm";
   extBtn.appendChild(codicon("link-external"));
   const extLabel = document.createElement("span");
-  extLabel.textContent = t("csv.openExternal");
+  i18nBind(extLabel, "csv.openExternal");
   extBtn.appendChild(extLabel);
   extBtn.addEventListener("click", () => {
     const cur = app.activeTab;
@@ -255,14 +255,14 @@ function ensurePanel(): void {
   const pageLabel = document.createElement("span");
   pageLabel.className = "db-page-label";
   pager.append(
-    pagerBtn("csv-pager-prev", "chevron-left", t("database.prevPage"), () => {
+    pagerBtn("csv-pager-prev", "chevron-left", "database.prevPage", () => {
       if (pageState && pageState.page > 1) {
         pageState.page--;
         renderCsvPage();
       }
     }),
     pageLabel,
-    pagerBtn("csv-pager-next", "chevron-right", t("database.nextPage"), () => {
+    pagerBtn("csv-pager-next", "chevron-right", "database.nextPage", () => {
       if (pageState) {
         pageState.page++;
         renderCsvPage();
@@ -273,13 +273,13 @@ function ensurePanel(): void {
 }
 
 /** 分页按钮工厂（上一页 / 下一页同构） */
-function pagerBtn(id: string, icon: string, tip: string, onClick: () => void): HTMLButtonElement {
+function pagerBtn(id: string, icon: string, key: TFuncKey, onClick: () => void): HTMLButtonElement {
   const b = document.createElement("button");
   b.id = id;
   b.className = "btn btn--sm btn--icon";
   b.appendChild(codicon(icon));
-  b.setAttribute("aria-label", tip);
-  b.dataset.tip = tip;
+  i18nBind(b, key, "aria");
+  i18nBind(b, key, "tip");
   b.addEventListener("click", onClick);
   return b;
 }
@@ -293,7 +293,9 @@ function syncCsvPager(pages: number): void {
   const st = pageState;
   pager.classList.toggle("hidden", pages <= 1);
   if (!st) return;
-  pager.querySelector(".db-page-label")!.textContent = t("database.pageLabel", { page: st.page, pages });
+  // 页码走 i18nBind（带参数）：语言切换后 applyDomI18n 用存的参数重取，不会停在旧语言
+  const label = pager.querySelector(".db-page-label");
+  if (label) i18nBind(label, "database.pageLabel", "text", { page: st.page, pages });
   prev.disabled = st.page <= 1;
   next.disabled = st.page >= pages;
 }
