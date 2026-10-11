@@ -138,6 +138,8 @@ addLine("shell/src/styles/endpointSample.css", "styles_endpointsample_max_lines"
 addLine("shell/src/styles/selector.css", "styles_selector_max_lines");
 addLine("shell/src/styles/inlineDiagnostics.css", "styles_inlinediagnostics_css_max_lines");
 addLine("shell/src/styles/csvTab.css", "styles_csvtab_css_max_lines");
+addLine("shell/src/styles/depHealth.css", "styles_dephealth_css_max_lines");
+addLine("shell/src/styles/longOp.css", "styles_longop_css_max_lines");
 addLine("shell/src/csvCore.ts", "csv_core_ts_max_lines");
 addLine("shell/src/csvTab.ts", "csv_tab_ts_max_lines");
 addLine("shell/src/virtualTabs.ts", "virtual_tabs_ts_max_lines");
@@ -147,6 +149,9 @@ addLine("shell/src-tauri/src/scratch_cmds.rs", "scratch_cmds_rs_max_lines");
 addLine("shell/src/main.ts", "main_ts_max_lines");
 addLine("shell/src/inlineDiagnostics.ts", "inline_diagnostics_ts_max_lines");
 addLine("shell/src/lspStatus.ts", "lsp_status_ts_max_lines");
+addLine("shell/src/depHealthPanel.ts", "dep_health_panel_ts_max_lines");
+addLine("shell/src/depHealth.ts", "dep_health_ts_max_lines");
+addLine("shell/src/statusOp.ts", "status_op_ts_max_lines");
 addLine("shell/src/helpDocs.ts", "help_docs_ts_max_lines");
 addLine("shell/src/debugEntry.ts", "debug_entry_ts_max_lines");
 addLine("shell/src/menuItems.ts", "menu_items_ts_max_lines");

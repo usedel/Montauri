@@ -11,6 +11,8 @@
 @import "./styles/selector.css";
 @import "./styles/inlineDiagnostics.css";
 @import "./styles/csvTab.css";
+@import "./styles/depHealth.css";
+@import "./styles/longOp.css";
 
 /* ---------- 随包等宽字体（ui_premium §5.3-3b · 批 3）----------
    JetBrains Mono 随应用分发：文件在 public/fonts/（**入库**），版本与 sha256 锁在
@@ -3057,134 +3059,7 @@ html[data-reduce-motion] .tree-item.tree-running::after { animation: none; }
 }
 /* UI-08：按钮忙碌态（内联转圈 + 禁用交互）已收敛到 .btn.busy，见「通用按钮体系」 */
 
-/* ---------- 依赖健康（dep plan M3，§6.1 三视图 + §6.2 横幅/持续存在感） ---------- */
-.dep-banner-actions { display: flex; gap: var(--space-3); flex: none; }
-.dep-health-top { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-3); }
-.dep-health-top .spacer { flex: 1; }
-.dep-health-top .badge {
-  font-size: var(--text-xs);
-  color: var(--fg-dim);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xs);
-  padding: 0 var(--space-2);
-  flex: none;
-}
-/* external/bare 徽章可点击（§6.1：展开边界说明 / 生成 pyproject 引导） */
-.dep-health-top .badge.clickable { cursor: pointer; }
-.dep-health-top .badge.clickable:hover { color: var(--fg); border-color: var(--fg-dim); }
-.dep-health-meta {
-  color: var(--fg-dim);
-  font-size: var(--text-xs);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.dep-tabs { display: flex; gap: var(--space-2); margin-bottom: var(--space-3); }
-.dep-tab {
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  color: var(--fg-dim);
-  font-size: var(--text-sm);
-  padding: var(--space-2) var(--space-4);
-  cursor: pointer;
-}
-.dep-tab:hover { color: var(--fg); }
-.dep-tab[aria-selected="true"] { color: var(--fg); background: var(--accent-soft); font-weight: 600; }
-.dep-health-content {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg);
-  max-height: 260px;
-  overflow: auto;
-}
-/* 依赖明细默认收起（2026-09-16）：面板首屏留给包管理主体；「有问题」信号由横幅与
-   常驻头部承载，明细是按需下钻（横幅「查看」/ 状态栏体检图标 / toast「查看」自动展开）。
-   hidden 类 + aria-expanded 同源切换（ARIA 状态单一写入点 = syncDepDetail）。 */
-.dep-section-title { display: flex; align-items: center; gap: var(--space-2); }
-.dep-collapse-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  padding: 0;
-  background: transparent;
-  border: none;
-  border-radius: var(--radius-xs);
-  color: var(--fg-dim);
-  cursor: pointer;
-  font-size: var(--text-sm);
-}
-.dep-collapse-btn:hover { color: var(--fg); background: var(--hover); }
-.dep-collapse-btn .codicon { transition: transform var(--transition-fast); }
-.dep-collapse-btn[aria-expanded="false"] .codicon { transform: rotate(-90deg); }
-.dep-health-detail.hidden { display: none; }
-.dep-group + .dep-group { border-top: 1px solid var(--border-soft); }
-.dep-group-head {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-2) var(--space-4);
-  cursor: pointer;
-  font-size: var(--text-sm);
-  user-select: none;
-}
-.dep-group-head:hover { background: var(--hover); }
-.dep-group-head .dep-caret { flex: none; color: var(--fg-dim); transition: transform var(--transition-fast); }
-.dep-group-head .dep-caret.expanded { transform: rotate(90deg); }
-.dep-group-title { color: var(--fg); flex: none; }
-.dep-group-count { color: var(--fg-dim); font-size: var(--text-xs); flex: none; }
-.dep-group-head .spacer { flex: 1; }
-.dep-group-note {
-  padding: var(--space-2) var(--space-4) var(--space-2) 28px;
-  color: var(--fg-dim);
-  font-size: var(--text-xs);
-  border-top: 1px solid var(--border-soft);
-}
-.dep-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-2) var(--space-4) var(--space-2) 28px;
-  font-size: var(--text-sm);
-  border-top: 1px solid var(--border-soft);
-}
-.dep-row .dep-name { color: var(--fg); flex: none; }
-.dep-row .dep-detail {
-  color: var(--fg-dim);
-  font-size: var(--text-xs);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.dep-row .dep-link { color: var(--accent); cursor: pointer; font-size: var(--text-xs); flex: none; }
-.dep-row .dep-link:hover { text-decoration: underline; }
-.dep-row .spacer { flex: 1; }
-.dep-row .dep-actions { display: flex; gap: var(--space-2); flex: none; }
-/* 行级动作按钮（安装/忽略/恢复检测）：透明底 hover 出框，对齐 .env-pkg-line > button 先例 */
-.dep-btn {
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  color: var(--fg-dim);
-  cursor: pointer;
-  font-size: var(--text-xs);
-  padding: 0 var(--space-3);
-}
-.dep-btn:hover { color: var(--fg); border-color: var(--border); }
-.dep-btn:disabled { opacity: 0.5; cursor: default; }
-.dep-btn.accent:hover { color: var(--accent); border-color: var(--accent); }
-.dep-lazy-tag { color: var(--fg-dim); border: 1px solid var(--border); border-radius: var(--radius-xs); font-size: var(--text-xs); padding: 0 var(--space-1); flex: none; }
-/* v1.7 B：E1 模块聚合——文件计数徽标 + 展开明细行（缩进弱化） */
-.dep-count-tag { color: var(--fg-dim); font-size: var(--text-xs); flex: none; }
-.dep-row--sub { padding-left: var(--space-6); opacity: 0.85; }
-.dep-empty { padding: var(--space-5); color: var(--fg-dim); font-size: var(--text-sm); }
-.dep-uv-note { margin-top: var(--space-3); color: var(--fg-dim); font-size: var(--text-xs); }
-/* 状态栏体检图标（§4.5：扫描中转圈 / 异常驻留警示色，点击开面板） */
-#dep-health-status { display: inline-flex; align-items: center; color: var(--fg-dim); }
-#dep-health-status.hidden { display: none; }
-#dep-health-status.issues { color: var(--warn); }
+/* ---------- 依赖健康：样式已拆出 `styles/depHealth.css`（2026-10-11 体验审查批 4） ---------- */
 
 /* ---------- Activity Bar（TD-001 步骤2：竖排图标栏）+ 单一视图容器 ---------- */
 #activity-bar {
@@ -4622,9 +4497,7 @@ html[data-reduce-motion] .tree-item.tree-running::after { animation: none; }
 /* 状态栏问题芯片（#status-problems）：error 态红色警示 */
 #status-problems { font-size: var(--text-xs); }
 #status-problems.has-errors { color: var(--danger); font-weight: 600; }
-/* 长耗时 uv 操作「进行中」芯片（#status-op，体验审查 L-5 / L-3）：外层布局已由 `#statusbar > span`
-   提供（inline-flex + gap + --fg-dim），此处只需压掉 .btn--sm 的纵向内边距（状态栏仅 24px 高） */
-#status-op .btn { flex: none; padding-top: 0; padding-bottom: 0; }
+/* 长耗时 uv 操作「进行中」芯片（#status-op）：样式已拆出 `styles/longOp.css`（含 L-1 进度条） */
 #git-detail-header {
   display: flex;
   align-items: center;

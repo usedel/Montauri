@@ -18,7 +18,8 @@ import { localizeBackendError } from "./i18n/backendError";
 import { shortInterpreter } from "./envPanel";
 import {
   NULL_DIST_WARNING, depFixBusy, driftSpec, fixCommandPreview, groupFixPlan, issueCount,
-  latestDiff, latestStyleInfo, refreshStyleInfo, resolveDistForInstall, runDepFix, runDepScan,
+  latestChange, latestDiff, latestStyleInfo, refreshStyleInfo, resolveDistForInstall, runDepFix,
+  runDepScan,
   type DepDiff, type DepFixAction, type DepFixPlan, type DepIgnoreEntry, type DepStyleInfo,
 } from "./depHealth";
 
@@ -37,6 +38,12 @@ const statusEl = lazyEl("dep-health-status");
 const envModalEl = lazyEl("env-modal");
 const detailEl = lazyEl("dep-health-detail");
 const collapseBtn = lazyEl<HTMLButtonElement>("dep-collapse");
+// D-2：断边统一顶部摘要行（含 D-10 的「本次变化」）+ D-8 明细筛选
+const summaryEl = lazyEl("dep-summary");
+const summaryTextEl = lazyEl("dep-summary-text");
+const summaryChangeEl = lazyEl("dep-summary-change");
+const filterInputEl = lazyEl<HTMLInputElement>("dep-filter-input");
+const filterCountEl = lazyEl("dep-filter-count");
 
 type DepTab = "edge" | "file" | "ignored";
 type EdgeId = "e1" | "e2" | "e3" | "e4" | "e5";
@@ -56,6 +63,9 @@ let depDetailExpanded = false;
 const AUTO_COLLAPSE_COUNT = 15;
 /** 分组开合的显式记录（用户点击 toggle 写入；无记录时按 count 阈值定默认），重渲染间保持。 */
 const groupOpen = new Map<EdgeId, boolean>();
+/** D-8：明细筛选词（空 = 不过滤）。只作用于「按断边 / 按文件」两视图——已忽略清单短且独立，
+ *  且它的行是「忽略项」而非「待处理项」，混进同一筛选会让人以为能筛掉已忽略项。 */
+let depFilter = "";
 
 /** 分组是否展开：用户显式开合优先，否则大组（count > 阈值）默认折叠、小组默认展开（#3）。 */
 function isGroupOpen(edge: EdgeId, count: number): boolean {
@@ -84,6 +94,14 @@ let FIX_TITLES: Record<string, string> = {
   e5: t("dep.panel.fix.e5"), migrate: t("dep.panel.fix.migrate"),
 };
 let NOT_READY_HINT = t("dep.panel.notReady");
+/** D-2：断边短名（顶部摘要行用；比分组标题更短，一行里要并排放多条） */
+let EDGE_SHORTS: Record<EdgeId, string> = {
+  e1: t("dep.panel.short.e1"),
+  e2: t("dep.panel.short.e2"),
+  e3: t("dep.panel.short.e3"),
+  e4: t("dep.panel.short.e4"),
+  e5: t("dep.panel.short.e5"),
+};
 
 // ---------- 初始化 / 复位 ----------
 
@@ -120,7 +138,16 @@ export function initDepHealthPanel(deps: {
     EDGE_LABELS = { e1: t("dep.panel.label.e1"), e2: t("dep.panel.label.e2"), e3: t("dep.panel.label.e3"), e4: t("dep.panel.label.e4") };
     FIX_TITLES = { e1: t("dep.panel.fix.e1"), e2: t("dep.panel.fix.e2"), e3: t("dep.panel.fix.e3"), e4: t("dep.panel.fix.e4"), e5: t("dep.panel.fix.e5"), migrate: t("dep.panel.fix.migrate") };
     NOT_READY_HINT = t("dep.panel.notReady");
+    EDGE_SHORTS = { // D-2
+      e1: t("dep.panel.short.e1"), e2: t("dep.panel.short.e2"), e3: t("dep.panel.short.e3"),
+      e4: t("dep.panel.short.e4"), e5: t("dep.panel.short.e5"),
+    };
     void renderDepHealth();
+  });
+  // D-8：明细筛选（复用 env-pkg-filter 的即时过滤范式：本地过滤，不重新请求后端）
+  filterInputEl.addEventListener("input", () => {
+    depFilter = filterInputEl.value.trim().toLowerCase();
+    void renderContent().then(syncFilterCount); // 计数随筛选即时更新（与行数同源）
   });
 
   for (const [tab, btn] of Object.entries(tabBtns) as Array<[DepTab, HTMLButtonElement]>) {
@@ -149,6 +176,12 @@ export function resetDepHealthPanel(): void {
   depDetailExpanded = false; // 切工作区回到默认收起（新工作区的问题由横幅重新宣告）
   syncDepDetail();
   groupOpen.clear();
+  depFilter = ""; // D-8：换工作区不该继承上一项目的筛选词
+  filterInputEl.value = "";
+  filterCountEl.textContent = "";
+  summaryEl.classList.add("hidden"); // D-2
+  summaryTextEl.textContent = "";
+  summaryChangeEl.textContent = "";
   syncTabButtons();
   bannerEl.classList.add("hidden");
   bannerTextEl.textContent = "";
@@ -166,7 +199,7 @@ export function resetDepHealthPanel(): void {
 
 // ---------- 状态栏体检图标（§4.5 + 体验审查 D-1：常驻入口） ----------
 
-export type HealthStatus = "idle" | "scanning" | "ok" | "issues";
+export type HealthStatus = "idle" | "scanning" | "ok" | "issues" | "noenv";
 
 /**
  * 状态栏体检图标（**常驻**，体验审查 D-1）。
@@ -174,13 +207,20 @@ export type HealthStatus = "idle" | "scanning" | "ok" | "issues";
  * 原实现对 idle / ok 加 `hidden`——「一切正常」时反而没有任何入口，用户想主动体检必须先开
  * 「Python 环境」再展开明细。现改为：只要工作区在，图标就一直在（健康态用中性色 `--fg-dim`，
  * 见 style.css `#dep-health-status`；异常才切 `--warn`），四态各自带 tooltip 说明含义。
+ * 体验审查 D-3（**假绿**）：未选解释器时后端环境侧整体置空 → 断边计数天然为 0 → 若并入 ok，
+ * 界面会宣称「依赖全好」，而环境侧**根本没检测过**。故 `interpreter === null && 0 问题`
+ * 走独立形态 noenv（灰底感叹号 + 「环境侧检测不可用」），不并入 ok；有断边时照常是 issues。
  * 「没有工作区」由 `resetDepHealthPanel` → `clearHealthStatus()` 表达（隐藏），不并入 idle。
  */
 export function setHealthStatus(status: HealthStatus, issues = 0): void {
   statusEl.textContent = "";
   statusEl.classList.remove("hidden");
   statusEl.classList.toggle("issues", status === "issues");
-  if (status === "scanning") {
+  statusEl.classList.toggle("noenv", status === "noenv"); // D-3：与 issues 互斥，两者不会同时置位
+  if (status === "noenv") {
+    statusEl.appendChild(codicon("warning"));
+    statusEl.dataset.tip = t("dep.panel.statusNoEnv");
+  } else if (status === "scanning") {
     statusEl.appendChild(spinIcon());
     statusEl.dataset.tip = t("dep.panel.statusScanning");
   } else if (status === "issues") {
@@ -215,6 +255,7 @@ export function openDepHealthPanel(): void {
  *  扫描失败（diff=null）→ 回中性 idle（失败详情已进输出面板，不静默但也不驻留假警示）。 */
 export function handleScanComplete(diff: DepDiff | null): void {
   if (diff === null) setHealthStatus("idle");
+  else if (diff.interpreter === null && issueCount(diff) === 0) setHealthStatus("noenv"); // D-3
   else setHealthStatus(issueCount(diff) > 0 ? "issues" : "ok", issueCount(diff));
   if (!envModalEl.classList.contains("hidden")) {
     void renderDepHealth();
@@ -232,7 +273,9 @@ export async function renderDepHealth(): Promise<void> {
   const scrollTop = scroller?.scrollTop ?? 0;
   renderBanner();
   renderHeader();
+  renderSummary(); // D-2：断边统一顶部摘要行（+ D-10 本次变化）
   await renderContent();
+  syncFilterCount(); // D-8：筛选后「显示 / 总数」
   // 内容变短时浏览器会自动夹取到新上限，无需额外判断
   if (scroller && scrollTop > 0) scroller.scrollTop = scrollTop;
 }
@@ -380,6 +423,52 @@ function renderHeader(): void {
   scannedAtEl.textContent = diff ? t("dep.panel.scannedAt", { time: new Date(diff.scannedAt).toLocaleTimeString() }) : "";
 }
 
+// ---------- D-2：断边统一顶部摘要行（+ D-10 本次变化） ----------
+
+/**
+ * 摘要行：把五类断边的计数压成一行（体验审查 D-2）。
+ *
+ * 为什么不逐条补横幅档位：横幅是**环境/配置类**事实（external / bare / E2 / envDrift）的宣告位，
+ * 断边是「一致性比对结果」——五条断边各配一档横幅会让横幅变成第二份面板，且 E4/E5 在多数项目里
+ * 恒为零反而稀释真正重要的 E1。统一由面板顶部一行承载，用户进面板第一眼就能看见全貌。
+ */
+function renderSummary(): void {
+  const diff = latestDiff();
+  const parts: string[] = [];
+  if (diff) {
+    for (const edge of ["e1", "e2", "e3", "e4", "e5"] as EdgeId[]) {
+      const meta = groupMeta(edge, diff);
+      if (meta.degraded || meta.count === 0) continue;
+      parts.push(`${EDGE_SHORTS[edge]} × ${meta.count}`);
+    }
+  }
+  const change = latestChange();
+  const hasChange = !!change && (change.added > 0 || change.resolved > 0);
+  summaryEl.classList.toggle("hidden", parts.length === 0 && !hasChange);
+  summaryTextEl.textContent = parts.length > 0 ? parts.join(" · ") : t("dep.panel.noIssues");
+  summaryChangeEl.textContent = hasChange && change
+    ? t("dep.panel.changeLine", { added: change.added, resolved: change.resolved })
+    : "";
+  // 未选解释器时环境侧没检测过——摘要行须自证「N 条断边」不含环境侧结论（D-3 的面板侧同款表达）
+  if (diff && diff.interpreter === null && parts.length > 0) {
+    summaryTextEl.textContent += `（${t("dep.panel.noInterpNote")}）`;
+  }
+}
+
+// ---------- D-8：明细筛选 ----------
+
+/** 行文本是否命中筛选词（空词 = 全命中）。行内所有文本（模块名 / 文件 / dist / 标签）都参与。 */
+function rowMatches(el: HTMLElement): boolean {
+  if (!depFilter) return true;
+  return (el.textContent ?? "").toLowerCase().includes(depFilter);
+}
+
+/** 筛选态下的「显示 / 总数」计数：无筛选词时不显示（不制造噪声） */
+function syncFilterCount(): void {
+  const total = contentEl.querySelectorAll(".dep-row").length;
+  filterCountEl.textContent = depFilter ? t("dep.panel.filterCount", { shown: total }) : "";
+}
+
 // ---------- 视图一：按断边（§6.1 默认视图） ----------
 
 interface GroupMeta {
@@ -434,8 +523,30 @@ function renderEdgeView(diff: DepDiff | null): void {
     ));
     return;
   }
+  let fixablePlans: DepFixPlan[] = [];
+  let fixableGroups = 0;
   for (const edge of ["e1", "e2", "e3", "e4", "e5"] as EdgeId[]) {
-    contentEl.appendChild(renderGroup(edge, diff));
+    const group = renderGroup(edge, diff);
+    if (!group) continue; // 筛选命中为空的组整组隐藏
+    contentEl.appendChild(group);
+    const meta = groupMeta(edge, diff);
+    if (meta.degraded || meta.count === 0) continue;
+    const plan = groupFixPlan(diff, edge);
+    if (plan) { fixablePlans.push(plan); fixableGroups++; }
+  }
+  // D-8：「修复全部可修项」——跨断边批量。仅在**两组以上**可修时出现（单组用组头按钮即可，
+  // 多一个顶部按钮反而制造「两个入口是不是两回事」的困惑）；逐组串行执行、失败即停（runPlans 语义）。
+  if (fixableGroups >= 2 && !depFilter) {
+    const wrap = document.createElement("div");
+    wrap.className = "dep-group";
+    const { row, actions } = depRow([detailSpan(t("dep.panel.fixAllEdges", { count: fixableGroups }))]);
+    actions.append(actionBtn(
+      t("dep.panel.fixAllEdgesBtn"),
+      () => void runPlans(fixablePlans, t("dep.panel.fixAllEdgesTitle")),
+      { fix: true, accent: true },
+    ));
+    wrap.appendChild(row);
+    contentEl.insertBefore(wrap, contentEl.firstChild);
   }
   // requirements 迁移引导（R4：迁移而非原地维护；只读原文件可回退）
   if (diff.style === "requirements") {
@@ -454,8 +565,12 @@ function renderEdgeView(diff: DepDiff | null): void {
   }
 }
 
-function renderGroup(edge: EdgeId, diff: DepDiff): HTMLElement {
+/** @returns 该组的 DOM；筛选命中为空时返回 null（整组隐藏，D-8） */
+function renderGroup(edge: EdgeId, diff: DepDiff): HTMLElement | null {
   const meta = groupMeta(edge, diff);
+  // 筛选态：先判定本组是否有命中行（无命中整组不渲染——空组头比没有组更干扰）
+  const allRows = edgeRows(edge, diff);
+  if (depFilter && meta.count > 0 && !allRows.some(rowMatches)) return null;
   const wrap = document.createElement("div");
   wrap.className = "dep-group";
   wrap.dataset.edge = edge;
@@ -469,10 +584,15 @@ function renderGroup(edge: EdgeId, diff: DepDiff): HTMLElement {
   const title = document.createElement("span");
   title.className = "dep-group-title";
   title.textContent = EDGE_TITLES[edge];
+  // D-5（术语平化）：标题改人话，「E1」降为副标签而非消失——设计文档里的断边编号对
+  // 目标用户（FastAPI / 爬虫 / 小脚本）没有意义，但排查时它是与文档/后端对齐的唯一锚点。
+  const tag = document.createElement("span");
+  tag.className = "dep-lazy-tag";
+  tag.textContent = edge.toUpperCase();
   const count = document.createElement("span");
   count.className = "dep-group-count";
   count.textContent = meta.degraded ? t("dep.panel.degradedTag") : t("dep.panel.countItems", { count: meta.count });
-  head.append(caret, title, count);
+  head.append(caret, title, tag, count);
   const spacer = document.createElement("span");
   spacer.className = "spacer";
   head.appendChild(spacer);
@@ -495,7 +615,7 @@ function renderGroup(edge: EdgeId, diff: DepDiff): HTMLElement {
   if (expanded) {
     if (meta.note) wrap.appendChild(noteEl(meta.note));
     if (!meta.degraded) {
-      const rows = edgeRows(edge, diff);
+      const rows = depFilter ? allRows.filter(rowMatches) : allRows;
       for (const r of rows) wrap.appendChild(r);
       if (meta.count === 0 && !meta.note) wrap.appendChild(noteEl(t("dep.panel.noIssues")));
     }
@@ -667,7 +787,15 @@ function renderFileView(diff: DepDiff | null): void {
   }
   const files = [...byFile.keys()].sort();
   for (const file of files) {
-    const items = (byFile.get(file) ?? []).slice().sort((a, b) => a.line - b.line);
+    let items = (byFile.get(file) ?? []).slice().sort((a, b) => a.line - b.line);
+    // D-8：文件名与行内文本都参与匹配（按文件视图的筛选意图通常是「某个模块出现在哪些文件」）
+    if (depFilter) {
+      const hitItem = (it: FileItem): boolean =>
+        `${it.module} ${it.label} ${it.dist ?? ""}`.toLowerCase().includes(depFilter);
+      // 文件名命中 = 整组保留（用户要的是「这个文件里有什么」）；否则只保留命中行
+      items = file.toLowerCase().includes(depFilter) ? items : items.filter(hitItem);
+      if (items.length === 0) continue; // 该组无命中
+    }
     const wrap = document.createElement("div");
     wrap.className = "dep-group";
     const head = document.createElement("div");

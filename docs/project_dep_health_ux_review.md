@@ -214,14 +214,19 @@
 | 批 3 | L-2 / L-7 | cargo test `env_cmds`（超时分级 + 兜底命令文本） | ✅ 21/21 |
 | 批 3 | L-3 / L-5 / L-1 | mock e2e `ux/12-long-op`（LO-1 芯片 · LO-2 取消 · LO-3 可判读进度）+ 单测 `statusOp` / `uvProgress` | ✅ 19/19 |
 | 批 3 | Q3 Python 安装包镜像 | 前后端默认值同步断言（`state.test` / `settings.rs::test_defaults`） | ✅ |
-| 批 3 | **L-1 / L-2 / L-3 的真机判据**（下载中点取消 → 进程树被终止无孤儿 uv；冷缓存装 fastapi 不再 120s 超时） | 真机 `powershell -File shell\e2e-real\run-real-all.ps1` | ⏳ **待用户终端执行** |
-| 批 3 | L-1 的「进度条」形态 | 见 §7.1 | ⏳ 待预算决策 |
+| 批 3 | **L-1 / L-2 / L-3 的真机判据** | 真机 `-Only long-op-real`（LO-REAL-1..4），2026-10-11 自动跑批 **4/4 全绿**：冷缓存装 polars 不 120s 超时 · 芯片/写锁/输出面板 · 可判读进度 · 取消后无孤儿 uv + toast「已取消」 | ✅ |
+| 批 3 | L-1 的「进度条」形态 | 已落地：样式落新文件 `styles/longOp.css`（style.css 零余量，靠拆分而非抬阈值），见 §7.1 | ✅ |
+| 批 4 | D-2 / D-3 / D-8 | mock e2e `ux/11-dep-health`（DH-3 noenv · DH-4 摘要行 · DH-5 筛选）+ 单测 `depHealthPanel` | ✅ 5/5 e2e · 域内单测 100/100 |
+| 批 4 | D-7 / D-10 | 单测 `depHealth`（syncRemovesWarning 列包名 / diffDelta 逐条比差） | ✅ |
+| 批 4 | D-5 | 标题平化 + E1 等编号降为副标签（zh/en 双语） | ✅ |
 
 ### 7.1 批 3 的两处已知取舍
 
-1. **L-1 只给了可判读文本（含百分比），没画进度条**。`style.css` 预算已到 **5850/5850**（零余量），
-   加进度条样式必然越线；而 §6 的 L-1 判据是「可见『下载中 / 已下载』类信息」，文本已满足。
-   要画条须先做预算决策或先重构出余量。
+1. **L-1 进度条已落地，但走的是「拆分腾预算」而非抬阈值**（2026-10-11 执行）：`style.css` 当时
+   **5850/5850 零余量**，故把依赖健康块（128 行）与 status-op 芯片块（3 行）拆成
+   `styles/depHealth.css` / `styles/longOp.css`，`style.css` 降至 5,723 并按纪律第 3 条
+   **下调阈值到 5,780**，两个新文件各自登记上限。进度条只在能解析出比例时画
+   （`ratio !== null`），解析不出保持「转圈 + 最近一行」不确定态——不画假进度。
 2. **取消能力必然要一个入口命令**，故 `#[tauri::command]` 207 → **208 / 206**（该信号线此前已越线，
    属存量告警，非本次首次触发）。
 3. **C-1 / L-4 的真机判据改走磁盘证据链**（`new-project-fastapi-real.cjs` 的 NP-REAL-5 / NP-REAL-6）：

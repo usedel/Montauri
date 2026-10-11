@@ -1,0 +1,27 @@
+/* 长耗时 uv 操作「进行中」芯片（#status-op，体验审查 L-5 / L-3）+ L-1 可判读进度条。
+   2026-10-11 自 style.css 拆出并新增进度条：style.css 已 5850/5850 零余量，
+   新增样式只能落新文件（budgets.toml 顶部纪律第 3 条）。经 style.css 顶部 @import 内联。 */
+
+/* 外层布局已由 `#statusbar > span` 提供（inline-flex + gap + --fg-dim），
+   此处只需压掉 .btn--sm 的纵向内边距（状态栏仅 24px 高） */
+#status-op .btn { flex: none; padding-top: 0; padding-bottom: 0; }
+#status-op-detail { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* L-1：能解析出比例才画条（解析不出走「转圈 + 最近一行」不确定态，不做假进度条——
+   与实际进度无关的自走百分比比没有进度更糟，见 uvProgress.ts 文件头） */
+#status-op-bar {
+  width: 56px;
+  height: 4px;
+  flex: none;
+  border-radius: var(--radius-xs);
+  background: var(--border);
+  overflow: hidden;
+}
+#status-op-bar.hidden { display: none; }
+#status-op-fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width var(--transition-fast);
+}

@@ -28,7 +28,20 @@
 #     D-6 新增 21 行、D-8 新增 5 行）。分文件经
 #     style.css 顶部 @import 内联进 bundle，audit_tokens.py 已支持 @import 解析
 #     （拆分不得缩小审计面）；两个分文件各自设上限，防止静默增长在新文件重演。
-style_css_max_lines = 5850
+#   5,850 → **5,780（2026-10-11 体验审查批 4 拆分：dep 健康块 128 行 → styles/depHealth.css、
+#     status-op 芯片块 3 行 → styles/longOp.css，净减 127；两行 @import 计入）**。
+#     style.css 实测 5,723。按顶部纪律第 3 条「降低阈值 = 做了拆分」下调：再增样式须落分文件。
+style_css_max_lines = 5780
+
+# styles/depHealth.css（依赖健康，2026-10-11 自 style.css 拆出 + 体验审查 D-2/D-3/D-8 新样式）：
+#   145 行。上限 180（余量 ~24%）。范围：三视图骨架（top/tabs/content/group/row/btn）+
+#   状态栏体检图标（含 D-3 的 .noenv 形态）+ D-2 顶部断边摘要行 + D-8 明细筛选框。
+styles_dephealth_css_max_lines = 180
+
+# styles/longOp.css（长耗时 uv 操作芯片 + L-1 进度条，2026-10-11 拆出/新增）：8 → 20 行。
+#   上限 40（小文件按**绝对行数**给余量，同 hotspots.css 口径）。范围：#status-op 芯片压边 +
+#   #status-op-detail 截断 + #status-op-bar / -fill（仅 ratio 可解析时画，不做假进度条）。
+styles_longop_css_max_lines = 40
 
 # styles/http.css（B4 HTTP 请求工具，P0-0 拆出）：102 行。上限 125（余量 ~22%）。
 styles_http_max_lines = 125
@@ -132,6 +145,22 @@ main_ts_max_lines = 2410
 #   docs/ → openPreviewTab 打开只读预览 Tab；并发去重。**刻意不碰 main.ts**（行数已触顶），
 #   故写盘与开 Tab 全走既有能力，无需 main 注入 handler。
 help_docs_ts_max_lines = 90
+
+# depHealthPanel.ts（依赖健康面板，2026-10-11 首次登记）：1,068 行（941 + 体验审查批 4 的
+#   D-2 顶部摘要行 / D-3 noenv 态 / D-5 副标签 / D-8 筛选与跨断边批量修复 +127）。
+#   上限 1,300（余量 ~22%）。范围：三视图渲染 + 四级横幅 + 行/组级动作 + 忽略管理 +
+#   状态栏体检图标。逼近上限时按「横幅 / 三视图 / 动作编排」三块拆分（同 envPanel 先例），不抬阈值。
+dep_health_panel_ts_max_lines = 1300
+
+# depHealth.ts（依赖健康真值与编排，2026-10-11 首次登记）：1,017 行（956 + D-7 sync 移除清单
+#   + D-10 快照差集 +61）。上限 1,250（余量 ~23%）。范围：DepDiff 契约 / 扫描编排 / M2 失效矩阵
+#   / 修复动作编排 / 灯泡数据源。纯逻辑部分（toWorkspaceRelative / diffDelta / issueKeys 等）
+#   已在文件内保持可直接单测的形态，拆分前先考虑外提纯函数层。
+dep_health_ts_max_lines = 1250
+
+# statusOp.ts（长耗时 uv 操作「进行中」芯片，2026-10-11 首次登记）：146 行（133 + L-1 进度条
+#   渲染与收尾复位 +13）。上限 185（余量 ~27%）。范围：芯片起手/收尾/互斥 + 取消入口 + L-1 进度。
+status_op_ts_max_lines = 185
 
 # lspStatus.ts（i18n 遗留修复外提，2026-10-10）：62 行。上限 80（余量 ~29%）。
 #   范围：状态栏 LSP 芯片（#status-lsp）两态渲染（引擎状态机 / 一次性提示）+ 语言切换重取词。

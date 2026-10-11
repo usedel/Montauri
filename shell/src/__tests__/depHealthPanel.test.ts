@@ -15,12 +15,18 @@ const IDS = [
   "status-interpreter", "dep-health-banner", "dep-health-banner-text", "dep-health-banner-actions",
   "dep-style-badge", "dep-interp-label", "dep-scanned-at", "dep-health-content", "dep-health-status",
   "dep-health-detail",
+  // D-2 顶部摘要行 / D-8 明细筛选（2026-10-11 体验审查批 4 新增）
+  "dep-summary", "dep-summary-text", "dep-summary-change", "dep-filter-count",
+  // L-1 状态栏长操作芯片的进度条（statusOp.ts）
+  "status-op", "status-op-label", "status-op-detail", "status-op-bar", "status-op-fill",
   // 自定义解释器下拉（#2 决策 1=3b）+ 创建流程的版本选择模态
   "interp-trigger-label", "interp-popover", "interp-select",
   "venv-version-modal", "venv-version-list", "venv-version-hint",
 ];
 const BUTTON_IDS = ["dep-refresh", "dep-tab-edge", "dep-tab-file", "dep-tab-ignored",
-  "env-pkg-install", "env-close", "dep-collapse", "interp-trigger", "venv-version-close"];
+  "env-pkg-install", "env-close", "dep-collapse", "interp-trigger", "venv-version-close",
+  "status-op-cancel"];
+const INPUT_IDS = ["dep-filter-input"]; // D-8：筛选框是 input（lazyEl<HTMLInputElement>）
 for (const id of IDS) {
   const el = document.createElement("div");
   el.id = id;
@@ -28,6 +34,11 @@ for (const id of IDS) {
 }
 for (const id of BUTTON_IDS) {
   const el = document.createElement("button");
+  el.id = id;
+  document.body.appendChild(el);
+}
+for (const id of INPUT_IDS) {
+  const el = document.createElement("input");
   el.id = id;
   document.body.appendChild(el);
 }
@@ -111,8 +122,11 @@ describe("三视图渲染（§6.1：按断边默认 / 按文件 / 已忽略）",
     });
     await panel.renderDepHealth();
     const content = contentEl();
+    // 5 个断边组（D-8 的批量修复行也是 .dep-group，但无 data-edge，故仍计 5）
     expect(content.querySelectorAll(".dep-group[data-edge]").length).toBe(5);
-    expect(content.textContent).toContain("E1 缺失模块");
+    // D-5（术语平化）：标题改人话，断边编号降为副标签（仍在同一组头内，保留与文档/后端对齐的锚点）
+    expect(content.textContent).toContain("代码里 import 了但没装");
+    expect(content.textContent).toContain("E1");
     expect(content.textContent).toContain("yaml");
     expect(content.textContent).toContain("PyYAML");   // dist 归一结果呈现
     expect(content.textContent).toContain("a.py:3");   // 文件位点
@@ -364,6 +378,99 @@ describe("状态栏体检图标（§4.5 / D-1 常驻）", () => {
     expect(statusEl().classList.contains("hidden")).toBe(false);
     expect(statusEl().classList.contains("issues")).toBe(false);
     expect(statusEl().dataset.tip).toBeDefined();
+  });
+});
+
+// ---------- 体验审查批 4：D-2 顶部摘要行 / D-3 假绿 / D-8 筛选 ----------
+
+describe("D-2 断边统一顶部摘要行", () => {
+  const summaryEl = (): HTMLElement => document.getElementById("dep-summary")!;
+  const summaryText = (): string => document.getElementById("dep-summary-text")!.textContent ?? "";
+
+  it("有断边 → 摘要行可见并逐条列出短名与计数（不逐断边加横幅档位）", async () => {
+    await seedDiff({
+      missingInEnv: [{ module: "yaml", dist: "PyYAML", distCandidates: ["PyYAML"], file: "a.py", line: 3, lazy: false }],
+      envDrift: [{ dist: "numpy", version: "2.0" }],
+    });
+    await panel.renderDepHealth();
+    expect(summaryEl().classList.contains("hidden")).toBe(false);
+    expect(summaryText()).toContain("缺失模块 × 1");
+    expect(summaryText()).toContain("装了未声明 × 1");
+  });
+
+  it("0 问题 → 摘要行可隐藏（不为「一切正常」制造额外噪声）", async () => {
+    await seedDiff();
+    await panel.renderDepHealth();
+    expect(summaryEl().classList.contains("hidden")).toBe(true);
+  });
+
+  it("D-3 面板侧同款表达：interpreter=null 时摘要行自证「环境侧检测不可用」", async () => {
+    await seedDiff({
+      interpreter: null,
+      undeclared: [{ module: "requests", dist: "requests", distCandidates: ["requests"], file: "b.py", line: 1 }],
+    });
+    await panel.renderDepHealth();
+    expect(summaryEl().classList.contains("hidden")).toBe(false);
+    expect(summaryText()).toContain("环境侧检测不可用");
+  });
+});
+
+describe("D-3 假绿：未选解释器 ≠ 依赖一致", () => {
+  const statusEl = (): HTMLElement => document.getElementById("dep-health-status")!;
+
+  it("interpreter=null + 0 问题 → noenv 独立形态，不并入 ok", () => {
+    panel.handleScanComplete(fakeDiff({ interpreter: null }));
+    expect(statusEl().classList.contains("hidden")).toBe(false);
+    expect(statusEl().classList.contains("noenv")).toBe(true);
+    expect(statusEl().classList.contains("issues")).toBe(false);
+    expect(statusEl().dataset.tip).toContain("环境侧检测不可用");
+  });
+
+  it("interpreter=null 但有断边 → 仍是 issues（真问题优先于「没检测」）", () => {
+    panel.handleScanComplete(fakeDiff({ interpreter: null, envDrift: [{ dist: "a", version: "1" }] }));
+    expect(statusEl().classList.contains("issues")).toBe(true);
+    expect(statusEl().classList.contains("noenv")).toBe(false);
+  });
+});
+
+describe("D-8 明细筛选", () => {
+  const input = (): HTMLInputElement => document.getElementById("dep-filter-input") as HTMLInputElement;
+
+  it("输入筛选词 → 只留命中行，空组整组隐藏 + 显示计数", async () => {
+    await seedDiff({
+      missingInEnv: [
+        { module: "yaml", dist: "PyYAML", distCandidates: ["PyYAML"], file: "a.py", line: 3, lazy: false },
+        { module: "numpy", dist: "numpy", distCandidates: ["numpy"], file: "a.py", line: 4, lazy: false },
+      ],
+    });
+    await panel.renderDepHealth();
+    const before = document.getElementById("dep-health-content")!.querySelectorAll(".dep-row").length;
+    expect(before).toBeGreaterThanOrEqual(2);
+
+    input().value = "yaml";
+    input().dispatchEvent(new Event("input"));
+    await panel.renderDepHealth();
+    const text = document.getElementById("dep-health-content")!.textContent ?? "";
+    expect(text).toContain("yaml");
+    expect(text).not.toContain("numpy");
+    expect(document.getElementById("dep-filter-count")!.textContent).toContain("显示");
+  });
+
+  it("复位（换工作区）清筛选词与计数", async () => {
+    input().value = "yaml";
+    input().dispatchEvent(new Event("input"));
+    panel.resetDepHealthPanel();
+    expect(input().value).toBe("");
+    expect(document.getElementById("dep-filter-count")!.textContent).toBe("");
+  });
+
+  it("≥2 组可修 → 出现跨断边「修复全部可修项」入口", async () => {
+    await seedDiff({
+      missingInEnv: [{ module: "yaml", dist: "PyYAML", distCandidates: ["PyYAML"], file: "a.py", line: 3, lazy: false }],
+      envDrift: [{ dist: "numpy", version: "2.0" }],
+    });
+    await panel.renderDepHealth();
+    expect(document.getElementById("dep-health-content")!.textContent).toContain("修复全部可修项");
   });
 });
 

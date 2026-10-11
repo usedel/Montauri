@@ -56,9 +56,14 @@ beforeEach(async () => {
     label.id = "status-op-label";
     const detail = document.createElement("span");
     detail.id = "status-op-detail";
+    // L-1：进度条（仅在 uv 输出能解析出比例时可见；缺元素同样会抛，CR-26）
+    const bar = document.createElement("span");
+    bar.id = "status-op-bar";
+    const fill = document.createElement("i");
+    fill.id = "status-op-fill";
     const cancel = document.createElement("button");
     cancel.id = "status-op-cancel";
-    chip.append(label, detail, cancel);
+    chip.append(label, detail, bar, fill, cancel);
     document.body.appendChild(chip);
   }
   outputEl = document.getElementById("output")!;
@@ -901,6 +906,56 @@ describe("M3 异常触达 toast（会话去重，venvPrompted 模式推广）", 
     expect(toast).toHaveBeenCalledWith(
       expect.stringContaining("个包未声明"), "info", expect.objectContaining({ actionLabel: "查看" }),
     );
+  });
+});
+
+// ---------- 体验审查批 4：D-7 sync 移除清单 / D-10 本次变化 ----------
+
+describe("D-7 uv sync 破坏性警示列出具体包名", () => {
+  it("有漂移包 → 警示含包名（不再只说「会移除未声明包」）", () => {
+    const w = dh.syncRemovesWarning(["numpy", "scipy"]);
+    expect(w).toContain("numpy");
+    expect(w).toContain("scipy");
+  });
+
+  it("环境侧未检测（空清单）→ 退化为原口径，不编造列表", () => {
+    const fallback = dh.syncRemovesWarning([]);
+    expect(fallback.length).toBeGreaterThan(0);
+    // 原口径不含任何包名——与「列出包名」两条文案可区分
+    expect(fallback).not.toContain("numpy");
+    expect(dh.syncRemovesWarning(["numpy"])).not.toBe(fallback);
+  });
+
+  it("超出展示上限 → 截断并给出剩余数", () => {
+    const names = Array.from({ length: 10 }, (_, i) => `p${i}`);
+    const w = dh.syncRemovesWarning(names);
+    expect(w).toContain("p0");
+    expect(w).toContain("2"); // 另有 2 个
+    expect(w).not.toContain("p9");
+  });
+});
+
+describe("D-10 本次变化（逐条比差，非计数差）", () => {
+  it("修好一条 + 新增一条：计数相同也必须报出两端", () => {
+    const prev = fakeDiff({
+      missingInEnv: [{ module: "yaml", dist: "PyYAML", distCandidates: [], file: "a.py", line: 1, lazy: false }],
+    });
+    const cur = fakeDiff({
+      missingInEnv: [{ module: "numpy", dist: "numpy", distCandidates: [], file: "a.py", line: 2, lazy: false }],
+    });
+    expect(dh.issueCount(prev)).toBe(dh.issueCount(cur)); // 计数相同 → 只有逐条比差能发现
+    const delta = dh.diffDelta(prev, cur);
+    expect(delta).toEqual({ added: 1, resolved: 1 });
+  });
+
+  it("无基线（首扫）→ 全 0，不给变化结论", () => {
+    expect(dh.diffDelta(null, fakeDiff())).toEqual({ added: 0, resolved: 0 });
+    expect(dh.diffDelta(fakeDiff(), null)).toEqual({ added: 0, resolved: 0 });
+  });
+
+  it("完全相同 → 无变化", () => {
+    const d = fakeDiff({ envDrift: [{ dist: "numpy", version: "2.0" }] });
+    expect(dh.diffDelta(d, d)).toEqual({ added: 0, resolved: 0 });
   });
 });
 

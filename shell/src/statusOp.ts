@@ -34,6 +34,8 @@ const OP_LABEL_KEY = {
 const statusOpEl = lazyEl("status-op");
 const statusOpLabelEl = lazyEl("status-op-label");
 const statusOpDetailEl = lazyEl("status-op-detail");
+const statusOpBarEl = lazyEl("status-op-bar"); // L-1：进度条（仅在能解析出比例时可见）
+const statusOpFillEl = lazyEl("status-op-fill");
 const statusOpCancelBtn = lazyEl<HTMLButtonElement>("status-op-cancel");
 
 interface ActiveOp {
@@ -54,6 +56,12 @@ export function isUvOpActive(): boolean {
 function render(): void {
   if (!active) {
     hideEl(statusOpEl);
+    // 收尾即复位：芯片隐藏后不留上一次的进度文本与进度条——否则下一次起手会在「有输出之前」
+    // 短暂闪出上一个操作的旧数值（用户会误读成新操作的进度）。
+    statusOpDetailEl.textContent = "";
+    statusOpBarEl.classList.add("hidden");
+    statusOpFillEl.style.width = "0";
+    statusOpBarEl.removeAttribute("aria-valuenow");
     return;
   }
   showEl(statusOpEl);
@@ -62,6 +70,17 @@ function render(): void {
   // L-1：有可判读进度就显示（「45.2 MiB / 100.5 MiB（46%）」这类），没有就留空——
   // 空态与「转圈 + 操作名」等价，不给假进度
   statusOpDetailEl.textContent = active.progress?.text ?? "";
+  // L-1 进度条：ratio 为 null（算不出比例）→ 保持 hidden，不做自走的假进度
+  const ratio = active.progress?.ratio ?? null;
+  statusOpBarEl.classList.toggle("hidden", ratio === null);
+  if (ratio !== null) {
+    const pct = Math.round(ratio * 100);
+    statusOpFillEl.style.width = `${pct}%`;
+    statusOpBarEl.setAttribute("aria-valuenow", String(pct));
+  } else {
+    statusOpFillEl.style.width = "0";
+    statusOpBarEl.removeAttribute("aria-valuenow");
+  }
   statusOpCancelBtn.textContent = active.canceling ? t("status.opCanceling") : t("common.cancel");
   statusOpCancelBtn.disabled = active.canceling; // 防连点：首次点击即进「取消中…」
 }

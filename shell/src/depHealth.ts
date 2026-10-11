@@ -113,6 +113,9 @@ export const OPEN_CHECK_DELAY_MS = 1_500;
 export const MODAL_POLL_MS = 500;
 
 let lastDiff: DepDiff | null = null;
+/** D-10：上一份快照（「本次新增 / 已解决」的对照基线）。换工作区随 resetDepHealth 清空——
+ *  跨工作区比差没有语义（两个项目的断边集合不可比）。 */
+let prevDiff: DepDiff | null = null;
 /** 体检令牌：切换/关闭工作区与新一轮体检启动时作废在途结果（pkgToken 同款先例，§4.7 规则 4） */
 let scanToken = 0;
 
@@ -217,6 +220,7 @@ export function freshDiffForInterpreter(interpreter: string | null): DepDiff | n
 export function resetDepHealth(): void {
   scanToken++;
   lastDiff = null;
+  prevDiff = null; // D-10：对照基线同样作废（跨工作区比差无语义）
   lastEnvSnapshot = null;
   lastStyleInfo = null;
   notifyDedup.clear();
@@ -242,6 +246,7 @@ async function scanWithToken(workspaceRoot: string, token: number, scope?: DepSc
   try {
     const diff = await invoke<DepDiff>("dep_scan", { workspaceRoot, scope: scope ?? "full" });
     if (token !== scanToken) return null;
+    prevDiff = lastDiff; // D-10：覆盖前转存为对照基线（首扫时是 null，UI 据此不显示变化行）
     lastDiff = diff;
     onScanComplete(diff);
     return diff;
@@ -586,6 +591,46 @@ export function issueCount(d: DepDiff): number {
   );
 }
 
+// ---------- D-10：本次变化（新增 / 已解决） ----------
+
+/** 断边条目 → 稳定 key（小写归一，与 import 名 / dist 名的大小写不敏感语义一致）。
+ *  逐条 key 而非计数：计数相同也可能是「A 修好了、B 又新增」，用户要看的是后者。 */
+export function issueKeys(d: DepDiff): Set<string> {
+  const keys = new Set<string>();
+  for (const m of d.missingInEnv) keys.add(`e1:${m.module.toLowerCase()}`);
+  for (const x of d.declaredMissing) keys.add(`e2:${x.dist.toLowerCase()}`);
+  for (const m of d.declaredMissingModules) keys.add(`e2m:${m.module.toLowerCase()}`);
+  for (const p of d.envDrift) keys.add(`e3:${p.dist.toLowerCase()}`);
+  for (const u of d.undeclared) keys.add(`e4:${u.module.toLowerCase()}`);
+  if (d.lockOutOfDate) keys.add("e5:lock");
+  return keys;
+}
+
+export interface DiffDelta {
+  /** 本次新增的问题条目数（上次没有、这次有） */
+  added: number;
+  /** 本次已解决（上次有、这次没有） */
+  resolved: number;
+}
+
+/** 与上一份快照逐条比差。prev 为 null（首扫）时返回全 0——没有基线就不给变化结论。 */
+export function diffDelta(prev: DepDiff | null, cur: DepDiff | null): DiffDelta {
+  if (!prev || !cur) return { added: 0, resolved: 0 };
+  const a = issueKeys(prev);
+  const b = issueKeys(cur);
+  let added = 0;
+  let resolved = 0;
+  for (const k of b) if (!a.has(k)) added++;
+  for (const k of a) if (!b.has(k)) resolved++;
+  return { added, resolved };
+}
+
+/** 面板取用：本次变化（无对照基线时 null，UI 据此隐藏变化行） */
+export function latestChange(): DiffDelta | null {
+  if (!prevDiff || !lastDiff) return null;
+  return diffDelta(prevDiff, lastDiff);
+}
+
 /** 打开工作区体检异常 → toast 一次 +「查看」（§4.7：横幅在面板内，toast 是面板未开时的触达渠道） */
 function notifyIssuesOnce(root: string, diff: DepDiff): void {
   const n = issueCount(diff);
@@ -665,6 +710,21 @@ export function previewFixCommand(plan: DepFixPlan): string {
   const shown = tokens.slice(tokens.length - n, tokens.length - n + PREVIEW_MAX_DISTS).join(" ");
   const rest = n - PREVIEW_MAX_DISTS;
   return t("dep.listMore", { head: head, shown: shown, rest: rest });
+}
+
+/** D-7：uv sync 破坏性警示的包名展示上限（与 PREVIEW_MAX_DISTS 同款理由：弹窗不该被清单撑满一屏） */
+const SYNC_REMOVES_MAX = 8;
+
+/** 把将被移除的包名拼进警示文案。空清单（环境侧未检测）退化为原口径——
+ *  说不出名字时至少说不出口径，不编造列表。 */
+export function syncRemovesWarning(dists: string[]): string {
+  const names = [...new Set(dists.map((d) => d.trim()).filter(Boolean))];
+  if (names.length === 0) return t("dep.plan.syncRemoves");
+  const shown = names.slice(0, SYNC_REMOVES_MAX).join("、");
+  const rest = names.length - SYNC_REMOVES_MAX;
+  return rest > 0
+    ? t("dep.plan.syncRemovesListMore", { names: shown, rest: rest })
+    : t("dep.plan.syncRemovesList", { names: shown });
 }
 
 /** E3 漂移包 → uv add 的版本约束 spec：锁定已装版本（`dist==version`），避免 uv add 解析
@@ -818,9 +878,11 @@ export function groupFixPlan(
         action: "sync",
         dists: [],
         command: fixCommandPreview(diff, "sync", []),
+        // D-7：破坏性警示列出**将被移除的具体包名**——「会移除未声明包」这句让用户只能盲选，
+        // 而 envDrift 就是那份清单（数据已在 diff 里，零新增计算）。数量大时截断（弹窗不撑满一屏）。
         warning:
           diff.style === "pyproject"
-            ? t("dep.plan.syncRemoves")
+            ? syncRemovesWarning(diff.envDrift.map((p) => p.dist))
             : undefined,
       };
     }

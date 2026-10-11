@@ -13,9 +13,14 @@ const label = document.createElement("span");
 label.id = "status-op-label";
 const detail = document.createElement("span");
 detail.id = "status-op-detail";
+// L-1：进度条（仅 ratio 可解析时可见；缺元素 lazyEl 即抛）
+const bar = document.createElement("span");
+bar.id = "status-op-bar";
+const fill = document.createElement("i");
+fill.id = "status-op-fill";
 const cancelBtn = document.createElement("button");
 cancelBtn.id = "status-op-cancel";
-chip.append(label, detail, cancelBtn);
+chip.append(label, detail, bar, fill, cancelBtn);
 document.body.appendChild(chip);
 
 const statusOp = await import("../statusOp");
@@ -65,6 +70,26 @@ describe("L-5：状态栏「进行中」芯片", () => {
 });
 
 describe("L-1：芯片里的可判读进度", () => {
+  const bar = (): HTMLElement => document.getElementById("status-op-bar")!;
+  const fill = (): HTMLElement => document.getElementById("status-op-fill")!;
+
+  it("解析得出比例 → 进度条可见且宽度随比例（画真进度，不自走）", () => {
+    statusOp.beginUvOp("venv");
+    expect(bar().classList.contains("hidden")).toBe(true); // 起手尚无输出 = 不确定态
+    statusOp.pushUvProgressLine("45.2 MiB / 100.5 MiB");
+    expect(bar().classList.contains("hidden")).toBe(false);
+    expect(fill().style.width).toBe("45%");
+    expect(bar().getAttribute("aria-valuenow")).toBe("45");
+    statusOp.endUvOp("venv");
+  });
+
+  it("解析不出比例 → 进度条保持隐藏（不做假进度条）", () => {
+    statusOp.beginUvOp("install");
+    statusOp.pushUvProgressLine("Using Python 3.12.7 environment at: F:\\ws\\.venv");
+    expect(bar().classList.contains("hidden")).toBe(true);
+    statusOp.endUvOp("install");
+  });
+
   it("有在途操作时喂流式行 → 显示解析出的进度；无操作时喂不点亮芯片", () => {
     expect(detail.textContent).toBe("");
     statusOp.pushUvProgressLine("45.2 MiB / 100.5 MiB");

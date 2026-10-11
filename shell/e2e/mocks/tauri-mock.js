@@ -1305,6 +1305,14 @@
         truncated: !!hp.truncated,
       };
     }
+    // 4.65c) 依赖健康：dep_scan 未在 mock 里实现（既有规格）——未预置时**保持失败降级**
+    //        （onScanComplete(null) → 中性 idle，正是 D-1 要保证的场景）；
+    //        测试经 window.__E2E_DEP_DIFF__ 预置一份 diff，才能在浏览器层验面板表达（D-2/D-3/D-8）。
+    if (cmd === "dep_scan") {
+      var dd = window.__E2E_DEP_DIFF__;
+      if (!dd) throw new Error("dep_scan 未在 tauri-mock 中实现（如需真实 diff，预置 window.__E2E_DEP_DIFF__）");
+      return JSON.parse(JSON.stringify(dd));
+    }
     // 4.6) 调试 DAP mock（E2E 专用，无真实 debugpy）：模拟 stdio adapter 架构时序与步进推演
     var dh = handleDebugCommand(cmd, args);
     if (dh !== "__unhandled__") return dh;

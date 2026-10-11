@@ -454,6 +454,9 @@
         <span id="status-op" class="hidden">
           <span id="status-op-label" role="status" aria-live="polite"></span>
           <span id="status-op-detail"></span>
+          <!-- L-1：可判读进度条——仅当 uv 输出能解析出「已下载/总量」这类比例时才显示
+               （解析不出保持 hidden，走「转圈 + 最近一行」不确定态，不做假进度条） -->
+          <span id="status-op-bar" class="hidden" role="progressbar" aria-valuemin="0" aria-valuemax="100"><i id="status-op-fill"></i></span>
           <button id="status-op-cancel" class="btn btn--sm">取消</button>
         </span>
         <!-- UI-09：与同栏的 #status-interpreter / #status-engine 统一走 data-tip，消除状态栏内的 tooltip 双轨 -->
@@ -580,7 +583,20 @@
               <span id="dep-scanned-at" class="dep-health-meta"></span>
               <button data-i18n="env.refresh2" data-i18n-title="env.refresh" id="dep-refresh" class="btn btn--sm" title="重新体检依赖一致性">刷新</button>
             </div>
+            <!-- D-2：断边统一顶部摘要行（E1/E4/E5 不逐条加横幅档位）+ D-10 本次变化 -->
+            <div id="dep-summary" class="dep-summary hidden">
+              <i class="codicon codicon-warning" aria-hidden="true"></i>
+              <span id="dep-summary-text" class="dep-summary-text"></span>
+              <span id="dep-summary-change" class="dep-summary-change"></span>
+            </div>
             <div id="dep-health-detail" class="dep-health-detail hidden">
+              <!-- D-8：明细筛选（按断边 / 按文件两视图；即时本地过滤，不重新请求后端） -->
+              <div class="dep-filter">
+                <input id="dep-filter-input" type="text" autocomplete="off" spellcheck="false"
+                  data-i18n-ph="dep.panel.filterPh" data-i18n-aria="dep.panel.filterAria"
+                  placeholder="筛选问题…" aria-label="筛选依赖健康问题" />
+                <span id="dep-filter-count" class="dep-filter-count"></span>
+              </div>
               <div data-i18n-aria="env.healthDetailDiv" class="dep-tabs" role="tablist" aria-label="依赖健康视图">
                 <button data-i18n="env.tabEdge" id="dep-tab-edge" class="dep-tab" role="tab" aria-selected="true">按断边</button>
                 <button data-i18n="env.tabFile" id="dep-tab-file" class="dep-tab" role="tab" aria-selected="false">按文件</button>

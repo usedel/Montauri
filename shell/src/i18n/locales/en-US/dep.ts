@@ -74,11 +74,19 @@ export const dep: Record<DepKey, string> = {
   "dep.panel.e3Banner.other": "Detected {count} packages installed but not declared (pip installs do not write declarations; that is expected).",
   "dep.panel.e4Note": "E4 is computed for pyproject projects only (current style={style}{suffix})",
   "dep.panel.e4ReqSuffix": ", migrating to pyproject for unified management is recommended",
-  "dep.panel.edge.e1": "E1 missing modules (code ⊄ environment)",
-  "dep.panel.edge.e2": "E2 declared-not-installed (declarations ⊄ environment)",
-  "dep.panel.edge.e3": "E3 installed-but-undeclared (environment ⊄ declarations)",
-  "dep.panel.edge.e4": "E4 undeclared dependencies (code ⊄ declarations)",
-  "dep.panel.edge.e5": "E5 uv.lock outdated (within declarations)",
+  // D-5 (plain-language titles): edge ids like "E1" are internal vocabulary; keep them as a
+  // secondary tag rendered by the panel, but lead with what the user actually experiences.
+  "dep.panel.edge.e1": "Imported in code but not installed (ImportError at runtime)",
+  "dep.panel.edge.e2": "Declared but not installed",
+  "dep.panel.edge.e3": "Installed but not declared",
+  "dep.panel.edge.e4": "Imported in code but not declared",
+  "dep.panel.edge.e5": "uv.lock is out of sync with the declarations",
+  // D-2: short edge names for the one-line top summary
+  "dep.panel.short.e1": "Missing modules",
+  "dep.panel.short.e2": "Declared, not installed",
+  "dep.panel.short.e3": "Installed, undeclared",
+  "dep.panel.short.e4": "Undeclared modules",
+  "dep.panel.short.e5": "Lock outdated",
   "dep.panel.externalLock": "Detected a lock file managed by {mgr} — OpenCharm manages dependencies with uv; the declaration-layer detection of this project is degraded (only missing-import detection is effective). Migrating to uv is recommended.",
   "dep.panel.externalMgr": "an external package manager",
   "dep.panel.externalTool": "an external tool",
@@ -95,6 +103,14 @@ export const dep: Record<DepKey, string> = {
   "dep.panel.fix.migrate": "Migrate to pyproject",
   "dep.panel.fixAll": "Fix all",
   "dep.panel.fixAllDeclare": "Declare all",
+  // D-8: cross-edge batch fix (shown only when 2+ groups are fixable)
+  "dep.panel.fixAllEdges": "{count} groups can be fixed at once",
+  "dep.panel.fixAllEdgesBtn": "Fix all fixable",
+  "dep.panel.fixAllEdgesTitle": "Fix all fixable",
+  // D-8: detail filter
+  "dep.panel.filterAria": "Filter dependency health issues",
+  "dep.panel.filterPh": "Filter issues…",
+  "dep.panel.filterCount": "{shown} rows shown",
   "dep.panel.genFailed": "Generating pyproject.toml failed: {error}",
   "dep.panel.generating": "Generating…",
   "dep.panel.groupRef": "group {group} · {files} file references",
@@ -139,6 +155,10 @@ export const dep: Record<DepKey, string> = {
   "dep.panel.statusIssues": "Dependency check: {issues} issues, click to view",
   "dep.panel.statusOk": "Dependency check: dependencies consistent, click to view",
   "dep.panel.statusScanning": "Dependency check running…",
+  // D-3 (false green): no interpreter selected == the environment side was never inspected
+  "dep.panel.statusNoEnv": "Dependency check: no interpreter selected, environment side not inspected (click to view)",
+  // D-10: change since the previous snapshot (per-item diff, not a count delta)
+  "dep.panel.changeLine": "{added} new / {resolved} resolved this run",
   "dep.panel.versionUnknown": "(version unknown)",
   "dep.panel.willInstall": "→ Install {dist}",
   "dep.panel.willInstallByModule": "→ Install by module name (no distribution name resolved)",
@@ -146,6 +166,9 @@ export const dep: Record<DepKey, string> = {
   "dep.plan.lockDeclare": "Declarations will be written locked to the currently installed versions (dist==version) — later uv sync will not upgrade them automatically",
   "dep.plan.migrateWarning": "The original requirements.txt is not rewritten; a minimal pyproject.toml template is generated first if missing (revertible)",
   "dep.plan.syncRemoves": "uv sync will remove packages from the environment that are not declared in the lock (manually installed packages get uninstalled)",
+  // D-7: name the packages that will be removed instead of only describing the rule
+  "dep.plan.syncRemovesList": "uv sync will remove these undeclared packages: {names}",
+  "dep.plan.syncRemovesListMore": "uv sync will remove these undeclared packages: {names} and {rest} more",
   // ---- dep.reason ----
   "dep.reason.declaredMissing.one": "1 declared dependency is not installed",
   "dep.reason.declaredMissing.other": "{count} declared dependencies are not installed",

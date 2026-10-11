@@ -73,11 +73,19 @@ export const dep = {
   "dep.panel.e3Banner.other": "检测到 {count} 个包已安装但未声明（pip 安装不写入声明属正常现象）。",
   "dep.panel.e4Note": "仅 pyproject 项目计算 E4（当前 style={style}{suffix})",
   "dep.panel.e4ReqSuffix": "，建议迁移到 pyproject 统一管理",
-  "dep.panel.edge.e1": "E1 缺失模块（代码 ⊄ 环境）",
-  "dep.panel.edge.e2": "E2 声明未安装（声明 ⊄ 环境）",
-  "dep.panel.edge.e3": "E3 装了未声明（环境 ⊄ 声明）",
-  "dep.panel.edge.e4": "E4 未声明依赖（代码 ⊄ 声明）",
-  "dep.panel.edge.e5": "E5 uv.lock 过期（声明内部）",
+  // D-5（术语平化）：标题改人话——目标用户不看设计文档，「断边」「⊄」是内部词汇。
+  // 断边编号降为标题后的副标签（renderGroup 自行渲染），保留与文档/后端对齐的锚点。
+  "dep.panel.edge.e1": "代码里 import 了但没装（运行会 ImportError）",
+  "dep.panel.edge.e2": "声明里写了但没装",
+  "dep.panel.edge.e3": "环境里装了但没写进声明",
+  "dep.panel.edge.e4": "代码里 import 了但没写进声明",
+  "dep.panel.edge.e5": "uv.lock 与声明不一致（锁文件过期）",
+  // D-2：顶部摘要行的断边短名（一行并排多条，故比分组标题更短）
+  "dep.panel.short.e1": "缺失模块",
+  "dep.panel.short.e2": "声明未装",
+  "dep.panel.short.e3": "装了未声明",
+  "dep.panel.short.e4": "未声明模块",
+  "dep.panel.short.e5": "锁文件过期",
   "dep.panel.externalLock": "检测到 {mgr} 管理的锁文件——OpenCharm 以 uv 管理依赖，本项目的声明层检测已降级（仅缺失 import 检测生效）。建议迁移到 uv。",
   "dep.panel.externalMgr": "外部包管理器",
   "dep.panel.externalTool": "外部工具",
@@ -94,6 +102,14 @@ export const dep = {
   "dep.panel.fix.migrate": "迁移到 pyproject",
   "dep.panel.fixAll": "全部修复",
   "dep.panel.fixAllDeclare": "全部写入",
+  // D-8：跨断边批量修复（≥2 组可修时出现）
+  "dep.panel.fixAllEdges": "{count} 类问题可一键修复",
+  "dep.panel.fixAllEdgesBtn": "修复全部可修项",
+  "dep.panel.fixAllEdgesTitle": "修复全部可修项",
+  // D-8：明细筛选
+  "dep.panel.filterAria": "筛选依赖健康问题",
+  "dep.panel.filterPh": "筛选问题…",
+  "dep.panel.filterCount": "显示 {shown} 行",
   "dep.panel.genFailed": "生成 pyproject.toml 失败：{error}",
   "dep.panel.generating": "生成中…",
   "dep.panel.groupRef": "组 {group} · {files} 个文件引用",
@@ -138,6 +154,10 @@ export const dep = {
   "dep.panel.statusIssues": "依赖体检：{issues} 项问题，点击查看",
   "dep.panel.statusOk": "依赖体检：依赖一致，点击查看",
   "dep.panel.statusScanning": "依赖体检中…",
+  // D-3（假绿）：未选解释器 = 环境侧根本没检测，不能宣称「依赖一致」
+  "dep.panel.statusNoEnv": "依赖体检：未选解释器，环境侧检测不可用（点击查看）",
+  // D-10：本次变化（与上一份快照逐条比差）
+  "dep.panel.changeLine": "本次新增 {added} / 已解决 {resolved}",
   "dep.panel.versionUnknown": "(版本未知)",
   "dep.panel.willInstall": "→ 安装 {dist}",
   "dep.panel.willInstallByModule": "→ 按模块名安装（未反查到发行版名）",
@@ -145,6 +165,9 @@ export const dep = {
   "dep.plan.lockDeclare": "将按当前已安装版本锁定写入声明（dist==version）——后续 uv sync 不会自动升级这些包",
   "dep.plan.migrateWarning": "不改写原 requirements.txt；缺少 pyproject.toml 时会先生成最小模板（可回退）",
   "dep.plan.syncRemoves": "uv sync 将按 lock 移除环境中未声明的包（手动裸装的包会被卸载）",
+  // D-7：把「将被移除的包」由抽象口径具体到包名（数据已在 diff 里，零新增计算）
+  "dep.plan.syncRemovesList": "uv sync 将移除这些未声明的包：{names}",
+  "dep.plan.syncRemovesListMore": "uv sync 将移除这些未声明的包：{names} 等（另有 {rest} 个）",
   // ---- dep.reason ----
   "dep.reason.declaredMissing.one": "{count} 个已声明依赖未安装",
   "dep.reason.declaredMissing.other": "{count} 个已声明依赖未安装",

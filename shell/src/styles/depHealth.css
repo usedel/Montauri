@@ -1,0 +1,157 @@
+/* 依赖健康（dep plan M3，§6.1 三视图 + §6.2 横幅/持续存在感）。
+   2026-10-11 自 style.css 拆出（体验审查批 4：D-2 顶部摘要行 / D-3 假绿 / D-8 筛选框）——
+   style.css 已 5850/5850 零余量，新增样式只能落新文件（budgets.toml 顶部纪律第 3 条：
+   拆分即降阈值，新文件各自设上限）。经 style.css 顶部 @import 内联进 bundle，
+   audit_tokens.py 已支持 @import 解析（拆分不得缩小审计面）。 */
+
+/* ---------- 依赖健康（dep plan M3，§6.1 三视图 + §6.2 横幅/持续存在感） ---------- */
+.dep-banner-actions { display: flex; gap: var(--space-3); flex: none; }
+.dep-health-top { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-3); }
+.dep-health-top .spacer { flex: 1; }
+.dep-health-top .badge {
+  font-size: var(--text-xs);
+  color: var(--fg-dim);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  padding: 0 var(--space-2);
+  flex: none;
+}
+/* external/bare 徽章可点击（§6.1：展开边界说明 / 生成 pyproject 引导） */
+.dep-health-top .badge.clickable { cursor: pointer; }
+.dep-health-top .badge.clickable:hover { color: var(--fg); border-color: var(--fg-dim); }
+.dep-health-meta {
+  color: var(--fg-dim);
+  font-size: var(--text-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dep-tabs { display: flex; gap: var(--space-2); margin-bottom: var(--space-3); }
+.dep-tab {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--fg-dim);
+  font-size: var(--text-sm);
+  padding: var(--space-2) var(--space-4);
+  cursor: pointer;
+}
+.dep-tab:hover { color: var(--fg); }
+.dep-tab[aria-selected="true"] { color: var(--fg); background: var(--accent-soft); font-weight: 600; }
+.dep-health-content {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  max-height: 260px;
+  overflow: auto;
+}
+/* 依赖明细默认收起（2026-09-16）：面板首屏留给包管理主体；「有问题」信号由横幅与
+   常驻头部承载，明细是按需下钻（横幅「查看」/ 状态栏体检图标 / toast「查看」自动展开）。
+   hidden 类 + aria-expanded 同源切换（ARIA 状态单一写入点 = syncDepDetail）。 */
+.dep-section-title { display: flex; align-items: center; gap: var(--space-2); }
+.dep-collapse-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-xs);
+  color: var(--fg-dim);
+  cursor: pointer;
+  font-size: var(--text-sm);
+}
+.dep-collapse-btn:hover { color: var(--fg); background: var(--hover); }
+.dep-collapse-btn .codicon { transition: transform var(--transition-fast); }
+.dep-collapse-btn[aria-expanded="false"] .codicon { transform: rotate(-90deg); }
+.dep-health-detail.hidden { display: none; }
+.dep-group + .dep-group { border-top: 1px solid var(--border-soft); }
+.dep-group-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  user-select: none;
+}
+.dep-group-head:hover { background: var(--hover); }
+.dep-group-head .dep-caret { flex: none; color: var(--fg-dim); transition: transform var(--transition-fast); }
+.dep-group-head .dep-caret.expanded { transform: rotate(90deg); }
+.dep-group-title { color: var(--fg); flex: none; }
+.dep-group-count { color: var(--fg-dim); font-size: var(--text-xs); flex: none; }
+.dep-group-head .spacer { flex: 1; }
+.dep-group-note {
+  padding: var(--space-2) var(--space-4) var(--space-2) 28px;
+  color: var(--fg-dim);
+  font-size: var(--text-xs);
+  border-top: 1px solid var(--border-soft);
+}
+.dep-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4) var(--space-2) 28px;
+  font-size: var(--text-sm);
+  border-top: 1px solid var(--border-soft);
+}
+.dep-row .dep-name { color: var(--fg); flex: none; }
+.dep-row .dep-detail {
+  color: var(--fg-dim);
+  font-size: var(--text-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dep-row .dep-link { color: var(--accent); cursor: pointer; font-size: var(--text-xs); flex: none; }
+.dep-row .dep-link:hover { text-decoration: underline; }
+.dep-row .spacer { flex: 1; }
+.dep-row .dep-actions { display: flex; gap: var(--space-2); flex: none; }
+/* 行级动作按钮（安装/忽略/恢复检测）：透明底 hover 出框，对齐 .env-pkg-line > button 先例 */
+.dep-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--fg-dim);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  padding: 0 var(--space-3);
+}
+.dep-btn:hover { color: var(--fg); border-color: var(--border); }
+.dep-btn:disabled { opacity: 0.5; cursor: default; }
+.dep-btn.accent:hover { color: var(--accent); border-color: var(--accent); }
+.dep-lazy-tag { color: var(--fg-dim); border: 1px solid var(--border); border-radius: var(--radius-xs); font-size: var(--text-xs); padding: 0 var(--space-1); flex: none; }
+/* v1.7 B：E1 模块聚合——文件计数徽标 + 展开明细行（缩进弱化） */
+.dep-count-tag { color: var(--fg-dim); font-size: var(--text-xs); flex: none; }
+.dep-row--sub { padding-left: var(--space-6); opacity: 0.85; }
+.dep-empty { padding: var(--space-5); color: var(--fg-dim); font-size: var(--text-sm); }
+.dep-uv-note { margin-top: var(--space-3); color: var(--fg-dim); font-size: var(--text-xs); }
+/* 状态栏体检图标（§4.5：扫描中转圈 / 异常驻留警示色，点击开面板） */
+#dep-health-status { display: inline-flex; align-items: center; color: var(--fg-dim); }
+#dep-health-status.hidden { display: none; }
+#dep-health-status.issues { color: var(--warn); }
+/* D-3（假绿）：未选解释器 = 环境侧根本没检测，独立形态（灰底感叹号），不并入 ok */
+#dep-health-status.noenv { color: var(--fg-muted); }
+#dep-health-status.noenv .codicon { color: var(--fg-muted); }
+
+/* ---------- D-2：断边统一顶部摘要行（E1/E4/E5 不逐条加横幅档位） ---------- */
+.dep-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--fg);
+}
+.dep-summary.hidden { display: none; }
+.dep-summary .codicon { flex: none; color: var(--warn); }
+.dep-summary-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* D-10：本次变化（新增 / 已解决）与「上次扫描」同一行，变化是更强的信号故用正文色 */
+.dep-summary-change { flex: none; color: var(--fg-dim); font-size: var(--text-xs); }
+
+/* ---------- D-8：明细筛选（复用 env-pkg-filter 的轻量过滤范式） ---------- */
+.dep-filter { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2); }
+.dep-filter input { flex: 1; font-size: var(--text-xs); }
+.dep-filter-count { flex: none; color: var(--fg-dim); font-size: var(--text-xs); }
