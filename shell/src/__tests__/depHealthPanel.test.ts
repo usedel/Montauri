@@ -32,13 +32,19 @@ for (const id of BUTTON_IDS) {
   document.body.appendChild(el);
 }
 document.getElementById("env-modal")!.classList.add("hidden");
+// D-11：明细的滚动容器是环境面板主体 .env-body（生产 DOM 里 dep-health-detail 嵌在其中）
+const envBody = document.createElement("div");
+envBody.className = "env-body";
+document.body.appendChild(envBody);
+envBody.appendChild(document.getElementById("dep-health-detail")!);
 
 const panel = await import("../depHealthPanel");
 const dh = await import("../depHealth");
 const { invoke } = await import("@tauri-apps/api/core");
 const { toast } = await import("../toast");
 
-panel.initDepHealthPanel({ openEnvPanel: vi.fn(), refreshPackagesIfOpen: vi.fn(), repaintPackagesIfOpen: vi.fn() });
+const openEnvPanelSpy = vi.fn();
+panel.initDepHealthPanel({ openEnvPanel: openEnvPanelSpy, refreshPackagesIfOpen: vi.fn(), repaintPackagesIfOpen: vi.fn() });
 dh.initDepHealth({ restartEngine: async () => {} });
 
 /** 构造一份 DepDiff（缺省 = 契约的「一切正常」形态，同 depHealth.test.ts 口径） */
@@ -310,24 +316,32 @@ describe("行级动作（§5.3）", () => {
   });
 });
 
-// ---------- 状态栏体检图标（§4.5：转圈→完成即消；异常驻留，点击开面板） ----------
+// ---------- 状态栏体检图标（§4.5 + 体验审查 D-1：常驻入口） ----------
 
-describe("状态栏体检图标（§4.5）", () => {
+describe("状态栏体检图标（§4.5 / D-1 常驻）", () => {
   const statusEl = (): HTMLElement => document.getElementById("dep-health-status")!;
 
-  it("异常 diff → 驻留警示态（issues 类 + 计数 tooltip）", () => {
+  it("异常 diff → 警示态（issues 类 + 计数 tooltip）", () => {
     panel.handleScanComplete(fakeDiff({ envDrift: [{ dist: "a", version: "1" }] }));
     expect(statusEl().classList.contains("hidden")).toBe(false);
     expect(statusEl().classList.contains("issues")).toBe(true);
     expect(statusEl().dataset.tip).toContain("1 项问题");
   });
 
-  it("正常 diff → 熄灭（完成即消）；扫描失败（null）→ 熄灭", () => {
+  it("D-1：正常 diff（0 问题）→ 图标仍可见且为中性态（不再「健康即隐身」）", () => {
     panel.handleScanComplete(fakeDiff());
-    expect(statusEl().classList.contains("hidden")).toBe(true);
+    expect(statusEl().classList.contains("hidden")).toBe(false);
+    expect(statusEl().classList.contains("issues")).toBe(false); // 中性色（--fg-dim）
+    expect(statusEl().dataset.tip).toContain("依赖一致");
+    expect(statusEl().querySelector(".codicon")).not.toBeNull();
+  });
+
+  it("扫描失败（null）→ 回中性 idle 态（不驻留假警示，也不隐身）", () => {
     panel.handleScanComplete(fakeDiff({ envDrift: [{ dist: "a", version: "1" }] }));
     panel.handleScanComplete(null);
-    expect(statusEl().classList.contains("hidden")).toBe(true);
+    expect(statusEl().classList.contains("hidden")).toBe(false);
+    expect(statusEl().classList.contains("issues")).toBe(false);
+    expect(statusEl().dataset.tip).toContain("尚未体检");
   });
 
   it("scanning → 转圈态可见（打开工作区体检的进度指示）", () => {
@@ -336,10 +350,57 @@ describe("状态栏体检图标（§4.5）", () => {
     expect(statusEl().querySelector(".codicon-modifier-spin")).not.toBeNull();
   });
 
-  it("resetDepHealthPanel 复位图标与投影 DOM（工作区切换）", () => {
+  it("resetDepHealthPanel 复位投影 DOM（工作区切换）→ 图标熄灭（新工作区尚未体检）", () => {
     panel.handleScanComplete(fakeDiff({ envDrift: [{ dist: "a", version: "1" }] }));
     panel.resetDepHealthPanel();
     expect(statusEl().classList.contains("hidden")).toBe(true);
     expect(contentEl().textContent).toBe("");
+  });
+
+  it("D-1：「有工作区但没体检」是可见的 idle 中性态，与「没有工作区」的熄灭区分开", () => {
+    panel.clearHealthStatus();
+    expect(statusEl().classList.contains("hidden")).toBe(true);
+    panel.handleScanComplete(null); // 体检失败 → 回 idle（可见中性，不是隐身）
+    expect(statusEl().classList.contains("hidden")).toBe(false);
+    expect(statusEl().classList.contains("issues")).toBe(false);
+    expect(statusEl().dataset.tip).toBeDefined();
+  });
+});
+
+// ---------- 入口（D-4：状态栏图标 / 命令面板共用单一入口） ----------
+
+describe("入口（D-4）", () => {
+  it("openDepHealthPanel = 展开明细 + 打开环境面板；状态栏图标点击走同一入口", () => {
+    panel.resetDepHealthPanel(); // 明细回默认收起
+    const detail = document.getElementById("dep-health-detail")!;
+    expect(detail.classList.contains("hidden")).toBe(true);
+
+    openEnvPanelSpy.mockClear();
+    document.getElementById("dep-health-status")!.click();
+    expect(detail.classList.contains("hidden")).toBe(false);
+    expect(openEnvPanelSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------- 重绘与滚动（D-11） ----------
+
+describe("重绘与滚动（D-11）", () => {
+  it("重绘后把 .env-body 的 scrollTop 恢复到重绘前（修复/忽略后视点不丢）", async () => {
+    await seedDiff({ envDrift: [{ dist: "a", version: "1" }] });
+    await panel.renderDepHealth();
+
+    // happy-dom 无布局，手动复刻「浏览器会在重绘时改动 scrollTop」的可观测点
+    const scroller = document.querySelector<HTMLElement>(".env-body")!;
+    const writes: number[] = [];
+    let top = 120;
+    Object.defineProperty(scroller, "scrollTop", {
+      configurable: true,
+      get: () => top,
+      set: (v: number) => { top = v; writes.push(v); },
+    });
+
+    await panel.renderDepHealth();
+    expect(writes).toContain(120); // 恢复写入发生
+    expect(top).toBe(120);
   });
 });

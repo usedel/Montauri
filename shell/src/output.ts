@@ -320,6 +320,21 @@ export function appendOutputLine(
   return line;
 }
 
+/** 长耗时操作起手（体验审查 L-6）：展开底部面板 + 记录命令行回显（cmd 级）。
+ *
+ *  为什么要有这个单一来源：展开动作此前散落在各调用点手写（`envPanel.createVenv` /
+ *  `depHealth.runDepFix` 各写一次，`newProject` 直接漏了）——输出面板是长操作**唯一**的进度
+ *  指示，漏展开 = 用户只看到模态被压暗、按钮转圈，无法判断在下载还是卡住。收进这里后，
+ *  新增长操作调用点只要走 beginLongOp 就不会漏（C-4 那类缺陷不会复发）。
+ *
+ *  cmd 行不含 `file:line`，故不接 onLink；channel 默认 env（长操作都属环境/依赖域）。
+ *  cmdLine 省略 = 只展开不 echo——仅用于「一次操作要回显多条命令」的批量场景（如 dep_fix 的
+ *  多 plan 循环），单条命令一律带上，别让进度只躺在被压暗的模态后面。 */
+export function beginLongOp(container: HTMLElement, cmdLine?: string, channel: OutputChannel = "env"): void {
+  document.getElementById("bottom")?.classList.remove("collapsed");
+  if (cmdLine) appendOutputLine(container, cmdLine, "cmd", undefined, channel);
+}
+
 /** 切换过滤后重刷已有行（termUi 的 chips 点击驱动）：遍历容器行，按 dataset 联合重算显隐。
  *  两个导出名是同一实现——channel chips 与级别 chips 任一变化都全量重刷（行数 ≤ 上限，开销可忽略）。 */
 export function refilterOutputChannel(container: HTMLElement): void {

@@ -32,6 +32,7 @@ import {
   refreshBranchPanel, stageAllChanges, toggleBranchList, toggleHistory,
 } from "./git";
 import { openNewProjectPanel } from "./newProject";
+import { openDepHealthPanel } from "./depHealthPanel"; // 体验审查 D-4：依赖健康命令面板入口
 import { openCloneTab } from "./cloneRepository";
 import { openGuide } from "./extensions/pluginsTab";
 import { listPluginRecords } from "./extensions/loader";
@@ -180,6 +181,9 @@ export function buildQuickOpenActions(): QuickOpenAction[] {
     { id: "new_project", label: t("main.cmd.newProject"), run: () => openNewProjectPanel() },
     { id: "git_clone", label: t("cloneRepository.cmdLabel"), run: () => openCloneTab() },
     { id: "git_panel", label: t("main.cmd.gitPanel"), run: () => setSidebarTab("git") },
+    // 体验审查 D-4：依赖健康此前只有「状态栏图标 / 面板内分区」两个入口，键盘用户不可达、
+    // 也搜不到；补命令面板条目（与状态栏图标共用 openDepHealthPanel 单一入口）
+    { id: "dep_health_panel", label: t("dep.panel.cmdOpen"), run: () => openDepHealthPanel() },
     // P0-1：git 高频操作进命令面板（对标 VS Code Git: * 命令族）——
     // 此前仅 git_panel 一条，键盘流用户完全不可达（报告 D9）
     { id: "git_init", label: t("main.cmd.gitInit"), run: () => void gitInitRepo() },

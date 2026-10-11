@@ -129,6 +129,41 @@ describe("输出护栏（P0：环形缓冲 + 条件滚动跟随）", () => {
   });
 });
 
+describe("beginLongOp（体验审查 L-6：长操作起手单一来源）", () => {
+  it("展开底部面板并回显命令行（cmd 级 + env 通道）", async () => {
+    const { beginLongOp } = await import("../output");
+    const bottom = document.createElement("div");
+    bottom.id = "bottom";
+    bottom.classList.add("collapsed");
+    document.body.appendChild(bottom);
+    const container = document.createElement("div");
+
+    beginLongOp(container, "> uv venv .venv --python 3.12");
+    expect(bottom.classList.contains("collapsed")).toBe(false); // 进度不再被折叠藏起来
+    const line = container.querySelector(".out-line") as HTMLElement;
+    expect(line.textContent).toContain("uv venv .venv --python 3.12");
+    expect(line.classList.contains("cmd")).toBe(true);
+    expect(line.dataset.channel).toBe("env");
+
+    bottom.remove();
+  });
+
+  it("省略 cmdLine：只展开不回显（批量操作逐条自行 echo 的场景）", async () => {
+    const { beginLongOp } = await import("../output");
+    const bottom = document.createElement("div");
+    bottom.id = "bottom";
+    bottom.classList.add("collapsed");
+    document.body.appendChild(bottom);
+    const container = document.createElement("div");
+
+    beginLongOp(container);
+    expect(bottom.classList.contains("collapsed")).toBe(false);
+    expect(container.children.length).toBe(0);
+
+    bottom.remove();
+  });
+});
+
 describe("URL 链接识别（P2-L）", () => {
   it("行内 URL 渲染为可点击链接，点击回传 URL", async () => {
     const { setOutputUrlHandler } = await import("../output");

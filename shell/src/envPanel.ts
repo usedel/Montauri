@@ -8,11 +8,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { app, $, $btn, lazyEl, outputEl } from "./state";
+import { app, $btn, lazyEl, outputEl } from "./state";
 import { basename, codicon, errMsg, relativePathRaw, setBusy, spinIcon as utilSpinIcon, SNAKE_SVG } from "./util";
 import { onLocaleChange, t } from "./i18n"; // 第六批 i18n：环境域动态文案走语言包
 import { localizeBackendError } from "./i18n/backendError";
-import { appendOutputLine } from "./output";
+import { appendOutputLine, beginLongOp } from "./output";
 import { gotoFromLink } from "./tracebackLink";
 import { openConfirm } from "./dialog";
 import { hideEl, showEl } from "./anim";
@@ -45,6 +45,7 @@ const statusInterpreterEl = lazyEl("status-interpreter");
 const envModalEl = lazyEl("env-modal");
 const envPackagesEl = lazyEl("env-packages");
 const envPkgInputEl = lazyEl<HTMLInputElement>("env-pkg-input");
+const envPkgInstallBtn = lazyEl<HTMLButtonElement>("env-pkg-install");
 const envPkgFilterEl = lazyEl<HTMLInputElement>("env-pkg-filter");
 const envPkgCountEl = lazyEl("env-pkg-count");
 const envPkgUpgradeAllBtn = lazyEl<HTMLButtonElement>("env-pkg-upgrade-all");
@@ -81,6 +82,11 @@ let outdatedPackages: Map<string, OutdatedInfo> = new Map();
 let selectedPkgs: Set<string> = new Set();
 /** 包筛选关键词（小写）；空 = 不过滤 */
 let pkgFilter = "";
+/** L-8：env 域写操作锁——建环境 / 装包 / 卸包 / 升级 / 工具链安装进行中时为 true。
+ *  与 dep 域的 `.dep-fix-btn` 同思路：防「创建环境还没跑完就点装包」把两个 uv 进程并发写同一
+ *  .venv（后端 env 域无互斥，见体验审查 L-5）。锁在 updatePkgToolbar / renderPkgLines 里被尊重，
+ *  故中途重绘（afterEnvChanged 的包列表联动）不会把按钮解禁回去。 */
+let envWriteLocked = false;
 /** CR-20：包列表刷新令牌——快速切解释器时，解释器 A 的 outdated 不得标到 B 的包上 */
 let pkgToken = 0;
 /** 解释器切换串行队列（尾部链式）：切换 = resetDepHealth + runDepScan + restartEngine，
@@ -190,6 +196,8 @@ export function resetEnvPanelState(): void {
   // L-4：切/关工作区时在途 createVenv 的结果会被丢弃（见 createVenv 的工作区校验），
   // 此处复位 trigger 的 busy 禁用，防面板在新工作区重开后解释器下拉永久不可用。
   interpTriggerEl.disabled = false;
+  // L-8 同理：写锁也要复位——在途长操作的 finally 属旧工作区，不该让新工作区的面板卡在禁用态
+  setEnvWriteDisabled(false);
   // P2（2026-09-30 审计）：面板开着时关工作区 → 此前只清包区 DOM 留下头部信息残留的
   // 孤儿半清空面板。直接关闭模态（数据层已清，留着无意义且各按钮已失效）。
   if (!envModalEl.classList.contains("hidden")) closeEnvPanel();
@@ -575,8 +583,27 @@ function renderNoEnvBanner(): void {
 /** 根据当前选择与 outdated 状态刷新包工具栏按钮与计数 */
 function updatePkgToolbar(): void {
   envPkgCountEl.textContent = currentPackages.length ? `（${currentPackages.length}）` : "";
-  envPkgUninstallSelectedBtn.disabled = selectedPkgs.size === 0;
-  envPkgUpgradeAllBtn.disabled = !currentInterpreter || outdatedPackages.size === 0;
+  // L-8：写锁优先于「是否有勾选 / 是否有过时包」——长操作期间一律禁用
+  envPkgUninstallSelectedBtn.disabled = envWriteLocked || selectedPkgs.size === 0;
+  envPkgUpgradeAllBtn.disabled = envWriteLocked || !currentInterpreter || outdatedPackages.size === 0;
+  syncEnvRowButtons();
+}
+
+/** L-8：行内动作按钮（升级箭头 / 卸载垃圾桶）随写锁同步——行是重绘产生的，
+ *  故除这里之外，每次重绘末尾（renderPkgLines → updatePkgToolbar）也会重新同步。 */
+function syncEnvRowButtons(): void {
+  for (const b of Array.from(envPackagesEl.querySelectorAll<HTMLButtonElement>("button"))) {
+    b.disabled = envWriteLocked;
+  }
+}
+
+/** L-8：长操作（建环境 / 装包 / 卸包 / 升级 / 工具链安装）期间锁定 env 域全部写操作。
+ *  只锁写操作——筛选框、解释器下拉、刷新按钮保持可用（读操作不受影响）。 */
+function setEnvWriteDisabled(disabled: boolean): void {
+  envWriteLocked = disabled;
+  envPkgInputEl.disabled = disabled;
+  envPkgInstallBtn.disabled = disabled;
+  updatePkgToolbar();
 }
 
 /** 包列表加载占位（内联转圈） */
@@ -718,18 +745,20 @@ async function createVenv(version: string): Promise<void> {
   const root = app.workspaceRoot;
   if (!root) return;
   const cmdDesc = `uv venv .venv${version ? " --python " + version : ""}  (${root})`;
-  appendOutputLine(outputEl, `> ${cmdDesc}`, "cmd", gotoFromLink, "env");
-  // 问题1 友好交互：展开输出面板——uv 下载 Python / 创建环境的流式进度是唯一的进度反馈
-  $("bottom").classList.remove("collapsed");
+  // L-6：长操作起手统一走 beginLongOp（展开输出面板 + 记录命令）——uv 下载 Python / 创建环境的
+  // 流式进度是唯一的进度反馈，展开动作不再由各调用点自觉维护
+  beginLongOp(outputEl, `> ${cmdDesc}`);
   if (version) {
     appendOutputLine(outputEl, t("env.versions.downloadHint"), "hint", gotoFromLink, "env");
   }
   // busy 态落在解释器 trigger（禁用 + label 文案，不用 setBusy 以免替换 innerHTML 销毁 interpLabelEl 引用）
   interpTriggerEl.disabled = true;
   interpLabelEl.textContent = t("env.state.creating");
+  setEnvWriteDisabled(true); // L-8：建环境期间锁包区写操作（防并发 uv 写同一 .venv）
   const resetTrigger = (): void => {
     interpTriggerEl.disabled = false;
     syncInterpreterTrigger();
+    setEnvWriteDisabled(false); // L-8：与 trigger 同生命周期解锁
   };
   let python: string | null = null;
   try {
@@ -771,7 +800,8 @@ async function installPackage(): Promise<void> {
     return;
   }
   const btn = $btn("env-pkg-install");
-  appendOutputLine(outputEl, `> uv pip install ${spec}  (${currentInterpreter})`, "cmd", gotoFromLink, "env");
+  beginLongOp(outputEl, `> uv pip install ${spec}  (${currentInterpreter})`); // L-6
+  setEnvWriteDisabled(true); // L-8
   setBusy(btn, true, t("env.state.installing"));
   try {
     const code = await invoke<number>("pip_install", { workspaceRoot: app.workspaceRoot, interpreter: currentInterpreter, spec });
@@ -786,9 +816,11 @@ async function installPackage(): Promise<void> {
   } catch (e) {
     appendOutputLine(outputEl, t("env.installFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "env");
     toastFail(t("env.fail.install"), e);
+  } finally {
+    setBusy(btn, false);
+    setEnvWriteDisabled(false); // L-8：解除写锁（在 setBusy 之后，防提前解禁）
   }
   envPkgInputEl.value = "";
-  setBusy(btn, false);
   await renderPackages();
 }
 
@@ -803,7 +835,8 @@ async function uninstallPackages(names: string[]): Promise<void> {
   });
   if (!proceed) return;
   const btn = $btn("env-pkg-uninstall-selected");
-  appendOutputLine(outputEl, `> uv pip uninstall ${list.join(" ")}  (${currentInterpreter})`, "cmd", gotoFromLink, "env");
+  beginLongOp(outputEl, `> uv pip uninstall ${list.join(" ")}  (${currentInterpreter})`); // L-6
+  setEnvWriteDisabled(true); // L-8
   setBusy(btn, true, t("env.state.uninstalling"));
   try {
     const out = await invoke<string>("pip_uninstall", { interpreter: currentInterpreter, name: list.join(" ") });
@@ -815,9 +848,11 @@ async function uninstallPackages(names: string[]): Promise<void> {
   } catch (e) {
     appendOutputLine(outputEl, t("env.uninstallFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "env");
     toastFail(t("env.dialog.uninstallTitle"), e);
+  } finally {
+    setBusy(btn, false);
+    setEnvWriteDisabled(false); // L-8：解除写锁（在 setBusy 之后，防提前解禁）
   }
   selectedPkgs.clear();
-  setBusy(btn, false);
   await renderPackages();
 }
 
@@ -847,7 +882,8 @@ async function upgradePackages(names: string[]): Promise<void> {
   const list = names.filter(Boolean);
   if (list.length === 0 || !currentInterpreter) return;
   const btn = envPkgUpgradeAllBtn;
-  appendOutputLine(outputEl, `> uv pip install --upgrade ${list.join(" ")}  (${currentInterpreter})`, "cmd", gotoFromLink, "env");
+  beginLongOp(outputEl, `> uv pip install --upgrade ${list.join(" ")}  (${currentInterpreter})`); // L-6
+  setEnvWriteDisabled(true); // L-8
   setBusy(btn, true, t("env.state.upgrading"));
   try {
     const code = await invoke<number>("pip_upgrade", { interpreter: currentInterpreter, names: list });
@@ -861,8 +897,10 @@ async function upgradePackages(names: string[]): Promise<void> {
   } catch (e) {
     appendOutputLine(outputEl, t("env.upgradeFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "env");
     toastFail(t("env.dialog.upgradeTitle"), e);
+  } finally {
+    setBusy(btn, false);
+    setEnvWriteDisabled(false); // L-8：解除写锁（在 setBusy 之后，防提前解禁）
   }
-  setBusy(btn, false);
   await renderPackages();
 }
 
@@ -917,7 +955,7 @@ export async function installMissingPackage(pkg: string): Promise<void> {
     toast(t("env.installCanceled", { module: module }), "info");
     return;
   }
-  appendOutputLine(outputEl, `> uv pip install ${module}  (${shortInterpreter(currentInterpreter)})`, "cmd", gotoFromLink, "env");
+  beginLongOp(outputEl, `> uv pip install ${module}  (${shortInterpreter(currentInterpreter)})`); // L-6
   try {
     const code = await invoke<number>("pip_install", { workspaceRoot: app.workspaceRoot, interpreter: currentInterpreter, spec: module });
     if (code === 0) {
@@ -1023,13 +1061,15 @@ async function clearToolchainDismissed(): Promise<void> {
  */
 export async function installToolNamed(name: toolchain.InstallableTool, after?: () => void): Promise<boolean> {
   const label = toolLabel(name);
-  $("bottom").classList.remove("collapsed");
-  appendOutputLine(outputEl, t("env.tool.installEcho", { tool: label }), "cmd", gotoFromLink, "env");
+  beginLongOp(outputEl, t("env.tool.installEcho", { tool: label })); // L-6：展开 + 记录命令
+  setEnvWriteDisabled(true); // L-8：工具链安装期间同锁（也走 uv，避免与包操作并发）
   let ok = false;
   try {
     ok = await toolchain.installToolchain(app.settings.lsp_engine ?? "pyrefly", [name]);
   } catch (e) {
     appendOutputLine(outputEl, t("env.installFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "env");
+  } finally {
+    setEnvWriteDisabled(false); // L-8
   }
   toolchain.invalidateToolchainStatus();
   if (ok) {
@@ -1075,16 +1115,15 @@ export async function maybePromptToolchain(): Promise<void> {
       await rememberToolchainDismissed(pending.map((m) => m.id));
       return;
     }
-    // 展开底部输出面板，展示安装进度
-    $("bottom").classList.remove("collapsed");
-    appendOutputLine(
-      outputEl,
-      t("env.bootstrapEcho", { tools: pending.map((m) => m.label).join("、") }),
-      "cmd",
-      gotoFromLink,
-      "env",
-    );
-    const ok = await toolchain.installToolchain(app.settings.lsp_engine ?? "pyrefly");
+    // 展开底部输出面板，展示安装进度（L-6：统一走 beginLongOp——展开 + 记录命令单一来源）
+    beginLongOp(outputEl, t("env.bootstrapEcho", { tools: pending.map((m) => m.label).join("、") }));
+    setEnvWriteDisabled(true); // L-8：引导安装同锁（首启时面板可能已开着）
+    let ok = false;
+    try {
+      ok = await toolchain.installToolchain(app.settings.lsp_engine ?? "pyrefly");
+    } finally {
+      setEnvWriteDisabled(false); // L-8
+    }
     appendOutputLine(
       outputEl,
       ok ? t("env.bootstrapOk") : t("env.bootstrapPartial"),

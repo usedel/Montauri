@@ -7,7 +7,7 @@ import { $, $btn, lazyEl, outputEl } from "./state";
 import { joinPath, parentDirOf, setBusy, errMsg, codicon } from "./util";
 import { t } from "./i18n"; // 第九批 i18n：新建项目域动态文案走语言包
 import { localizeBackendError } from "./i18n/backendError";
-import { appendOutputLine } from "./output";
+import { appendOutputLine, beginLongOp } from "./output";
 import { gotoFromLink } from "./tracebackLink";
 import { hideEl, showEl } from "./anim";
 import { trapFocus } from "./focusTrap";
@@ -277,13 +277,12 @@ async function createProject(): Promise<void> {
     closeNewProjectPanel();
     setBusy(createBtn, false);
     setNewProjectInputsLocked(false);
-    // C-4：展开输出面板（与 envPanel.createVenv / depHealth.runDepFix 既有先例一致）
-    $("bottom").classList.remove("collapsed");
 
     // ③ 环境配置（venv 分支可能联网下载 Python，耗时可达分钟级）
     try {
       if (envType === "venv") {
-        appendOutputLine(outputEl, `> uv venv .venv${version ? " --python " + version : ""}  (${result.path})`, "cmd", gotoFromLink, "env");
+        // C-4 + L-6：展开输出面板并记录命令（统一走 beginLongOp，与 envPanel / depHealth 同口径）
+        beginLongOp(outputEl, `> uv venv .venv${version ? " --python " + version : ""}  (${result.path})`);
         // C-5：复用环境面板的「需下载」提示（同一判定：选了具体版本）
         if (version) appendOutputLine(outputEl, t("env.versions.downloadHint"), "hint", gotoFromLink, "env");
         const r = await invoke<CreateVenvResult>("create_venv", { workspaceRoot: result.path, version });
@@ -321,7 +320,7 @@ async function createProject(): Promise<void> {
     // 失败 = 操作结果 → toastFail（q3 裁决：用户视线多已在新工作区，仅输出面板 stderr 偏静默）。
     if (meta.deps.length > 0) {
       const spec = meta.deps.join(" ");
-      appendOutputLine(outputEl, `> uv add ${spec}  (${result.path})`, "cmd", gotoFromLink, "env");
+      beginLongOp(outputEl, `> uv add ${spec}  (${result.path})`); // C-4 + L-6
       try {
         const code = await invoke<number>("pip_install", {
           workspaceRoot: result.path,

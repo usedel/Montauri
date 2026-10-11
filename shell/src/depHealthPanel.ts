@@ -133,12 +133,12 @@ export function initDepHealthPanel(deps: {
   });
   syncDepDetail(); // 初始收起态落 DOM（HTML 默认 hidden，此处对齐 aria-expanded）
   // 状态栏体检图标：点击/键盘打开健康面板（§4.5）——该入口语义是「看问题」，顺带展开明细
-  statusEl.addEventListener("click", () => { expandDepDetail(); openPanel(); });
+  // （D-4：与命令面板条目共用 openDepHealthPanel 单一入口）
+  statusEl.addEventListener("click", () => openDepHealthPanel());
   statusEl.addEventListener("keydown", (e) => {
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
-      expandDepDetail();
-      openPanel();
+      openDepHealthPanel();
     }
   });
 }
@@ -159,16 +159,26 @@ export function resetDepHealthPanel(): void {
   styleBadgeEl.onclick = null;
   interpLabelEl.textContent = "";
   scannedAtEl.textContent = "";
-  setHealthStatus("idle");
+  // D-1：复位 = 熄灭（切/关工作区时对新工作区一无所知；关工作区更是「没有工作区」）。
+  // 不能复用 idle——D-1 之后 idle 是「可见的中性态」，表达的是「有工作区但还没体检」。
+  clearHealthStatus();
 }
 
-// ---------- 状态栏体检图标（§4.5：转圈→完成即消；异常驻留警示，点击开面板） ----------
+// ---------- 状态栏体检图标（§4.5 + 体验审查 D-1：常驻入口） ----------
 
 export type HealthStatus = "idle" | "scanning" | "ok" | "issues";
 
+/**
+ * 状态栏体检图标（**常驻**，体验审查 D-1）。
+ *
+ * 原实现对 idle / ok 加 `hidden`——「一切正常」时反而没有任何入口，用户想主动体检必须先开
+ * 「Python 环境」再展开明细。现改为：只要工作区在，图标就一直在（健康态用中性色 `--fg-dim`，
+ * 见 style.css `#dep-health-status`；异常才切 `--warn`），四态各自带 tooltip 说明含义。
+ * 「没有工作区」由 `resetDepHealthPanel` → `clearHealthStatus()` 表达（隐藏），不并入 idle。
+ */
 export function setHealthStatus(status: HealthStatus, issues = 0): void {
   statusEl.textContent = "";
-  statusEl.classList.toggle("hidden", status === "idle" || status === "ok");
+  statusEl.classList.remove("hidden");
   statusEl.classList.toggle("issues", status === "issues");
   if (status === "scanning") {
     statusEl.appendChild(spinIcon());
@@ -176,11 +186,33 @@ export function setHealthStatus(status: HealthStatus, issues = 0): void {
   } else if (status === "issues") {
     statusEl.appendChild(codicon("warning"));
     statusEl.dataset.tip = t("dep.panel.statusIssues", { issues: issues });
+  } else if (status === "ok") {
+    statusEl.appendChild(codicon("shield"));
+    statusEl.dataset.tip = t("dep.panel.statusOk");
+  } else {
+    statusEl.appendChild(codicon("shield"));
+    statusEl.dataset.tip = t("dep.panel.statusIdle");
   }
 }
 
-/** depHealth 的 onScanComplete 钩子（main 接线）：图标熄灭/驻留 + 面板打开时重绘。
- *  扫描失败（diff=null）→ 图标熄灭（失败详情已进输出面板，不静默但也不驻留假警示）。 */
+/** 熄灭体检图标（`resetDepHealthPanel` 调用：切/关工作区复位）。
+ *  「没有工作区 / 新工作区未知」与「有工作区但还没体检」是两件事：前者隐藏，后者是可见的 idle 中性态。 */
+export function clearHealthStatus(): void {
+  statusEl.textContent = "";
+  statusEl.classList.remove("issues");
+  statusEl.classList.add("hidden");
+  delete statusEl.dataset.tip;
+}
+
+/** 依赖健康面板的统一入口（状态栏图标 / 命令面板 / 后续菜单项共用）：
+ *  展开明细（入口语义是「看问题」）+ 打开环境面板（健康分区在其中）。 */
+export function openDepHealthPanel(): void {
+  expandDepDetail();
+  openPanel();
+}
+
+/** depHealth 的 onScanComplete 钩子（main 接线）：图标态更新 + 面板打开时重绘。
+ *  扫描失败（diff=null）→ 回中性 idle（失败详情已进输出面板，不静默但也不驻留假警示）。 */
 export function handleScanComplete(diff: DepDiff | null): void {
   if (diff === null) setHealthStatus("idle");
   else setHealthStatus(issueCount(diff) > 0 ? "issues" : "ok", issueCount(diff));
@@ -192,10 +224,17 @@ export function handleScanComplete(diff: DepDiff | null): void {
 
 // ---------- 渲染入口 ----------
 
+/** 重绘（横幅 + 常驻头部 + 三视图内容）。
+ *  D-11：重绘会清空并重建内容 DOM，大列表下修复/忽略操作后视点会丢——故记住滚动位置再恢复。
+ *  滚动容器是环境面板主体 `.env-body`（overflow:auto），不是 `#dep-health-content` 本身。 */
 export async function renderDepHealth(): Promise<void> {
+  const scroller = detailEl.closest<HTMLElement>(".env-body");
+  const scrollTop = scroller?.scrollTop ?? 0;
   renderBanner();
   renderHeader();
   await renderContent();
+  // 内容变短时浏览器会自动夹取到新上限，无需额外判断
+  if (scroller && scrollTop > 0) scroller.scrollTop = scrollTop;
 }
 
 /** 三视图分发（§6.1：按断边默认 / 按文件 / 已忽略） */

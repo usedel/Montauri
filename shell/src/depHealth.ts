@@ -7,8 +7,8 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { app, $, outputEl } from "./state";
-import { appendOutputLine } from "./output";
+import { app, outputEl } from "./state";
+import { appendOutputLine, beginLongOp } from "./output";
 import { gotoFromLink } from "./tracebackLink";
 import { openChoice, openConfirm } from "./dialog";
 import { toast, toastFail } from "./toast";
@@ -903,7 +903,8 @@ export async function runDepFix(plans: DepFixPlan[], title: string): Promise<boo
   });
   if (!proceed) return false;
   fixInFlight = true;
-  $("bottom").classList.remove("collapsed"); // §5.6-2：输出面板是唯一的进度指示
+  // §5.6-2：输出面板是唯一的进度指示（L-6：起手统一走 beginLongOp；批量 plan 的命令在循环内逐条回显）
+  beginLongOp(outputEl);
   try {
     for (const p of batched) {
       appendOutputLine(outputEl, `> ${p.command}`, "cmd", gotoFromLink, "env");
