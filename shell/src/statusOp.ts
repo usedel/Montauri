@@ -19,6 +19,7 @@ import { errMsg, spinIcon } from "./util";
 import { hideEl, showEl } from "./anim";
 import { onLocaleChange, t } from "./i18n";
 import { toast } from "./toast";
+import { parseUvProgress, type UvProgress } from "./uvProgress"; // L-1：把 uv 流式行解析成可判读进度
 
 /** 可取消的 uv 操作名（与 Rust `uv_cancel.rs` 的登记键逐字一致） */
 export type UvOpKind = "venv" | "install" | "upgrade" | "fix";
@@ -32,11 +33,14 @@ const OP_LABEL_KEY = {
 
 const statusOpEl = lazyEl("status-op");
 const statusOpLabelEl = lazyEl("status-op-label");
+const statusOpDetailEl = lazyEl("status-op-detail");
 const statusOpCancelBtn = lazyEl<HTMLButtonElement>("status-op-cancel");
 
 interface ActiveOp {
   kind: UvOpKind;
   canceling: boolean;
+  /** L-1：最近一行 uv 输出解析出的进度；null = 还没有任何输出 */
+  progress: UvProgress | null;
 }
 
 let active: ActiveOp | null = null;
@@ -55,6 +59,9 @@ function render(): void {
   showEl(statusOpEl);
   statusOpLabelEl.textContent = "";
   statusOpLabelEl.append(spinIcon(), ` ${t(OP_LABEL_KEY[active.kind])}`);
+  // L-1：有可判读进度就显示（「45.2 MiB / 100.5 MiB（46%）」这类），没有就留空——
+  // 空态与「转圈 + 操作名」等价，不给假进度
+  statusOpDetailEl.textContent = active.progress?.text ?? "";
   statusOpCancelBtn.textContent = active.canceling ? t("status.opCanceling") : t("common.cancel");
   statusOpCancelBtn.disabled = active.canceling; // 防连点：首次点击即进「取消中…」
 }
@@ -80,7 +87,7 @@ function ensureWired(): void {
 export function beginUvOp(kind: UvOpKind): boolean {
   ensureWired();
   if (active) return false;
-  active = { kind, canceling: false };
+  active = { kind, canceling: false, progress: null };
   render();
   return true;
 }
@@ -90,6 +97,16 @@ export function beginUvOp(kind: UvOpKind): boolean {
 export function endUvOp(kind: UvOpKind): void {
   if (active?.kind !== kind) return;
   active = null;
+  render();
+}
+
+/** L-1：喂一行 uv 流式输出（pip-stdout / pip-stderr），更新芯片里的可判读进度。
+ *  无在途操作时静默忽略——输出面板里的历史行不该点亮芯片。 */
+export function pushUvProgressLine(line: string): void {
+  if (!active) return;
+  const p = parseUvProgress(line);
+  if (!p) return; // 空行：保持上一次显示
+  active.progress = p;
   render();
 }
 

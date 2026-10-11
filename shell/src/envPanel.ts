@@ -18,7 +18,7 @@ import { openConfirm } from "./dialog";
 import { hideEl, showEl } from "./anim";
 import { trapFocus } from "./focusTrap";
 import { toast, toastFail } from "./toast";
-import { beginUvOp, endUvOp, isCanceled, notifyBusy, notifyCanceled } from "./statusOp"; // L-3/L-5：状态栏「进行中」芯片 + 取消
+import { beginUvOp, endUvOp, isCanceled, notifyBusy, notifyCanceled, pushUvProgressLine } from "./statusOp"; // L-3/L-5：状态栏「进行中」芯片 + 取消
 import * as toolchain from "./toolchain";
 import { resetRuffMissingNotice } from "./format"; // 装好后复位「ruff 缺席」提示去重（format 不 import 本模块，无环）
 import {
@@ -1212,10 +1212,18 @@ export function initEnvPanel(deps: { restartEngine: () => Promise<void> }): void
 export async function initEnvPanelEvents(): Promise<void> {
   // 包安装事件（流式输出，确认安装后由 pip_install 逐行推送）
   await getCurrentWindow().listen<{ data: string }>("pip-stdout", (e) => {
-    for (const line of e.payload.data.split("\n")) if (line) appendOutputLine(outputEl, line, "stdout", gotoFromLink, "env");
+    for (const line of e.payload.data.split("\n")) {
+      if (!line) continue;
+      appendOutputLine(outputEl, line, "stdout", gotoFromLink, "env");
+      pushUvProgressLine(line); // L-1：同步点亮状态栏芯片的可判读进度
+    }
   });
   await getCurrentWindow().listen<{ data: string }>("pip-stderr", (e) => {
-    for (const line of e.payload.data.split("\n")) if (line) appendOutputLine(outputEl, line, "stderr", gotoFromLink, "env");
+    for (const line of e.payload.data.split("\n")) {
+      if (!line) continue;
+      appendOutputLine(outputEl, line, "stderr", gotoFromLink, "env");
+      pushUvProgressLine(line); // L-1（uv 的下载进度走 stderr）
+    }
   });
   // 工具链引导事件（Phase 4 第 4 步：uv/pyrefly 安装进度流式输出）
   await getCurrentWindow().listen<{ data: string }>("toolchain-stdout", (e) => {

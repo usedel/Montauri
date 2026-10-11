@@ -45,21 +45,25 @@ async function slowCommand(page: Page, cmd: string, ms: number): Promise<void> {
   );
 }
 
-test("LO-1/2（L-5 / L-3）装依赖期间：状态栏「进行中」芯片可见 + 取消入口可用", async ({ page }) => {
-  const repo = await makeGitRepo({ files: { "keep.py": "print('keep')\n" }, commitMsg: "baseline" });
-  await bootEmpty(page, repo);
+/** 起手一个会跑 3s 的装依赖操作（返回后芯片应已点亮） */
+async function startSlowInstall(page: Page, repo: GitRepo, name: string): Promise<void> {
   await slowCommand(page, "pip_install", 3000);
-
   await page.locator("#ew-new-project").click();
   await expect(page.locator("#new-project-modal")).toBeVisible();
-  await page.locator("#new-project-name").fill("demo-longop");
+  await page.locator("#new-project-name").fill(name);
   await page.locator("#new-project-location").fill(repo.root);
   await page.locator("#new-project-type").selectOption("fastapi");
   await page.locator("#new-project-create").click();
+  await expect(page.locator("#status-op")).toBeVisible({ timeout: 20_000 });
+}
+
+test("LO-1/2（L-5 / L-3）装依赖期间：状态栏「进行中」芯片可见 + 取消入口可用", async ({ page }) => {
+  const repo = await makeGitRepo({ files: { "keep.py": "print('keep')\n" }, commitMsg: "baseline" });
+  await bootEmpty(page, repo);
+  await startSlowInstall(page, repo, "demo-longop");
 
   // L-5：芯片出现（此时新建项目面板已关，模态里没有任何进度指示）
   const chip = page.locator("#status-op");
-  await expect(chip).toBeVisible({ timeout: 20_000 });
   await expect(page.locator("#status-op-label")).toContainText("正在安装依赖");
   await expect(page.locator("#new-project-modal")).toBeHidden();
 
@@ -75,4 +79,26 @@ test("LO-1/2（L-5 / L-3）装依赖期间：状态栏「进行中」芯片可�
 
   // 操作收尾（mock 的 pip_install 延迟结束）后芯片消失
   await expect(chip).toBeHidden({ timeout: 20_000 });
+});
+
+test("LO-3（L-1）装依赖期间喂进度行 → 芯片给出可判读进度；解析不出时只给最近一行", async ({ page }) => {
+  const repo = await makeGitRepo({ files: { "keep.py": "print('keep')\n" }, commitMsg: "baseline" });
+  await bootEmpty(page, repo);
+  await startSlowInstall(page, repo, "demo-longop2");
+
+  // mock 不产生 uv 流式输出，测试侧经 __emit 模拟（真实链路是 pip-stdout / pip-stderr 事件）
+  const emit = (data: string): Promise<void> =>
+    page.evaluate((d) => {
+      (window as unknown as { __TAURI_INTERNALS__: { __emit?: (e: string, p: unknown) => void } }).__TAURI_INTERNALS__
+        ?.__emit?.("pip-stderr", { data: d });
+    }, data);
+
+  await emit("Downloading cpython-3.12.7  45.2 MiB / 100.5 MiB\n");
+  await expect(page.locator("#status-op-detail")).toContainText("45.2 MiB / 100.5 MiB");
+  await expect(page.locator("#status-op-detail")).toContainText("45%");
+
+  // 解析不出比例的行：只给最近一行，不编造百分比
+  await emit("Using Python 3.12.7 environment at: some\\path\n");
+  await expect(page.locator("#status-op-detail")).toContainText("Using Python 3.12.7");
+  await expect(page.locator("#status-op-detail")).not.toContainText("%");
 });

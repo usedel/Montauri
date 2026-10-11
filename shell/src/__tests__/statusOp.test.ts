@@ -11,9 +11,11 @@ chip.id = "status-op";
 chip.classList.add("hidden");
 const label = document.createElement("span");
 label.id = "status-op-label";
+const detail = document.createElement("span");
+detail.id = "status-op-detail";
 const cancelBtn = document.createElement("button");
 cancelBtn.id = "status-op-cancel";
-chip.append(label, cancelBtn);
+chip.append(label, detail, cancelBtn);
 document.body.appendChild(chip);
 
 const statusOp = await import("../statusOp");
@@ -59,6 +61,36 @@ describe("L-5：状态栏「进行中」芯片", () => {
     expect(statusOp.isUvOpActive()).toBe(true);
     statusOp.endUvOp("fix");
     expect(statusOp.isUvOpActive()).toBe(false);
+  });
+});
+
+describe("L-1：芯片里的可判读进度", () => {
+  it("有在途操作时喂流式行 → 显示解析出的进度；无操作时喂不点亮芯片", () => {
+    expect(detail.textContent).toBe("");
+    statusOp.pushUvProgressLine("45.2 MiB / 100.5 MiB");
+    expect(detail.textContent).toBe(""); // 无在途操作 → 静默
+
+    statusOp.beginUvOp("venv");
+    statusOp.pushUvProgressLine("45.2 MiB / 100.5 MiB");
+    expect(detail.textContent).toContain("45.2 MiB / 100.5 MiB");
+    expect(detail.textContent).toContain("45%");
+    statusOp.endUvOp("venv");
+  });
+
+  it("解析不出行 → 给最近一行（不做假百分比）", () => {
+    statusOp.beginUvOp("install");
+    statusOp.pushUvProgressLine("Using Python 3.12.7 environment at: F:\\ws\\.venv");
+    expect(detail.textContent).toContain("Using Python 3.12.7");
+    expect(detail.textContent).not.toContain("%");
+    statusOp.endUvOp("install");
+  });
+
+  it("空行保持上一次显示（不被清成空白）", () => {
+    statusOp.beginUvOp("fix");
+    statusOp.pushUvProgressLine("Installed 5/9 packages");
+    statusOp.pushUvProgressLine("");
+    expect(detail.textContent).toContain("Installed 5/9 packages");
+    statusOp.endUvOp("fix");
   });
 });
 

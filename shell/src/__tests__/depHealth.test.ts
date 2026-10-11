@@ -54,9 +54,11 @@ beforeEach(async () => {
     chip.id = "status-op";
     const label = document.createElement("span");
     label.id = "status-op-label";
+    const detail = document.createElement("span");
+    detail.id = "status-op-detail";
     const cancel = document.createElement("button");
     cancel.id = "status-op-cancel";
-    chip.append(label, cancel);
+    chip.append(label, detail, cancel);
     document.body.appendChild(chip);
   }
   outputEl = document.getElementById("output")!;
