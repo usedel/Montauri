@@ -125,8 +125,8 @@
 
 | # | 条目 | 原论据（已过期） | 失效原因 / 复审要点 | 涉及文件 |
 |---|---|---|---|---|
-| 1 | nightly 的 e2e-real / bench / budget 三个 job **只告警不阻断** | 「单人自用项目没人盯 CI 告警，价值在出报告而非卡合并」 | 定位对外后，告警无人看 = 护栏形同虚设；需决定：接通知渠道（Windows 通知/邮件）还是升级为 PR 阻断（ADR-0010 决策 5 已把后者延后） | `.github/workflows/nightly.yml`、`docs/improvement_and_roadmap_report.md` P0-1 子项 2 |
-| 2 | **更新通道 / 版本回滚**延后 | 「自用项目也要面对『我这版是不是装错了』」 | 对外分发后更新与回滚从「锦上添花」升为分发链路一环；至少要有 `version.json` 比对提示 + 设置面板「检查更新」 | `docs/improvement_and_roadmap_report.md`（更新通道段）、`shell/src-tauri/Cargo.toml`（无 updater 依赖） |
+| 1 | nightly 的 e2e-real / bench / budget 三个 job **只告警不阻断** | 「单人自用项目没人盯 CI 告警，价值在出报告而非卡合并」 | 定位对外后，告警无人看 = 护栏形同虚设；需决定：接通知渠道（Windows 通知/邮件）还是升级为 PR 阻断（ADR-0010 决策 5 已把后者延后） | `.github/workflows/nightly.yml`、`docs/improvement_and_roadmap_report.md` §6 约束 A |
+| 2 | **更新通道 / 版本回滚**延后 | 「自用项目也要面对『我这版是不是装错了』」 | 对外分发后更新与回滚从「锦上添花」升为分发链路一环；至少要有 `version.json` 比对提示 + 设置面板「检查更新」 | `docs/improvement_and_roadmap_report.md` §2 P1-2、`shell/src-tauri/Cargo.toml`（无 updater 依赖） |
 | 3 | UI 字体 **Inter 走系统栈**、只随包等宽字体 | 「单人自用定位，跨机一致性收益为零」 + CSP 阻碍 | 跨机一致性不再天然无用；需重估是否值得改 CSP（`font-src`）把 Inter 随包 | `docs/ui_premium_design_report.md` §5.3 / §7、`docs/ui_premium_dev_plan.md` §2、`shell/src-tauri/tauri.conf.json`（CSP） |
 | 4 | Watches / 低频配置存 **localStorage** | 「低频个人配置、无跨设备诉求，避免为 20 条字符串扩后端」 | 同上；若做配置同步才需动，否则维持现状即可 | `docs/pycharm_ux_review_and_proposal.md` §16.5、`shell/src/debugWatches.ts` |
 | 5 | 插件 v2 **硬沙箱**（iframe/Worker）延后 | 「成本高、收益对自用场景有限」 | 面向外部插件作者时，信任模型（现为同源 + facade）重要性上升；工作区级插件目录可先行 | `docs/plugin_system_design.md` §10、`docs/improvement_and_roadmap_report.md` P1-6 |

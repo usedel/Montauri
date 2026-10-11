@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-  真机 CDP 验收「一键全量跑批」+ 汇总报告（improvement_and_roadmap_report.md §2 P0-1 子项 2/3 的本机入口）。
+  真机 CDP 验收「一键全量跑批」+ 汇总报告（nightly 编排同款清单的本机入口；发布前验收走 build-release.ps1 -Verify）。
 
 .DESCRIPTION
   9 个真机脚本逐个串行跑（串行是必须的：它们共用 vite 5173 与 CDP 9223，并发必撞），

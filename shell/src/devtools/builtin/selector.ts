@@ -1,6 +1,6 @@
 // A4 · 爬虫场景工具箱 ①「选择器测试」工具面板（devtools 内置工具，Ctrl+Shift+T 唤起）。
 //
-// 真源 docs/improvement_and_roadmap_report.md §3 A4。求值/解析/快照逻辑全在 selectorCore.ts
+// 交付记录见 docs/delivery-overview.md §2 第 27 行。求值/解析/快照逻辑全在 selectorCore.ts
 // （零 app 依赖、可单测）；本文件只做 IO、防抖、渲染与持久化。
 //
 // ⚠ 口径红线（UI 文案必须与此一致，勿改写成"更准 / 就是爬虫结果"）：

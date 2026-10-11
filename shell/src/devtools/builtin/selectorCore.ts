@@ -1,6 +1,6 @@
 // A4 · 爬虫场景工具箱 ①「选择器测试」的纯逻辑 + 求值层（devtools 内置工具）。
 //
-// 真源 docs/improvement_and_roadmap_report.md §3 A4（画像专项 · 「只有 OpenCharm 会做」）。
+// 交付记录见 docs/delivery-overview.md §2 第 27 行（画像专项 · 「只有 OpenCharm 会做」）。
 // 本文件**零 app 依赖**（不 import state / i18n / git），可在 happy-dom 下直接单测；
 // 一切展示文案留在 selector.ts，本文件只回**状态码与数据**（同 A5① epSampleCore 的约定）。
 //

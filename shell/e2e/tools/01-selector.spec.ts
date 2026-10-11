@@ -1,5 +1,5 @@
 /**
- * A4 · 爬虫工具箱「选择器测试」E2E 验收（docs/improvement_and_roadmap_report.md §3 A4）。
+ * A4 · 爬虫工具箱「选择器测试」E2E 验收（交付记录见 docs/delivery-overview.md §2 第 27 行）。
  *
  * 覆盖：
  *  1. 入口与空态（Ctrl+Shift+T → picker → 工具挂载）

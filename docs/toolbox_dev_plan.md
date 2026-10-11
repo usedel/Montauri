@@ -1123,9 +1123,9 @@ B6 终止不影响该 bug 的独立性——它是 PR-B6-2 调研时**从代码�
 
 ## 12. 交付记录 · A5③④ 端点面板余项（2026-10-07，A 类）
 
-> 本报告是工具箱（B 类）回溯文档；A5③④ 属 A 类差异化（端点面板余项），因与 B4 的「端点视图联动」（§5.11）同属端点面板域、且计划文档要求在本报告登记实施段落，故在此留档。完整交付记录见 `docs/delivery-overview.md` §2 第 30 行与 `docs/improvement_and_roadmap_report.md` ㉓。
+> 本报告是工具箱（B 类）回溯文档；A5③④ 属 A 类差异化（端点面板余项），因与 B4 的「端点视图联动」（§5.11）同属端点面板域、且计划文档要求在本报告登记实施段落，故在此留档。完整交付记录见 `docs/delivery-overview.md` §2 第 30 行（`docs/improvement_and_roadmap_report.md` v1.5 清理后该条移入附二存档索引）。
 
-维护态下产品负责人**破例立项**（`docs/improvement_and_roadmap_report.md` ⑬ 范围裁决留下的余项），实施依据 `.trae/documents/a5-3-4-endpoint-panel-plan.md`（8 步计划，执行中修正 4 处实证调整）：
+维护态下产品负责人**破例立项**（A5① ② 交付后留下的余项，范围裁决记录见 `docs/delivery-overview.md` §2 第 25 行），实施依据 `.trae/documents/a5-3-4-endpoint-panel-plan.md`（8 步计划，执行中修正 4 处实证调整）：
 
 - **③ handler→route 反向跳转**：FastAPI 路由定义行 CodeLens「端点 N」（与 codeVision 引用计数 lens 同行并排）→ 点击弹 content widget 列出该 handler 绑定的全部 route（含 include_router 多前缀合并），条目可复制 URL / 激活端点面板并高亮对应行。实现 = `epJump.ts`（懒扫索引 + provider + content widget 弹层）+ `epJumpCore.ts`（零依赖纯函数核：`buildHandlerIndex` / `findMatches`，键 `file + "\u0000" + handler`，文件路径两端 `normalizePath` 归一）。
 - **④ OpenAPI 面板内预览**：端点视图 toolbar 新增预览按钮 → 懒加载运行中服务的 `/openapi.json` 渲染展开块（方法徽章 / 路径 / summary + tags / 已弃用标记 / 点行跳源码，按 base URL 缓存、同刻只展开一处），无 base 地址显式提示；错误形态原样透传 `HttpStatus:{code}` / `HttpParse:{detail}`。实现 = `openapi_cmds.rs`（`fetch_openapi`，复用 `http_cmds` 纯函数 validate_http_url / clamp_timeout / classify_reqwest / truncate_body）+ `openApiPanel.ts` + `openApiCore.ts`。

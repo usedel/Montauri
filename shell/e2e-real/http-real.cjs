@@ -1,6 +1,6 @@
 /**
  * B4 · HTTP 工具真机（Real App）验收 — HR-1..HR-11
- * （P1-4 复核后唯一剩下的真空白：docs/improvement_and_roadmap_report.md §2 P1-4）
+ * （P1-4 复核后唯一剩下的真空白；交付记录见 docs/delivery-overview.md §2）
  *
  * 为什么必须有这一层：mock 层（`e2e/http/01-devtools.spec.ts`，12 条）由 tauri-mock
  * 返回**罐头响应**，于是 reqwest 的真实链路**全盲**——真实 TCP 连接、真实响应头、

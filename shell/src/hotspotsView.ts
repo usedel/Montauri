@@ -1,4 +1,4 @@
-// 运行时热点视图（A1 · docs/improvement_and_roadmap_report.md §3「A 类 · 深化差异化」）。
+// 运行时热点视图（A1 · 交付记录见 docs/delivery-overview.md §2 第 24 行）。
 // 数据来自 Rust 侧 `intel_cmds::scan_runtime_hotspots`（读 probe trace 库 + 扫项目 def
 // 定义做差集）；上半「已观测」按调用次数降序 + stale/异常徽章，下半「未观测到运行」。
 // **口径纪律**：下半区语义是「未观测到运行」，**不是**「死代码」（未被测试/入口覆盖、

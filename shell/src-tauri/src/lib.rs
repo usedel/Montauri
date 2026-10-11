@@ -242,7 +242,7 @@ pub fn run() {
             ep_sample_cmds::scan_endpoint_sample,
             // 端点 OpenAPI 预览（A5④：拉运行中服务 /openapi.json → 扁平操作列表）
             openapi_cmds::fetch_openapi,
-            // 运行时热点（A1：probe trace 库 + 项目函数定义差集，docs/improvement_and_roadmap_report.md §3）
+            // 运行时热点（A1：probe trace 库 + 项目函数定义差集，交付记录见 docs/delivery-overview.md §2）
             intel_cmds::scan_runtime_hotspots,
             // Pydantic 语义层（阶段 4：构造校验诊断 + rename 传播补充，docs/pyrefly_pydantic_support_plan.md §3.4）
             //（2026-10-09 自 fs_cmds 拆至 pydantic_cmds）

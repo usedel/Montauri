@@ -32,7 +32,7 @@ import * as password from "./password";
 import * as textdiff from "./textdiff";
 // B4 批次（2026-10-05）：HTTP 请求工具（docs/toolbox_dev_plan.md §5 v2）
 import * as http from "./http";
-// A4 批次（2026-10-06）：爬虫工具箱 · 选择器测试（docs/improvement_and_roadmap_report.md §3 A4）
+// A4 批次（2026-10-06）：爬虫工具箱 · 选择器测试（交付记录见 docs/delivery-overview.md §2 第 27 行）
 import * as selector from "./selector";
 
 /** 内置工具模块表：entry 名 → 模块（对应第三方 manifest 的 entry 文件） */
@@ -260,7 +260,7 @@ export function buildBuiltinManifest(): PluginManifest {
         icon: "globe",
         entry: "./http.ts",
       },
-      // ---------- A4 批次（2026-10-06，docs/improvement_and_roadmap_report.md §3 A4） ----------
+      // ---------- A4 批次（2026-10-06，交付记录见 docs/delivery-overview.md §2 第 27 行） ----------
       // 无 inline：选择器测试要同时看 HTML 与选择器两侧，选中文本单独触发没有意义。
       {
         id: "selector",

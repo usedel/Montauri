@@ -1,5 +1,5 @@
 /**
- * E2E：A1 运行时热点视图（docs/improvement_and_roadmap_report.md §3「A 类 · 深化差异化」）
+ * E2E：A1 运行时热点视图（交付记录见 docs/delivery-overview.md §2 第 24 行）
  *
  *  - HS-1 切到「运行时热点」→ 触发 scan_runtime_hotspots；观测区按 hits 降序 + stale/exc 徽章；
  *        未观测区渲染；summary 覆盖率正确

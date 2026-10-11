@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-// A4 · 爬虫工具箱「选择器测试」求值层单测（docs/improvement_and_roadmap_report.md §3 A4）。
+// A4 · 爬虫工具箱「选择器测试」求值层单测（交付记录见 docs/delivery-overview.md §2 第 27 行）。
 //
 // 环境口径：happy-dom 有 DOMParser + querySelectorAll，但**没有 document.evaluate**——
 // 这正好让「XPath 在本环境不可用 → 降级为 unsupported」这条分支可被单测钉住。

@@ -1,5 +1,5 @@
 /* A5① · 端点请求样例 —— 新功能落新文件（纪律同 B4/B5/A1：新样式不再往 style.css 里堆）。
-   真源 docs/improvement_and_roadmap_report.md §3 A5；数据来自 ep_sample_cmds.rs，
+   交付记录见 docs/delivery-overview.md §2 第 25 行；数据来自 ep_sample_cmds.rs，
    渲染在 epSample.ts。命名空间 .ep-sample*，与 endpointView 的 .ep-* 区分层级。
    本文件经 style.css 顶部 @import 内联进 bundle，门禁由 audit_tokens.py 的 @import 解析覆盖。
    全部走语义 token（颜色/间距/字号），不硬编码；阴影只用 --shadow。 */

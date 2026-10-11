@@ -1,6 +1,6 @@
 /* A1 · 运行时热点 —— 新功能落新文件（2026-10-06，与 style.css 拆分后的纪律一致：
    新功能的样式不再往 style.css 里堆，避免"静默增长"重演）。
-   真源 docs/improvement_and_roadmap_report.md §3 A1；选择器命名空间 #hp-* / .hp-*。
+   交付记录见 docs/delivery-overview.md §2 第 24 行；选择器命名空间 #hp-* / .hp-*。
    本文件经 style.css 顶部 @import 内联进 bundle，门禁由 audit_tokens.py 的 @import 解析覆盖。
    全部走语义 token（颜色/间距/字号），不硬编码。 */
 

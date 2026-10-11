@@ -3,7 +3,7 @@
 > 版本：**v1.0** · 日期：**2026-10-10** · 性质：**调研报告（非排期依据）**
 > 调研方法：VS Code Marketplace 榜单 + 中英文社区榜单交叉（4 篇 2026 年榜单，见 §7）+ **本仓库 `shell/` 源码逐项核对**（证据见 §3，均为 file:line 级）。
 > 结论用途：为 Phase 4「打磨期」的功能取舍提供输入。**是否立项、何时排期仍以 `docs/python_ide_dev_plan_v2.md` 及产品负责人裁决为准**（与 `docs/pycharm_feature_research_report.md` 同性质）。
-> ⚠ **口径纪律（本报告不得被越界引用）**：本报告只做**能力覆盖对照**，不做质量优劣对比。**禁止**据此写出「OpenCharm 比 VS Code / Pylance 更好 / 更准」类表述——横向对标纪律见 `README.md`「已知边界」与 `docs/improvement_and_roadmap_report.md` §5 阶段门口径（可写口径只有自证：自有样例集 **23/23**）。
+> ⚠ **口径纪律（本报告不得被越界引用）**：本报告只做**能力覆盖对照**，不做质量优劣对比。**禁止**据此写出「OpenCharm 比 VS Code / Pylance 更好 / 更准」类表述——横向对标纪律见 `README.md`「已知边界」与 `docs/improvement_and_roadmap_report.md` §5「口径纪律」（可写口径只有自证：自有样例集 **23/23**）。
 
 ---
 

@@ -1,4 +1,4 @@
-# OpenCharm 体积 / 规模预算基线（P1-3，落地于 improvement_and_roadmap_report.md §2 P1-3）
+# OpenCharm 体积 / 规模预算基线（P1-3 已交付，编号存档于 improvement_and_roadmap_report.md 附二）
 #
 # 纪律：
 #   · 阈值 = 当前实测值 + 明确余量，**只允许通过显式 PR 修改本文件**，不允许脚本自动抬阈值。
