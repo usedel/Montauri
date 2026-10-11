@@ -82,7 +82,7 @@ import { loadSettings, saveSettings, applyFontStatus, setSettingsPanelHandlers, 
 import { checkFirstRunStorage } from "./storagePanel";
 import { cancelPendingSessionSave, restoreSession, scheduleSessionSave, saveSessionNow, setSessionHandlers } from "./session"; // A-5 会话恢复
 import { wireResourcePanel } from "./resourcePanel"; // A-1 资源可观测
-import { basename, codicon, DisposableStore, emptyState, languageOf, normalizePath, parentDirOf, relativePathOrName, renderFileIcon, samePath, symbolIcon } from "./util";
+import { basename, codicon, DisposableStore, emptyState, languageOf, normalizePath, parentDirOf, renderFileIcon, samePath, symbolIcon } from "./util";
 import { toast, toastFail } from "./toast";
 import { initI18n, onLocaleChange, t } from "./i18n"; // i18n 运行时：initI18n 首屏套用静态骨架，t 取动态文案
 import { restoreLayout, wireSplitters } from "./layout";
@@ -165,7 +165,7 @@ import { isExternalOpenPath, openWithSystem } from "./externalOpen"; // PyCharm 
 import { initScratch } from "./scratch"; // VS Code 调研 借鉴-2：# %% 单元格执行（handler 在模块内，不占本文件）
 import {
   cleanupVirtualTab, dismissVirtualHosts, isVirtualTab, presentVirtualTab, setVirtualTabHandlers,
-  virtualTabIcon, virtualTabLabel, virtualTabSourcePath,
+  tabRealPath, tabRelativePath, virtualTabIcon, virtualTabLabel, virtualTabSourcePath,
 } from "./virtualTabs";
 import {
   initRunEvents, maybeSuggestFramework,
@@ -610,11 +610,6 @@ export async function insertHeaderTemplate(): Promise<boolean> {
 
 // ---------- 标签右键菜单 ----------
 
-/** tab 的相对路径（规则见 util.relativePathOrName） */
-function relativePathOfTab(path: string): string {
-  return relativePathOrName(app.workspaceRoot, path);
-}
-
 /** 复制文本到系统剪贴板（tab 右键菜单）；成功静默、失败弹提示（与 fileTree.copyPaths 一致） */
 async function copyTabPath(text: string): Promise<void> {
   try {
@@ -629,21 +624,25 @@ async function copyTabPath(text: string): Promise<void> {
 function showTabContextMenu(tab: Tab, x: number, y: number): void {
   activateTab(tab);
   const isPy = tab.path.endsWith(".py") || tab.path.endsWith(".pyw");
+  // 虚拟 Tab（mdpreview: / csvtab: / diff:）的 path 不是真实文件路径——路径类动作必须走
+  // tabRealPath 解析回源文件；db Tab 无对应文件（connId 哈希）→ null，此时不展示这些项。
+  const realPath = tabRealPath(tab);
   const items: CtxItem[] = [
     { label: t("main.tab.close"), action: () => void closeTab(tab) },
     { label: t("main.tab.closeOthers"), action: () => void closeOthersExcept(tab) },
     { label: t("main.tab.closeRight"), action: () => void closeTabsRightOf(tab) },
     { label: t("main.tab.closeAll"), action: () => void closeAllTabs() },
     { sep: true },
-    // 复制路径三件套（对齐 VSCode：Copy Name / Copy Relative Path / Copy Path）
-    { label: t("main.tab.copyName"), action: () => void copyTabPath(basename(tab.path)) },
-    { label: t("main.tab.copyRelPath"), action: () => void copyTabPath(relativePathOfTab(tab.path)) },
-    // PR-A（dx_features_backlog §6.1）：file:line 引用（相对工作区根，贴 issue/聊天可直点）
-    { label: t("main.tab.copyFileLine"), action: () => void copyTabPath(`${relativePathOfTab(tab.path)}:${app.editor.getPosition()?.lineNumber ?? 1}`) },
-    { label: t("main.tab.copyAbsPath"), action: () => void copyTabPath(tab.path) },
-    { label: t("main.tab.openInTerminal"), action: () => void openTerminalAt(parentDirOf(tab.path)) },
-    { label: t("main.tab.revealInExplorer"), action: () => invoke("reveal_in_explorer", { path: tab.path }).catch(console.error) },
   ];
+  if (realPath) items.push(
+    // 复制路径三件套（Copy Name / Relative Path / Path，对齐 VSCode）+ file:line 引用（PR-A §6.1）
+    { label: t("main.tab.copyName"), action: () => void copyTabPath(basename(realPath)) },
+    { label: t("main.tab.copyRelPath"), action: () => void copyTabPath(tabRelativePath(realPath)) },
+    { label: t("main.tab.copyFileLine"), action: () => void copyTabPath(`${tabRelativePath(realPath)}:${app.editor.getPosition()?.lineNumber ?? 1}`) },
+    { label: t("main.tab.copyAbsPath"), action: () => void copyTabPath(realPath) },
+    { label: t("main.tab.openInTerminal"), action: () => void openTerminalAt(parentDirOf(realPath)) },
+    { label: t("main.tab.revealInExplorer"), action: () => invoke("reveal_in_explorer", { path: realPath }).catch(console.error) },
+  );
   // P3（建议 2）：Python 脚本可编辑持久化运行配置（Parameters / 环境变量）
   // v3.4 §8（M3-3.4）：标签右键入口对齐四控件运行组——「运行脚本 / 运行项目 / 运行配置…」
   //（「在终端中运行」已删：运行统一走终端控制台，双入口等价无意义，§6.5）

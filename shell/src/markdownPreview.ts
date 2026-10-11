@@ -44,6 +44,24 @@ export function resolveMarkdownLinkPath(href: string, baseDir: string): string {
   return joinPath(baseDir, cleaned);
 }
 
+/**
+ * 锚点 href → 目标 id。
+ *
+ * marked 渲染时会经 `cleanUrl` 对 href 施加 **`encodeURI`**，故非 ASCII 锚点会被百分号编码
+ * （`[快速开始](#快速开始)` → `href="#%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B"`），
+ * 而 `assignHeadingIds` 写入的是**原始文本 id**（含中日韩文字）——不解码就永远命中不到，
+ * 表现为「英文目录能跳、中文目录点了没反应」。解码失败（畸形 % 序列）回退原文，
+ * 避免在点击回调里抛 URIError。
+ */
+export function anchorIdFromHref(href: string): string {
+  const raw = href.replace(/^#/, "");
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
 /** DOMPurify 消毒（剥除 <script> / javascript: / onerror 等；CSP 挡内联脚本，这里过滤恶意属性与协议） */
 export function sanitizeHtml(html: string): string {
   return DOMPurify.sanitize(html);
@@ -299,8 +317,9 @@ export function wireMarkdownClicks(): void {
     const href = a.getAttribute("href") ?? "";
     const kind = classifyLink(href);
     if (kind === "anchor") {
-      // 目标限定在预览面板内：id 由 assignHeadingIds 补上（marked 默认不生成）
-      const target = decodeURIComponent(href.slice(1));
+      // 目标限定在预览面板内：id 由 assignHeadingIds 补上（marked 默认不生成），
+      // href 需先解码（marked 施加过 encodeURI，中文标题是百分号编码）
+      const target = anchorIdFromHref(href);
       findAnchorTarget(mdPreviewEl(), target)?.scrollIntoView({ behavior: "smooth" });
       return;
     }

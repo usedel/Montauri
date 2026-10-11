@@ -74,9 +74,13 @@ csv_core_ts_max_lines = 170
 #   350 起为硬顶：再增任何行为先拆 csvExternal.ts 之类的子模块，不再上调本条。
 csv_tab_ts_max_lines = 350
 
-# virtualTabs.ts（md 预览 + CSV 查看的统一分派，2026-10-11 新增）：101 行。上限 150（余量 ~48%）。
+# virtualTabs.ts（md 预览 + CSV 查看的统一分派 + 虚拟 Tab path 解析，2026-10-11 新增）：140 行。
+#   上限 150（余量 ~7%）。
 #   存在理由：两个只读 kind 在 activateTab / renderTabs / closeTabSilent 走同一条链路，
 #   各写一份会把 main.ts 推过 2 400 上限——分派收敛到此，main 只认 isVirtualTab。
+#   2026-10-11 扩权：虚拟 Tab 的 path 不是真实文件路径（mdpreview:/csvtab:/diff:/db-data:），
+#   凡按 path 取真实路径的消费方（tab 右键菜单 / 终端默认目录）统一走 tabRealPath；`diff:`
+#   前缀也归口此处供 git.ts 复用。**余量已紧（140/150）**：再加行为先外提 tabPath.ts。
 virtual_tabs_ts_max_lines = 150
 
 # styles/csvTab.css（同上，2026-10-11 新增）：46 行。上限 65（余量 ~41%）。
@@ -118,6 +122,16 @@ scratch_cmds_rs_max_lines = 460
 #   openFile 返回成功与否（CSV 查看器「先开成功再关查看 Tab」需要）+ pushCurrent 挪到
 #   read 成功后（失败不留导航脏记录）。属缺陷修复；新功能仍不得入内，下一刀继续下调。
 main_ts_max_lines = 2410
+
+# helpDocs.ts（帮助菜单「帮助文档」入口，2026-10-11 新增）：49 → 70 行（同日加中英双语路由）。
+#   上限 90（余量 ~22%）。
+#   范围：按界面语言选正文（en → `opencharm-help.en.md`，其余 → `opencharm-help.md`；本语 404 回落中文）
+#   → fetch 内置静态正文（`shell/public/help/`，**不进前端 JS 包**——JS+CSS 体积预算余量仅约
+#   18 KB，正文用 ?raw 内联必顶穿；放 public/ 则构建后落 dist/help/ 而非 dist/assets/，不计体积，
+#   与 public/fonts 同一条「self 同源静态」路径）→ get_data_doc_path + write_file 落盘数据根
+#   docs/ → openPreviewTab 打开只读预览 Tab；并发去重。**刻意不碰 main.ts**（行数已触顶），
+#   故写盘与开 Tab 全走既有能力，无需 main 注入 handler。
+help_docs_ts_max_lines = 90
 
 # lspStatus.ts（i18n 遗留修复外提，2026-10-10）：62 行。上限 80（余量 ~29%）。
 #   范围：状态栏 LSP 芯片（#status-lsp）两态渲染（引擎状态机 / 一次性提示）+ 语言切换重取词。

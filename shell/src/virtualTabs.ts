@@ -1,4 +1,4 @@
-// 只读预览类 Tab 的统一分派（md 预览 · CSV 查看器）。
+// 只读预览类 Tab 的统一分派（md 预览 · CSV 查看器）+ 虚拟 Tab 的 path 命名空间/真实路径解析。
 //
 // 为什么单独成模块（main.ts 拆分纪律）：md 与 csv 两个 kind 在 activateTab / renderTabs /
 // closeTabSilent 里走**完全同一条链路**（摘空主编辑器模型 → 显示各自宿主 → 恒不 dirty →
@@ -7,9 +7,14 @@
 //
 // 纪律：**不反向 import main.ts**——present / cleanup 由两个域模块各自实现（它们内部已经
 // 用 handlers 注入解环），本模块只做「按 kind 选哪个」的纯分派。
+//
+// 另一职责（2026-10-11）：虚拟 Tab 的 path 不是真实文件路径（mdpreview: / csvtab: / diff: /
+// db-data:），凡按 path 取真实路径的消费方（tab 右键菜单、终端默认目录）都走 tabRealPath；
+// `diff:` 前缀也归口本模块，供 git.ts 复用（单一真源，防两处字面量漂移）。
 
 import type * as MonacoApi from "monaco-editor/esm/vs/editor/editor.api";
-import type { Tab } from "./state";
+import { app, type Tab } from "./state";
+import { joinPath, relativePathOrName } from "./util";
 import {
   cleanupCsvTab,
   csvSourcePath,
@@ -97,4 +102,39 @@ export function virtualTabIcon(tab: Tab): string {
 /** 虚拟 path → 源文件绝对路径（状态栏与 tab title 用） */
 export function virtualTabSourcePath(tabPath: string): string {
   return tabPath.startsWith("csvtab:") ? csvSourcePath(tabPath) : mdPreviewSourcePath(tabPath);
+}
+
+// ---------- 虚拟 Tab path 解析（tab 右键菜单 / 终端默认目录） ----------
+
+/** diff tab 的 path 命名空间（与文件 tab 隔离）：`<前缀><工作区相对路径>`。
+ *  归口本模块而非 git.ts 的**唯一原因**是 import 方向：termUi.ts 也要用 tabRealPath，
+ *  而 git.ts → termUi.ts；若本模块反向 import git.ts 取这个常量就成环（termUi → 本模块 → git
+ *  → termUi）。故常量放这里，git.ts 反向 import。 */
+export const DIFF_TAB_PREFIX = "diff:";
+
+/**
+ * Tab → 真实文件绝对路径（tab 右键菜单的路径类动作 / 终端默认目录）。
+ *
+ * **虚拟 Tab 的 path 不可直接当文件路径用**：`mdpreview:` / `csvtab:` / `diff:` 前缀会让
+ * 路径类消费方拿到一个不存在的目录——`parentDirOf("mdpreview:C:\\…\\docs\\a.md")` 得到
+ * `mdpreview:C:\\…\\docs`，而 portable-pty 的 `current_directory()` 对非目录 cwd 会静默回落
+ * `USERPROFILE`，症状就是「在终端打开」把终端开在了用户主目录（2026-10-11 修）。
+ *
+ * @returns db Tab 无对应文件（path 是 connId 哈希）→ `null`，调用方应隐藏路径类动作；
+ *          其余（文件 / md 预览 / CSV 查看 / diff）恒返回可用的绝对路径。
+ */
+export function tabRealPath(tab: Tab): string | null {
+  if (tab.kind === "db") return null;
+  if (tab.kind === "diff") {
+    // diff tab 只在有工作区时存在；无工作区（理论不可达）同样按「无对应文件」处理
+    const root = app.workspaceRoot;
+    return root ? joinPath(root, tab.path.slice(DIFF_TAB_PREFIX.length)) : null;
+  }
+  return isVirtualTab(tab) ? virtualTabSourcePath(tab.path) : tab.path;
+}
+
+/** 相对工作区根的路径（规则见 util.relativePathOrName）；tab 右键菜单「复制相对路径」用。
+ *  入参须是 tabRealPath 的**返回值**（真实绝对路径），不是 tab.path。 */
+export function tabRelativePath(path: string): string {
+  return relativePathOrName(app.workspaceRoot, path);
 }

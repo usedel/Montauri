@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import DOMPurify from "dompurify";
 import {
+  anchorIdFromHref,
   assignHeadingIds,
   classifyLink,
   findAnchorTarget,
@@ -150,6 +151,22 @@ describe("标题锚点 id（marked 不生成，需自补；#锚点 点击跳转�
     expect(findAnchorTarget(host, "dup")?.textContent).toBe("inner");
     expect(findAnchorTarget(null, "dup")).toBeNull();
     expect(findAnchorTarget(host, "")).toBeNull();
+  });
+
+  it("anchorIdFromHref：解码 marked 的 encodeURI（中文锚点），畸形 % 序列回退原文", () => {
+    expect(anchorIdFromHref("#quick-start")).toBe("quick-start");
+    expect(anchorIdFromHref("#%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B")).toBe("快速开始");
+    expect(anchorIdFromHref("#%")).toBe("%"); // 畸形序列不抛 URIError
+  });
+
+  it("回归：中文目录链接（marked 百分号编码）必须能命中标题 id", () => {
+    // 曾经的症状：英文目录能跳、中文目录点了没反应——根因是预览 Tab 用未解码的 href 找 id。
+    const html = renderMarkdownToHtml("[快速开始](#快速开始)\n\n## 快速开始\n", "", (p) => p);
+    const host = document.createElement("div");
+    host.innerHTML = html;
+    const a = host.querySelector("a[href]") as HTMLAnchorElement;
+    expect(a.getAttribute("href")).toMatch(/^#%E5/); // marked 把中文 href 编码了
+    expect(findAnchorTarget(host, anchorIdFromHref(a.getAttribute("href") ?? ""))?.tagName).toBe("H2");
   });
 });
 

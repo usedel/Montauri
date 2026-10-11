@@ -123,6 +123,8 @@ export const core = {
   "git.subtabHistory": "历史",
   "git.subtabStash": "贮藏",
   "git.subtabs": "Git 面板分区",
+  // ---- help ----
+  "help.docs.openFailed": "打开帮助文档失败：{error}",
   // ---- history ----
   "history.historyClear": "清空历史",
   "history.historyClose": "关闭",
@@ -178,6 +180,7 @@ export const core = {
   "menu.go.gotoSymbolInFile": "转到文件内符号",
   "menu.help.about": "关于 OpenCharm",
   "menu.help.authorGuide": "作者指南（插件开发）",
+  "menu.help.docs": "帮助文档",
   "menu.help.onboardingGuide": "新手指南",
   "menu.help.openDataDir": "打开数据目录",
   "menu.help.openLogDir": "打开日志目录",

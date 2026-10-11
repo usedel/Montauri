@@ -147,6 +147,7 @@ addLine("shell/src-tauri/src/scratch_cmds.rs", "scratch_cmds_rs_max_lines");
 addLine("shell/src/main.ts", "main_ts_max_lines");
 addLine("shell/src/inlineDiagnostics.ts", "inline_diagnostics_ts_max_lines");
 addLine("shell/src/lspStatus.ts", "lsp_status_ts_max_lines");
+addLine("shell/src/helpDocs.ts", "help_docs_ts_max_lines");
 addLine("shell/src/debugEntry.ts", "debug_entry_ts_max_lines");
 addLine("shell/src/menuItems.ts", "menu_items_ts_max_lines");
 addLine("shell/src/windowKeys.ts", "window_keys_ts_max_lines");

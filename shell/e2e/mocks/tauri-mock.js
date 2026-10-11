@@ -1016,6 +1016,19 @@
       (window.__E2E_COPIED__ = window.__E2E_COPIED__ || []).push(String(args.text ?? ""));
       return null;
     }
+    // 终端 spawn：浏览器无真实 PTY，只记录入参（**cwd 是「在终端打开落到哪个目录」的判据**）
+    // 并返回 null（venv 指示为空）。与 __E2E_OPENED_PATHS__ 分表，断言互不串扰。
+    if (cmd === "term_spawn") {
+      (window.__E2E_TERM_SPAWNS__ = window.__E2E_TERM_SPAWNS__ || []).push({
+        id: args.id ?? null, cwd: args.cwd ?? null, shell: args.shell ?? null,
+      });
+      return null;
+    }
+    // reveal_in_explorer：只记录路径（CI 无桌面，不能真开资源管理器）
+    if (cmd === "reveal_in_explorer") {
+      (window.__E2E_REVEALED_PATHS__ = window.__E2E_REVEALED_PATHS__ || []).push(String(args.path ?? ""));
+      return null;
+    }
     // 1) 事件注册：args.handler 是 transformCallback 返回的回调 id（number）
     if (cmd === "plugin:event|listen") {
       var handlerId = args.handler;

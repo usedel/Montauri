@@ -46,6 +46,7 @@
  "menu.run.runToCursor": "运行到光标处",
  "menu.run.evaluateExpression": "求值表达式",
  "menu.run.runHistory": "运行历史",
+ "menu.help.docs": "帮助文档",
  "menu.help.onboardingGuide": "新手指南",
  "menu.help.welcomePage": "欢迎页",
  "menu.help.about": "关于 OpenCharm",
@@ -106,5 +107,6 @@
  "settings.resetConfirm": "把面板内所有设置恢复为出厂默认？恢复后仍需点「保存」才会落盘。",
  "settings.resetDone": "已恢复默认，点「保存」后生效",
  "settings.resetOk": "恢复默认",
- "settings.searchClear": "清除搜索"
+ "settings.searchClear": "清除搜索",
+ "help.docs.openFailed": "打开帮助文档失败：{error}"
 }

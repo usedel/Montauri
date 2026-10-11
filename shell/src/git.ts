@@ -10,6 +10,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { app, $, $btn, lazyEl, outputEl, type Tab } from "./state";
 import { basename, codicon, emptyState, errMsg, languageOf, gitBadgeClass, gitLineClass, joinPath, normalizePath, renderFileIcon, setBusy } from "./util";
 import { appendOutputLine } from "./output";
+import { DIFF_TAB_PREFIX } from "./virtualTabs"; // diff tab path 命名空间归口（与 tabRealPath 同源）
 import { refreshTreeGitClasses, refreshTreeWithExpandedState } from "./fileTree";
 import { setBottomTab } from "./termUi";
 import { setSidebarTab } from "./views";
@@ -982,9 +983,8 @@ async function showDiffImpl(f: GitStatusFile, base: DiffBase, activate: boolean)
 }
 
 // ---------- diff tab 管理（第 2 步迁移） ----------
-
-/** diff tab 的 path 命名空间（与文件 tab 隔离） */
-const DIFF_TAB_PREFIX = "diff:";
+// 注：DIFF_TAB_PREFIX 已归口 virtualTabs.ts（那里同时要按该前缀解析真实路径，见 tabRealPath）；
+// 本模块 import 复用，避免两处字面量漂移。import 方向安全：virtualTabs 不 import git。
 
 /** diff tab 激活回调（main.ts activateTab 注入——main 持有 renderTabs/宿主切换） */
 let activateDiffViewHandler: ((tab: Tab) => void) | null = null;

@@ -226,7 +226,10 @@ function wireBodyClicks(body: HTMLElement): void {
     const href = a.getAttribute("href") ?? "";
     const kind = mdPreview.classifyLink(href);
     if (kind === "anchor") {
-      const target = mdPreview.findAnchorTarget(body, href.slice(1));
+      // href 必须经 anchorIdFromHref 解码：marked 对链接施加过 encodeURI，中文标题的锚点
+      // 是百分号编码（#%E5%BF%AB…），不解码就与 assignHeadingIds 写入的原始中文 id 不匹配
+      // —— 症状是「英文目录能跳、中文目录点了没反应」（2026-10-11 修复）。
+      const target = mdPreview.findAnchorTarget(body, mdPreview.anchorIdFromHref(href));
       target?.scrollIntoView({ behavior: "smooth", block: "start" });
     } else if (kind === "relative-md") {
       const cur = app.activeTab;

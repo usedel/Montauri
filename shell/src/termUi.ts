@@ -17,6 +17,7 @@ import { basename, codicon, emptyState, parentDirOf, stripAnsi } from "./util"; 
 import { IntegratedTerminal } from "./terminal";
 import { clearOutput, getOutputLevelCounts, refilterOutputChannel, refilterOutputLevels, setOutputChannelFilter, setOutputLevelFilter, setOutputLevelCountsSink, type OutputChannel, type OutputLogLevel } from "./output";
 import { hasGitDetailContent, renderGitDetailEmptyState } from "./git";
+import { tabRealPath } from "./virtualTabs"; // 虚拟 Tab（mdpreview:/csvtab:/diff:）path → 真实路径
 import { showMenu } from "./menu";
 import { sniffTerminalOutput, handleTracebackLine } from "./depHealth"; // M2 §4.4 嗅探 / M4-3 traceback 一键安装
 import { t } from "./i18n"; // 第十三批 i18n：动态文案走语言包
@@ -199,10 +200,15 @@ function termTitle(s: TermSessionUI): string {
   return parts.join(" · ");
 }
 
-/** 计算终端默认启动目录（P2-4：工作区根 或 活动文件所在目录） */
+/** 计算终端默认启动目录（P2-4：工作区根 或 活动文件所在目录）。
+ *  活动 Tab 可能是虚拟 Tab（mdpreview: / csvtab: / diff:），其 path 不是真实文件路径，
+ *  必须先经 tabRealPath 解析；db Tab 无对应文件 → null → 回落工作区根
+ *  （**不可**把虚拟 path 直接交给后端：portable-pty 见非目录 cwd 会静默回落用户主目录）。 */
 function defaultTerminalCwd(): string | null {
-  if (app.settings.terminal_cwd === "file" && app.activeTab) {
-    return parentDirOf(app.activeTab.path);
+  const active = app.activeTab;
+  if (app.settings.terminal_cwd === "file" && active) {
+    const p = tabRealPath(active);
+    if (p) return parentDirOf(p);
   }
   return app.workspaceRoot;
 }

@@ -38,6 +38,7 @@ import { listPluginRecords } from "./extensions/loader";
 import { inlineCommandLabel, listInlineEntries, runInline } from "./extensions/inline";
 import { categoryLabel, groupToolsByCategory, listDevTools, openDevTools, openDevToolsPanel } from "./devtools";
 import { dismissWelcomeOverlay, isWelcomeForced, openOnboardingGuide, showWelcomeOverlay } from "./welcomeGuide";
+import { openHelpDocs } from "./helpDocs"; // MB-13 帮助菜单：内置帮助文档（随包分发的静态 Markdown）
 import { openSettingsPanel } from "./settingsPanel";
 import { openProblemsPanel } from "./problemsPanel";
 import { openRunConfig } from "./runConfigPanel";
@@ -173,6 +174,8 @@ export function buildQuickOpenActions(): QuickOpenAction[] {
     { id: "open_settings", label: t("main.cmd.openSettings"), run: () => openSettingsPanel() },
     // PR-S1/S2（onboarding plan §3.1）：新手指南 + 欢迎页 force-show 进命令面板
     { id: "onboarding_guide", label: t("main.cmd.guide"), run: () => void openOnboardingGuide() },
+    // MB-13：内置帮助文档（与帮助菜单同一入口，提升可发现性）
+    { id: "help_docs", label: t("menu.help.docs"), run: () => void openHelpDocs() },
     { id: "welcome_page", label: t("main.cmd.welcome"), run: () => { if (isWelcomeForced()) dismissWelcomeOverlay(); else showWelcomeOverlay(); } },
     { id: "new_project", label: t("main.cmd.newProject"), run: () => openNewProjectPanel() },
     { id: "git_clone", label: t("cloneRepository.cmdLabel"), run: () => openCloneTab() },
@@ -508,6 +511,11 @@ export function getMenuItems(menu: string): MenuEntry[] {
     // PR-S1/S2（onboarding plan）：新增「新手指南」（指南落盘打开）与「欢迎页」（force-show toggle，
     // 收掉 MB-13「欢迎页一期不纳入」登记）。
     case "help": return [
+      // 帮助文档（内置完整手册，随包分发；主入口置于首位）
+      {
+        label: t("menu.help.docs"),
+        action: () => void openHelpDocs(),
+      },
       {
         label: t("menu.help.onboardingGuide"),
         action: () => void openOnboardingGuide(),

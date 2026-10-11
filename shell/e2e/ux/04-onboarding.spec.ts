@@ -2,6 +2,10 @@
  * E2E：新手引导 + uv 速查卡（2026-09-30，docs/onboarding_dev_plan.md PR-S1/S2/S4）
  *
  *  - OG-1 帮助菜单「新手指南」→ md 落盘打开且预览含「uv 速查卡」标题
+ *  - OG-1b 帮助菜单「帮助文档」→ 内置手册落盘打开且预览含目录标题（正文来自 public/help/）
+ *  - OG-1c 英文界面下同一入口 → 取英文正文 opencharm-help.en.md（语言路由）
+ *  - OG-1d 中文目录锚点可跳转（回归：marked 对中文 href 施加 encodeURI，点击需解码）
+ *  - OG-1e 预览 Tab 右键「在终端中打开」→ 终端 cwd 为文档真实目录（回归：mdpreview: 虚拟 path）
  *  - OG-2 欢迎页三步卡可见 + 指南链接可点
  *  - OG-3 有工作区时帮助菜单「欢迎页」→ overlay 完整版显示 → 点关闭恢复编辑器
  *  - OG-4 命令面板「新手指南」可达（打开指南）
@@ -20,8 +24,10 @@ import { equipPage, makeGitRepo, makePlainDir, type GitRepo } from "../helpers";
 /** 启动到欢迎页（startEmpty：最近工作区为空 → 停在欢迎页）。
  *  #ew-new-project 可见只说明页面渲染，wireMenuBar / 键位接线 / 命令注册表在其后的 init 步骤——
  *  再等 invoke 流水出现 list_plugin_dirs（init 中段信号，plugins spec 同款等待）。 */
-async function bootEmpty(page: Page, repo: GitRepo): Promise<void> {
+async function bootEmpty(page: Page, repo: GitRepo, locale?: string): Promise<void> {
   await equipPage(page, repo, { startEmpty: true });
+  // 语言须先于页面脚本落 localStorage（键见 docs/i18n.md；默认 zh-CN）
+  if (locale) await page.addInitScript((l) => localStorage.setItem("opencharm.locale", l), locale);
   await page.goto("/");
   await expect(page.locator("#ew-new-project")).toBeVisible({ timeout: 20_000 });
   await expect
@@ -73,6 +79,91 @@ test.describe("OG-1/2：指南入口 + 欢迎页三步卡", () => {
     await expect(page.locator("#md-preview-tab-panel")).toContainText("uv 速查卡", { timeout: 10_000 });
     // 磁盘落盘（write_file 走真实 FS bridge）
     expect(repo.read("docs/onboarding_guide.md")).toContain("uv 速查卡");
+  });
+
+  test("OG-1b 帮助菜单「帮助文档」→ 内置手册落盘打开且预览含目录标题", async ({ page }) => {
+    const repo = await makePlainDir({ "a.py": "x = 1\n" });
+    await bootEmpty(page, repo);
+
+    await clickHelpMenu(page, "帮助文档");
+    // 与 OG-1 同款落盘 + 预览；差别在正文来源是 public/help/（fetch 同源静态资源，非 ?raw 内联）
+    await expect(page.locator("#tabbar .tab.active .name", { hasText: "opencharm-help.md" })).toContainText("预览", { timeout: 15_000 });
+    await expect(page.locator("#md-preview-tab-panel")).toBeVisible();
+    await expect(page.locator("#md-preview-tab-panel")).toContainText("快捷键总表", { timeout: 10_000 });
+    expect(repo.read("docs/opencharm-help.md")).toContain("快捷键总表");
+  });
+
+  test("OG-1c 英文界面 → 帮助菜单取英文正文（opencharm-help.en.md）", async ({ page }) => {
+    const repo = await makePlainDir({ "a.py": "x = 1\n" });
+    await bootEmpty(page, repo, "en-US");
+
+    await clickHelpMenu(page, "Help Documentation");
+    // 语言路由：英文界面取 .en.md（中文界面取 opencharm-help.md，见 OG-1b）
+    await expect(page.locator("#tabbar .tab.active .name", { hasText: "opencharm-help.en.md" })).toContainText("Preview", { timeout: 15_000 });
+    await expect(page.locator("#md-preview-tab-panel")).toContainText("Keyboard Shortcuts", { timeout: 10_000 });
+    expect(repo.read("docs/opencharm-help.en.md")).toContain("Keyboard Shortcuts");
+  });
+
+  test("OG-1d 中文目录锚点可跳转（回归：marked 百分号编码 href）", async ({ page }) => {
+    const repo = await makePlainDir({ "a.py": "x = 1\n" });
+    await bootEmpty(page, repo);
+
+    await clickHelpMenu(page, "帮助文档");
+    await expect(page.locator("#md-preview-tab-panel")).toContainText("快捷键总表", { timeout: 15_000 });
+
+    /** 「快捷键总表」标题是否落在视口内（不依赖具体滚动容器是谁） */
+    const targetInView = () =>
+      page.evaluate(() => {
+        const el = Array.from(document.querySelectorAll("#md-preview-tab-body [id]")).find((n) => n.id === "快捷键总表");
+        if (!el) return -1;
+        const r = el.getBoundingClientRect();
+        return r.top >= -4 && r.top <= window.innerHeight - 40 ? 1 : 0;
+      });
+
+    expect(await targetInView()).toBe(0); // 章节在文档后段，初始不在视口
+
+    const clicked = await page.evaluate(() => {
+      const body = document.getElementById("md-preview-tab-body");
+      if (!body) return "no-body";
+      // marked 把中文 href 编码为 #%E5%…；这里按「解码后等于标题文本」定位目录链接
+      const link = Array.from(body.querySelectorAll("a[href^='#']")).find(
+        (a) => decodeURIComponent(a.getAttribute("href")!.slice(1)) === "快捷键总表",
+      ) as HTMLAnchorElement | undefined;
+      if (!link) return "no-link";
+      link.click();
+      return "clicked";
+    });
+    expect(clicked).toBe("clicked");
+
+    await expect.poll(targetInView, { timeout: 6_000 }).toBe(1);
+  });
+
+  test("OG-1e 预览 Tab 右键「在终端中打开」→ 终端 cwd 为文档真实目录", async ({ page }) => {
+    const repo = await makePlainDir({ "a.py": "x = 1\n" });
+    await bootEmpty(page, repo);
+
+    await clickHelpMenu(page, "帮助文档");
+    // 预览 Tab 的 path 是 `mdpreview:<绝对路径>`（虚拟命名空间）
+    const tab = page.locator('#tabbar .tab[data-path^="mdpreview:"]');
+    await expect(tab).toBeVisible({ timeout: 15_000 });
+
+    await tab.click({ button: "right" });
+    const item = page.locator("#ctx-menu .ctx-menu-item", { hasText: "在终端中打开" }).first();
+    await expect(item).toBeVisible({ timeout: 5_000 });
+    await item.click();
+
+    // 回归判据（2026-10-11）：cwd 必须是文档真实所在目录。
+    // 旧行为把 `mdpreview:C:\…\docs\a.md` 直接喂给 parentDirOf → `mdpreview:C:\…\docs` 不是
+    // 目录 → portable-pty 的 current_directory() 静默回落 USERPROFILE → 终端开在**用户主目录**。
+    await expect
+      .poll(() => page.evaluate(() => ((window as unknown as { __E2E_TERM_SPAWNS__?: unknown[] }).__E2E_TERM_SPAWNS__ ?? []).length), { timeout: 10_000 })
+      .toBeGreaterThan(0);
+    const cwd = await page.evaluate(() => {
+      const arr = (window as unknown as { __E2E_TERM_SPAWNS__: { cwd: string | null }[] }).__E2E_TERM_SPAWNS__;
+      return arr[arr.length - 1].cwd;
+    });
+    expect(cwd).toBe(repo.abs("docs"));
+    expect(cwd ?? "").not.toContain("mdpreview:");
   });
 
   test("OG-2 欢迎页三步卡可见 + 指南链接可点", async ({ page }) => {

@@ -124,6 +124,8 @@ export const core: Record<CoreKey, string> = {
   "git.subtabHistory": "History",
   "git.subtabStash": "Stash",
   "git.subtabs": "Git Panel Sections",
+  // ---- help ----
+  "help.docs.openFailed": "Failed to open help documentation: {error}",
   // ---- history ----
   "history.historyClear": "Clear History",
   "history.historyClose": "Close",
@@ -179,6 +181,7 @@ export const core: Record<CoreKey, string> = {
   "menu.go.gotoSymbolInFile": "Go to Symbol in File",
   "menu.help.about": "About OpenCharm",
   "menu.help.authorGuide": "Author Guide (Plugin Development)",
+  "menu.help.docs": "Help Documentation",
   "menu.help.onboardingGuide": "Getting Started",
   "menu.help.openDataDir": "Open Data Directory",
   "menu.help.openLogDir": "Open Log Directory",

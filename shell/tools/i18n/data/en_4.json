@@ -53,6 +53,7 @@
   "menu.go.gotoSymbolInFile": "Go to Symbol in File",
   "menu.help.about": "About OpenCharm",
   "menu.help.authorGuide": "Author Guide (Plugin Development)",
+  "menu.help.docs": "Help Documentation",
   "menu.help.onboardingGuide": "Getting Started",
   "menu.help.openDataDir": "Open Data Directory",
   "menu.help.openLogDir": "Open Log Directory",
@@ -79,5 +80,6 @@
   "menu.view.toggleSidebar": "Toggle Sidebar",
   "settings.appearance.locale": "Language",
   "settings.appearance.localeHint": "Applies to the shell UI; restart is not required.",
-  "toast.failSuffix": "{action} failed: {reason}"
+  "toast.failSuffix": "{action} failed: {reason}",
+  "help.docs.openFailed": "Failed to open help documentation: {error}"
 }
