@@ -886,7 +886,7 @@ async function recordRecent(path: string): Promise<void> {
 const lspProviders = new DisposableStore();
 
 /** CR-08：openFile 进行中去重表（path → 未完成的打开 Promise），防并发双开同文件 */
-const openFileInflight = new Map<string, Promise<void>>();
+const openFileInflight = new Map<string, Promise<boolean>>();
 /** P1（2026-10-08 review）：已注册 change handler 的 model 集合——防止 model 复用
  *  分支（CR-08 防线二）重复注册导致 pendingChanges 双倍累积。WeakSet 随 model 释放。 */
 const modelChangeHandled = new WeakSet<MonacoApi.editor.ITextModel>();
@@ -903,29 +903,31 @@ export interface OpenFileOptions {
   csvMode?: "edit"; // VS Code 调研 借鉴-4：强制以文本编辑打开 .csv（查看器工具栏「以文本编辑」）
 }
 
-export async function openFile(path: string, revealLine?: number, opts?: OpenFileOptions): Promise<void> {
+export async function openFile(path: string, revealLine?: number, opts?: OpenFileOptions): Promise<boolean> {
   // CR-08：in-flight 去重——双击/多入口并发打开同一文件时，两次调用都查不到 tab、
   // 都进 read_file → createModel 对重复 URI 返回既有 model → 两 Tab 持同一 model，
   // closeTabSilent dispose 掉另一个仍在用的 model。以归一化路径（斜杠/大小写无关）为键串行化，
   // 后续调用 await 同一个 Promise（含 gotoFromLink / openSearchMatch / 历史重跑双击路径）。
+  // 返回值（2026-10-11）：是否成功打开——CSV 查看器「以文本编辑」需要据此决定
+  // 是否关闭查看 Tab（先开成功再关，避免失败态下查看器被拆掉 → 空白 + 悬空 activeTab）。
   const key = normalizePath(path);
   const inflight = openFileInflight.get(key);
   if (inflight) {
-    await inflight;
+    const ok = await inflight;
     await revealAfterOpen(path, revealLine);
-    return;
+    return ok;
   }
   const p = doOpenFile(path, revealLine, opts);
   openFileInflight.set(key, p);
   try {
-    await p;
+    return await p;
   } finally {
     openFileInflight.delete(key);
   }
 }
 
-/** CR-08：openFile 的实际执行体（由 in-flight 去重表保证同一 path 串行） */
-async function doOpenFile(path: string, revealLine?: number, opts?: OpenFileOptions): Promise<void> {
+/** CR-08：openFile 的实际执行体（由 in-flight 去重表保证同一 path 串行）。返回是否成功打开。 */
+async function doOpenFile(path: string, revealLine?: number, opts?: OpenFileOptions): Promise<boolean> {
   // open_file_dev_plan §1.3：md 文件按设置分流——preview（默认）开只读预览 Tab；
   // split = 编辑 tab + 自动开分栏；edit（显式意图或设置）走下方正常编辑路径。
   // 显式 opts.mdMode="edit" 一律强制编辑（双击 / 编辑源码按钮 / 链接跳转）。
@@ -937,11 +939,11 @@ async function doOpenFile(path: string, revealLine?: number, opts?: OpenFileOpti
       if (editTab) {
         activateTab(editTab, opts?.focusEditor === false ? { focusEditor: false } : undefined);
         await revealAfterOpen(editTab.path, revealLine);
-        return;
+        return true;
       }
       openPreviewTab(path);
       await revealAfterOpen(path, revealLine);
-      return;
+      return true;
     }
     if (mode === "split") {
       // 分栏模式：正常开编辑 tab，随后自动开预览分栏（现有 setPreviewOpen 通道）
@@ -949,9 +951,7 @@ async function doOpenFile(path: string, revealLine?: number, opts?: OpenFileOpti
     }
   }
   // VS Code 调研 借鉴-4：.csv 默认开只读数据查看 Tab（文本编辑走显式 csvMode:"edit"）
-  if (isCsvPath(path) && opts?.csvMode !== "edit") { openCsvTab(path); return; }
-  // P1：导航历史——先记「离开前的位置」，末尾记「到达的位置」，后退才能回到出发点
-  pushCurrent();
+  if (isCsvPath(path) && opts?.csvMode !== "edit") { openCsvTab(path); return true; }
   // 路径等价比较用 samePath（斜杠/大小写无关）：会话恢复的 tab 路径与文件树/Rust
   // 返回的路径分隔符方向可能不同（如 D:\proj/src/a.py vs D:\proj\src\a.py），
   // 严格 === 会导致同一文件开出第二个标签。
@@ -963,8 +963,11 @@ async function doOpenFile(path: string, revealLine?: number, opts?: OpenFileOpti
     } catch (e) {
       // 大文件守卫 / 目录 / 编码错误等：toast 呈现而非静默 unhandled rejection
       toast(t("main.openFile.failed", { msg: String(e) }), "error");
-      return;
+      return false;
     }
+    // P1：导航历史——先记「离开前的位置」，末尾记「到达的位置」，后退才能回到出发点。
+    // 必须在 read 成功之后：打开失败（超 10MB 守卫等）没有「离开」，早记会留脏记录。
+    pushCurrent();
     // CR-08：并发防线二——创建前再查既有 model 命中则复用（防其它入口已建）
     const uri = app.monaco.Uri.file(path);
     const existing = app.monaco.editor.getModel(uri);
@@ -979,7 +982,7 @@ async function doOpenFile(path: string, revealLine?: number, opts?: OpenFileOpti
       if (owner && !samePath(owner, path) && ownerTab) {
         activateTab(ownerTab, opts?.focusEditor === false ? { focusEditor: false } : undefined);
         await revealAfterOpen(ownerTab.path, revealLine);
-        return;
+        return true;
       }
     }
     const model = existing ?? app.monaco.editor.createModel(content, languageOf(path), uri);
@@ -1020,6 +1023,7 @@ async function doOpenFile(path: string, revealLine?: number, opts?: OpenFileOpti
   revealAfterOpen(path, revealLine);
   // P1：记录到达位置（未指定行时取编辑器当前行，与用户所见一致）
   noteOpen(path, revealLine ?? app.editor.getPosition()?.lineNumber ?? 1);
+  return true;
 }
 
 /** CR-08：打开完成后按需跳行（去重等待路径也要走，故独立成函数） */
@@ -1685,6 +1689,7 @@ async function init(): Promise<void> {
       const uri = app.monaco.Uri.parse(`inmemory://${ns}/${normalizePath(path)}`);
       return app.monaco.editor.getModel(uri) ?? app.monaco.editor.createModel("", lang, uri);
     },
+    renderTabs,
   });
 
   // 菜单 / 命令面板数据源（menuItems.ts）：本层私有动作经注入解环，避免 main ⇄ menuItems 静态成环

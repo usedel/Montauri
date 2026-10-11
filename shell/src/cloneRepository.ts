@@ -93,7 +93,7 @@ let inspectCancelToken = 0;
 let unlistenProgress: (() => void) | null = null;
 
 let openWorkspaceFn: ((root: string) => Promise<void>) | null = null;
-let openFileFn: ((path: string, revealLine?: number) => Promise<void>) | null = null;
+let openFileFn: ((path: string, revealLine?: number) => Promise<boolean>) | null = null;
 let openPanelFn: (() => Promise<void> | void) | null = null;
 
 // ---------- DOM 引用 ----------
@@ -662,7 +662,7 @@ export function ensureCloneTabRendered(): void {
 /** 接线（main.ts init 调用）。 */
 export function wireCloneRepository(deps: {
   openWorkspace: (root: string) => Promise<void>;
-  openFile: (path: string, revealLine?: number) => Promise<void>;
+  openFile: (path: string, revealLine?: number) => Promise<boolean>;
   openPanel: () => Promise<void> | void;
 }): void {
   openWorkspaceFn = deps.openWorkspace;

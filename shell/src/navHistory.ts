@@ -22,7 +22,7 @@ export interface NavLocation {
 
 export interface NavHistoryHandlers {
   /** 打开并定位（main.ts 的 openFile） */
-  openFile: (path: string, line: number) => Promise<void>;
+  openFile: (path: string, line: number) => Promise<boolean>;
 }
 
 let handlers: NavHistoryHandlers | null = null;

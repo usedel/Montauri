@@ -43,7 +43,7 @@ import type { RunWidgetState } from "./runWidget";
 // ---------- 注入（main 的 init 中 setRunFlowHandlers） ----------
 
 interface RunFlowHandlers {
-  openFile: (path: string, revealLine?: number) => Promise<void>;
+  openFile: (path: string, revealLine?: number) => Promise<boolean>;
   activateTab: (tab: Tab) => void;
   renderTabs: () => void;
   saveActive: (opts?: SaveOptions) => Promise<void>;

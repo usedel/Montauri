@@ -18,7 +18,7 @@ export interface OpenFileEntryHandlers {
   /** 打开工作区（main::openWorkspace，含 teardown / LSP / watcher / 会话恢复全链路） */
   openWorkspace: (root: string) => Promise<void>;
   /** 打开文件（main::openFile） */
-  openFile: (path: string) => Promise<void>;
+  openFile: (path: string) => Promise<boolean>;
 }
 
 let H: OpenFileEntryHandlers | null = null;

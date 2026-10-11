@@ -50,9 +50,11 @@ export interface MdPreviewTabHandlers {
   activateTab: (tab: Tab) => void;
   /** 「编辑源码」/提升语义：把预览 Tab 原地转成编辑 Tab（强制 mdMode="edit"，防止设置
    *  markdown_open_mode=preview 时又开回预览形成死循环） */
-  openFile: (path: string) => Promise<void>;
+  openFile: (path: string) => Promise<boolean>;
   /** 建占位模型（主编辑器 Monaco 实例的唯一真源，防多个 createModel 入口漂移） */
   createModel: (path: string) => MonacoApi.editor.ITextModel;
+  /** tabbar 重渲染（关 Tab 只动数组；提升路径反转顺序后没有后续 activateTab 兜底重渲染） */
+  renderTabs: () => void;
 }
 
 let handlers: MdPreviewTabHandlers | null = null;
@@ -84,11 +86,19 @@ export function openPreviewTab(srcPath: string): void {
   handlers.activateTab(tab);
 }
 
-/** 「编辑源码」：关预览 Tab → 打开编辑 Tab（main::openFile 负责建编辑 Tab / 复用既有）。
- *  openFile 走 mdMode:"edit" 通道（handlers.openFile 由 main 注入时已绑定该选项）。 */
+/** 「编辑源码」：打开编辑 Tab → **成功后**才关预览 Tab（main::openFile 负责建编辑 Tab / 复用既有）。
+ *  openFile 走 mdMode:"edit" 通道（handlers.openFile 由 main 注入时已绑定该选项）。
+ *  顺序敏感（同 csvTab.promoteCsvToEdit）：先关再开一旦打开失败（超 10MB 守卫等），
+ *  预览已被拆掉且无人恢复 #editor 显隐 → 编辑区空白 + activeTab 悬空。 */
 export async function promoteToEdit(srcPath: string): Promise<void> {
-  closePreviewTabIfExists(srcPath);
-  await handlers?.openFile(srcPath);
+  const ok = await handlers?.openFile(srcPath);
+  if (ok) {
+    const pv = findPreviewTab(srcPath);
+    if (pv) {
+      closePreviewTabQuiet(pv);
+      handlers?.renderTabs(); // 关 Tab 只动数组，tabbar 重渲染由 main 承担
+    }
+  }
 }
 
 /** 若存在该源文件的预览 Tab 则静默关闭（文件树双击提升 / 编辑源码按钮共用）。 */

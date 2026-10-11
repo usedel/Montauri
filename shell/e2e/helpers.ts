@@ -11,7 +11,7 @@
  * 返回形状刻意与 Rust 侧 git_cmds.rs / git_status.rs 对齐（snake_case 字段）。
  */
 import { execFile, spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, renameSync, rmSync, cpSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, renameSync, rmSync, cpSync, statSync } from "node:fs";
 import { basename } from "node:path";
 import { tmpdir } from "node:os";
 import { join, dirname, resolve, sep } from "node:path";
@@ -625,7 +625,14 @@ async function dispatchFs(cmd: string, args: Record<string, unknown>, repo: GitR
       return entries;
     }
     case "read_file": {
-      return readFileSync(guard(String(args.path)), "utf8");
+      const p = guard(String(args.path));
+      // 镜像 Rust fs_cmds::read_file 的 10MB 守卫（文案同源）：E-CSV-8「以文本编辑」
+      // 失败态验收依赖此错误路径——mock 无守卫时大文件会被整读，真实产品行为不可复现
+      const size = statSync(p).size;
+      if (size > 10 * 1024 * 1024) {
+        throw new Error(`文件过大（${(size / 1048576).toFixed(1)} MB），超过 10 MB 上限，编辑器不支持打开`);
+      }
+      return readFileSync(p, "utf8");
     }
     case "read_file_base64": {
       return readFileSync(guard(String(args.path))).toString("base64");

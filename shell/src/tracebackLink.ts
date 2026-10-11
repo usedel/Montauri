@@ -10,7 +10,7 @@ import { selectionMetaOf } from "./runState";
 import { toastFail } from "./toast";
 import { t } from "./i18n"; // 第十六批 i18n：traceback 打开失败文案走语言包
 
-type OpenFileFn = (path: string, revealLine?: number) => Promise<void>;
+type OpenFileFn = (path: string, revealLine?: number) => Promise<boolean>;
 
 let openFileFn: OpenFileFn | null = null;
 

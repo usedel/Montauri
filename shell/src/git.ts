@@ -33,10 +33,10 @@ export function setGitReloadHandler(fn: (path: string) => Promise<void>): void {
 }
 
 /** 打开文件到编辑器（main.ts 注入；冲突项「手动解决」用） */
-let openFileHandler: ((path: string) => Promise<void>) | null = null;
+let openFileHandler: ((path: string) => Promise<boolean>) | null = null;
 
 /** main.ts 注入「打开文件」handler（避免 git → main 循环依赖） */
-export function setGitOpenFileHandler(fn: (path: string) => Promise<void>): void {
+export function setGitOpenFileHandler(fn: (path: string) => Promise<boolean>): void {
   openFileHandler = fn;
 }
 

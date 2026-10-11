@@ -27,7 +27,7 @@ export interface StartupRestoreHandlers {
   /** 读取最近工作区列表（main::getRecentWorkspaces，无终态文件时的回落通道） */
   getRecentWorkspaces: () => Promise<string[]>;
   /** 打开文件定位（main::openFile——路由命中已开工作区时直接开 tab，不走探测链） */
-  openFile: (path: string) => Promise<void>;
+  openFile: (path: string) => Promise<boolean>;
 }
 
 let H: StartupRestoreHandlers | null = null;

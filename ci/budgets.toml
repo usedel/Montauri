@@ -62,10 +62,17 @@ styles_inlinediagnostics_css_max_lines = 60
 #   零第三方依赖是本项立项的前提（报告「不做的条件」）——改解析逻辑不得引入依赖。
 csv_core_ts_max_lines = 170
 
-# csvTab.ts（同上：CSV 数据查看 Tab，2026-10-11 新增）：227 行。上限 285（余量 ~25%）。
+# csvTab.ts（同上：CSV 数据查看 Tab，2026-10-11 新增）：227 行 → 308 行（大文件假死修复同日）。
 #   范围：csvtab: 命名空间 / 打开与提升 / 宿主呈现（read_file_base64 → 解析 → buildGridTable）/
 #   清理与 Tab 标题图标。表格样式与交互全部复用 sqliteGrid，不在本文件重造。
-csv_tab_ts_max_lines = 285
+#   上限上调 285 → 320（余量 ~4%→ 相对现值 ~4%，行为面实增）：大文件假死修复新增两个行为面——
+#   ① 前缀读取（CSV_READ_CAP + 字节截断判定 + 丢截半末行）；② 分页渲染（pageState 游标 +
+#   pager 构建/同步，词条样式均复用 database.*/.db-pager）。
+#   320 → 350（2026-10-11 同日二次调整，「以文本编辑」失败态修复 + 外部打开）：
+#   ③ promoteCsvToEdit 顺序反转（先开成功再关，失败保留查看器）；④ 工具栏「外部打开」按钮 +
+#   openExternal（opener 插件原生 invoke）。③属缺陷修复、④属用户裁决的逃生口功能；
+#   350 起为硬顶：再增任何行为先拆 csvExternal.ts 之类的子模块，不再上调本条。
+csv_tab_ts_max_lines = 350
 
 # virtualTabs.ts（md 预览 + CSV 查看的统一分派，2026-10-11 新增）：101 行。上限 150（余量 ~48%）。
 #   存在理由：两个只读 kind 在 activateTab / renderTabs / closeTabSilent 走同一条链路，
@@ -107,7 +114,10 @@ scratch_cmds_rs_max_lines = 460
 #   windowKeys.ts（147）+ windowChrome.ts（73）+ sidebarViews.ts（107）——五个新文件各自设上限
 #   （见下），防止"静默增长在新文件里重演"——这是 style.css 拆分时的同一条教训。
 #   余量 306 行：新功能仍不得往 main.ts 里堆。
-main_ts_max_lines = 2400
+#   2,400 → 2,410（2026-10-11 显式调整）：「以文本编辑」失败态缺陷修复净增 +4——
+#   openFile 返回成功与否（CSV 查看器「先开成功再关查看 Tab」需要）+ pushCurrent 挪到
+#   read 成功后（失败不留导航脏记录）。属缺陷修复；新功能仍不得入内，下一刀继续下调。
+main_ts_max_lines = 2410
 
 # lspStatus.ts（i18n 遗留修复外提，2026-10-10）：62 行。上限 80（余量 ~29%）。
 #   范围：状态栏 LSP 芯片（#status-lsp）两态渲染（引擎状态机 / 一次性提示）+ 语言切换重取词。

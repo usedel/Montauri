@@ -27,6 +27,7 @@ describe("导航历史（后退 / 前进）", () => {
     setNavHistoryHandlers({
       openFile: async (path, line) => {
         opened.push({ path, line });
+        return true; // openFile 现返回是否成功（2026-10-11）；测试桩恒成功
       },
     });
   });

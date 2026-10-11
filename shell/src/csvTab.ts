@@ -14,13 +14,18 @@
 // - 零第三方依赖：解析走 csvCore.ts 自研状态机（ADR-0010 体积红线）；
 // - 只读：不写文件、不落库、不进 LSP / 诊断 / 脏标记链（tab.model 是占位模型）；
 // - 行数上限 CSV_MAX_ROWS（10 000，与 Rust db_cmds::HARD_MAX_ROWS 同口径），超出截断并提示；
-// - 编码只承诺 UTF-8 / BOM，其余**显式提示不猜测**（csvCore::isUtf8Decodable）。
+// - 编码只承诺 UTF-8 / BOM，其余**显式提示不猜测**（fatal 解码，失败即提示）；
+// - **前缀读取**（2026-10-11 修复大文件假死）：read_file_base64 只取前 CSV_READ_CAP 字节
+//   （1 万行的宽表也用不满），整读几十 MB 再 base64 全量过 IPC 是假死数秒的主因；
+// - **分页渲染**：buildGridTable 是全量 DOM 表（无虚拟化），1 万行一次上屏同样秒级卡顿，
+//   照 db Tab 先例按 CSV_PAGE_SIZE 分页（翻页是内存切片，不重读文件）。
 
 import { invoke } from "@tauri-apps/api/core";
 import type * as MonacoApi from "monaco-editor/esm/vs/editor/editor.api";
 import { app, $, type Tab } from "./state";
 import { t } from "./i18n";
-import { CSV_MAX_ROWS, isUtf8Decodable, parseCsv, stripBom } from "./csvCore";
+import { toast } from "./toast";
+import { CSV_MAX_ROWS, parseCsv, stripBom, type CsvTable } from "./csvCore";
 import { buildGridTable, statusText, type DbQueryResult } from "./sqliteGrid";
 
 // ---------- 命名空间 ----------
@@ -49,10 +54,13 @@ export function findCsvTab(srcPath: string): Tab | undefined {
 
 export interface CsvTabHandlers {
   activateTab: (tab: Tab) => void;
-  /** 「以文本编辑」：绕过 CSV 查看器直接开编辑 Tab（openFile 走 csvMode:"edit"） */
-  openFile: (path: string) => Promise<void>;
+  /** 「以文本编辑」：绕过 CSV 查看器直接开编辑 Tab（openFile 走 csvMode:"edit"）。
+   *  返回是否成功——失败（超 10MB read_file 守卫 / 非 UTF-8）时调用方必须保留查看 Tab。 */
+  openFile: (path: string) => Promise<boolean>;
   /** 建占位模型（主编辑器 Monaco 实例的唯一真源） */
   createModel: (path: string) => MonacoApi.editor.ITextModel;
+  /** tabbar 重渲染（关 Tab 只动数组；提升路径反转顺序后没有后续 activateTab 兜底重渲染） */
+  renderTabs: () => void;
 }
 
 let handlers: CsvTabHandlers | null = null;
@@ -75,11 +83,19 @@ export function openCsvTab(srcPath: string): void {
   handlers.activateTab(tab);
 }
 
-/** 「以文本编辑」：关查看 Tab → 开编辑 Tab（openFile 已绑定 csvMode:"edit"） */
+/** 「以文本编辑」：开编辑 Tab → **成功后**才关查看 Tab（openFile 已绑定 csvMode:"edit"）。
+ *  顺序敏感：反过来（先关再开）一旦打开失败——超 10MB read_file 守卫 / 非 UTF-8——
+ *  查看 Tab 已被移除且无人恢复 #editor 显隐 → 编辑区空白 + activeTab 悬空（标签关不掉），
+ *  2026-10-11 用户实测踩中。失败时 main 的 toast 已说明原因，查看器原样保留。 */
 export async function promoteCsvToEdit(srcPath: string): Promise<void> {
-  const tab = findCsvTab(srcPath);
-  if (tab) closeCsvTabQuiet(tab);
-  await handlers?.openFile(srcPath);
+  const ok = await handlers?.openFile(srcPath);
+  if (ok) {
+    const tab = findCsvTab(srcPath);
+    if (tab) {
+      closeCsvTabQuiet(tab);
+      handlers?.renderTabs(); // 关 Tab 只动数组，tabbar 重渲染由 main 承担
+    }
+  }
 }
 
 function closeCsvTabQuiet(tab: Tab): void {
@@ -93,6 +109,13 @@ function closeCsvTabQuiet(tab: Tab): void {
 let panelBuilt = false;
 let renderToken = 0;
 
+/** 前缀读取上限：1 万行 × 几百字节/行的宽表也远用不满（Rust 端再钳 32 MB） */
+const CSV_READ_CAP = 8 * 1024 * 1024;
+/** 每页行数（与 db Tab 默认页大小一致） */
+const CSV_PAGE_SIZE = 200;
+/** 本次 present 的解析结果 + 翻页游标（翻页 = 内存切片，不重读文件） */
+let pageState: { table: CsvTable; page: number } | null = null;
+
 /** 激活 CSV Tab：显示宿主、隐藏 #editor，重读文件重渲染（外部修改可见，照 db tab 先例）。 */
 export async function presentCsvTab(tab: Tab): Promise<void> {
   ensurePanel();
@@ -101,40 +124,66 @@ export async function presentCsvTab(tab: Tab): Promise<void> {
   $("editor")?.classList.add("hidden");
   const token = ++renderToken;
   const body = $("csv-tab-body");
-  const status = $("csv-tab-status");
-  if (!body || !status) return;
+  if (!body) return;
 
-  let bytes: Uint8Array;
+  let b64: string;
   try {
-    bytes = b64ToBytes(await invoke<string>("read_file_base64", { path: src }));
+    b64 = await invoke<string>("read_file_base64", { path: src, maxBytes: CSV_READ_CAP });
   } catch {
     if (token === renderToken) renderMessage(t("csv.readFailed"));
     return;
   }
-  if (!isUtf8Decodable(bytes)) {
-    // 编码不猜测：只承诺 UTF-8 / BOM，其余显式提示（猜错比不显示更糟）
-    if (token === renderToken) renderMessage(t("csv.decodeFailed"));
+  if (token !== renderToken) return; // 已切走：丢弃过期渲染
+  const bytes = b64ToBytes(b64);
+  // 只解码一次（fatal 模式兼做编码判定）——此前 isUtf8Decodable + 再解码对全量字节跑两遍
+  let text: string;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    if (token === renderToken) renderMessage(t("csv.decodeFailed")); // 编码不猜测：显式提示
     return;
   }
-  if (token !== renderToken) return; // 已切走：丢弃过期渲染
-  const table = parseCsv(stripBom(new TextDecoder("utf-8").decode(bytes)), CSV_MAX_ROWS);
+  if (token !== renderToken) return;
+  const table = parseCsv(stripBom(text), CSV_MAX_ROWS);
+  // 字节前缀截断：真实总行数未知；末行可能截在行中间/引号内 → 丢弃（截断提示已覆盖语义）。
+  // 判据用**字节**长度（b64 是 ×1.33）；Rust 端 UTF-8 边界回退最多让前缀短 3 字节，留 8 字节窗。
+  if (bytes.length > CSV_READ_CAP - 8 && table.rows.length > 0) {
+    table.rows.pop();
+    table.total = table.rows.length;
+    table.truncated = true;
+  }
   if (table.columns.length === 0) {
     renderMessage(t("csv.empty"));
     return;
   }
-  const result: DbQueryResult = {
-    columns: table.columns,
-    rows: table.rows,
-    total: table.total,
+  pageState = { table, page: 1 };
+  renderCsvPage();
+}
+
+/** 渲染当前页：状态条按**全表**口径（已显示=全部解析行；截断提示按上限），表格按页切片。 */
+function renderCsvPage(): void {
+  const st = pageState;
+  const body = $("csv-tab-body");
+  const status = $("csv-tab-status");
+  if (!st || !body || !status) return;
+  const full: DbQueryResult = {
+    columns: st.table.columns,
+    rows: st.table.rows,
+    total: st.table.total,
     offset: 0,
-    truncated: table.truncated,
+    truncated: st.table.truncated,
     elapsedMs: 0,
     affected: null,
   };
-  status.textContent = statusText({ result, writable: false, querying: false, cancelling: false });
+  status.textContent = statusText({ result: full, writable: false, querying: false, cancelling: false });
+  const pages = Math.max(1, Math.ceil(st.table.rows.length / CSV_PAGE_SIZE));
+  if (st.page > pages) st.page = pages;
+  const start = (st.page - 1) * CSV_PAGE_SIZE;
+  const page: DbQueryResult = { ...full, rows: st.table.rows.slice(start, start + CSV_PAGE_SIZE), offset: start };
   body.textContent = "";
-  const grid = buildGridTable(result, { offset: 0 }); // 表头不可点：只读内存数据，无后端排序
+  const grid = buildGridTable(page, { offset: start }); // 表头不可点：只读内存数据，无后端排序
   body.appendChild(grid ?? emptyEl());
+  syncCsvPager(pages);
 }
 
 export function dismissCsvHost(): void {
@@ -179,6 +228,18 @@ function ensurePanel(): void {
     if (cur && cur.kind === "csv") void promoteCsvToEdit(csvSourcePath(cur.path));
   });
   bar.appendChild(editBtn);
+  // 外部打开：超 10MB read_file 守卫打不开文本编辑的大 CSV 的兜底出口（系统默认程序）
+  const extBtn = document.createElement("button");
+  extBtn.className = "btn btn--sm";
+  extBtn.appendChild(codicon("link-external"));
+  const extLabel = document.createElement("span");
+  extLabel.textContent = t("csv.openExternal");
+  extBtn.appendChild(extLabel);
+  extBtn.addEventListener("click", () => {
+    const cur = app.activeTab;
+    if (cur && cur.kind === "csv") void openExternal(csvSourcePath(cur.path));
+  });
+  bar.appendChild(extBtn);
   const status = document.createElement("span");
   status.id = "csv-tab-status";
   status.className = "csv-tab-status";
@@ -188,11 +249,59 @@ function ensurePanel(): void {
   body.id = "csv-tab-body";
   body.className = "csv-tab-body";
   panel.appendChild(body);
+  // 分页条（照 db-pager 形态：上一页 / 页码 / 下一页；词条与样式均复用 database.* / .db-pager）
+  const pager = document.createElement("div");
+  pager.className = "db-pager csv-tab-pager";
+  const pageLabel = document.createElement("span");
+  pageLabel.className = "db-page-label";
+  pager.append(
+    pagerBtn("csv-pager-prev", "chevron-left", t("database.prevPage"), () => {
+      if (pageState && pageState.page > 1) {
+        pageState.page--;
+        renderCsvPage();
+      }
+    }),
+    pageLabel,
+    pagerBtn("csv-pager-next", "chevron-right", t("database.nextPage"), () => {
+      if (pageState) {
+        pageState.page++;
+        renderCsvPage();
+      }
+    }),
+  );
+  panel.appendChild(pager);
+}
+
+/** 分页按钮工厂（上一页 / 下一页同构） */
+function pagerBtn(id: string, icon: string, tip: string, onClick: () => void): HTMLButtonElement {
+  const b = document.createElement("button");
+  b.id = id;
+  b.className = "btn btn--sm btn--icon";
+  b.appendChild(codicon(icon));
+  b.setAttribute("aria-label", tip);
+  b.dataset.tip = tip;
+  b.addEventListener("click", onClick);
+  return b;
+}
+
+/** 同步分页条：页码文案 + 首末页禁用；单页时整条隐藏 */
+function syncCsvPager(pages: number): void {
+  const pager = document.querySelector(".csv-tab-pager");
+  const prev = document.getElementById("csv-pager-prev") as HTMLButtonElement | null;
+  const next = document.getElementById("csv-pager-next") as HTMLButtonElement | null;
+  if (!pager || !prev || !next) return;
+  const st = pageState;
+  pager.classList.toggle("hidden", pages <= 1);
+  if (!st) return;
+  pager.querySelector(".db-page-label")!.textContent = t("database.pageLabel", { page: st.page, pages });
+  prev.disabled = st.page <= 1;
+  next.disabled = st.page >= pages;
 }
 
 function renderMessage(msg: string): void {
   const body = $("csv-tab-body");
   const status = $("csv-tab-status");
+  document.querySelector(".csv-tab-pager")?.classList.add("hidden"); // 消息态无页可翻
   if (status) status.textContent = "";
   if (!body) return;
   body.textContent = "";
@@ -212,6 +321,16 @@ function codicon(name: string): HTMLElement {
   i.className = `codicon codicon-${name}`;
   i.setAttribute("aria-hidden", "true");
   return i;
+}
+
+/** 用系统默认程序打开（tauri-plugin-opener 插件命令）。走 `plugin:opener|open_path`
+ *  原生 invoke 串而不引 JS 包装包：dist 体积预算仅剩 ~20KB，插件命令不占命令面。 */
+async function openExternal(path: string): Promise<void> {
+  try {
+    await invoke("plugin:opener|open_path", { path, with: null });
+  } catch (e) {
+    toast(t("csv.openExternalFailed", { msg: String(e) }), "error");
+  }
 }
 
 function b64ToBytes(b64: string): Uint8Array {

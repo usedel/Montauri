@@ -120,6 +120,9 @@ pub fn run() {
         })
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        // 外部打开（CSV 查看器工具栏「外部打开」）：open_path = 用系统默认程序打开文件路径。
+        // 插件命令不占 #[tauri::command] 预算；前端经 invoke("plugin:opener|open_path") 调用。
+        .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             // 文件系统
             fs_cmds::read_dir,

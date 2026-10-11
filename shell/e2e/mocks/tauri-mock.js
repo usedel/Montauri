@@ -1006,6 +1006,12 @@
       (window.__E2E_OPENED_URLS__ = window.__E2E_OPENED_URLS__ || []).push(String(args.url ?? ""));
       return null;
     }
+    // opener 插件（CSV 查看器「外部打开」）：只记录路径不真开系统程序（CI 无桌面）。
+    // 与 open_external 的 URL 记录分表——断言互不串扰。
+    if (cmd === "plugin:opener|open_path") {
+      (window.__E2E_OPENED_PATHS__ = window.__E2E_OPENED_PATHS__ || []).push(String(args.path ?? ""));
+      return null;
+    }
     if (cmd === "copy_to_clipboard") {
       (window.__E2E_COPIED__ = window.__E2E_COPIED__ || []).push(String(args.text ?? ""));
       return null;

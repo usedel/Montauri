@@ -34,9 +34,11 @@ import {
 export interface VirtualTabHandlers {
   activateTab: (tab: Tab) => void;
   /** 打开编辑 Tab：`*Mode:"edit"` 由本模块按 kind 决定，main 只透传 opts */
-  openFile: (path: string, opts?: { mdMode?: "edit"; csvMode?: "edit" }) => Promise<void>;
+  openFile: (path: string, opts?: { mdMode?: "edit"; csvMode?: "edit" }) => Promise<boolean>;
   /** 建占位模型：`ns` 决定 URI 命名空间（mdpreview / csvtab），`lang` 决定语言标记 */
   createModel: (ns: "mdpreview" | "csvtab", lang: string, path: string) => MonacoApi.editor.ITextModel;
+  /** tabbar 重渲染（提升路径「成功后关查看 Tab」需要；旧顺序由后续 activateTab 兜底） */
+  renderTabs: () => void;
 }
 
 export function setVirtualTabHandlers(h: VirtualTabHandlers): void {
@@ -46,12 +48,14 @@ export function setVirtualTabHandlers(h: VirtualTabHandlers): void {
     activateTab: h.activateTab,
     openFile: (path) => h.openFile(path, { mdMode: "edit" }),
     createModel: (path) => h.createModel("mdpreview", "markdown", path),
+    renderTabs: h.renderTabs,
   });
   // csv：查看器工具栏「以文本编辑」同理，必须带 csvMode:"edit"（否则又开回查看器）
   setCsvTabHandlers({
     activateTab: h.activateTab,
     openFile: (path) => h.openFile(path, { csvMode: "edit" }),
     createModel: (path) => h.createModel("csvtab", "plaintext", path),
+    renderTabs: h.renderTabs,
   });
 }
 

@@ -28,7 +28,7 @@ export interface SessionState {
 }
 
 interface SessionHandlers {
-  openFile(path: string, revealLine?: number): Promise<void>;
+  openFile(path: string, revealLine?: number): Promise<boolean>;
   activateTabByPath(path: string): void;
   renderTabs(): void;
 }

@@ -70,22 +70,58 @@ pub fn read_file(path: &str) -> Result<String, String> {
 /// P1-6（2026-09-29 review）：补大小守卫（同 read_file 范式）——此前无上限，任意大
 /// 文件整读 + base64（×1.33）会撑爆内存并长时间冻结主线程；设计用途是图片内联，
 /// 32 MB 足够（超出常见 RAW/视频不在导出场景）。
+///
+/// `max_bytes`（CSV 查看器 借鉴-4，2026-10-11）：**前缀读取**——只返回文件前 N 字节
+/// （钳制到 32 MB 内）。CSV 表格上限 1 万行，整读几十 MB 再 base64 全量过 IPC 是
+/// 打开大 CSV 界面假死数秒的主因；超 32 MB 的 CSV 此前还会直接报「文件过大」打不开。
+/// 无参时行为与原先完全一致（图片内联整读 + 守卫）。截断点回退到完整 UTF-8 字符
+/// 边界（见 trim_utf8_tail），前端 fatal 解码不会把「截在多字节字符中间」误判为编码错误。
 #[tauri::command]
-pub fn read_file_base64(path: &str) -> Result<String, String> {
+pub fn read_file_base64(path: &str, max_bytes: Option<u64>) -> Result<String, String> {
     const MAX_READ_BYTES: u64 = 32 * 1024 * 1024;
     let meta = fs::metadata(path).map_err(|e| e.to_string())?;
     if meta.is_dir() {
         return Err(format!("路径是目录而非文件：{}", path));
     }
-    if meta.len() > MAX_READ_BYTES {
+    if max_bytes.is_none() && meta.len() > MAX_READ_BYTES {
         return Err(format!(
             "文件过大（{:.1} MB），超过 32 MB 上限，无法内联为 data URI",
             meta.len() as f64 / 1048576.0
         ));
     }
-    let bytes = fs::read(path).map_err(|e| e.to_string())?;
+    let mut bytes = fs::read(path).map_err(|e| e.to_string())?;
+    if let Some(cap) = max_bytes {
+        let limit = cap.min(MAX_READ_BYTES) as usize;
+        if bytes.len() > limit {
+            bytes.truncate(limit);
+            trim_utf8_tail(&mut bytes);
+        }
+    }
     use base64::Engine;
     Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
+}
+
+/// 把字节序列截断尾部回退到完整 UTF-8 字符边界（最多回看 3 字节：UTF-8 字符最长 4 字节）。
+/// 多字节字符切半时连同 lead byte 一起丢弃；恰好切在字符间则原样保留。
+fn trim_utf8_tail(bytes: &mut Vec<u8>) {
+    let start = bytes.len().saturating_sub(3);
+    let mut i = bytes.len();
+    while i > start {
+        i -= 1;
+        let b = bytes[i];
+        if b < 0x80 {
+            return; // ASCII 收尾：已对齐
+        }
+        if b & 0xC0 == 0xC0 {
+            // lead byte：字符不完整才裁掉
+            let need = if b >= 0xF0 { 4 } else if b >= 0xE0 { 3 } else { 2 };
+            if bytes.len() - i < need {
+                bytes.truncate(i);
+            }
+            return;
+        }
+        // continuation byte：继续回看
+    }
 }
 
 #[tauri::command]
@@ -938,6 +974,34 @@ mod tests {
         let ok = dir.join("ok.txt");
         fs::write(&ok, "hello").unwrap();
         assert_eq!(read_file(ok.to_str().unwrap()).unwrap(), "hello");
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn test_read_file_base64_capped_prefix() {
+        use base64::Engine;
+        let dir = tmpdir("b64cap");
+        let p = dir.join("c.csv");
+        // 多字节内容：cap 若切在「中」的半截，trim_utf8_tail 必须回退到字符边界
+        let content = "h1,h2\r\n中文测试,2\r\n".repeat(50);
+        fs::write(&p, &content).unwrap();
+
+        let b64 = read_file_base64(p.to_str().unwrap(), Some(120)).unwrap();
+        let raw = base64::engine::general_purpose::STANDARD.decode(&b64).unwrap();
+        assert!(raw.len() <= 120, "不得超过请求的前缀上限");
+        assert!(raw.len() > 0, "前缀不应为空");
+        let text = std::str::from_utf8(&raw).unwrap_or("");
+        assert!(text.starts_with("h1,h2"), "应从文件头开始，实际：{text:?}");
+        assert!(!text.contains('\u{fffd}'), "不得包含替换符（须在字符边界截断）");
+
+        // cap 钳制：超 32MB 的请求值按 32MB 处理；小文件全量返回
+        let full = read_file_base64(p.to_str().unwrap(), Some(u64::MAX)).unwrap();
+        let raw_full = base64::engine::general_purpose::STANDARD.decode(&full).unwrap();
+        assert_eq!(raw_full.len(), content.len(), "cap 大于文件时全量返回");
+
+        // 无参语义不变：目录仍报错（整读 32MB 守卫路径已在 test_read_file_rejects_oversized_and_dir 覆盖 read_file）
+        let err = read_file_base64(dir.to_str().unwrap(), None).unwrap_err();
+        assert!(err.contains("目录"), "实际错误：{err}");
         fs::remove_dir_all(&dir).ok();
     }
 

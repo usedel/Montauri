@@ -50,7 +50,7 @@ function onNewProjectKeydown(e: KeyboardEvent): void {
 }
 /** main 注入的工作区切换 / 文件打开（wireNewProject） */
 let openWorkspaceFn: ((root: string) => Promise<void>) | null = null;
-let openFileFn: ((path: string, revealLine?: number) => Promise<void>) | null = null;
+let openFileFn: ((path: string, revealLine?: number) => Promise<boolean>) | null = null;
 
 // ---------- 面板 ----------
 
@@ -301,7 +301,7 @@ async function createProject(): Promise<void> {
 /** 新建项目面板 DOM 接线（main 的 init 调用）；openWorkspace / openFile 由 main 注入 */
 export function wireNewProject(deps: {
   openWorkspace: (root: string) => Promise<void>;
-  openFile: (path: string, revealLine?: number) => Promise<void>;
+  openFile: (path: string, revealLine?: number) => Promise<boolean>;
 }): void {
   openWorkspaceFn = deps.openWorkspace;
   openFileFn = deps.openFile;

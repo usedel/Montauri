@@ -33,7 +33,7 @@ import { hasExternalFiles, importDroppedFiles } from "./treeDropImport"; // T5�
 interface FileTreeHandlers {
   /** opts.focusEditor=false：焦点留在文件树（单击/键盘打开不抢编辑器焦点，可继续漫游）；
    *  opts.mdMode="edit"：md 双击的显式编辑意图（open_file_dev_plan §1.3） */
-  openFile: (path: string, revealLine?: number, opts?: { focusEditor?: boolean; mdMode?: "edit" }) => Promise<void>;
+  openFile: (path: string, revealLine?: number, opts?: { focusEditor?: boolean; mdMode?: "edit" }) => Promise<boolean>;
   renderTabs: () => void;
   closeTabSilent: (tab: Tab) => void;
   insertHeaderTemplate: () => Promise<boolean>;
