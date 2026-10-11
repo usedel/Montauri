@@ -41,6 +41,9 @@ export const filetree: Record<FiletreeKey, string> = {
   "filetree.menu.paste": "Paste",
   "filetree.menu.rename": "Rename",
   "filetree.menu.revealInExplorer": "Reveal in File Explorer",
+  "filetree.menu.openWithSystem": "Open with Default Application",
+  /** 外开类型用系统默认程序打开失败（opener 插件报错） */
+  "filetree.openExternalFailed": "Failed to open externally: {msg}",
   "filetree.menu.runScript": "Run Script",
   "filetree.menu.stageChanges": "Stage Changes",
   "filetree.menu.stageNew": "Stage New File",

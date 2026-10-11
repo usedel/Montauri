@@ -161,6 +161,7 @@ import { openInitialWorkspace, setLastSession, setStartupRestoreHandlers, wireSt
 import { openPreviewTab } from "./mdPreviewTab";
 // VS Code 调研 借鉴-4：CSV 数据查看 Tab + md/csv 只读预览链路的统一分派
 import { isCsvPath, openCsvTab } from "./csvTab";
+import { isExternalOpenPath, openWithSystem } from "./externalOpen"; // PyCharm 借鉴：二进制外开
 import { initScratch } from "./scratch"; // VS Code 调研 借鉴-2：# %% 单元格执行（handler 在模块内，不占本文件）
 import {
   cleanupVirtualTab, dismissVirtualHosts, isVirtualTab, presentVirtualTab, setVirtualTabHandlers,
@@ -928,6 +929,9 @@ export async function openFile(path: string, revealLine?: number, opts?: OpenFil
 
 /** CR-08：openFile 的实际执行体（由 in-flight 去重表保证同一 path 串行）。返回是否成功打开。 */
 async function doOpenFile(path: string, revealLine?: number, opts?: OpenFileOptions): Promise<boolean> {
+  // 外开类型（PyCharm 借鉴）：xlsx/docx/pdf 等二进制不在编辑器里出现——键盘 Enter /
+  // quickOpen / 单文件打开等一切入口统一外开；树内单击已在 fileTree 分流（只选中）。
+  if (isExternalOpenPath(path)) { void openWithSystem(path); return true; }
   // open_file_dev_plan §1.3：md 文件按设置分流——preview（默认）开只读预览 Tab；
   // split = 编辑 tab + 自动开分栏；edit（显式意图或设置）走下方正常编辑路径。
   // 显式 opts.mdMode="edit" 一律强制编辑（双击 / 编辑源码按钮 / 链接跳转）。

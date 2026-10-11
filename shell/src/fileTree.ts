@@ -25,6 +25,7 @@ import { diffFileWithClipboard } from "./clipboardDiff"; // C-5：右键「与�
 import { headerTemplateApplies } from "./newFileTemplate"; // PR-K：新建 .py 文件头模板门控（零依赖纯函数）
 import { onLocaleChange, t } from "./i18n"; // 第四批 i18n：文件树域动态文案走语言包
 import { hasExternalFiles, importDroppedFiles } from "./treeDropImport"; // T5：外部文件拖入
+import { isExternalOpenPath, openWithSystem } from "./externalOpen"; // PyCharm 借鉴：二进制外开（xlsx/docx/pdf…）
 
 // ---------- 注入（main 的 init 中 setFileTreeHandlers） ----------
 // TD-13：解「fileTree.ts → main.ts」循环边——打开文件 / 重绘标签 / 静默关标签 / 插入文件头
@@ -259,7 +260,8 @@ function renderTreeItem(e: Entry, depth: number, opts?: { isRoot?: boolean }): H
     if (e.is_dir && !ev.ctrlKey && !ev.shiftKey) void toggleDir(item, e, depth);
     // focusEditor=false：焦点留在树内，连续浏览/键盘漫游不被编辑器抢焦点（VSCode 式）
     // md 单击分流（open_file_dev_plan §1.3）：按 settings.markdown_open_mode 走预览/编辑/分栏
-    else if (!e.is_dir && !ev.ctrlKey && !ev.shiftKey) void fh().openFile(e.path, undefined, { focusEditor: false });
+    // 外开类型单击只选中（PyCharm 语义）：二进制读文件必失败，打开动作升级为双击（下方）
+    else if (!e.is_dir && !ev.ctrlKey && !ev.shiftKey && !isExternalOpenPath(e.path)) void fh().openFile(e.path, undefined, { focusEditor: false });
   });
   // open_file_dev_plan §1.3：md 文件双击 = 显式编辑意图（单击开预览，双击提升为编辑 Tab）。
   // 单击先触发（预览立即展示，无单击延迟），dblclick 到达时 openFile 的 mdMode="edit" 分流
@@ -267,6 +269,12 @@ function renderTreeItem(e: Entry, depth: number, opts?: { isRoot?: boolean }): H
   // 与预览并存，由 promote 语义兜底（下方 md 双击专用：先收预览再开编辑）。
   item.addEventListener("dblclick", (ev) => {
     if (e.is_dir || ev.ctrlKey || ev.shiftKey) return;
+    // 外开类型（PyCharm 语义）：单击只选中，双击 = 系统默认程序打开（不进编辑器）
+    if (isExternalOpenPath(e.path)) {
+      ev.preventDefault();
+      void openWithSystem(e.path);
+      return;
+    }
     if (!mdPreview.isMarkdownPath(e.path)) return; // 非 md 保持原状（单击已打开）
     ev.preventDefault();
     closePreviewTabIfExists(e.path);
@@ -549,6 +557,7 @@ function showContextMenu(entry: Entry, x: number, y: number, opts?: { background
   );
   // E-3（PyCharm 调研）：本地历史入口下沉（Ctrl+Shift+H 已交付但不可发现——文件级历史对任意文件有意义）
   if (!entry.is_dir) {
+    items.push({ label: t("filetree.menu.openWithSystem"), action: () => void openWithSystem(entry.path) });
     items.push({ label: t("filetree.menu.localHistory"), action: () => void openLocalHistory(entry.path) });
     items.push({ label: t("filetree.menu.diffClipboard"), action: () => void diffFileWithClipboard(entry.path) }); // C-5
   }

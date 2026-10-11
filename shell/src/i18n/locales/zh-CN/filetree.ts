@@ -40,6 +40,9 @@ export const filetree = {
   "filetree.menu.paste": "粘贴",
   "filetree.menu.rename": "重命名",
   "filetree.menu.revealInExplorer": "在资源管理器中显示",
+  "filetree.menu.openWithSystem": "用系统默认程序打开",
+  /** 外开类型用系统默认程序打开失败（opener 插件报错） */
+  "filetree.openExternalFailed": "外部打开失败：{msg}",
   "filetree.menu.runScript": "运行脚本",
   "filetree.menu.stageChanges": "暂存更改",
   "filetree.menu.stageNew": "暂存新文件",
