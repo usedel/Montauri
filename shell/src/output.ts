@@ -320,6 +320,51 @@ export function appendOutputLine(
   return line;
 }
 
+/**
+ * L-9：uv 的 `\r` 型进度行**末行原地更新**（不新增 DOM 行）。
+ *
+ * 背景：后端 stream_lines 把 `\r` 统一转成 `\n` 逐行推送（env_cmds.rs:194-215 注释说明是为
+ * 适配进度条），于是下载进度 `Downloading ━━━ 45%` 在 TTY 下是一次又一次重绘，到了输出面板
+ * 就变成几十行「同一行不同百分比」刷屏——淹没有用输出，还要靠 5000 行环形缓冲兜底（trimOutput）。
+ *
+ * 判定口径（只对**首尾都非空**的行生效）：
+ *   - 普通日志行首尾无 `\r` → 与 appendOutputLine 行为完全一致；
+ *   - `\r` 包裹的行 = 「终端光标回到行首重写」信号 → 就地改**当前最后一行**的内容与样式，
+ *     不新增节点。同一操作连发 60 帧也只有一个 DOM 行，且不消耗环形缓冲。
+ *
+ * 与 trimOutput 的关系：环形缓冲兜底的是「正常行太多」，本函数从源头减少节点生成，两者叠加
+ * 才把刷屏真正治住（只靠 buffer 兜底，用户看到的是「最新的被截掉」而不是「同一行在刷新」）。
+ */
+export function appendOrUpdateProgressLine(
+  container: HTMLElement,
+  text: string,
+  cls: string,
+  onLink?: (link: OutputLink) => void,
+  channel?: OutputChannel,
+): void {
+  const isProgressFrame = text.startsWith("\r") && text.endsWith("\r");
+  if (!isProgressFrame) {
+    appendOutputLine(container, text, cls, onLink, channel);
+    return;
+  }
+  const stripped = text.slice(1, -1).replace(/\s+$/, "");
+  if (!stripped) return; // 空帧（`\r\r`）= 清屏/收尾信号，无可呈现内容
+  const last = container.lastElementChild;
+  if (!(last instanceof HTMLElement)) {
+    appendOutputLine(container, stripped, cls, onLink, channel);
+    return;
+  }
+  // 复刻 appendOutputLine 的着色/可见性口径——原地更新同样要走完整管线，
+  // 否则级别着色与 channel 过滤会在「第一次新行、后续原地改」之间不一致。
+  const lvl = levelColorsEnabled() ? detectLogLevel(stripped) : null;
+  last.classList.remove("stdout", "stderr", "cmd", "hint", "lvl-error", "lvl-warn", "lvl-info", "lvl-debug");
+  last.classList.add(cls);
+  if (lvl) last.classList.add(`lvl-${lvl}`);
+  renderLineContent(last, stripped, cls, onLink ?? (() => undefined));
+  applyLineVisibility(last, channel, lvl);
+  if (!followPaused.has(container)) container.scrollTop = container.scrollHeight;
+}
+
 /** 长耗时操作起手（体验审查 L-6）：展开底部面板 + 记录命令行回显（cmd 级）。
  *
  *  为什么要有这个单一来源：展开动作此前散落在各调用点手写（`envPanel.createVenv` /

@@ -16,6 +16,7 @@ import { setSidebarTab } from "./views";
 import { toggleSidebar } from "./layout";
 import { toggleBottomPanel } from "./termUi";
 import { createFileInteractive } from "./fileTree";
+import { openNewProjectPanel } from "./newProject";
 import { openSettingsPanel } from "./settingsPanel";
 import { openProblemsPanel } from "./problemsPanel";
 import { openDevToolsPanel } from "./devtools";
@@ -104,6 +105,8 @@ export function wireWindowKeys(): void {
     else if (id === "next_tab") act.cycleTab(1);
     else if (id === "prev_tab") act.cycleTab(-1);
     else if (id === "new_file") void createFileInteractive();
+    // C-12：新建项目补键位（此前欢迎页/文件菜单有入口、键位体系无此项，不对称）
+    else if (id === "new_project") void openNewProjectPanel();
     else if (id === "open_settings") openSettingsPanel();
     else if (id === "toggle_sidebar") toggleSidebar();
     else if (id === "toggle_bottom") toggleBottomPanel();

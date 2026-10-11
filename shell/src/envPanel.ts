@@ -12,7 +12,7 @@ import { app, $btn, lazyEl, outputEl } from "./state";
 import { basename, codicon, errMsg, relativePathRaw, setBusy, spinIcon as utilSpinIcon, SNAKE_SVG } from "./util";
 import { onLocaleChange, t } from "./i18n"; // 第六批 i18n：环境域动态文案走语言包
 import { localizeBackendError } from "./i18n/backendError";
-import { appendOutputLine, beginLongOp } from "./output";
+import { appendOrUpdateProgressLine, appendOutputLine, beginLongOp } from "./output";
 import { gotoFromLink } from "./tracebackLink";
 import { openConfirm } from "./dialog";
 import { hideEl, showEl } from "./anim";
@@ -1214,14 +1214,15 @@ export async function initEnvPanelEvents(): Promise<void> {
   await getCurrentWindow().listen<{ data: string }>("pip-stdout", (e) => {
     for (const line of e.payload.data.split("\n")) {
       if (!line) continue;
-      appendOutputLine(outputEl, line, "stdout", gotoFromLink, "env");
+      // L-9：`\r` 型进度帧走末行原地更新（uv 下载进度不再几十行刷屏）
+      appendOrUpdateProgressLine(outputEl, line, "stdout", gotoFromLink, "env");
       pushUvProgressLine(line); // L-1：同步点亮状态栏芯片的可判读进度
     }
   });
   await getCurrentWindow().listen<{ data: string }>("pip-stderr", (e) => {
     for (const line of e.payload.data.split("\n")) {
       if (!line) continue;
-      appendOutputLine(outputEl, line, "stderr", gotoFromLink, "env");
+      appendOrUpdateProgressLine(outputEl, line, "stderr", gotoFromLink, "env");
       pushUvProgressLine(line); // L-1（uv 的下载进度走 stderr）
     }
   });

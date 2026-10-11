@@ -88,24 +88,26 @@ function setNewProjectInputsLocked(locked: boolean): void {
 }
 
 /** F9：项目类型元数据（纯函数，可单测）。preview 文案与安装 spec 共用同一实现，防漂移。
- *  未知值一律回退 script（与 Rust create_project 的回退口径一致）。 */
+ *  未知值一律回退 script（与 Rust create_project 的回退口径一致）。
+ *  C-11：增「爬虫」类型——目标画像（FastAPI + 爬虫 + 小脚本）此前没有对应起点。 */
 export interface ProjectTypeMeta {
-  type: "script" | "fastapi";
+  type: "script" | "fastapi" | "scraper";
   /** 下拉/预览用的展示名 */
   label: string;
   /** 依赖声明（pyproject dependencies + uv add spec）；script 为空 */
   deps: string[];
 }
 
-const PROJECT_TYPES: Record<"script" | "fastapi", { label: string; deps: string[] }> = {
+const PROJECT_TYPES: Record<"script" | "fastapi" | "scraper", { label: string; deps: string[] }> = {
   script: { label: t("newproject.type.script"), deps: [] },
   fastapi: { label: t("newproject.type.fastapi"), deps: ["fastapi", "uvicorn"] },
+  scraper: { label: t("newproject.type.scraper"), deps: ["requests", "beautifulsoup4"] },
 };
 
 export function projectTypeMeta(type: string): ProjectTypeMeta {
   const hit = (PROJECT_TYPES as Record<string, { label: string; deps: string[] } | undefined>)[type];
-  if (hit && type !== "script") {
-    return { type: "fastapi", label: hit.label, deps: hit.deps.slice() };
+  if (hit) {
+    return { type: type as ProjectTypeMeta["type"], label: hit.label, deps: hit.deps.slice() };
   }
   return { type: "script", label: PROJECT_TYPES.script.label, deps: [] };
 }
@@ -303,8 +305,9 @@ async function createProject(): Promise<void> {
           await invoke("set_interpreter", { workspaceRoot: result.path, path: interp }).catch(console.error);
           toast(t("newproject.systemInterpreter", { interp: interp }), "info");
         } else {
-          // P1（建议 4）：未检测到解释器时给出可执行引导（长指导走 openAlert 对话框，非输出面板 stderr）
-          void openAlert({
+          // C-14：等待弹窗关闭再收尾——未 await 时 openAlert 与创建面板短暂并存，
+          // Esc 会先落进面板守卫（`.modal:not(.hidden)` > 1 即拒绝关闭），行为与预期不符。
+          await openAlert({
             title: t("newproject.noInterpTitle"),
             message:
               // 引导语多段拼装（含 \n\n 不走 apply_ts 映射，避免语言包转义链失真），按段取词

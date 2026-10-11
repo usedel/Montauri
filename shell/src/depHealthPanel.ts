@@ -44,6 +44,8 @@ const summaryTextEl = lazyEl("dep-summary-text");
 const summaryChangeEl = lazyEl("dep-summary-change");
 const filterInputEl = lazyEl<HTMLInputElement>("dep-filter-input");
 const filterCountEl = lazyEl("dep-filter-count");
+// D-6：包管理分区标题的「跳到依赖健康」锚点
+const jumpHealthBtn = lazyEl<HTMLButtonElement>("dep-jump-health");
 
 type DepTab = "edge" | "file" | "ignored";
 type EdgeId = "e1" | "e2" | "e3" | "e4" | "e5";
@@ -157,6 +159,12 @@ export function initDepHealthPanel(deps: {
   collapseBtn.addEventListener("click", () => {
     depDetailExpanded = !depDetailExpanded;
     syncDepDetail();
+  });
+  // D-6（短期）：分区标题锚点——从「已安装包」区直达依赖健康分区（展开 + 滚动到可见）。
+  // 解的是「用户找包一致性问题时不会想到点 Python 环境面板」，不新开面板（长期方案）。
+  jumpHealthBtn.addEventListener("click", () => {
+    expandDepDetail();
+    detailEl.scrollIntoView({ block: "nearest" });
   });
   syncDepDetail(); // 初始收起态落 DOM（HTML 默认 hidden，此处对齐 aria-expanded）
   // 状态栏体检图标：点击/键盘打开健康面板（§4.5）——该入口语义是「看问题」，顺带展开明细
@@ -846,8 +854,13 @@ async function renderIgnoredView(): Promise<void> {
   const wrap = document.createElement("div");
   wrap.className = "dep-group";
   for (const entry of list) {
+    // D-9：忽略 key 口径混用（E1/E4 存模块名、E2/E3 存发行版名）——原样显示会让
+    // `yaml` 与 `pyyaml` 在清单里混排、用户看不出它们是不是同一件事。统一附上
+    // 「（模块名）/（发行版名）」后缀，判断交给用户而不是去猜存储口径。
+    const kind = entry.edge === "e2" || entry.edge === "e3" ? "dist" : "module";
     const { row, actions } = depRow([
       nameSpan(entry.key),
+      kindSpan(t(kind === "dist" ? "dep.panel.ignoreKeyDist" : "dep.panel.ignoreKeyModule")),
       detailSpan(EDGE_LABELS[entry.edge] ?? entry.edge),
     ]);
     actions.append(actionBtn(t("dep.panel.act.restore"), () => void restoreIgnored(entry), { accent: true }));
@@ -1013,6 +1026,14 @@ function nameSpan(text: string): HTMLElement {
 function detailSpan(text: string): HTMLElement {
   const s = document.createElement("span");
   s.className = "dep-detail";
+  s.textContent = text;
+  return s;
+}
+
+/** D-9：忽略 key 的口径小标签（弱化样式，说明「这个键是模块名还是发行版名」） */
+function kindSpan(text: string): HTMLElement {
+  const s = document.createElement("span");
+  s.className = "dep-kind";
   s.textContent = text;
   return s;
 }

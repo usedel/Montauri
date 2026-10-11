@@ -797,15 +797,31 @@ pub(crate) fn ensure_pyproject(
             let _ = normalize_project_name(root, name);
             // F9：方案 A 产物里注入依赖（失败静默——uv add 安装时兜底同步，闭环不破）
             let _ = inject_project_deps(root, deps);
-            (true, format!("已用 uv init --bare 生成 pyproject.toml{deps_note}"))
+            // C-10：目录名与 [project].name 归一化不一致时明示（「My Project」→ my-project），
+            // 不再静默改写——用户按目录名 import 包会 ImportError，须事前可知。
+            let name_note = pkg_name_note(name);
+            (true, format!("已用 uv init --bare 生成 pyproject.toml{deps_note}{name_note}"))
         }
         Err(e) => match write_min_pyproject(root, name, fallback_requires, deps) {
-            Ok(()) => (
-                false,
-                format!("uv 不可用（{e}），已写入最小 pyproject.toml 模板（requires-python = \"{fallback_requires}\"{deps_note}）"),
-            ),
+            Ok(()) => {
+                let name_note = pkg_name_note(name);
+                (
+                    false,
+                    format!("uv 不可用（{e}），已写入最小 pyproject.toml 模板（requires-python = \"{fallback_requires}\"{deps_note}）{name_note}"),
+                )
+            }
             Err(we) => (false, format!("生成 pyproject.toml 失败：{we}")),
         },
+    }
+}
+
+/// C-10：目录名被 PEP 508 归一化改写时给出回显说明（未改写返回空串）。
+fn pkg_name_note(name: &str) -> String {
+    let normalized = sanitize_pkg_name(name);
+    if normalized == name {
+        String::new()
+    } else {
+        format!("（[project].name 已归一化为 \"{normalized}\"——目录名与包名不同，import 时用包名）")
     }
 }
 
@@ -839,6 +855,14 @@ const FASTAPI_MAIN_PY: &str = "from fastapi import FastAPI\n\napp = FastAPI()\n\
 /// F9：FastAPI 项目的 pyproject dependencies（uvicorn 为 uv add 的服务依赖）。
 const FASTAPI_PROJECT_DEPS: &[&str] = &["fastapi", "uvicorn"];
 
+/// C-11：爬虫模板 main.py（目标画像「FastAPI + 爬虫 + 小脚本」此前没有爬虫起点）。
+/// - requests.get + BeautifulSoup 起步，`list[str]` 注解需 3.9+（默认 >=3.12 满足）；
+/// - `raise_for_status()` 与 UA 头给的是可跑通的最小完整闭环，用户可直接替换 URL。
+const SCRAPER_MAIN_PY: &str = "from bs4 import BeautifulSoup\nimport requests\n\n\ndef fetch_titles(url: str) -> list[str]:\n    resp = requests.get(url, timeout=10, headers={\"User-Agent\": \"OpenCharm demo scraper\"})\n    resp.raise_for_status()\n    soup = BeautifulSoup(resp.text, \"html.parser\")\n    return [t.get_text(strip=True) for t in soup.find_all(\"h1\")]\n\n\ndef main() -> None:\n    for title in fetch_titles(\"https://example.com\"):\n        print(title)\n\n\nif __name__ == \"__main__\":\n    main()\n";
+
+/// C-11：爬虫项目的 pyproject dependencies（bs4 的发行名是 beautifulsoup4）。
+const SCRAPER_PROJECT_DEPS: &[&str] = &["requests", "beautifulsoup4"];
+
 fn create_project_impl(
     parent_dir: String,
     name: String,
@@ -859,10 +883,13 @@ fn create_project_impl(
     }
     fs::create_dir_all(&root).map_err(|e| e.to_string())?;
 
-    // F9：按项目类型切换 main.py 模板（fastapi / 默认脚本）
+    // F9：按项目类型切换 main.py 模板（fastapi / scraper / 默认脚本）
     let is_fastapi = project_type.as_deref() == Some("fastapi");
+    let is_scraper = project_type.as_deref() == Some("scraper");
     let main_py = if is_fastapi {
         FASTAPI_MAIN_PY
+    } else if is_scraper {
+        SCRAPER_MAIN_PY
     } else {
         "def main() -> None:\n    print(\"Hello from OpenCharm!\")\n\n\nif __name__ == \"__main__\":\n    main()\n"
     };
@@ -875,7 +902,13 @@ fn create_project_impl(
     let python_arg = python_short_from(python_version.as_deref().unwrap_or(""))
         .unwrap_or_else(|| "3.12".to_string());
     let requires_python = format!(">={python_arg}");
-    let deps: &[&str] = if is_fastapi { FASTAPI_PROJECT_DEPS } else { &[] };
+    let deps: &[&str] = if is_fastapi {
+        FASTAPI_PROJECT_DEPS
+    } else if is_scraper {
+        SCRAPER_PROJECT_DEPS
+    } else {
+        &[]
+    };
     let (_used_uv, pyproject_note) = ensure_pyproject(&root, &name, Some(python_arg), &requires_python, deps);
 
     let mut git_ok = true;

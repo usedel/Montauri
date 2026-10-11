@@ -25,7 +25,7 @@ const IDS = [
 ];
 const BUTTON_IDS = ["dep-refresh", "dep-tab-edge", "dep-tab-file", "dep-tab-ignored",
   "env-pkg-install", "env-close", "dep-collapse", "interp-trigger", "venv-version-close",
-  "status-op-cancel"];
+  "status-op-cancel", "dep-jump-health"];
 const INPUT_IDS = ["dep-filter-input"]; // D-8：筛选框是 input（lazyEl<HTMLInputElement>）
 for (const id of IDS) {
   const el = document.createElement("div");
@@ -486,6 +486,32 @@ describe("入口（D-4）", () => {
     document.getElementById("dep-health-status")!.click();
     expect(detail.classList.contains("hidden")).toBe(false);
     expect(openEnvPanelSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------- 体验审查批 5：D-9 忽略 key 口径后缀 ----------
+
+describe("D-9 已忽略视图：key 口径后缀", () => {
+  it("E1/E4 附「（模块名）」、E2/E3 附「（发行版名）」（同一键不混淆）", async () => {
+    vi.mocked(invoke).mockImplementation(async (cmd: string) => {
+      if (cmd === "dep_ignore_list") {
+        return [
+          { edge: "e1", key: "yaml" },
+          { edge: "e2", key: "pyyaml" },
+          { edge: "e3", key: "requests" },
+          { edge: "e4", key: "numpy" },
+        ];
+      }
+      return undefined;
+    });
+    await panel.renderDepHealth();
+    document.getElementById("dep-tab-ignored")!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    const text = document.getElementById("dep-health-content")!.textContent ?? "";
+    expect(text).toContain("yaml");
+    expect(text).toContain("（模块名）");
+    expect(text).toContain("pyyaml");
+    expect(text).toContain("（发行版名）");
   });
 });
 

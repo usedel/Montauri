@@ -105,6 +105,23 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* D-9：忽略 key 的口径小标签（比 detail 再弱一档，紧跟 key 之后） */
+.dep-row .dep-kind {
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+/* D-6：分区标题里的锚点跳转按钮（默认弱化，悬停才显形，不抢标题视觉重量） */
+.env-section-title .dep-jump-health {
+  margin-left: auto;
+  opacity: 0.55;
+}
+
+.env-section-title .dep-jump-health:hover {
+  opacity: 1;
+}
 .dep-row .dep-link { color: var(--accent); cursor: pointer; font-size: var(--text-xs); flex: none; }
 .dep-row .dep-link:hover { text-decoration: underline; }
 .dep-row .spacer { flex: 1; }

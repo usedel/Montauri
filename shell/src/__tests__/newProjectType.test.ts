@@ -18,6 +18,13 @@ describe("projectTypeMeta（F9 项目类型元数据）", () => {
     expect(m.deps).toEqual(["fastapi", "uvicorn"]);
   });
 
+  it("C-11 scraper：label 正确、deps 为 requests/beautifulsoup4", () => {
+    const m = projectTypeMeta("scraper");
+    expect(m.type).toBe("scraper");
+    expect(m.label).toBe("爬虫（requests + bs4）");
+    expect(m.deps).toEqual(["requests", "beautifulsoup4"]);
+  });
+
   it("未知值回退 script（与 Rust create_project 的回退口径一致）", () => {
     for (const bad of ["", "django", "flask", "FASTAPI", "fastapi ", "null", "unknown"]) {
       const m = projectTypeMeta(bad);

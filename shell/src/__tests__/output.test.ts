@@ -62,6 +62,62 @@ describe("appendOutputLine（一次性整行；调试输出承载）", () => {
   });
 });
 
+describe("L-9：\\r 型进度帧末行原地更新（uv 下载进度不刷屏）", () => {
+  it("连续进度帧只产生一个 DOM 行，内容随帧更新", async () => {
+    const { appendOrUpdateProgressLine } = await import("../output");
+    const container = document.createElement("div");
+    for (let pct = 10; pct <= 90; pct += 10) {
+      appendOrUpdateProgressLine(container, `\rDownloading ━━━ ${pct}%\r`, "stderr", vi.fn(), "env");
+    }
+    expect(container.children.length).toBe(1);
+    expect(container.textContent).toContain("90%");
+    expect(container.textContent).not.toContain("10%");
+  });
+
+  it("普通行（无 \\r 包裹）与 appendOutputLine 行为一致：新增行", async () => {
+    const { appendOrUpdateProgressLine } = await import("../output");
+    const container = document.createElement("div");
+    appendOrUpdateProgressLine(container, "普通行 A", "stdout", vi.fn(), "env");
+    appendOrUpdateProgressLine(container, "普通行 B", "stdout", vi.fn(), "env");
+    expect(container.children.length).toBe(2);
+  });
+
+  it("进度帧后跟普通行：普通行新增在进度行之后（不覆盖）", async () => {
+    const { appendOrUpdateProgressLine } = await import("../output");
+    const container = document.createElement("div");
+    appendOrUpdateProgressLine(container, "\rDownloading 50%\r", "stderr", vi.fn(), "env");
+    appendOrUpdateProgressLine(container, "Resolved 10 packages", "stdout", vi.fn(), "env");
+    expect(container.children.length).toBe(2);
+    expect((container.lastElementChild as HTMLElement).textContent).toContain("Resolved");
+  });
+
+  it("空容器首帧即进度 → 退化为新增行（无末行可改）", async () => {
+    const { appendOrUpdateProgressLine } = await import("../output");
+    const container = document.createElement("div");
+    appendOrUpdateProgressLine(container, "\rDownloading 1%\r", "stderr", vi.fn(), "env");
+    expect(container.children.length).toBe(1);
+  });
+
+  it("空帧（\\r\\r）不产生行也不改内容", async () => {
+    const { appendOrUpdateProgressLine } = await import("../output");
+    const container = document.createElement("div");
+    appendOrUpdateProgressLine(container, "普通行", "stdout", vi.fn(), "env");
+    appendOrUpdateProgressLine(container, "\r\r", "stderr", vi.fn(), "env");
+    expect(container.children.length).toBe(1);
+    expect(container.textContent).toBe("普通行");
+  });
+
+  it("级别着色随帧更新（stderr 进度帧 → lvl-error 类落在同一行上）", async () => {
+    const { appendOrUpdateProgressLine, setOutputLevelColorsEnabled } = await import("../output");
+    setOutputLevelColorsEnabled(() => true);
+    const container = document.createElement("div");
+    appendOrUpdateProgressLine(container, "\rERROR: disk full\r", "stderr", vi.fn(), "env");
+    expect(container.children.length).toBe(1);
+    expect((container.firstElementChild as HTMLElement).classList.contains("lvl-error")).toBe(true);
+    setOutputLevelColorsEnabled(() => true);
+  });
+});
+
 describe("输出护栏（P0：环形缓冲 + 条件滚动跟随）", () => {
   // 护栏由来：输出面板原为「无限 appendChild + 无条件拽到底部」，狂打印的长任务会把 DOM
   // 撑爆并对抗用户上翻（对标调研 §3.3 / A-2）。

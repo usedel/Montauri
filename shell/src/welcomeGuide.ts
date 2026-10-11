@@ -15,6 +15,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { bindingLabel, type KeybindingId } from "./keybindings";
 import { findQuickOpenAction } from "./quickOpen";
+import { openNewProjectPanel } from "./newProject";
 import { $, $btn } from "./state";
 import { codicon, errMsg } from "./util";
 import { toast } from "./toast";
@@ -67,13 +68,16 @@ interface QuickstartStep {
   action?: () => void;
 }
 
-/** 三步卡步骤（v1.2 §3.2a：②③ 只做键位教学不代触发——运行/调试需要目标文件，空工作区点了没意义）。
+/** 三步卡步骤（v1.2 §3.2a：②③ 只做键位教学不代触发——运行/调试需要目标文件，空工作区点了没意义。
+ *  C-13：卡 ① 落地 action——空工作区下「新建项目」是唯一有意义的直达入口，
+ *  字段此前定义了却不赋值（渲染处也不读），等于死字段；补按钮后与 C-12 的键位形成双入口）。
  *  i18n：构建函数 + let 缓存，语言切换时重建（见 wireWelcomeGuide 的订阅）。 */
 function buildQuickstart(): QuickstartStep[] { return [
   {
     icon: "add",
     title: t("welcome.guide.qsNewProject"),
     desc: t("welcome.guide.qsNewProjectDesc"),
+    action: () => void openNewProjectPanel(),
   },
   {
     icon: "play",
@@ -117,6 +121,18 @@ export function renderQuickstartCards(): void {
     desc.className = "ew-qs-desc";
     desc.textContent = step.desc;
     card.append(head, desc);
+    // C-13：有 action 的卡渲染直达按钮（此前 action 是死字段——赋值处、读取处都没有）
+    if (step.action) {
+      const go = document.createElement("button");
+      go.type = "button";
+      go.className = "btn btn--sm ew-qs-go";
+      go.textContent = t("welcome.guide.qsGo");
+      go.addEventListener("click", (e) => {
+        e.stopPropagation();
+        step.action?.();
+      });
+      card.appendChild(go);
+    }
     wrap.appendChild(card);
   }
 }

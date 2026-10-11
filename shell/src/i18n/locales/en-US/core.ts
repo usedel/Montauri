@@ -244,6 +244,7 @@ export const core: Record<CoreKey, string> = {
   "newProject.title": "New Project",
   "newProject.type.fastapi": "FastAPI Service",
   "newProject.type.script": "Python Script",
+  "newProject.type.scraper": "Scraper (requests + bs4)",
   "newProject.versionRowLabel": "Python Version",
   // ---- openfile (single-file open entry, docs/open_file_dev_plan.md) ----
   "openfile.hint.fallback": "Opened in its directory ({dir})",

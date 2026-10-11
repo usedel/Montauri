@@ -219,6 +219,12 @@
 | 批 4 | D-2 / D-3 / D-8 | mock e2e `ux/11-dep-health`（DH-3 noenv · DH-4 摘要行 · DH-5 筛选）+ 单测 `depHealthPanel` | ✅ 5/5 e2e · 域内单测 100/100 |
 | 批 4 | D-7 / D-10 | 单测 `depHealth`（syncRemovesWarning 列包名 / diffDelta 逐条比差） | ✅ |
 | 批 4 | D-5 | 标题平化 + E1 等编号降为副标签（zh/en 双语） | ✅ |
+| 批 5 | C-10 / C-14 | C-10 归一化改写时在 `pyproject_note` 里明示（zh 说明 + 单测口径）；C-14 `await openAlert` 后再收尾（Esc 不再落入双层模态） | ✅ |
+| 批 5 | C-11 | 增「爬虫（requests + bs4）」模板：TS 元数据 + Rust 模板/依赖 + i18n + 单测 | ✅ |
+| 批 5 | C-12 | 增 `new_project` 键位（Ctrl+Alt+Shift+N）：键位默认 + windowKeys 派发 + Rust 默认值/条数断言（63→64） | ✅ |
+| 批 5 | C-13 | 三步卡卡① action 落地：直达「新建项目」按钮（死字段变为可用入口） | ✅ |
+| 批 5 | D-6 / D-9 | D-6 包管理分区标题加「跳到依赖健康」锚点按钮（展开 + 滚动，短期方案，长期独立面板未做）；D-9 已忽略清单附「（模块名）/（发行版名）」后缀 | ✅ |
+| 批 5 | L-9 | `\r` 型进度帧末行原地更新：后端保留重写语义（以 `\r` 包裹帧）+ 前端 `appendOrUpdateProgressLine` 原地改末行 + 双域单测 | ✅ |
 
 ### 7.1 批 3 的两处已知取舍
 

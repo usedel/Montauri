@@ -14,6 +14,7 @@ export const welcome = {
   "welcome.guide.qsDebug": "启动调试",
   "welcome.guide.qsDebugDesc": "行号旁单击下断点，断下后单步 / 查看变量",
   "welcome.guide.qsNewProject": "新建项目",
+  "welcome.guide.qsGo": "新建",
   "welcome.guide.qsNewProjectDesc": "选位置、Git 与 Python 版本，uv 环境一键就绪",
   "welcome.guide.qsRunScript": "运行脚本",
   "welcome.guide.qsRunScriptDesc": "打开 .py 文件后点击标题栏 ▶ 或行号旁小箭头",

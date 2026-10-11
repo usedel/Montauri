@@ -60,6 +60,8 @@ fn default_keybindings() -> HashMap<String, String> {
     m.insert("next_tab".into(), "Ctrl+Tab".into());
     m.insert("prev_tab".into(), "Ctrl+Shift+Tab".into());
     m.insert("new_file".into(), "Ctrl+Alt+Insert".into());
+    // C-12：新建项目（与前端 KEYBINDING_META / DEFAULT_SETTINGS 三处同步）
+    m.insert("new_project".into(), "Ctrl+Alt+Shift+N".into());
     m.insert("open_settings".into(), "Ctrl+Alt+S".into());
     m.insert("toggle_sidebar".into(), "Ctrl+Shift+F12".into());
     m.insert("toggle_bottom".into(), "Alt+F12".into());
@@ -478,6 +480,8 @@ mod tests {
         assert_eq!(d.keybindings.get("next_tab").map(String::as_str), Some("Ctrl+Tab"));
         assert_eq!(d.keybindings.get("prev_tab").map(String::as_str), Some("Ctrl+Shift+Tab"));
         assert_eq!(d.keybindings.get("new_file").map(String::as_str), Some("Ctrl+Alt+Insert"));
+        // C-12：新建项目
+        assert_eq!(d.keybindings.get("new_project").map(String::as_str), Some("Ctrl+Alt+Shift+N"));
         assert_eq!(d.keybindings.get("open_settings").map(String::as_str), Some("Ctrl+Alt+S"));
         assert_eq!(d.keybindings.get("toggle_sidebar").map(String::as_str), Some("Ctrl+Shift+F12"));
         assert_eq!(d.keybindings.get("toggle_bottom").map(String::as_str), Some("Alt+F12"));
@@ -512,7 +516,7 @@ mod tests {
         // 2026-10-08 复核：62 = 60 + accept_suggestion_replace（P1-A，当时漏改此断言）+
         // force_show_templates（⚡ 强制全显补口）。另注意 TS 侧该条目是多行对象，
         // 用行内正则数 KEYBINDING_META 会漏数它（探针教训），以两侧各 62 为准。
-        assert_eq!(d.keybindings.len(), 63);
+        assert_eq!(d.keybindings.len(), 64);
         assert_eq!(d.optimize_imports_on_save, false);
         // VS Code 调研 借鉴-1：行内诊断文案默认关（噪音纪律）
         assert_eq!(d.inline_diagnostics, false);

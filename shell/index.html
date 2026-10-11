@@ -553,7 +553,12 @@
           </div>
           <!-- 已安装包（面板主体）：筛选 / 弹性列表 / 安装行 -->
           <div class="env-section env-section--pkgs">
-            <div data-i18n="env.modalDiv2" class="env-section-title">已安装包 <span data-i18n-tip="env.pkgCount" id="env-pkg-count" class="env-pkg-count" data-tip="带「未声明」徽标的包已安装但未写入 pyproject（E3 漂移）；无徽标的为已声明依赖，或 pip / setuptools / wheel 等基础包（不计入漂移）"></span></div>
+            <div data-i18n="env.modalDiv2" class="env-section-title">已安装包 <span data-i18n-tip="env.pkgCount" id="env-pkg-count" class="env-pkg-count" data-tip="带「未声明」徽标的包已安装但未写入 pyproject（E3 漂移）；无徽标的为已声明依赖，或 pip / setuptools / wheel 等基础包（不计入漂移）"></span>
+              <!-- D-6（短期）：分区标题的可点锚点语义——「包一致性问题」藏在面板底部，
+                   从包管理区给一条直达入口，用户不必知道健康分区在哪儿。 -->
+              <button data-i18n-aria="dep.jumpHealth" data-i18n-tip="dep.jumpHealthTip" id="dep-jump-health" type="button"
+                class="btn btn--ghost btn--icon dep-jump-health" aria-label="跳到依赖健康分区"><i class="codicon codicon-go-to-file" aria-hidden="true"></i></button>
+            </div>
             <div class="env-pkg-toolbar">
               <input data-i18n-ph="env.pkgFilter2" data-i18n-aria="env.pkgFilter" id="env-pkg-filter" type="text" autocomplete="off" placeholder="筛选包…" spellcheck="false" aria-label="筛选已安装包" />
               <!-- UI-09 例外：两者均由 updatePkgToolbar() 动态禁用（无过时包 / 未勾选时），禁用态下
@@ -668,6 +673,7 @@
               <select id="new-project-type">
                 <option data-i18n="newProject.type.script" value="script">Python 脚本</option>
                 <option data-i18n="newProject.type.fastapi" value="fastapi">FastAPI 服务</option>
+                <option data-i18n="newProject.type.scraper" value="scraper">爬虫（requests + bs4）</option>
               </select>
             </div>
             <div class="settings-row">

@@ -15,6 +15,7 @@ export const welcome: Record<WelcomeKey, string> = {
   "welcome.guide.qsDebug": "Start debugging",
   "welcome.guide.qsDebugDesc": "Click next to the line number to set a breakpoint; step / inspect variables when hit",
   "welcome.guide.qsNewProject": "New project",
+  "welcome.guide.qsGo": "Create",
   "welcome.guide.qsNewProjectDesc": "Pick a location, Git and Python version; the uv environment is one click away",
   "welcome.guide.qsRunScript": "Run a script",
   "welcome.guide.qsRunScriptDesc": "Open a .py file and click ▶ in the title bar or the small arrow next to the line number",

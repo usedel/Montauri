@@ -36,6 +36,7 @@ export const newproject = {
   // ---- newproject.type ----
   "newproject.type.fastapi": "FastAPI 服务",
   "newproject.type.script": "Python 脚本",
+  "newproject.type.scraper": "爬虫（requests + bs4）",
   // ---- newproject.versions ----
   "newproject.versions.default": "（默认版本）",
   "newproject.versions.needDownload": "{version}（需下载）",

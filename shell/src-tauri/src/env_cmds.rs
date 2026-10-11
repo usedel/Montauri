@@ -200,7 +200,13 @@ fn run_uv_output(cmd: &mut Command) -> Result<String, String> {
     Ok(combined)
 }
 
-/// 逐行读取流并 emit 到前端（uv 进度条的 `\r` 统一转成 `\n`，适配前端按行滚动输出）。
+/// 逐行读取流并 emit 到前端。
+///
+/// L-9（体验审查）：uv 的下载进度用 `\r` 把光标拉回行首重绘（`Downloading ━━━ 45%`），
+/// 此前把 `\r` 统一转成 `\n`（"适配前端按行滚动"），结果是同一帧在输出面板刷出几十行，
+/// 淹没有用输出、还要靠 5000 行环形缓冲兜底。现在保留重写语义：**帧内含 `\r` 时以 `\r`
+/// 包裹该帧**（`\r<内容>\r`），前端据此在末行原地更新（output.ts::appendOrUpdateProgressLine）。
+/// 普通行（无 `\r`）原样下发，前端行为零变化。
 fn stream_lines(
     r: impl Read + Send + 'static,
     app: AppHandle,
@@ -215,8 +221,15 @@ fn stream_lines(
             match reader.read_until(b'\n', &mut buf) {
                 Ok(0) => break,
                 Ok(_) => {
-                    let cleaned = String::from_utf8_lossy(&buf).replace("\r\n", "\n").replace('\r', "\n");
-                    let _ = app.emit_to(&wid, event, json!({ "data": cleaned }));
+                    let raw = String::from_utf8_lossy(&buf).into_owned();
+                    // \r\n 行尾先归一；帧内仍含 \r = 终端重写帧（进度条），标记后下发
+                    let normalized = raw.replace("\r\n", "\n");
+                    let payload = if normalized.contains('\r') {
+                        format!("\r{}\r", normalized.replace('\r', "\n"))
+                    } else {
+                        normalized
+                    };
+                    let _ = app.emit_to(&wid, event, json!({ "data": payload }));
                 }
                 Err(_) => break,
             }
@@ -1205,6 +1218,29 @@ mod tests {
         assert_eq!(pkgs[0].version, "2.31.0");
         assert_eq!(pkgs[3].name, "foo");
         assert_eq!(pkgs[3].version, "1.2");
+    }
+
+    /// L-9：`stream_lines` 的载荷标记口径——普通行原样、`\r` 重写帧以 `\r` 包裹。
+    /// 直接测 emit 前的转换逻辑（与 stream_lines 内同款，无 AppHandle 依赖）。
+    fn frame_payload(raw: &str) -> String {
+        let normalized = raw.replace("\r\n", "\n");
+        if normalized.contains('\r') {
+            format!("\r{}\r", normalized.replace('\r', "\n"))
+        } else {
+            normalized
+        }
+    }
+
+    #[test]
+    fn test_stream_lines_frame_marking() {
+        // 普通行：原样下发（前端按 appendOutputLine 处理）
+        assert_eq!(frame_payload("Resolved 10 packages\n"), "Resolved 10 packages\n");
+        // CRLF 行尾：先归一为 LF，且**不**被误判为重写帧
+        assert_eq!(frame_payload("ok\r\n"), "ok\n");
+        // 进度重写帧：`\r` 包裹，内部 \r 转 \n（前端据此末行原地更新）
+        assert_eq!(frame_payload("Downloading 50%\r"), "\rDownloading 50%\n\r");
+        // 同帧多段重写（进度条 + 包名交替）同样只算一帧
+        assert_eq!(frame_payload("a\rb\r"), "\ra\nb\n\r");
     }
 
     #[test]

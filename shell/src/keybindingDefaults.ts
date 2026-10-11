@@ -45,6 +45,7 @@ export type KeybindingId =
   | "next_tab"
   | "prev_tab"
   | "new_file"
+  | "new_project"
   | "open_settings"
   | "toggle_sidebar"
   | "toggle_bottom"
@@ -179,6 +180,9 @@ export const KEYBINDING_META: KeybindingMeta[] = [
   { id: "next_tab", label: "下一个标签", def: "Ctrl+Tab", scope: "window" },
   { id: "prev_tab", label: "上一个标签", def: "Ctrl+Shift+Tab", scope: "window" },
   { id: "new_file", label: "新建文件", def: "Ctrl+Alt+Insert", scope: "window" },
+  // C-12：新建项目补键位（此前 new_file/scratch_new 都在、唯独「新建项目」缺席，键位体系不对称；
+  // Ctrl+Alt+Shift+N 与新建文件/便签同族，不与既有 63 条撞键）
+  { id: "new_project", label: "新建项目", def: "Ctrl+Alt+Shift+N", scope: "window" },
   { id: "open_settings", label: "打开设置", def: "Ctrl+Alt+S", scope: "window" },
   { id: "toggle_sidebar", label: "切换侧栏", def: "Ctrl+Shift+F12", scope: "window" },
   { id: "toggle_bottom", label: "切换底部面板", def: "Alt+F12", scope: "window" },
@@ -254,6 +258,7 @@ export const KEYBINDING_GROUP: Record<KeybindingId, KeybindingGroup> = {
   // 文件
   save: "file",
   new_file: "file",
+  new_project: "file",
   close_tab: "file",
   reopen_tab: "file",
   scratch_new: "file",

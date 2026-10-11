@@ -243,6 +243,7 @@ export const core = {
   "newProject.title": "新建项目",
   "newProject.type.fastapi": "FastAPI 服务",
   "newProject.type.script": "Python 脚本",
+  "newProject.type.scraper": "爬虫（requests + bs4）",
   "newProject.versionRowLabel": "Python 版本",
   // ---- openfile（单文件打开入口，docs/open_file_dev_plan.md） ----
   "openfile.hint.fallback": "已按所在目录打开（{dir}）",

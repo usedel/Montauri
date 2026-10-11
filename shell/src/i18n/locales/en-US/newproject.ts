@@ -37,6 +37,7 @@ export const newproject: Record<NewprojectKey, string> = {
   // ---- newproject.type ----
   "newproject.type.fastapi": "FastAPI service",
   "newproject.type.script": "Python script",
+  "newproject.type.scraper": "Scraper (requests + bs4)",
   // ---- newproject.versions ----
   "newproject.versions.default": "(default version)",
   "newproject.versions.needDownload": "{version} (download required)",
