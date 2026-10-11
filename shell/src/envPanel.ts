@@ -97,8 +97,9 @@ let restartEngine: () => Promise<void> = () => Promise.resolve();
  *  ② 重算 diff——面板/灯泡/预检拿到收敛后的新真值（§5.2 第一步；onScanComplete 联动
  *     健康面板与状态栏图标）；
  *  ③ 重启静态引擎刷新诊断（R3）。
- *  toast（第三步）由各调用点的成功/失败分支就地发（文案贴合具体动作，memory 61552154）。 */
-async function afterEnvChanged(): Promise<void> {
+ *  toast（第三步）由各调用点的成功/失败分支就地发（文案贴合具体动作，memory 61552154）。
+ *  export：新建项目（newProject.ts）收尾同口径复用——避免两套级联实现漂移。 */
+export async function afterEnvChanged(): Promise<void> {
   resetDepHealth();
   const root = app.workspaceRoot;
   if (root) await runDepScan(root);
@@ -186,6 +187,9 @@ export function resetEnvPanelState(): void {
   lastPythons = [];
   hasWorkspaceVenv = false;
   closeInterp();
+  // L-4：切/关工作区时在途 createVenv 的结果会被丢弃（见 createVenv 的工作区校验），
+  // 此处复位 trigger 的 busy 禁用，防面板在新工作区重开后解释器下拉永久不可用。
+  interpTriggerEl.disabled = false;
   // P2（2026-09-30 审计）：面板开着时关工作区 → 此前只清包区 DOM 留下头部信息残留的
   // 孤儿半清空面板。直接关闭模态（数据层已清，留着无意义且各按钮已失效）。
   if (!envModalEl.classList.contains("hidden")) closeEnvPanel();
@@ -708,8 +712,12 @@ async function renderPackages(): Promise<void> {
 }
 
 async function createVenv(version: string): Promise<void> {
-  if (!app.workspaceRoot) return;
-  const cmdDesc = `uv venv .venv${version ? " --python " + version : ""}  (${app.workspaceRoot})`;
+  // L-4（正确性）：起手捕获工作区根，全程用它——创建环境可能联网下载 Python（数分钟），
+  // 期间用户可能切走工作区；若沿用模块级 app.workspaceRoot，旧工作区的 .venv 路径会被
+  // 写进新工作区的解释器配置。await 后统一校验 root 是否仍是当前工作区。
+  const root = app.workspaceRoot;
+  if (!root) return;
+  const cmdDesc = `uv venv .venv${version ? " --python " + version : ""}  (${root})`;
   appendOutputLine(outputEl, `> ${cmdDesc}`, "cmd", gotoFromLink, "env");
   // 问题1 友好交互：展开输出面板——uv 下载 Python / 创建环境的流式进度是唯一的进度反馈
   $("bottom").classList.remove("collapsed");
@@ -719,25 +727,38 @@ async function createVenv(version: string): Promise<void> {
   // busy 态落在解释器 trigger（禁用 + label 文案，不用 setBusy 以免替换 innerHTML 销毁 interpLabelEl 引用）
   interpTriggerEl.disabled = true;
   interpLabelEl.textContent = t("env.state.creating");
-  try {
-    const r = await invoke<CreateVenvResult>("create_venv", { workspaceRoot: app.workspaceRoot, version });
-    // 输出已流式（pip-stdout/stderr）推送，r.output 恒空，无需再 append
-    // 直接以创建出的解释器路径持久化选中（不依赖 .venv 自动检测）
-    if (r.python) {
-      await invoke("set_interpreter", { workspaceRoot: app.workspaceRoot, path: r.python }).catch((e) => toastFail(t("env.fail.setInterpreter"), e));
-    }
-  } catch (e) {
-    appendOutputLine(outputEl, t("env.createFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "env");
-    toastFail(t("env.action.createVenvBtn"), e);
+  const resetTrigger = (): void => {
     interpTriggerEl.disabled = false;
     syncInterpreterTrigger();
+  };
+  let python: string | null = null;
+  try {
+    const r = await invoke<CreateVenvResult>("create_venv", { workspaceRoot: root, version });
+    // 输出已流式（pip-stdout/stderr）推送，r.output 恒空，无需再 append
+    python = r.python;
+  } catch (e) {
+    // 已切工作区：错误也不该报到新工作区（面板已随切换关闭，静默丢弃即可）
+    if (root !== app.workspaceRoot) { resetTrigger(); return; }
+    appendOutputLine(outputEl, t("env.createFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "env");
+    toastFail(t("env.action.createVenvBtn"), e);
+    resetTrigger();
     return;
+  }
+  // L-4：await 期间已切工作区 → 结果属于旧工作区，丢弃（不写配置、不做引擎级联）
+  if (root !== app.workspaceRoot) {
+    resetTrigger();
+    toast(t("env.createDiscarded"), "info");
+    return;
+  }
+  // 直接以创建出的解释器路径持久化选中（不依赖 .venv 自动检测）
+  if (python) {
+    await invoke("set_interpreter", { workspaceRoot: root, path: python }).catch((e) => toastFail(t("env.fail.setInterpreter"), e));
   }
   await refreshInterpreterStatus();
   // §4.6 引擎失效级联：新建 venv 并选中 = 环境层事实变化，必须重启引擎 + 作废快照
   await afterEnvChanged();
   await renderEnvPanel();
-  interpTriggerEl.disabled = false;
+  resetTrigger();
   toast(t("env.created"), "success"); // §5.2 即时反馈
 }
 

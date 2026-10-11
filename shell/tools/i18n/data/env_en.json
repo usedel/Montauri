@@ -19,6 +19,7 @@
   "env.bootstrapPartial": "Installation finished, but some tools are still not visible. Restart OpenCharm and try again.",
   "env.bootstrapWhy": "Completion, navigation and running all need them. They can be downloaded and installed to the user directory in one click (no system changes; requires internet).",
   "env.confirm.cancel": "Cancel",
+  "env.createDiscarded": "Workspace changed; the creation result was not applied",
   "env.createFailed": "Creating the environment failed: {error}",
   "env.created": "Created .venv and set it as the current interpreter",
   "env.dialog.bootstrapTitle": "Environment bootstrap",

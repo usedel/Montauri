@@ -8,7 +8,7 @@ import type * as MonacoApi from "monaco-editor/esm/vs/editor/editor.api";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { app, $, $btn, lazyEl, outputEl, type Tab } from "./state";
-import { basename, codicon, emptyState, errMsg, languageOf, gitBadgeClass, gitLineClass, joinPath, normalizePath, renderFileIcon, setBusy } from "./util";
+import { basename, codicon, emptyState, languageOf, gitBadgeClass, gitLineClass, joinPath, normalizePath, renderFileIcon, setBusy } from "./util";
 import { appendOutputLine } from "./output";
 import { DIFF_TAB_PREFIX } from "./virtualTabs"; // diff tab path 命名空间归口（与 tabRealPath 同源）
 import { refreshTreeGitClasses, refreshTreeWithExpandedState } from "./fileTree";
@@ -18,10 +18,10 @@ import { motionDisabled } from "./anim"; // UI-11：diff 编辑器不走 buildEd
 import { gotoFromLink } from "./tracebackLink"; // TD-14：gotoFromLink 迁出 main，逐边解环（TD-13）
 import { toast, toastFail } from "./toast";
 import { onLocaleChange, t } from "./i18n";
-import { localizeBackendError } from "./i18n/backendError"; // 输出到面板的 Rust 错误原文是中文，英文界面下要过一层
 import { showMenu, type MenuAnchor, type MenuItem } from "./menu";
 import { openChoice, openConfirm, openPrompt } from "./dialog";
 import { buildMergedContent, parseMergeSegments, type MergeChoice, type MergeSegment } from "./gitMerge";
+import { gitErrText } from "./gitError"; // 分类码→人话（leaf 模块：本文件经 ./termUi 拉入 xterm，纯函数单测不能 import 本文件）
 import { refreshGitGutter } from "./gitGutter"; // 迭代 2 · P0-5：状态刷新后联动行级装饰
 import { formatPythonSource } from "./format"; // 迭代 5 · P2-8：提交前 ruff format
 
@@ -110,23 +110,7 @@ let gitStatusToken = 0;
 /** 上一轮刷新的状态签名（文件树装饰同步的短路判据，见 refreshGitStatus 末尾） */
 let lastGitStatusSignature = "";
 
-/** 后端分类码前缀（与 `git_cmds.rs` 的同名常量逐字一致）：git 二进制缺失 */
-const GIT_MISSING_PREFIX = "GitMissing:";
-/** 后端分类码前缀：`git` 在，但工作区不是仓库 */
-const GIT_NOT_REPO_PREFIX = "GitNotRepo:";
-
-/**
- * git 命令失败文案：把后端分类码翻成用户可读的原因。
- * 为什么要分流——spawn 失败（没装 Git）与 exit!=0（不是仓库）以前都糊成一条 git 原始
- * stderr，SCM 面板一律显示「不是 Git 仓库」，用户装了 Git 也不知道该装。
- * 未命中前缀时行为与改造前完全一致（走后端文案翻译层）。
- */
-export function gitErrText(e: unknown): string {
-  const raw = errMsg(e);
-  if (raw.startsWith(GIT_MISSING_PREFIX)) return t("git.err.missing");
-  if (raw.startsWith(GIT_NOT_REPO_PREFIX)) return t("git.err.notRepo");
-  return localizeBackendError(raw);
-}
+// git 错误分类码 → 人话已外提为 leaf 模块 ./gitError（原因见该文件头注）。
 
 /** 刷新 git 状态（非 git 仓库时静默跳过）；传入 paths 时按子集增量刷新（TD-002） */
 export async function refreshGitStatus(paths?: string[]): Promise<void> {

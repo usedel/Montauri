@@ -3,6 +3,14 @@ import type { NewprojectKey } from "../zh-CN/newproject";
 
 export const newproject: Record<NewprojectKey, string> = {
   // ---- newproject ----
+  "newproject.busyCreating": "A project creation is still in progress; please wait…",
+  "newproject.createdSummary": "Project created: {path}",
+  "newproject.runMain": "Run main.py",
+  // ---- newproject.summaryDeps ----
+  "newproject.summaryDeps.one": "Installed {count} dependency",
+  "newproject.summaryDeps.other": "Installed {count} dependencies",
+  "newproject.summarySep": " · ",
+  "newproject.summaryVenv": ".venv created",
   "newproject.tabLocal": "Local Creation",
   "newproject.createFailed": "Creation failed: {error}",
   "newproject.creating": "Creating…",

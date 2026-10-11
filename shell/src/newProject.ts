@@ -4,7 +4,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { $, $btn, lazyEl, outputEl } from "./state";
-import { joinPath, parentDirOf, setBusy, errMsg } from "./util";
+import { joinPath, parentDirOf, setBusy, errMsg, codicon } from "./util";
 import { t } from "./i18n"; // 第九批 i18n：新建项目域动态文案走语言包
 import { localizeBackendError } from "./i18n/backendError";
 import { appendOutputLine } from "./output";
@@ -13,9 +13,9 @@ import { hideEl, showEl } from "./anim";
 import { trapFocus } from "./focusTrap";
 import { openAlert } from "./dialog";
 import { toast, toastFail } from "./toast";
-import { refreshInterpreterStatus, type CreateVenvResult, type PythonVersionOption } from "./envPanel";
+import { afterEnvChanged, refreshInterpreterStatus, type CreateVenvResult, type PythonVersionOption } from "./envPanel";
 import { resetCloneForm, cancelCloneInspect, ensureCloneTabRendered } from "./cloneRepository";
-import { gitErrText } from "./git"; // create_project 的 git_message 带后端的 GitMissing/GitNotRepo 分类码，需翻成人话
+import { gitErrText } from "./gitError"; // create_project 的 git_message 带后端分类码，需翻成人话（leaf 模块，不拉 xterm）
 
 interface CreateProjectResult {
   path: string;
@@ -51,8 +51,40 @@ function onNewProjectKeydown(e: KeyboardEvent): void {
 /** main 注入的工作区切换 / 文件打开（wireNewProject） */
 let openWorkspaceFn: ((root: string) => Promise<void>) | null = null;
 let openFileFn: ((path: string, revealLine?: number) => Promise<boolean>) | null = null;
+/** main 注入的运行入口（C-9：FastAPI 项目创建成功后的「运行 main.py」CTA） */
+let runScriptFn: ((path: string) => void) | null = null;
+
+/** C-2：创建流程防重入守卫（Enter 连按 / 双击 / 面板重开后点击）。busy 期间输入亦被锁定。 */
+let creating = false;
 
 // ---------- 面板 ----------
+
+/** C-6：预览行双态——正常预览走弱化样式，错误走 danger 色 + 图标（不再与「将创建于…」同级）。
+ *  正常态用 setPreviewMessage(msg, false)，空串即清空。 */
+function setPreviewMessage(msg: string, isError: boolean): void {
+  newProjectPreviewEl.textContent = "";
+  newProjectPreviewEl.classList.toggle("new-project-error", isError);
+  if (isError) newProjectPreviewEl.appendChild(codicon("error"));
+  const span = document.createElement("span");
+  span.textContent = msg;
+  newProjectPreviewEl.appendChild(span);
+}
+
+/** C-2：busy 期间锁定表单输入，防创建中途改值导致「界面显示」与「实际落盘」不一致。
+ *  （提交按钮的 busy 由 setBusy 负责，此处只管输入控件。） */
+function setNewProjectInputsLocked(locked: boolean): void {
+  for (const el of [
+    newProjectNameEl,
+    newProjectLocationEl,
+    newProjectTypeEl,
+    newProjectGitEl,
+    newProjectEnvTypeEl,
+    newProjectVersionEl,
+  ]) {
+    el.disabled = locked;
+  }
+  $btn("new-project-browse").disabled = locked;
+}
 
 /** F9：项目类型元数据（纯函数，可单测）。preview 文案与安装 spec 共用同一实现，防漂移。
  *  未知值一律回退 script（与 Rust create_project 的回退口径一致）。 */
@@ -89,13 +121,13 @@ function projectTargetPath(): string {
 function updateNewProjectPreview(): void {
   const target = projectTargetPath();
   if (!target) {
-    newProjectPreviewEl.textContent = "";
+    setPreviewMessage("", false);
     return;
   }
   const meta = projectTypeMeta(newProjectTypeEl.value);
   const suffix =
     meta.type === "script" ? "" : t("newproject.previewSuffix", { label: meta.label, deps: meta.deps.join(" / ") });
-  newProjectPreviewEl.textContent = t("newproject.previewPath", { target: target, suffix: suffix });
+  setPreviewMessage(t("newproject.previewPath", { target: target, suffix: suffix }), false);
 }
 
 /** 打开新建项目面板（位置默认取最近工作区的父目录，便于就近创建）。
@@ -186,13 +218,19 @@ async function populateNewProjectVersions(): Promise<void> {
  * - venv：按版本/位置创建虚拟环境并选中
  * - system：自动选用已安装解释器
  * - none：不设置（uv run 兜底）
- * 整个流程保持面板可见，按钮以忙碌态指示进度（耗时动作 loading）。
+ * 迭代（体验审查批 1）：面板在「打开工作区」后即关（C-3），③建环境 / ④装依赖的进度交给
+ * 输出面板（C-4 展开）；收尾统一走 afterEnvChanged 环境级联（C-1）；成功给汇总 toast（C-9）。
  */
 async function createProject(): Promise<void> {
+  // C-2：防重入——创建期间（含面板已关、③④ 仍在跑）再次触发时明确告知，而非静默或重复落盘
+  if (creating) {
+    toast(t("newproject.busyCreating"), "info");
+    return;
+  }
   const name = newProjectNameEl.value.trim();
   const parent = newProjectLocationEl.value.trim();
   if (!name || !parent) {
-    newProjectPreviewEl.textContent = t("newproject.needNameAndPath");
+    setPreviewMessage(t("newproject.needNameAndPath"), true); // C-6：错误态（danger 色 + 图标）
     return;
   }
   const wantGit = newProjectGitEl.checked;
@@ -200,111 +238,152 @@ async function createProject(): Promise<void> {
   const version = newProjectVersionEl.value; // venv 时为版本 spec，其余为空
   const meta = projectTypeMeta(newProjectTypeEl.value); // F9：项目类型
   const createBtn = $btn("new-project-create");
+
+  creating = true;
+  setNewProjectInputsLocked(true); // C-2：busy 期间锁输入
   setBusy(createBtn, true, t("newproject.creating"));
 
-  let result: CreateProjectResult;
+  let result: CreateProjectResult | null = null;
+  let venvCreated = false;
+  let depsInstalled = 0;
   try {
-    result = await invoke<CreateProjectResult>("create_project", {
-      parentDir: parent,
-      name,
-      gitInit: wantGit,
-      pythonVersion: version || null, // P2（建议 1）：所选版本写入 pyproject.toml 的 requires-python
-      projectType: meta.type, // F9：script / fastapi
-    });
-  } catch (e) {
-    newProjectPreviewEl.textContent = t("newproject.createFailed", { error: localizeBackendError(errMsg(e)) });
-    setBusy(createBtn, false);
-    return;
-  }
-  if (!result.git_ok) {
-    // 分类码（GitMissing:/GitNotRepo:）在此翻成人话；否则 toast 里会露出「GitMissing:…」裸前缀
-    const reason = gitErrText(result.git_message);
-    appendOutputLine(outputEl, t("newproject.gitInitFailed", { message: reason }), "stderr", gotoFromLink, "env");
-    toastFail("git init", reason);
-  }
-  // P2（建议 1）：回显 pyproject.toml 的生成路径（uv 脚手架 / 模板回退），让“裸目录 uv run 语义不明”可见地收敛
-  if (result.pyproject_note) {
-    appendOutputLine(outputEl, result.pyproject_note, "stdout", gotoFromLink, "env");
-  }
-  await openWorkspaceFn?.(result.path);
-  await openFileFn?.(joinPath(result.path, "main.py"));
-
-  try {
-    if (envType === "venv") {
-      appendOutputLine(outputEl, `> uv venv .venv${version ? " --python " + version : ""}  (${result.path})`, "cmd", gotoFromLink, "env");
-      setBusy(createBtn, true, t("newproject.creatingEnv"));
-      const r = await invoke<CreateVenvResult>("create_venv", { workspaceRoot: result.path, version });
-      if (r.output) appendOutputLine(outputEl, r.output, "stdout", gotoFromLink, "env");
-      if (r.python) await invoke("set_interpreter", { workspaceRoot: result.path, path: r.python }).catch(console.error);
-    } else if (envType === "system") {
-      const interp = await invoke<string | null>("pick_default_system_interpreter");
-      if (interp) {
-        await invoke("set_interpreter", { workspaceRoot: result.path, path: interp }).catch(console.error);
-        toast(t("newproject.systemInterpreter", { interp: interp }), "info");
-      } else {
-        // P1（建议 4）：未检测到解释器时给出可执行引导（长指导走 openAlert 对话框，非输出面板 stderr）
-        void openAlert({
-          title: t("newproject.noInterpTitle"),
-          message:
-            // 引导语多段拼装（含 \n\n 不走 apply_ts 映射，避免语言包转义链失真），按段取词
-            `${t("newproject.noInterpHead")}\n\n` +
-            `${t("newproject.noInterpStep1")}\n` +
-            `${t("newproject.noInterpStep2")}\n\n` +
-            t("newproject.noInterpFallback"),
-          okLabel: t("newproject.gotIt"),
-        });
-      }
-    }
-  } catch (e) {
-    appendOutputLine(outputEl, t("newproject.envSetupFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "env");
-    toastFail(t("newproject.failEnvSetup"), e);
-  }
-
-  // F9：依赖安装（best-effort，不阻断）——声明已由 create_project 写入 pyproject.toml，
-  // 这里走既有 pip_install（有 pyproject 自动 uv add + 流式输出 + cwd），幂等。
-  // 失败 = 操作结果 → toastFail（q3 裁决：用户视线多已在新工作区，仅输出面板 stderr 偏静默）；
-  // 成功不加 toast（流式输出 + 面板关闭即完成信号，与 script 路径的克制一致）。
-  if (meta.deps.length > 0) {
-    const spec = meta.deps.join(" ");
-    setBusy(createBtn, true, t("newproject.installingDeps"));
-    appendOutputLine(outputEl, `> uv add ${spec}  (${result.path})`, "cmd", gotoFromLink, "env");
     try {
-      const code = await invoke<number>("pip_install", {
-        workspaceRoot: result.path,
-        interpreter: null,
-        spec,
+      result = await invoke<CreateProjectResult>("create_project", {
+        parentDir: parent,
+        name,
+        gitInit: wantGit,
+        pythonVersion: version || null, // P2（建议 1）：所选版本写入 pyproject.toml 的 requires-python
+        projectType: meta.type, // F9：script / fastapi
       });
-      if (code !== 0) {
-        const msg = t("newproject.depsExitFailed", { code: code });
-        appendOutputLine(outputEl, msg, "stderr", gotoFromLink, "env");
-        toastFail(t("newproject.failDeps"), t("newproject.depsExitNote", { code: code }));
+    } catch (e) {
+      setPreviewMessage(t("newproject.createFailed", { error: localizeBackendError(errMsg(e)) }), true); // C-6
+      return;
+    }
+    if (!result.git_ok) {
+      // 分类码（GitMissing:/GitNotRepo:）在此翻成人话；否则 toast 里会露出「GitMissing:…」裸前缀
+      const reason = gitErrText(result.git_message);
+      appendOutputLine(outputEl, t("newproject.gitInitFailed", { message: reason }), "stderr", gotoFromLink, "env");
+      toastFail("git init", reason);
+    }
+    // P2（建议 1）：回显 pyproject.toml 的生成路径（uv 脚手架 / 模板回退），让“裸目录 uv run 语义不明”可见地收敛
+    if (result.pyproject_note) {
+      appendOutputLine(outputEl, result.pyproject_note, "stdout", gotoFromLink, "env");
+    }
+    await openWorkspaceFn?.(result.path);
+    await openFileFn?.(joinPath(result.path, "main.py"));
+
+    // C-3：工作区已打开 → 立即关面板，③④ 的进度交给输出面板（模态不再压暗唯一进度指示）。
+    // 面板既已关闭，按钮 / 输入的忙碌态一并复位，便于用户稍后重开面板继续新建。
+    closeNewProjectPanel();
+    setBusy(createBtn, false);
+    setNewProjectInputsLocked(false);
+    // C-4：展开输出面板（与 envPanel.createVenv / depHealth.runDepFix 既有先例一致）
+    $("bottom").classList.remove("collapsed");
+
+    // ③ 环境配置（venv 分支可能联网下载 Python，耗时可达分钟级）
+    try {
+      if (envType === "venv") {
+        appendOutputLine(outputEl, `> uv venv .venv${version ? " --python " + version : ""}  (${result.path})`, "cmd", gotoFromLink, "env");
+        // C-5：复用环境面板的「需下载」提示（同一判定：选了具体版本）
+        if (version) appendOutputLine(outputEl, t("env.versions.downloadHint"), "hint", gotoFromLink, "env");
+        const r = await invoke<CreateVenvResult>("create_venv", { workspaceRoot: result.path, version });
+        if (r.output) appendOutputLine(outputEl, r.output, "stdout", gotoFromLink, "env");
+        if (r.python) {
+          await invoke("set_interpreter", { workspaceRoot: result.path, path: r.python }).catch(console.error);
+          venvCreated = true;
+        }
+      } else if (envType === "system") {
+        const interp = await invoke<string | null>("pick_default_system_interpreter");
+        if (interp) {
+          await invoke("set_interpreter", { workspaceRoot: result.path, path: interp }).catch(console.error);
+          toast(t("newproject.systemInterpreter", { interp: interp }), "info");
+        } else {
+          // P1（建议 4）：未检测到解释器时给出可执行引导（长指导走 openAlert 对话框，非输出面板 stderr）
+          void openAlert({
+            title: t("newproject.noInterpTitle"),
+            message:
+              // 引导语多段拼装（含 \n\n 不走 apply_ts 映射，避免语言包转义链失真），按段取词
+              `${t("newproject.noInterpHead")}\n\n` +
+              `${t("newproject.noInterpStep1")}\n` +
+              `${t("newproject.noInterpStep2")}\n\n` +
+              t("newproject.noInterpFallback"),
+            okLabel: t("newproject.gotIt"),
+          });
+        }
       }
     } catch (e) {
-      appendOutputLine(
-        outputEl,
-        t("newproject.depsFailedNonBlocking", { error: localizeBackendError(errMsg(e)) }),
-        "stderr",
-        gotoFromLink,
-        "env",
-      );
-      toastFail(t("newproject.failDeps"), e);
+      appendOutputLine(outputEl, t("newproject.envSetupFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "env");
+      toastFail(t("newproject.failEnvSetup"), e);
     }
+
+    // F9：依赖安装（best-effort，不阻断）——声明已由 create_project 写入 pyproject.toml，
+    // 这里走既有 pip_install（有 pyproject 自动 uv add + 流式输出 + cwd），幂等。
+    // 失败 = 操作结果 → toastFail（q3 裁决：用户视线多已在新工作区，仅输出面板 stderr 偏静默）。
+    if (meta.deps.length > 0) {
+      const spec = meta.deps.join(" ");
+      appendOutputLine(outputEl, `> uv add ${spec}  (${result.path})`, "cmd", gotoFromLink, "env");
+      try {
+        const code = await invoke<number>("pip_install", {
+          workspaceRoot: result.path,
+          interpreter: null,
+          spec,
+        });
+        if (code !== 0) {
+          const msg = t("newproject.depsExitFailed", { code: code });
+          appendOutputLine(outputEl, msg, "stderr", gotoFromLink, "env");
+          toastFail(t("newproject.failDeps"), t("newproject.depsExitNote", { code: code }));
+        } else {
+          depsInstalled = meta.deps.length; // C-9：汇总里回显依赖数
+        }
+      } catch (e) {
+        appendOutputLine(
+          outputEl,
+          t("newproject.depsFailedNonBlocking", { error: localizeBackendError(errMsg(e)) }),
+          "stderr",
+          gotoFromLink,
+          "env",
+        );
+        toastFail(t("newproject.failDeps"), e);
+      }
+    }
+  } finally {
+    creating = false;
+    setNewProjectInputsLocked(false);
+    setBusy(createBtn, false);
   }
 
-  closeNewProjectPanel();
-  setBusy(createBtn, false);
   await refreshInterpreterStatus();
+  // C-1：环境层事实变化的统一收尾（与 envPanel 五处同口径）——venv/system 换了新解释器、
+  // 或装了依赖，都必须重启静态引擎 + 作废 diff 快照。none + script 无环境变化，跳过以省一次重启。
+  if (envType !== "none" || meta.deps.length > 0) {
+    await afterEnvChanged();
+  }
+
+  // C-9：成功汇总（路径 / venv / 依赖数）+ FastAPI 项目给「运行 main.py」直达动作
+  if (result) {
+    const created = result;
+    const parts = [t("newproject.createdSummary", { path: created.path })];
+    if (venvCreated) parts.push(t("newproject.summaryVenv"));
+    if (depsInstalled > 0) parts.push(t("newproject.summaryDeps", { count: depsInstalled }));
+    const opts =
+      meta.type === "fastapi"
+        ? { actionLabel: t("newproject.runMain"), onAction: () => runScriptFn?.(joinPath(created.path, "main.py")) }
+        : {};
+    toast(parts.join(t("newproject.summarySep")), "success", opts);
+  }
 }
 
 // ---------- 接线 ----------
 
-/** 新建项目面板 DOM 接线（main 的 init 调用）；openWorkspace / openFile 由 main 注入 */
+/** 新建项目面板 DOM 接线（main 的 init 调用）；openWorkspace / openFile / runScript 由 main 注入 */
 export function wireNewProject(deps: {
   openWorkspace: (root: string) => Promise<void>;
   openFile: (path: string, revealLine?: number) => Promise<boolean>;
+  runScript: (path: string) => void;
 }): void {
   openWorkspaceFn = deps.openWorkspace;
   openFileFn = deps.openFile;
+  runScriptFn = deps.runScript;
   // 新建项目（文件菜单入口）
   $btn("new-project-close").addEventListener("click", closeNewProjectPanel);
   $btn("new-project-cancel").addEventListener("click", closeNewProjectPanel);
@@ -320,11 +399,18 @@ export function wireNewProject(deps: {
   newProjectLocationEl.addEventListener("input", updateNewProjectPreview);
   newProjectTypeEl.addEventListener("change", updateNewProjectPreview); // F9：切换类型刷新预览说明
   newProjectEnvTypeEl.addEventListener("change", updateNewProjectEnvFields);
+  // C-2：Enter 提交前 preventDefault，防浏览器默认行为；重入由 createProject 的 creating 守卫兜底
   newProjectNameEl.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") createProject();
+    if (e.key === "Enter") {
+      e.preventDefault();
+      void createProject();
+    }
   });
   newProjectLocationEl.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") createProject();
+    if (e.key === "Enter") {
+      e.preventDefault();
+      void createProject();
+    }
   });
   // 迭代 6：tab 切换
   document.querySelectorAll(".new-project-tab").forEach((btn) => {

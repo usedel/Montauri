@@ -1,4 +1,6 @@
 {
+  "newproject.busyCreating": "正在创建上一个项目，请稍候…",
+  "newproject.createdSummary": "项目已创建：{path}",
   "newproject.createFailed": "创建失败：{error}",
   "newproject.creating": "创建中…",
   "newproject.creatingEnv": "创建环境…",
@@ -24,5 +26,9 @@
   "newproject.type.fastapi": "FastAPI 服务",
   "newproject.type.script": "Python 脚本",
   "newproject.versions.default": "（默认版本）",
-  "newproject.versions.needDownload": "{version}（需下载）"
+  "newproject.versions.needDownload": "{version}（需下载）",
+  "newproject.runMain": "运行 main.py",
+  "newproject.summaryDeps": "已安装 {count} 个依赖",
+  "newproject.summarySep": "｜",
+  "newproject.summaryVenv": "已创建 .venv"
 }

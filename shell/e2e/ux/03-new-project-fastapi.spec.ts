@@ -121,3 +121,82 @@ test("NP-3 下游零接线：FastAPI 项目创建完成后探针 hint 出现", a
   // hint 带一键生成链接（下游 F3 预设链路在 ux/02 FW-2 已覆盖，此处只验入口存在）
   await expect(hint.locator(".out-link", { hasText: "生成「FastAPI」配置并运行" })).toBeVisible();
 });
+
+// ---------- 批 1（2026-10-11 体验审查：docs/project_dep_health_ux_review.md）----------
+// C-2 防重入 / C-3 关面板时机 / C-4 展开输出面板 / C-6 预览行双态 / C-9 成功汇总
+
+/** 统计 invoke 流水里某命令的调用次数（流水条目形如 `create_project(parentDir,name,…)`） */
+async function invokeCount(page: Page, cmd: string): Promise<number> {
+  return page.evaluate((c) => {
+    const log = (window as unknown as { __TAURI_MOCK_INVOKE_LOG__?: string[] }).__TAURI_MOCK_INVOKE_LOG__ ?? [];
+    return log.filter((x) => x.startsWith(`${c}(`)).length;
+  }, cmd);
+}
+
+test("NP-4（C-2）防重入：创建中连按 Enter 只发起一次 create_project", async ({ page }) => {
+  const repo = await makeGitRepo({ files: { "keep.py": "print('keep')\n" }, commitMsg: "baseline" });
+  await bootEmpty(page, repo);
+  await openPanelAndFill(page, repo, "demo-guard", "script");
+
+  // 同一 tick 内连发两次 Enter（复刻 Enter 连按 / 双击的竞态）——守卫必须在首个 await 前同步置位
+  await page.locator("#new-project-name").evaluate((el) => {
+    const ev: KeyboardEventInit = { key: "Enter", bubbles: true };
+    el.dispatchEvent(new KeyboardEvent("keydown", ev));
+    el.dispatchEvent(new KeyboardEvent("keydown", ev));
+  });
+
+  // 第二次触发给明确提示（而非静默吞掉，或重复落盘后报「目标已存在」）
+  await expect(page.locator("#toast-stack .toast--info", { hasText: "正在创建上一个项目" })).toBeVisible();
+  // 等流程走完再数：竞态下第二次若真跑起来，此处必然是 2
+  await expect(page.locator("#new-project-modal")).toBeHidden({ timeout: 20_000 });
+  expect(await invokeCount(page, "create_project")).toBe(1);
+});
+
+test("NP-5（C-3/C-4）创建流程：进入环境/依赖阶段前已关面板并展开输出面板", async ({ page }) => {
+  const repo = await makeGitRepo({ files: { "keep.py": "print('keep')\n" }, commitMsg: "baseline" });
+  // 预置「输出面板已收起」——C-4 的判据正是创建流程把它重新展开（否则进度被模态压暗又不可见）
+  await page.addInitScript(() => localStorage.setItem("opencharm.bottom_collapsed", "1"));
+  await bootEmpty(page, repo);
+  await expect(page.locator("#bottom")).toHaveClass(/collapsed/);
+
+  await openPanelAndFill(page, repo, "demo-bottom", "fastapi");
+  await page.locator("#new-project-create").click();
+
+  // C-3：③④（建环境 / 装依赖）跑起来时模态必须已经关闭——uv add 回显出现即为 ③④ 已进入
+  await expect(page.locator("#output .out-line", { hasText: "uv add fastapi uvicorn" })).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator("#new-project-modal")).toBeHidden();
+  // C-4：输出面板被展开
+  await expect(page.locator("#bottom")).not.toHaveClass(/collapsed/);
+});
+
+test("NP-6（C-9）创建成功：汇总 toast 带路径/依赖数 + FastAPI「运行 main.py」动作", async ({ page }) => {
+  const repo = await makeGitRepo({ files: { "keep.py": "print('keep')\n" }, commitMsg: "baseline" });
+  await bootEmpty(page, repo);
+  await openPanelAndFill(page, repo, "demo-summary", "fastapi");
+  await page.locator("#new-project-create").click();
+
+  const summary = page.locator("#toast-stack .toast--success", { hasText: "项目已创建" });
+  await expect(summary).toBeVisible({ timeout: 25_000 });
+  await expect(summary).toContainText("demo-summary"); // 路径
+  await expect(summary).toContainText("已安装 2 个依赖"); // pip_install mock 返回 0 → 计为已装
+  await expect(summary.locator(".toast-action", { hasText: "运行 main.py" })).toBeVisible();
+});
+
+test("NP-7（C-6）校验失败：预览行走错误态（danger 类 + 图标），修正后恢复弱化预览", async ({ page }) => {
+  const repo = await makeGitRepo({ files: { "keep.py": "print('keep')\n" }, commitMsg: "baseline" });
+  await bootEmpty(page, repo);
+  await page.locator("#ew-new-project").click();
+  await expect(page.locator("#new-project-modal")).toBeVisible();
+
+  const preview = page.locator("#new-project-preview");
+  await page.locator("#new-project-location").fill(repo.root);
+  await page.locator("#new-project-create").click(); // 名称留空 → 前端预检拦截
+  await expect(preview).toHaveClass(/new-project-error/);
+  await expect(preview).toContainText("请填写项目名称和位置");
+  await expect(preview.locator(".codicon-error")).toBeVisible();
+
+  // 修正输入 → 回到「将创建于…」弱化预览态（错误类清除）
+  await page.locator("#new-project-name").fill("demo-err");
+  await expect(preview).not.toHaveClass(/new-project-error/);
+  await expect(preview).toContainText("将创建于：");
+});

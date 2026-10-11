@@ -2347,8 +2347,8 @@ async function init(): Promise<void> {
   // 设置面板（P25-T09）——菜单栏右侧图标
   wireSettingsPanel();
 
-  // 新建项目（文件菜单入口）——面板接线在 newProject.ts，openWorkspace / openFile 由本层注入
-  wireNewProject({ openWorkspace, openFile });
+  // 新建项目（文件菜单入口）——面板接线在 newProject.ts，openWorkspace / openFile / runScript 由本层注入
+  wireNewProject({ openWorkspace, openFile, runScript: (p) => void runScript(p) });
   wireCloneRepository({ openWorkspace, openFile, openPanel: openNewProjectPanel });
 
   // 运行配置面板（P0-C 配置列表编辑器；stdin 重定向 S1）——接线在 runConfigPanel.ts

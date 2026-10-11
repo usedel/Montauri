@@ -4162,6 +4162,10 @@ html[data-reduce-motion] .tree-item.tree-running::after { animation: none; }
 }
 /* 控件观感统一走上面的通用 .settings-row 规则（此处曾自带一套，造成两套观感） */
 .new-project-preview {
+  /* C-6：改 flex 行，容纳错误态图标（正常态无图标，布局不变） */
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
   font-size: var(--text-xs);
   color: var(--fg-dim);
   background: var(--bg);
@@ -4171,6 +4175,16 @@ html[data-reduce-motion] .tree-item.tree-running::after { animation: none; }
   word-break: break-all;
   min-height: 16px;
 }
+.new-project-preview > span { min-width: 0; word-break: break-all; }
+.new-project-preview > .codicon { flex: none; font-size: var(--text-sm); margin-top: 1px; }
+/* C-6：错误态与「将创建于…」弱化提示区分——danger 色 + 图标 + 左侧色条，构成警示 */
+.new-project-error {
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-color: var(--danger-border);
+  border-left-width: 2px;
+}
+.new-project-error > .codicon { color: var(--danger); }
 
 /* ---------- Live Templates 管理面板（M2） ---------- */
 .lt-card { width: 860px; max-width: 94vw; max-height: 82vh; display: flex; flex-direction: column; }

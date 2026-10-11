@@ -25,6 +25,7 @@ export const env = {
   // ---- env.confirm ----
   "env.confirm.cancel": "取消",
   // ---- env ----
+  "env.createDiscarded": "已切换工作区，创建结果未应用",
   "env.createFailed": "创建环境失败：{error}",
   "env.created": "已创建 .venv 并设为当前解释器",
   // ---- env.dialog ----

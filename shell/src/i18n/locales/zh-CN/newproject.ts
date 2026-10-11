@@ -2,6 +2,14 @@
 // 复数条目（含 {count}）自动展开 .one/.other 两份——中文两形同文。
 export const newproject = {
   // ---- newproject ----
+  "newproject.busyCreating": "正在创建上一个项目，请稍候…",
+  "newproject.createdSummary": "项目已创建：{path}",
+  "newproject.runMain": "运行 main.py",
+  // ---- newproject.summaryDeps ----
+  "newproject.summaryDeps.one": "已安装 {count} 个依赖",
+  "newproject.summaryDeps.other": "已安装 {count} 个依赖",
+  "newproject.summarySep": "｜",
+  "newproject.summaryVenv": "已创建 .venv",
   "newproject.tabLocal": "本地创建",
   "newproject.createFailed": "创建失败：{error}",
   "newproject.creating": "创建中…",

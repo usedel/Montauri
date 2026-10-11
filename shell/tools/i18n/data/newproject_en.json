@@ -1,4 +1,6 @@
 {
+  "newproject.busyCreating": "A project creation is still in progress; please wait…",
+  "newproject.createdSummary": "Project created: {path}",
   "newproject.creating": "Creating…",
   "newproject.creatingEnv": "Creating environment…",
   "newproject.createFailed": "Creation failed: {error}",
@@ -24,5 +26,10 @@
   "newproject.type.fastapi": "FastAPI service",
   "newproject.type.script": "Python script",
   "newproject.versions.default": "(default version)",
-  "newproject.versions.needDownload": "{version} (download required)"
+  "newproject.versions.needDownload": "{version} (download required)",
+  "newproject.runMain": "Run main.py",
+  "newproject.summaryDeps.one": "Installed {count} dependency",
+  "newproject.summaryDeps.other": "Installed {count} dependencies",
+  "newproject.summarySep": " · ",
+  "newproject.summaryVenv": ".venv created"
 }

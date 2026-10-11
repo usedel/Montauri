@@ -26,6 +26,7 @@ export const env: Record<EnvKey, string> = {
   // ---- env.confirm ----
   "env.confirm.cancel": "Cancel",
   // ---- env ----
+  "env.createDiscarded": "Workspace changed; the creation result was not applied",
   "env.createFailed": "Creating the environment failed: {error}",
   "env.created": "Created .venv and set it as the current interpreter",
   // ---- env.dialog ----

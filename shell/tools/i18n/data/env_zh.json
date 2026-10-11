@@ -19,6 +19,7 @@
   "env.bootstrapPartial": "安装结束，但部分工具仍不可见，请重启 OpenCharm 后再试。",
   "env.bootstrapWhy": "补全、跳转与运行都需要它们。可一键下载安装到用户目录（不影响系统，需联网）。",
   "env.confirm.cancel": "取消",
+  "env.createDiscarded": "已切换工作区，创建结果未应用",
   "env.createFailed": "创建环境失败：{error}",
   "env.created": "已创建 .venv 并设为当前解释器",
   "env.dialog.bootstrapTitle": "环境引导",
