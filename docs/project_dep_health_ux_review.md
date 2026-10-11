@@ -33,6 +33,7 @@
 3. 按环境类型配置解释器：`create_venv`（**可能联网下载 Python**）/ `pick_default_system_interpreter` / 不设置
 4. 非 script 类型再走 `pip_install`（有 pyproject 时后端自动转 `uv add`）装依赖
 
+
 ### 1.2 问题清单
 
 | 编号   | 级别     | 现象                                                                | 证据                                                                                                                       | 影响                                                                                                                 | 建议                                                                               |
@@ -125,7 +126,6 @@
 | L-8 | P2 | 环境面板创建 venv 时，包输入框 / 卸载按钮未随操作禁用                                                                                                                     | `envPanel.ts:719-721` 只禁用 `interpTriggerEl`                   | 长操作期间统一禁用 env 域写操作（与 `.dep-fix-btn` 同思路）                         |
 | L-9 | P2 | 进度行无节流/合并，`\r` 刷屏时靠 5000 行环形缓冲兜底                                                                                                                    | `output.ts:213`、`envPanel.ts:1129-1134`                       | `\r` 型进度做「末行原地更新」（不新增 DOM 行），或按 100ms 合并                         |
 
-
 ### 3.4 改进方案分层
 
 **M1 —— 最小改（纯前端，当天可落地，零 Rust 改动）**
@@ -202,6 +202,39 @@
 
 ---
 
+## 7. 验收状态（未完成项）
+
+> 只记**还没跑完的验收**。已完成的以提交信息与测试为准，不在此复述。
+
+| 批次 | 项 | 方式 | 状态 |
+| --- | --- | --- | --- |
+| 批 1 | **C-1 引擎解释器断言 · L-4 真机切换竞态** | 真机 `-Only new-project-fastapi-real`（NP-REAL-5 / NP-REAL-6），2026-10-11 自动跑批 **6/6 全绿** | ✅ |
+| 批 1 | C-2 / C-3 / C-4 / C-6 / C-9 | mock e2e `ux/03-new-project-fastapi`（NP-4~NP-7） | ✅ 7/7 |
+| 批 2 | D-1 / D-4 | mock e2e `ux/11-dep-health`（DH-1 / DH-2） | ✅ 2/2 |
+| 批 3 | L-2 / L-7 | cargo test `env_cmds`（超时分级 + 兜底命令文本） | ✅ 21/21 |
+| 批 3 | L-3 / L-5 / L-1 | mock e2e `ux/12-long-op`（LO-1 芯片 · LO-2 取消 · LO-3 可判读进度）+ 单测 `statusOp` / `uvProgress` | ✅ 19/19 |
+| 批 3 | Q3 Python 安装包镜像 | 前后端默认值同步断言（`state.test` / `settings.rs::test_defaults`） | ✅ |
+| 批 3 | **L-1 / L-2 / L-3 的真机判据**（下载中点取消 → 进程树被终止无孤儿 uv；冷缓存装 fastapi 不再 120s 超时） | 真机 `powershell -File shell\e2e-real\run-real-all.ps1` | ⏳ **待用户终端执行** |
+| 批 3 | L-1 的「进度条」形态 | 见 §7.1 | ⏳ 待预算决策 |
+
+### 7.1 批 3 的两处已知取舍
+
+1. **L-1 只给了可判读文本（含百分比），没画进度条**。`style.css` 预算已到 **5850/5850**（零余量），
+   加进度条样式必然越线；而 §6 的 L-1 判据是「可见『下载中 / 已下载』类信息」，文本已满足。
+   要画条须先做预算决策或先重构出余量。
+2. **取消能力必然要一个入口命令**，故 `#[tauri::command]` 207 → **208 / 206**（该信号线此前已越线，
+   属存量告警，非本次首次触发）。
+3. **C-1 / L-4 的真机判据改走磁盘证据链**（`new-project-fastapi-real.cjs` 的 NP-REAL-5 / NP-REAL-6）：
+   Tauri 2.11 对 `__TAURI_INTERNALS__.invoke` 用 `Object.defineProperty(value)` 定义
+   （`writable:false` / `configurable:false`），赋值包装层**静默失效**，前端 invoke 调用链不可拦截
+   （2026-10-11 实测，首轮判据因此假阴性）。故：C-1 = `workspaces/<hash>.json` 的 interpreter ==
+   新建 `.venv` 解释器 + 数据根 `logs/opencharm.log` 中 venv 落盘后出现
+   `dep_scan interpreter=true` → `[lsp_stop]` 重启序列；L-4 = 选「需下载」版本制造天然在途窗口
+   （本次真实下载 Python 3.15.0，切走后创建才收尾）→ 新工作区配置未被旧 `.venv` 污染 +
+   旧工作区配置未被改写 + 丢弃 toast。⚠ 日志时间戳是 **UTC**，与文件 mtime 比较必须同按 UTC 折算。
+
+---
+
 ## 附录：证据索引
 
 - 创建项目：`shell/src/newProject.ts`（全）· `shell/src-tauri/src/fs_cmds.rs:812-898` · `shell/index.html:618-674` · `shell/src/style.css:3999-4172`
@@ -209,35 +242,3 @@
 - 依赖健康：`shell/src/depHealth.ts`（全）· `shell/src/depHealthPanel.ts`（全）· `shell/src/i18n/locales/zh-CN/dep.ts` · `docs/dep_health_dev_plan.md`
 - 长耗时：`shell/src-tauri/src/env_cmds.rs:180-256`（流式/超时）`:447-482`（create_venv）`:696-780`（pip\_*）· `shell/src-tauri/src/dep_fix.rs:951-1090` · `shell/src/output.ts:204-321`（输出护栏）· `shell/src/cloneRepository.ts:440-528`（**范本**）
 - 环境面板：`shell/src/envPanel.ts:95-106`（afterEnvChanged）`:455-545`（venv 创建/版本弹窗）`:710-805`（创建/装/卸/升级）`:1126-1142`（流式事件）
-
----
-
-## 7. 批 1 交付记录（2026-10-11）
-
-**范围**：C-1 / C-2 / C-3 / C-4 / C-5 / C-6 / C-9 + L-4（前端侧）。纯前端，零 Rust 改动。
-
-| 编号 | 落地方式 |
-| --- | --- |
-| C-1 | `envPanel.ts::afterEnvChanged` 改为 **export**，`newProject.ts` 收尾统一调用（`envType !== "none" \|\| deps.length > 0` 时）——与 envPanel 五处同口径，不再各写一套级联 |
-| C-2 | 模块级 `creating` 守卫（首个 await 前同步置位）；busy 期间 `setNewProjectInputsLocked(true)` 锁全部输入 + 浏览按钮；重入时给 info toast（不静默）；Enter 补 `preventDefault` |
-| C-3 | `openWorkspace` + `openFile` 之后立即 `closeNewProjectPanel()`，③建环境 / ④装依赖的进度交给输出面板；面板关闭时同步复位按钮 busy 与输入锁 |
-| C-4 | 关面板后 `$("bottom").classList.remove("collapsed")`（与 `envPanel.createVenv` / `depHealth.runDepFix` 先例一致） |
-| C-5 | venv 分支在 `create_venv` 前 append `env.versions.downloadHint`（复用环境面板文案与判定） |
-| C-6 | 预览行拆双态：`setPreviewMessage(msg, isError)`；错误态挂 `.new-project-error`（`--danger` + `--danger-soft` + 左侧色条 + `codicon-error` 图标），修正输入即回弱化预览 |
-| C-9 | 成功汇总 toast（`项目已创建：{path}｜已创建 .venv｜已安装 N 个依赖`）+ FastAPI 项目追加 `.toast-action`「运行 main.py」（`runScript` 由 main 经 `wireNewProject` 注入） |
-| L-4 | `createVenv` 起手捕获 `const root = app.workspaceRoot` 并全程使用；`await create_venv` 后校验 `root !== app.workspaceRoot` → 丢弃结果 + info toast「已切换工作区，创建结果未应用」；`resetEnvPanelState` 补 `interpTriggerEl.disabled = false`（防新工作区面板卡在 busy） |
-
-**顺带修掉的基线缺陷（非本单条目，但卡住本单验收）**：`newProject.ts` 经 `import { gitErrText } from "./git"` 拉入 `git.ts → ./termUi → ./terminal → @xterm/addon-fit`，其 UMD 包装引用 `self`，导致 `newProjectType.test.ts` 在 node 环境**整文件收集失败**（`ReferenceError: self is not defined`，改前即如此）。已把 `gitErrText` 外提为 leaf 模块 `shell/src/gitError.ts`（只依赖 util / i18n），`git.ts` 与 `newProject.ts` 均从该模块取用。与 `scratchCore.ts` 的分层教训同款。
-
-**验收证据（2026-10-11）**：
-
-| 项 | 结果 |
-| --- | --- |
-| `tsc --noEmit` | 0 错 |
-| 前端单测 | 117 文件 / 1434 用例全绿（含此前失败的 `newProjectType` 4 例） |
-| mock e2e | `ux/03-new-project-fastapi` 7 例（新增 NP-4 C-2 / NP-5 C-3+C-4 / NP-6 C-9 / NP-7 C-6）· `ux/04-onboarding` 17 例 · `git/23-clone` 6 例——全绿 |
-| `budget-check.mjs` | 全达标（1 项既有告警：`#[tauri::command]` 207/206，与本次改动无关）；`dist/assets` 5105/5120 KB |
-| `tools/ui/audit_tokens.py` | 与改动前基线逐项一致（2 项既有 FAIL 在 L1416 / L1534-1535，非本次引入） |
-
-**未覆盖 / 留待**：C-1 的引擎解释器断言、L-4 的真机切换竞态、L-1/L-2/L-3 相关（属批 3）——按纪律走**真机跑批**（`run-real-all.ps1`，需在用户本机 PowerShell 执行）；L-4 的「切工作区取消在途操作」（后端侧）留批 3 与取消能力一起做。
-
