@@ -4622,6 +4622,9 @@ html[data-reduce-motion] .tree-item.tree-running::after { animation: none; }
 /* 状态栏问题芯片（#status-problems）：error 态红色警示 */
 #status-problems { font-size: var(--text-xs); }
 #status-problems.has-errors { color: var(--danger); font-weight: 600; }
+/* 长耗时 uv 操作「进行中」芯片（#status-op，体验审查 L-5 / L-3）：外层布局已由 `#statusbar > span`
+   提供（inline-flex + gap + --fg-dim），此处只需压掉 .btn--sm 的纵向内边距（状态栏仅 24px 高） */
+#status-op .btn { flex: none; padding-top: 0; padding-bottom: 0; }
 #git-detail-header {
   display: flex;
   align-items: center;

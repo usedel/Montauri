@@ -448,6 +448,13 @@
         <span id="status-file"></span>
         <!-- T2：光标位置芯片（cursorStatus.ts 驱动）——「Ln 42, Col 8」+ 选区计数；点击 = 跳行（Ctrl+G 同入口） -->
         <span id="status-cursor" class="hidden" style="cursor:pointer" role="button" tabindex="0"></span>
+        <!-- 长耗时 uv 操作「进行中」芯片（体验审查 L-5 / L-3）：全局可见态 + 唯一取消入口。
+             文案与显隐由 statusOp.ts 驱动（t() 现取词，故不打 data-i18n）；点击「取消」调
+             uv_cancel_op 置位后端取消标志，轮询线程杀进程树后返回「已取消」。 -->
+        <span id="status-op" class="hidden">
+          <span id="status-op-label" role="status" aria-live="polite"></span>
+          <button id="status-op-cancel" class="btn btn--sm">取消</button>
+        </span>
         <!-- UI-09：与同栏的 #status-interpreter / #status-engine 统一走 data-tip，消除状态栏内的 tooltip 双轨 -->
         <span data-i18n-tip="status.statusGit" id="status-git" data-tip="当前分支" style="cursor:default"></span>
         <span class="spacer"></span>

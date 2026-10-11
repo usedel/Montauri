@@ -48,6 +48,17 @@ beforeEach(async () => {
     el.id = "bottom";
     document.body.appendChild(el);
   }
+  // L-5：runDepFix 起手会点亮状态栏「进行中」芯片——芯片骨架同样缺元素即抛
+  if (!document.getElementById("status-op")) {
+    const chip = document.createElement("span");
+    chip.id = "status-op";
+    const label = document.createElement("span");
+    label.id = "status-op-label";
+    const cancel = document.createElement("button");
+    cancel.id = "status-op-cancel";
+    chip.append(label, cancel);
+    document.body.appendChild(chip);
+  }
   outputEl = document.getElementById("output")!;
   outputEl.textContent = "";
   // 清掉测试用模态
@@ -58,6 +69,9 @@ beforeEach(async () => {
   vi.mocked(openConfirm).mockReset();
   dh = await import("../depHealth");
   dh.resetDepHealth();
+  // L-5：清掉上一用例可能残留的在途芯片态（互斥会让下一用例的 beginUvOp 直接失败）
+  const statusOp = await import("../statusOp");
+  for (const k of ["venv", "install", "upgrade", "fix"] as const) statusOp.endUvOp(k);
   vi.useRealTimers();
 });
 

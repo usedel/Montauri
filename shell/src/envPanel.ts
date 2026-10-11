@@ -18,6 +18,7 @@ import { openConfirm } from "./dialog";
 import { hideEl, showEl } from "./anim";
 import { trapFocus } from "./focusTrap";
 import { toast, toastFail } from "./toast";
+import { beginUvOp, endUvOp, isCanceled, notifyBusy, notifyCanceled } from "./statusOp"; // L-3/L-5：状态栏「进行中」芯片 + 取消
 import * as toolchain from "./toolchain";
 import { resetRuffMissingNotice } from "./format"; // 装好后复位「ruff 缺席」提示去重（format 不 import 本模块，无环）
 import {
@@ -744,6 +745,8 @@ async function createVenv(version: string): Promise<void> {
   // 写进新工作区的解释器配置。await 后统一校验 root 是否仍是当前工作区。
   const root = app.workspaceRoot;
   if (!root) return;
+  // L-5：env 域会话互斥——已有 uv 操作在跑就拒绝（后端 env 域无互斥，两个 uv 并发写同一 .venv 会互相踩）
+  if (!beginUvOp("venv")) { notifyBusy(); return; }
   const cmdDesc = `uv venv .venv${version ? " --python " + version : ""}  (${root})`;
   // L-6：长操作起手统一走 beginLongOp（展开输出面板 + 记录命令）——uv 下载 Python / 创建环境的
   // 流式进度是唯一的进度反馈，展开动作不再由各调用点自觉维护
@@ -759,6 +762,7 @@ async function createVenv(version: string): Promise<void> {
     interpTriggerEl.disabled = false;
     syncInterpreterTrigger();
     setEnvWriteDisabled(false); // L-8：与 trigger 同生命周期解锁
+    endUvOp("venv"); // L-5：芯片收尾（成功 / 失败 / 取消 / 丢弃统一走这里）
   };
   let python: string | null = null;
   try {
@@ -768,6 +772,8 @@ async function createVenv(version: string): Promise<void> {
   } catch (e) {
     // 已切工作区：错误也不该报到新工作区（面板已随切换关闭，静默丢弃即可）
     if (root !== app.workspaceRoot) { resetTrigger(); return; }
+    // L-3：取消是用户主动行为，不是失败——info 级提示，不写 stderr 也不报错
+    if (isCanceled(e)) { resetTrigger(); notifyCanceled(); return; }
     appendOutputLine(outputEl, t("env.createFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "env");
     toastFail(t("env.action.createVenvBtn"), e);
     resetTrigger();
@@ -800,6 +806,7 @@ async function installPackage(): Promise<void> {
     return;
   }
   const btn = $btn("env-pkg-install");
+  if (!beginUvOp("install")) { notifyBusy(); return; } // L-5：env 域互斥
   beginLongOp(outputEl, `> uv pip install ${spec}  (${currentInterpreter})`); // L-6
   setEnvWriteDisabled(true); // L-8
   setBusy(btn, true, t("env.state.installing"));
@@ -814,11 +821,16 @@ async function installPackage(): Promise<void> {
     await afterEnvChanged();
     if (code === 0) toast(t("env.installed", { spec: spec }), "success"); // §5.2 即时反馈（输出面板留详细记录）
   } catch (e) {
-    appendOutputLine(outputEl, t("env.installFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "env");
-    toastFail(t("env.fail.install"), e);
+    // L-3：取消走 info 级（半态环境由 afterEnvChanged 的重算如实呈现，不掩盖）
+    if (isCanceled(e)) notifyCanceled();
+    else {
+      appendOutputLine(outputEl, t("env.installFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "env");
+      toastFail(t("env.fail.install"), e);
+    }
   } finally {
     setBusy(btn, false);
     setEnvWriteDisabled(false); // L-8：解除写锁（在 setBusy 之后，防提前解禁）
+    endUvOp("install"); // L-5
   }
   envPkgInputEl.value = "";
   await renderPackages();
@@ -882,6 +894,7 @@ async function upgradePackages(names: string[]): Promise<void> {
   const list = names.filter(Boolean);
   if (list.length === 0 || !currentInterpreter) return;
   const btn = envPkgUpgradeAllBtn;
+  if (!beginUvOp("upgrade")) { notifyBusy(); return; } // L-5：env 域互斥
   beginLongOp(outputEl, `> uv pip install --upgrade ${list.join(" ")}  (${currentInterpreter})`); // L-6
   setEnvWriteDisabled(true); // L-8
   setBusy(btn, true, t("env.state.upgrading"));
@@ -895,11 +908,16 @@ async function upgradePackages(names: string[]): Promise<void> {
     await afterEnvChanged();
     if (code === 0) toast(t("env.upgraded", { count: list.length }), "success"); // §5.2 即时反馈
   } catch (e) {
-    appendOutputLine(outputEl, t("env.upgradeFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "env");
-    toastFail(t("env.dialog.upgradeTitle"), e);
+    // L-3：取消走 info 级（半态环境由 afterEnvChanged 的重算如实呈现）
+    if (isCanceled(e)) notifyCanceled();
+    else {
+      appendOutputLine(outputEl, t("env.upgradeFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "env");
+      toastFail(t("env.dialog.upgradeTitle"), e);
+    }
   } finally {
     setBusy(btn, false);
     setEnvWriteDisabled(false); // L-8：解除写锁（在 setBusy 之后，防提前解禁）
+    endUvOp("upgrade"); // L-5
   }
   await renderPackages();
 }
@@ -955,6 +973,7 @@ export async function installMissingPackage(pkg: string): Promise<void> {
     toast(t("env.installCanceled", { module: module }), "info");
     return;
   }
+  if (!beginUvOp("install")) { notifyBusy(); return; } // L-5：env 域互斥
   beginLongOp(outputEl, `> uv pip install ${module}  (${shortInterpreter(currentInterpreter)})`); // L-6
   try {
     const code = await invoke<number>("pip_install", { workspaceRoot: app.workspaceRoot, interpreter: currentInterpreter, spec: module });
@@ -972,8 +991,14 @@ export async function installMissingPackage(pkg: string): Promise<void> {
       toastFail(t("env.fail.install"), `exit ${code}`);
     }
   } catch (e) {
-    appendOutputLine(outputEl, t("env.installFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "env");
-    toastFail(t("env.fail.install"), e);
+    // L-3：取消走 info 级，不报失败
+    if (isCanceled(e)) notifyCanceled();
+    else {
+      appendOutputLine(outputEl, t("env.installFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "env");
+      toastFail(t("env.fail.install"), e);
+    }
+  } finally {
+    endUvOp("install"); // L-5
   }
 }
 

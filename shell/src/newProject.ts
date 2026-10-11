@@ -13,6 +13,7 @@ import { hideEl, showEl } from "./anim";
 import { trapFocus } from "./focusTrap";
 import { openAlert } from "./dialog";
 import { toast, toastFail } from "./toast";
+import { beginUvOp, endUvOp, isCanceled, notifyCanceled } from "./statusOp"; // L-3/L-5：状态栏「进行中」芯片 + 取消
 import { afterEnvChanged, refreshInterpreterStatus, type CreateVenvResult, type PythonVersionOption } from "./envPanel";
 import { resetCloneForm, cancelCloneInspect, ensureCloneTabRendered } from "./cloneRepository";
 import { gitErrText } from "./gitError"; // create_project 的 git_message 带后端分类码，需翻成人话（leaf 模块，不拉 xterm）
@@ -285,11 +286,16 @@ async function createProject(): Promise<void> {
         beginLongOp(outputEl, `> uv venv .venv${version ? " --python " + version : ""}  (${result.path})`);
         // C-5：复用环境面板的「需下载」提示（同一判定：选了具体版本）
         if (version) appendOutputLine(outputEl, t("env.versions.downloadHint"), "hint", gotoFromLink, "env");
-        const r = await invoke<CreateVenvResult>("create_venv", { workspaceRoot: result.path, version });
-        if (r.output) appendOutputLine(outputEl, r.output, "stdout", gotoFromLink, "env");
-        if (r.python) {
-          await invoke("set_interpreter", { workspaceRoot: result.path, path: r.python }).catch(console.error);
-          venvCreated = true;
+        beginUvOp("venv"); // L-5：状态栏「进行中」芯片（此时面板已关，芯片是唯一的全局可见态）
+        try {
+          const r = await invoke<CreateVenvResult>("create_venv", { workspaceRoot: result.path, version });
+          if (r.output) appendOutputLine(outputEl, r.output, "stdout", gotoFromLink, "env");
+          if (r.python) {
+            await invoke("set_interpreter", { workspaceRoot: result.path, path: r.python }).catch(console.error);
+            venvCreated = true;
+          }
+        } finally {
+          endUvOp("venv");
         }
       } else if (envType === "system") {
         const interp = await invoke<string | null>("pick_default_system_interpreter");
@@ -311,8 +317,12 @@ async function createProject(): Promise<void> {
         }
       }
     } catch (e) {
-      appendOutputLine(outputEl, t("newproject.envSetupFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "env");
-      toastFail(t("newproject.failEnvSetup"), e);
+      // L-3：取消不是失败——info 级提示（半态由 afterEnvChanged 的重算如实呈现）
+      if (isCanceled(e)) notifyCanceled();
+      else {
+        appendOutputLine(outputEl, t("newproject.envSetupFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "env");
+        toastFail(t("newproject.failEnvSetup"), e);
+      }
     }
 
     // F9：依赖安装（best-effort，不阻断）——声明已由 create_project 写入 pyproject.toml，
@@ -321,6 +331,7 @@ async function createProject(): Promise<void> {
     if (meta.deps.length > 0) {
       const spec = meta.deps.join(" ");
       beginLongOp(outputEl, `> uv add ${spec}  (${result.path})`); // C-4 + L-6
+      beginUvOp("install"); // L-5
       try {
         const code = await invoke<number>("pip_install", {
           workspaceRoot: result.path,
@@ -335,14 +346,19 @@ async function createProject(): Promise<void> {
           depsInstalled = meta.deps.length; // C-9：汇总里回显依赖数
         }
       } catch (e) {
-        appendOutputLine(
-          outputEl,
-          t("newproject.depsFailedNonBlocking", { error: localizeBackendError(errMsg(e)) }),
-          "stderr",
-          gotoFromLink,
-          "env",
-        );
-        toastFail(t("newproject.failDeps"), e);
+        if (isCanceled(e)) notifyCanceled(); // L-3：取消不是失败
+        else {
+          appendOutputLine(
+            outputEl,
+            t("newproject.depsFailedNonBlocking", { error: localizeBackendError(errMsg(e)) }),
+            "stderr",
+            gotoFromLink,
+            "env",
+          );
+          toastFail(t("newproject.failDeps"), e);
+        }
+      } finally {
+        endUvOp("install");
       }
     }
   } finally {

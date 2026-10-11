@@ -9,6 +9,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { app, outputEl } from "./state";
 import { appendOutputLine, beginLongOp } from "./output";
+import { beginUvOp, endUvOp, isCanceled, notifyCanceled } from "./statusOp"; // L-3/L-5：状态栏「进行中」芯片 + 取消
 import { gotoFromLink } from "./tracebackLink";
 import { openChoice, openConfirm } from "./dialog";
 import { toast, toastFail } from "./toast";
@@ -905,6 +906,8 @@ export async function runDepFix(plans: DepFixPlan[], title: string): Promise<boo
   fixInFlight = true;
   // §5.6-2：输出面板是唯一的进度指示（L-6：起手统一走 beginLongOp；批量 plan 的命令在循环内逐条回显）
   beginLongOp(outputEl);
+  // L-5：状态栏「进行中」芯片 + 取消入口（dep_fix 是唯一后端已有互斥的动作，前端只补可见态）
+  beginUvOp("fix");
   try {
     for (const p of batched) {
       appendOutputLine(outputEl, `> ${p.command}`, "cmd", gotoFromLink, "env");
@@ -921,12 +924,19 @@ export async function runDepFix(plans: DepFixPlan[], title: string): Promise<boo
     toast(t("dep.fixDone"), "success");
     return true;
   } catch (e) {
+    // L-3：取消不是失败——info 级提示；半态环境由 settleAfterFix 的重算如实呈现（§5.6-5 不掩盖）
+    if (isCanceled(e)) {
+      notifyCanceled();
+      await settleAfterFix(root);
+      return false;
+    }
     appendOutputLine(outputEl, t("dep.fixFailed", { error: localizeBackendError(errMsg(e)) }), "stderr", gotoFromLink, "env");
     toastFail(t("dep.fail.fix"), e);
     await settleAfterFix(root);
     return false;
   } finally {
     fixInFlight = false;
+    endUvOp("fix"); // L-5
   }
 }
 

@@ -1088,8 +1088,9 @@ fn dep_fix_inner(
     let mut cmd = tool_command("uv", ENV_UV);
     cmd.args(&args).current_dir(root);
     // L-2：修复动作（uv sync / add / remove）会联网装整套 lock 闭包（真实项目曾 63 项），
-    // 120s 在国内网络下常被 kill 成「依赖修复失败」——按动作分级后走联网超时
-    run_uv_streaming(app, &mut cmd, UV_NETWORK_TIMEOUT, wid)
+    // 120s 在国内网络下常被 kill 成「依赖修复失败」——按动作分级后走联网超时。
+    // L-3：操作名 "fix" 用于取消通道（前端状态栏「进行中」芯片的取消按钮）。
+    run_uv_streaming(app, &mut cmd, UV_NETWORK_TIMEOUT, wid, "fix")
 }
 
 #[cfg(test)]

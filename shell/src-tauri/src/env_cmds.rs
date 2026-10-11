@@ -15,6 +15,7 @@ use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::collections::{HashMap, HashSet};
 use std::process::{Command, Stdio};
+use std::sync::atomic::Ordering;
 use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
@@ -23,6 +24,7 @@ use tauri::{AppHandle, Emitter};
 use crate::run_config::{load_config, read_config, save_config, write_config, RunEntry};
 use crate::tool_paths::{tool_command, ENV_UV};
 use crate::util::{kill_process_tree, no_window};
+use crate::uv_cancel::{register_uv_op, unregister_uv_op};
 
 /// 本地 uv 操作超时（不联网）：卸载 / pip list 等——只与本地解释器和文件系统交互，秒级完成。
 ///
@@ -234,13 +236,23 @@ fn cmd_display(cmd: &Command) -> String {
 }
 
 /// 流式运行 uv 命令：stdout/stderr 逐行推送到前端（pip-stdout / pip-stderr），返回 exit code。
-pub(crate) fn run_uv_streaming(app: &AppHandle, cmd: &mut Command, timeout: Duration, wid: &str) -> Result<i32, String> {
+///
+/// `op` 是取消通道的操作名（venv / install / upgrade / fix）——登记后前端可经 `uv_cancel_op`
+/// 置位取消标志，轮询循环见标志即杀进程树并返回「已取消」（体验审查 L-3）。
+pub(crate) fn run_uv_streaming(
+    app: &AppHandle,
+    cmd: &mut Command,
+    timeout: Duration,
+    wid: &str,
+    op: &str,
+) -> Result<i32, String> {
     let mut child = no_window(cmd)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| format!("无法启动 uv：{e}"))?;
+    let cancel = register_uv_op(wid, op, child.id());
 
     let stdout = child.stdout.take().expect("stdout 已设为 piped");
     let stderr = child.stderr.take().unwrap();
@@ -250,6 +262,14 @@ pub(crate) fn run_uv_streaming(app: &AppHandle, cmd: &mut Command, timeout: Dura
 
     let start = Instant::now();
     let code = loop {
+        // L-3：用户点了取消 → 杀进程树，立即收口（不报失败，由前端按 info 级提示）
+        if cancel.load(Ordering::Relaxed) {
+            kill_process_tree(&mut child);
+            let _ = out_thread.join();
+            let _ = err_thread.join();
+            unregister_uv_op(wid, op);
+            return Err("已取消".to_string());
+        }
         match child.try_wait() {
             Ok(Some(status)) => break status.code(),
             Ok(None) => {
@@ -257,6 +277,7 @@ pub(crate) fn run_uv_streaming(app: &AppHandle, cmd: &mut Command, timeout: Dura
                     kill_process_tree(&mut child);
                     let _ = out_thread.join();
                     let _ = err_thread.join();
+                    unregister_uv_op(wid, op);
                     // L-7：超时不是终点——把可复制的命令交给用户。光说「超时」用户只能干等或猜，
                     // 带上命令行后慢网下可直接在终端重跑（`uv add fastapi` 这类粘出来就能用）。
                     return Err(format!(
@@ -271,12 +292,14 @@ pub(crate) fn run_uv_streaming(app: &AppHandle, cmd: &mut Command, timeout: Dura
                 kill_process_tree(&mut child);
                 let _ = out_thread.join();
                 let _ = err_thread.join();
+                unregister_uv_op(wid, op);
                 return Err(e.to_string());
             }
         }
     };
     let _ = out_thread.join();
     let _ = err_thread.join();
+    unregister_uv_op(wid, op);
     Ok(code.unwrap_or(-1))
 }
 
@@ -496,7 +519,7 @@ fn create_venv_impl(app: AppHandle, workspace_root: String, version: String, wid
     // 流式输出（pip-stdout/pip-stderr）+ 联网超时：--python 指定未安装版本时 uv 会联网下载
     // CPython，下载进度经流式实时可见（问题1），且不再被 120s 超时杀死（问题2 / L-2）。
     // output 字段留空——内容已流式推送，前端不再二次 append。
-    let code = run_uv_streaming(&app, &mut cmd, UV_NETWORK_TIMEOUT, &wid)?;
+    let code = run_uv_streaming(&app, &mut cmd, UV_NETWORK_TIMEOUT, &wid, "venv")?;
     if code != 0 {
         // 错误文案不含「详见输出面板」——本 Err 会被前端 appendOutputLine 写进输出面板，
         // 含指引会变成「输出面板里说详见输出面板」的自我指涉；uv 的逐行详情已由流式推送在上方。
@@ -748,7 +771,7 @@ fn pip_install_impl(app: AppHandle, workspace_root: String, interpreter: Option<
         cmd.arg(part);
     }
     // L-2：安装会联网（解析 + 下载），走联网超时——原 120s 在国内网络下常把「慢」变成「失败」
-    run_uv_streaming(&app, &mut cmd, UV_NETWORK_TIMEOUT, &wid)
+    run_uv_streaming(&app, &mut cmd, UV_NETWORK_TIMEOUT, &wid, "install")
 }
 
 /// 卸载包：uv pip uninstall --python <解释器> <name…>
@@ -804,7 +827,7 @@ fn pip_upgrade_impl(app: AppHandle, interpreter: String, names: Vec<String>, wid
         cmd.arg(n);
     }
     // L-2：升级会联网（解析 + 下载），走联网超时
-    run_uv_streaming(&app, &mut cmd, UV_NETWORK_TIMEOUT, &wid)
+    run_uv_streaming(&app, &mut cmd, UV_NETWORK_TIMEOUT, &wid, "upgrade")
 }
 
 // ---------- 解析 ----------

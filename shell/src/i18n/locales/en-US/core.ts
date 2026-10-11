@@ -33,6 +33,14 @@ export const core: Record<CoreKey, string> = {
   "common.rightSplitter": "Drag to resize panel (double-click to reset)",
   "common.sidebarSplitter": "Drag to resize sidebar (double-click to reset)",
   "common.unknownError": "Unknown error",
+  // ---- status.op ----
+  "status.op.venv": "Creating the Python environment…",
+  "status.op.install": "Installing dependencies…",
+  "status.op.upgrade": "Upgrading dependencies…",
+  "status.op.fix": "Fixing dependencies…",
+  "status.opBusy": "Another environment operation is already running; please wait…",
+  "status.opCanceled": "Canceled",
+  "status.opCanceling": "Canceling…",
   // ---- devtools ----
   "devtools.devtoolsClose": "Collapse Panel",
   // ---- dialog ----

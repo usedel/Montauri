@@ -32,6 +32,14 @@ export const core = {
   "common.rightSplitter": "拖动调整面板宽度（双击重置）",
   "common.sidebarSplitter": "拖动调整侧栏宽度（双击重置）",
   "common.unknownError": "未知错误",
+  // ---- status.op ----
+  "status.op.venv": "正在创建 Python 环境…",
+  "status.op.install": "正在安装依赖…",
+  "status.op.upgrade": "正在升级依赖…",
+  "status.op.fix": "正在修复依赖…",
+  "status.opBusy": "已有环境操作在进行中，请稍候…",
+  "status.opCanceled": "已取消",
+  "status.opCanceling": "取消中…",
   // ---- devtools ----
   "devtools.devtoolsClose": "收起面板",
   // ---- dialog ----

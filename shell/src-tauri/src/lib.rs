@@ -33,6 +33,7 @@ mod terminal;
 mod tool_paths;
 mod toolchain;
 mod util;
+mod uv_cancel;
 mod watcher;
 mod window_mgr;
 
@@ -365,6 +366,7 @@ pub fn run() {
             git_cmds::git_remote_add,
             git_cmds::git_remote_remove,
             git_cmds::git_cancel_op,
+            uv_cancel::uv_cancel_op,
             // Git worktree（迭代 5 · P2-9）+ Clone（迭代 6 · P3-1）
             //（2026-10-09 自 git_cmds 拆至 git_worktree_cmds）
             git_worktree_cmds::git_worktree_list,
@@ -403,6 +405,7 @@ pub fn run() {
                 terminal::term_kill_all_for_exit(); // v3.4 §17-16：运行全走 PTY，运行进程清理随会话统一承担
                 lsp::lsp_stop_all_for_exit();
                 git_cmds::git_stop_net_ops_for_exit(); // P2-6：进行中的 push/pull/fetch 同步杀树
+                uv_cancel::uv_stop_ops_for_exit(); // L-3：进行中的建环境 / 装包 / 升级 / dep_fix 同步杀树
                 plugin_cmds::plugins_stop_watcher_for_exit(); // P2-6：插件目录 watcher
                 db_cmds::db_stop_for_exit(); // B3：SQLite 连接（句柄释放，防锁库）
                 http_cmds::http_stop_for_exit(); // B4：在途 HTTP 请求（置取消标志，防线程悬挂）
