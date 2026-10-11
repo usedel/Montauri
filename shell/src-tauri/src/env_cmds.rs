@@ -24,10 +24,18 @@ use crate::run_config::{load_config, read_config, save_config, write_config, Run
 use crate::tool_paths::{tool_command, ENV_UV};
 use crate::util::{kill_process_tree, no_window};
 
-pub(crate) const UV_TIMEOUT: Duration = Duration::from_secs(120);
-/// 创建 venv 时若指定未安装的 Python 版本，uv 会联网下载 CPython（数十 MB、慢网可达数分钟），
-/// 120s 远远不够——超时会被 kill 致「下载完也重建失败」。单独给 10 分钟宽松超时。
-const UV_VENV_TIMEOUT: Duration = Duration::from_secs(600);
+/// 本地 uv 操作超时（不联网）：卸载 / pip list 等——只与本地解释器和文件系统交互，秒级完成。
+///
+/// 体验审查 L-2：超时此前**按命令**一刀切（除 venv 外一律 120s），把「会不会联网」这个真正的
+/// 分界抹平了——`uv add fastapi` 首次联网解析 + 下载在国内网络下很容易超过 120s，用户看到的是
+/// 「依赖安装失败」而非「超时」，白等一场还不知道原因。现按**动作**分级（本地 / 联网）。
+pub(crate) const UV_LOCAL_TIMEOUT: Duration = Duration::from_secs(120);
+/// 联网 uv 操作超时：建 venv（可能下载 CPython，数十 MB）· pip install / upgrade · uv sync / add / remove。
+///
+/// 与建环境同量级（原 `UV_VENV_TIMEOUT` 的唯一取值）：首次联网解析 + 下载在国内网络下确实可能
+/// 数分钟。等太久的问题交给 L-3 的「取消」解决（用户可随时中止），**不靠把超时调小**——
+/// 调小只会把「慢」变成「失败」。
+pub(crate) const UV_NETWORK_TIMEOUT: Duration = Duration::from_secs(600);
 pub(crate) const UV_LIST_TIMEOUT: Duration = Duration::from_secs(15);
 /// outdated 查询需联网，单独给更短超时，避免环境面板被网络拖住
 pub(crate) const UV_OUTDATED_TIMEOUT: Duration = Duration::from_secs(20);
@@ -180,9 +188,9 @@ fn read_all_bytes(r: impl Read) -> Vec<u8> {
     buf
 }
 
-/// 运行 uv 命令并返回「成功输出」或「错误信息」（供 pip 安装/卸载等）。
+/// 运行 uv 命令并返回「成功输出」或「错误信息」（供 pip 卸载等**本地**操作）。
 fn run_uv_output(cmd: &mut Command) -> Result<String, String> {
-    let (out, err, code) = run_with_timeout(cmd, UV_TIMEOUT)?;
+    let (out, err, code) = run_with_timeout(cmd, UV_LOCAL_TIMEOUT)?;
     let combined = format!("{out}{err}").trim().to_string();
     if code != Some(0) {
         return Err(if combined.is_empty() { format!("命令失败（exit {code:?}）") } else { combined });
@@ -214,6 +222,17 @@ fn stream_lines(
     })
 }
 
+/// 命令的「可复制」文本（超时兜底引导用，体验审查 L-7）：program + args 原样拼接。
+/// 不做 shell 转义——只用于让用户看懂并手动重跑，不承诺可直接粘进 shell。
+fn cmd_display(cmd: &Command) -> String {
+    let mut s = cmd.get_program().to_string_lossy().into_owned();
+    for a in cmd.get_args() {
+        s.push(' ');
+        s.push_str(&a.to_string_lossy());
+    }
+    s
+}
+
 /// 流式运行 uv 命令：stdout/stderr 逐行推送到前端（pip-stdout / pip-stderr），返回 exit code。
 pub(crate) fn run_uv_streaming(app: &AppHandle, cmd: &mut Command, timeout: Duration, wid: &str) -> Result<i32, String> {
     let mut child = no_window(cmd)
@@ -238,7 +257,13 @@ pub(crate) fn run_uv_streaming(app: &AppHandle, cmd: &mut Command, timeout: Dura
                     kill_process_tree(&mut child);
                     let _ = out_thread.join();
                     let _ = err_thread.join();
-                    return Err(format!("命令执行超时（{}s）", timeout.as_secs()));
+                    // L-7：超时不是终点——把可复制的命令交给用户。光说「超时」用户只能干等或猜，
+                    // 带上命令行后慢网下可直接在终端重跑（`uv add fastapi` 这类粘出来就能用）。
+                    return Err(format!(
+                        "命令执行超时（{}s）——网络较慢时可在终端手动执行：{}",
+                        timeout.as_secs(),
+                        cmd_display(cmd),
+                    ));
                 }
                 std::thread::sleep(Duration::from_millis(50));
             }
@@ -468,10 +493,10 @@ fn create_venv_impl(app: AppHandle, workspace_root: String, version: String, wid
         cmd.arg("--python").arg(version.trim());
     }
     cmd.current_dir(&workspace_root);
-    // 流式输出（pip-stdout/pip-stderr）+ 宽松超时：--python 指定未安装版本时 uv 会联网下载
-    // CPython，下载进度经流式实时可见（问题1），且不再被 120s 超时杀死（问题2）。
+    // 流式输出（pip-stdout/pip-stderr）+ 联网超时：--python 指定未安装版本时 uv 会联网下载
+    // CPython，下载进度经流式实时可见（问题1），且不再被 120s 超时杀死（问题2 / L-2）。
     // output 字段留空——内容已流式推送，前端不再二次 append。
-    let code = run_uv_streaming(&app, &mut cmd, UV_VENV_TIMEOUT, &wid)?;
+    let code = run_uv_streaming(&app, &mut cmd, UV_NETWORK_TIMEOUT, &wid)?;
     if code != 0 {
         // 错误文案不含「详见输出面板」——本 Err 会被前端 appendOutputLine 写进输出面板，
         // 含指引会变成「输出面板里说详见输出面板」的自我指涉；uv 的逐行详情已由流式推送在上方。
@@ -677,7 +702,7 @@ pub async fn list_packages(interpreter: String) -> Result<Vec<PackageInfo>, Stri
 fn list_packages_impl(interpreter: String) -> Result<Vec<PackageInfo>, String> {
     let mut cmd = tool_command("uv", ENV_UV);
     cmd.args(["pip", "list", "--python", &interpreter, "--format=freeze"]);
-    let (out, err, code) = run_with_timeout(&mut cmd, UV_TIMEOUT)?;
+    let (out, err, code) = run_with_timeout(&mut cmd, UV_LOCAL_TIMEOUT)?; // L-2：本地操作走本地超时
     if code != Some(0) {
         let raw = if out.is_empty() { err } else { out };
         return Err(if raw.trim().is_empty() { format!("uv pip list 失败（exit {code:?}）") } else { raw.trim().to_string() });
@@ -722,7 +747,8 @@ fn pip_install_impl(app: AppHandle, workspace_root: String, interpreter: Option<
     for part in spec.split_whitespace() {
         cmd.arg(part);
     }
-    run_uv_streaming(&app, &mut cmd, UV_TIMEOUT, &wid)
+    // L-2：安装会联网（解析 + 下载），走联网超时——原 120s 在国内网络下常把「慢」变成「失败」
+    run_uv_streaming(&app, &mut cmd, UV_NETWORK_TIMEOUT, &wid)
 }
 
 /// 卸载包：uv pip uninstall --python <解释器> <name…>
@@ -777,7 +803,8 @@ fn pip_upgrade_impl(app: AppHandle, interpreter: String, names: Vec<String>, wid
     for n in &names {
         cmd.arg(n);
     }
-    run_uv_streaming(&app, &mut cmd, UV_TIMEOUT, &wid)
+    // L-2：升级会联网（解析 + 下载），走联网超时
+    run_uv_streaming(&app, &mut cmd, UV_NETWORK_TIMEOUT, &wid)
 }
 
 // ---------- 解析 ----------
@@ -1371,4 +1398,23 @@ mod tests {
 
     // ---------- 依赖健康（dep health M1）单测 ----------
 
+    // ---------- 长耗时超时分级 / 兜底命令（体验审查 L-2 / L-7） ----------
+
+    /// L-2：联网动作必须比本地动作宽松——否则国内网络下「慢」会被判成「失败」
+    #[test]
+    fn network_timeout_is_wider_than_local() {
+        assert!(UV_NETWORK_TIMEOUT > UV_LOCAL_TIMEOUT);
+        assert_eq!(UV_NETWORK_TIMEOUT.as_secs(), 600);
+        assert_eq!(UV_LOCAL_TIMEOUT.as_secs(), 120);
+    }
+
+    /// L-7：超时兜底引导里的命令文本可复制（program + args 原样拼接，含带空格的参数）
+    #[test]
+    fn cmd_display_renders_program_and_args() {
+        let mut c = Command::new("uv");
+        c.args(["venv", ".venv", "--python", "3.12"]);
+        assert_eq!(cmd_display(&c), "uv venv .venv --python 3.12");
+        let bare = Command::new("uv");
+        assert_eq!(cmd_display(&bare), "uv");
+    }
 }

@@ -41,6 +41,9 @@ const PATTERNS: ErrPattern[] = [
   { zh: "被调试脚本已启动", en: "The script being debugged has already started" },
   { zh: "编辑历史事件过多（{}>{}）", en: "Too many edit history events ({}>{})" },
   { zh: "打开编辑历史文件失败", en: "Failed to open the edit history file" },
+  // 体验审查 L-7：联网类 uv 操作（建环境 / 装包 / 升级 / dep_fix）的超时文案带可复制的兜底命令，
+  // 慢网下用户不必干等——照着粘到终端重跑即可。锚定匹配，与下面的纯超时条目互不干扰。
+  { zh: "命令执行超时（{}s）——网络较慢时可在终端手动执行：{cmd}", en: "Command timed out ({}s) — on a slow network, run it manually in your terminal: {cmd}" },
   { zh: "命令执行超时（{}s）", en: "Command timed out ({}s)" },
   { zh: "uv venv 异常退出（exit {code}）", en: "uv venv exited abnormally (exit {code})" },
   { zh: "工作区不存在：{workspace_root}", en: "Workspace does not exist: {workspace_root}" },

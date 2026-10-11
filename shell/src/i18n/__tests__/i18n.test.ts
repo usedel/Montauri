@@ -241,6 +241,10 @@ describe("后端错误翻译层", () => {
     expect(localizeBackendError("工作区目录不存在：/tmp/x")).toBe("Workspace directory does not exist: /tmp/x");
     expect(localizeBackendError("分支名不能为空")).toBe("Branch name cannot be empty");
     expect(localizeBackendError("命令执行超时（30s）")).toBe("Command timed out (30s)");
+    // L-7：带兜底命令的联网超时文案（两参数模板，与上面那条锚定互不干扰）
+    expect(localizeBackendError("命令执行超时（600s）——网络较慢时可在终端手动执行：uv venv .venv --python 3.12")).toBe(
+      "Command timed out (600s) — on a slow network, run it manually in your terminal: uv venv .venv --python 3.12",
+    );
   });
 
   it("多参数模板按序回填", () => {

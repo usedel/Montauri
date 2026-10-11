@@ -31,7 +31,7 @@ use crate::dep_health::{
     DEP_PROBE_SCRIPT, DEP_PROBE_TIMEOUT, DIST_ALIAS_FALLBACK, DRIFT_EXCLUDED,
 };
 use crate::env_cmds::{
-    get_interpreter, init_pyproject_impl, run_uv_streaming, run_with_timeout, PackageInfo, UV_TIMEOUT,
+    get_interpreter, init_pyproject_impl, run_uv_streaming, run_with_timeout, PackageInfo, UV_NETWORK_TIMEOUT,
 };
 use crate::logging::{log_line, Level};
 use crate::run_config::{load_config, save_config};
@@ -1087,7 +1087,9 @@ fn dep_fix_inner(
     // 此前后端再 emit 一次 "> uv …" 会在输出面板重复两行）——本层只流式转发 uv 自身输出
     let mut cmd = tool_command("uv", ENV_UV);
     cmd.args(&args).current_dir(root);
-    run_uv_streaming(app, &mut cmd, UV_TIMEOUT, wid)
+    // L-2：修复动作（uv sync / add / remove）会联网装整套 lock 闭包（真实项目曾 63 项），
+    // 120s 在国内网络下常被 kill 成「依赖修复失败」——按动作分级后走联网超时
+    run_uv_streaming(app, &mut cmd, UV_NETWORK_TIMEOUT, wid)
 }
 
 #[cfg(test)]
