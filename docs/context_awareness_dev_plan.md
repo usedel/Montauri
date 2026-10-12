@@ -5,6 +5,7 @@
 > 状态：**待评审**（2026-10-12 用户裁决「出增量开发计划文档，不动代码」后编写；注意本计划在维护态下属增强批，是否排期需用户明确）
 > 编写时间：2026-10-12
 > 追加（同日）：**§10 静态引擎覆盖核对**——裸会话探针实测 `self.`/局部变量/import 别名/多级属性链，三项已覆盖（关闭）、一项保留为候选 A9；探针脚本与靶场随本计划入库。
+> 评审修订（同日，第二轮）：修正 6 处预算数字（一律以 `budget-check.mjs` 实测为准——`completion_tests.rs` **1439/1450 已满** → A/B 测试改新建 `arg_ctx_tests.rs`；`call_context.rs` **526/560**；`signature.rs` **403/450**；`server.rs` **664/700**（已入预算面，非纯观察项）；行数条目 **69**）；补充「新文件登记须 `budgets.toml` + `addLine` 双改」（`except_completion.rs` 是未接线的反面先例）；澄清 A 的 RHS 段解析语义（`segment = prefix`）。
 > 上游文档：`param_var_completion_dev_plan.md`（P3-T11，待评审）· `completion_interaction_dev_plan.md`（已收官）· `live_templates上下文轴修订稿.md`（已实现）
 
 ---
@@ -90,7 +91,7 @@ mapping = {"a": 1}.|               # → 只有 if/else/not/print/len/return/str
 pub(crate) fn keyword_rhs(segment: &str) -> Option<(String, String)>
 ```
 
-2. `CallCtx` 增 `rhs: Option<(String, String)>`；`call_ctx_at` 末段解析：先试纯标识符（现状），再试 `keyword_rhs`。识别优先级：**RHS 段不再参与参数名候选的 `starts_with` 过滤**（那条路是给参数名用的）。
+2. `CallCtx` 增 `rhs: Option<(String, String)>`；`call_ctx_at` 末段解析：先试纯标识符（现状），再试 `keyword_rhs`。RHS 命中时 **`rhs = Some((name, prefix))` 且 `segment = prefix`**——变量候选的过滤与既有 `starts_with` 逻辑同源，不引第二套；参数名候选那条路（`name=` 插入）在 RHS 位直接关闭。
 3. `completion.rs::param_candidates`（+约 10 行）：`ctx.rhs` 为 `Some((name, prefix))` 时——
    - 目标 = `param_observations(f)` 中 **name 对应项**（找不到 → 空，让位）；
    - 不产参数名候选（再产就是 `url=url=` 事故）；
@@ -99,19 +100,19 @@ pub(crate) fn keyword_rhs(segment: &str) -> Option<(String, String)>
 
 **双路径**：P3-T11 先落地 → A 作为其扩展 slice 一次做完（≈ +45 行）；P3-T11 未落地 → A 只合入 1/2 步 + 单测（行为不变、为接线铺路），**不单独飞**。
 
-**测试清单**（`completion_tests.rs`，复用 `call_fixture`：`scraper.parse_page(url, timeout, retries)`，url:str ×10 / timeout:int ×7）
+**测试清单**（新建 `arg_ctx_tests.rs`——`completion.rs` 的 `#[cfg(test)] #[path]` 子模块，`use super::*` 访问私有项，同 `completion_tests.rs` 形态。**不能并入 `completion_tests.rs`**：该文件 2026-10-12 实测 **1439/1450**，仅剩 11 行。`call_fixture`（`scraper.parse_page(url, timeout, retries)`，url:str ×10 / timeout:int ×7）可直接复用）
 
 | # | 用例 | 断言 |
 |---|---|---|
 | A-1 | `keyword_rhs("url=cb")` / `("url=")` / `(" url = cb ")` | 分别 `Some(("url","cb"))` / `Some(("url",""))` / `Some(("url","cb"))` |
 | A-2 | `keyword_rhs` 的比较/复合形态 | `url==cb` / `url!=cb` / `url<=cb` / `url:=cb` → `None` |
-| A-3 | `call_ctx_at` 全链：`scraper.parse_page(url=cb` | `callee=scraper.parse_page`、`rhs=Some(("url","cb"))` |
+| A-3 | `call_ctx_at` 全链：`scraper.parse_page(url=cb` | `callee=scraper.parse_page`、`rhs=Some(("url","cb"))`、`segment="cb"` |
 | A-4 | 嵌套 `f(g(a=bb` | 最内层 callee=g（`call_frame_at` 既有语义不破） |
-| A-5 | `param_candidates` 在 RHS 位 | **不产** `url=` / `timeout=` 参数名候选（守护 `url=url=` 事故） |
+| A-5 | `param_candidates` 在 RHS 位 | **不产** `url=` / `timeout=` 参数名候选（守护 `url=url=` 事故）；两条路径下均成立 |
 | A-6 | P3-T11 联动（其落地后） | `get("u", url=cb` 目标仍是 `url` 槽（不是下一个未填槽）；str 变量置顶 |
 | A-7 | callee 无观测 | RHS 位返回 None → 符号补全（现状） |
 
-**预算影响**：`call_context.rs` +25（412/560）；`completion.rs` +10（870/950）；测试进 `completion_tests.rs`（1158/1450，余 292）；`server.rs` 0（响应形态不变）。A6 依赖 P3-T11，其预算单独登记在彼文档。
+**预算影响**（2026-10-12 budget-check 实测值）：`call_context.rs` **526/560** +25（余量仅 34 行，落地后 551/560——若届时叠加其他改动，兜底是把 `keyword_rhs` 也外移到新模块）；`completion.rs` 870/950 +10；`signature.rs` **403/450** −8；`server.rs` **664/700** 0（已入预算面）；测试进新建 `arg_ctx_tests.rs`（新登记上限 250）。A6 依赖 P3-T11，其预算单独登记在彼文档。
 
 **风险与回滚**：RHS 误判（A-2 的五种排除形态已覆盖；dict 字面量用 `:` 不受影响；f-string 调试语法 `f"{x=}"` 在字符串内，`call_frame_at` 字符串跳过已挡）。回滚 = 还原 `call_ctx_at` 段解析两分支。
 
@@ -157,7 +158,7 @@ r = requests.get(
 | B-3 | 既有 `call_frame_at` 全部用例（窗口 / 字符串 / def 边界 / 分组括号） | 零回归 |
 | B-4 | 性能哨兵 `call_frame_bounded_scan_does_not_scale_with_document` | 1 MB 文档 < 2 ms（`--ignored` release 跑） |
 
-**预算影响**：`call_context.rs` −3 行（净减）；测试 +约 30 行进 `completion_tests.rs`。
+**预算影响**：`call_context.rs` −3 行（净减）；测试并入 A 的新建 `arg_ctx_tests.rs`（+约 30）。
 
 **风险与回滚**：每次 `,`/`(` 触发多跑一段扫描——B-4 哨兵兜底（相对 `text_offset` 是常数级增量）。回滚 = 恢复那 4 行。
 
@@ -267,21 +268,26 @@ export function classifySelectionShape(
 
 ## 5. 预算影响汇总
 
-| 文件 | 现值 / 上限 | 增量 | 项 |
+> 下表现值均为 **2026-10-12 `budget-check.mjs` 实测值**（评审修订：首版引用的是 `ci/budgets.toml` 注释，与实测漂移——注释存量滞后，落地前一律以 budget-check 为准）。
+
+| 文件 | 实测现值 / 上限 | 增量 | 项 |
 |---|---|---|---|
-| `intel call_context.rs` | 412 / 560 | +22（A +25、B −3） | A/B |
+| `intel call_context.rs` | **526 / 560** | +22（A +25、B −3） | A/B。余量仅 34 行，落地后 548/560；兜底：`keyword_rhs` 外移新模块 |
 | `intel completion.rs` | 870 / 950 | +10 | A 接线 |
-| `intel completion_tests.rs` | 1158 / 1450 | +80 | A/B 测试 |
-| `intel server.rs` | 610（登记观察） | 0 | 响应形态不变 |
+| `arg_ctx_tests.rs`（新建） | — / **250**（新登记） | ~110 | A/B 测试。**不能进 `completion_tests.rs`**：该文件 **1439/1450**，仅剩 11 行 |
+| `intel completion_tests.rs` | **1439 / 1450** | **0** | 已近满，不再追加 |
+| `intel signature.rs` | **403 / 450** | −8 | A 的 `active_param_slot` 下沉 |
+| `intel server.rs` | **664 / 700** | 0 | 已入预算面（首版误记为「登记观察」） |
 | `shell postfix.ts` | 不在预算面 | +~45 | C |
 | `shell surround.ts` | 不在预算面 | +~40 | D |
 | `shell schema.ts` / `builtin.ts` | 不在预算面 | +~6 / +~14 | C/D |
 | `live-templates/__tests__/*.test.ts` | 不在预算面 | +~90 | C/D 测试 |
-| budget-check 项数 | 43 | **0**（无新登记文件） | — |
+| budget-check 行数条目 | **69**（`addLine` 计数） | **+1**（新测试文件） | 登记须**两处**：`ci/budgets.toml` + `budget-check.mjs` 的 `addLine` |
 | `main.ts` / `style.css` / `lsp/client.ts` | 红线 | **0** | 不碰 |
 
-> **叠加账（重要）**：若 P3-T11 与本计划同期落地，`completion.rs` 共用 80 行余量（P3-T11 +25、本计划 +10 → 870+35=905/950，仍可容纳但须**先跑 `budget-check.mjs` 实测刷新**——注释与实测漂移过先例）；`call_context.rs` 434/560、`type_infer.rs` 946/1050，均有余量。
+> **叠加账（重要）**：若 P3-T11 / P3-T13 与本计划同期落地，`completion.rs` 三方合计 +50 → **920/950**（可容纳但余量变薄，优先拆模块）；`call_context.rs` 548/560、`signature.rs` 395/450、`type_infer.rs`（P3-T11 的 `local_var_types` +~55）960/1050，均有实测余量。**测试无处可并**：`completion_tests.rs` 已满，三个计划的测试都要各自新开文件（先例：`completion.rs` / `completion_tests.rs` 拆分的 `#[path]` 形态）。
 > 纪律不变：估算超标先拆模块，**不申请抬阈值**。
+> **反面先例**（2026-10-12 评审发现）：`except_completion.rs` 在 `ci/budgets.toml` 有条目（上限 150）但 **`budget-check.mjs` 的 `addLine` 从未接线**——该文件实际无任何行数守护。登记新文件时两处都要改，别只改 toml。
 
 ## 6. 明确不做
 
@@ -299,14 +305,15 @@ export function classifySelectionShape(
 
 | 通道 | 适用 | 位置 / 先例 |
 |---|---|---|
-| cargo 单测 | A/B 全部（intel 侧 e2e 浏览器层不可达，A3 期既定结论） | `completion_tests.rs`（`call_fixture` 扩展）；哨兵 `--ignored` |
+| cargo 单测 | A/B 全部（intel 侧 e2e 浏览器层不可达，A3 期既定结论） | 新建 `arg_ctx_tests.rs`（`call_fixture` 扩展）；哨兵 `--ignored` |
 | vitest 纯函数 | C/D 的判定与过滤 | `live-templates/__tests__/postfix.test.ts` / `surround.test.ts`（同居形态，同 `extractExprBeforeDot` 先例） |
 | e2e 域回归 | C/D 的行为面 | `npm run e2e -- e2e/lt`（只跑 lt 域，不全量） |
 | 真机手测 | A 的体感（RHS 变量置顶） | 用户 PowerShell 终端跑；输出不过 PS（长行+全角终止性异常） |
 
 ## 8. 门禁、红线与登记
 
-- **门禁**：intel 项 `cd intel && cargo test` + `cargo build -p opencharm-intel`（test 不刷新 shell 调用的 exe）；shell 项 `npm test`（相关文件）+ `npm run build`（tsc 0 错）+ `npm run e2e -- e2e/lt`；`node shell/scripts/budget-check.mjs`（确认无新增破线）。
+- **门禁**：intel 项 `cd intel && cargo test` + `cargo build -p opencharm-intel`（test 不刷新 shell 调用的 exe）；shell 项 `npm test`（相关文件）+ `npm run build`（tsc 0 错）+ `npm run e2e -- e2e/lt`；每项落地前后各跑一次 `node shell/scripts/budget-check.mjs`（**现值以实测为准，注释会滞后**）。
+- **新文件登记（评审补充）**：本计划新建 `arg_ctx_tests.rs`，登记须**两处都改**——`ci/budgets.toml` 加 `intel_arg_ctx_tests_rs_max_lines = 250` + `shell/scripts/budget-check.mjs` 的 `addLine(...)` 加一行。只改 toml 不接线 = 无守护（反面先例：`except_completion.rs`）。
 - **红线核对**：不动 probe/intel **采集路径**（四项全在消费侧）；不新增常驻进程/依赖；六段 sortText 契约不破（C/D 过滤在候选构造前，段位逻辑零改动）；无新增用户可见 i18n 文案（两个新字段是行为数据，不进面板）；`env_cmds.rs` 冻结不涉及。
 - **维护态说明**：B 属缺陷修复（维护态可受理）；A/C/D 属增强，**排期需用户明确裁决**（本文状态即为待评审）。
 - **登记**（落地后，不提前）：`docs/delivery-overview.md` 版本 +1；工作记忆回填。

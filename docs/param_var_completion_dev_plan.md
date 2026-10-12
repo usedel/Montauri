@@ -97,7 +97,7 @@ def run():
 
 ### 3.3 改动点 B：匹配与排序（新文件 `arg_var_completion.rs`，约 170 行）
 
-模块职责单一：给定调用上下文 + 变量清单，产出**已匹配、已排序**的变量候选。拆新文件的先例：`except_completion.rs`（P2 except 补全批，~99 行 / 上限 150）。
+模块职责单一：给定调用上下文 + 变量清单，产出**已匹配、已排序**的变量候选。拆新文件的先例：`except_completion.rs`（P2 except 补全批，107 行；⚠ 它有 `budgets.toml` 上限条目但 `budget-check.mjs` 的 `addLine` 未接线——本项登记时两处都要改）。
 
 ```rust
 /// 匹配并排序调用实参位的作用域变量候选（P3-T11）。
@@ -150,7 +150,7 @@ pub fn variable_candidates(
 
 ## 4. 测试清单
 
-主通道 **cargo 单测**（intel 侧浏览器 e2e 不可达——e2e mock 层没有 intel 进程，A3① 期的既定结论）。测试落点 `completion_tests.rs`，直接扩展既有 `call_fixture()`（`scraper.parse_page(url, timeout, retries)`，观测 url:str ×10 / timeout:int ×7 / retries:int ×4）：
+主通道 **cargo 单测**（intel 侧浏览器 e2e 不可达——e2e mock 层没有 intel 进程，A3① 期的既定结论）。测试落点**新建 `arg_var_completion_tests.rs`**（`arg_var_completion.rs` 的 `#[cfg(test)] #[path]` 子模块，同 `completion.rs` / `completion_tests.rs` 拆分形态；`completion_tests.rs` 已 1439/1450 近满，不再追加），`call_fixture()`（`scraper.parse_page(url, timeout, retries)`，观测 url:str ×10 / timeout:int ×7 / retries:int ×4）可直接复用：
 
 | # | 用例 | 断言 |
 |---|---|---|
@@ -174,18 +174,21 @@ pub fn variable_candidates(
 
 ## 5. 预算影响
 
-| 文件 | 现值 / 上限 | 预估增量 | 说明 |
-|---|---|---|---|
-| `type_infer.rs` | 891 / 1050 | +55 | `local_var_types` |
-| `arg_var_completion.rs`（新建） | — / **220**（新登记） | ~170 | 匹配 + 排序单模块 |
-| `completion.rs` | 870 / 950 | +25 | 接线 + 枚举值 + `active_param_slot` 下沉 |
-| `signature.rs` | 372 / 450 | −8 | 委托下沉函数 |
-| `server.rs` | 610（登记观察） | +6 | kind 分支 |
-| `completion_tests.rs` | 1158 / 1450 | +150 | T1~T11 |
-| budget-check 项数 | 43 | **+1 → 44** | 新文件登记先例：`except_completion.rs` / `pathCompletion.ts` |
-| `main.ts` / `style.css` / `lsp/client.ts` / `lspCompletion.ts` | — | **0** | 红线文件不碰 |
+> 下表现值均为 **2026-10-12 `budget-check.mjs` 实测值**（评审修订：首版引用 `budgets.toml` 注释，与实测漂移——注释存量滞后；且 `completion_tests.rs` 已 1439/1450 近满，测试须另开文件）。
 
-> 现值以 `ci/budgets.toml` 注释与 2026-10-12 计划文档为准，**动手前先跑 `node shell/scripts/budget-check.mjs` 实测刷新**（注释与实测漂移过：如 client.ts 注释 1,817 vs 计划表 1,840）。
+| 文件 | 实测现值 / 上限 | 预估增量 | 说明 |
+|---|---|---|---|
+| `type_infer.rs` | **906** / 1050 | +55 | `local_var_types`（落地后 961/1050） |
+| `arg_var_completion.rs`（新建） | — / **220**（新登记） | ~170 | 匹配 + 排序单模块 |
+| `arg_var_completion_tests.rs`（新建） | — / **250**（新登记） | ~150 | T1~T11。**不能进 `completion_tests.rs`**：该文件 **1439/1450**，仅剩 11 行 |
+| `completion.rs` | 870 / 950 | +25 | 接线 + 枚举值 + `active_param_slot` 下沉 |
+| `signature.rs` | **403** / 450 | −8 | 委托下沉函数 |
+| `server.rs` | **664 / 700** | +6 | kind 分支（已入预算面，非纯观察项） |
+| `completion_tests.rs` | **1439 / 1450** | **0** | 已近满，不再追加 |
+| budget-check 行数条目 | **69**（`addLine` 计数） | **+2** | 两个新文件；登记须**两处**：`ci/budgets.toml` + `budget-check.mjs` 的 `addLine`（`except_completion.rs` 只改 toml 未接线，是反面先例） |
+| `main.ts` / `style.css` / `lsp/client.ts` / `lspCompletion.ts` | 红线 | **0** | 不碰 |
+
+> 若与 P3-T12 / P3-T13 同期落地，`completion.rs` 三方合计 +50 → **920/950**（可容纳但余量变薄，优先拆模块）；三个计划的测试各自新开文件。
 > 纪律不变：估算超标就把逻辑继续往新模块拆，**不申请抬阈值**。
 
 ## 6. 明确不做（避免过度工程）
