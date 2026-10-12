@@ -4,6 +4,7 @@
 > 定位：把 2026-10-12「PyCharm 上下文补全机制」讨论与代码核对后筛出的**真实缺口**落成可逐项开发的计划——四项，全部轻量、本地、零新依赖。
 > 状态：**待评审**（2026-10-12 用户裁决「出增量开发计划文档，不动代码」后编写；注意本计划在维护态下属增强批，是否排期需用户明确）
 > 编写时间：2026-10-12
+> 追加（同日）：**§10 静态引擎覆盖核对**——裸会话探针实测 `self.`/局部变量/import 别名/多级属性链，三项已覆盖（关闭）、一项保留为候选 A9；探针脚本与靶场随本计划入库。
 > 上游文档：`param_var_completion_dev_plan.md`（P3-T11，待评审）· `completion_interaction_dev_plan.md`（已收官）· `live_templates上下文轴修订稿.md`（已实现）
 
 ---
@@ -319,6 +320,39 @@ export function classifySelectionShape(
 | 3 | Enum / Literal 候选 | 先核对 pyrefly/basedpyright 原生覆盖再定是否缺口；只从声明取候选，不从 trace 猜值 |
 | 4 | 灰字行预测 | 既有探索方案；补保存时冲刷 dirty 行 + `edit_history_enabled` 隐私开关 + Tab 冲突验证，真实数据达标后立项 |
 | 5 | keyword RHS 的「同名不同实现」歧义 | `resolve_callee` 已有唯一裁决式（非 stale、hits 最高），RHS 沿用不引第二套 |
+| 6 | 静态引擎对 `self.` / 局部变量 / import 别名 / 多级属性链的覆盖度 | **已实测结清，见 §10**（三项已覆盖→关闭；一项保留为候选 A9） |
+
+---
+
+## 10. 附：静态引擎覆盖核对（2026-10-12 裸会话实测）
+
+**背景**：候选池讨论中列出 4 项「疑似缺口」（`self.` 成员、多级属性链、局部变量、import 别名）。它们可能已由静态引擎覆盖，读代码无法定论——用裸会话探针实测，设施与口径照 `bench/pydantic-probe` 先例。
+
+- **脚本**：`bench/context-coverage-probe/probe.cjs`（新）· **靶场**：`bench/sample/context_coverage/`（新，含 `target.py` 行内标记 + `pyproject.toml`）
+- **报告**：`bench/reports/context-coverage-probe-{pyrefly,basedpyright}.json`——该目录 **gitignore**，本地复现：`node bench/context-coverage-probe/probe.cjs pyrefly|basedpyright`
+- **引擎口径**：走 `ci/versions.toml` 锁定版 `uv tool run pyrefly@1.3.1 lsp` / `uv tool run --from basedpyright@1.39.10 basedpyright-langserver --stdio`（本机 `uv tool` 装的是 1.3.0 / 1.40.1，直接调用会偏离基线——先例见 `dx_features_backlog.md` 的探针口径）
+- **对照设计**：每个场景「有注解 / 无注解」成对，区分「引擎不会做」与「引擎只在有类型信息时做」
+
+**结果**（HIT = 期望标签全中；两引擎均 `diagnosticsReady=true`）：
+
+| 场景 | pyrefly 1.3.1 | basedpyright 1.39.10 | 结论 |
+|---|---|---|---|
+| `self.` 成员（构造参数**有**注解） | HIT 5 项 | HIT 27 项 | 已覆盖 |
+| `self.` 成员（构造参数**无**注解） | HIT 4 项 | HIT 26 项 | 已覆盖（引擎能从无注解赋值推出 self 属性） |
+| 多级属性链 `self.customer.`（属性**有**注解） | HIT 5 项 | HIT 27 项 | 已覆盖 |
+| 多级属性链 `self.customer.`（属性**无**注解） | **MISS 0 项** | **MISS 0 项** | **真实缺口** |
+| 函数内局部变量前缀 `cb_` | HIT 15 项 | HIT 1 项 | 已覆盖 |
+| 模块级变量前缀 `module_le` | HIT 38 项 | HIT 1 项 | 已覆盖 |
+| import 别名 `import json as js` → `js.` | HIT 27 项 | HIT 22 项 | 已覆盖 |
+
+**结论与动作**：
+
+1. **关闭四项**（`self.` 成员 / 局部变量 / import 别名 / 有类型信息的多级属性链）——**不立项、不进 intel**。两引擎双覆盖；在 intel 重做等于重复投入，且违背「intel 独立、分工不同」的架构铁律。
+2. **保留一项真实缺口**：多级属性链在**无任何类型信息**时两引擎均给 0 项。可行的子形态只有一个——
+   `self.<attr> = <已观测函数的调用>()`（属性由调用赋值）：文档文本推断可走该调用的 `ret_types`（`type_infer::infer_rhs` 已有 `x = fn()` 口径，需把 LHS 扩展到点链），再复用 `members_for_type`。**不可行子形态**：属性直接来自无注解参数（`self.customer = customer`）——probe 的 shape 只记结构不记属性类型，我们同样拿不到（与 §6 的 `d["k"] = |` 同一条口径限制）。
+   → 登记为候选 **A9**（本计划不排期；若做，与 P3-T11 的 `type_infer` 改动合并评估最省）。
+3. **降级路径说明（不建议补）**：静态引擎未就绪/失败时，上面「已覆盖」的四项在面板上会整体缺失（intel 不提供它们）。补它等于在 intel 重做静态引擎能力，与分工冲突——登记为已知边界即可。
+
 
 ---
 
