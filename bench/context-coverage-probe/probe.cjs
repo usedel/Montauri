@@ -17,7 +17,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const ROOT = path.resolve(__dirname, "..", "sample", "context_coverage");
-const FILE = "target.py";
+const FILES = ["target.py", "helpers.py", "imports.py", "raises.py", "keys.py"];
 const ENGINE = (process.argv[2] || "pyrefly").toLowerCase();
 
 const PY_CANDIDATES = [
@@ -55,10 +55,16 @@ const SCENARIOS = [
   { id: "B3", marker: "@B3", desc: "函数内局部变量前缀 cb_", expect: ["cb_url"] },
   { id: "B3b", marker: "@B3b", desc: "模块级变量前缀 module_le", expect: ["module_level_url"] },
   { id: "B4", marker: "@B4", desc: "import 别名 js.（json as js）", expect: ["loads", "dumps", "load", "dump"] },
+  { id: "A1", file: "imports.py", marker: "@A1", desc: "import 位置模块名（前缀 coll）", expect: ["collections"] },
+  { id: "A2", file: "imports.py", marker: "@A2", desc: "from 标准库 import 成员（前缀 lo）", expect: ["loads"] },
+  { id: "A2b", file: "imports.py", marker: "@A2b", desc: "from 工作区模块 import 成员（前缀 pa）", expect: ["parse_page"] },
+  { id: "A3", file: "raises.py", marker: "@A3", desc: "raise 位置异常类型（前缀 Val）", expect: ["ValueError"] },
+  { id: "A7", file: "keys.py", marker: "@A7", form: "quoted", desc: "容器方法键（TypedDict 有类型）", expect: ["url", "title"] },
+  { id: "A7b", file: "keys.py", marker: "@A7b", form: "quoted", desc: "容器方法键（无类型变量）", expect: ["url", "title"] },
 ];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const URI = "file:///" + path.join(ROOT, FILE).replace(/\\/g, "/");
+const uriOf = (f) => "file:///" + path.join(ROOT, f).replace(/\\/g, "/");
 const ROOT_URI = "file:///" + ROOT.replace(/\\/g, "/");
 
 const info = ENGINES[ENGINE];
@@ -167,24 +173,44 @@ function positionOf(text, marker) {
   throw new Error(`标记未找到：${marker}`);
 }
 
-const norm = (l) => String(l).replace(/=+$/, "");
-const hitOf = (labels, exp) =>
-  labels.some((l) => norm(l) === exp || norm(l).startsWith(exp));
+/**
+ * 标签分类（判定精度的关键，2026-10-12 修正）：
+ * - `'url'` / `"url"` → quoted：**键字面量**候选（键补全的唯一有效形态）；
+ * - `key=` / `url=`   → kw：**关键字参数建议**，不是键，不能算命中；
+ * - 其余             → bare：普通符号/成员名。
+ * 旧版只剥尾部 `=`，导致「`url=` 误判为键命中」与「`'url'` 被漏判」两个方向都错。
+ */
+function classify(label) {
+  const s = String(label).trim();
+  const q = /^(['"])([\s\S]*)\1$/.exec(s);
+  if (q) return { kind: "quoted", name: q[2] };
+  if (s.endsWith("=")) return { kind: "kw", name: s.slice(0, -1) };
+  return { kind: "bare", name: s };
+}
+
+/** form="quoted" 只认键字面量；缺省只认 bare（kw 一律不算命中） */
+function hitOf(labels, exp, form) {
+  return labels.some((l) => {
+    const c = classify(l);
+    if (form === "quoted") return c.kind === "quoted" && c.name === exp;
+    return c.kind === "bare" && (c.name === exp || c.name.startsWith(exp));
+  });
+}
 
 /** 带重试的补全（pyrefly lazy 索引）：取「期望全中」或「条数最多」的一次 */
-async function completeAt(pos, expect) {
+async function completeAt(file, pos, expect, form) {
   let best = { total: -1, labels: [], error: null };
   for (let attempt = 1; attempt <= 4; attempt++) {
     try {
       const res = await sendRequest("textDocument/completion", {
-        textDocument: { uri: URI },
+        textDocument: { uri: uriOf(file) },
         position: pos,
         context: { triggerKind: 1 },
       });
       const items = Array.isArray(res) ? res : res?.items || [];
       const labels = items.map((it) => String(it.label));
       if (labels.length > best.total) best = { total: labels.length, labels, error: null };
-      if (expect.every((e) => hitOf(labels, e))) break;
+      if (expect.every((e) => hitOf(labels, e, form))) break;
     } catch (e) {
       best.error = String(e.message || e);
     }
@@ -219,22 +245,27 @@ async function main() {
   serverCapabilities = init?.capabilities || null;
   sendNotification("initialized", {});
 
-  const text = fs.readFileSync(path.join(ROOT, FILE), "utf8");
-  sendNotification("textDocument/didOpen", {
-    textDocument: { uri: URI, languageId: "python", version: 1, text },
-  });
+  const texts = {};
+  for (const f of FILES) {
+    texts[f] = fs.readFileSync(path.join(ROOT, f), "utf8");
+    sendNotification("textDocument/didOpen", {
+      textDocument: { uri: uriOf(f), languageId: "python", version: 1, text: texts[f] },
+    });
+  }
 
   // 等首次诊断（索引就绪信号）或 15s
   const t0 = Date.now();
-  while (Date.now() - t0 < 15000 && !diags.has(FILE)) await sleep(300);
+  while (Date.now() - t0 < 15000 && !diags.has("target.py")) await sleep(300);
 
   const results = [];
   for (const s of SCENARIOS) {
-    const pos = positionOf(text, s.marker);
-    const r = await completeAt(pos, s.expect);
-    const hits = s.expect.filter((e) => hitOf(r.labels, e));
+    const file = s.file || "target.py";
+    const pos = positionOf(texts[file], s.marker);
+    const r = await completeAt(file, pos, s.expect, s.form);
+    const hits = s.expect.filter((e) => hitOf(r.labels, e, s.form));
     results.push({
       id: s.id,
+      file,
       desc: s.desc,
       position: pos,
       total: r.total < 0 ? 0 : r.total,
@@ -255,7 +286,7 @@ async function main() {
     engineCmd: `${info.command} ${info.args.join(" ")}`,
     python: PYTHON || null,
     generatedAt: new Date().toISOString(),
-    diagnosticsReady: diags.has(FILE),
+    diagnosticsReady: FILES.filter((f) => diags.has(f)),
     completionProvider: serverCapabilities?.completionProvider || null,
     scenarios: results,
     stderrTail,

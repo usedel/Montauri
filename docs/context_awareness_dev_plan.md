@@ -326,14 +326,17 @@ export function classifySelectionShape(
 
 ## 10. 附：静态引擎覆盖核对（2026-10-12 裸会话实测）
 
-**背景**：候选池讨论中列出 4 项「疑似缺口」（`self.` 成员、多级属性链、局部变量、import 别名）。它们可能已由静态引擎覆盖，读代码无法定论——用裸会话探针实测，设施与口径照 `bench/pydantic-probe` 先例。
+**背景**：候选池里的「疑似缺口」无法靠读代码定论——它们可能已由静态引擎覆盖。用裸会话探针实测，设施与口径照 `bench/pydantic-probe` 先例。本轮覆盖 B 组（`self.` / 局部变量 / 别名 / 多级属性链）与 A 组（import 位置 / raise / 容器方法键）。
 
-- **脚本**：`bench/context-coverage-probe/probe.cjs`（新）· **靶场**：`bench/sample/context_coverage/`（新，含 `target.py` 行内标记 + `pyproject.toml`）
+- **脚本**：`bench/context-coverage-probe/probe.cjs` · **靶场**：`bench/sample/context_coverage/`（`target.py` + `helpers.py` + `imports.py` + `raises.py` + `keys.py`，场景位置由行内标记 `# @Bx` / `# @Ax` 定位，不写死行列号）
 - **报告**：`bench/reports/context-coverage-probe-{pyrefly,basedpyright}.json`——该目录 **gitignore**，本地复现：`node bench/context-coverage-probe/probe.cjs pyrefly|basedpyright`
 - **引擎口径**：走 `ci/versions.toml` 锁定版 `uv tool run pyrefly@1.3.1 lsp` / `uv tool run --from basedpyright@1.39.10 basedpyright-langserver --stdio`（本机 `uv tool` 装的是 1.3.0 / 1.40.1，直接调用会偏离基线——先例见 `dx_features_backlog.md` 的探针口径）
-- **对照设计**：每个场景「有注解 / 无注解」成对，区分「引擎不会做」与「引擎只在有类型信息时做」
+- **对照设计**：每个场景「有类型信息 / 无类型信息」成对，区分「引擎不会做」与「引擎只在有类型信息时做」
+- **判定口径（踩坑修正，2026-10-12）**：标签必须分类——`'url'`/`"url"` 是**键字面量**（键补全的唯一有效形态）、`url=` 是**关键字参数建议**（不是键）、其余为普通符号。首版只剥尾部 `=`，导致「`url=` 误判为键命中」与「`'url'` 被漏判」两个方向同时出错；修正后重跑才有下表结论。
 
-**结果**（HIT = 期望标签全中；两引擎均 `diagnosticsReady=true`）：
+### 10.1 B 组（`self.` / 局部变量 / 别名 / 多级属性链）
+
+**结果**（HIT = 期望标签全中；两引擎 `diagnosticsReady` 覆盖全部 5 个文件）：
 
 | 场景 | pyrefly 1.3.1 | basedpyright 1.39.10 | 结论 |
 |---|---|---|---|
@@ -352,6 +355,35 @@ export function classifySelectionShape(
    `self.<attr> = <已观测函数的调用>()`（属性由调用赋值）：文档文本推断可走该调用的 `ret_types`（`type_infer::infer_rhs` 已有 `x = fn()` 口径，需把 LHS 扩展到点链），再复用 `members_for_type`。**不可行子形态**：属性直接来自无注解参数（`self.customer = customer`）——probe 的 shape 只记结构不记属性类型，我们同样拿不到（与 §6 的 `d["k"] = |` 同一条口径限制）。
    → 登记为候选 **A9**（本计划不排期；若做，与 P3-T11 的 `type_infer` 改动合并评估最省）。
 3. **降级路径说明（不建议补）**：静态引擎未就绪/失败时，上面「已覆盖」的四项在面板上会整体缺失（intel 不提供它们）。补它等于在 intel 重做静态引擎能力，与分工冲突——登记为已知边界即可。
+
+### 10.2 A 组（import 位置 / `raise` / 容器方法键）
+
+| 场景 | pyrefly 1.3.1 | basedpyright 1.39.10 | 结论 |
+|---|---|---|---|
+| `import coll` → 模块名 | HIT 2 项（`collections`） | HIT 3 项 | 已覆盖 |
+| `from json import lo` → 标准库成员 | HIT 27 项（`loads`） | HIT 2 项 | 已覆盖 |
+| `from helpers import pa` → **工作区**模块成员 | HIT 14 项（`parse_page`） | HIT 1 项 | 已覆盖 |
+| `raise Val` → 异常类型 | HIT 22 项（`ValueError`） | HIT 14 项 | 已覆盖（内置/可静态解析的异常类） |
+| 容器方法键 `p.get(`（**TypedDict 有类型**） | **PARTIAL**（只给 `'url'`，漏 `'title'`） | HIT（`'url'` / `'title'`） | 部分覆盖（pyrefly 不全） |
+| 容器方法键 `d.get(`（**无类型变量**） | **MISS 0 项** | **MISS**（186 项，但无一个键字面量） | **真实缺口** |
+
+**结论与动作**：
+
+1. **关闭 A1（`import` 模块名）、A2（`from … import` 成员，含工作区模块）、A3（`raise` 异常类型）**——两引擎均覆盖。A3 的残余价值只剩「运行时观测到、但静态不可解析的异常」（第三方库无 stub 等窄口径），暂不立项。
+2. **A7 收敛为「无静态类型信息时的容器键补全」**——两引擎在无类型变量上都不给键（pyrefly 0 项；basedpyright 给 186 项但无一个是键字面量），而这正是 intel 的本职：运行时观测过的 dict 键。**这是 A 组唯一零依赖的真实增量**，见 `runtime_dict_key_completion_dev_plan.md`（P3-T13）。
+3. **A4（`return` 期望类型）、A5（`*`/`**` 解包）、A6（f-string 插值变量）** 均依赖 P3-T11 的 `local_var_types`——归为「P3-T11 扩展批」，不进零依赖批。
+
+### 10.3 候选池收敛结果
+
+| 原候选 | 处置 |
+|---|---|
+| B1 `self.` 成员 / B3 局部变量 / B4 import 别名 / B2 有注解多级链 | **关闭**（引擎覆盖） |
+| A1 `import` 模块名 / A2 `from … import` 成员 / A3 `raise` | **关闭**（引擎覆盖） |
+| A7 容器方法键 | **收敛为 P3-T13**（仅无类型信息时，见新文档） |
+| A8 实参位 dict 字面量键骨架 | **并入 P3-T13**（同族：键补全） |
+| A4 / A5 / A6 | 依附 **P3-T11**（需 `local_var_types`） |
+| A9 无注解多级属性链（属性由调用赋值） | 登记，不排期 |
+| 原 C 组（`d["k"] = |` 期望类型、邻近度/频率排序、stub 兜底、调用回放、ML 排序） | 不可行或既有裁决，**不重开** |
 
 
 ---
