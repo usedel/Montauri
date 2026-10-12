@@ -102,19 +102,30 @@ function newestSourceMtime() {
  *  实测（2026-10-06）：陈旧 dist 报 7,065 KB（FAIL），其中约 2.08 MB 是**已被取消的
  *  mermaid/katex 分包**；`npm run build` 后为 4,988 KB（PASS）。
  *  这类"不报错、只给偏大数字"的失真与 v1.1 的 `Get-Content .Count` 行数错误同类，
- *  故陈旧时判 **STALE（不算 PASS，断言模式非零退出）**，提示先构建再断言。 */
+ *  故陈旧时判 **STALE（不算 PASS，断言模式非零退出）**，提示先构建再断言。
+ *
+ *  另测首屏 chunk（index-*.js，Vite 固定命名）：2026-10-12 预算拆条后的新增口径——
+ *  monaco-editor 归并进独立按需 chunk 后，「总量」对冷启动劣化不再敏感
+ *  （index 膨胀几百 KB 总量可能纹丝不动），冷启动代理单独成条（index_chunk_kb）。 */
 function bundleInfo() {
   const assets = join(ROOT, "shell", "dist", "assets");
   if (!existsSync(assets)) return null;
   let bytes = 0;
   let distNewest = 0;
+  let indexChunkBytes = 0;
   for (const f of readdirSync(assets)) {
     if (!/\.(js|css)$/.test(f)) continue;
     const st = statSync(join(assets, f));
     bytes += st.size;
     if (st.mtimeMs > distNewest) distNewest = st.mtimeMs;
+    if (/^index-[\w-]+\.js$/.test(f)) indexChunkBytes += st.size;
   }
-  return { kb: Math.round(bytes / 1024), distMtimeMs: distNewest, srcMtimeMs: newestSourceMtime() };
+  return {
+    kb: Math.round(bytes / 1024),
+    indexChunkKb: Math.round(indexChunkBytes / 1024),
+    distMtimeMs: distNewest,
+    srcMtimeMs: newestSourceMtime(),
+  };
 }
 
 const checks = [];
@@ -199,16 +210,14 @@ addLine("intel/crates/opencharm-intel/src/server.rs", "intel_server_rs_max_lines
 addValue("命令数", "#[tauri::command]", countTauriCommands(), budget.max_tauri_commands, policy.commands_warn_only);
 {
   const b = bundleInfo();
-  addValue(
-    "产物体积(KB)",
-    "shell/dist/assets (JS+CSS)",
-    b ? b.kb : null,
-    budget.max_bundle_kb,
-    false,
+  const staleNote =
     b && b.srcMtimeMs > b.distMtimeMs
       ? `dist 陈旧（源码比产物新），体积数字不可信——请先在 shell/ 下跑 npm run build 再断言`
-      : undefined,
-  );
+      : undefined;
+  addValue("产物体积(KB)", "shell/dist/assets (JS+CSS)", b ? b.kb : null, budget.max_bundle_kb, false, staleNote);
+  // 冷启动代理（2026-10-12 拆条）：index chunk 是窗口出现前必经的解析量。与总量条共用
+  // 新鲜度判定（dist 陈旧时两条都不可信）。
+  addValue("首屏chunk(KB)", "dist/assets index-*.js", b ? b.indexChunkKb : null, budget.index_chunk_kb, false, staleNote);
 }
 
 // —— 编码卫生：含中文的 .ps1 必须带 UTF-8 BOM ——

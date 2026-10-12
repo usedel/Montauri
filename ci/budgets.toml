@@ -139,9 +139,9 @@ main_ts_max_lines = 2410
 # helpDocs.ts（帮助菜单「帮助文档」入口，2026-10-11 新增）：49 → 70 行（同日加中英双语路由）。
 #   上限 90（余量 ~22%）。
 #   范围：按界面语言选正文（en → `opencharm-help.en.md`，其余 → `opencharm-help.md`；本语 404 回落中文）
-#   → fetch 内置静态正文（`shell/public/help/`，**不进前端 JS 包**——JS+CSS 体积预算余量仅约
-#   18 KB，正文用 ?raw 内联必顶穿；放 public/ 则构建后落 dist/help/ 而非 dist/assets/，不计体积，
-#   与 public/fonts 同一条「self 同源静态」路径）→ get_data_doc_path + write_file 落盘数据根
+#   → fetch 内置静态正文（`shell/public/help/`，**不进前端 JS 包**——2026-10-11 时总量预算余量仅
+#   ~18 KB，正文 ?raw 内联必顶穿（现余量 ~14 KB 同样如此）；放 public/ 则构建后落 dist/help/
+#   而非 dist/assets/，不计体积，与 public/fonts 同一条「self 同源静态」路径）→ get_data_doc_path + write_file 落盘数据根
 #   docs/ → openPreviewTab 打开只读预览 Tab；并发去重。**刻意不碰 main.ts**（行数已触顶），
 #   故写盘与开 Tab 全走既有能力，无需 main 注入 handler。
 help_docs_ts_max_lines = 90
@@ -397,13 +397,28 @@ intel_server_rs_max_lines = 700
 # 206 = 信号线（policy warn_only），**下一个新命令必须先讨论插件化或扩本条**。
 max_tauri_commands = 206
 
-# —— 前端产物 ——
-# dist/assets 下 JS+CSS 合计上限（KB，未压缩原始体积）= 4,989 实测（2026-10-06 重新构建）+ ~2.6% 余量。
-# 仅在 dist/ 存在时检查（未构建则跳过，不算失败）。
-# ⚠ **该数字随 dist/ 新鲜度漂移**：陈旧 dist 会残留已删除的依赖分包（实测曾虚报 7,065 KB，
-#   其中约 2.08 MB 是已取消的 mermaid/katex），故脚本带新鲜度校验——源码比 dist 新判 STALE 并失败。
-#   引用本项数字前先 `cd shell && npm run build`。
+# —— 前端产物（2026-10-12 拆为两条：安装体积 + 冷启动代理）——
+#
+# 背景：原单条 max_bundle_kb 量的是 dist/assets 全量。2026-10-12 bundle 瘦身把 monaco-editor
+# 归并进独立按需 chunk 后，总量对**冷启动劣化**不再敏感——index 膨胀几百 KB（monaco 静态链
+# 回流）总量可能纹丝不动，反之把代码挪去按需 chunk 总量也不动但冷启动实际变快。两个目标
+# 各管各的度量，故拆条（用户裁决）：
+#
+# ① max_bundle_kb = 安装体积代理（dist/assets JS+CSS 合计，未压缩原始体积）。
+#    5,120 维持不动（2026-10-12 瘦身后实测 5,106，余量 14 KB）——瘦身改变了结构（index
+#    3.18→1.61 MB，monaco 归并单 chunk 3.07 MB），总量几乎持平是「按需加载不减总量、只减
+#    关键路径」的正常结果。余量偏紧是刻意的：下一个显著增量的功能要么做按需拆分，要么
+#    显式 PR 抬本条并写清理由。
+#    ⚠ 陈旧 dist 会残留已删除的依赖分包（实测曾虚报 7,065 KB，其中约 2.08 MB 是已取消的
+#    mermaid/katex），故脚本带新鲜度校验——源码比 dist 新判 STALE 并失败。引用数字前先
+#    `cd shell && npm run build`。
+# ② index_chunk_kb = 冷启动代理（index-*.js 首屏 chunk，窗口出现前必经的解析量）。
+#    1,700 = 实测 1,614（2026-10-12 瘦身后）+ ~5% 余量。冷启动红线的产物侧代理——完整红线
+#    仍以 bench/collect-metrics.ps1 真机实测为准（< 1,500 ms；瘦身后实测窗口 1,203 ms），
+#    本条的作用是把「monaco 静态链回流 index」这类结构回退挡在 PR 阶段（2026-10-12 就是被
+#    jsonLiteral/inlineMenu 的静态 import 击穿过，index 一度 3.18 MB）。
 max_bundle_kb = 5120
+index_chunk_kb = 1700
 
 [policy]
 # 命令数超限时是否阻断。200 是"该讨论插件化"的信号线而非红线，
