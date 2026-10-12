@@ -104,6 +104,8 @@ const settingsNewFileTemplateEl = lazyEl<HTMLInputElement>("settings-new-file-te
 const settingsPasteJsonEl = lazyEl<HTMLInputElement>("settings-paste-json");
 // P1-A（补全交互层 §4）：commitCharacters 接受键附加语义（默认关，见 state.ts 注释）
 const settingsCommitCharactersEl = lazyEl<HTMLInputElement>("settings-commit-characters");
+// 2026-10-12（P0-C 修订）：补全 Enter 行为（pycharm=Enter 接受首项 / safe=Enter 恒换行）
+const settingsCompletionEnterModeEl = lazyEl<HTMLSelectElement>("settings-completion-enter-mode");
 // B-3（PyCharm 调研）：调试只步进我的代码
 const settingsDebugJmcEl = lazyEl<HTMLInputElement>("settings-debug-jmc");
 // 库特别支持 PR-2：编辑器工具 lens / 正则高亮与测试器
@@ -485,6 +487,19 @@ export function buildEditorOptions(settings: Settings): MonacoApi.editor.IEditor
     // 方案 2：收窄行号右侧的折叠箭头区。Monaco 默认 lineDecorationsWidth=10，且 folding 开启时
     // 会再 +16（实际约 26px，其中大半是只有少数带折叠箭头的行才占用的空白）。压到 6 让 gutter 更紧凑。
     lineDecorationsWidth: 6,
+    // 补全 Enter 行为（2026-10-12 P0-C 修订，原 main.ts create 块硬编码迁入）：
+    //   · "pycharm"（默认）= selectionMode "always"——任意触发（含自动打字）都预选首项，
+    //     Enter 接受、Tab 替换接受（PyCharm 同款）。
+    //   · "safe" = "whenTriggerCharacter"——自动打字软选中（Enter 恒换行零误插），触发字符 /
+    //     显式触发仍硬选中。四取值实测矩阵见 e2e/lsp/06-completion-selection-mode.spec.ts。
+    // ⚠ selectionMode 只作用于**自动触发**（suggestController.js `if (triggerOptions.auto)`），
+    //   显式触发（Alt+/）恒硬选中，两档均不牺牲。
+    // 落在本函数（create 与 updateOptions 的唯一共用入口）→ 主编辑器 / 分屏 / db SQL 编辑器
+    // 一并覆盖；保存设置即调 app.editor.updateOptions，运行时生效由 e2e C-8 钉住。
+    suggest: {
+      insertMode: "insert",
+      selectionMode: settings.completion_enter_mode === "safe" ? "whenTriggerCharacter" : "always",
+    },
     // 方案 3：行号列最小宽度。Monaco 默认 minChars=5，行号数字右对齐，短文件里数字左侧会留
     // 大片空，视觉上拉大了「断点红点 ↔ 行号数字」的距离——这才是红点与行号间空白的头号来源。
     // 压到 3；文件行数变多时仍按实际位数自动伸缩。
@@ -765,6 +780,8 @@ function fillForm(settings: Settings): void {
   settingsPasteJsonEl.checked = settings.paste_json_to_python !== false;
   // P1-A：默认关，旧配置缺字段时兜底关（与 DEFAULT_SETTINGS 同向）
   settingsCommitCharactersEl.checked = settings.completion_commit_characters ?? DEFAULT_SETTINGS.completion_commit_characters;
+  // 2026-10-12：补全 Enter 行为（两档 select；非法值 / 旧配置缺字段兜底 pycharm）
+  settingsCompletionEnterModeEl.value = settings.completion_enter_mode === "safe" ? "safe" : "pycharm";
   settingsDebugJmcEl.checked = settings.debug_just_my_code !== false; // B-3
   // 库特别支持 PR-2：默认开，旧配置缺字段兜底开（!== false 惯例）
   settingsLibsEditorLensEl.checked = settings.libs_editor_lens !== false;
@@ -1029,6 +1046,8 @@ async function commitSettingsPanel(closeAfter: boolean): Promise<boolean> {
   const newFileTemplate = settingsNewFileTemplateEl.checked; // PR-K
   const pasteJson = settingsPasteJsonEl.checked; // PR-M
   const commitCharacters = settingsCommitCharactersEl.checked; // P1-A
+  // 2026-10-12：两档 select，非法值（理论上不可达，手改 HTML 除外）兜底 pycharm
+  const completionEnterMode = settingsCompletionEnterModeEl.value === "safe" ? "safe" : "pycharm";
   const autosave = settingsAutosaveEl.value;
   const probeEnabled = settingsProbeEl.checked;
   const probePerfEnabled = settingsProbePerfEl.checked; // A2 性能模式
@@ -1073,6 +1092,7 @@ async function commitSettingsPanel(closeAfter: boolean): Promise<boolean> {
     new_file_template: newFileTemplate, // PR-K
     paste_json_to_python: pasteJson, // PR-M
     completion_commit_characters: commitCharacters, // P1-A
+    completion_enter_mode: completionEnterMode, // 2026-10-12（P0-C 修订）
     debug_just_my_code: settingsDebugJmcEl.checked, // B-3
     libs_editor_lens: settingsLibsEditorLensEl.checked, // 库支持 PR-2
     libs_regex: settingsLibsRegexEl.checked, // 库支持 PR-2

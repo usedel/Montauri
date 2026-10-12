@@ -957,6 +957,17 @@
                       <div data-i18n="settings.editor.sectionEditorDiv2" class="settings-row-desc">开启后用 . 或 ( 接受补全会同时补出该字符；部分引擎的函数候选已自带括号，开启可能双括号。</div>
                     </div>
                   </div>
+                  <!-- 2026-10-12（P0-C 修订）：补全 Enter 行为两档，默认对齐 PyCharm -->
+                  <div class="settings-row">
+                    <label data-i18n="settings.editor.sectionEditorLabel24" for="settings-completion-enter-mode">补全 Enter 行为</label>
+                    <div class="settings-field">
+                      <select id="settings-completion-enter-mode">
+                        <option data-i18n="settings.editor.completionEnter.pycharm" value="pycharm">Enter 接受首项（PyCharm 同款）</option>
+                        <option data-i18n="settings.editor.completionEnter.safe" value="safe">Enter 恒换行（防误插）</option>
+                      </select>
+                      <div data-i18n="settings.editor.completionEnterDiv" class="settings-row-desc">「Enter 接受首项」：任意时机按 Enter 都接受高亮候选（接受后想换行需先 Esc 关闭弹窗）。「Enter 恒换行」：自动弹出的候选不预选，Enter 始终换行，接受请用 Tab。</div>
+                    </div>
+                  </div>
                   <!-- C-6（PyCharm 调研）：可读性配置，默认开（「默认就对」——PyCharm 出厂即有缩进线） -->
                   <div class="settings-row">
                     <label data-i18n="settings.editor.sectionEditorLabel6" for="settings-indent-guides">缩进参考线</label>

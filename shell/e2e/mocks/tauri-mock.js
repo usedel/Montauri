@@ -44,6 +44,9 @@
     lsp_engine: "pyrefly",
     runtime_intel_enabled: false,
     probe_perf_enabled: false, // A2 性能模式默认关（e2e/settings/01-perf-mode 断言保存值）
+    // 2026-10-12（P0-C 修订）：补全 Enter 行为默认 pycharm（Enter 接受首项）；
+    // safe 档用例经 __E2E_SETTINGS_PRESET__ 按字段覆写，不走基线。
+    completion_enter_mode: "pycharm",
     reduce_motion: false,
     // 工具链引导的忽略记录：空 = 没忽略过任何项（e2e/settings/02 断言点「稍后」后写入）
     toolchain_prompt_dismissed: [],

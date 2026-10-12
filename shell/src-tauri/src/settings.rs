@@ -245,6 +245,11 @@ pub struct Settings {
     /// P1-B（补全交互层 §4）：commitCharacters 接受键附加语义开关。默认关（双括号风险，
     /// 见前端 state.ts 接口注释）；须与前端 DEFAULT_SETTINGS 同步
     pub completion_commit_characters: bool,
+    /// 补全 Enter 行为（2026-10-12 修订，completion_interaction_dev_plan §P0-C）：
+    /// "pycharm" = 任意触发（含自动打字）都预选首项，Enter 接受（PyCharm 同款）；
+    /// "safe" = 自动打字软选中（Enter 恒换行零误插），触发字符 / 显式触发仍硬选中。
+    /// 旧配置缺字段时经 serde(default) 落到 "pycharm"（与前端 DEFAULT_SETTINGS 同步）。
+    pub completion_enter_mode: String,
 }
 
 impl Default for Settings {
@@ -332,6 +337,8 @@ impl Default for Settings {
             http_save_tokens: true,
             // P1-B（补全交互层 §4）：与前端 DEFAULT_SETTINGS.completion_commit_characters 保持同步
             completion_commit_characters: false,
+            // 2026-10-12：默认对齐 PyCharm（用户裁决；与前端 DEFAULT_SETTINGS.completion_enter_mode 同步）
+            completion_enter_mode: "pycharm".into(),
         }
     }
 }
@@ -520,6 +527,9 @@ mod tests {
         assert_eq!(d.optimize_imports_on_save, false);
         // VS Code 调研 借鉴-1：行内诊断文案默认关（噪音纪律）
         assert_eq!(d.inline_diagnostics, false);
+        // 2026-10-12：补全 Enter 行为默认对齐 PyCharm（与前端 DEFAULT_SETTINGS 同步）
+        assert_eq!(d.completion_enter_mode, "pycharm");
+        assert_eq!(d.completion_commit_characters, false);
     }
 
     #[test]
@@ -558,6 +568,8 @@ mod tests {
         assert_eq!(s.indent_guides, true);
         assert_eq!(s.bracket_colors, true);
         assert_eq!(s.debug_just_my_code, true);
+        // 2026-10-12：旧配置文件无此字段 → 回落默认对齐 PyCharm
+        assert_eq!(s.completion_enter_mode, "pycharm");
         // 快捷键：旧配置文件无此字段 → 整体回落默认键位表
         assert_eq!(s.keybindings.get("duplicate_line").map(String::as_str), Some("Ctrl+D"));
         assert_eq!(s.keybindings.get("debug").map(String::as_str), Some("F5"));
@@ -586,8 +598,8 @@ mod tests {
         // 诊断导航：旧配置无 F8 组 → 回落默认
         assert_eq!(s.keybindings.get("goto_next_problem").map(String::as_str), Some("F8"));
         assert_eq!(s.keybindings.get("goto_prev_problem").map(String::as_str), Some("Shift+F8"));
-        // 与 test_defaults 的漂移锁同步（62，见彼处注释）
-        assert_eq!(s.keybindings.len(), 63);
+        // 与 test_defaults 的漂移锁同步（64，见彼处注释；此前 63 为存量漂移，本次对齐）
+        assert_eq!(s.keybindings.len(), 64);
         assert_eq!(s.optimize_imports_on_save, false); // 旧配置文件无此字段 → 默认关闭
     }
 }

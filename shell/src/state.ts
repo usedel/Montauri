@@ -155,6 +155,13 @@ export interface Settings {
   /** P1-B（补全交互层 §4）：commitCharacters 接受键附加语义（`.` / `(` 接受候选并跟随字符）。
    *  默认关——部分引擎的函数候选 insertText 已含括号，开启会双括号；须与 Rust settings.rs 同步 */
   completion_commit_characters: boolean;
+  /** 补全 Enter 行为（2026-10-12 修订，completion_interaction_dev_plan §P0-C）：
+   *  "pycharm" = Monaco suggest.selectionMode "always"——任意触发（含自动打字）都预选首项，
+   *  Enter 接受、Tab 替换接受（PyCharm 同款；代价：快速打字时 Enter 想换行会误插）。
+   *  "safe" = "whenTriggerCharacter"——自动打字软选中（Enter 恒换行零误插），触发字符 /
+   *  显式触发仍硬选中；模板与 autoImport 候选由 Tab 的 focusAndAcceptSuggestion 分支接受。
+   *  默认 "pycharm"（用户裁决：对齐 PyCharm 体感）；须与 Rust settings.rs 同步 */
+  completion_enter_mode: "pycharm" | "safe";
 }
 
 /** 从单一来源（keybindingDefaults.ts）派生出厂键位表，避免三处手写漂移（tech-debt #6） */
@@ -304,6 +311,8 @@ export const DEFAULT_SETTINGS: Settings = {
   http_save_tokens: true,
   // P1-B（补全交互层 §4）：默认关——防「insertText 已含括号」的引擎候选双括号（见接口注释）
   completion_commit_characters: false,
+  // 补全 Enter 行为：默认对齐 PyCharm（2026-10-12 用户裁决，语义见接口注释）
+  completion_enter_mode: "pycharm",
 };
 
 export interface AppState {

@@ -326,6 +326,35 @@ live-template 也走自动打字 → 一并失去预选（`Enter` 换行）。�
 
 **复核补充（2026-10-08，全量复核 P0~P1 后）**：复核发现 `provideCompletionItems` 用 `engineStatus`（**静态引擎**状态）当补全总闸——static 挂在 `error`/`exited` 时 intel 补全被一起拖死；且 `main.ts:startLsp` 在 static 启动失败时 `return`、intel 根本不启动，二者叠加违背架构铁律「intel 独立、失败静默降级」。修复：① `client.ts` 总闸改为「static 与 intel 两路 session 都未 ready 才早退」，每路由 `queryCompletion` 的 per-engine 门控各自短路；② `main.ts:startLsp` 去掉 static 失败的 `return`（只提示、不阻断 `startIntel`）。守护：`e2e/lsp/07-intel-independent.spec.ts`（mock 扩展 `get_intel_info` 伪 command + `staticInitFail` 预设，static 起不来时 intel 成员候选仍上屏）。门禁：tsc 0 错 · vitest 105/1310 · e2e lsp **30 + dx/05 全绿** · budget-check 44 项全 PASS（`client.ts` 1840/1850 余 10 · `main.ts` 2128/2400）。
 
+#### 修订（2026-10-12）：`selectionMode` 从定值改为可配置，默认档翻转为 `pycharm`
+
+**背景（用户裁决）**：S1 软选中落地四天后，用户实测反馈「输入字母后按 Enter，期望按第一候选补全（PyCharm 体感），实际是换行」。评估三个方案（对齐 PyCharm / 保持现状 / 做成设置项）后裁决做设置项，且**默认对齐 PyCharm**——原「快速打字零误插」的主诉求让位于「Enter 接受首项」的肌肉记忆一致性。
+
+**配置设计**：新增设置 `completion_enter_mode`（两档，刻意不开放 `never` / `whenQuickSuggestion`——矩阵实测语义均不理想，只增加支持面）：
+
+| 档位 | `selectionMode` | S1 自动打字 | S2 触发字符 | S3 显式 | S4 模板 |
+|---|---|---|---|---|---|
+| `pycharm`（默认） | `always` | **硬·Enter 接受** | 硬·接受 | 硬·接受 | 硬·Enter 展开 |
+| `safe` | `whenTriggerCharacter` | 软·Enter 换行 | 硬·接受 | 硬·接受 | 软·Tab 展开（补偿分支） |
+
+Tab 双分支（`accept_suggestion_replace` 的 `when`/`softWhen` 互斥规则）**两档下均不变**——这正是原 P0-C 设计的红利：pycharm 档走「有聚焦项 → 替换接受」，safe 档走「无聚焦项 → focusAndAcceptSuggestion」，无任何键位改动。
+
+**改动清单**（照 `completion_commit_characters`（P1-B）的设置接线范式）：
+
+| 文件 | 改动 |
+|---|---|
+| `state.ts` | `Settings.completion_enter_mode: "pycharm" \| "safe"` + `DEFAULT_SETTINGS` 默认 `"pycharm"` |
+| `settings.rs` | struct 字段（struct 级 `#[serde(default)` 落 pycharm，旧配置升级即翻转）+ `test_defaults` / `test_partial_json` 断言 |
+| `settingsPanel.ts` | **`selectionMode` 从 `main.ts` create 块迁入 `buildEditorOptions`**（设置驱动；create 与 updateOptions 一条链 → 主编辑器 / 分屏 / db SQL 编辑器全覆盖，保存即生效）+ lazyEl / 回填 / commit 三处接线 |
+| `main.ts` | 删 create 块硬编码（−13 行，净减） |
+| `index.html` + i18n | 编辑器分组两档 select（`sectionEditorLabel24` + 两 option + 行内说明，zh/en） |
+| `tauri-mock.js` | SETTINGS 基线显式 `completion_enter_mode: "pycharm"`（保证 e2e 确定性） |
+| `e2e/lsp/06` | 重构为两档矩阵：默认档 C-1/C-2/C-3/C-6/C-8（新增：设置面板切换 safe 保存即生效，钉 `updateOptions` 运行时路径）+ safe 档 C-1s/C-2s/C-4/C-5（`__E2E_SETTINGS_PRESET__` 覆写，原 P0-C 语义守护全部保留） |
+
+**评估时预判的风险与实测**：R2（`updateOptions` 对 `selectionMode` 的运行时生效性此前未实证）由 C-8 钉住——保存后同一文件不重开、打字即变软选中，一次通过。R4（默认翻转的波及面）：全仓 61 处 `press("Enter")` 逐一排查，除 `lsp/06` 自身的三个用例外全部落在「定位换行 / 显式触发接受 / 自绘输入框」三类安全区；模板与 autoImport 域（`lt/01`、`dx/05`）的接受动作全部走 Tab 双分支，实测零回归。
+
+**门禁（2026-10-12）**：tsc 0 错 · cargo test 353/355（2 ignored 为既有）· vitest 120 文件 / 1486 用例 · e2e lsp 域 37/37（含真实 pyrefly 桥）· `lt/01` + `dx/05` + `dx/14` 回归 7/7 · e2e-ui 66/66 · budget 全 PASS（`dist/assets` JS+CSS 5120/5120 压线——本次 +2KB，下一项前端改动若再增体积须先做瘦身；`#[tauri::command]` 208/206 WARN 为存量）。
+
 ---
 
 ## 4. P1 批次逐项实施规格（可选增强，逐项裁决）
