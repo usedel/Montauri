@@ -1943,7 +1943,9 @@ async function init(): Promise<void> {
   initQuickFixActions(); // P4：D-1/D-2 自研快速修复（Ctrl+. 灯泡；registerCodeActionProvider 自持 dispose 无需入 store）
   lspProviders.add(lsp.registerLspSignatureHelp()); // 签名帮助（参数提示）
   lspProviders.add(lsp.registerLspCodeAction()); // Ctrl+. 快速修复
-  lspProviders.add(lsp.registerLspInlayHints()); // 运行时类型标注（opencharm-intel）
+  // 运行时类型标注（opencharm-intel）+ 静态变量提示；主编辑器已创建（1762 行），
+  // onDidCreateEditor 捕获不到 → 显式传入（跳变治理 B 的光标跟踪依赖，见 inlayFreeze.ts 头注）
+  lspProviders.add(lsp.registerLspInlayHints([app.editor]));
   // 零引擎关键字补全：非 LSP 的静态兜底（无引擎语言才生效，python 由上面三段负责），
   // 段位 `3xx` 最低。与 LSP providers 同入应用级 store，便于统一 teardown。
   // 开关初值在此读一次；设置保存路径会再刷一次（与 intel 开关同模式）。

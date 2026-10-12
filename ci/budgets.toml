@@ -262,7 +262,19 @@ git_ts_max_lines = 3300
 # lsp/client.ts：1,817（P0-A2/P0-B 本轮 +22：isIncomplete 透传 + 世代号早退 −13 行类型外迁）。
 #   含六段 sortText 合并策略（ADR-0009 段位真源）。余量 33 行——批次 3/4 的 preselect 映射、
 #   textEdit 映射按计划约需 +9，届时若超标**继续往 completion/ 拆**，不抬阈值。
+#   2026-10-12 跳变治理：inlay 双源合并外拆 lsp/inlayMerge.ts、光标行冻结会话态外拆
+#   lsp/inlayFreeze.ts（A 行尾锚定被用户裁决推翻 → B 引擎原位 + 冻结；本文件回落 ~1839）。
 lsp_client_ts_max_lines = 1850
+
+# lsp/inlayMerge.ts（跳变治理新增，2026-10-12）：inlay 双源合并 + 光标行冻结的行级纯函数。
+#   同日 A 方案（行尾锚定）被用户裁决推翻 → B 方案（引擎原位 + 冻结）；随后用户实案
+#   「输入 `.` 提示消失」补消失型跳变治理（分池配对 + 锚点守卫复活），175 → 210（当前 ~193）。
+lsp_inlay_merge_ts_max_lines = 210
+
+# lsp/inlayFreeze.ts（跳变治理 B 新增，2026-10-12）：冻结会话态（光标跟踪 / per-model 缓存 /
+#   跨行解冻 fire / 失效判定）。有状态、依赖 monaco 实例，e2e 覆盖（E-DX-IP3/IP4）。
+#   上限 140（当前 ~137，余量薄——增量优先外拆纯函数进 inlayMerge.ts）。
+lsp_inlay_freeze_ts_max_lines = 140
 
 # completion/lspCompletion.ts（P0-A2 新增，2026-10-07）：105 行。上限 150（余量 ~30%）。
 #   存在理由：`lsp/client.ts` 顶层 import `invoke` / monaco / `state` 的 `app`，**不是可单测的纯模块**

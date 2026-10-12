@@ -186,6 +186,8 @@ addLine("shell/src/devtools/builtin/selector.ts", "selector_ts_max_lines");
 addLine("shell/src/devtools/builtin/http.ts", "http_ts_max_lines");
 addLine("shell/src/git.ts", "git_ts_max_lines");
 addLine("shell/src/lsp/client.ts", "lsp_client_ts_max_lines");
+addLine("shell/src/lsp/inlayMerge.ts", "lsp_inlay_merge_ts_max_lines");
+addLine("shell/src/lsp/inlayFreeze.ts", "lsp_inlay_freeze_ts_max_lines");
 addLine("shell/src/completion/lspCompletion.ts", "completion_lsp_ts_max_lines");
 addLine("shell/src/completion/pathCompletion.ts", "completion_path_ts_max_lines");
 addLine("shell/src/live-templates/ui/manager.ts", "lt_manager_ts_max_lines");

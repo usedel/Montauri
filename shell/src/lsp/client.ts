@@ -20,6 +20,8 @@ import {
   mapLspTextEdit,
   normalizeCompletionList,
 } from "../completion/lspCompletion"; // P0-A2/P0-D：补全解析/映射外迁为纯函数（client.ts 不可单测）
+import { mergeInlayHints, toMergeableHint, type LspInlayHint } from "./inlayMerge"; // 跳变治理 B：双源合并（纯函数，预算外拆）
+import { inlayFreeze } from "./inlayFreeze"; // 跳变治理 B：光标行冻结会话态（单例）
 
 // Monaco 实例注入（配合 main.ts 动态加载；providers 注册前必须先注入）
 let monaco: typeof MonacoApi;
@@ -1601,15 +1603,11 @@ export function registerLspCodeAction(): MonacoApi.IDisposable {
 }
 
 // ---------- Inlay Hints（运行时类型标注，P3-T07） ----------
+// LspInlayHint 协议形态已随合并/冻结逻辑外迁 inlayMerge.ts（单一真源，避免双份漂移）
 
-interface LspInlayHint {
-  position: LspPosition;
-  label: string | Array<{ value: string }>;
-  kind?: number; // 1 = Type, 2 = Parameter
-  paddingLeft?: boolean;
-  paddingRight?: boolean;
-  tooltip?: unknown;
-}
+/** PR-N：设置变更后通知 Monaco 重新拉取提示（否则沿用缓存直到下次编辑）。
+ * ⚠ 延迟到 registerLspInlayHints 里创建：模块级 monaco 是后赋值引用（顶层 new Emitter 会炸）。 */
+let inlayHintsChanged: MonacoApi.Emitter<void> | null = null;
 
 /**
  * PR-N：把 inlay hints 配置推给静态引擎（`workspace/didChangeConfiguration`）。
@@ -1617,24 +1615,12 @@ interface LspInlayHint {
  * 免得「关参数名提示」的开关顺手把类型提示也灭了（职责最小化）。
  * 调用点：startEngine 就绪后 + 设置保存后（settingsPanel）。
  */
-/**
- * PR-N：设置变更后通知 Monaco 重新拉取提示——否则它会一直沿用缓存结果直到下次编辑。
- * ⚠ 必须延迟到 registerLspInlayHints 里创建：模块级 `monaco` 是后赋值的引用
- *   （顶层 new monaco.Emitter() 会炸，且 TS 报 used before assigned）。
- */
-let inlayHintsChanged: MonacoApi.Emitter<void> | null = null;
-
 export function pushInlayHintSettings(): Promise<void> {
   if (session("static").status !== "ready") return Promise.resolve();
-  void Promise.resolve().then(() => inlayHintsChanged?.fire()); // 下一微任务刷，避免与推送竞态
+  // 下一微任务刷（避免与推送竞态）；跳变治理 B：先穿透冻结缓存，否则关参数提示被旧值挡住
+  void Promise.resolve().then(() => { inlayFreeze.invalidateAll(); inlayHintsChanged?.fire(); });
   return notifyEngine("static", "workspace/didChangeConfiguration", {
-    settings: {
-      python: {
-        analysis: {
-          inlayHints: { callArgumentNames: app.settings.inlay_param_hints !== false ? "all" : "off" },
-        },
-      },
-    },
+    settings: { python: { analysis: { inlayHints: { callArgumentNames: app.settings.inlay_param_hints !== false ? "all" : "off" } } } },
   });
 }
 
@@ -1650,14 +1636,16 @@ async function queryInlays(engine: string, params: unknown): Promise<LspInlayHin
 }
 
 /**
- * 注册 inlay hints provider：**双源**——
- *   · 静态引擎（PR-N）：参数名提示（`name=`），受 `inlay_param_hints` 开关控制；
- *   · 运行时引擎 intel：运行时类型标注（P3-T07 既有能力，不受本开关影响）。
- * 同位置同文案去重（两源理论上不重叠，但换引擎/切 intel 期间可能短暂并存）。
+ * 注册 inlay hints provider（双源：静态参数名提示 + intel 运行时类型标注）。
+ * 跳变治理 B（2026-10-12）：光标行冻结——光标行上「列 ≤ 光标列」的提示沿用上次渲染值，
+ * 光标跨行离开后才应用新值（合并细节见 inlayMerge.ts，会话态见 inlayFreeze.ts）。
  */
-export function registerLspInlayHints(): MonacoApi.IDisposable {
+export function registerLspInlayHints(existingEditors: MonacoApi.editor.ICodeEditor[] = []): MonacoApi.IDisposable {
   inlayHintsChanged = new monaco.Emitter<void>();
-  return monaco.languages.registerInlayHintsProvider("python", {
+  inlayFreeze.setOnChanged(() => inlayHintsChanged?.fire());
+  // ⚠ 主编辑器创建早于 provider 注册（main.ts），onDidCreateEditor 收不到 → 显式传入；分屏走事件捕获
+  const dWatch = inlayFreeze.watchEditors(existingEditors, monaco.editor.onDidCreateEditor);
+  const provider = monaco.languages.registerInlayHintsProvider("python", {
     // PR-N：设置开关要即时生效（Monaco 默认缓存 provider 结果直到下次编辑）
     onDidChangeInlayHints: inlayHintsChanged.event,
     async provideInlayHints(model: MonacoApi.editor.ITextModel, range: MonacoApi.IRange) {
@@ -1674,27 +1662,20 @@ export function registerLspInlayHints(): MonacoApi.IDisposable {
         wantStatic ? queryInlays("static", params) : Promise.resolve([]),
         queryInlays("intel", params),
       ]);
-      const seen = new Set<string>();
-      const hints: MonacoApi.languages.InlayHint[] = [];
-      for (const h of [...intelItems, ...staticItems]) {
-        const label = typeof h.label === "string" ? h.label : h.label.map((p) => p.value).join("");
-        const pos = lspPosToMonaco(h.position);
-        const key = `${pos.lineNumber}:${pos.column}:${label}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        hints.push({
-          position: pos,
-          label,
-          kind: h.kind === 2 ? K.Parameter : K.Type,
-          paddingLeft: h.paddingLeft,
-          paddingRight: h.paddingRight,
-          tooltip: typeof h.tooltip === "string" ? h.tooltip : undefined,
-        });
-      }
-      hints.sort((a, b) => a.position.lineNumber - b.position.lineNumber || a.position.column - b.position.column);
+      // 双源合并（引擎原位）→ 光标行冻结（跳变治理 B）→ Monaco 形态
+      const frozen = inlayFreeze.snapshotFor(model, mergeInlayHints(intelItems.map(toMergeableHint), staticItems.map(toMergeableHint)));
+      const hints: MonacoApi.languages.InlayHint[] = frozen.map((h) => ({
+        position: new monaco.Position(h.line, h.column),
+        label: h.label,
+        kind: h.kind === 2 ? K.Parameter : K.Type,
+        paddingLeft: h.paddingLeft,
+        paddingRight: h.paddingRight,
+        tooltip: h.tooltip,
+      }));
       return { hints, dispose: () => {} };
     },
   });
+  return { dispose: () => { provider.dispose(); dWatch.dispose(); } };
 }
 
 // ---------- 诊断 ----------
