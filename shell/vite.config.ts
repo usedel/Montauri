@@ -39,6 +39,21 @@ export default defineConfig({
     target: "chrome105",
     minify: "esbuild",
     sourcemap: false,
+    // monaco-editor 单一 chunk（体积纪律，2026-10-12 bundle 瘦身）：
+    // monaco.ts（main.ts 动态 import）与 jsonLiteral.ts / extensions/inlineMenu.ts（同为
+    // 动态 import，切断静态链后 monaco 不再 hoist 回 index chunk——index 从 3.18 MB 降到
+    // 1.61 MB）各自引出一份 monaco 时，Rollup 会切出**两个内容高度重复的 chunk**
+    // （indentRangeProvider-*.js ≈ monaco-*.js ≈ 1.4 MB，未压缩口径重复计价）。
+    // 强制归并到单一名为 monaco 的 chunk：加载语义不变（仍是按需），体积不重复。
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes("node_modules/monaco-editor/") || id.includes("node_modules\\monaco-editor\\")) {
+            return "monaco";
+          }
+        },
+      },
+    },
   },
   // E2E 用例（e2e/）只归 Playwright 管：vitest 默认会扫 *.spec.ts，
   // 不排除会出现「vitest 误跑 Playwright 用例 → import @playwright/test 报错」。

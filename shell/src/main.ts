@@ -22,7 +22,10 @@ import { initDevTools } from "./devtools"; // 工具菜单 / 命令面板的工�
 // PR-2：插件域（plugin_system_design §9）——加载器 / facade 依赖注入 / inline 管线
 import { initPluginLoader, scanPlugins, schedulePluginRescan, listPluginRecords, setAppVersion } from "./extensions/loader";
 import { initInlineRunner } from "./extensions/inline";
-import { initInlineSelectionMenu } from "./extensions/inlineMenu"; // P2：编辑器右键「变换选区 ▸」子菜单
+// inlineMenu 不静态 import（体积纪律，2026-10-12 bundle 瘦身）：它静态引入 Monaco 的
+// platform 深水模块（MenuRegistry/CommandsRegistry/ContextKeyExpr），静态链会把整片
+// monaco-editor hoist 回 index chunk（实测 +3.6 MB 渲染字节），动态 import 才能守住
+// monaco.ts 的按需分块。调用点在编辑器创建后，Monaco 必已就绪，时序安全。
 import { setPluginsTabHandlers } from "./extensions/pluginsTab";
 import {
   wireWelcomeGuide, isWelcomeForced, setWelcomeOverlayRefresh, setWelcomeGuideHandlers,
@@ -41,7 +44,9 @@ import { wireProblemsPanel, resetProblemsPanel, setOpenProblemHandler, setShowPa
 import { initCodeVision, refreshCodeVision } from "./codeVision";
 import { initEpJump, refreshEpJump, resetEpJump, setEpJumpHandlers } from "./epJump"; // A5③：端点 CodeLens「端点 N」
 import { initDslLens, openRegexTesterAtCursor } from "./dslLens"; // 库支持 PR-2：正则 lens/装饰/诊断/右键
-import { initJsonLiteral } from "./jsonLiteral"; // 库支持 P1 §7-3：JSON 字面量高亮/折叠/诊断/右键
+// jsonLiteral 同 inlineMenu 的动态 import 纪律（顶部注释）：它静态引入 StandaloneServices /
+// IndentRangeProvider / ILanguageConfigurationService 三个 Monaco 深水模块，静态链会把
+// monaco-editor 整片 hoist 回 index chunk。加载点在编辑器创建后，时序安全。
 import { resetOpenApiPreview, setOpenApiPreviewHandlers, toggleOpenApiPreview } from "./openApiPanel"; // A5④：OpenAPI 面板内预览
 import { refreshImportAliases, registerImportAliasCompletion } from "./importAlias"; // import 别名补全（import pandas as pd）
 import { registerAutoImportCompletion, resetAutoImportIndex } from "./autoImport"; // PR-E：补全内联 auto-import（自研，探针结局 C）
@@ -1764,19 +1769,10 @@ async function init(): Promise<void> {
     lightbulb: { enabled: app.monaco.editor.ShowLightbulbIconMode.Off }, // 关闭快速修复灯泡图标（保留 Ctrl+. 菜单）
     wordBasedSuggestions: "off", // 踩坑 #3
     quickSuggestions: { other: true, comments: false, strings: false },
-    // P1-A（补全交互层 §4）：显式写出 0.52 默认值，给「Tab=替换模式接受」一个稳定基准
-    suggest: {
-      insertMode: "insert",
-      // P0-C（补全交互层 §3）：自动打字=软选中（不抢输入、Enter 必为换行），触发字符/显式=硬选中。
-      // 四取值实测矩阵（2026-10-08，e2e/lsp/06-completion-selection-mode.spec.ts）：
-      //   · `selectionMode` 只作用于**自动触发**（Monaco suggestController.js:217 `if (triggerOptions.auto)`）；
-      //     显式触发（Alt+/ → editor.action.triggerSuggest）恒硬选中 —— 四取值下 S3 都接受首项。
-      //   · 默认值是 `always`（editorOptions.js:2221）＝硬选中，即改前快速打字会误插入。
-      //   · `whenQuickSuggestion` 与目标**相反**（自动打字硬、触发字符软），排除。
-      //   · 代价：live-template 也走自动打字 → 一并失去预选；由 accept_suggestion_replace 的
-      //     软选中分支（Tab → focusAndAcceptSuggestion）补偿，见 keybindingDefaults.ts。
-      selectionMode: "whenTriggerCharacter",
-    },
+    // P0-C（补全交互层 §3，2026-10-12 修订为可配置）：suggest.selectionMode 已迁入
+    // buildEditorOptions（settings.completion_enter_mode 驱动，默认 "pycharm" = always——
+    // 任意触发都预选首项、Enter 接受）。四取值实测矩阵与两档语义见
+    // e2e/lsp/06-completion-selection-mode.spec.ts。
   });
   // A-5：光标移动同样刷新会话快照（防抖），恢复时才落回原处
   app.editor.onDidChangeCursorPosition(() => scheduleSessionSave());
@@ -1881,7 +1877,10 @@ async function init(): Promise<void> {
   const pluginDeps = buildPluginFacadeDeps();
   initPluginLoader(pluginDeps, () => registerQuickOpenActions(buildQuickOpenActions()));
   initInlineRunner(pluginDeps, () => listPluginRecords());
-  initInlineSelectionMenu(); // P2：编辑器右键「变换选区 ▸」（子菜单条目随注册表自动重建）
+  // P2：编辑器右键「变换选区 ▸」（子菜单条目随注册表自动重建）。
+  // 动态 import 见顶部体积纪律注释——void 而非 await：菜单注册慢几毫秒无感，
+  // 不值得阻塞 init 尾段（插桩点在 monaco 就绪之后，无时序风险）。
+  void import("./extensions/inlineMenu").then(({ initInlineSelectionMenu }) => initInlineSelectionMenu());
   // P0 DX：作者指南落盘后经 openFile 打开（.md 自动开预览）
   setPluginsTabHandlers({ openFile: (p) => openFile(p) });
   // PR-S1：新手指南落盘后经 openFile 打开（同 pluginsTab 模式）
@@ -1936,7 +1935,7 @@ async function init(): Promise<void> {
   lspProviders.add(initRenameWidget(app.editor)); // F2 就地重命名 + 右键菜单「重命名…」
   // 库支持 PR-2：正则字面量 lens / 高亮装饰 / opencharm-libs 诊断（与 codeVision 引用 lens 并存，D-2）
   lspProviders.add(initDslLens(app.editor));
-  lspProviders.add(initJsonLiteral(app.editor)); // 库支持 P1 §7-3：JSON 字面量高亮/折叠/诊断/右键
+  lspProviders.add(await import("./jsonLiteral").then((m) => m.initJsonLiteral(app.editor))); // 库支持 P1 §7-3：JSON 字面量高亮/折叠/诊断/右键（动态 import 见顶部体积纪律）
   lspProviders.add(initClipboardDiffAction(app.editor)); // C-5：右键菜单「与剪贴板对比」
   lspProviders.add(initNoqaAction(app.editor)); // D-4：右键菜单「忽略此规则（# noqa）」
   lspProviders.add(installPasteJson(app.editor)); // PR-M：粘贴 JSON → Python 字面量（onDidPaste 拦截）
