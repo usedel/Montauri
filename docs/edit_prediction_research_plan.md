@@ -162,8 +162,33 @@ python -u tools/edit_history_stats.py --jsonl %LOCALAPPDATA%\OpenCharm\edit_hist
 | 编辑流噪声高（改来改去） | 真实编辑历史命中可能低于成品代码代理 | 统计脚本用流式、仅「过去」数据评估，如实反映 |
 | 采集覆盖缺口 | 「写完即保存不换行」的行 V1 不采 | 后续加「保存时冲刷 dirty 行」 |
 | 采集无开关（默认开） | 数据本地、隐式采集 | 后续可在设置面板加 `edit_history_enabled` 开关 |
-| 与现有补全的 UX 冲突 | 灰字与下拉补全同屏的接受/优先级 | 立项时专项验证（Monaco `registerInlineCompletionsProvider` 与 `Tab` 冲突消解） |
+| 与现有补全的 UX 冲突 | 灰字与下拉补全同屏的接受/优先级 | **已实证可共存（2026-10-14，见 §10.1）**：augmentation 路径渲染扩展灰字 |
 | 方案未进正式计划 | 本文是探索文档 | 数据达标后回写开发计划再执行 |
+
+---
+
+## 10.1 灰字与下拉共存实证（2026-10-14，FUSION-1 探针副产品）
+
+**背景**：FUSION-1（实参位变量补全）真机反馈暴露了 Monaco 0.52 inline/suggest 协同的多个边界（详见 `arg_var_fusion_dev_plan.md` §0/§10）。其中「suggest preview 在 autoClosingBrackets 空前缀场景被 lineSuffix 吞」一度引发「灰字在下拉打开时无法显示」的担忧——但**编辑预测走的是 augmentation 通道，结论恰好相反**：
+
+| 通道 | 语义 | 实测状态 | 对编辑预测的意义 |
+|---|---|---|---|
+| 自研 inline provider（与选中项**相等**） | 与下拉重复的候选 | 下拉打开时被双池语义压制（`inlineCompletionsSource.js:44`） | 无关——预测内容不与下拉候选重复 |
+| suggest preview（选中项剩余部分） | 下拉选中项的内联预览 | 空前缀+`)` lineSuffix 场景不渲染；带前缀时正常 | 无关 |
+| **augmentation**（inline 项 = 选中项的**扩展**） | 下拉选中项 + 灰字续写扩展部分 | **✅ 带前缀实测渲染**（如输入 `c` 后）；⚠️ 空前缀瞬间（刚打 `(`）**provider 不被引擎调用**（PROBE-EMPTY-AUG 实证，onDidType trigger 被 suggest 分支旁路） | **编辑预测的主通道**：预测永远以「用户已选/已输入内容为前缀续写」，天然满足 `singleTextEditAugments` 的扩展语义；空前缀灰字缺席不伤体验（下拉刚弹出，注意力在下拉上） |
+
+**探针实证**（e2e 真实 pyrefly 桥，`ghost-text-decoration-preview=>, timeout=10` 同时与 `ghost-text-decoration=>b_url` 双灰字并存）：
+
+- 下拉打开 + 选中项存在 + inline 项扩展选中项 → 引擎 `_computeAugmentation`（`inlineCompletionsModel.js:161-176`）把扩展部分渲染为 `ghost-text-decoration-preview` 类灰字——**这正是 VS Code 里 Copilot 灰字与下拉共存同一个机制**；
+- 也就是说：**编辑预测的灰字不会遇到 FUSION-1 的任何一条死路**。预测的形态（续写用户已输入内容）天然是「扩展」而非「相等」；Tab 语义在 augmentation 分支由引擎统一处理（接受下拉选中项 + 扩展一起写入）。
+
+**对 §5 架构的增量结论**：
+
+1. Tier 0-2 的输出只要满足「以当前 word/选中项为前缀」即可在两种状态（下拉开/关）下都正确显示——下拉关时走普通 ghost（FUSION-1 GHOST-ISO 已证），下拉开时走 augmentation（本节实证）；
+2. 基础设施零新增：inlineCompletions contribution 已在 `monaco.ts`（FUSION-1 引入），provider 注册模式、依赖注入防环、dev 钩子全套可复用；
+3. 一个新注意点：预测项与下拉选中项**相等**时（用户刚从下拉选了个词、预测内容恰好也是它）会被双池压制——无害，引擎自动处理（显示零扩展 = 无灰字，正确行为）。
+
+**结论**：UX 冲突风险关闭，编辑预测的呈现层路径全部打通。剩余不确定性只在**预测质量**（§7 数据驱动决策），那是立项门槛本身。
 
 ---
 

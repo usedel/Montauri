@@ -22,6 +22,10 @@ import "monaco-editor/esm/vs/editor/contrib/gotoSymbol/browser/goToCommands"; //
 import "monaco-editor/esm/vs/editor/standalone/browser/referenceSearch/standaloneReferenceSearch";
 import "monaco-editor/esm/vs/editor/contrib/hover/browser/hoverContribution"; // hover
 import "monaco-editor/esm/vs/editor/contrib/inlayHints/browser/inlayHintsContribution"; // 编辑器内联类型标注（runtime intel）
+// 实参位 ghost text（PyCharm 式灰字，prototype）：inline completions 框架。按需裁剪必须
+// 显式引入，否则 registerInlineCompletionsProvider 注册了但 controller/model 不存在，
+// ghost 永不渲染（同 stickyScroll / standaloneReferenceSearch 教训）。
+import "monaco-editor/esm/vs/editor/contrib/inlineCompletions/browser/inlineCompletions.contribution";
 import "monaco-editor/esm/vs/editor/contrib/indentation/browser/indentation"; // 自动缩进
 import "monaco-editor/esm/vs/editor/contrib/lineSelection/browser/lineSelection";
 import "monaco-editor/esm/vs/editor/contrib/links/browser/links"; // 链接点击

@@ -289,6 +289,21 @@ completion_lsp_ts_max_lines = 150
 #   单测可直接 import）；段位 `2aNN` 是四层合并契约的一部分，改动须同步更新单测里的段位自证。
 completion_path_ts_max_lines = 280
 
+# completion/argVarCompletion.ts（实参位变量融合 FUSION-1，2026-10-14 新增；计划真源
+#   docs/arg_var_fusion_dev_plan.md）：扫描/类型匹配（v2 hover 注入）/排序/候选构造纯函数。
+#   存在理由：pyrefly 空前缀只回参数名候选（计划 §0 E1），实参位变量候选必须由 shell 融合层
+#   注入；client.ts 1846/1850 已无余量。单测：completion/__tests__/argVarCompletion.test.ts。
+completion_argvar_ts_max_lines = 220
+
+# completion/argVarInline.ts（FUSION-1 ghost text，2026-10-14）：inline completions provider，
+#   与下拉候选同源数据（sigQuery/hoverQuery 由 client.ts 注入防环）。含 dev-only __OC_ARGVAR__
+#   测试钩子（triggerInline/acceptInline，debugGutter 先例）。
+completion_argvar_inline_ts_max_lines = 150
+
+# completion/__tests__/argVarCompletion.test.ts（FUSION-1 单测）：v1 语义回归 8 例 + v2 类型
+#   匹配 7 例（tier 排序 / Literal 归一 / 末段相等 / 联合类型降级 / hover 形态解析）。
+completion_argvar_test_ts_max_lines = 180
+
 # live-templates/ui/manager.ts（Live Templates 管理面板，首次登记 2026-10-08）：1,128 行。
 #   improvement_and_roadmap_report v1.3 已把它点名为「前十门槛新面孔」（大文件向新模块扩散的
 #   证据）——按 endpointView「首次登记」先例纳入预算面。范围：列表渲染 / 编辑器表单 /
@@ -421,6 +436,12 @@ max_tauri_commands = 206
 #    3.18→1.61 MB，monaco 归并单 chunk 3.07 MB），总量几乎持平是「按需加载不减总量、只减
 #    关键路径」的正常结果。余量偏紧是刻意的：下一个显著增量的功能要么做按需拆分，要么
 #    显式 PR 抬本条并写清理由。
+#    5,120 → 5,170（2026-10-14 显式调整：+40 = Monaco inlineCompletions contribution——
+#    实参位 ghost text（PyCharm 式灰字）的必要框架，controller/model/ghost views/observable
+#    全家桶约 50 KB。落在按需 monaco chunk（3.07→3.12 MB），不进 index 首屏，冷启动代理
+#    index_chunk_kb 不动。无法再拆：inline provider 与 suggest 协同依赖同一 model 实例，
+#    按需再加载会在 suggest 已开会话里产生双实例竞态——实测已遭 inlineCompletionsSource
+#    双池语义反噬，不再二次尝试）。
 #    ⚠ 陈旧 dist 会残留已删除的依赖分包（实测曾虚报 7,065 KB，其中约 2.08 MB 是已取消的
 #    mermaid/katex），故脚本带新鲜度校验——源码比 dist 新判 STALE 并失败。引用数字前先
 #    `cd shell && npm run build`。
@@ -429,7 +450,7 @@ max_tauri_commands = 206
 #    仍以 bench/collect-metrics.ps1 真机实测为准（< 1,500 ms；瘦身后实测窗口 1,203 ms），
 #    本条的作用是把「monaco 静态链回流 index」这类结构回退挡在 PR 阶段（2026-10-12 就是被
 #    jsonLiteral/inlineMenu 的静态 import 击穿过，index 一度 3.18 MB）。
-max_bundle_kb = 5120
+max_bundle_kb = 5170
 index_chunk_kb = 1700
 
 [policy]

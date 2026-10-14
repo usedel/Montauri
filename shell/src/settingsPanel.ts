@@ -499,6 +499,10 @@ export function buildEditorOptions(settings: Settings): MonacoApi.editor.IEditor
     suggest: {
       insertMode: "insert",
       selectionMode: settings.completion_enter_mode === "safe" ? "whenTriggerCharacter" : "always",
+      // 实参位灰字（FUSION-1）：suggest.preview 在 autoClosingBrackets 场景永不渲染——
+      // `)` 成为 lineSuffix 使 preview edit 变替换性 diff，computeGhostText 返回 undefined
+      //（探针实锤，previewMode 三值全试过）。灰字由 argVarInline provider 独立承载
+      //（suggest 关闭/显式触发通道），此处不开 preview 避免误导。
     },
     // 方案 3：行号列最小宽度。Monaco 默认 minChars=5，行号数字右对齐，短文件里数字左侧会留
     // 大片空，视觉上拉大了「断点红点 ↔ 行号数字」的距离——这才是红点与行号间空白的头号来源。

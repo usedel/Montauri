@@ -21,6 +21,8 @@ import {
   normalizeCompletionList,
 } from "../completion/lspCompletion"; // P0-A2/P0-D：补全解析/映射外迁为纯函数（client.ts 不可单测）
 import { mergeInlayHints, toMergeableHint, type LspInlayHint } from "./inlayMerge"; // 跳变治理 B：双源合并（纯函数，预算外拆）
+import { argVarToSuggestions, computeArgVarsForPosition, type SigHelpLike } from "../completion/argVarCompletion"; // FUSION-1：扫描/类型匹配/候选构造（纯函数半部）
+import { hoverTextFor, registerArgVarInline, setArgVarDeps, setArgVarInlineEditor } from "../completion/argVarInline"; // FUSION-1 ghost text + hover 依赖注入（防环）
 import { inlayFreeze } from "./inlayFreeze"; // 跳变治理 B：光标行冻结会话态（单例）
 
 // Monaco 实例注入（配合 main.ts 动态加载；providers 注册前必须先注入）
@@ -677,6 +679,12 @@ function toMonacoItem(
 export function registerLspCompletion(): MonacoApi.IDisposable {
   INSERT_AS_SNIPPET =
     ((monaco.languages as any).CompletionItemInsertTextRule?.InsertAsSnippet) ?? 4;
+  // FUSION-1 ghost text provider（argVarInline.ts）：注入签名/hover 查询器（防环；门控=会话未就绪回 null 降级）
+  setArgVarDeps((uri, l0, c0) =>
+    session("static").status !== "ready" ? Promise.resolve(null)
+      : requestEngine("static", "textDocument/hover", { textDocument: { uri }, position: { line: l0, character: c0 } }));
+  registerArgVarInline(monaco, (p) => querySignatureHelp("static", p) as Promise<SigHelpLike | null>, hoverTextFor);
+  setArgVarInlineEditor(app.editor);
   return monaco.languages.registerCompletionItemProvider("python", {
     // A3①：`(` / `,` 让「调用实参补全」（intel 参数名候选）在打完 `(` 或 `,` 时即弹出
     triggerCharacters: [".", "_", "\"", "'", "[", "(", ","],
@@ -723,18 +731,27 @@ export function registerLspCompletion(): MonacoApi.IDisposable {
       // 慢引擎迟到即弃（P0-B）：此期间用户已继续输入，旧结果再落地只会让面板闪跳
       if (token?.isCancellationRequested || gen !== completionGen) return { suggestions: [] };
 
+      // 实参位变量融合（FUSION-1，计划 docs/arg_var_fusion_dev_plan.md）：签名非空 = 实参位 →
+      // 注入 pyrefly 空前缀不回的变量候选（v2 类型匹配走 hover，tier 排序见计划 §5）。
+      const sigRes = await querySignatureHelp("static", params).catch(() => null);
+      if (token?.isCancellationRequested || gen !== completionGen) return { suggestions: [] };
+      const argVars = await computeArgVarsForPosition(
+        sigRes as SigHelpLike | null, model.getValue(), position.lineNumber - 1, position.column,
+        (l0, c0) => hoverTextFor(params.textDocument.uri, l0, c0),
+      );
+      const argVarNames = new Set(argVars.map((v) => v.name));
       // P0-A2：任一路声明截断即整体声明——Monaco 据此在继续输入时重新请求而非本地过滤
-      const incomplete = staticRes.isIncomplete || intelRes.isIncomplete;
-
-      const suggestions: MonacoApi.languages.CompletionItem[] = [];
-      let si = 0;
+      const incomplete = staticRes.isIncomplete || intelRes.isIncomplete || argVars.length > 0;
+      const suggestions: MonacoApi.languages.CompletionItem[] = argVarToSuggestions(
+        argVars, range, monaco.languages.CompletionItemKind.Variable,
+      );
+      let si = 200 + argVars.length;
       for (const it of staticRes.items) {
+        if (argVarNames.has(it.label)) continue; // 融合版已置顶，同名 pyrefly 候选去重
         suggestions.push(toMonacoItem(it, "2" + String(si++).padStart(3, "0"), range, "static"));
       }
-      for (const it of intelRes.items) {
-        // intel 自带 sortText（"1xx"，hits/obs 降序）；缺失则兜底放到段尾
-        suggestions.push(toMonacoItem(it, it.sortText ?? "1" + String(998), range, "intel"));
-      }
+      // intel 自带 sortText（"1xx"，hits/obs 降序）；缺失则兜底放到段尾
+      for (const it of intelRes.items) suggestions.push(toMonacoItem(it, it.sortText ?? "1" + String(998), range, "intel"));
       return { suggestions, incomplete };
     },
     /**

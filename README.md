@@ -31,6 +31,7 @@
 | [`docs/markdown_preview_dev_plan.md`](docs/markdown_preview_dev_plan.md) | Markdown 预览开发计划 v1.0（已实施）：编辑区分栏实时预览 + GFM / 图片 / 链接 |
 | [`docs/live_templates上下文轴修订稿.md`](docs/live_templates上下文轴修订稿.md) | Live Templates 上下文位置轴修订稿 v1.1（相位 A 已实现）：容器 × 位置 × 词法三维 |
 | [`docs/pycharm_feature_research_report.md`](docs/pycharm_feature_research_report.md) | PyCharm 功能调研报告 v1.1（调研，非排期依据） |
+| [`docs/arg_var_fusion_dev_plan.md`](docs/arg_var_fusion_dev_plan.md) | **实参位变量补全 · 运行前融合层开发计划 v1.0（FUSION-1，已实施）**：下拉候选 + ghost text 灰字 + hover 类型匹配三层 tier 排序；探针实证链（pyrefly 空前缀双断路 / Monaco inline-suggest 双池语义）与保守边界见 §0/§7 |
 | [`docs/vscode_extension_research_report.md`](docs/vscode_extension_research_report.md) | **VS Code Python 插件调研报告 v1.0（调研，非排期依据）**：榜单前 10 名逐项源码核对（9 项已有等价物）、4 项真空白借鉴建议（Error Lens 行内诊断 / Scratch 执行 / 路径补全 / CSV 查看器）、5 项明确不学 |
 | [`docs/plugin_system_design.md`](docs/plugin_system_design.md) | 插件系统设计方案 v0.2（方向稿 + 工具切片详细设计，**切片已实现**） |
 | [`docs/devtools_plugin_guide.md`](docs/devtools_plugin_guide.md) | 开发工具插件作者指南 v1（manifest / host API / kit 积木 / 热重载） |
