@@ -142,6 +142,9 @@ pub struct Settings {
     pub sticky_scroll: bool,
     /// 参数名行内提示（PR-N：调用处灰字 `name=`；须与前端 inlay_param_hints 同步）
     pub inlay_param_hints: bool,
+    /// 行内提示总开关（2026-10-15，默认关；开启才显示 `: T` / `-> T` / `name=` 灰字。
+    /// 须与前端 inlay_type_hints 同步）
+    pub inlay_type_hints: bool,
     /// 括号对参考线（T6a 微交互批：Monaco guides.bracketPairs；须与前端 bracket_pair_guides 同步）
     pub bracket_pair_guides: bool,
     /// 行内诊断文案（VS Code 调研 借鉴-1：行尾就地显示 error/warning；默认关——
@@ -275,6 +278,8 @@ impl Default for Settings {
             bracket_colors: true,
             sticky_scroll: true,
             inlay_param_hints: true,
+            // 2026-10-15 用户裁决：行内提示总开关默认关（与前端 DEFAULT_SETTINGS 同步）
+            inlay_type_hints: false,
             // T6a：默认开（VSCode guides.bracketPairs 同款默认；与前端 DEFAULT_SETTINGS 同步）
             bracket_pair_guides: true,
             // VS Code 调研 借鉴-1：默认关（噪音纪律 4；与前端 DEFAULT_SETTINGS 同步）

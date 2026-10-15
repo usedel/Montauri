@@ -32,6 +32,20 @@
 
 > 2026-10-10 补全延迟批 P1 清偿：**C2 + C3 两项性能债当日修复**（intel 域，详见 C 组表格 ✅ 标记）。C2 = `by_last_segment` 排序数组二分化（未命中前缀 ~1000x）；C3 = `call_frame_at` 外提 `call_context.rs` + 64 KB 有界窗口（1 MB 文档 849µs，O(文档) → O(窗口)）。门禁：intel cargo test 92 全绿（含 1 个 --ignored 性能哨兵）+ bench_load 826ms/2s PASS + budget 全 PASS（completion.rs 1,950 → 1,800 拆分即降阈值，call_context.rs 367/450 新登记）。C 组余 C1/C4/C5/C6 + C7 留置。
 
+> 2026-10-15 inlay「重复显示 / 跨轮累积 / 悬停闪现」三症状治理收口：前两项根治
+>（merge (行,文) 去重 + 复活同文守卫 + heal v3 清 vendor 缓存 + refire 干净轮），
+> 第三项**悬停闪现仅缓解未根治**，且总开关 `inlay_type_hints` 默认关（用户裁决）后
+> 不可见——**开启开关时可能偶发复现**。登记 **TD-029**。
+
+### TD-029 2026-10-15 inlay 悬停闪现重复残影（vendor 视图镜像失步，未根治）
+
+- **起因**：用户实案三连（编辑后同行多份类型提示 / 次数越多越多 / 悬停提示闪现 N 份重复）。前两者已根治并有单测+e2e 钉住；本条为残留的第三项。
+- **根因（真机 CDP 插桩实锤）**：Monaco **view 层 injected-text 镜像与模型装饰失步**——闪现瞬间模型装饰恒单份、DOM 瞬现 N 份（N 随编辑轮次增长），滚动等强制重绘即恢复单份；且 monaco OSS 对注入文本零处理：hover 部件不感知 injected-text（照常触发代码 hover，弹窗内容与提示重复 = 另一种"闪现"），inlay 控制器也没有 VS Code 的 hint tooltip 拦截能力。历史放大器两个（均已排除）：带外 `deltaDecorations` 删除会给 view 留残影；heal 旧版 inlayHints toggle 会取消在途轮，致 vendor `_inlayHintsCache` 污染永不被覆盖（fast-restore 反复回填双份）。
+- **已落缓解**：① 悬停位置 = 提示锚列精确匹配时跳过 LSP hover（`client.ts` provideHover + `inlayMerge.isAtInlayAnchor`，真机实证映射列 = 缓存列）；② heal v3：按行期望总额检出泄漏 → 清 vendor `_inlayHintsCache` 条目 + refire 干净轮（废除 toggle 与带外删除，re-arm 冷却 1.6s）；③ `inlay_type_hints` 总开关默认关——关闭即无注入文本，闪现无载体。
+- **建议方案**（按代价升序）：(a) hover 抑制命中或 heal 后做视图一致性自检：DOM 份数 vs 模型装饰数，不一致则滚动 1px 往返强制重绘（滚动可愈已实证；注意与 (b) 的残影风险权衡）；(b) patch-package 修 vendor `inlayHintsController` / view injected-text 同步路径（治本，需跟 monaco 版本升级维护补丁）；(c) 升级 monaco-editor 并跟踪上游 inlay injected-text 相关 issue。
+- **处理时机**：独立 PR；动手前跑 e2e dx/10 + 真机 CDP 采样（附着脚本方法：connectOverCDP → import vite deps monaco → 模型装饰/`_decorationsMetadata`/freeze 缓存/DOM 四方比对；历史脚本见 git 提交说明）。
+- **涉及文件**：`shell/src/lsp/inlayHeal.ts`、`shell/src/lsp/inlayMerge.ts`、`shell/src/lsp/inlayFreeze.ts`、`shell/src/lsp/client.ts`、`node_modules/monaco-editor/esm/vs/editor/contrib/inlayHints/browser/inlayHintsController.js`。
+
 ### TD-028 2026-10-10 全量复核遗留项（P2×5，均为窄触发或记录性）
 
 - **起因**：TD-027 三批清偿后的全量代码复核（上方复核记录）。已修项见 `bd9eda0`/`361030a`；以下为裁决**留置**的窄触发/记录性项。

@@ -57,16 +57,27 @@ export interface AnchoredHint {
 }
 
 /**
- * 合并 intel（运行时标注，行尾锚定，inlay.rs 原生）与 static（pyrefly/basedpyright）
- * 两源提示。**位置一律引擎原位**（B 方案：不重锚）：
+ * 合并 intel（运行时标注）与 static（pyrefly/basedpyright）两源提示。
+ * **位置一律引擎原位**（B 方案：不重锚）；两源变量提示均名字后锚定
+ *（intel 于 2026-10-14 从行末改锚到 lhs 标识符后，锚位视觉统一）：
  *  - 同位置同文案去重（换引擎/切 intel 期间两源可能短暂并存）；
  *  - intel 行占位：同行静态变量提示（`: ` 前缀）让位——运行时是真实观测值，
- *    且锚位分开时同名两段提示（名字后 + 行尾）视觉重复；
+ *    且两源同锚后不让位会在同位置并排叠两段文案；
  *  - `: ` 前缀判定静态变量提示（pyrefly 三类提示天然互斥：变量 `: T` / 返回值
  *    `-> T` / 参数名 `a= `）。
  */
 export function mergeInlayHints(intel: MergeableHint[], staticHints: MergeableHint[]): AnchoredHint[] {
   const seen = new Set<string>();
+  // 类型/返回值提示同行同文必为重复（含引擎邻列漂移：去重键带列会漏，真机双份 `: Response`
+  // 实锤）；参数名不参与（同行不同列的同名参数提示合法，如嵌套调用）
+  const typeSeen = new Set<string>();
+  const dupType = (line: number, label: string): boolean => {
+    if (!label.startsWith(": ") && !label.startsWith("-> ")) return false;
+    const tk = `${line}:${label}`;
+    if (typeSeen.has(tk)) return true;
+    typeSeen.add(tk);
+    return false;
+  };
   const out: AnchoredHint[] = [];
   const push = (h: MergeableHint, line: number, column: number): void => {
     out.push({ line, column, label: h.label, kind: h.kind, paddingLeft: h.paddingLeft, paddingRight: h.paddingRight, tooltip: h.tooltip });
@@ -78,6 +89,7 @@ export function mergeInlayHints(intel: MergeableHint[], staticHints: MergeableHi
     const key = `${line}:${column}:${h.label}`;
     if (seen.has(key)) continue;
     seen.add(key);
+    if (dupType(line, h.label)) continue;
     intelLines.add(line);
     push(h, line, column);
   }
@@ -87,6 +99,7 @@ export function mergeInlayHints(intel: MergeableHint[], staticHints: MergeableHi
     const key = `${line}:${column}:${h.label}`;
     if (seen.has(key)) continue;
     seen.add(key);
+    if (dupType(line, h.label)) continue;
     if (h.label.startsWith(": ") && intelLines.has(line)) continue; // 运行时优先
     push(h, line, column);
   }
@@ -105,6 +118,14 @@ export interface CursorInfo {
 /** 类型提示判定：`: ` 前缀（探针实证的 pyrefly 变量提示形态；参数名 `a= ` / 返回值 `-> ` 不命中） */
 function isTypeLabel(label: string): boolean {
   return label.startsWith(": ");
+}
+
+/**
+ * 位置是否恰在某提示锚点上（1 基）。悬停闪现抑制判定：真机实证鼠标悬停注入文本时
+ * monaco 的 target.position 映射 = 提示位置列（非装饰锚列），精确匹配即可。
+ */
+export function isAtInlayAnchor(hints: AnchoredHint[], line: number, column: number): boolean {
+  return hints.some((h) => h.line === line && h.column === column);
 }
 
 /**
@@ -184,6 +205,9 @@ export function applyCursorFreeze(
     const text = lineTextOf(line);
     for (let i = used; i < pool.length; i++) {
       if (!anchorStillValid(text, pool[i].column)) continue; // 行被重写 → 放弃，宁缺勿错
+      // 复活去重（2026-10-15 真机实案）：池内历史副本若同列或同文已有输出则跳过——
+      // 否则「配对消耗一条 + 复活回填一条」令双份每轮化石重生
+      if (out.some((o) => o.line === pool[i].line && (o.column === pool[i].column || o.label === pool[i].label))) continue;
       out.push(pool[i]);
       revived = true;
     }

@@ -1,21 +1,12 @@
-// 光标行冻结的会话态管理（跳变治理 B）：跟踪所有编辑器光标 + per-model 渲染缓存，
-// 决定「哪一行、何时」可以应用 inlay 新值。
-//
-// 职责边界（与 inlayMerge.ts 的分工）：merge/freeze 行级变换是纯函数（可单测）；
-// 本模块管有状态部分——光标监听、缓存写回/失效、跨行解冻的主动刷新。
-// client.ts 的 provider 每轮调 `snapshotFor(model, fresh)` 落缓存并输出。
-//
-// 为什么不用 Monaco 官方缓存路径：controller 的 _inlayHintsCache 只在切换 model 时
-// 恢复，编辑后 1.25s 防抖一过就整体重渲染——没有「按光标位置部分保留」的钩子，
-// 必须在 provider 层自管缓存。
-//
-// ⚠ 主编辑器创建早于 provider 注册（main.ts 顺序），onDidCreateEditor 捕获不到它——
-// 注册方必须把已存在的编辑器显式传入 attachEditor（registerLspInlayHints 的
-// existingEditors 参数），否则光标表恒空、冻结静默失效（e2e E-DX-IP3 实锤过）。
+// 光标行冻结的会话态（跳变治理 B）：光标跟踪 + per-model 渲染缓存 + 跨行解冻 fire；
+// 行级纯函数见 inlayMerge.ts。自管缓存原因：vendor _inlayHintsCache 无「按光标部分保留」钩子。
+// ⚠ 主编辑器创建早于 provider 注册，onDidCreateEditor 捕获不到——注册方必须显式传
+// existingEditors，否则光标表恒空、冻结静默失效（e2e E-DX-IP3 实锤过）。
 
 import type * as MonacoApi from "monaco-editor/esm/vs/editor/editor.api";
 import { DisposableStore } from "../util";
 import { applyCursorFreeze, type AnchoredHint } from "./inlayMerge";
+import { queueHeal, setHealRefire } from "./inlayHeal"; // 控制器装饰泄漏愈合（2026-10-14 真机实锤）
 
 /** 渲染缓存条目：hints + 采样时的行数（行数变化 = 缓存失效，防行号错位） */
 interface CacheEntry {
@@ -64,6 +55,8 @@ class InlayFreezeManager {
       // 仅在该 model 冻结实际发生过才 fire（避免无提示文件里方向键狂打引擎）；
       // 同行列移动不 fire——下次内容变更重算时自然生效。
       const model = editor.getModel();
+      // 兜底：插删行行号漂移后失去事件触发的残留装饰，光标一动即清扫（heal 幂等）
+      if (model) queueHeal(model, () => this.cache.get(model.uri.toString()), editor);
       if (
         prevLine !== undefined && prevLine !== e.position.lineNumber &&
         model && this.engaged.has(model.uri.toString())
@@ -75,9 +68,10 @@ class InlayFreezeManager {
     this.store.add(editor.onDidDispose(() => this.cursorsByEditor.delete(editor)));
   }
 
-  /** client.ts 传入解冻回调（inlayHintsChanged fire 时触发 Monaco 重查） */
+  /** client.ts 传入解冻回调（inlayHintsChanged fire 时触发 Monaco 重查）；愈合收敛轮复用同一 fire */
   setOnChanged(fn: () => void): void {
     this.onChanged = fn;
+    setHealRefire(fn);
   }
 
   /** provider 每轮调用：fresh 经冻结变换后落缓存并返回 */
@@ -92,6 +86,7 @@ class InlayFreezeManager {
         this.cache.delete(key);
         this.engaged.delete(key);
       });
+      model.onDidChangeDecorations(() => queueHeal(model, () => this.cache.get(key), [...this.cursorsByEditor.keys()].find((ed) => ed.getModel() === model))); // 含 vendor fast-restore，见 inlayHeal 头注
     }
     const cached = this.cache.get(key);
     const lineCount = model.getLineCount();
@@ -103,6 +98,7 @@ class InlayFreezeManager {
       l >= 1 && l <= lineCount ? model.getLineContent(l) : "",
     );
     this.cache.set(key, { lineCount, hints: out });
+    queueHeal(model, () => this.cache.get(key), [...this.cursorsByEditor.keys()].find((ed) => ed.getModel() === model)); // 渲染后宏任务愈合（含视图重绘）
     if (out !== fresh) this.engaged.add(key);
     else this.engaged.delete(key);
     return out;
@@ -115,6 +111,11 @@ class InlayFreezeManager {
       if (editor.getModel() === model) out.push(...positions);
     }
     return out;
+  }
+
+  /** 该 model 当前渲染缓存的提示（client.ts hover 闪现抑制用；无缓存为 null） */
+  hintsAt(model: MonacoApi.editor.ITextModel): AnchoredHint[] | null {
+    return this.cache.get(model.uri.toString())?.hints ?? null;
   }
 
   /** 设置切换（inlay_param_hints）等场景：清空缓存与冻结态（调用方负责 fire 重查） */

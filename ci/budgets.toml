@@ -268,13 +268,20 @@ lsp_client_ts_max_lines = 1850
 
 # lsp/inlayMerge.ts（跳变治理新增，2026-10-12）：inlay 双源合并 + 光标行冻结的行级纯函数。
 #   同日 A 方案（行尾锚定）被用户裁决推翻 → B 方案（引擎原位 + 冻结）；随后用户实案
-#   「输入 `.` 提示消失」补消失型跳变治理（分池配对 + 锚点守卫复活），175 → 210（当前 ~193）。
-lsp_inlay_merge_ts_max_lines = 210
+#   「输入 `.` 提示消失」补消失型跳变治理（分池配对 + 锚点守卫复活），175 → 210。
+#   2026-10-15 真机双份 `: Response` 实锤：补类型/返回值提示 (行,文) 去重（引擎邻列
+#   漂移漏过带列去重键）+ 复活同文守卫，210 → 220（当前 ~217）。
+lsp_inlay_merge_ts_max_lines = 220
 
 # lsp/inlayFreeze.ts（跳变治理 B 新增，2026-10-12）：冻结会话态（光标跟踪 / per-model 缓存 /
 #   跨行解冻 fire / 失效判定）。有状态、依赖 monaco 实例，e2e 覆盖（E-DX-IP3/IP4）。
-#   上限 140（当前 ~137，余量薄——增量优先外拆纯函数进 inlayMerge.ts）。
+#   上限 140（当前 ~139，余量薄——增量优先外拆纯函数进 inlayMerge.ts）。
 lsp_inlay_freeze_ts_max_lines = 140
+
+# lsp/inlayHeal.ts（2026-10-14 新增）：Monaco 控制器 inlay 装饰泄漏愈合（真机 CDP 实锤：
+#   行尾回车序列后旧装饰不被回收、同位置双份且跨轮累积；我们 provider 输出单份）。
+#   纯函数期望计数规则 + 渲染后宏任务核对。上限 100（当前 ~95）。
+lsp_inlay_heal_ts_max_lines = 100
 
 # completion/lspCompletion.ts（P0-A2 新增，2026-10-07）：105 行。上限 150（余量 ~30%）。
 #   存在理由：`lsp/client.ts` 顶层 import `invoke` / monaco / `state` 的 `app`，**不是可单测的纯模块**

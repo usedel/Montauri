@@ -66,6 +66,13 @@ test.beforeEach(async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("#status-git")).toContainText("main", { timeout: 20_000 });
   await expect(page.locator("#status-lsp")).toContainText("就绪", { timeout: 30_000 });
+  // 行内提示总开关默认关（2026-10-15 用户裁决）：本 spec 断言提示可见，须显式打开
+  await page.keyboard.press("Control+Alt+S");
+  await expect(page.locator("#settings-modal, .modal:has(#settings-save)").first()).toBeVisible({ timeout: 5_000 });
+  await page.locator('.settings-nav-item[data-cat="editor"]').click();
+  await page.locator("#settings-inlay-type-hints").check();
+  await page.locator("#settings-save").click();
+  await expect(page.locator("#settings-modal")).toBeHidden({ timeout: 5_000 });
   await openFile(page, "main.py");
 });
 

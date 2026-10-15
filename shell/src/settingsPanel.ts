@@ -95,6 +95,8 @@ const settingsBracketPairGuidesEl = lazyEl<HTMLInputElement>("settings-bracket-p
 const settingsInlineDiagnosticsEl = lazyEl<HTMLInputElement>("settings-inline-diagnostics");
 // PR-N（dx_features_backlog §6.8）：参数名行内提示
 const settingsInlayParamHintsEl = lazyEl<HTMLInputElement>("settings-inlay-param-hints");
+// 2026-10-15：变量/返回值类型行内提示独立开关
+const settingsInlayTypeHintsEl = lazyEl<HTMLInputElement>("settings-inlay-type-hints");
 // PR-C（dx_features_backlog §6.3）：保存清理
 const settingsTrimTrailingEl = lazyEl<HTMLInputElement>("settings-trim-trailing");
 const settingsFinalNewlineEl = lazyEl<HTMLInputElement>("settings-final-newline");
@@ -772,6 +774,7 @@ function fillForm(settings: Settings): void {
   settingsBracketColorsEl.checked = settings.bracket_colors !== false;
   settingsStickyScrollEl.checked = settings.sticky_scroll !== false; // PR-B
   settingsInlayParamHintsEl.checked = settings.inlay_param_hints !== false; // PR-N
+  settingsInlayTypeHintsEl.checked = settings.inlay_type_hints === true; // 默认关：缺字段兜底关
   settingsBracketPairGuidesEl.checked = settings.bracket_pair_guides !== false; // T6a
   // VS Code 调研 借鉴-1：默认关——旧配置缺字段时兜底关（与 DEFAULT_SETTINGS 同向，
   // `!== true` 的反向兼容在此不适用，理由同 PR-K）
@@ -1043,6 +1046,7 @@ async function commitSettingsPanel(closeAfter: boolean): Promise<boolean> {
   const bracketColors = settingsBracketColorsEl.checked;
   const stickyScroll = settingsStickyScrollEl.checked; // PR-B
   const inlayParamHints = settingsInlayParamHintsEl.checked; // PR-N
+  const inlayTypeHints = settingsInlayTypeHintsEl.checked; // 2026-10-15
   const bracketPairGuides = settingsBracketPairGuidesEl.checked; // T6a
   const inlineDiagnostics = settingsInlineDiagnosticsEl.checked; // VS Code 调研 借鉴-1
   const trimTrailing = settingsTrimTrailingEl.checked; // PR-C
@@ -1089,6 +1093,7 @@ async function commitSettingsPanel(closeAfter: boolean): Promise<boolean> {
     bracket_colors: bracketColors,
     sticky_scroll: stickyScroll,
     inlay_param_hints: inlayParamHints,
+    inlay_type_hints: inlayTypeHints,
     bracket_pair_guides: bracketPairGuides, // T6a
     inline_diagnostics: inlineDiagnostics, // VS Code 调研 借鉴-1
     trim_trailing_whitespace: trimTrailing,

@@ -4,7 +4,7 @@
 //   · 参数名提示 label `"a= "`（不以 ": " 开头，锚实参前）
 //   · pyrefly 不回填 kind/paddingLeft（判定不得依赖 kind）
 import { describe, expect, it } from "vitest";
-import { anchorStillValid, applyCursorFreeze, mergeInlayHints, type AnchoredHint, type MergeableHint } from "../lsp/inlayMerge";
+import { anchorStillValid, applyCursorFreeze, isAtInlayAnchor, mergeInlayHints, type AnchoredHint, type MergeableHint } from "../lsp/inlayMerge";
 
 function hint(line: number, character: number, label: string, kind?: number): MergeableHint {
   return { line, character, label, kind };
@@ -164,5 +164,63 @@ describe("applyCursorFreeze：光标行冻结（B 方案，分池按序配对 + 
     const fresh: AnchoredHint[] = [{ line: 6, column: 8, label: ": int" }];
     expect(applyCursorFreeze(fresh, null, [{ line: 6, column: 20 }], lineTextOf)).toBe(fresh);
     expect(applyCursorFreeze(fresh, cached, [], lineTextOf)).toBe(fresh);
+  });
+});
+
+describe("mergeInlayHints：类型提示 (行,文) 去重", () => {
+  it("同行同文邻列重复（引擎漂移）→ 仅一条", () => {
+    const out = mergeInlayHints([], [hint(9, 8, ": Response"), hint(9, 9, ": Response")]);
+    expect(out).toHaveLength(1);
+  });
+  it("同行同文参数名不同列 → 保留两条（嵌套调用合法形态）", () => {
+    const out = mergeInlayHints([], [hint(9, 20, "a= "), hint(9, 26, "a= ")]);
+    expect(out).toHaveLength(2);
+  });
+  it("同行不同文类型提示 → 保留（intel 让位规则另管）", () => {
+    const out = mergeInlayHints([], [hint(9, 8, ": Response"), hint(9, 8, ": Session")]);
+    expect(out).toHaveLength(2);
+  });
+});
+
+// 复活去重守卫（2026-10-15 真机双份 `: Response` 实案）：池内历史多副本不得每轮
+// 「配对消耗一条 + 复活回填一条」化石重生——同列已有输出即跳过，双份自然收敛。
+describe("applyCursorFreeze：复活去重守卫", () => {
+  const lineTextOf = (l: number): string => (l === 6 ? "    resp = sess.get(my_url)" : "");
+  it("池同列双副本 + fresh 单份 → 输出单份（化石链斩断）", () => {
+    const cached2: AnchoredHint[] = [
+      { line: 6, column: 9, label: ": Response" },
+      { line: 6, column: 9, label: ": Session" }, // 历史轮形成的同列双副本
+    ];
+    const fresh: AnchoredHint[] = [{ line: 6, column: 9, label: ": Response" }];
+    const out = applyCursorFreeze(fresh, cached2, [{ line: 6, column: 20 }], lineTextOf);
+    expect(out).toHaveLength(1);
+  });
+  it("fresh 无、池同列双副本 → 仅复活一条（下轮缓存收敛为单份）", () => {
+    const cached2: AnchoredHint[] = [
+      { line: 6, column: 9, label: ": Response" },
+      { line: 6, column: 9, label: ": Session" },
+    ];
+    const out = applyCursorFreeze([], cached2, [{ line: 6, column: 20 }], lineTextOf);
+    expect(out).toHaveLength(1);
+    expect(out[0].label).toBe(": Response");
+  });
+});
+
+// 悬停闪现抑制判定（真机 2026-10-15 实证：鼠标悬停注入文本时 monaco 的 target.position
+// 映射 = 提示位置列（非装饰锚列），精确匹配即可）
+describe("isAtInlayAnchor", () => {
+  const hints: AnchoredHint[] = [
+    { line: 14, column: 15, label: " -> None" },
+    { line: 8, column: 9, label: ": Response" },
+  ];
+  it("锚点精确命中 → true", () => {
+    expect(isAtInlayAnchor(hints, 14, 15)).toBe(true);
+    expect(isAtInlayAnchor(hints, 8, 9)).toBe(true);
+  });
+  it("邻列/邻行/空表 → false", () => {
+    expect(isAtInlayAnchor(hints, 14, 14)).toBe(false);
+    expect(isAtInlayAnchor(hints, 14, 16)).toBe(false);
+    expect(isAtInlayAnchor(hints, 9, 9)).toBe(false);
+    expect(isAtInlayAnchor([], 14, 15)).toBe(false);
   });
 });

@@ -370,6 +370,7 @@ export const core: Record<CoreKey, string> = {
   "settings.editor.sectionEditorLabel9": "Parameter Name Hints (gray inline text at call sites)",
   "settings.editor.sectionEditorLabel22": "Bracket Pair Guides (nesting level lines)",
   "settings.editor.sectionEditorLabel23": "Inline diagnostic messages (end of lines near cursor)",
+  "settings.editor.sectionEditorLabel25": "Inline Hints Master Switch (variable/return/parameter gray text)",
   "settings.editor.wordWrap.off": "Off",
   "settings.editor.wordWrap.on": "On",
   // UI-31: group titles inside settings categories
