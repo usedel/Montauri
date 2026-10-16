@@ -3,7 +3,7 @@
 
 [shell]
 tauri = "2.11.5"          # Tauri 核心（cargo 依赖解析出的实际版本）
-monaco-editor = "0.52.2"  # 前端编辑器（npm 精确锁定）
+monaco-editor = "0.57.0"  # 前端编辑器（npm 精确锁定）；2026-10-16 对齐 c1c0a6a 已合入的 0.52.2→0.57.0 升级（该提交遗漏基线修订）
 portable-pty = "0.9.0"    # 集成终端 PTY 后端（cargo，Windows ConPTY）
 sysinfo = "0.39.6"        # 资源可观测（A-1：外壳/子进程内存与 CPU 采样）
 rusqlite = "0.32.1"       # B3 SQLite 数据库工具（bundled：自带 SQLite C 源码，免系统库）
