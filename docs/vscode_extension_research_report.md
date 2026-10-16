@@ -141,7 +141,7 @@
 | 不学 | 强度 | 依据 |
 |---|---|---|
 | IntelliCode / Copilot / Sourcery / Codeium 等 AI 能力 | **不做** | `dev_plan_v2` §1.1 明列「明确不做 AI」；`improvement_and_roadmap_report.md` §7 |
-| Python Test Explorer / 测试运行器 | **不做** | 三处一致裁决：`dev_plan_v2` §1.1 · UX 报告 **F-1（2026-09-25 已裁决）** · 库支持研究 §8「不复议」 |
+| ~~Python Test Explorer / 测试运行器~~ | ~~**不做**~~ | **已变更（2026-10-16）**：原三处一致裁决（`dev_plan_v2` §1.1 · UX 报告 F-1 · 库支持研究 §8）已被产品负责人重新裁决——测试运行器纳入范围（`dev_plan_v2` v2.2 §1.1 · `docs/pytest_dev_plan.md`）；本报告「不学」结论仅对**扩展形态**成立：不学其「装扩展」模式，能力以内置轻量形态兑现 |
 | Remote-SSH / WSL / Dev Containers | **登记不排期** | 成本高，与 Windows 单机画像契合度低 |
 | Mermaid / Markdown 大纲 | **不做** | B6 终止裁定（唯一引入新依赖 + 未验证项，与 ADR-0010 体积条款冲突，**不得再排期**） |
 | 「装 N 个扩展」这一模式本身（插件市场 / 生态补齐） | **不做** | 插件市场裁决不做；**且本报告 §2.2 给出反向证据：Python 工具链正在收敛为「1 个二进制」，「内置而非扩展」是顺风** |

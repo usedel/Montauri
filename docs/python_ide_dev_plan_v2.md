@@ -1,6 +1,7 @@
 # OpenCharm 开发计划 v2.1
 
-> 版本：v2.1 · 日期：2026-10-05 · 状态：进行中（Phase 4 打磨，进度见 §7）
+> 版本：v2.2 · 日期：2026-10-16 · 状态：进行中（Phase 4 打磨，进度见 §7）
+> v2.2 修订 §1.1 一处功能裁决（**pytest：由「不做」修订为分层裁决**，产品负责人 2026-10-16 裁决）并在 §7 新增一行；**排期、Phase 划分、验收矩阵一律不变**。修订动因：FastAPI 画像下 pytest 是事实标准，缺测试运行入口构成真实缺口；当年否掉的是「面板 / 结果树」重量级形态，「跑测试」本身从未被单独评估。执行真源 `docs/pytest_dev_plan.md`。
 > v2.1 仅修订 §1.1 目标（**「单人自用」定位作废 → 高性能 · 轻量**；性能与体积升为一等目标，章程见 `docs/adr/0010-performance-lightweight-charter.md`）与新增 §1.2.1；**排期、Phase 划分、验收矩阵一律不变**。目标用户画像不变（FastAPI + 爬虫 + 小脚本），既有功能裁决继续成立。
 > 取代 `python_ide_dev_plan.md`（v1.0，Phase 0/1 为 Zed 中心，已因换壳过时）
 > 上游文档：`python_ide_tech_plan_v3.md`（技术方案 v3）
@@ -16,7 +17,8 @@
 - **静态语义**：Pyrefly（默认）/ basedpyright（备选），经自研 LSP 桥接层挂载（ADR-0003），第一天即可切换；
 - **差异化核心**：运行时类型采样（PEP 669）+ 自研运行时智能 LSP（opencharm-intel）；
 - **功能范围**：补全 / 跳转 / Hover / 诊断 + 智能 live template + 脚本/项目运行（统一 PTY 控制台）与 traceback 点击跳转；
-- **明确不做**：pytest 面板、AI 能力、插件市场、协作编辑；调试（DAP）推迟到 Phase 3 后评估。
+- **明确不做**：AI 能力、插件市场、协作编辑；调试（DAP）推迟到 Phase 3 后评估（已立项并交付最小闭环，见 §7）。
+- **pytest（v2.2 修订，2026-10-16 产品负责人裁决）**：原「不做 pytest 面板」修订为分层口径——**做**：测试发现（`pytest --collect-only -q` 按需子进程）+ 侧栏测试树（结果状态合入）+ 绿箭头逐用例运行 / 调试 + 失败点击跳转；**维持不做**：独立结果面板与断言差异对比窗、覆盖率运行（F-3 缓议）、watch 模式、向用户进程注入 pytest 插件、每项目 pytest 参数 UI（推 M2）。执行真源：`docs/pytest_dev_plan.md`。
 
 ### 1.2 关键验收指标（项目级，v2 修订）
 
@@ -132,6 +134,7 @@ open-charm/
 | 打包发布 + 首次启动环境引导 | 自研组件（`opencharm-intel`、`probe/src`）随 NSIS 安装包分发（`bundle.resources`，运行时按 `locate_*` 查找资源目录）；外部命令（uv/pyrefly/ruff/git）统一经 `shell/src-tauri/src/tool_paths.rs` 解析（环境变量 → `~/.opencharm/bin`/`~/.local/bin` → 系统 PATH）；全新系统缺 uv/pyrefly 时由 `toolchain.rs` 探测、前端弹「环境引导」一键安装到用户目录；`build-release.ps1` 一键打包（清理 → intel release 构建 → 前端依赖 → `tauri build` nsis） | ✅ 已交付（Phase 4 第 1~4 步） |
 | 调试评估 | debugpy DAP 集成是否立项（Phase 3 后裁决） | ✅ 已立项并交付最小闭环（`docs/python_debug_dev_plan.md` v1.3：debugpy 1.8.21 随包分发 + DAP 桥 + 断点/步进/调用栈/变量；验收记录 `docs/debug_acceptance_record.md`，人工验收清单待办） |
 | 运行交互重构 | 「两种运行 + 统一运行控制台」（`docs/python_run_dev_plan.md` v3.4：脚本/项目运行 + PTY 终端控制台 + 多实例并行 + 运行历史按实例归属；probe 运行路径开启并实测 1.35x < 1.5x） | ✅ 已交付（迁移计划 M1-M4 全部完成；验收记录 `docs/run_acceptance_record.md`） |
+| 测试运行器（pytest） | 测试发现 + 侧栏测试树 + 绿箭头逐用例运行 / 调试 + 结果状态合入（`docs/pytest_dev_plan.md` v1.0，2026-10-16 立项） | 🔄 计划中（T1–T5；裁决修订见 §1.1 v2.2） |
 | trace 新鲜度优化 | 基于真实使用数据调整降权/清理策略 | 🔄 **已取得首个实测依据**（2026-10-03）：`tools/intel/trace_stats.py`（只读分析器）已落地；本机此前无任何 `traces/*.db`，用 IDE 同款注入 env 跑真实代码产出 56 函数 / 177 观测；**stale 实验（改 1/2 文件后只跑另一半）测得 stale 占比 30.0%**；`completion.rs` 的 `f.hits / 2` 已提成具名常量 `STALE_HITS_DIVISOR`（值不变）+ 注释记录依据 + 新增单测钉住降权行为（33/33）。→ **2026-10-07 已跨 3 个真实项目累计 497 条函数观测**（742 B/条，stale 仍 0.0%，真源 `bench/reports/trace-stats-cumulative.md`）。⏳ 系数最终值待「≥1000 条函数观测」后复核（现 497/1000），已裁定**不再为凑数专门采样、改为日常 IDE 使用自然累积**（`bench/reports/trace-sample-threshold.md` §4）；**人工对标工作单 ❌ 已撤下**（本机无 PyCharm，roadmap P0-2 二选一截止到期；工作单保留归档，换对照组时须改写为"对 X"） |
 | 边角修复 | 产品负责人日常使用反馈驱动 | 🔄 持续中 |
 | 边角修复 · live template 上下文位置轴 | 模板上下文从「容器单轴」升级为「容器 × 位置 × 词法」三维（`docs/live_templates上下文轴修订稿.md` v1.1）；缺省位置 = statement+expression（排除 name），根治 `main` 撞函数名误触发 | ✅ 相位 A + 相位 B（PyCharm `<context>` 导入映射 + 管理面板适用环境多选）均已交付（2026-09-25，注记见修订稿 §8/§9） |

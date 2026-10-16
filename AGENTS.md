@@ -27,7 +27,7 @@ CodeBuddy 自动加载 `RULE.mdc` 全文；其他 agent 遵循以下内联的架
 | 静态语义 | Pyrefly（默认）/ basedpyright（备选），首日可切换 |
 | 运行时 | PEP 669 `sys.monitoring` 采样 + 自研运行时 LSP `opencharm-intel`（Phase 3） |
 | 调试 | debugpy（随应用打包分发，版本锁 `ci/versions.toml`）+ 自研轻量 DAP 桥（ADR-0004，stdio adapter 模式） |
-| 功能范围 | 补全 / 跳转 / Hover / 诊断 + 脚本运行与 traceback 点击跳转 + 调试（断点 / 单步 / 调用栈 / 变量，最小闭环） |
+| 功能范围 | 补全 / 跳转 / Hover / 诊断 + 脚本运行与 traceback 点击跳转 + 调试（断点 / 单步 / 调用栈 / 变量，最小闭环）+ 测试运行器（pytest：发现 / 侧栏测试树 / 绿箭头逐用例运行调试 / 失败跳转，`docs/pytest_dev_plan.md`；**独立结果面板 / 覆盖率 / watch 不做**） |
 
 **架构第一原则（不可违反）**：
 
@@ -47,6 +47,7 @@ CodeBuddy 自动加载 `RULE.mdc` 全文；其他 agent 遵循以下内联的架
 - 技术方案与开发计划冲突时，**以开发计划为准**并反馈修订；新旧版本文档冲突时，以版本号更高者为准。
 - 重大设计决策先写 ADR（`docs/adr/`）；功能交付后更新对应验收记录（`docs/*_acceptance_record.md`）；技术债登记在 `docs/tech-debt.md`。
 - 调试功能：计划 `docs/python_debug_dev_plan.md`（v1.3）· 验收 `docs/debug_acceptance_record.md` · 决策 `docs/adr/0004-dap-bridge-debugpy-bundled.md`。
+- 测试运行器（pytest）：计划 `docs/pytest_dev_plan.md`（v1.0，2026-10-16 立项）· 裁决沿革：dev plan v2 §1.1 v2.2（原「不做 pytest 面板」修订为分层口径）· UX 报告 F-1（2026-09-25 维持非目标 → 2026-10-16 重新裁决）· 库支持研究 §8。
 - 性能与轻量：章程 `docs/adr/0010-performance-lightweight-charter.md`（2026-10-05 定位变更，性能/体积升为一等目标）。
 
 ### Python 规范核心红线（全文见 `.codebuddy/rules/python-code-style/RULE.mdc`）

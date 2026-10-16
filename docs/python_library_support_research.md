@@ -25,7 +25,7 @@
 5. **`strftime` / `str.format` / f-string 格式规范 / `logging` 的 `%(asctime)s` 是「最高频 + 最低成本」的一档**：格式规范（`>10.2f`、千分位、填充、类型码）和时间格式码（`%Y-%m-%d %H:%M:%S`）是公认的「每次都要查文档」项，而它们的求值全是**无副作用纯函数**，一个 DevTool 面板 + hover 预览即可覆盖，无安全风险。
 6. **`argparse` / `click` / `typer` 的参数表单是被忽略的高价值项，且最贴合本项目画像**：项目定位是「单人自用脚本」（dev plan v2 §1.1），自用脚本最常见的形态就是「一个文件 + 五六个命令行参数」，每次手敲 `--input a.csv --lang zh --verbose`。静态扫描 `add_argument` / `@click.option` 生成参数表单 → 回填运行配置，价值直观、成本可控。注意**内省式解析要 import 用户脚本（有副作用），必须以静态 AST 解析为主、内省为显式兜底**（§4.3）。
 7. **数据科学（pandas / NumPy）在本项目应「浅做 + 探针先行」**：调研数据（PSF + JetBrains 第八次年度调查，3 万+ 受访）显示 **51% 的 Python 开发者参与数据探索与处理，pandas / NumPy 是最常用工具**，但这是**全体 Python 开发者**的画像，不是本项目「自用脚本 / 小项目」画像；且 dev plan v2 §1.1 已裁决 **Jupyter / Scientific 模式不做**。唯一值得探的是**借 intel 运行时数据做「跑过的 DataFrame 变量」洞察**（我们的差异化资产），且必须先出探针结论（§10-P3），探针不成立即登记放弃。
-8. **`pytest` 面板维持不做**（dev plan v2 §1.1 明列、`pycharm_ux_review_and_proposal.md:393` 已裁决 F-1 非目标）。本文档不复议；但把「测试运行器」与「库支持」的边界写清：不做测试发现/结果树，不等于不做 argparse 参数表单。
+8. **`pytest` 裁决已变更（2026-10-16，`dev_plan_v2` v2.2 §1.1）**：由「面板维持不做」修订为分层口径——做测试运行器（发现 + 侧栏结果树 + 绿箭头逐用例 + 失败跳转，真源 `docs/pytest_dev_plan.md`）；独立结果面板 / 断言差异对比窗 / 覆盖率 / watch 维持不做（§8 表格同步改写）。当年「不做测试发现/结果树」的边界声明作废；「测试运行器」与「库支持」的边界仍成立：argparse 参数表单等库支持项不受影响。
 9. **明确不做（避免立项阶段反复）**：matplotlib 图预览、Streamlit/Jupyter、asyncio 协程调试、sqlite/DB 工具窗、SQLAlchemy 深语义、Jinja2 语言包、`struct`/`fnmatch` 这类窄众格式串、`subprocess` 安全（ruff 已覆盖）、LLM SDK。理由见 §8。
 10. **建议的第一批（P0，约 5–7 个工作日）**：① Python 求值桥（基建，1 天）② re 三件套（2 天）③ 格式串工具 + hover 预览（1.5 天）④ argparse/click 参数表单（2 天）。第二批（P1）「输出面板日志级别着色」「JSON→Pydantic 模型生成」「JSON 字面量注入」「注入框架化」「requests/httpx → cURL 反向生成」共约 3.5 天。详见 §7。（✅ **v1.4：两批共 9 项已全部交付**，开发计划 v1.2）
 11. **交互必须先定死再动手（§11）**：本批功能几乎全部是「编辑器 ↔ 面板」的双向联动，真正决定成败的不是能不能算出来，而是**用户写正则的当下能不能发现工具、面板会不会抢走编辑器已有位置、求值失败时会不会误导**。§11 已把线框、状态机、CodeLens 与既有引用 lens 的共存规则、六态文案模板、设置开关与键位清单全部定死，实现阶段只做填空题。
@@ -322,7 +322,7 @@ pub async fn py_eval(
 
 | 项 | 理由 |
 |---|---|
-| **pytest / unittest 面板、gutter 单测入口、结果树** | dev plan v2 §1.1 明列不做；`pycharm_ux_review_and_proposal.md:393` 已裁决 F-1 非目标。**不复议** |
+| ~~**pytest / unittest 面板、gutter 单测入口、结果树**~~ | **已变更（2026-10-16）**：`dev_plan_v2` v2.2 §1.1 修订为分层裁决——测试运行器（发现 / 结果树 / gutter 入口）已纳入范围，真源 `docs/pytest_dev_plan.md`；维持不做收敛为：独立结果面板与断言差异对比窗、覆盖率、watch、pytest 插件注入。unittest 无专属路径（pytest 可跑 unittest，连带覆盖） |
 | **Jupyter / Scientific 模式、matplotlib 图预览** | dev plan v2 §1.1、`python_run_dev_plan.md:591` 明列不做；图预览需执行 + 渲染，成本极高 |
 | **asyncio 协程感知调试** | 调试能力刚完成最小闭环（`debug_acceptance_record.md`）；协程调试是独立深水区，与库支持无关 |
 | **sqlite / 数据库工具窗** | 需连接管理、schema 缓存、结果表格，属独立产品线；本项目无 DB 基建 |

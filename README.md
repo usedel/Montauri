@@ -48,9 +48,10 @@
 | [`docs/multi_window_dev_plan.md`](docs/multi_window_dev_plan.md) | 多窗口开发计划 v0.1（阶段 0/1/2 方案；⚠️ 阶段 0 代码已落地，状态栏未回填） |
 | [`docs/git_clone_dev_plan.md`](docs/git_clone_dev_plan.md) | Git 远端克隆开发计划 v1.0（已实施 2026-10-01，Git 迭代 6 · P3-1） |
 | [`docs/python_library_support_dev_plan.md`](docs/python_library_support_dev_plan.md) | 库特别支持开发计划 v1.3（已实施）：P0 四件套 + P1 五件套（re 三件套 / 格式串 / JSON / 求值桥 / 脚本参数表单），v1.3 收口互斥性（10 项） |
-| [`docs/python_library_support_research.md`](docs/python_library_support_research.md) | 库特别支持调研报告 v1.5（**非排期依据**）：逐库价值/成本矩阵、pytest 边界（§8 明确不复议）、`re` 三件套论证 |
+| [`docs/python_library_support_research.md`](docs/python_library_support_research.md) | 库特别支持调研报告 v1.5（**非排期依据**）：逐库价值/成本矩阵、`re` 三件套论证；§8 的 pytest「不复议」已于 2026-10-16 作废（裁决变更记录见该行） |
 | [`docs/pyrefly_pydantic_support_plan.md`](docs/pyrefly_pydantic_support_plan.md) | pyrefly Pydantic 支持完善计划 v0.2：撤销 basedpyright 推荐 + 自研改名传播补充（references=0 场景） |
-| [`docs/pycharm_ux_review_and_proposal.md`](docs/pycharm_ux_review_and_proposal.md) | PyCharm UX 对标与改进提案 v1.0（**非排期依据**）：§10 裁决表，含 **F-1 pytest 维持非目标（2026-09-25 已裁决）** |
+| [`docs/pycharm_ux_review_and_proposal.md`](docs/pycharm_ux_review_and_proposal.md) | PyCharm UX 对标与改进提案 v1.0（**非排期依据**）：§10 裁决表；**F-1 pytest 裁决沿革**（2026-09-25 维持非目标 → 2026-10-16 重新裁决：做测试运行器） |
+| [`docs/pytest_dev_plan.md`](docs/pytest_dev_plan.md) | **pytest 测试运行器开发计划 v1.0（2026-10-16 立项，T1–T5 计划中）**：测试发现（`--collect-only -q` 按需子进程）+ 侧栏测试树 + 绿箭头逐用例运行/调试 + junitxml 结果状态合入；裁决真源 `dev_plan_v2` v2.2 §1.1 |
 | [`docs/pycharm_framework_support_report.md`](docs/pycharm_framework_support_report.md) | PyCharm 框架支持调研报告 v1.2（**非排期依据**） |
 | [`docs/dx_features_backlog.md`](docs/dx_features_backlog.md) | DX 顺手功能储备（**已全部收官**）：第一/第二梯队落地记录，§6.8 进度快照 |
 | [`docs/e2e_divergence_ledger.md`](docs/e2e_divergence_ledger.md) | e2e 分歧台账（mock ↔ CDP 真机）：D-001~D-007 根因与避坑速查；真机覆盖的论据来源 |
