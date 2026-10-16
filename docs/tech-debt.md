@@ -37,12 +37,21 @@
 > 第三项**悬停闪现仅缓解未根治**，且总开关 `inlay_type_hints` 默认关（用户裁决）后
 > 不可见——**开启开关时可能偶发复现**。登记 **TD-029**。
 
-### TD-029 2026-10-15 inlay 悬停闪现重复残影（vendor 视图镜像失步，未根治）
+### TD-029 2026-10-15 inlay 悬停闪现重复残影（vendor 视图镜像失步）—— **2026-10-16 已根治（patch-package）**
+
+- **状态**：✅ 已根治。四层修复全落地，真机终验（用户精确路径：行尾回车 → Ctrl+S → 悬停，两轮逐帧采样）恒单份、无累积：
+  1. hover 抑制区间判定（`isOnInlayHint`，锚邻跳变列全命中）；
+  2. heal v4：超标装饰直接删除（渲染轮 sweep 对插行位移的 stranded 装饰扫不到）；
+  3. heal v5：删除时同步清控制器 `_decorationsMetadata` 死项（悬停 link-gesture 以死项 item 为源复活装饰 = 闪现计步器）；
+  4. **vendor patch**（`patches/monaco-editor+0.52.2.patch`，postinstall 自动应用）：`_getInlineHintsForRange` 按 item 身份去重（Set），死项/换代项是不同对象同 anchor → Set 不折叠 → link-gesture 进入与移开两次重渲染各叠一套 = 最终残留的闪现一档。补丁新增 `_getInlineHintsForRangePatched` 按 **anchor(行,列)+label** 去重。
+- **升级无效实证**（2026-10-16）：0.57.0 的 `_installLinkGesture`/`_updateHintsDecorators`/`_getInlineHintsForRange` 与 0.52.2 逐行相同（npm pack 比对），上游 issue 区无对应报告——升级 monaco-editor 不解决，本地 patch 是唯一路径。
+- **遗留**：升级 monaco-editor 时须重跑 `npx patch-package monaco-editor` 重新生成补丁（函数若已被上游改名/重构，patch 会应用失败并阻断 install——这是有意的失败响铃）。
 
 - **起因**：用户实案三连（编辑后同行多份类型提示 / 次数越多越多 / 悬停提示闪现 N 份重复）。前两者已根治并有单测+e2e 钉住；本条为残留的第三项。
 - **根因（真机 CDP 插桩实锤）**：Monaco **view 层 injected-text 镜像与模型装饰失步**——闪现瞬间模型装饰恒单份、DOM 瞬现 N 份（N 随编辑轮次增长），滚动等强制重绘即恢复单份；且 monaco OSS 对注入文本零处理：hover 部件不感知 injected-text（照常触发代码 hover，弹窗内容与提示重复 = 另一种"闪现"），inlay 控制器也没有 VS Code 的 hint tooltip 拦截能力。历史放大器两个（均已排除）：带外 `deltaDecorations` 删除会给 view 留残影；heal 旧版 inlayHints toggle 会取消在途轮，致 vendor `_inlayHintsCache` 污染永不被覆盖（fast-restore 反复回填双份）。
-- **已落缓解**：① 悬停位置 = 提示锚列精确匹配时跳过 LSP hover（`client.ts` provideHover + `inlayMerge.isAtInlayAnchor`，真机实证映射列 = 缓存列）；② heal v3：按行期望总额检出泄漏 → 清 vendor `_inlayHintsCache` 条目 + refire 干净轮（废除 toggle 与带外删除，re-arm 冷却 1.6s）；③ `inlay_type_hints` 总开关默认关——关闭即无注入文本，闪现无载体。
-- **建议方案**（按代价升序）：(a) hover 抑制命中或 heal 后做视图一致性自检：DOM 份数 vs 模型装饰数，不一致则滚动 1px 往返强制重绘（滚动可愈已实证；注意与 (b) 的残影风险权衡）；(b) patch-package 修 vendor `inlayHintsController` / view injected-text 同步路径（治本，需跟 monaco 版本升级维护补丁）；(c) 升级 monaco-editor 并跟踪上游 inlay injected-text 相关 issue。
+- **已落缓解**：① **悬停闪现已修复（2026-10-16，逐帧取证）**：根因 = hover 弹窗（ContentWidget）显示/隐藏触发 view 行重渲染的中间态帧（该行注入文本瞬现双份、下一帧恢复）；而弹窗本可避免——悬停注入文本的映射列在锚列邻跳变（实测 13/15/16 @ 锚 15），首版精确锚列抑制漏配。修复 = 抑制判定改**区间**（`isOnInlayHint`：`: ` 类锚左（标识符本体）不放宽，`-> `/参数名锚左（括号）放宽 2 列，右侧锚+label 长+1）→ 悬停提示全程无弹窗 → 无生命周期 → 无中间态。② heal v3：按行期望总额检出泄漏 → 清 vendor `_inlayHintsCache` 条目 + refire 干净轮（废除 toggle 与带外删除，re-arm 冷却 1.6s）；③ `inlay_type_hints` 总开关默认关（用户裁决）。
+- **残余观察**：hover 弹窗在**代码本体**（非注入文本）上的显示/隐藏理论上仍会触发同样的行重渲染中间态，但无注入文本行不受影响；且这是 monaco 悬停机制的固有中间帧，无功能影响，不追。
+- **建议方案**（按代价升序）：(a) 若后续再出现类似瞬态：视图一致性自检（DOM 份数 vs 模型装饰数，不一致滚动重绘）；(b) patch-package 修 vendor `inlayHintsController` / view injected-text 同步路径（治本，需跟 monaco 版本升级维护补丁）；(c) 升级 monaco-editor 并跟踪上游 inlay injected-text 相关 issue。
 - **处理时机**：独立 PR；动手前跑 e2e dx/10 + 真机 CDP 采样（附着脚本方法：connectOverCDP → import vite deps monaco → 模型装饰/`_decorationsMetadata`/freeze 缓存/DOM 四方比对；历史脚本见 git 提交说明）。
 - **涉及文件**：`shell/src/lsp/inlayHeal.ts`、`shell/src/lsp/inlayMerge.ts`、`shell/src/lsp/inlayFreeze.ts`、`shell/src/lsp/client.ts`、`node_modules/monaco-editor/esm/vs/editor/contrib/inlayHints/browser/inlayHintsController.js`。
 

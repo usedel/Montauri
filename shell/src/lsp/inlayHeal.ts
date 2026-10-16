@@ -1,14 +1,13 @@
 // Inlay 装饰泄漏愈合（Monaco vendor 缺陷 mitigation，2026-10-14/15 真机实锤）。
 // 规则：每行期望总额 = Σ(1+paddingLeft+paddingRight)；按行比对（类型提示装饰锚列 ≠
 //   位置列，按位置会误删整条类型提示，IP3/IP4 实锤）；同行超额 = 泄漏。
-// 愈合 v3（全链路插桩结论）：清 vendor _inlayHintsCache（fast-restore 每次 _update 回填
-//   污染 = 持久化真源）+ refire 一次干净重查轮。**废除 toggle**：_update 取消在途轮致
-//   轮永不完成、缓存永不被覆盖，风暴放大污染。无 editor 退回带外删除；re-arm 冷却 1.6s。
+// 愈合 v5（2026-10-16 插桩+源码闭环）：超标直接删除 + 清控制器 metadata 死项——渲染轮
+//   sweep 按 range 包含回收，插行令装饰位移后成 stranded 滞留；死 id 记账不删，hover
+//   以其 item 复活装饰 = 闪现计步器。另清 fast-restore 缓存 + refire；re-arm 冷却 1.6s。
 // 触发（inlayFreeze）：每轮后 / 装饰任何变化 / 光标移动。
 
 import type * as MonacoApi from "monaco-editor/esm/vs/editor/editor.api";
 import type { AnchoredHint } from "./inlayMerge";
-
 /** 模型装饰探针子集（可测性：单测以假模型注入） */
 export interface DecorationProbe {
   id: string;
@@ -44,21 +43,24 @@ let refire: (() => void) | null = null;
 /** client 注册经 inlayFreeze.setOnChanged 注入 fire；愈合收敛轮复用 */
 export function setHealRefire(fn: () => void): void { refire = fn; }
 
-/** 清 vendor fast-restore 缓存（key = uri/versionId，与控制器 _key 同源）；vendor 内部漂移静默跳过 */
-function purgeVendorCache(ed: MonacoApi.editor.ICodeEditor, model: MonacoApi.editor.ITextModel): void {
+/** 清控制器内部态（fast-restore 缓存 + 全部死项——渲染轮换代与 heal 删除的都算）；静默跳过 */
+function purgeControllerState(ed: MonacoApi.editor.ICodeEditor, model: MonacoApi.editor.ITextModel, ids: string[]): void {
   try {
     const c = (ed as unknown as { getContribution(id: string): unknown }).getContribution("editor.contrib.InlayHints") as
-      | { _inlayHintsCache?: { _entries?: Map<string, unknown> } }
+      | { _inlayHintsCache?: { _entries?: Map<string, unknown> }; _decorationsMetadata?: Map<string, unknown> }
       | null;
     c?._inlayHintsCache?._entries?.delete(`${model.uri.toString()}/${model.getVersionId()}`);
+    const m = c?._decorationsMetadata;
+    if (!m) return;
+    for (const id of [...m.keys()]) if (!model.getDecorationRange(id) || ids.includes(id)) m.delete(id);
   } catch {
-    /* 静默跳过：refire 轮仍会收敛 */
+    /* refire 轮仍会收敛 */
   }
 }
 
 const queued = new Set<string>();
 
-/** 愈合排程：每 model 至多一个在途宏任务；愈合后仍有超额则 1.6s 冷却再自查一次 */
+/** 愈合排程：每 model 至多一个在途宏任务；愈合后仍有超额则 1.6s 冷却再自查 */
 export function queueHeal(
   model: MonacoApi.editor.ITextModel,
   entryOf: () => { lineCount: number; hints: AnchoredHint[] } | undefined,
@@ -77,7 +79,7 @@ export function queueHeal(
   }, 0);
 }
 
-/** 愈合入口。行数不一致（缓存失效窗口）或模型已销毁 → 跳过（宁漏 heal 不误删）。 */
+/** 愈合入口（超额即直接删）。行数不一致（缓存失效窗口）或模型已销毁 → 跳过。 */
 export function healInlayDecorations(model: MonacoApi.editor.ITextModel, hints: AnchoredHint[], editor?: MonacoApi.editor.ICodeEditor): number {
   if (model.isDisposed()) return 0;
   const decos: DecorationProbe[] = [];
@@ -88,11 +90,10 @@ export function healInlayDecorations(model: MonacoApi.editor.ITextModel, hints: 
   }
   const surplus = findSurplusDecorationIds(hints, decos);
   if (surplus.length) {
+    model.deltaDecorations(surplus, []); // v4：直接删（stranded 机制见头注）
     if (editor) {
-      purgeVendorCache(editor, model);
-      refire?.(); // 干净重查轮：sweep 旧装饰 + 重写 vendor 缓存
-    } else {
-      model.deltaDecorations(surplus, []); // 无编辑器兜底：带外删除
+      purgeControllerState(editor, model, surplus);
+      refire?.();
     }
   }
   return surplus.length;

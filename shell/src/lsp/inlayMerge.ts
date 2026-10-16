@@ -120,12 +120,14 @@ function isTypeLabel(label: string): boolean {
   return label.startsWith(": ");
 }
 
-/**
- * 位置是否恰在某提示锚点上（1 基）。悬停闪现抑制判定：真机实证鼠标悬停注入文本时
- * monaco 的 target.position 映射 = 提示位置列（非装饰锚列），精确匹配即可。
- */
-export function isAtInlayAnchor(hints: AnchoredHint[], line: number, column: number): boolean {
-  return hints.some((h) => h.line === line && h.column === column);
+/** 悬停位置是否落在提示渲染区（TD-029 修复：实测映射列在锚邻跳变，精确匹配漏配 →
+ * hover 弹窗照常弹出，弹窗生命周期触发 view 行重渲染中间态 = 闪现双份；`: ` 类
+ * 锚左是标识符本体，不放宽）。 */
+export function isOnInlayHint(hints: AnchoredHint[], line: number, column: number): boolean {
+  return hints.some((h) => {
+    const lax = h.label.startsWith(": ") ? 0 : 2;
+    return h.line === line && column >= h.column - lax && column <= h.column + h.label.length + 1;
+  });
 }
 
 /**

@@ -20,7 +20,7 @@ import {
   mapLspTextEdit,
   normalizeCompletionList,
 } from "../completion/lspCompletion"; // P0-A2/P0-D：补全解析/映射外迁为纯函数（client.ts 不可单测）
-import { mergeInlayHints, toMergeableHint, isAtInlayAnchor, type LspInlayHint } from "./inlayMerge"; // 跳变治理 B：双源合并（纯函数，预算外拆）
+import { mergeInlayHints, toMergeableHint, isOnInlayHint, type LspInlayHint } from "./inlayMerge"; // 跳变治理 B：双源合并（纯函数，预算外拆）
 import { argVarToSuggestions, computeArgVarsForPosition, type SigHelpLike } from "../completion/argVarCompletion"; // FUSION-1：扫描/类型匹配/候选构造（纯函数半部）
 import { hoverTextFor, registerArgVarInline, setArgVarDeps, setArgVarInlineEditor } from "../completion/argVarInline"; // FUSION-1 ghost text + hover 依赖注入（防环）
 import { inlayFreeze } from "./inlayFreeze"; // 跳变治理 B：光标行冻结会话态（单例）
@@ -826,8 +826,8 @@ async function queryHover(engine: string, params: unknown): Promise<LspHover | n
 export function registerLspHover(): MonacoApi.IDisposable {
   return monaco.languages.registerHoverProvider("python", {
     async provideHover(model: MonacoApi.editor.ITextModel, position: MonacoApi.Position) {
-      // 悬停闪现抑制（真机 2026-10-15）：Monaco 对 inlay 注入文本不抑制代码 hover，弹窗与提示重复
-      if (isAtInlayAnchor(inlayFreeze.hintsAt(model) ?? [], position.lineNumber, position.column)) return null;
+      // TD-029：注入文本渲染区内不出 LSP hover（弹窗生命周期触发行重渲染中间态=闪现；见 inlayMerge）
+      if (isOnInlayHint(inlayFreeze.hintsAt(model) ?? [], position.lineNumber, position.column)) return null;
       // 自研段：正则 / 格式串字面量解释（独立于引擎就绪态；libs_regex / libs_format 关闭时返回 null）
       const libsValue = libsHoverAt(model, position);
       if (engineStatus !== "ready") {

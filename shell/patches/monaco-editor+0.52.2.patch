@@ -1,0 +1,37 @@
+diff --git a/node_modules/monaco-editor/esm/vs/editor/contrib/inlayHints/browser/inlayHintsController.js b/node_modules/monaco-editor/esm/vs/editor/contrib/inlayHints/browser/inlayHintsController.js
+index ebc9d1a..b3f6507 100644
+--- a/node_modules/monaco-editor/esm/vs/editor/contrib/inlayHints/browser/inlayHintsController.js
++++ b/node_modules/monaco-editor/esm/vs/editor/contrib/inlayHints/browser/inlayHintsController.js
+@@ -256,7 +256,7 @@ let InlayHintsController = class InlayHintsController {
+                 : undefined;
+             const lineNumber = model.validatePosition(labelPart.item.hint.position).lineNumber;
+             const range = new Range(lineNumber, 1, lineNumber, model.getLineMaxColumn(lineNumber));
+-            const lineHints = this._getInlineHintsForRange(range);
++            const lineHints = this._getInlineHintsForRangePatched(range);
+             this._updateHintsDecorators([range], lineHints);
+             sessionStore.add(toDisposable(() => {
+                 this._activeInlayHintPart = undefined;
+@@ -289,6 +289,23 @@ let InlayHintsController = class InlayHintsController {
+         }
+         return Array.from(lineHints);
+     }
++    // OpenCharm patch (TD-029): _getInlineHintsForRange dedupes by item identity (Set),
++    // but stale entries from replaced decorations carry different item objects with the
++    // same anchor — the Set doesn't collapse them, and the link-gesture re-render below
++    // then emits one decoration per entry => duplicated hints flash on hover.
++    // Deduping by anchor key fixes both the enter and the leave re-render path.
++    _getInlineHintsForRangePatched(range) {
++        const byAnchor = new Map();
++        for (const data of this._decorationsMetadata.values()) {
++            if (range.containsRange(data.item.anchor.range)) {
++                const k = `${data.item.anchor.range.startLineNumber}:${data.item.anchor.range.startColumn}:${typeof data.item.hint.label === 'string' ? data.item.hint.label : ''}`;
++                if (!byAnchor.has(k)) {
++                    byAnchor.set(k, data.item);
++                }
++            }
++        }
++        return Array.from(byAnchor.values());
++    }
+     _installDblClickGesture(updateInlayHints) {
+         return this._editor.onMouseUp(async (e) => {
+             if (e.event.detail !== 2) {

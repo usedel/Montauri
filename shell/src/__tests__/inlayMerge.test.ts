@@ -4,7 +4,7 @@
 //   · 参数名提示 label `"a= "`（不以 ": " 开头，锚实参前）
 //   · pyrefly 不回填 kind/paddingLeft（判定不得依赖 kind）
 import { describe, expect, it } from "vitest";
-import { anchorStillValid, applyCursorFreeze, isAtInlayAnchor, mergeInlayHints, type AnchoredHint, type MergeableHint } from "../lsp/inlayMerge";
+import { anchorStillValid, applyCursorFreeze, isOnInlayHint, mergeInlayHints, type AnchoredHint, type MergeableHint } from "../lsp/inlayMerge";
 
 function hint(line: number, character: number, label: string, kind?: number): MergeableHint {
   return { line, character, label, kind };
@@ -206,21 +206,28 @@ describe("applyCursorFreeze：复活去重守卫", () => {
   });
 });
 
-// 悬停闪现抑制判定（真机 2026-10-15 实证：鼠标悬停注入文本时 monaco 的 target.position
-// 映射 = 提示位置列（非装饰锚列），精确匹配即可）
-describe("isAtInlayAnchor", () => {
+// 悬停闪现抑制判定（TD-029 修复）：区间语义——实测映射列在锚邻跳变（13/15/16 @ 锚 15），
+// 精确匹配漏配令 hover 弹窗照常弹出，弹窗生命周期触发 view 行重渲染中间态 = 闪现双份。
+// `: ` 类锚左是标识符本体不放宽；`-> `/参数名锚左是括号，放宽 2 列。
+describe("isOnInlayHint", () => {
   const hints: AnchoredHint[] = [
     { line: 14, column: 15, label: " -> None" },
     { line: 8, column: 9, label: ": Response" },
   ];
-  it("锚点精确命中 → true", () => {
-    expect(isAtInlayAnchor(hints, 14, 15)).toBe(true);
-    expect(isAtInlayAnchor(hints, 8, 9)).toBe(true);
+  it("锚点及锚邻跳变列（13/15/16）→ true（弹窗抑制全命中）", () => {
+    for (const c of [13, 14, 15, 16, 17]) expect(isOnInlayHint(hints, 14, c)).toBe(true);
   });
-  it("邻列/邻行/空表 → false", () => {
-    expect(isAtInlayAnchor(hints, 14, 14)).toBe(false);
-    expect(isAtInlayAnchor(hints, 14, 16)).toBe(false);
-    expect(isAtInlayAnchor(hints, 9, 9)).toBe(false);
-    expect(isAtInlayAnchor([], 14, 15)).toBe(false);
+  it("`-> None` 渲染区尾部（锚 15 + label 8 + 1）→ true；区外 → false", () => {
+    expect(isOnInlayHint(hints, 14, 24)).toBe(true);
+    expect(isOnInlayHint(hints, 14, 25)).toBe(false);
+    expect(isOnInlayHint(hints, 14, 12)).toBe(false);
+  });
+  it("`: ` 类锚左不放宽（列 8/9 均属提示区，列 7 标识符本体 → false）", () => {
+    expect(isOnInlayHint(hints, 8, 9)).toBe(true);
+    expect(isOnInlayHint(hints, 8, 8)).toBe(false);
+  });
+  it("邻行/空表 → false", () => {
+    expect(isOnInlayHint(hints, 15, 15)).toBe(false);
+    expect(isOnInlayHint([], 14, 15)).toBe(false);
   });
 });
