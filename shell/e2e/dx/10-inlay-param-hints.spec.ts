@@ -11,7 +11,7 @@
  *  - E-DX-IP3 变量类型提示在名字后（引擎原位）+ 光标行冻结（变形不跳变，跨行解冻）
  *  - E-DX-IP4 引擎丢弃提示时冻结区原位复活（消失型跳变，输入 `.` 实案）
  *
- * 前置：本机安装 pyrefly（ci/versions.toml 锁 1.3.1；本机 1.3.0，探针同口径）。
+ * 前置：本机安装 pyrefly（ci/versions.toml 锁 1.4.0；2026-10-16 自 1.3.1 升级，探针同口径）。
  */
 import { test, expect, type Page } from "@playwright/test";
 import { equipPage, makeGitRepo } from "../helpers";

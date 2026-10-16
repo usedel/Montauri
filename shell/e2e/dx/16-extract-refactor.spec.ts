@@ -9,7 +9,7 @@
  *  - E-DX-ER2 抑制清单生效：extract helper（引擎产出漏 return 的坏代码，探针实测）不进菜单；
  *    Introduce parameter（产出正确）保留
  *
- * 前置：本机安装 pyrefly（ci/versions.toml 锁 1.3.1；1.2.0 起即支持 refactor.extract，
+ * 前置：本机安装 pyrefly（ci/versions.toml 锁 1.4.0；1.2.0 起即支持 refactor.extract，
  * 探针 pyrefly_path 组实测）。
  */
 import { test, expect, type Page } from "@playwright/test";
