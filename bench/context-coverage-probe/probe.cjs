@@ -4,9 +4,9 @@
 // 输出：bench/reports/context-coverage-probe-<engine>.json + stdout 摘要
 //
 // 口径（照 pydantic-probe 的踩坑先例）：
-// - 引擎必须走 ci/versions.toml 锁定版：`uv tool run pyrefly@1.3.1 lsp` /
+// - 引擎必须走 ci/versions.toml 锁定版：`uv tool run pyrefly@1.4.0 lsp` /
 //   `uv tool run --from basedpyright@1.39.10 basedpyright-langserver --stdio`
-//   （本机 uv tool 装的是 1.3.0 / 1.40.1，直接调用会偏离基线）；
+//   （显式钉版保证其他机器/CI 可复现，不依赖本机 PATH 上装的版本）；
 // - 必须响应服务端请求（basedpyright 不响应配置请求会挂起，P1-BUG-001）；
 // - 进程 cwd = 受控项目根（pyrefly 靠 cwd 发现 pyproject.toml 才建工作区索引）；
 // - pyrefly 是 lazy 索引：每个场景重试若干轮取「条数最多」的一次，避免把
@@ -30,8 +30,8 @@ const PYTHON = PY_CANDIDATES.find((p) => fs.existsSync(p)) || undefined;
 const ENGINES = {
   pyrefly: {
     command: "uv",
-    args: ["tool", "run", "pyrefly@1.3.1", "lsp"],
-    label: "pyrefly 1.3.1",
+    args: ["tool", "run", "pyrefly@1.4.0", "lsp"],
+    label: "pyrefly 1.4.0",
   },
   basedpyright: {
     command: "uv",

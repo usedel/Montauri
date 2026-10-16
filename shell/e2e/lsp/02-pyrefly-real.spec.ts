@@ -6,7 +6,7 @@
  * （复刻 Rust lsp.rs 的协议），验证前端 LSP 桥对 pyrefly 的适配：initialize 握手 /
  * 跨文件跳转 / 补全类型推断 / docstring hover / missing-import 诊断。
  *
- * 前置：本机需安装 pyrefly（版本锁定见 ci/versions.toml — pyrefly = "1.3.1"，`pyrefly lsp`）。
+ * 前置：本机需安装 pyrefly（版本锁定见 ci/versions.toml — pyrefly = "1.4.0"，`pyrefly lsp`）。
  */
 import { test, expect, type Page } from "@playwright/test";
 import { equipPage, makeGitRepo } from "../helpers";
