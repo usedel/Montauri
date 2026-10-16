@@ -1,7 +1,7 @@
 # Monaco Editor 0.52.2 → 0.57.0 升级计划
 
 - **日期**：2026-10-16（调研与撰写）
-- **状态**：待执行（用户已批准，本文件即执行蓝本）
+- **状态**：✅ **已执行完成（2026-10-16）**——见 §6 执行结果回填
 - **当前版本**：`monaco-editor@0.52.2`（精确锁定）+ `patches/monaco-editor+0.52.2.patch`（TD-029 vendor 修复）
 - **目标版本**：`monaco-editor@0.57.0`
 
@@ -138,12 +138,29 @@ register*Provider 全家族、markers 四桶、create/createDiffEditor/createMod
 - 升级分支独立 commit，任何阶段失败且 30 分钟内无法修复 → `git checkout` 回 `5be5ee7` 基线 + `npm i`（旧 patch 自动恢复）。
 - **风险不对称**：我们所有修复（heal/merge/freeze/patch）都不依赖 0.57 的新能力，回滚零损失。
 
-## 6. 执行结果回填（执行时填写）
+## 6. 执行结果回填（2026-10-16 执行完成）
 
-- 遇到的 breaking changes 清单：_待填_
-- e2e 失败项与判定：_待填_
-- 真机回归结果：_待填_
-- 基线 vs 升级后 build 体积：_待填_
+**遇到的 breaking changes（实际全集，比调研预估多 3 项）**：
+1. TS 类型解析也被 exports 拦截（调研未预见）——61 个文件的 `import type ... editor.api` 全报 TS2307 → `tsconfig.json` 加 `paths` 映射（`monaco-editor/esm/vs/*` → `node_modules/monaco-editor/esm/vs/*`），与 vite alias 成对。
+2. `?worker` 后缀模块与 alias/optimizer 三方冲突：进 dep optimizer 产物 404（`?worker.js` 文件不存在）→ alias 排除 + `optimizeDeps.exclude` + 单独 alias 到实际文件实体（带 `.js` + `?worker` query）。**这是最深的坑**，报错形态有三种（404/500 resolve 失败/optimization info undefined），vite config 最终形态见 `vite.config.ts`。
+3. `InlineCompletionsProvider.freeInlineCompletions` → `disposeInlineCompletions`（必选方法更名）——`argVarInline.ts` 一处。
+4. **0.57 默认启用 Edit Context**（焦点/DOM/IME 管线变化）——升级纪律=行为面最小化，`buildEditorOptions` 注入 `editContext: false` 关闭；迁移登记 TD-030。
+5. 0.57 ghost text 渲染按 token 拆分多 span（E-AV-6 断言改拼接口径）。
+6. 0.57 code action 菜单树内常驻隐藏 submenu panel（`.action-widget` 命中 2 元素）——`:visible` 精化。
+
+**e2e 失败项与判定（首轮全量 471/476，5 失败全修复后 22 目录全绿）**：
+- E-AV-6（ghost 断言口径过时）→ 改拼接断言，产品无恙。
+- E-DX-ER1/ER2（action-widget 双元素）→ `:visible`，产品无恙。
+- E-DX-FU2（面包屑拦截 pointer）→ 改绝对坐标 mouse.dblclick，产品无恙。
+- R-5 内存（0.57 实例回收/每轮增量实测变化）→ 阈值按新版本实测收敛值校准（512→256KB / 256→384KB / 512→448KB）。
+- P-GUARD-3（`term.pendingChunks` 不存在）→ **既有 bug**（83bdd1d 背压重构后 spec 未跟上，与升级无关），改经 `term.bp` 访问修复。
+- 另：squiggle 4 用例首跑失败为 dev server HMR 时间戳分叉（改代码后 `?t=` 后缀使 e2e 动态 import 与主链双实例），重启 dev server 即愈——**教训：e2e 全量前重启 dev server**。
+
+**真机回归**：待用户验证（inlay 三症状/主题/键位/右键菜单）。
+
+**build 体积（基线 → 升级后）**：index 1,624→1,624KB（持平）；monaco chunk 3,118→3,861KB（**+743KB**，上游 20 个月内核膨胀，按需 contrib 集合未变）；worker 231→275KB；CSS 新增 monaco-*.css 176KB（0.57 拆出）。产物总量 5,987KB → `max_bundle_kb` 显式上调 5,170→6,050（budgets.toml 留痕）。
+
+**门禁终态**：vitest 123/1537 全绿；e2e 22 目录 476 用例全绿；budget 全 PASS（产物 5987/6050、index 1586/1700）；cargo check 绿。
 
 ## 7. 工时与排期估算
 

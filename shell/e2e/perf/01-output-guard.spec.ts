@@ -150,10 +150,11 @@ test("P-GUARD-3 终端洪峰背压：入队削峰 + 限流提示 + 洪峰期间�
 
     // ① 削峰：一次性灌入后，数据应留在队列里而不是同帧全部写进 xterm
     for (let i = 0; i < blocks; i++) term.writeData(chunk);
+    // 背压队列字段经 term.bp（83bdd1d 重构后为实例私有字段，运行时可访问；TS private 不隔离 JS）
     const queuedImmediately = {
-      chunks: term.pendingChunks.length,
-      bytes: term.pendingBytes,
-      throttleNotified: term.throttleNotified, // 积压已超 1MB → 应已标记提示
+      chunks: term.bp.chunks.length,
+      bytes: term.bp.bytes,
+      throttleNotified: term.bp.throttleNotified, // 积压已超 1MB → 应已标记提示
     };
 
     // ② 洪峰期间主线程仍在出帧
@@ -171,7 +172,7 @@ test("P-GUARD-3 终端洪峰背压：入队削峰 + 限流提示 + 洪峰期间�
     stop = true;
 
     // ③ 观察窗口结束后队列应被分帧消化干净（削峰不丢数据）
-    const drained = { chunks: term.pendingChunks.length, bytes: term.pendingBytes };
+    const drained = { chunks: term.bp.chunks.length, bytes: term.bp.bytes };
 
     // ④ 洪峰结束后补写的收尾提示应留在缓冲区（中途那次提示会被后续输出冲出 scrollback）
     const buf = term.term.buffer.active;

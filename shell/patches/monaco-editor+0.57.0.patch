@@ -1,8 +1,8 @@
 diff --git a/node_modules/monaco-editor/esm/vs/editor/contrib/inlayHints/browser/inlayHintsController.js b/node_modules/monaco-editor/esm/vs/editor/contrib/inlayHints/browser/inlayHintsController.js
-index ebc9d1a..b3f6507 100644
+index 5ee3d84..5d0f1a2 100644
 --- a/node_modules/monaco-editor/esm/vs/editor/contrib/inlayHints/browser/inlayHintsController.js
 +++ b/node_modules/monaco-editor/esm/vs/editor/contrib/inlayHints/browser/inlayHintsController.js
-@@ -256,7 +256,7 @@ let InlayHintsController = class InlayHintsController {
+@@ -291,7 +291,7 @@ let InlayHintsController = class InlayHintsController {
                  : undefined;
              const lineNumber = model.validatePosition(labelPart.item.hint.position).lineNumber;
              const range = new Range(lineNumber, 1, lineNumber, model.getLineMaxColumn(lineNumber));
@@ -11,7 +11,7 @@ index ebc9d1a..b3f6507 100644
              this._updateHintsDecorators([range], lineHints);
              sessionStore.add(toDisposable(() => {
                  this._activeInlayHintPart = undefined;
-@@ -289,6 +289,23 @@ let InlayHintsController = class InlayHintsController {
+@@ -324,6 +324,23 @@ let InlayHintsController = class InlayHintsController {
          }
          return Array.from(lineHints);
      }

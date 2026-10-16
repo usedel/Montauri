@@ -47,26 +47,27 @@ import "monaco-editor/esm/vs/editor/contrib/suggest/browser/suggestController"; 
 import "monaco-editor/esm/vs/editor/contrib/wordHighlighter/browser/wordHighlighter"; // 词高亮
 
 // --- 语法高亮（Monarch 词法，无 worker；按 Python 项目常见文件类型按需引入） ---
+// 0.56 迁移：basic-languages/<l>/<l>.contribution.js → languages/definitions/<l>/register.js
 // 配置与文档
-import "monaco-editor/esm/vs/basic-languages/yaml/yaml.contribution";
-import "monaco-editor/esm/vs/basic-languages/ini/ini.contribution"; // 兼容 toml/ini/cfg/conf 近似着色
-import "monaco-editor/esm/vs/basic-languages/markdown/markdown.contribution";
-import "monaco-editor/esm/vs/basic-languages/restructuredtext/restructuredtext.contribution";
+import "monaco-editor/esm/vs/languages/definitions/yaml/register";
+import "monaco-editor/esm/vs/languages/definitions/ini/register"; // 兼容 toml/ini/cfg/conf 近似着色
+import "monaco-editor/esm/vs/languages/definitions/markdown/register";
+import "monaco-editor/esm/vs/languages/definitions/restructuredtext/register";
 // Web / 文档
-import "monaco-editor/esm/vs/basic-languages/html/html.contribution";
-import "monaco-editor/esm/vs/basic-languages/css/css.contribution";
-import "monaco-editor/esm/vs/basic-languages/scss/scss.contribution";
+import "monaco-editor/esm/vs/languages/definitions/html/register";
+import "monaco-editor/esm/vs/languages/definitions/css/register";
+import "monaco-editor/esm/vs/languages/definitions/scss/register";
 // 脚本 / 容器 / 数据
-import "monaco-editor/esm/vs/basic-languages/shell/shell.contribution";
-import "monaco-editor/esm/vs/basic-languages/dockerfile/dockerfile.contribution";
-import "monaco-editor/esm/vs/basic-languages/bat/bat.contribution";
-import "monaco-editor/esm/vs/basic-languages/powershell/powershell.contribution";
-import "monaco-editor/esm/vs/basic-languages/sql/sql.contribution";
-import "monaco-editor/esm/vs/basic-languages/xml/xml.contribution";
+import "monaco-editor/esm/vs/languages/definitions/shell/register";
+import "monaco-editor/esm/vs/languages/definitions/dockerfile/register";
+import "monaco-editor/esm/vs/languages/definitions/bat/register";
+import "monaco-editor/esm/vs/languages/definitions/powershell/register";
+import "monaco-editor/esm/vs/languages/definitions/sql/register";
+import "monaco-editor/esm/vs/languages/definitions/xml/register";
 // 其他语言
-import "monaco-editor/esm/vs/basic-languages/javascript/javascript.contribution";
-import "monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution";
-import "monaco-editor/esm/vs/basic-languages/rust/rust.contribution";
+import "monaco-editor/esm/vs/languages/definitions/javascript/register";
+import "monaco-editor/esm/vs/languages/definitions/typescript/register";
+import "monaco-editor/esm/vs/languages/definitions/rust/register";
 
 // --- Python 语法：静态引入（不走 contribution 的运行时动态 import） ---
 // python.contribution 经 registerLanguage 的 loader() 在**首次 tokenize 时**才
@@ -77,7 +78,7 @@ import "monaco-editor/esm/vs/basic-languages/rust/rust.contribution";
 // The file does not exist at ".../deps/python-A5SEOAVQ.js?v=..."）。
 // Python 是本 IDE 主语言，语法定义（~20KB）静态打进主 chunk，运行时零动态加载，
 // 彻底绕开 dep 优化器。语言注册元数据镜像 python.contribution 的 registerLanguage 条目。
-import { conf as pythonConf, language as pythonLanguage } from "monaco-editor/esm/vs/basic-languages/python/python.js";
+import { conf as pythonConf, language as pythonLanguage } from "monaco-editor/esm/vs/languages/definitions/python/python.js";
 
 editorApi.languages.register({
   id: "python",

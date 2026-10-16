@@ -449,6 +449,10 @@ max_tauri_commands = 206
 #    index_chunk_kb 不动。无法再拆：inline provider 与 suggest 协同依赖同一 model 实例，
 #    按需再加载会在 suggest 已开会话里产生双实例竞态——实测已遭 inlineCompletionsSource
 #    双池语义反噬，不再二次尝试）。
+#    5,170 → 6,050（2026-10-16 显式调整：+880 = monaco-editor 0.52.2 → 0.57.0 升级，
+#    用户裁决（滞纳成本控制）。monaco chunk 3.12→3.86 MB（+743 KB）为上游 20 个月内核
+#    膨胀（VS Code 同步），按需 contrib 集合未变、无我们代码增长；worker +44 KB、CSS +19 KB。
+#    实测 5,987。冷启动代理 index_chunk_kb 不动（index 持平 1.62 MB）。
 #    ⚠ 陈旧 dist 会残留已删除的依赖分包（实测曾虚报 7,065 KB，其中约 2.08 MB 是已取消的
 #    mermaid/katex），故脚本带新鲜度校验——源码比 dist 新判 STALE 并失败。引用数字前先
 #    `cd shell && npm run build`。
@@ -457,7 +461,7 @@ max_tauri_commands = 206
 #    仍以 bench/collect-metrics.ps1 真机实测为准（< 1,500 ms；瘦身后实测窗口 1,203 ms），
 #    本条的作用是把「monaco 静态链回流 index」这类结构回退挡在 PR 阶段（2026-10-12 就是被
 #    jsonLiteral/inlineMenu 的静态 import 击穿过，index 一度 3.18 MB）。
-max_bundle_kb = 5170
+max_bundle_kb = 6050
 index_chunk_kb = 1700
 
 [policy]

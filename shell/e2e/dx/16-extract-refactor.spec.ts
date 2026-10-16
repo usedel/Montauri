@@ -56,8 +56,9 @@ async function openCodeActionMenu(page: Page): Promise<void> {
   // lazy 索引就绪窗口（探针口径：didOpen 后 ~3s 内 codeAction 可用）；引擎已过「就绪」门槛
   await page.waitForTimeout(2_000);
   await page.keyboard.press("Control+.");
-  // Monaco 0.52 的 code action 菜单走 ActionWidget（platform/actionWidget）：容器 .action-widget
-  const widget = page.locator(".action-widget");
+  // Monaco code action 菜单走 ActionWidget（platform/actionWidget）：容器 .action-widget。
+  // 0.57 起树内常驻一个隐藏的 submenu panel（同 class），按可见性精化到真菜单。
+  const widget = page.locator(".action-widget:visible");
   await expect(widget).toBeVisible({ timeout: 10_000 });
 }
 

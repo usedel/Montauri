@@ -80,13 +80,12 @@ async function dblclickWordWithMods(
   for (const m of [...mods].reverse()) await page.keyboard.up(m);
 }
 
-/** 普通双击手势（无修饰键）：Monaco 自身会选词——用来验证默认行为没被占用 */
+/** 普通双击手势（无修饰键）：Monaco 自身会选词——用来验证默认行为没被占用。
+ *  直接用视口绝对坐标（与 dblclickWordWithMods 同款）——0.57 起 .view-lines 相对坐标
+ *  换算出的点位会被上层 breadcrumbs 拦截 pointer events（定位器相对坐标走 hit-test）。 */
 async function plainDblclickWord(page: Page, word: string): Promise<void> {
   const abs = await wordCenter(page, word);
-  const host = page.locator("#editor .monaco-editor .view-lines").first();
-  const box = await host.boundingBox();
-  if (!box) throw new Error("取不到 .view-lines 的矩形");
-  await host.dblclick({ position: { x: abs.x - box.x, y: abs.y - box.y } });
+  await page.mouse.dblclick(abs.x, abs.y);
 }
 
 test.beforeEach(async ({ page }) => {

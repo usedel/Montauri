@@ -22,6 +22,24 @@ const root = realpathSync.native(process.cwd());
 export default defineConfig({
   root,
   clearScreen: false,
+  resolve: {
+    alias: [
+      {
+        // monaco 0.56+ 的 package.json exports 字段拦截深路径（"./*" 重映射到
+        // esm/vs/esm/vs/*，不存在）。alias 直连实际文件绕开；深路径 import 语句
+        // 全部原样保留。详见 docs/monaco-upgrade-plan.md §2.1
+        find: /^monaco-editor\/esm\/vs\/(?!.*\?worker)(.*)$/,
+        replacement: join(root, "node_modules/monaco-editor/esm/vs/$1"),
+      },
+      {
+        // ?worker 后缀：既要绕 exports 又不能进 dep optimizer（预构建产物
+        // "?worker.js" 不存在 → 404）。单独 alias 到实际文件并保留 query，
+        // vite worker 插件按文件实体处理（exclude 见 optimizeDeps）。
+        find: /^(monaco-editor\/esm\/vs\/editor\/editor\.worker)\?worker$/,
+        replacement: join(root, "node_modules/monaco-editor/esm/vs/editor/editor.worker.js?worker"),
+      },
+    ],
+  },
   server: {
     port: 5173,
     strictPort: true,
@@ -35,6 +53,12 @@ export default defineConfig({
     },
   },
   envPrefix: ["VITE_", "TAURI_ENV_"],
+  optimizeDeps: {
+    // ?worker 后缀模块不能进 dep optimizer（实测 0.57 升级当日：预构建产物
+    // "?worker.js" 文件不存在 → 404 → app 启动断在 monaco.ts 动态 import）。
+    // exclude 后走 vite worker 插件原始解析链。
+    exclude: ["monaco-editor/esm/vs/editor/editor.worker?worker"],
+  },
   build: {
     target: "chrome105",
     minify: "esbuild",

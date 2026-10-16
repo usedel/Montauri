@@ -486,6 +486,10 @@ export function buildEditorOptions(settings: Settings): MonacoApi.editor.IEditor
       bracketPairsHorizontal: settings.bracket_pair_guides !== false,
     },
     bracketPairColorization: { enabled: settings.bracket_colors !== false },
+    // monaco 0.57 默认启用 Edit Context（焦点元素/DOM/IME 管线全变——textarea 降级为
+    // ime-text-area，焦点落 .native-edit-context div）。升级纪律=行为面最小化：关闭恢复
+    // 0.52 输入管线；迁移评估登记 TD-030。落在本函数让主/分屏/db 编辑器一并覆盖。
+    editContext: false,
     // 方案 2：收窄行号右侧的折叠箭头区。Monaco 默认 lineDecorationsWidth=10，且 folding 开启时
     // 会再 +16（实际约 26px，其中大半是只有少数带折叠箭头的行才占用的空白）。压到 6 让 gutter 更紧凑。
     lineDecorationsWidth: 6,

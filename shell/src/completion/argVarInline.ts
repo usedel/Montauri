@@ -100,8 +100,8 @@ export function registerArgVarInline(
       if (vars.length) items.push({ insertText: vars[0].name + vars[0].ghostSuffix });
       return { items };
     },
-    freeInlineCompletions() {
-      /* 无状态 */
+    disposeInlineCompletions() {
+      /* 无状态；0.57 将 freeInlineCompletions 更名为此（必选） */
     },
   });
 }

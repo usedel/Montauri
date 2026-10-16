@@ -180,9 +180,11 @@ test("E-AV-6 augmentation 灰字：带前缀 + 下拉打开 → 选中项剩余 
     await page.waitForTimeout(120);
   }
   console.log("AUG-GHOST:", JSON.stringify(seen));
-  // 断言：灰字渲染了选中项剩余（b_url）与扩展段（含下一参数名 timeout）——引擎渲染成独立 span
-  const hasRemainder = seen.some((s) => s.includes("b_url"));
-  const hasExtension = seen.some((s) => s.includes("timeout=10"));
-  expect(hasRemainder, "灰字应含选中项剩余 b_url，实际：" + JSON.stringify(seen)).toBe(true);
-  expect(hasExtension, "灰字应含扩展段（timeout），实际：" + JSON.stringify(seen)).toBe(true);
+  // 断言：灰字渲染了选中项剩余（b_url）与扩展段（含下一参数名 timeout）。
+  // 0.57 起 ghost text 按 token 拆成多个独立 span（b_url / , / timeout / = / 10 各一个），
+  // 断言改为全量拼接后再查子串，对拆分形态不敏感。
+  const ghostText = seen.join("");
+  expect(ghostText, "灰字应含选中项剩余 b_url，实际：" + JSON.stringify(seen)).toContain("b_url");
+  expect(ghostText, "灰字应含扩展段（timeout=10），实际：" + JSON.stringify(seen)).toContain("timeout");
+  expect(ghostText).toContain("10");
 });

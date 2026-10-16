@@ -11,7 +11,14 @@
     "skipLibCheck": true,
     "isolatedModules": true,
     "noEmit": true,
-    "types": ["vite/client"]
+    "types": ["vite/client"],
+    "baseUrl": ".",
+    "paths": {
+      // monaco 0.56+ exports 字段拦截深路径类型解析（bundler 解析也走 exports），
+      // paths 直连实际 d.ts；与 vite.config.ts 的 alias 对应（构建侧）。
+      // 详见 docs/monaco-upgrade-plan.md §2.1
+      "monaco-editor/esm/vs/*": ["node_modules/monaco-editor/esm/vs/*"]
+    }
   },
   "include": ["src"]
 }

@@ -37,6 +37,13 @@
 > 第三项**悬停闪现仅缓解未根治**，且总开关 `inlay_type_hints` 默认关（用户裁决）后
 > 不可见——**开启开关时可能偶发复现**。登记 **TD-029**。
 
+### TD-030 2026-10-16 monaco 0.57 Edit Context 迁移（升级时显式关闭，待评估启用）
+
+- **背景**：monaco-editor 0.53 引入、**0.57 起默认启用** Edit Context API（VS Code 主线输入管线）：焦点元素从 `.monaco-editor textarea.inputarea` 变为 `div.native-edit-context`，textarea 降级为 `ime-text-area`（tabindex=-1 / aria-hidden / readonly，仅 IME 用）。
+- **现状**：升级 0.52.2→0.57.0 时经 `buildEditorOptions` 注入 `editContext: false` 显式关闭（主/分屏/db 编辑器统一覆盖）——19 处 e2e 焦点断言与 browserKeys 焦点判定基于旧 textarea 管线，升级纪律=行为面最小化。
+- **启用前须评估**：① e2e 16 个文件的 `.monaco-editor textarea` toBeFocused 断言改 `.native-edit-context`；② `browserKeys.ts` 的 `closest(".monaco-editor")` 焦点判定复核；③ 中文 IME 输入实测（Edit Context 的 IME 组合窗口行为与 textarea 不同）；④ 收益评估（VS Code 迁移动机：更精准的 IME/无障碍/虚拟键盘支持）。
+- **触发条件**：monaco 后续版本若移除 `editContext: false` 开关（强制迁移），或 IME 相关 bug 排查需要。
+
 ### TD-029 2026-10-15 inlay 悬停闪现重复残影（vendor 视图镜像失步）—— **2026-10-16 已根治（patch-package）**
 
 - **状态**：✅ 已根治。四层修复全落地，真机终验（用户精确路径：行尾回车 → Ctrl+S → 悬停，两轮逐帧采样）恒单份、无累积：

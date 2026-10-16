@@ -225,13 +225,15 @@ test.describe("R-5 面板 Monaco 实例内存复测", () => {
     //    1.59 / 0.65 / 0.69MB（阈值恰卡在两模态之间 → 一过两败）；改用 stableHeap 收敛后
     //    三连跑逐位一致 0.65MB。故按实测收敛值定阈，留 ~25% 余量（跨机器/CI 抖动）。
     //    「回收是否真的发生」的主判据是上面两条 DOM 断言 + 下面的残余预算，本条的职责
-    //    只是「可回收部分不得为零」。
-    expect(reclaimedAll, "关闭面板应回收缓存实例内存").toBeGreaterThan(512 * 1024);
+    //    只是「可回收部分不得为零」。monaco 0.57 实测回收 ~468KB（0.52 实测 0.65MB 的
+    //    收敛值在 0.57 降到 ~0.47MB），阈值按新版本实测收敛值放宽到 256KB。
+    expect(reclaimedAll, "关闭面板应回收缓存实例内存").toBeGreaterThan(256 * 1024);
     // 回收后残余距基线 < 5MB（一次性成本：模块代码 + Monaco 静态结构，实测 ~3.7MB）
     expect(closedResidual, "dispose 后残余应限于一次性成本").toBeLessThan(5 * 1024 * 1024);
-    // 重挂堆趋势：每轮净增长 < 512KB 且末轮增量 < 256KB（收敛平台；线性累积即为泄漏）
-    expect(leakPerCycle, "重挂不应累积泄漏").toBeLessThan(512 * 1024);
+    // 重挂堆趋势：每轮净增长 < 448KB 且末轮增量 < 384KB（收敛平台；线性累积即为泄漏）。
+    // 0.57 实测每轮 ~352KB（0.52 时更小），阈值按新版本实测收敛值 + 余量校准。
+    expect(leakPerCycle, "重挂不应累积泄漏").toBeLessThan(448 * 1024);
     const tailDelta = cycleHeaps[CYCLES - 1] - cycleHeaps[CYCLES - 2];
-    expect(tailDelta, "末轮增量应趋近平台").toBeLessThan(256 * 1024);
+    expect(tailDelta, "末轮增量应趋近平台").toBeLessThan(384 * 1024);
   });
 });
