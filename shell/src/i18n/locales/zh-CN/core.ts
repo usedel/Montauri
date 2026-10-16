@@ -369,7 +369,7 @@ export const core = {
   "settings.editor.sectionEditorLabel9": "参数名行内提示（调用处灰字）",
   "settings.editor.sectionEditorLabel22": "括号对参考线（嵌套层级竖线）",
   "settings.editor.sectionEditorLabel23": "行内显示诊断消息（光标附近行行尾）",
-  "settings.editor.sectionEditorLabel25": "行内提示总开关（变量/返回值/参数名灰字）",
+  "settings.editor.sectionEditorLabel25": "变量/返回值类型行内提示（灰字 : T）",
   "settings.editor.wordWrap.off": "关闭",
   "settings.editor.wordWrap.on": "开启",
   // UI-31：设置面板分类内分组标题（编辑器 20+ 项复选框墙 → 四组，其余密集分类同步分组）

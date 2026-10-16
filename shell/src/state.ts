@@ -59,7 +59,7 @@ export interface Settings {
   sticky_scroll: boolean;
   /** 参数名行内提示（PR-N · dx_features_backlog §6.8：调用处灰字 `name=`，走 pyrefly inlayHint） */
   inlay_param_hints: boolean;
-  /** 行内提示总开关（2026-10-15，默认关）：开启才显示 `: T` / `-> T` / `name=` 灰字（双源全量） */
+  /** 变量/返回值类型行内提示（2026-10-16 拆分，默认关）：`x: T` / `-> T` 灰字（静态+intel 双源） */
   inlay_type_hints: boolean;
   /** 括号对参考线（T6a · 微交互批：Monaco guides.bracketPairs，VSCode 默认开；
    *  嵌套 dict/JSON 深的代码可读性受益） */
@@ -240,7 +240,7 @@ export const DEFAULT_SETTINGS: Settings = {
   sticky_scroll: true,
   // PR-N：参数名行内提示默认开（PyCharm 同款感知；走 pyrefly inlayHint，见 lsp/client.ts）
   inlay_param_hints: true,
-  // 2026-10-15：行内提示总开关默认关（用户裁决；旧配置缺字段同样兜底关 === true 判定）
+  // 2026-10-16 拆分（用户裁决）：类型提示独立默认关；参数名默认开（上方 inlay_param_hints）
   inlay_type_hints: false,
   // T6a：括号对参考线默认开（VSCode guides.bracketPairs 同款默认；!== false 兼容旧配置）
   bracket_pair_guides: true,

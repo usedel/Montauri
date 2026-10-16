@@ -1675,18 +1675,18 @@ export function registerLspInlayHints(existingEditors: MonacoApi.editor.ICodeEdi
           end: { line: range.endLineNumber - 1, character: range.endColumn - 1 },
         },
       };
-      const K = monaco.languages.InlayHintKind;
-      const wantTypes = app.settings.inlay_type_hints === true, wantStatic = wantTypes && engineStatus === "ready" && app.settings.inlay_param_hints !== false; // 总开关默认关，见 state.ts
+      const wantTypes = app.settings.inlay_type_hints === true, wantStatic = engineStatus === "ready" && app.settings.inlay_param_hints !== false;
       const [staticItems, intelItems] = await Promise.all([
-        wantStatic ? queryInlays("static", params) : Promise.resolve([]),
+        wantStatic || wantTypes ? queryInlays("static", params) : Promise.resolve([]),
         wantTypes ? queryInlays("intel", params) : Promise.resolve([]),
       ]);
-      // 双源合并（引擎原位）→ 光标行冻结（跳变治理 B）→ Monaco 形态
-      const frozen = wantTypes ? inlayFreeze.snapshotFor(model, mergeInlayHints(intelItems.map(toMergeableHint), staticItems.map(toMergeableHint))) : [];
+      const merged = mergeInlayHints(intelItems.map(toMergeableHint), staticItems.map(toMergeableHint));
+      const filtered = wantTypes ? merged : merged.filter((h) => !(h.label.startsWith(": ") || h.label.trimStart().startsWith("-> "))); // 类型关：滤 `: T`/`-> T`
+      const frozen = inlayFreeze.snapshotFor(model, filtered);
       const hints: MonacoApi.languages.InlayHint[] = frozen.map((h) => ({
         position: new monaco.Position(h.line, h.column),
         label: h.label,
-        kind: h.kind === 2 ? K.Parameter : K.Type,
+        kind: h.kind === 2 ? monaco.languages.InlayHintKind.Parameter : monaco.languages.InlayHintKind.Type,
         paddingLeft: h.paddingLeft,
         paddingRight: h.paddingRight,
         tooltip: h.tooltip,

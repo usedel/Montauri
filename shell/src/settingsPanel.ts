@@ -95,7 +95,7 @@ const settingsBracketPairGuidesEl = lazyEl<HTMLInputElement>("settings-bracket-p
 const settingsInlineDiagnosticsEl = lazyEl<HTMLInputElement>("settings-inline-diagnostics");
 // PR-N（dx_features_backlog §6.8）：参数名行内提示
 const settingsInlayParamHintsEl = lazyEl<HTMLInputElement>("settings-inlay-param-hints");
-// 2026-10-15：变量/返回值类型行内提示独立开关
+// 2026-10-16：类型提示独立开关（默认关）；参数名提示见上 inlay_param_hints（默认开）
 const settingsInlayTypeHintsEl = lazyEl<HTMLInputElement>("settings-inlay-type-hints");
 // PR-C（dx_features_backlog §6.3）：保存清理
 const settingsTrimTrailingEl = lazyEl<HTMLInputElement>("settings-trim-trailing");

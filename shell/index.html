@@ -987,9 +987,9 @@
                     <label data-i18n="settings.editor.sectionEditorLabel9" for="settings-inlay-param-hints">参数名行内提示（调用处灰字）</label>
                     <input id="settings-inlay-param-hints" type="checkbox" />
                   </div>
-                  <!-- 2026-10-15：行内提示总开关（默认关；开启才显示 `: T` / `-> T` / `name=` 全部灰字） -->
+                  <!-- 2026-10-16 拆分：类型提示独立开关（默认关；参数名提示由上方开关独立控制） -->
                   <div class="settings-row">
-                    <label data-i18n="settings.editor.sectionEditorLabel25" for="settings-inlay-type-hints">行内提示总开关（变量/返回值/参数名灰字）</label>
+                    <label data-i18n="settings.editor.sectionEditorLabel25" for="settings-inlay-type-hints">变量/返回值类型行内提示（灰字 : T）</label>
                     <input id="settings-inlay-type-hints" type="checkbox" />
                   </div>
                   <!-- T6a（微交互批）：括号对参考线（VSCode guides.bracketPairs 默认开；嵌套 dict/JSON 深的爬虫代码可读性受益） -->
