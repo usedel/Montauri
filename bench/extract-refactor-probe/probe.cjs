@@ -5,9 +5,9 @@
 // 输出：bench/reports/extract-refactor-probe-<engine>.json + stdout 摘要
 //
 // 设计要点（沿用 bench/pydantic-probe/probe.cjs 骨架与踩坑先例）：
-// - 引擎命令与 ci/versions.toml 锁定版本一致：本机 uv tool 装的 pyrefly 是 1.2.0（旧），
-//   必须经 `uv tool run pyrefly@1.3.1 lsp` 命中锁定版 1.3.1；basedpyright 经
-//   `uv tool run --from basedpyright basedpyright-langserver --stdio`（uv tool list 未装，按需拉取）。
+// - 引擎命令与 ci/versions.toml 锁定版本一致：经 `uv tool run pyrefly@1.4.0 lsp`
+//   命中锁定版 1.4.0（2026-10-16 自 1.3.1 升级）；basedpyright 经
+//   `uv tool run --from basedpyright@1.39.10 basedpyright-langserver --stdio`（按需拉取）。
 // - 进程 cwd = 受控项目根：pyrefly 从 cwd 发现 pyproject.toml 才建工作区索引
 //   （缺 pyproject.toml 会连索引都不建，PR-N e2e 教训同源）。
 // - Extract 是**选区式** code action：range 必须罩住表达式（探针按子串定位起止字符）。
@@ -25,10 +25,11 @@ const ENGINE = (process.argv[2] || "pyrefly").toLowerCase();
 const ENGINES = {
   pyrefly: {
     command: "uv",
-    args: ["tool", "run", "pyrefly@1.3.1", "lsp"],
-    label: "pyrefly@1.3.1",
+    args: ["tool", "run", "pyrefly@1.4.0", "lsp"],
+    label: "pyrefly@1.4.0",
   },
-  // PATH 直装的 pyrefly（本机 uv tool 是 1.2.0）——验证最低版本口径
+  // PATH 直装的 pyrefly——产品实际形态（lsp/client.ts 裸调 `pyrefly lsp`）；
+  // 本机 uv tool 现装 1.4.0，与锁定版一致
   pyrefly_path: {
     command: "pyrefly",
     args: ["lsp"],
