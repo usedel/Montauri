@@ -115,10 +115,11 @@
 | Git 克隆 | `git_clone_dev_plan.md` v1.0 |
 | 菜单栏 | `menubar_improvement_plan.md` v1.4 |
 | 依赖健康 | `dep_health_dev_plan.md` v1.7 |
+| 文件监听 / 外部改动检测 | `fs_watch_dev_plan.md` v1.0（计划）· `fs_watch_acceptance_record.md` v1.0（验收） |
 
 ### 3.3 验收记录（判断"真的做完没有"看这里）
 
-`debug_acceptance_record.md` · `run_acceptance_record.md` · `devtools_plugin_acceptance_record.md` · `bench/reports/`（Gate D / 引擎性能 / 库支持探针 / Pydantic 探针）· `e2e_divergence_ledger.md`（mock ↔ 真机分歧台账）
+`debug_acceptance_record.md` · `run_acceptance_record.md` · `devtools_plugin_acceptance_record.md` · **`fs_watch_acceptance_record.md` v1.0（外部改动检测：真机 EC-REAL-3/3 + mock E-EXT-9/9）** · `bench/reports/`（Gate D / 引擎性能 / 库支持探针 / Pydantic 探针）· `e2e_divergence_ledger.md`（mock ↔ 真机分歧台账）
 
 ### 3.4 调研报告（**非排期依据**）
 

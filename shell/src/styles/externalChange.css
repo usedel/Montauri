@@ -1,0 +1,21 @@
+/* ---------- 外部改动检测（docs/fs_watch_dev_plan.md §4.5）----------
+   语义：磁盘上的文件被别的程序改掉、且本 tab 有未保存修改（或读盘失败）时，
+   tab 上挂一个「待裁决」标记——用户必须明确表态，不让 Ctrl+S 静默覆盖外部改动。
+   标记元素由 externalChange.ts::syncTabDecorations 用 codicon("warning") 插入
+   （照 tab-running 先例：codicon 字体来自 Monaco，不能在本文件手写 glyph），
+   这里只管颜色/间距。标记与 .dirty 圆点并存：dirty = 我有未存修改；
+   tab-external = 磁盘那边也变了。 */
+
+/* 警示色沿用 --warn token（UI 视觉批已定：warning 语义唯一来源） */
+.tab .tab-external-flag {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  color: var(--warn);
+  font-size: 12px;
+}
+
+/* 标记是纯视觉装饰（tab 的可访问名称已含「已修改」；pending 的裁决入口在保存时） */
+.tab .tab-external-flag[aria-hidden="true"] {
+  pointer-events: none;
+}

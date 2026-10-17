@@ -163,6 +163,7 @@ import {
   handleTracebackLine, runOpenWorkspaceCheck, resetDepHealth, initDepHealth,
   setDepInstallHandler, wireDepHealthEvents,
 } from "./depHealth";
+import { externalSaveGate, resetExternalChangeState, setExternalChangeActions, wireExternalChange } from "./externalChange"; // 外部改动检测（docs/fs_watch_dev_plan.md）
 import {
   initDepHealthPanel, renderDepHealth, resetDepHealthPanel, handleScanComplete, setHealthStatus,
   expandDepDetail,
@@ -387,6 +388,9 @@ async function openWorkspace(root: string): Promise<void> {
     wsMark("配置清扫+模板加载");
     await refreshInterpreterStatus(); // 先确定解释器，供 startLsp/run 使用
     wsMark("解释器探测");
+    // 文件监听前置到 startLsp 之前（fs-watch plan W0 / e2e_divergence D-007）：原位置晚约 1s，
+    // 窗口打开后立刻建文件的写事件落在 watcher 就绪前、notify 不补发 → 树里看不到新文件。
+    await startFileWatcher();
     await startLsp();
     wsMark("startLsp 返回（引擎 spawn，ready 异步）");
     // 依赖健康体检（dep plan §4.7，M1 形态）：后台数据采集，绝不阻塞打开流程——
@@ -394,7 +398,6 @@ async function openWorkspace(root: string): Promise<void> {
     // 结果只进输出面板一行摘要（无横幅无弹窗，M3 才上 UI 投影）
     void runOpenWorkspaceCheck(root);
     await maybePromptVenv();
-    await startFileWatcher(); // 启动文件监听
     await restoreSession(); // A-5：恢复上次现场（标签 / 光标 / 未保存草稿）
     wsMark("venv 提示+watcher+会话恢复完成");
     // 框架探针表（P1：Django / Flask / FastAPI）：仅提示，不打扰；工作区级可关闭
@@ -706,7 +709,7 @@ async function closeAllTabs(): Promise<void> {
 
 // ---------- 文件监听 ----------
 
-/** 启动文件监听（打开工作区时调用） */
+/** 启动文件监听（打开工作区时调用）；顺带复位外部改动检测的 pending 态（fs-watch plan §4.8） */
 async function startFileWatcher(): Promise<void> {
   if (!app.workspaceRoot) return;
   try {
@@ -714,6 +717,7 @@ async function startFileWatcher(): Promise<void> {
   } catch (e) {
     console.warn("文件监听启动失败", e);
   }
+  resetExternalChangeState();
 }
 
 /** 停止文件监听（关闭工作区时调用） */
@@ -1366,6 +1370,8 @@ async function optimizeImportsActive(): Promise<void> {
  *  自动保存与运行前落盘传 false——落盘与保存动作解耦，避免 autosave 高频跑 ruff（PyCharm 教训）。
  */
 async function saveTab(tab: Tab, opts?: SaveOptions): Promise<void> {
+  // 外部改动冲突闸门（fs-watch plan §4.6）：true = 本次不写盘（已由 externalChange 处理完）
+  if (await externalSaveGate(tab)) return;
   const isPy = tab.path.endsWith(".py") || tab.path.endsWith(".pyw");
   const runActions = opts?.runOnSaveActions !== false;
   // 保存时整理导入（ruff I,F401，设置开关）：**先整理后格式化**——ruff format 不重排导入，
@@ -2413,6 +2419,9 @@ async function init(): Promise<void> {
 
   // 依赖健康失效矩阵（dep plan M2）：watcher 的 dep-fs-changed / dep-env-changed 事件接线
   await wireDepHealthEvents();
+  // 外部改动检测（fs-watch plan）：接线 + 动作注入。覆盖磁盘必须关保存动作（plan §4.6）。
+  setExternalChangeActions({ overwriteDisk: (tb) => saveTab(tb, { runOnSaveActions: false }), refreshTabs: renderTabs });
+  await wireExternalChange();
 
   // 首次启动环境引导（第 4 步）：缺失 uv/pyrefly 时弹窗引导一键安装
   await maybePromptToolchain();

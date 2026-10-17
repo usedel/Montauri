@@ -37,7 +37,7 @@ $ShellDir = (Resolve-Path (Join-Path $RealDir "..")).Path
 # —— 套件清单（nightly.yml 的 $scripts 与此保持一致）——
 # release-real 排在首位：发布前验收先验**构建产物本身**，再验开发链路。
 $All = @(
-  "release-real", "db-real", "debug-real", "endpoints-real", "http-real",
+  "release-real", "db-real", "debug-real", "endpoints-real", "external-change-real", "http-real",
   "multi-window-real", "new-project-fastapi-real", "long-op-real", "probe-real-lag",
   "probe-mw-lag", "probe-watch-multiwin", "ui-real", "pytest-real"
 )

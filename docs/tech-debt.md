@@ -62,6 +62,18 @@
 - **处理时机**：独立 PR；动手前跑 e2e dx/10 + 真机 CDP 采样（附着脚本方法：connectOverCDP → import vite deps monaco → 模型装饰/`_decorationsMetadata`/freeze 缓存/DOM 四方比对；历史脚本见 git 提交说明）。
 - **涉及文件**：`shell/src/lsp/inlayHeal.ts`、`shell/src/lsp/inlayMerge.ts`、`shell/src/lsp/inlayFreeze.ts`、`shell/src/lsp/client.ts`、`node_modules/monaco-editor/esm/vs/editor/contrib/inlayHints/browser/inlayHintsController.js`。
 
+### TD-029 文件监听（notify）增强批遗留项（2026-10-18，外部改动检测交付后登记）
+
+- **起因**：`docs/fs_watch_dev_plan.md` v1.0 交付（外部改动检测 T1–T8），计划 §11 的后续候选中四项有**明确触发条件**，此处登记防丢。真源在计划文档 §11/§12，本条目只做索引。
+- **① W2 监听范围瘦身（P2，性能）**：现在对工作区根一次性 `Recursive`，`.venv` / `node_modules` / `__pycache__` 的事件照样进 Rust 回调再被 `should_ignore` 丢弃。notify 8 无原生 exclude，正解是按顶层目录分别 `watch`（跳过忽略目录）。前置：须配 `bench/large_repo` 回归（章程「运行时开销红线」同类要求）。
+- **② W3 监听健康度（P2）**：`watch_start` 失败只 `console.warn`；网络盘 / OneDrive 同步目录上 `ReadDirectoryChangesW` 缓冲区溢出丢事件，无溢出后重订阅。前置：需新增状态栏 UI 面。注意与本批的 `unreadable` 分支不同——那条治「读盘失败」，这条治「事件根本没来」。
+- **③ W4 两套 watcher 合并（P3，整洁）**：`plugin_cmds.rs:250` 的 `PLUGIN_WATCHER` 与 `watcher.rs` 各有一套 debouncer + 各自的忽略/转发逻辑。
+- **④ 既有 A-mock 不忠实（P2，工程）**：`e2e/helpers.ts:1160` 的 `emitFsChanged` 推的是**文件绝对路径**，而 Rust `watcher.rs` 对文件变更推的是**父目录** → mock 层 `write_file` 后 `isDirExpanded(filePath)` 恒 false、文件树不刷新，而真机刷新（mock 比真机弱）。本批刻意不修（会打到既有 git/ux 用例期望），修它须先盘点所有依赖「bridge 改盘不刷新树」的用例。
+- **⑤ 批量冲突面板缺失（P3）**：git checkout 一次改多个已打开文件时逐个弹面板（现有 800ms 单飞 + 串行兜底）。
+- **⑥ UX-6 存量回归（P2，与本批无关但同日发现）**：`e2e/ux/01-ux-batch.spec.ts` UX-6「文件树展开状态跨会话持久化」在 `page.reload()` 后深层目录 15s 内不出现；已 stash 对照实证为存量（原始代码同样失败）。
+- **处理时机**：①随性能批、②按网络盘用户实案、③搭车任一批次、④⑤⑥各自独立小项。
+- **涉及文件**：`shell/src-tauri/src/watcher.rs`、`shell/src-tauri/src/plugin_cmds.rs`、`shell/e2e/helpers.ts`、`shell/e2e/ux/01-ux-batch.spec.ts`、`docs/fs_watch_dev_plan.md`、`docs/fs_watch_acceptance_record.md`。
+
 ### TD-028 2026-10-10 全量复核遗留项（P2×5，均为窄触发或记录性）
 
 - **起因**：TD-027 三批清偿后的全量代码复核（上方复核记录）。已修项见 `bd9eda0`/`361030a`；以下为裁决**留置**的窄触发/记录性项。

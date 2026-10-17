@@ -485,6 +485,29 @@ intel_signature_rs_max_lines = 450
 #   上限 620 → 700（实测 647，余量 ~8%）；后续接线类需求仍应优先拆响应封装模块。
 intel_server_rs_max_lines = 700
 
+# watcher.rs（工作区文件监听；2026-10-18 首次登记）：291 → **355** 行（外部改动检测批 +64：
+#   fs-file-changed 结构化事件 + emit_file_path 准入函数 + 3 组单测 + 注释里的发射顺序契约）。
+#   该文件此前不在预算面，按 endpointView「首次登记」先例纳入——watcher 是四个事件
+#   （fs-changed / fs-file-changed / dep-fs-changed / dep-env-changed）的唯一真源，
+#   信增必须显式改这一行。上限 410（实测 +15%，同 env_cmds 口径）。
+watcher_rs_max_lines = 410
+
+# externalChange.ts（外部改动检测，docs/fs_watch_dev_plan.md v0.1，2026-10-18 新增）：316 行。
+#   上限 380（实测 +20%）。范围：内容比对判定（替代事件类型，零新依赖）+ 三选一面板
+#   两种语义（watcher 触发 / 保存拦截）+ dirty 内容守卫复位 + 800ms 单飞 + pending 装饰。
+#   本体零 app/monaco 依赖（单测 node 环境直跑，vi.mock 替身 dialog/invoke）。
+external_change_ts_max_lines = 380
+
+# externalChange.test.ts（同上单测）：294 行（25 用例，含判定矩阵 / 虚拟 tab 跳过 / 单飞 /
+#   dirty 守卫 / 保存拦截递归防弹 / 另存为同路径拒绝六组关键回归）。上限 340。
+external_change_test_ts_max_lines = 340
+
+# styles/externalChange.css（外部改动 tab 标记，2026-10-18 新增）：33 行。上限 60
+#   （小文件按绝对行数给余量，同 hotspots.css 口径）。范围：.tab .tab-external-flag
+#   警示色/间距；标记元素本体由 TS 侧 codicon("warning") 插入（codicon 字体来自 Monaco，
+#   CSS 不能手写 glyph——这是与 .tab-running 同一条先例）。
+styles_externalchange_css_max_lines = 60
+
 # —— 命令面 ——
 # 200 → 203 → 205 个 #[tauri::command]（2026-10-10 显式调整：启动恢复三命令 get/set_last_session
 # + get_startup_file，及单实例路由配套 report_main_workspace / take_startup_file——用户报告双

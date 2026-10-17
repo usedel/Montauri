@@ -86,6 +86,7 @@ jobs:
           New-Item -ItemType Directory -Force nightly-reports | Out-Null
           $scripts = @(
             'db-real.cjs', 'debug-real.cjs', 'endpoints-real.cjs',
+            'external-change-real.cjs',
             'http-real.cjs', 'multi-window-real.cjs', 'new-project-fastapi-real.cjs',
             'probe-real-lag.cjs', 'probe-mw-lag.cjs', 'probe-watch-multiwin.cjs',
             'ui-real.cjs', 'pytest-real.cjs'

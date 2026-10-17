@@ -151,12 +151,17 @@ addLine("shell/src/styles/inlineDiagnostics.css", "styles_inlinediagnostics_css_
 addLine("shell/src/styles/csvTab.css", "styles_csvtab_css_max_lines");
 addLine("shell/src/styles/depHealth.css", "styles_dephealth_css_max_lines");
 addLine("shell/src/styles/longOp.css", "styles_longop_css_max_lines");
+addLine("shell/src/styles/testTree.css", "styles_testtree_css_max_lines");
+addLine("shell/src/styles/externalChange.css", "styles_externalchange_css_max_lines");
 addLine("shell/src/csvCore.ts", "csv_core_ts_max_lines");
 addLine("shell/src/csvTab.ts", "csv_tab_ts_max_lines");
 addLine("shell/src/virtualTabs.ts", "virtual_tabs_ts_max_lines");
 addLine("shell/src/scratchCore.ts", "scratch_core_ts_max_lines");
 addLine("shell/src/scratch.ts", "scratch_ts_max_lines");
 addLine("shell/src-tauri/src/scratch_cmds.rs", "scratch_cmds_rs_max_lines");
+addLine("shell/src-tauri/src/watcher.rs", "watcher_rs_max_lines");
+addLine("shell/src/externalChange.ts", "external_change_ts_max_lines");
+addLine("shell/src/__tests__/externalChange.test.ts", "external_change_test_ts_max_lines");
 addLine("shell/src/main.ts", "main_ts_max_lines");
 addLine("shell/src/inlineDiagnostics.ts", "inline_diagnostics_ts_max_lines");
 addLine("shell/src/lspStatus.ts", "lsp_status_ts_max_lines");

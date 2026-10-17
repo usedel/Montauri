@@ -1,0 +1,13 @@
+{
+  "watch.conflict.title": "文件已被外部修改",
+  "watch.conflict.message": "{name} 在磁盘上已被其他程序修改。你的修改尚未保存。",
+  "watch.conflict.saveAs": "另存为…",
+  "watch.conflict.reload": "用磁盘版本重载",
+  "watch.conflict.later": "稍后处理",
+  "watch.conflict.overwrite": "用我的版本覆盖磁盘",
+  "watch.conflict.cancelSave": "取消保存",
+  "watch.unreadable": "{name} 可能已被删除或无法读取，请手动确认",
+  "watch.saved": "已另存为 {name}",
+  "watch.saveAsSamePath": "不能另存为原文件（请换一个路径）",
+  "watch.saveAsFailed": "另存失败"
+}

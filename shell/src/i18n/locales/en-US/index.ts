@@ -31,5 +31,6 @@ import { storage } from "./storage";
 import { test } from "./test";
 import { welcome } from "./welcome";
 import { workbench } from "./workbench";
+import { watch } from "./watch";
 
-export const enUS: Record<TKey, string> = { ...core, ...git, ...hotspots, ...debug, ...filetree, ...run, ...env, ...storage, ...test, ...dep, ...settings, ...newproject, ...welcome, ...search, ...workbench, ...editor, ...ide, ...lt, ...logs, ...devtools, ...ext, ...endpoints, ...database, ...main, ...cloneRepository, ...csv, ...scratch };
+export const enUS: Record<TKey, string> = { ...core, ...git, ...hotspots, ...debug, ...filetree, ...run, ...env, ...storage, ...test, ...dep, ...settings, ...newproject, ...welcome, ...search, ...workbench, ...editor, ...ide, ...lt, ...logs, ...devtools, ...ext, ...endpoints, ...database, ...main, ...cloneRepository, ...csv, ...scratch, ...watch };

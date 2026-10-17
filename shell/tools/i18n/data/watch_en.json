@@ -1,0 +1,13 @@
+{
+  "watch.conflict.title": "File changed on disk",
+  "watch.conflict.message": "{name} was modified on disk by another program. Your changes are unsaved.",
+  "watch.conflict.saveAs": "Save As…",
+  "watch.conflict.reload": "Reload from Disk",
+  "watch.conflict.later": "Decide Later",
+  "watch.conflict.overwrite": "Overwrite with My Version",
+  "watch.conflict.cancelSave": "Cancel Save",
+  "watch.unreadable": "{name} may have been deleted or cannot be read; check it manually",
+  "watch.saved": "Saved as {name}",
+  "watch.saveAsSamePath": "Cannot save as the original file; pick a different path",
+  "watch.saveAsFailed": "Save As failed"
+}

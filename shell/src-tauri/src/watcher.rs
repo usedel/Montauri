@@ -89,6 +89,17 @@ fn classify_dep_file(rel: &str) -> &'static str {
     "other"
 }
 
+/// `fs-file-changed`（文件级结构化事件）的路径准入（docs/fs_watch_dev_plan.md §4.2）：
+/// 该不该把这条路径广播给前端做外部改动检测。目录/文件之分由调用方按 `is_dir` 判
+/// （需要真实 stat），这里只做「噪声过滤」——与 `should_ignore` 同一口径，
+/// 且 site-packages 环境信号不重复广播（它已由 `dep-env-changed` 单独消费）。
+fn emit_file_path(path: &Path) -> Option<std::path::PathBuf> {
+    if is_site_packages_signal(path) || should_ignore(path) {
+        return None;
+    }
+    Some(path.to_path_buf())
+}
+
 /// site-packages 环境信号判定（§4.4：`.venv` 例外放行，仅 `RECORD` / `*.dist-info` 触发，
 /// 滤掉 `.pyc` 等噪声写——.pyc 落在包目录的 `__pycache__` 下，不含 dist-info 组件也非 RECORD）。
 /// 判据：路径含 `site-packages` 组件，且其后存在 `*.dist-info` 组件或文件名为 `RECORD`。
@@ -126,6 +137,10 @@ pub fn watch_start(app: AppHandle, window: tauri::WebviewWindow, root: String) -
             };
             // 收集受影响的目录（去重）
             let mut dirs: Vec<String> = Vec::new();
+            // 文件级结构化事件（fs-file-changed，docs/fs_watch_dev_plan.md §4.2）：
+            // 外部改动检测的数据源。**只发文件不发目录**——前端只对「已打开的文件 tab」
+            // 做内容比对，目录事件对它无意义；去重按路径字符串。
+            let mut changed_files: Vec<String> = Vec::new();
             // dep 域失效信号（M2 §4.4）：文件级分类 + site-packages 环境信号
             let mut dep_files: Vec<DepFileEvent> = Vec::new();
             let mut env_changed = false;
@@ -136,11 +151,20 @@ pub fn watch_start(app: AppHandle, window: tauri::WebviewWindow, root: String) -
                     env_changed = true;
                     continue;
                 }
-                if should_ignore(&ev.path) {
+                // 噪声过滤的统一准入（.git / .venv / node_modules / 选区临时文件…）：三个事件的
+                // 消费方共用这一道闸，fs-file-changed 的准入口径与 fs-changed / dep 完全一致。
+                if emit_file_path(&ev.path).is_none() {
                     continue;
                 }
+                let is_dir = ev.path.is_dir();
+                if !is_dir {
+                    let p = ev.path.to_string_lossy().to_string();
+                    if !changed_files.contains(&p) {
+                        changed_files.push(p);
+                    }
+                }
                 // 取变更路径的父目录（文件变更 → 刷新其所在目录）
-                let dir = if ev.path.is_dir() {
+                let dir = if is_dir {
                     ev.path.clone()
                 } else {
                     ev.path.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| ev.path.clone())
@@ -159,6 +183,11 @@ pub fn watch_start(app: AppHandle, window: tauri::WebviewWindow, root: String) -
             }
             if !dirs.is_empty() {
                 let _ = app_handle.emit_to(&wid_cb, "fs-changed", dirs);
+            }
+            // 发射顺序契约（plan §4.2）：fs-changed → fs-file-changed → dep-fs-changed → dep-env-changed。
+            // 前端各方各自独立防抖消费，顺序不构成契约。
+            if !changed_files.is_empty() {
+                let _ = app_handle.emit_to(&wid_cb, "fs-file-changed", changed_files);
             }
             if !dep_files.is_empty() {
                 let _ = app_handle.emit_to(&wid_cb, "dep-fs-changed", dep_files);
@@ -287,5 +316,40 @@ mod tests {
         // 根自身 / 不在根下 → None
         assert_eq!(relative_to_root(Path::new("C:/ws/proj"), root), None);
         assert_eq!(relative_to_root(Path::new("C:/other/x.py"), root), None);
+    }
+
+    /// fs-file-changed（docs/fs_watch_dev_plan.md §4.2）：文件级事件的准入口径。
+    /// 只判「路径该不该广播」，目录/文件之分由调用方按 `is_dir` 判（需要真实 stat）。
+    #[test]
+    fn test_fs_file_changed_admission() {
+        // 工作区普通文件：准入
+        assert!(emit_file_path(Path::new(r"C:\ws\proj\main.py")).is_some());
+        assert!(emit_file_path(Path::new(r"C:\ws\proj\pkg\util.py")).is_some());
+        assert!(emit_file_path(Path::new(r"C:\ws\proj\README.md")).is_some());
+        // 忽略目录整棵不发（.venv 连 site-packages 里的普通 .py 也不发——前端无对应 tab）
+        assert!(emit_file_path(Path::new(r"C:\ws\proj\.git\HEAD")).is_none());
+        assert!(emit_file_path(Path::new(r"C:\ws\proj\node_modules\x\index.js")).is_none());
+        assert!(emit_file_path(Path::new(
+            r"C:\ws\proj\.venv\Lib\site-packages\foo\__init__.py"
+        ))
+        .is_none());
+        // 选区运行临时文件：不发（CR-05 同口径，否则面板会被自己的运行打扰）
+        assert!(emit_file_path(Path::new(
+            r"C:\ws\proj\__opencharm_selection__lx2k-a1b2c3.py"
+        ))
+        .is_none());
+    }
+
+    /// site-packages 环境信号不重复发 fs-file-changed（它已由 dep-env-changed 消费）。
+    #[test]
+    fn test_fs_file_changed_skips_site_packages_signal() {
+        assert!(emit_file_path(Path::new(
+            "C:/ws/.venv/Lib/site-packages/foo-1.0.dist-info/RECORD"
+        ))
+        .is_none());
+        assert!(emit_file_path(Path::new(
+            "C:/ws/.venv/Lib/site-packages/foo-1.0.dist-info"
+        ))
+        .is_none());
     }
 }
