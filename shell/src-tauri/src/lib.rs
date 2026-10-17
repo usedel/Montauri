@@ -24,6 +24,7 @@ mod per_window;
 mod plugin_pkg;
 mod proc_stats;
 mod pydantic_cmds;
+mod pytest_cmds;
 mod run_config;
 mod run_env;
 mod sessions;
@@ -389,6 +390,9 @@ pub fn run() {
             // B4（docs/toolbox_dev_plan.md §5）：HTTP 客户端内核（PR-B4-1）
             http_cmds::http_send,
             http_cmds::http_cancel,
+            // pytest 测试运行器（docs/pytest_dev_plan.md）：四动作合一单命令
+            // （scan / collect / cancel / result）——运行走 run_in_terminal kind="test"，不占命令面
+            pytest_cmds::pytest_action,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -409,6 +413,7 @@ pub fn run() {
                 plugin_cmds::plugins_stop_watcher_for_exit(); // P2-6：插件目录 watcher
                 db_cmds::db_stop_for_exit(); // B3：SQLite 连接（句柄释放，防锁库）
                 http_cmds::http_stop_for_exit(); // B4：在途 HTTP 请求（置取消标志，防线程悬挂）
+                pytest_cmds::collect_stop_for_exit(); // pytest collect 子进程（非 PTY 会话，退出钩子统杀树）
             }
         });
 }

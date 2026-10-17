@@ -16,6 +16,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type * as MonacoApi from "monaco-editor/esm/vs/editor/editor.api";
 import { app, type MonacoModule } from "./state";
+import { normalizePath } from "./util";
 import * as dap from "./dap/client";
 import type { BreakpointKind, BreakpointSpec, DapSourceBreakpoint } from "./dap/client";
 import { toastFail } from "./toast";
@@ -44,8 +45,21 @@ export function setBreakpointsChangeCallback(cb: (() => void) | null): void {
   onChange = cb;
 }
 
+/** 断点表变更挂钩（多播；单槽 setBreakpointsChangeCallback 已被视图占用——复核 P2：
+ *  断点增删后 testGutter 的绿箭头过滤不同步，靠此钩子强制重算）。返回退订函数。 */
+export function onBreakpointsChanged(hook: () => void): () => void {
+  bpChangeHooks.push(hook);
+  return () => {
+    const i = bpChangeHooks.indexOf(hook);
+    if (i >= 0) bpChangeHooks.splice(i, 1);
+  };
+}
+
+const bpChangeHooks: Array<() => void> = [];
+
 function notifyChange(): void {
   onChange?.();
+  for (const h of bpChangeHooks) h();
   persistBreakpoints(); // P2-11：所有变更路径统一在此落盘
 }
 
@@ -393,7 +407,9 @@ export function highlightCurrentLine(path: string, line: number): void {
   const monaco = monacoRef;
   if (!editor || !monaco) return;
   const tab = app.activeTab;
-  if (!tab || tab.path !== path) return; // 只高亮当前打开的文件
+  // 路径比较必须归一化（TS 红线：禁裸比较）：调试帧的 source.path 是 debugpy 原样反斜杠，
+  // 而 tab.path 可能来自测试树跳转（正斜杠）——真机 pytest-real 实测「失败跳转后调试当前行不亮」。
+  if (!tab || normalizePath(tab.path) !== normalizePath(path)) return; // 只高亮当前打开的文件
   currentLineDecorations = editor.createDecorationsCollection([
     {
       range: new monaco.Range(line, 1, line, 1),

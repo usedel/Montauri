@@ -309,18 +309,26 @@ pub(crate) fn start_session(
     Ok(())
 }
 
-/// v3.4 §17-12：统一运行入口——`kind: "script" | "project"`。
+/// v3.4 §17-12：统一运行入口——`kind: "script" | "project" | "test"`。
 ///
 /// - `script`：`path` 为脚本路径，内部 `read_run_config(root, path)` 读**脚本配置**；
 /// - `project`：`path` 忽略，内部读**项目配置**（固定键 `project_run`），按 `entry`
 ///   （module/script）解析 `script_abs` / `script_dir` / `fname`；
+/// - `test`（docs/pytest_dev_plan.md §3.5）：`path` = **待运行 node id 列表，换行分隔**
+///   （node id 形如 `tests/test_api.py::TestUser::test_create[1-2]`，不含换行故可安全拼接；
+///   「重跑失败」= 一次传多个）。合成 `module=pytest` 入口（**不读写用户运行配置**），
+///   cwd = 工作区根（rootdir / conftest / node id 相对根语义正确），args 固定
+///   `<node ids…> -q --junit-xml=<data_root>/test-results/<会话id>.xml`（M1 固定参数）。
+///   junitxml 是后端内部契约：写入方 = 本分支，读取方 = `pytest_action(result, session_id)`；
 /// - env / PYTHONPATH / args 与调试链路共用 `run_env::build_run_env`（单一装配来源）；
 /// - PTY 下 stdin 天然是 TTY：`getpass` / `tqdm` / `rich` / 彩色输出 / Ctrl+C 均可用；
 ///   （v3.4 §4.2 已删 `stdin` 配置项，PTY 路径不再有「重定向自文件」分支）；
-/// - probe 受全局 `probe_enabled` 开关控制（§5.4 运行路径必开，§17-13）。
+/// - probe 受全局 `probe_enabled` 开关控制（§5.4 运行路径必开，§17-13）——测试运行同链路，
+///   采集自然覆盖测试执行（intel 净收益）。
 ///
-/// 会话 id 约定（§17-12）：`run-term-script` / `run-term-project-<N>`（沿用 `RUN_TERM_PREFIX`），
-/// 供多实例槽位区分与调试互斥收窄判定（§13.2：`script_run_busy` 只看脚本运行会话）。
+/// 会话 id 约定（§17-12）：`run-term-script` / `run-term-project-<N>` / `run-term-test`
+/// （沿用 `RUN_TERM_PREFIX`），供多实例槽位区分与调试互斥收窄判定（§13.2：
+/// `script_run_busy` 只看脚本运行会话）。
 ///
 /// 返回非致命告警（如 Parameters 解析失败），由前端写入终端回显。
 #[tauri::command]
@@ -346,7 +354,9 @@ pub fn run_in_terminal(
     kill_session(&wid, &id); // 复用同一会话槽：停止运行后会话可立即复用（验收项）
 
     // 入口 / 脚本锚点解析（§17-12）——kind=project 时忽略 path，读项目配置；
-    // kind=script 与调试链路同口径（解释器 / 配置 / uv 兜底）。
+    // kind=script 与调试链路同口径（解释器 / 配置 / uv 兜底）；
+    // kind=test 时 path = node id 列表（换行分隔），test_node_ids 收下供下方拼 pytest 参数。
+    let mut test_node_ids: Vec<String> = Vec::new();
     let (entry, script_abs, script_dir, fname, run_config) = match kind.as_str() {
         "project" => {
             let root = workspace_root.clone().ok_or("运行项目需先打开一个工作区")?;
@@ -365,6 +375,29 @@ pub fn run_in_terminal(
                 let fname = abs.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
                 (prof.entry.clone(), abs, Some(dir), fname, prof)
             }
+        }
+        "test" => {
+            // pytest 测试运行（docs/pytest_dev_plan.md §3.5）：node id 列表（换行分隔）+
+            // 合成 module=pytest 入口 + 固定 M1 参数；运行配置**不参与**（用户运行配置是
+            // 脚本/项目语义，测试有自己固定的 pytest 参数口径）。
+            let root = workspace_root.clone().ok_or("运行测试需先打开一个工作区")?;
+            let node_ids: Vec<String> = path
+                .split('\n')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            if node_ids.is_empty() {
+                return Err("未指定测试节点（node id 为空）".into());
+            }
+            test_node_ids = node_ids;
+            let rootp = std::path::PathBuf::from(&root);
+            (
+                crate::run_config::RunEntry { kind: "module".into(), target: "pytest".into() },
+                rootp.clone(),
+                Some(rootp.clone()),
+                String::new(),
+                crate::run_config::RunProfile::default(),
+            )
         }
         _ => {
             let p = std::path::Path::new(&path);
@@ -386,15 +419,10 @@ pub fn run_in_terminal(
         }
     };
 
-    // 解释器解析口径与调试链路一致（配置级覆盖 > 工作区配置 > .venv 自动检测 > uv run 兜底）
+    // 解释器解析口径与调试链路一致（配置级覆盖 > 工作区配置 > .venv 自动检测 > uv run 兜底）；
+    // resolve_run_interpreter 是 terminal / dap / pytest_cmds 三处共用的单一解析点（run_env.rs）。
     let profile_interpreter = run_config.interpreter.trim().to_string();
-    let interpreter = if profile_interpreter.is_empty() {
-        workspace_root
-            .as_deref()
-            .and_then(|r| crate::env_cmds::get_interpreter(r.to_string()).ok().flatten())
-    } else {
-        Some(profile_interpreter)
-    };
+    let interpreter = crate::run_env::resolve_run_interpreter(&profile_interpreter, workspace_root.as_deref());
 
     // P0-D：工作目录解析（空 = script→脚本目录 / module→工作区根；支持宏）
     let cwd = crate::run_env::resolve_run_cwd(
@@ -435,8 +463,29 @@ pub fn run_in_terminal(
         })
         .map_err(|e| format!("创建伪终端失败: {e}"))?;
 
+    // kind="test"（docs/pytest_dev_plan.md §3.5/§3.6）：pytest 固定参数（M1）——
+    // `<node ids…> -q --junit-xml=<data_root>/test-results/<会话id>.xml`。
+    // junitxml 是**后端内部契约**：写入方 = 本分支，读取方 = `pytest_action(result, session_id)`，
+    // 前端不碰 data_root、不碰 XML。机会性清理 24h 前残留 piggyback 在运行路径（不起定时器）。
+    // M1 口径留痕（复核 P2）：xml 文件名只含会话 id（TEST_INSTANCE_ID 单例），多窗口
+    // 并行跑测试会互相覆盖/串读——多窗口并行测试不在 M1 范围，后续按需掺 window label。
+    let mut test_args: Vec<String> = Vec::new();
+    if kind == "test" {
+        let results_dir = crate::pytest_cmds::test_results_dir();
+        if let Err(e) = std::fs::create_dir_all(&results_dir) {
+            return Err(format!("创建测试结果目录失败: {e}"));
+        }
+        crate::pytest_cmds::sweep_stale_results(&results_dir);
+        let xml = results_dir.join(format!("{id}.xml"));
+        test_args.extend(test_node_ids.iter().cloned());
+        test_args.push("-q".to_string());
+        test_args.push(format!("--junit-xml={}", xml.to_string_lossy()));
+    }
+
     let mut cb = CommandBuilder::new(run_cmd.program.clone());
     cb.args(run_cmd.args.iter().cloned());
+    // kind="test"：node ids + -q + junit-xml 夹在入口与用户 args 之间（用户 args 此时为空）
+    cb.args(test_args.iter().cloned());
     // 运行配置 args 追加在脚本之后（与 run_script 同序，两分支通用）
     cb.args(run_env.args.iter().cloned());
     cb.cwd(&cwd);

@@ -10,6 +10,7 @@ export const core = {
   "activity.tabGit": "源代码管理",
   "activity.tabRuntime": "运行时热点（真实跑过的函数）",
   "activity.tabSearch": "搜索",
+  "activity.tabTests": "测试（pytest）",
   "activity.tabTodo": "待办标记（TODO / FIXME）",
   // ---- clipboardDiff ----
   "clipboardDiff.clipboardDiffClose": "关闭",

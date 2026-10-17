@@ -475,7 +475,7 @@
   // 不触达真实进程，仅驱动前端状态机与渲染，用于功能与体验验收。
   var DBG = {
     active: false, path: null, wsRoot: null, bps: {}, attachId: 0,
-    currentLine: 0, threadId: 1, frameDepth: 1, failNext: false,
+    currentLine: 0, threadId: 1, frameDepth: 1, failNext: false, testNode: null,
   };
   function dbgBasename(p) { var m = /([^\\/]+)$/.exec(p || ""); return m ? m[1] : (p || "script.py"); }
   function dapRespond(reqId, body) {
@@ -500,11 +500,11 @@
   // 测试侧控制面：失败注入 / 状态读取（window.__OC_DEBUG__）
   window.__OC_DEBUG__ = {
     reset: function () {
-      DBG.active = false; DBG.path = null; DBG.wsRoot = null; DBG.bps = {};
+      DBG.active = false; DBG.path = null; DBG.wsRoot = null; DBG.bps = {}; DBG.testNode = null;
       DBG.attachId = 0; DBG.currentLine = 0; DBG.threadId = 1; DBG.frameDepth = 1; DBG.failNext = false;
     },
     setFailNext: function (v) { DBG.failNext = !!v; },
-    state: function () { return { active: DBG.active, path: DBG.path, currentLine: DBG.currentLine, frameDepth: DBG.frameDepth, bps: JSON.parse(JSON.stringify(DBG.bps)) }; },
+    state: function () { return { active: DBG.active, path: DBG.path, testNode: DBG.testNode, currentLine: DBG.currentLine, frameDepth: DBG.frameDepth, bps: JSON.parse(JSON.stringify(DBG.bps)) }; },
   };
 
   function handleDebugCommand(cmd, args) {
@@ -514,6 +514,8 @@
       DBG.active = true;
       DBG.path = args.path || null;
       DBG.wsRoot = args.workspaceRoot || null;
+      // pytest「调试此测试」（docs/pytest_dev_plan.md §3.7）：test_node 透传断言用
+      DBG.testNode = args.testNode || null;
       DBG.currentLine = 0; DBG.frameDepth = 1; DBG.attachId = 0;
       emitEvent("debug-started", { port: 0, pid: 5678 });
       return null;
@@ -1030,6 +1032,62 @@
     // reveal_in_explorer：只记录路径（CI 无桌面，不能真开资源管理器）
     if (cmd === "reveal_in_explorer") {
       (window.__E2E_REVEALED_PATHS__ = window.__E2E_REVEALED_PATHS__ || []).push(String(args.path ?? ""));
+      return null;
+    }
+    // run_in_terminal（统一运行控制台）：浏览器无真实 PTY，只记录入参（**kind 是
+    //   kind="test" pytest 运行分支的断言依据**，docs/pytest_dev_plan.md §3.5）并返回
+    //   空告警数组（前端 for...of 遍历 warnings；null 会抛 TypeError）。
+    if (cmd === "run_in_terminal") {
+      (window.__E2E_RUN_IN_TERMINAL__ = window.__E2E_RUN_IN_TERMINAL__ || []).push({
+        id: args.id ?? null,
+        path: args.path ?? null,
+        kind: args.kind ?? null,
+        workspaceRoot: args.workspaceRoot ?? null,
+        probe: args.probe ?? null,
+      });
+      return [];
+    }
+    // 4.66) pytest 测试运行器（docs/pytest_dev_plan.md）：四动作 mock。测试经
+    //   window.__E2E_PYTEST__ 预置 { files, nodes, missingModule, collectError, cases }；
+    //   __E2E_PYTEST_CANCEL__ 非空 → collect 走取消分支；__E2E_PYTEST_NO_RESULT__
+    //   非空 → result 走「无 xml」分支（进程被 kill 的口径）。
+    if (cmd === "pytest_action") {
+      var pt = window.__E2E_PYTEST__ || {};
+      // 调用流水（断言「连点 collect 只发一次」/「scan 先行」等调用纪律）
+      (window.__E2E_PYTEST_CALLS__ = window.__E2E_PYTEST_CALLS__ || []).push(String(args.action ?? ""));
+      if (args.action === "scan") {
+        // 与 Rust 契约同形：`{ files: [...] }`（pytest_cmds::scan_impl）
+        return { files: Array.isArray(pt.files) ? JSON.parse(JSON.stringify(pt.files)) : [] };
+      }
+      if (args.action === "collect") {
+        // collect 慢路径（模拟真实 pytest 导入模块耗时）：验证 scan 骨架不依赖 collect
+        if (typeof pt.collectDelayMs === "number" && pt.collectDelayMs > 0) {
+          await new Promise(function (r) { setTimeout(r, pt.collectDelayMs); });
+        }
+        if (window.__E2E_PYTEST_CANCEL__) {
+          return { ok: false, cancelled: true, nodes: [], missing_module: null, error_tail: "", duration_ms: 0 };
+        }
+        if (pt.missingModule) {
+          return { ok: false, cancelled: false, nodes: [], missing_module: pt.missingModule, error_tail: "", silent_empty: false, duration_ms: 0 };
+        }
+        if (pt.collectError) {
+          return { ok: false, cancelled: false, nodes: [], missing_module: null, error_tail: pt.collectError, silent_empty: false, duration_ms: 0 };
+        }
+        return {
+          ok: true,
+          cancelled: false,
+          nodes: Array.isArray(pt.nodes) ? JSON.parse(JSON.stringify(pt.nodes)) : [],
+          missing_module: null,
+          error_tail: "",
+          silent_empty: false, // 与 Rust collect_impl 返回形状对齐（前端暂未消费）
+          duration_ms: 12,
+        };
+      }
+      if (args.action === "cancel") return { cancelled: true };
+      if (args.action === "result") {
+        if (window.__E2E_PYTEST_NO_RESULT__) return { found: false, cases: [] };
+        return { found: true, cases: Array.isArray(pt.cases) ? JSON.parse(JSON.stringify(pt.cases)) : [] };
+      }
       return null;
     }
     // 1) 事件注册：args.handler 是 transformCallback 返回的回调 id（number）

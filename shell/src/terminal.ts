@@ -371,7 +371,7 @@ export class IntegratedTerminal {
     path: string,
     workspaceRoot: string | null,
     banner: string,
-    kind: "script" | "project" = "script",
+    kind: "script" | "project" | "test" = "script",
     probe?: boolean,
   ): Promise<string[]> {
     if (this.started) {

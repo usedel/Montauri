@@ -35,8 +35,9 @@ interface TermSessionUI {
   view: HTMLElement;
   /** S3："run" = 专用「运行终端」（脚本跑完即结束会话）；"shell" = 普通交互 shell */
   kind: "shell" | "run";
-  /** 运行终端专属（v3.4 §17-12）：script = 脚本运行 tab；project = 项目运行 tab */
-  runKind?: "script" | "project";
+  /** 运行终端专属（v3.4 §17-12）：script = 脚本运行 tab；project = 项目运行 tab；
+   *  test = pytest 测试运行 tab（docs/pytest_dev_plan.md §3.5，path = node id 换行拼接） */
+  runKind?: "script" | "project" | "test";
   /** 运行终端专属：当前是否有脚本在跑（驱动 tab 上的停止按钮） */
   runActive: boolean;
   /** 运行终端专属：按实例退出回调（runFlow 注册；自然退出 / 主动停止 / 关闭 tab 三路共用） */
@@ -536,8 +537,9 @@ export interface RunTerminalOptions {
   path: string;
   /** 运行回显行（写在脚本输出之前） */
   echo: string;
-  /** "script" | "project"（后端 kind 参数） */
-  kind: "script" | "project";
+  /** "script" | "project" | "test"（后端 kind 参数；test = pytest 测试运行，
+   *  path 传 node id 列表、换行分隔，docs/pytest_dev_plan.md §3.5） */
+  kind: "script" | "project" | "test";
   /** 显式指定实例 id（「项目 N」并行实例）；缺省按 kind 分配：
    *  script → run-term-script；project → run-term-project-1（主 tab） */
   instanceId?: string;
@@ -589,7 +591,11 @@ export async function runScriptInTerminal(opts: RunTerminalOptions): Promise<voi
     iterm.setOnExit(() => renderTerminalTabs());
     const label = kind === "project"
       ? (id === "run-term-project-1" ? t("ide.term.project") : t("ide.term.projectN", { n: Number(id.slice("run-term-project-".length)) }))
-      : t("ide.term.runLabel", { name: basename(path) });
+      : kind === "test"
+        // pytest 测试 tab（docs/pytest_dev_plan.md §3.5）：label「测试 · <node>」；
+        // path 是 node id 换行拼接，取首个作标签（「重跑失败」多 node 时显示第一个）
+        ? t("test.tabLabel", { node: basename(path.split("\n")[0] ?? path) })
+        : t("ide.term.runLabel", { name: basename(path) });
     s = { id, label, venv: null, iterm, view, kind: "run", runKind: kind, runActive: false, shell: "auto" };
     termSessions.push(s);
     if (id !== "run-term-script" && id.startsWith("run-term-project-")) {
@@ -607,6 +613,7 @@ export async function runScriptInTerminal(opts: RunTerminalOptions): Promise<voi
   if (isNewSession) s.canceled = false;
   dropServiceTail(id);
   if (kind === "script") s.label = t("ide.term.runLabel", { name: basename(path) });
+  if (kind === "test") s.label = t("test.tabLabel", { node: basename(path.split("\n")[0] ?? path) });
   activeTermId = s.id;
   // **先落好运行终端再切标签**：setBottomTab 会触发 ensureAnyTerminal，
   // 顺序反了它会先建一个交互 shell 并把激活态抢走（用户看到的是 shell 而不是运行输出）。

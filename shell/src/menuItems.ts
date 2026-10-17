@@ -59,7 +59,9 @@ import {
 } from "./debugGutter";
 import { computeRunWidget, runWidgetHandlers } from "./runWidget";
 import { runProject, runScript, runWidgetState, stopRun } from "./runFlow";
-import { onEvaluateShortcut, runDebug, runToCursorAtCursor, stopDebugSession } from "./debugEntry";
+import { onEvaluateShortcut, runDebug, runToCursorAtCursor, stopDebugSession, debugTest } from "./debugEntry";
+import { runTestNodes } from "./testRun";
+import { testRunActive } from "./runState";
 import { currentThreadId } from "./debugView";
 
 /** main 注入的私有动作（解环：本文件不反向 import main）。 */
@@ -389,6 +391,29 @@ export function buildRunMenuItems(): MenuItem[] {
       disabled: !s.canOpenConfig,
       disabledReason: t("main.run.needWorkspace"),
       action: () => h?.openRunConfig(),
+    },
+  ];
+}
+
+/** 测试右键菜单（docs/pytest_dev_plan.md §3.4）：树行与绿箭头 gutter **同源数据**，
+ *  两个入口（侧栏树 / 编辑器 glyph）共用本函数，保证菜单永远一致。
+ *  运行中置灰（testRunActive；同 scriptDisabledReason 口径）。 */
+export function buildTestMenuItems(nodeId: string, name: string): MenuItem[] {
+  const running = testRunActive();
+  return [
+    {
+      label: t("test.runThis"),
+      icon: "play",
+      detail: name,
+      disabled: running,
+      disabledReason: t("test.runBusy"),
+      action: () => void runTestNodes([nodeId]),
+    },
+    {
+      label: t("test.debugThis"),
+      icon: "debug-alt",
+      detail: name,
+      action: () => void debugTest(nodeId),
     },
   ];
 }

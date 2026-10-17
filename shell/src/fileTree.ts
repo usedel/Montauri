@@ -179,7 +179,16 @@ async function buildDir(dir: string, container: HTMLElement, depth: number): Pro
     container.appendChild(empty);
     return;
   }
-  for (const e of entries) container.appendChild(renderTreeItem(e, depth));
+  for (const e of entries) {
+    container.appendChild(renderTreeItem(e, depth));
+    // 展开态恢复（真机 pytest-real 抓出的存量 bug）：reloadDir 增量重建只重渲染本层，
+    // 已展开的子目录会被折叠回默认态——用户跑一次测试/构建（产物落在根目录触发
+    // watcher → reloadDir(root)），整棵子树就收起来了。这里按 expandedDirs（单一真源）
+    // 自动重开：目录条目、无既有容器（避免与 toggleDir 的收起分支互锁）、且登记为已展开。
+    if (e.is_dir && !dirContainers.has(e.path) && expandedDirs.has(e.path)) {
+      await toggleDir(container.lastElementChild as HTMLElement, e, depth);
+    }
+  }
 }
 
 /** 渲染单个树节点（文件/目录），含类型图标 + git 状态装饰 */

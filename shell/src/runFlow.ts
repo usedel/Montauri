@@ -33,7 +33,7 @@ import {
 import {
   EMPTY_RUN_CONFIG, addRunInstance, clearRunInstances, findRunInstance,
   latestActiveInstance, listRunInstances, normalizeRunConfig, projectRunActive,
-  removeRunInstance, scriptRunActive,
+  removeRunInstance, scriptRunActive, testRunActive,
   type RunConfig, type SelectionRunMeta,
 } from "./runState";
 // B5 §6.8：输出采集改为 termUi 多播（runHistory 侧统一按 instanceId 入档），此处不再传 per-instance onData
@@ -65,25 +65,32 @@ function h(): RunFlowHandlers {
 // ---------- 域内状态 ----------
 
 /** CR-07：运行准备期闸门——检查与置位之间不得有 await，杜绝连按触发并发启动。
- * 多实例模型下按 kind 分闸（脚本 / 项目各自独立，§12：脚本与项目可同时进行）。 */
-const runPreparingByKind: Record<"script" | "project", boolean> = { script: false, project: false };
+ * 多实例模型下按 kind 分闸（脚本 / 项目 / 测试各自独立，§12：脚本与项目可同时进行；
+ * 测试是单例实例 run-term-test，docs/pytest_dev_plan.md §3.5）。 */
+const runPreparingByKind: Record<"script" | "project" | "test", boolean> = { script: false, project: false, test: false };
 
-function beginRunPreparing(kind: "script" | "project"): boolean {
+function beginRunPreparing(kind: "script" | "project" | "test"): boolean {
   if (kind === "script" && scriptRunActive()) return false;
+  // 测试实例单例：已在跑（或准备中）即拒绝（树行 ▶ 与「重跑失败」按钮按此置灰）
+  if (kind === "test" && testRunActive()) return false;
   if (runPreparingByKind[kind]) return false;
   runPreparingByKind[kind] = true;
   h().renderTabs(); // 准备期即置灰对应 ▶，给用户即时反馈
   return true;
 }
 
-function endRunPreparing(kind: "script" | "project"): void {
+function endRunPreparing(kind: "script" | "project" | "test"): void {
   runPreparingByKind[kind] = false;
   h().renderTabs();
 }
 
-function isPreparing(kind: "script" | "project"): boolean {
+function isPreparing(kind: "script" | "project" | "test"): boolean {
   return runPreparingByKind[kind];
 }
+
+/** 准备期闸门（testRun.ts 的 runTestNode(s) 复用，§3.5/§3.10 防连点）。
+ *  导出而非在 testRun 复刻：闸门与实例态必须同一把锁，两处各写一遍必然漂移。 */
+export { beginRunPreparing, endRunPreparing, isPreparing };
 
 /** 框架探针表（P1）：「生成运行配置」提示按「工作区 + 框架」每会话最多一次 */
 const frameworkHintShown = new Set<string>();
@@ -213,8 +220,9 @@ export async function prepareRun(path: string): Promise<RunPrep | null> {
  *  幂等护栏：实例已被移除（preparing 期关闭 tab）或已退出（stopRunById 先于 spawn 落地
  *  收口了 preparing 实例）时**不再复活为 running**——前者静默返回 false（补杀由 termUi 承担），
  *  后者保持 exited（进程若真已 spawn，killIfCanceled 已按 id 补杀，无孤儿）。
- *  调用方据返回值决定是否 startRunRecord（失败的收口不产生悬挂历史）。 */
-function settleInstance(id: string, opts: {
+ *  调用方据返回值决定是否 startRunRecord（失败的收口不产生悬挂历史）。
+ *  导出给 testRun.ts（测试实例复用同一生命周期，§3.5）。 */
+export function settleInstance(id: string, opts: {
   label: string;
   path: string | null;
   selection: SelectionRunMeta | null;
@@ -234,8 +242,9 @@ function settleInstance(id: string, opts: {
  *  选区临时文件清理。tab 保留供回看（关闭 tab 时 removeRunInstance）。
  *  M4 实测修复：stopping=true（用户已发 \x03）时，即便 term-exit 带 code 也按
  *  stopped 落档——ConPTY 下 \x03 → CTRL_C_EXIT(0xC000013A) 几乎立即触发 term-exit，
- *  常先于 stopRunById 的宽限等待到达，「用户停止」不能被误记为自然退出。 */
-function settleExited(id: string, reason: { kind: "code"; code: number } | { kind: "stopped" } | { kind: "canceled" }): void {
+ *  常先于 stopRunById 的宽限等待到达，「用户停止」不能被误记为自然退出。
+ *  导出给 testRun.ts（测试实例 term-exit 收口，§3.6）。 */
+export function settleExited(id: string, reason: { kind: "code"; code: number } | { kind: "stopped" } | { kind: "canceled" }): void {
   const inst = findRunInstance(id);
   if (!inst || inst.phase === "exited") return; // 幂等（§7.5 硬规则 3）
   if (inst.selection) cleanupSelectionRunMeta(inst.selection);
@@ -260,6 +269,7 @@ export function resetRunSessionState(): void {
   clearRunInstances();
   runPreparingByKind.script = false;
   runPreparingByKind.project = false;
+  runPreparingByKind.test = false;
   frameworkHintShown.clear(); // 框架提示去重随工作区会话失效（同 §5.4 提示去重口径）
   uvRunRiskHinted.clear(); // §5.4 提示去重随工作区会话失效
   lazyHinted.clear();     // M4-1 lazy 提示去重同口径
@@ -318,6 +328,22 @@ export function runWidgetState(): RunWidgetState {
     stopShortcut: kb.bindingLabel("stop"),
     stopTarget: latestActiveInstance()?.label ?? null,
     canOpenConfig: hasWs,
+  };
+}
+
+/**
+ * 测试绿箭头的亮 / 灰态（docs/pytest_dev_plan.md §3.4；与树行 ▶ 同源口径）。
+ * 由 main 注入 `testGutter.setTestGutterHandlers`——放在运行域而非 gutter 内部：
+ * 「是否正忙」的唯一真源（脚本 / 测试 / 调试三态）在此，gutter 不该反向拼装。
+ */
+export function testGutterState(): { canRun: boolean; running: boolean } {
+  const tab = app.activeTab;
+  const isPy = !!tab && (tab.path.endsWith(".py") || tab.path.endsWith(".pyw"));
+  const dbgPhase = dap.currentPhase();
+  const debugging = dbgPhase === "starting" || dbgPhase === "running" || dbgPhase === "stopped";
+  return {
+    canRun: !!app.workspaceRoot && isPy,
+    running: scriptRunActive() || testRunActive() || debugging,
   };
 }
 

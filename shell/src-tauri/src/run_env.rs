@@ -321,6 +321,23 @@ pub(crate) struct RunCommand {
     pub(crate) is_uv: bool,
 }
 
+/// 解析运行解释器（配置级覆盖 > 工作区配置 > .venv 自动检测；None = uv 兜底）。
+/// 原为 `terminal.rs` / `dap.rs` 各复刻一份的解析逻辑，pytest 测试运行器（第三处
+/// 调用方，docs/pytest_dev_plan.md §3.2）落地时借机收敛到本文件——run_env 的章程
+/// 本就是「运行环境装配单一来源」。空串配置级值按「未配置」处理（与两处原逻辑一致）。
+pub(crate) fn resolve_run_interpreter(
+    profile_interpreter: &str,
+    workspace_root: Option<&str>,
+) -> Option<String> {
+    let profile = profile_interpreter.trim().to_string();
+    if profile.is_empty() {
+        workspace_root
+            .and_then(|r| crate::env_cmds::get_interpreter(r.to_string()).ok().flatten())
+    } else {
+        Some(profile)
+    }
+}
+
 /// 解析运行命令（P0-C）：入口二选一——
 /// - script：选中解释器 → `<解释器> <脚本>`；未选中 → `uv run <文件名>` 兜底；
 /// - module：选中解释器 → `<解释器> -m <模块名>`；未选中 → `uv run python -m <模块名>` 兜底。
@@ -717,6 +734,22 @@ mod tests {
         let c2 = resolve_run_command(&entry, script, "main.py", None);
         assert!(c2.is_uv);
         assert_eq!(c2.args, ["run".to_string(), "python".to_string(), "-m".to_string(), "uvicorn".to_string()]);
+    }
+
+    /// resolve_run_interpreter：配置级非空即用（含 uv 兜底不生效），空串回落工作区解析
+    #[test]
+    fn resolve_run_interpreter_rules() {
+        // 配置级覆盖优先（不再查工作区）
+        assert_eq!(
+            resolve_run_interpreter("  F:/py/python.exe  ", Some("/ws")),
+            Some("F:/py/python.exe".to_string())
+        );
+        // 空串（未配置）→ 走工作区解析（无工作区时 None = uv 兜底语义）
+        assert_eq!(resolve_run_interpreter("   ", None), None);
+        // 空串 + 有工作区：真实 get_interpreter 依赖机器环境，只断言「不 panic 且不返回空串」
+        if let Some(p) = resolve_run_interpreter("", Some("/ws")) {
+            assert!(!p.trim().is_empty());
+        }
     }
 
     /// P0-D：cwd 解析——宏展开 / 相对基准工作区根 / 空值默认（module→根，script→脚本目录）

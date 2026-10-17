@@ -1,0 +1,113 @@
+/* pytest 测试树（docs/pytest_dev_plan.md §3.3）——新功能落新文件（hotspots.css 同款纪律：
+   样式不再往 style.css 里堆，避免"静默增长"重演）。
+   命名空间 .test-*（视图 chrome）/ .test-row*（树行）/ .gutter-test（编辑器绿箭头）。
+   经 style.css 顶部 @import 内联进 bundle，audit_tokens 覆盖；全部走语义 token。 */
+
+/* ---- 视图 chrome ---- */
+
+.test-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+}
+.test-toolbar .btn { margin-left: 0; flex: none; }
+.test-title { font-size: var(--text-sm); font-weight: 600; }
+.test-count { font-size: var(--text-xs); color: var(--fg-dim); margin-right: auto; font-variant-numeric: tabular-nums; }
+
+/* stale chip（缓存失效：.py / 声明文件变更，§3.8）——用户立刻知道树旧了 */
+.test-stale {
+  flex: none;
+  font-size: var(--text-xs);
+  line-height: 1.4;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--warn);
+  color: var(--warn);
+}
+
+.test-content { overflow-y: auto; flex: 1; }
+
+/* 收集错误态：pytest 输出原文（尾部 40 行，§3.2 防静默空树） */
+.test-error-hint { font-size: var(--text-xs); color: var(--fg-dim); margin-top: var(--space-2); }
+.test-error-tail {
+  max-height: 160px;
+  overflow: auto;
+  font-size: var(--text-xs);
+  font-family: var(--mono);
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--fg-dim);
+  background: var(--surface-2);
+  border-radius: var(--radius-xs);
+  padding: var(--space-2);
+  margin: var(--space-1) 0 var(--space-2);
+}
+
+/* ---- 树行 ---- */
+
+.test-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 1px var(--space-3);
+  font-size: var(--text-sm);
+  cursor: default;
+  user-select: none;
+}
+.test-row:hover { background: var(--control-hover); }
+.test-row--class { padding-left: var(--space-6); }
+.test-row--case { padding-left: var(--space-8); }
+
+/* twisty（展开箭头）与状态图标：固定宽度防名称列抖动 */
+.test-twisty { flex: none; width: 16px; text-align: center; color: var(--fg-dim); cursor: pointer; }
+.test-icon { flex: none; width: 16px; text-align: center; }
+.test-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.test-meta {
+  flex-shrink: 0;
+  font-size: var(--text-xs);
+  color: var(--fg-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* hover ▶（运行该节点）：默认隐藏，行 hover 或键盘聚焦时显示 */
+.test-run {
+  flex: none;
+  width: 16px;
+  text-align: center;
+  color: var(--fg-dim);
+  opacity: 0;
+  cursor: pointer;
+}
+.test-row:hover .test-run,
+.test-row:focus-within .test-run { opacity: 1; }
+.test-run:hover { color: var(--accent); }
+
+/* 状态着色（与 problemsPanel 的健康色同口径：error > failed > skipped > passed） */
+.test-row.is-passed .test-icon { color: var(--ok, var(--accent)); }
+.test-row.is-failed .test-icon,
+.test-row.is-error .test-icon { color: var(--danger); }
+.test-row.is-skipped .test-icon { color: var(--fg-dim); }
+.test-row.is-unknown .test-icon { color: var(--fg-dim); opacity: 0.55; }
+.test-row.is-failed .test-meta,
+.test-row.is-error .test-meta { color: var(--danger); }
+
+/* 文件行名称加粗（与类 / 用例行分层） */
+.test-row--file .test-name { font-weight: 600; }
+
+/* ---- 编辑器绿箭头（§3.4，与 .gutter-run 同款 codicon 口径，主题随 token）---- */
+
+.gutter-test { cursor: pointer; }
+.gutter-test::after {
+  font-family: "codicon";
+  content: "\eb2c"; /* codicon play */
+  color: var(--ok);
+  font-size: calc(var(--editor-font-size) * 1.125);
+}
+.gutter-test.disabled { opacity: 0.45; cursor: default; }

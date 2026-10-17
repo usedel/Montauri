@@ -295,13 +295,16 @@ export async function startDebug(
   path: string,
   workspaceRoot: string | null,
   pushBreakpoints: () => Promise<void>,
+  /** 调试此测试（docs/pytest_dev_plan.md §3.7）：Some(node_id) 时后端合成
+   *  module=pytest + args=[node_id] + cwd=工作区根，绕过按文件的运行配置读取 */
+  testNode?: string | null,
 ): Promise<void> {
   await wireDapEvents();
   // markStarting 已在 runDebug 侧提前调用（P1-13）；此处兜底（直调 startDebug 的测试 /
   // 其他调用方）：sessionSeq 清空 + 置 starting。
   sessionSeq = null;
   setPhase("starting");
-  await invoke("debug_start", { path, workspaceRoot });
+  await invoke("debug_start", { path, workspaceRoot, testNode: testNode ?? null });
 
   // initialize 握手
   await request("initialize", {
@@ -329,7 +332,7 @@ export async function startDebug(
   const serverEp = await waitEvent("debugpyWaitingForServer", 30_000);
   const host: string = serverEp?.host ?? "127.0.0.1";
   const port: number = serverEp?.port ?? 0;
-  await invoke("debug_attach_debuggee", { path, workspaceRoot, host, port });
+  await invoke("debug_attach_debuggee", { path, workspaceRoot, host, port, testNode: testNode ?? null });
 
   // 等 initialized（debuggee 的 pydevd 连入 adapter 后发出；此后才允许配置）
   await waitInitialized();

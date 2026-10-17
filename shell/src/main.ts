@@ -97,6 +97,12 @@ import { renderEngineChip, setEngineBusy, setEngineChipHandlers, wireEngineChip 
 import { setLspEngineStatus, setLspNote } from "./lspStatus";
 import { renderRunWidget, setRunWidgetHandlers, setRunWidgetRepaint, wireRunWidget } from "./runWidget";
 import { clearRunGutter, isRunGutterLine, refreshRunGutter, setRunGutterHandlers, wireRunGutter } from "./runGutter";
+// pytest 测试运行器（docs/pytest_dev_plan.md）：绿箭头 + 运行/缓存编排
+import {
+  clearTestGutter, isTestGutterLine, refreshTestGutter, repaintTestGutter, setTestGutterHandlers, wireTestGutter,
+} from "./testGutter";
+import { resetTests, wireTestRun } from "./testRun";
+import { testGutterState } from "./runFlow"; // 绿箭头亮灰态（运行域唯一真源，§3.4）
 import { clearGitGutter, refreshGitGutter, scheduleGitGutter, wireGitGutter } from "./gitGutter"; // 迭代 2 · P0-5
 import { wireGutterHover } from "./gutterHover";
 import * as dap from "./dap/client";
@@ -285,6 +291,9 @@ function resetWorkspaceUiState(): void {
   // v3.4 §15（M3-3.10）：停全部运行实例（teardownCurrent 已停止）+ 清实例表 + 清配置缓存
   resetRunSessionState();
   clearRunGutter(); // C5：切换/关闭工作区清空 gutter ▶
+  clearTestGutter(); // 绿箭头一并清空（§3.4）
+  resetTests(); // 取消在途 collect + 清缓存与令牌（§3.8；同步完成防误清新工作区缓存）
+  void import("./testView").then((m) => m.resetTestView()); // 测试视图跨工作区状态复位
   clearGitGutter(); // 迭代 2 · P0-5：git 行级装饰一并清空
   clearCurrentLine(); // D4：清调试当前行高亮
   renderDebugView(); // D4：调试侧栏复位到 idle 呈现
@@ -1118,6 +1127,7 @@ function activateTab(tab: Tab, opts?: { focusEditor?: boolean }): void {
   }
   updateEditorOverlay();
   refreshRunGutter(); // C5：切换 tab 重算 __main__ 守卫行的 ▶
+  refreshTestGutter(); // pytest 绿箭头跟随激活文件（测试文件名才武装，§3.4）
   refreshDebugGutter(); // D3：切换 tab 重算断点红点
   refreshGitGutter(); // 迭代 2 · P0-5：切换 tab 重算 git 行级变更装饰
   scheduleBreadcrumbs(); // P2：面包屑跟随激活文件
@@ -1188,11 +1198,13 @@ export function closeTabSilent(tab: Tab): void {
   }
   renderTabs();
   refreshRunGutter(); // C5：关闭 tab 后重算/清空 ▶
+  refreshTestGutter(); // pytest 绿箭头跟随（关闭的是测试文件则清空）
   refreshDebugGutter(); // D3：关闭 tab 后重算/清空断点红点
   mdPreview.updatePreviewVisibility(); // Markdown 预览：关闭 tab 后刷新显隐
 }
 
 export function renderTabs(): void {
+  repaintTestGutter(); // 绿箭头亮/灰态跟随运行态（状态未变则短路）
   // UI-16：重绘会销毁正在聚焦的 tab 元素，先记录焦点、渲染后按路径恢复，
   // 否则键盘用户每次激活/关闭标签后焦点都掉回 body（与 termUi 终端 tab 同款处理）。
   // 用 closest(".tab")：焦点也可能在 tab 内部的关闭按钮上
@@ -1612,7 +1624,10 @@ function wireDidChangePipeline(): void {
   window.clearTimeout(editorTimers.change);
   // C5：▶ 位置随内容变化 300ms 防抖重算（与 didChange 的 changeTimer 各管各的，不复用）
   window.clearTimeout(editorTimers.gutter);
-  editorTimers.gutter = window.setTimeout(() => refreshRunGutter(), 300);
+  editorTimers.gutter = window.setTimeout(() => {
+    refreshRunGutter();
+    refreshTestGutter(); // 绿箭头随内容防抖重算（指纹短路，§3.10）
+  }, 300);
   // D3：断点行随内容变化防抖重算（行增删后断点按 Monaco 当前行号定位，不随行迁移）
   // P1-8：入 editorTimers 集中管理（先 clear 前值，防连点叠加全量重算）
   window.clearTimeout(editorTimers.debug);
@@ -2213,6 +2228,10 @@ async function init(): Promise<void> {
 
   // gutter 运行图标（C5）：__main__ 守卫行的 ▶，点击运行整个文件、右键弹出运行组同源菜单
   wireRunGutter(app.editor, app.monaco);
+  // pytest 绿箭头（docs/pytest_dev_plan.md §3.4）：测试文件 def test_* / class Test* 行 ▶，
+  // 点击运行、右键「运行 / 调试此测试」；亮灰态与树行 ▶ 同源（testGutterState）
+  wireTestGutter(app.editor, app.monaco);
+  setTestGutterHandlers({ state: testGutterState });
   // 迭代 2 · P0-5：git 行级变更装饰（绿/蓝条 + 删除红三角）
   wireGitGutter(app.editor, app.monaco);
   // gutter 悬停预示（方案 1/2）：把真正可点的 glyph 那一档画出来 + 悬停行显示淡化断点，
@@ -2240,7 +2259,10 @@ async function init(): Promise<void> {
     void dap.wireDapEvents().catch((e) => console.error("[debug] DAP 事件监听失败:", e));
     // 注入「守卫行归属」判定：debugGutter 需让出 __main__ 行的 glyph（方案 A），
     // 但不直接 import runGutter（会带进 menu 的顶层 document 监听），故由此注入。
-    wireDebugGutter(app.editor, app.monaco, isRunGutterLine);
+    // pytest 绿箭头同款：测试定义行由 testGutter 接管（Monaco onMouseDown 多订阅不可
+    // 阻断——不显式让出会「点绿箭头顺带设断点」，右键菜单还会被断点菜单覆盖，
+    // §3.4 三方协调）。断点行 isTestGutterLine 为 false，仍由 debugGutter 接管。
+    wireDebugGutter(app.editor, app.monaco, (line) => isRunGutterLine(line) || isTestGutterLine(line));
     // P0：断点右键菜单（条件 / 命中次数 / Logpoint）——菜单构造需要 menu.ts 与 dialog.ts，
     // 由 main 注入以保持 debugGutter 的可测试性（同 runGutter 的 menuItems 注入范式）。
     setBreakpointMenuHandler((path, line, x, y) => void showBreakpointMenu(path, line, x, y));
@@ -2291,7 +2313,7 @@ async function init(): Promise<void> {
   setOutputTracebackHandler((line) => handleTracebackLine(line));
 
   // 侧栏视图注册表 + 活动栏 + 大纲折叠态——阶段二外提到 sidebarViews.ts
-  wireSidebarViews({ refreshOutline });
+  wireSidebarViews({ refreshOutline, openFile: (p, line) => void openFile(p, line) });
 
   // Git 域 UI 接线（SCM 工具栏 / 历史 / diff / 提交 / 分支，TD-007）
   wireGitUI();
@@ -2357,6 +2379,8 @@ async function init(): Promise<void> {
 
   // P2 并行运行 + S4 交互输入行 + 输出面板钩子——接线在 runFlow.ts
   wireRunFlow();
+  // pytest：失效事件订阅（视图本体由 sidebarViews 的 onShow 动态 import，不占首屏 chunk）
+  wireTestRun();
 
   // S3：终端里的 traceback 也可点击（坑 4）——复用输出面板同一个正则与跳转逻辑；
   // 顺带让在 shell 终端里手敲 `uv run` 产生的 traceback 同样可点（PTY 路线的额外收益）

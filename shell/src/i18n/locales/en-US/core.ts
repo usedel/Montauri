@@ -11,6 +11,7 @@ export const core: Record<CoreKey, string> = {
   "activity.tabGit": "Source Control",
   "activity.tabRuntime": "Runtime Hotspots (Functions That Actually Ran)",
   "activity.tabSearch": "Search",
+  "activity.tabTests": "Tests (pytest)",
   "activity.tabTodo": "TODO Marks (TODO / FIXME)",
   // ---- clipboardDiff ----
   "clipboardDiff.clipboardDiffClose": "Close",

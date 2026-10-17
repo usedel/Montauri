@@ -63,7 +63,7 @@ export interface SelectionRunMeta {
 
 // ---------- 运行实例（§17-4 多实例模型） ----------
 
-export type RunKind = "script" | "project";
+export type RunKind = "script" | "project" | "test";
 
 /** 实例阶段（§7.2 状态机）：preparing → running → exited；preparing 的所有出口
  *  必须落到 running 或整实例移除，绝不驻留 preparing（§7.5 硬规则 2）。 */
@@ -138,6 +138,12 @@ export function scriptRunActive(): boolean {
 /** 是否有**项目**运行实例在跑（「运行项目」二选一对话框触发判定，§6.4） */
 export function projectRunActive(): boolean {
   return instances.some((x) => x.kind === "project" && x.phase !== "exited");
+}
+
+/** 是否有**测试**运行实例在跑（pytest 单例实例 run-term-test，docs/pytest_dev_plan.md §3.5；
+ *  测试实例与脚本/项目互不排斥，只与自身单例语义相关——准备期闸门与置灰判定用） */
+export function testRunActive(): boolean {
+  return instances.some((x) => x.kind === "test" && x.phase !== "exited");
 }
 
 /** 最近启动且**正在运行**（phase=running）的实例（⏹ 停止路由：只停一个，§10）。

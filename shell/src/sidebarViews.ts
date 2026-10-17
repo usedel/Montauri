@@ -10,6 +10,7 @@ import { cancelSearch } from "./search";
 import { refreshTodos } from "./todoView";
 import { refreshEndpoints } from "./endpointView";
 import { refreshHotspots } from "./hotspotsView";
+import { refreshTests } from "./testRun";
 import { refreshBranchPanel, refreshGitStatus, renderGitPanel } from "./git";
 import { renderDebugView } from "./debugView";
 import { onDbViewShow } from "./sqliteView";
@@ -17,6 +18,8 @@ import { onDbViewShow } from "./sqliteView";
 export interface SidebarViewDeps {
   /** 文件视图 onShow 时刷新大纲（main 私有：读活动 tab + 走 LSP documentSymbols） */
   refreshOutline: () => void;
+  /** 测试视图失败跳转（main 私有 openFile；testView 动态 import 拿不到，经 deps 注入） */
+  openFile: (path: string, revealLine?: number) => void;
 }
 
 export function wireSidebarViews(deps: SidebarViewDeps): void {
@@ -79,6 +82,16 @@ export function wireSidebarViews(deps: SidebarViewDeps): void {
     tabId: "tab-runtime",
     onShow: () => void refreshHotspots(),
   });
+  // pytest 第 9 视图（docs/pytest_dev_plan.md §3.3）：动态 import 挡在首屏 chunk 外（1,700 红线）
+  registerSidebarView({
+    id: "tests",
+    rootId: "view-tests",
+    tabId: "tab-tests",
+    onShow: () => void import("./testView").then((m) => {
+      m.setTestViewHandlers({ openFile: deps.openFile }); // 失败跳转 openFile 注入（main 私有）
+      m.initTestView(); void refreshTests(); // 切到才 scan+collect
+    }),
+  });
 
   // Activity Bar 图标（FILES / SEARCH / GIT / DEBUG）
   $("tab-files").addEventListener("click", () => setSidebarTab("files"));
@@ -89,6 +102,7 @@ export function wireSidebarViews(deps: SidebarViewDeps): void {
   $("tab-debug").addEventListener("click", () => setSidebarTab("debug"));
   $("tab-database").addEventListener("click", () => setSidebarTab("database"));
   $("tab-runtime").addEventListener("click", () => setSidebarTab("runtime"));
+  $("tab-tests").addEventListener("click", () => setSidebarTab("tests"));
   // 大纲折叠 / 展开（OUTLINE 并入文件视图，TD-001 附带考虑）
   // UI-16：disclosure 语义——aria-expanded 与 .collapsed 类同源切换（单一写入点），
   // 并给这个可点击 div 补键盘激活（role=button + tabindex 已在 index.html 静态声明）

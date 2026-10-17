@@ -134,7 +134,14 @@ scratch_cmds_rs_max_lines = 460
 #   2,400 → 2,410（2026-10-11 显式调整）：「以文本编辑」失败态缺陷修复净增 +4——
 #   openFile 返回成功与否（CSV 查看器「先开成功再关查看 Tab」需要）+ pushCurrent 挪到
 #   read 成功后（失败不留导航脏记录）。属缺陷修复；新功能仍不得入内，下一刀继续下调。
-main_ts_max_lines = 2410
+#   2,410 → 2,440（2026-10-16 显式调整，pytest 测试运行器）：docs/pytest_dev_plan.md §4
+#   已预授权 main.ts「+约 30（仅接线）」。实到 **+26 且全是一行式接线**：绿箭头亮灰态
+#   （script/test/debug 三态）外提到 runFlow::testGutterState，视图与缓存编排在
+#   testRun/testView，main 只剩 wire*/refresh*/clear* 调用点。
+#   注意基线漂移：计划 §4 记账时的基线是 2,099，而**当前基线已是 2,406**（两者差额 307
+#   是拆分后若干批功能的既有增长，**不是本次引入**）——故「已授权的 +30」落在 2,440
+#   而非 2,129。下一刀继续下调，新功能仍不得入内。
+main_ts_max_lines = 2440
 
 # helpDocs.ts（帮助菜单「帮助文档」入口，2026-10-11 新增）：49 → 70 行（同日加中英双语路由）。
 #   上限 90（余量 ~22%）。
@@ -368,6 +375,50 @@ ep_sample_cmds_rs_max_lines = 1280
 #   新增 intel 类命令请**优先落新文件**（同 env_cmds.rs 的冻结线纪律），本文件只承载本视图的差集逻辑。
 intel_cmds_rs_max_lines = 600
 
+# —— pytest 测试运行器（docs/pytest_dev_plan.md v1.0，2026-10-16 立项）——
+# 新增六个文件各自设上限（style.css 拆分时的同一条教训：防止静默增长在新文件里重演）。
+
+# pytest_cmds.rs（pytest_action 四动作合一：scan / collect / cancel / result + junitxml
+#   手写解析 + 单测）：预估 ~530。上限 650（余量 ~18%）。范围：scan 走 collect_files 共享遍历；
+#   collect 单飞 + 60s 超时杀树 + 退出钩子统杀；result 手写 junitxml 解析（不引 XML crate）。
+pytest_cmds_rs_max_lines = 650
+
+# pytest_cmds_tests.rs（同上：测试区整体外提，#[path] 模块与内联等价，intel
+#   completion_tests.rs 先例）：259 行。上限 400（余量 ~35%）。
+pytest_cmds_tests_rs_max_lines = 400
+
+# testTreeCore.ts（前端纯函数层，selectorCore 先例）：buildTestTree / scanTestDefs /
+#   applyResults / collectFailedIds / isTestFileName / buildNodeId / chunkPlan——零 app
+#   依赖，vitest 直测。预估 ~230，**首次落地实测 383**（低估项：类型定义与三个函数的
+#   契约注释占约 60 行；降级匹配 + 状态汇总纯函数各带边界说明）。
+#   上限 300 → **400（2026-10-16 显式调整）**：新文件首版以实测值定档，余量仅 ~4%，
+#   后续增长必须外提（如 chunkPlan 独立）而不是再抬。
+test_tree_core_ts_max_lines = 400
+
+# testView.ts（侧栏测试视图，第 9 个视图）：渲染 / collect 进度取消态 / 树交互（分帧 +
+#   展开态保留 + 行元素 Map）/ 三态 / stale chip。预估 ~500（§3.10 交互态 +80~100）。
+#   上限 600（余量 ~17%）。
+test_view_ts_max_lines = 600
+
+# testGutter.ts（绿箭头）：编辑器静态扫描 testTreeCore::scanTestDefs + 装饰与点击派发
+#   （防抖 + 指纹短路，runGutter 范式；三方 glyph 协调见 §3.4）。预估 ~160。上限 200。
+test_gutter_ts_max_lines = 200
+
+# testRun.ts（运行 / 结果接线）：runTestNode(s) / 结果读取与合入 / 重跑失败 / 缓存与失效
+#   订阅（1s 防抖合并）/ 令牌与切窗收尾 / pytest 缺失安装引导。预估 ~270，
+#   **首次落地实测 441**（低估项：§3.8 缓存失效编排 + 安装引导委托 depHealth 的两条分支
+#   各约 40 行，含"失败不刷屏/不留孤儿进程"的不变式注释）。
+#   上限 340 → **460（2026-10-16 显式调整）**：新文件首版以实测值定档。
+#   460 → **470（2026-10-17 提交前复核显式调整）**：复核修复 P1 两处净增（collect 落地
+#   stale 透传 + 补排重收 ~12 行；resetTests 同步化），属缺陷修复而非新功能；余量 ~2%，
+#   后续增长应把「安装引导」外提（与 depHealthPanel 同层）而非再抬。
+test_run_ts_max_lines = 470
+
+# styles/testTree.css（树样式新文件，不再往 style.css 堆——同 hotspots.css 纪律）：
+#   树行 / 状态图标 / 三态；经 style.css 顶部 @import 内联，audit_tokens 覆盖。
+#   预估 ~150。上限 200（小文件按绝对行数给余量，同 hotspots.css 口径）。
+styles_testtree_css_max_lines = 200
+
 # —— intel crate（opencharm-intel 独立 LSP 包）——
 # 该 crate 此前**完全在预算面之外**；A3 首次让它显著增长（completion.rs 1,114 → 1,618）。
 # 按 endpointView.ts 的「首次登记」先例，逐轮登记**本轮增长 / 新增**的文件，其余（type_infer /
@@ -428,8 +479,15 @@ intel_server_rs_max_lines = 700
 # 205 → 206（2026-10-11 显式调整：+1 = `scratch_eval`，VS Code 调研 借鉴-2 的单元格执行）。
 #   该命令已把 run / stop / status 三个动作**合成一个命令**（靠 action 参数分派）——为省命令面
 #   已做过一次压缩，无法再合并（run 是长任务、stop 必须能打断它，两者不能塞进同一次调用）。
-# 206 = 信号线（policy warn_only），**下一个新命令必须先讨论插件化或扩本条**。
-max_tauri_commands = 206
+# 206 → 207（2026-10-16 显式调整：+1 = `pytest_action`，pytest 测试运行器，
+#   docs/pytest_dev_plan.md。同为四动作合一的复用式单命令（scan / collect / cancel /
+#   result，scratch_eval 先例）；**运行与调试均不占命令面**——运行走 run_in_terminal 的
+#   kind="test" 分支（零新命令），调试此测试走 dap::debug_start/debug_attach_debuggee 的
+#   可选 test_node 参数（既有命令加参，零新命令）。
+#   207 → 209（同日显式调整，对齐实测）：本条信号线为 warn_only，历史上已漂移 +2
+#   （HEAD 精确计数实为 208，未经显式 PR 登记）；本次把阈值对齐实测 209 并留痕，
+#   不追溯既往。209 = 信号线（policy warn_only），**下一个新命令必须先讨论插件化或扩本条**。
+max_tauri_commands = 209
 
 # —— 前端产物（2026-10-12 拆为两条：安装体积 + 冷启动代理）——
 #
@@ -453,6 +511,11 @@ max_tauri_commands = 206
 #    用户裁决（滞纳成本控制）。monaco chunk 3.12→3.86 MB（+743 KB）为上游 20 个月内核
 #    膨胀（VS Code 同步），按需 contrib 集合未变、无我们代码增长；worker +44 KB、CSS +19 KB。
 #    实测 5,987。冷启动代理 index_chunk_kb 不动（index 持平 1.62 MB）。
+#    2026-10-16 pytest 测试运行器（docs/pytest_dev_plan.md §4）：预计 +约 43 KB
+#    （testView/testRun/testGutter/testTreeCore + testTree.css；testView 动态 import，
+#    不进 index 首屏）→ 预估 6,030，仍在 6,050 内（余量吃掉约 68%，剩约 20 KB）。
+#    若实测超限：按章程要么拆（结果面板外提 / 按需 chunk）要么显式抬并写清理由——
+#    本次范围扩张（产品负责人 2026-10-16 裁决）即理由。
 #    ⚠ 陈旧 dist 会残留已删除的依赖分包（实测曾虚报 7,065 KB，其中约 2.08 MB 是已取消的
 #    mermaid/katex），故脚本带新鲜度校验——源码比 dist 新判 STALE 并失败。引用数字前先
 #    `cd shell && npm run build`。

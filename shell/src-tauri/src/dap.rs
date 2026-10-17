@@ -277,12 +277,17 @@ fn cleanup_session_payload(s: DebugSession, app: &AppHandle, wid: &str) {
 /// 启动调试会话。命令本身立即返回（async + 后台线程做全部耗时操作）；
 /// 前端随后经 dap_send_request 发 initialize → attach{listen}，并在收到
 /// debugpyWaitingForServer 事件后调 debug_attach_debuggee 在 PTY 里拉起被调试脚本。
+///
+/// `test_node`（docs/pytest_dev_plan.md §3.7「调试此测试」）：Some(node_id) 时合成
+/// `module=pytest` + `args=[node_id]` + `cwd=工作区根`，**绕过按文件的运行配置读取**
+/// （测试调试不需要用户的脚本运行配置）。path 仍传测试文件路径（仅作锚点与回显）。
 #[tauri::command]
 pub async fn debug_start(
     app: AppHandle,
     window: tauri::WebviewWindow,
     path: String,
     workspace_root: Option<String>,
+    test_node: Option<String>,
 ) -> Result<(), String> {
     let wid = window.label().to_string();
     // ---- 1. 互斥检查（§3.2；v3.4 §13.2 裁决 10：收窄至脚本运行会话——piped 运行已删，
@@ -305,7 +310,7 @@ pub async fn debug_start(
         seq
     };
     // 装配失败回滚哨兵：把整段装配放闭包，Err 出口统一移除占位槽。
-    let assembled = assemble_debug_session(&app, &wid, seq, &path, workspace_root.as_deref());
+    let assembled = assemble_debug_session(&app, &wid, seq, &path, workspace_root.as_deref(), test_node.as_deref());
     match assembled {
         Ok(()) => Ok(()),
         Err(e) => {
@@ -322,12 +327,14 @@ pub async fn debug_start(
 
 /// `debug_start` 的装配段（步骤 2-9）：解析配置 → spawn adapter → 填充占位槽 → 起读线程。
 /// 独立成函数便于失败路径统一回滚（调用方移除哨兵）。
+/// `test_node` = Some 时（调试此测试）跳过按文件的运行配置读取，用默认配置 + 模块 pytest。
 fn assemble_debug_session(
     app: &AppHandle,
     wid: &str,
     seq: u64,
     path: &str,
     workspace_root: Option<&str>,
+    test_node: Option<&str>,
 ) -> Result<(), String> {
     // ---- 2. 脚本路径解析（同 run_script 口径；cwd 在 debug_attach_debuggee 侧计算）----
     let p = std::path::Path::new(path);
@@ -338,17 +345,19 @@ fn assemble_debug_session(
     };
 
     // ---- 3. 解释器与运行配置 ----
-    let run_config = workspace_root
-        .map(|r| crate::run_config::read_run_config(r, path))
-        .unwrap_or_default();
-    // P1-I：解释器解析（配置级覆盖 > 工作区配置 > .venv 自动检测）
-    let profile_interpreter = run_config.interpreter.trim().to_string();
-    let interpreter = if profile_interpreter.is_empty() {
-        workspace_root
-            .and_then(|r| crate::env_cmds::get_interpreter(r.to_string()).ok().flatten())
+    // 调试此测试（test_node）：合成 module=pytest 入口语义，运行配置用默认值——用户的
+    // 脚本运行配置（args/env/cwd）是脚本/项目语义，与 pytest 参数口径正交（§3.7）。
+    let run_config = if test_node.is_some() {
+        crate::run_config::RunProfile::default()
     } else {
-        Some(profile_interpreter)
+        workspace_root
+            .map(|r| crate::run_config::read_run_config(r, path))
+            .unwrap_or_default()
     };
+    // P1-I：解释器解析（配置级覆盖 > 工作区配置 > .venv 自动检测）；
+    // resolve_run_interpreter 是 terminal / dap / pytest_cmds 三处共用的单一解析点。
+    let profile_interpreter = run_config.interpreter.trim().to_string();
+    let interpreter = crate::run_env::resolve_run_interpreter(&profile_interpreter, workspace_root);
 
     // P0-C：module 入口必须有模块名（调试与运行同一份配置语义）
     if run_config.entry.kind == "module" && !run_config.entry.is_module() {
@@ -512,6 +521,10 @@ fn assemble_debug_session(
 /// 在 PTY 里拉起被调试脚本（--connect 连 adapter）。
 /// 由前端在收到 debugpyWaitingForServer 事件（携带 server host:port）后调用——
 /// 这是 stdio adapter 架构的关键时序（attach 在前，debuggee 后连入）。
+///
+/// `test_node`（docs/pytest_dev_plan.md §3.7）：Some(node_id) 时合成
+/// `python -m debugpy --connect … -m pytest <node_id>`（cwd=工作区根），绕过按文件的
+/// 运行配置读取（解释器仍走「工作区配置 > .venv 检测」同一解析）。
 #[tauri::command]
 pub async fn debug_attach_debuggee(
     app: AppHandle,
@@ -520,6 +533,7 @@ pub async fn debug_attach_debuggee(
     workspace_root: Option<String>,
     host: String,
     port: u16,
+    test_node: Option<String>,
 ) -> Result<(), String> {
     let wid = window.label().to_string();
     // 会话必须存在且未挂 debuggee
@@ -540,11 +554,18 @@ pub async fn debug_attach_debuggee(
         std::env::current_dir().unwrap_or_default().join(p)
     };
 
-    let run_config = workspace_root
-        .as_deref()
-        .map(|r| crate::run_config::read_run_config(r, &path))
-        .unwrap_or_default();
-    // P1-I：解释器解析（配置级覆盖 > 工作区配置）
+    // 调试此测试：运行配置用默认值（pytest 参数口径与用户脚本配置正交，§3.7）
+    let run_config = if test_node.is_some() {
+        crate::run_config::RunProfile::default()
+    } else {
+        workspace_root
+            .as_deref()
+            .map(|r| crate::run_config::read_run_config(r, &path))
+            .unwrap_or_default()
+    };
+    // P1-I：解释器解析（配置级覆盖 > 工作区配置）——resolve_run_interpreter 单一解析点；
+    // attach 侧刻意内联等价展开（复核 P2）：None 需转成可诊断错误文案而非 uv 兜底
+    //（debug_start 已前置拒绝 uv 调试，此处 ok_or 实际不可达）
     let profile_interpreter = run_config.interpreter.trim().to_string();
     let interpreter = if profile_interpreter.is_empty() {
         workspace_root
@@ -576,16 +597,27 @@ pub async fn debug_attach_debuggee(
 
     // P0-C/D：module 入口与工作目录——调试与运行消费同一份配置（entry/cwd）。
     // debugpy CLI 支持 `-m <module>` 形式：`python -m debugpy --connect ... -m <module> [args…]`
-    let is_module = run_config.entry.is_module();
-    if run_config.entry.kind == "module" && !is_module {
-        return Err("运行配置选择了模块入口，但模块名为空".into());
-    }
-    let cwd = crate::run_env::resolve_run_cwd(
-        &run_config.cwd,
-        workspace_root.as_deref(),
-        Some(&dir),
-        is_module,
-    );
+    // 调试此测试（test_node）：合成 module=pytest，args=[node_id]，cwd=工作区根
+    // （rootdir / conftest / node id 相对根语义正确，与 kind="test" 运行分支同口径）。
+    let (is_module, module_target, extra_args, cwd) = match &test_node {
+        Some(node) => {
+            let root = workspace_root.clone().ok_or("调试测试需先打开一个工作区")?;
+            (true, "pytest".to_string(), vec![node.clone()], std::path::PathBuf::from(root))
+        }
+        None => {
+            let is_module = run_config.entry.is_module();
+            if run_config.entry.kind == "module" && !is_module {
+                return Err("运行配置选择了模块入口，但模块名为空".into());
+            }
+            let cwd = crate::run_env::resolve_run_cwd(
+                &run_config.cwd,
+                workspace_root.as_deref(),
+                Some(&dir),
+                is_module,
+            );
+            (is_module, run_config.entry.target_trimmed().to_string(), Vec::new(), cwd)
+        }
+    };
 
     let mut cmd = std::process::Command::new(&interpreter);
     cmd.arg(debugpy_dir.join("__main__.py").to_string_lossy().to_string());
@@ -594,10 +626,11 @@ pub async fn debug_attach_debuggee(
     cmd.arg("--wait-for-client");
     if is_module {
         cmd.arg("-m");
-        cmd.arg(run_config.entry.target_trimmed());
+        cmd.arg(module_target);
     } else {
         cmd.arg(script_abs.to_string_lossy().to_string());
     }
+    cmd.args(&extra_args);
     cmd.args(&run_env.args);
     cmd.current_dir(&cwd);
     for (k, v) in &run_env.env {

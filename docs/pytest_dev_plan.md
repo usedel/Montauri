@@ -1,6 +1,8 @@
 # OpenCharm pytest 测试运行器开发计划
 
-> 版本：v1.0 · 日期：2026-10-16 · 状态：**计划中（T1–T5 未开工）**
+> 版本：v1.0 · 日期：2026-10-16 · 状态：**T1–T5 已交付并验收（2026-10-17）**
+> 验收记录：`docs/pytest_acceptance_record.md` **v1.1**（门禁 + 真机数字真源；含真机抓出的 5 个 bug）
+> 进度：T1（Rust 命令 + kind="test" 运行分支）✅ · T2（第 9 侧栏视图 + 缓存/失效）✅ · T3（绿箭头 + 运行/结果合入 + 重跑失败）✅ · T4（调试此测试）✅ · T5（真机 pytest-real **12 项检查 PASS**）✅
 > 上游裁决：`python_ide_dev_plan_v2.md` **v2.2 §1.1**（2026-10-16 产品负责人裁决：「不做 pytest 面板」修订为分层口径）
 > 关联真源：`python_run_dev_plan.md` v3.4（运行链路复用）· `python_debug_dev_plan.md` v1.3（调试入口复用）· `dep_health_dev_plan.md` v1.7（pytest 缺失信号复用）· `improvement_and_roadmap_report.md` B1（候选 → 立项）
 > 约束：`ci/budgets.toml`（命令面 / bundle / 文件行数）+ `docs/adr/0010-performance-lightweight-charter.md`（性能与体积一等目标）

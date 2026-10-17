@@ -9,7 +9,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { app, outputEl } from "./state";
 import { t } from "./i18n";
 import { toast, toastFail } from "./toast";
-import { basename } from "./util";
+import { basename, joinPath } from "./util";
 import { appendOutputLine } from "./output";
 import { openAlert } from "./dialog";
 import { gotoFromLink } from "./tracebackLink";
@@ -20,6 +20,7 @@ import { notifyDepFound, runToCursor as runToCursorIn } from "./debugView";
 import { notifyNotPaused, openEvaluatePrompt } from "./debugConsole";
 import { isRunBusy, prepareRun } from "./runFlow";
 import type { RunConfig } from "./runState";
+import { splitNodeId } from "./testTreeCore";
 
 // ---------- 调试（debug dev plan §6.7：调试运行入口） ----------
 
@@ -145,6 +146,39 @@ export async function stopDebugSession(): Promise<void> {
   await dap.stopDebug();
   dap.resetDebugState();
   clearCurrentLine();
+}
+
+/** 调试此测试（docs/pytest_dev_plan.md §3.7）：绿箭头右键 / 树行菜单入口。
+ *  经 dap.startDebug 的 testNode 参数合成 `python -m debugpy … -m pytest <node_id>`
+ *  （cwd=工作区根），复用三态互斥与 PTY 管道模式（与脚本调试同口径）。 */
+export async function debugTest(nodeId: string): Promise<void> {
+  if (!app.workspaceRoot) return;
+  if (isRunBusy()) {
+    toast(t("main.debug.runBusy"), "info");
+    return;
+  }
+  const phase = dap.currentPhase();
+  if (phase === "starting" || phase === "running" || phase === "stopped") {
+    toast(t("main.debug.sessionBusy"), "info");
+    return;
+  }
+  dap.markStarting();
+  let established = false;
+  try {
+    // path 传测试文件（node id 的文件段）；module/args/cwd 由后端按 test_node 合成
+    const file = joinPath(app.workspaceRoot, splitNodeId(nodeId).file);
+    await dap.startDebug(file, app.workspaceRoot, pushAllBreakpoints, nodeId);
+    established = true; // 握手成功：phase 归状态机接管，兜底不再触发
+    setSidebarTab("debug");
+  } catch (e) {
+    appendOutputLine(outputEl, t("main.debug.startError", { msg: String(e) }), "stderr", gotoFromLink, "debug");
+    toastFail(t("main.debug.start"), e);
+    await dap.stopDebug(); // 后端会话可能已起（同 P1-12 口径）
+    dap.resetDebugState();
+    return;
+  } finally {
+    if (!established) dap.resetDebugState();
+  }
 }
 
 /** Alt+F9 Run to Cursor：跑到光标所在行（临时断点 + 继续，命中断点后自动撤掉） */
