@@ -1,7 +1,7 @@
 # pytest 测试运行器验收记录
 
-> 版本：v1.1 · 日期：2026-10-17 · 对应计划 `docs/pytest_dev_plan.md` v1.0
-> 范围：**T1–T5 全部交付并验收**（v1.0 覆盖 T1–T4；v1.1 增补 T5 真机 `pytest-real` 12 项检查 + 真机抓出的 5 个 bug，连同 mock 层共 7 个）。
+> 版本：v1.2 · 日期：2026-10-17 · 对应计划 `docs/pytest_dev_plan.md` v1.0
+> 范围：**T1–T5 全部交付并验收**（v1.0 覆盖 T1–T4；v1.1 增补 T5 真机 `pytest-real` 12 项检查 + 真机抓出的 5 个 bug，连同 mock 层共 7 个；v1.2 修掉 §6 audit_tokens 两项存量 FAIL 并勘误）。
 > 约束真源：`ci/budgets.toml` · `docs/adr/0010-performance-lightweight-charter.md`
 
 ---
@@ -81,7 +81,7 @@
 | 6 | .py 变更 → 失效 → 自动 / 手动重收 | ✅ | PT-9（stale chip）+ 失效编排单测 |
 | 7 | collect 可取消（按钮 + 60s 超时），杀树无孤儿 | ✅ 真机取消 → python 1 → 1（PY-REAL-6c） | PT-10 + §9 |
 | 8 | 预算 | ✅ | §5 |
-| 9 | 门禁全绿 | ✅（audit_tokens 2 项 FAIL 为**存量**，见 §6） | §5 |
+| 9 | 门禁全绿 | ✅（audit_tokens 验收时报 2 项**存量** FAIL，验收当日已修归零，见 §6） | §5 |
 | 10 | 真机 `pytest-real` | ✅ **12 项检查 PASS**（PY-REAL-0..6c） | §9 |
 | 11 | 文档 | ✅ 本记录 + delivery-overview / roadmap 回写 | §8 |
 | 12 | 不卡死（2000 节点 / 连点 / 切视图 / 切工作区） | ✅ 首帧与展开实测见 §3；连点单飞见 PT-12；collect 进行中编辑器可交互（PY-REAL-6b） | PT-11 / PT-12 |
@@ -98,7 +98,7 @@ gate-tests unit      ✅ 124 文件 / 1,573 用例
 npm run build        ✅ built in ~22s
 budget-check         ✅ 全部达标（行数 + bundle + index chunk + 命令面 + .ps1 BOM）
 e2e（本轮）          ✅ ux+logs 101 · debug+editor 43 · 13-pytest-runner 12/12
-audit_tokens         ⚠️ 2 FAIL（存量，见 §6）
+audit_tokens         ✅ 全绿（验收时 2 项存量 FAIL 已修，见 §6）
 i18n                 ✅ 编译期对齐（en-US 为 Record<ZhKey, string>）+ i18n.test 26 例
 ```
 
@@ -106,8 +106,19 @@ i18n                 ✅ 编译期对齐（en-US 为 Record<ZhKey, string>）+ i
 
 ## 6. 存量问题（非本次引入，不回退）
 
-1. **audit_tokens 2 项 FAIL**：`style.css` 的 `.engine-chip` 旋转动画未挂 `--motion`（L955）
-   与 `.tab.drop-before/after` 裸 `box-shadow`（L1074/1075）——均为既有批次产物；
+1. **audit_tokens 2 项 FAIL**（验收时为存量 → **验收当日已修，门禁归零**，v1.2）：
+   ① `oc-spin` 循环 loading 动画未挂 `--motion`（`.tree-item.tree-running::after`，L955，
+   微交互批 T1 树侧运行指示）——循环动画不能时长乘 motion（motion=0 会高频闪糊），
+   正确降级是 `animation: none`（`data-reduce-motion` + `prefers-reduced-motion` 双通道
+   已压制），故登记进 `audit_tokens.py` 的 `MOTION_EXEMPT` 白名单（与 rx/http-progress-slide
+   同类）；② `.tab.drop-before/after` 裸 `box-shadow`（微交互批 T4 拖拽插入位竖线，
+   修后 L1075/1076）——改为 **inset 色条**（`inset ±2px 0 0`），命中门禁既有「inset 语义色条」
+   豁免，视觉等价且零行数增长（style.css 5,725/5,780 PASS）。验证：audit_tokens 98 项判定
+   FAIL 0 · e2e 微交互 7/7（含 T4 拖拽用例）· budget 全 PASS。
+   勘误：v1.1 原文写「`.engine-chip`」系笔误——该选择器在 style.css 全历史不存在
+   （`git log -S` 零命中；engineChip.ts 渲染的是状态栏 `#status-engine` 文本芯片，无动画），
+   L955 实为 `.tree-item.tree-running::after`。另注意 audit_tokens 输出的行号是
+   @import 合成源行号（如 L1717/L1835），与源文件行号口径不同。
    本次新增 `styles/testTree.css` **零裸色值 / 零裸阴影 / 零动效**（113 行全走 token）。
 2. **`git.ts` / `lsp/client.ts` 逼近上限**：3,264/3,300 与 1,850/1,850（压线），与本次无关。
 

@@ -1070,9 +1070,10 @@ html[data-reduce-motion] .tree-item.tree-running::after { animation: none; }
   max-width: 200px;
 }
 .tab.active { background: var(--tab-active-bg); color: var(--fg); border-top: 2px solid var(--brand); }
-/* T4：拖拽排序插入位指示（VSCode 同款细竖线，左右半区判定） */
-.tab.drop-before { box-shadow: -2px 0 0 0 var(--accent); }
-.tab.drop-after { box-shadow: 2px 0 0 0 var(--accent); }
+/* T4：拖拽排序插入位指示（VSCode 同款细竖线，左右半区判定）。inset 色条而非外贴
+   box-shadow——外贴会被 audit_tokens 判裸阴影，inset 命中既有「语义色条」豁免（非投影）。 */
+.tab.drop-before { box-shadow: inset 2px 0 0 var(--accent); }
+.tab.drop-after { box-shadow: inset -2px 0 0 var(--accent); }
 /* D2 P-08：标签页文件类型图标槽位 */
 .tab .icon {
   width: 16px; height: 16px;

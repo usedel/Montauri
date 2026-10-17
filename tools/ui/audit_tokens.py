@@ -766,7 +766,9 @@ def gate_easing_tokens(report: Report, css_path: Path) -> None:
 # 动效未挂 --motion 时的白名单：循环装饰动画。
 # 不能靠「时长乘 var(--motion)」压制——motion=0 会让 duration 变成 0，infinite 循环将高频
 # 闪成一团糊；正确做法是 animation:none（已由双通道规则压制），故此处登记豁免。
-MOTION_EXEMPT = {"rx-progress-slide", "http-progress-slide"}
+# oc-spin（2026-10-17 登记）：T1 树侧运行指示的 codicon loading 旋转，data-reduce-motion +
+# prefers-reduced-motion 双通道 animation:none 已压制，同属循环装饰动画。
+MOTION_EXEMPT = {"rx-progress-slide", "http-progress-slide", "oc-spin"}
 
 
 def gate_motion_scaling(report: Report, css_path: Path) -> None:
