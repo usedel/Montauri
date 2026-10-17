@@ -121,6 +121,13 @@ function loadExpandedDirs(): void {
 async function restoreExpandedDirs(dirs: Iterable<string>): Promise<void> {
   for (const dir of dirs) {
     if (dir === app.workspaceRoot) continue;
+    // ⚠ 已展开的必须跳过：toggleDir 是**纯 toggle**（有容器即折叠），对已被「展开级联」
+    // 重开过的目录再调一次会反向折回去；折叠分支还会把它从 expandedDirs 删除，紧接着
+    // 的 saveExpandedDirs 就把这份残缺集合写穿 localStorage —— 持久化状态被自己吃掉，
+    // 下次启动再也恢复不回来（UX-6 存量回归根因）。两个调用点行为差异的根：refreshTree
+    // 先把存储灌进 expandedDirs，buildDir 的自动重开级联因而先行展开；而
+    // refreshTreeWithExpandedState 传的是快照、expandedDirs 已被清空，级联不成立。
+    if (dirContainers.has(dir)) continue;
     const itemEl = treeEl.querySelector<HTMLElement>(`.tree-item[data-path="${CSS.escape(dir)}"]`);
     if (!itemEl) continue;
     const entry = entryFromEl(itemEl);
@@ -144,7 +151,10 @@ export async function refreshTree(): Promise<void> {
   loadExpandedDirs(); // B 批：打开工作区时按持久化恢复展开状态（重启后不再全部收起）
   await renderRootNode();
   await restoreExpandedDirs(expandedDirs);
-  saveExpandedDirs(); // 清掉存储里已不存在的陈旧目录
+  // 落盘本轮实际展开的集合。旧注释「清掉存储里已不存在的陈旧目录」名不副实：此处从不做
+  // 磁盘存在性校验，实际只是借 toggleDir 的副作用把误折叠的**有效**目录一并删掉（UX-6
+  // 根因）。磁盘上真被删的目录进不了 buildDir 级联，不会污染集合；膨胀由 MAX_PERSISTED_DIRS 兜。
+  saveExpandedDirs();
 }
 
 /** 渲染工作区根节点（可见、可折叠、默认展开），其子项装入根节点的子容器。
@@ -442,7 +452,7 @@ export async function refreshTreeWithExpandedState(): Promise<void> {
   expandedDirs.clear();
   await renderRootNode();
   await restoreExpandedDirs(prevExpanded);
-  saveExpandedDirs(); // 清掉已不存在的陈旧目录
+  saveExpandedDirs();
   treeEl.scrollTop = scrollTop;
 }
 

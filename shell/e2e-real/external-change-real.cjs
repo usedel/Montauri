@@ -172,6 +172,44 @@ async function runChecks({ page, workspace }) {
   record('EC-REAL-3', '「稍后处理」→ Ctrl+S → 保存语义面板 → 用我的版本覆盖磁盘（§4.6）',
     savePanel && saveOkLabel === '用我的版本覆盖磁盘' && diskAfter === mine,
     `保存面板=${savePanel} · ok 文案=${saveOkLabel || '(空)'} · 磁盘==我的缓冲=${diskAfter === mine}`);
+
+  // ---------- EC-REAL-4：监听范围瘦身后仍完整（TD-029①） ----------
+  // 顶层目录逐个订阅 + 根非递归 + 运行期新建顶层目录动态补订阅。任一条断了都表现为
+  // 「新建目录里的文件改动收不到事件」，正是这次瘦身最容易埋的回归。
+  const fresh = path.join(workspace, 'brand_new_dir'); // 运行期新建的顶层目录
+  mkdirSync(fresh, { recursive: true });
+  writeFileSync(path.join(fresh, 'inside.py'), "inside = 'v1'\n", 'utf8');
+  await sleep(1500); // 等 watcher 补订阅（事件驱动）
+  // 手动刷一次树：本用例验的是「新目录**内**的改动能否被监听到」，不耦合树自动刷新
+  await page.locator('#btn-tree-refresh').click().catch(() => {});
+  await sleep(1000);
+  // 目录用**单击**展开（双击 = 展开又收起，文件才是双击打开）
+  await page.locator('#tree .tree-item .name', { hasText: 'brand_new_dir' }).first().click().catch(() => {});
+  await sleep(800);
+  await page.locator('#tree .tree-item .name', { hasText: 'inside.py' }).first().dblclick().catch(() => {});
+  await page.locator('.monaco-editor').waitFor({ timeout: 15000 }).catch(() => {});
+  const treeNames = (await page.evaluate(() =>
+    Array.from(document.querySelectorAll('#tree .tree-item .name')).map((e) => e.textContent || '').join('|')
+  ).catch(() => '(读取失败)')) || '(空)';
+  const modelNow = await modelText(page).catch(() => null);
+  const openedOk = modelNow === "inside = 'v1'\n";
+
+  let reloaded = 'timeout';
+  if (openedOk) {
+    writeFileSync(path.join(fresh, 'inside.py'), "inside = 'v2 outside'\n", 'utf8');
+    for (let attempt = 0; attempt < 3 && reloaded === 'timeout'; attempt++) {
+      for (let i = 0; i < 15; i++) {
+        await sleep(400);
+        const t = await modelText(page).catch(() => null);
+        if (t && t.includes('v2 outside')) { reloaded = 'appeared'; break; }
+      }
+      // 重触写兜底（D-007）：首写可能落在补订阅完成之前
+      if (reloaded === 'timeout') writeFileSync(path.join(fresh, 'inside.py'), "inside = 'v2 outside'\n", 'utf8');
+    }
+  }
+  record('EC-REAL-4', '瘦身后：运行期新建顶层目录内的改动仍能触发自动重载（TD-029①）',
+    openedOk && reloaded === 'appeared',
+    `打开文件=${openedOk} · 外部改动自动重载=${reloaded === 'appeared'} · 树=[${String(treeNames).slice(0, 200)}] · model=[${String(modelNow).slice(0, 40)}]`);
 }
 
 runWithRealApp({

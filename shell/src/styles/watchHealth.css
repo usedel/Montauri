@@ -1,0 +1,8 @@
+/* 文件监听健康度芯片 #status-watch（TD-029②）。
+   外层布局沿用 `#statusbar > span`（inline-flex + gap + --fg-dim），这里只定警示语义。
+   2026-10-18 新增：style.css 已近零余量，新增样式一律落新文件（budgets.toml 纪律第 3 条）。 */
+
+#status-watch { color: var(--warn); }
+
+/* 图标与文字间距（状态栏 24px 高，不额外撑高） */
+#status-watch .watch-health-icon { margin-right: 4px; font-size: 12px; }

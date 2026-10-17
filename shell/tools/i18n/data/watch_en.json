@@ -9,5 +9,14 @@
   "watch.unreadable": "{name} may have been deleted or cannot be read; check it manually",
   "watch.saved": "Saved as {name}",
   "watch.saveAsSamePath": "Cannot save as the original file; pick a different path",
-  "watch.saveAsFailed": "Save As failed"
+  "watch.saveAsFailed": "Save As failed",
+  "watch.batch.title": "Several files changed on disk",
+  "watch.batch.message": "{count} open files were modified on disk by another program, and all of them have unsaved changes.",
+  "watch.batch.oneByOne": "Handle one by one",
+  "watch.batch.reloadAll": "Reload all from disk",
+  "watch.batch.later": "Decide later",
+  "watch.health.label": "Watching broken",
+  "watch.health.toast": "File watching stopped working: the file tree and git status may no longer refresh automatically (click the status chip to retry)",
+  "watch.health.tip": "File watching is not working (common on network/synced drives). Click to resubscribe.",
+  "watch.health.restored": "File watching restored"
 }

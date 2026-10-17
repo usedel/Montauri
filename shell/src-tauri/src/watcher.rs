@@ -7,8 +7,8 @@
 use notify_debouncer_mini::notify::RecursiveMode;
 use notify_debouncer_mini::{new_debouncer, DebouncedEvent, Debouncer};
 use serde::Serialize;
-use std::path::Path;
-use std::sync::LazyLock;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, LazyLock, Mutex};
 use tauri::{AppHandle, Emitter};
 
 use crate::per_window::PerWindow;
@@ -31,8 +31,35 @@ const WATCH_IGNORED: [&str; 6] = [".git", ".venv", "node_modules", "__pycache__"
 /// 忽略的文件名前缀（CR-05：选区运行临时文件，写删都不触发树刷新/Git 幽灵变更）
 const WATCH_IGNORED_PREFIXES: [&str; 1] = ["__opencharm_selection__"];
 
-/// 全局 watcher 实例（同一时刻只监听一个工作区）
-static WATCHER: LazyLock<PerWindow<Debouncer<notify_debouncer_mini::notify::RecommendedWatcher>>> = LazyLock::new(PerWindow::new);
+/// 全局 watcher 实例（同一时刻只监听一个工作区）。
+/// TD-029①：包一层 Arc<Mutex<_>>——回调线程要为「运行期新建的顶层目录」动态补订阅，
+/// 必须能从回调里拿到 watcher；用 `try_lock` 取不到就跳过（绝不阻塞、绝不死锁）。
+static WATCHER: LazyLock<PerWindow<Arc<Mutex<Debouncer<notify_debouncer_mini::notify::RecommendedWatcher>>>>> =
+    LazyLock::new(PerWindow::new);
+
+/// 去抖 watcher 的具体类型（插件目录等复用方要用它存实例，故显式别名）
+pub type DirWatcher = Debouncer<notify_debouncer_mini::notify::RecommendedWatcher>;
+
+/// **唯一**的 debouncer 装配入口（TD-029③）：此前工作区监听与插件目录监听各写一份
+/// `new_debouncer(...)` + 错误吞掉 + 实例存放，忽略/健康度口径随时会漂。
+/// 统一后所有目录监听共用：去抖时长可调、**运行期错误一律转 `fs-watch-health`**（不再静默失效）。
+/// `targets`：`(路径, 是否递归)`。错误**交回调用方**（工作区监听转 fs-watch-health，
+/// 插件目录同样转发），由调用方按自己的语义决定——装配层不再替人吞掉。
+pub fn spawn_dir_watcher<F>(targets: &[(std::path::PathBuf, bool)], debounce_ms: u64, on_change: F) -> Result<DirWatcher, String>
+where
+    F: FnMut(Result<Vec<DebouncedEvent>, notify_debouncer_mini::notify::Error>) + Send + 'static,
+{
+    let mut debouncer = new_debouncer(std::time::Duration::from_millis(debounce_ms), on_change)
+        .map_err(|e| format!("创建文件监听器失败：{e}"))?;
+    for (p, recursive) in targets {
+        let mode = if *recursive { RecursiveMode::Recursive } else { RecursiveMode::NonRecursive };
+        debouncer
+            .watcher()
+            .watch(p, mode)
+            .map_err(|e| format!("监听目录失败（{}）：{e}", p.display()))?;
+    }
+    Ok(debouncer)
+}
 
 /// 目录名是否在监听忽略清单（dep_health_dev_plan §4.1：依赖探针的 .py 遍历复用同一口径，
 /// 剔除 .venv/.git 等，避免把虚拟环境内容扫进代码层）
@@ -100,6 +127,46 @@ fn emit_file_path(path: &Path) -> Option<std::path::PathBuf> {
     Some(path.to_path_buf())
 }
 
+/// 顶层监听目标（TD-029①）：`(路径, 是否递归)`。
+/// 根自身只做 NonRecursive（感知顶层条目增删），其下每个**非忽略**的顶层目录逐个 Recursive——
+/// 这样 `.venv` / `node_modules` / `__pycache__` 整棵不再进回调（旧的一次性 Recursive 会）。
+/// 目录不存在 / 读取失败时退化为「只监听根（非递归）」，绝不因列举失败而整体不监听。
+pub(crate) fn top_level_targets(root: &Path) -> Vec<(PathBuf, bool)> {
+    let mut out: Vec<(PathBuf, bool)> = vec![(root.to_path_buf(), false)];
+    if let Ok(entries) = std::fs::read_dir(root) {
+        for e in entries.flatten() {
+            let p = e.path();
+            if p.is_dir() && !should_ignore(&p) {
+                out.push((p, true));
+            }
+        }
+    }
+    out
+}
+
+/// 监听健康度事件（TD-029②）：把「watcher 不工作了」这件事**显式告诉前端**。
+/// 此前 `watch_start` 失败只 console.warn、debouncer 的 Err 直接吞掉——工作区落在网络盘 /
+/// OneDrive 同步目录时（ReadDirectoryChangesW 缓冲区溢出丢事件）用户完全无从察觉，
+/// 只看到「文件树不刷新、git 状态不更新」这类**症状**，而不是原因。
+#[derive(Clone, serde::Serialize)]
+pub struct WatchHealth {
+    /// start_failed（启动失败）/ error（运行期错误，含溢出）/ limit（监听数超系统上限）
+    pub kind: String,
+    /// 人类可读原因（Rust 侧原文，前端只展示不解析）
+    pub detail: String,
+}
+
+/// 把 notify 的错误分类成前端可区分的三种（不解析文案，只按 kind 判）。
+fn health_from_notify_error(e: &notify_debouncer_mini::notify::Error) -> WatchHealth {
+    // notify 8：`Error.kind` 是**字段**不是方法（rustc 明确提示），且 Io 变体带 payload
+    let kind = match e.kind {
+        notify_debouncer_mini::notify::ErrorKind::MaxFilesWatch => "limit",
+        notify_debouncer_mini::notify::ErrorKind::Io(_) => "io",
+        _ => "error",
+    };
+    WatchHealth { kind: kind.to_string(), detail: e.to_string() }
+}
+
 /// site-packages 环境信号判定（§4.4：`.venv` 例外放行，仅 `RECORD` / `*.dist-info` 触发，
 /// 滤掉 `.pyc` 等噪声写——.pyc 落在包目录的 `__pycache__` 下，不含 dist-info 组件也非 RECORD）。
 /// 判据：路径含 `site-packages` 组件，且其后存在 `*.dist-info` 组件或文件名为 `RECORD`。
@@ -128,13 +195,78 @@ pub fn watch_start(app: AppHandle, window: tauri::WebviewWindow, root: String) -
     let wid_cb = wid.clone();
     let root_for_cb = root_path.clone();
 
-    let mut debouncer = new_debouncer(
-        std::time::Duration::from_millis(300),
+    // —— 监听范围瘦身（TD-029①）——
+    // 旧行为：对工作区根一次性 Recursive。`.venv` / `node_modules` / `__pycache__` 的
+    // 事件照样进回调再被 should_ignore 丢掉，大仓下是纯开销（notify 8 无原生 exclude）。
+    // 新行为：① 顶层目录逐个 Recursive（跳过忽略目录）；② 根自身 NonRecursive，用来
+    // 感知**顶层条目的增删**；③ 运行期新建的顶层目录由回调动态补订阅（见下）。
+    let mut targets: Vec<(PathBuf, bool)> = top_level_targets(&root_path);
+    // 已订阅的顶层目录（首项是非递归的根自身，跳过）
+    let watched_dirs: Vec<PathBuf> = targets
+        .iter()
+        .filter(|(_, rec)| *rec)
+        .map(|(p, _)| p.clone())
+        .collect();
+    // 附加监听用户级 Live Templates 目录（M2 热重载）；目录不存在时静默跳过
+    let lt_dir = opencharm_home().join("config");
+    if lt_dir.is_dir() {
+        targets.push((lt_dir, false));
+    }
+    // 回调里补订阅要用：已订阅的顶层目录表 + watcher 句柄（Arc 在 spawn 后回填）
+    let watched_set = Arc::new(Mutex::new(watched_dirs.clone()));
+    let watcher_slot: Arc<Mutex<Option<Arc<Mutex<DirWatcher>>>>> = Arc::new(Mutex::new(None));
+    let watched_for_cb = Arc::clone(&watched_set);
+    let slot_for_cb = Arc::clone(&watcher_slot);
+    let root_for_cb2 = root_path.clone();
+
+    // 统一装配入口（TD-029③）：去抖 + watch 注册 + 错误口径与其它目录监听同源
+    let debouncer = spawn_dir_watcher(
+        &targets,
+        300,
         move |res: Result<Vec<DebouncedEvent>, notify_debouncer_mini::notify::Error>| {
             let events = match res {
                 Ok(evts) => evts,
-                Err(_) => return,
+                Err(e) => {
+                    // 运行期错误（含网络盘/同步目录的缓冲区溢出丢事件）必须上报：
+                    // 吞掉等于「监听静默失效」，用户只能看到树不刷新却不知为何。
+                    let _ = app_handle.emit_to(&wid_cb, "fs-watch-health", health_from_notify_error(&e));
+                    return;
+                }
             };
+            // 顶层新目录补订阅（TD-029①）：根只做 NonRecursive 监听，新建的顶层目录
+            // 若不补一条 Recursive，其子树就永远收不到事件（旧的一次性 Recursive 没这个问题）。
+            for ev in &events {
+                let p = &ev.path;
+                if !p.is_dir() || p.parent() != Some(root_for_cb2.as_path()) {
+                    continue;
+                }
+                if should_ignore(p) {
+                    continue;
+                }
+                {
+                    let mut known = match watched_for_cb.lock() {
+                        Ok(g) => g,
+                        Err(_) => break,
+                    };
+                    if known.contains(p) {
+                        continue;
+                    }
+                    // 先登记再订阅：并发回调不会重复 watch 同一目录
+                    known.push(p.clone());
+                }
+                let handle = match slot_for_cb.lock() {
+                    Ok(g) => g.as_ref().map(Arc::clone),
+                    Err(_) => None,
+                };
+                if let Some(h) = handle {
+                    // try_lock：取不到（正被 watch_start / 停止流程持有）就放弃这次补订阅——
+                    // 宁可漏一次（下次事件还会重试），也不要阻塞或死锁。
+                    if let Ok(mut d) = h.try_lock() {
+                        let _ = d.watcher().watch(p, RecursiveMode::Recursive);
+                    }
+                }
+            }
+
             // 收集受影响的目录（去重）
             let mut dirs: Vec<String> = Vec::new();
             // 文件级结构化事件（fs-file-changed，docs/fs_watch_dev_plan.md §4.2）：
@@ -173,6 +305,16 @@ pub fn watch_start(app: AppHandle, window: tauri::WebviewWindow, root: String) -
                 if !dirs.contains(&dir_str) {
                     dirs.push(dir_str);
                 }
+                // 目录自身变更时**连父目录一起发**：notify 对「新建目录」只给目录自身，
+                // 而要让它在树里出现必须刷新父层（此前台面上表现为「mkdir 后树里看不到」）。
+                if is_dir {
+                    if let Some(parent) = ev.path.parent() {
+                        let p_str = parent.to_string_lossy().to_string();
+                        if !dirs.contains(&p_str) {
+                            dirs.push(p_str);
+                        }
+                    }
+                }
                 // dep-fs-changed：仅对 .py / 声明文件发（other 无 dep 意义，减噪；按 path 去重）
                 if let Some(rel) = relative_to_root(&ev.path, &root_for_cb) {
                     let kind = classify_dep_file(&rel);
@@ -197,20 +339,19 @@ pub fn watch_start(app: AppHandle, window: tauri::WebviewWindow, root: String) -
             }
         },
     )
-    .map_err(|e| format!("创建文件监听器失败：{e}"))?;
+    .map_err(|e| {
+        // 启动失败同样上报（前端把它从 console.warn 升级为可见状态）：返回 Err 只让
+        // 调用方知道，用户侧此前完全无感。
+        let _ = app.emit_to(&wid, "fs-watch-health", WatchHealth { kind: "start_failed".to_string(), detail: e.clone() });
+        e
+    })?;
 
-    debouncer
-        .watcher()
-        .watch(&root_path, RecursiveMode::Recursive)
-        .map_err(|e| format!("监听目录失败：{e}"))?;
-
-    // 附加监听用户级 Live Templates 目录（M2 热重载）；目录不存在时静默跳过
-    let lt_dir = opencharm_home().join("config");
-    if lt_dir.is_dir() {
-        let _ = debouncer.watcher().watch(&lt_dir, RecursiveMode::NonRecursive);
+    // 回填句柄供回调补订阅（TD-029①），再交给全局表持有
+    let shared = Arc::new(Mutex::new(debouncer));
+    if let Ok(mut g) = watcher_slot.lock() {
+        *g = Some(Arc::clone(&shared));
     }
-
-    WATCHER.insert(&wid, debouncer);
+    WATCHER.insert(&wid, shared);
     Ok(())
 }
 
@@ -223,7 +364,9 @@ pub fn watch_stop(window: tauri::WebviewWindow) -> Result<(), String> {
 }
 
 pub(crate) fn watch_stop_impl(wid: &str) {
-    WATCHER.remove(wid); // drop debouncer → 自动停止监听
+    // drop Arc → 引用计数归零后 drop debouncer → 自动停止监听。
+    // 注意：回调线程此刻可能正持有 clone（补订阅路径），那只是短暂借用，不影响停止语义。
+    WATCHER.remove(wid);
 }
 
 /// CR-14：应用退出清理——停止全部窗口的文件监听。
@@ -338,6 +481,39 @@ mod tests {
             r"C:\ws\proj\__opencharm_selection__lx2k-a1b2c3.py"
         ))
         .is_none());
+    }
+
+    /// 顶层监听目标（TD-029①）：跳过忽略目录，根自身非递归。
+    #[test]
+    fn test_top_level_targets_skips_ignored() {
+        let base = std::env::temp_dir().join(format!("oc-watch-targets-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("pkg")).unwrap();
+        std::fs::create_dir_all(base.join(".venv")).unwrap();
+        std::fs::create_dir_all(base.join("node_modules")).unwrap();
+        std::fs::create_dir_all(base.join("__pycache__")).unwrap();
+        std::fs::write(base.join("main.py"), "x = 1\n").unwrap();
+
+        let t = top_level_targets(&base);
+        // 根自身（非递归）+ pkg（递归）；三个忽略目录都不在
+        assert!(t.iter().any(|(p, rec)| p == &base && !rec));
+        assert!(t.iter().any(|(p, rec)| p == &base.join("pkg") && *rec));
+        for bad in ["__pycache__", ".venv", "node_modules"] {
+            assert!(!t.iter().any(|(p, _)| p == &base.join(bad)), "{bad} 不应被订阅");
+        }
+        // 顶层文件不产生订阅项（只由根的非递归监听覆盖）
+        assert!(!t.iter().any(|(p, _)| p == &base.join("main.py")));
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// 目录不存在时退化为「只监听根」，不因列举失败而整体放弃。
+    #[test]
+    fn test_top_level_targets_missing_root() {
+        let missing = std::env::temp_dir().join(format!("oc-watch-missing-{}", std::process::id()));
+        let t = top_level_targets(&missing);
+        assert_eq!(t.len(), 1);
+        assert!(!t[0].1);
     }
 
     /// site-packages 环境信号不重复发 fs-file-changed（它已由 dep-env-changed 消费）。

@@ -929,6 +929,11 @@ export async function equipPage(page: Page, repo: GitRepo, opts: { slowGitMs?: R
 
   // git/fs 写命令完成后推送 fs-changed（驱动前端 refreshGitStatus/文件树增量刷新，
   // 复刻真实 watcher 的行为——UI 状态更新依赖该事件链，而非命令返回值）
+  //
+  // ⚠ 载荷口径必须与 Rust watcher.rs 一致：**文件变更推其父目录**（目录变更推自身）。
+  // 历史上这里推的是文件绝对路径，属于 A-mock 不忠实：前端 handleFsChanged 拿到的
+  // 是文件 → `isDirExpanded(file)` 恒 false → 文件树增量刷新整条链在 mock 层从不生效，
+  // 而真机生效（「mock 比真机弱」）。任何依赖「bridge 改盘后树不刷新」的用例都要重新过一遍。
   const GIT_WRITE_CMDS = new Set(["git_stage", "git_unstage", "git_commit", "git_discard", "git_clean",
     "git_accept_current", "git_accept_incoming", "git_stash_push", "git_stash_pop", "git_stash_pop_at",
     "git_stash_drop_at", "git_checkout", "git_create_branch", "git_init"]);
@@ -1158,7 +1163,10 @@ export async function equipPage(page: Page, repo: GitRepo, opts: { slowGitMs?: R
     return result.then((r) => {
       if (GIT_WRITE_CMDS.has(cmd)) emitFsChanged([repo.root]);
       else if (FS_WRITE_CMDS.has(cmd) && args && typeof args === "object" && "path" in (args as Record<string, unknown>)) {
-        emitFsChanged([relToAbs(String((args as Record<string, unknown>).path))]);
+        const abs = relToAbs(String((args as Record<string, unknown>).path));
+        // 对齐 Rust watcher.rs：文件变更推**父目录**（新建/删除条目的可见性由父层决定；
+        // create_dir 传的是目录自身，其父目录同样需要这条事件才能显示新目录）
+        emitFsChanged([dirname(abs)]);
       }
       return r;
     });

@@ -9,5 +9,14 @@
   "watch.unreadable": "{name} 可能已被删除或无法读取，请手动确认",
   "watch.saved": "已另存为 {name}",
   "watch.saveAsSamePath": "不能另存为原文件（请换一个路径）",
-  "watch.saveAsFailed": "另存失败"
+  "watch.saveAsFailed": "另存失败",
+  "watch.batch.title": "多个文件已被外部修改",
+  "watch.batch.message": "有 {count} 个已打开的文件在磁盘上被其他程序修改，且都带有未保存的改动。",
+  "watch.batch.oneByOne": "逐个处理",
+  "watch.batch.reloadAll": "全部用磁盘版本重载",
+  "watch.batch.later": "稍后处理",
+  "watch.health.label": "监听异常",
+  "watch.health.toast": "文件监听已停止工作：文件树与 git 状态可能不再自动刷新（点击状态栏芯片重试）",
+  "watch.health.tip": "文件监听未正常工作（网络盘/同步目录常见）。点击重试订阅。",
+  "watch.health.restored": "文件监听已恢复"
 }

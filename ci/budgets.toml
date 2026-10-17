@@ -488,9 +488,13 @@ intel_server_rs_max_lines = 700
 # watcher.rs（工作区文件监听；2026-10-18 首次登记）：291 → **355** 行（外部改动检测批 +64：
 #   fs-file-changed 结构化事件 + emit_file_path 准入函数 + 3 组单测 + 注释里的发射顺序契约）。
 #   该文件此前不在预算面，按 endpointView「首次登记」先例纳入——watcher 是四个事件
-#   （fs-changed / fs-file-changed / dep-fs-changed / dep-env-changed）的唯一真源，
-#   信增必须显式改这一行。上限 410（实测 +15%，同 env_cmds 口径）。
-watcher_rs_max_lines = 410
+#   （fs-changed / fs-file-changed / dep-fs-changed / dep-env-changed）与健康度事件的唯一真源。
+#
+#   2026-10-18 二次上调 410 → **580**（实测 531）：TD-029 的①②③ 三项**都落在这个文件**
+#   ——② 健康度事件 + 错误分类（+36）、③ 统一 debouncer 装配入口 spawn_dir_watcher（+31）、
+#   ① 监听范围瘦身：顶层目录逐个订阅 + 根非递归 + 运行期新目录动态补订阅 + 2 组单测（+109）。
+#   属**新功能带来的真实增长**（非同体积膨胀），故按实测 +9% 抬阈值；后续再增仍需显式改这行。
+watcher_rs_max_lines = 580
 
 # externalChange.ts（外部改动检测，docs/fs_watch_dev_plan.md v0.1，2026-10-18 新增）：316 行。
 #   上限 380（实测 +20%）。范围：内容比对判定（替代事件类型，零新依赖）+ 三选一面板
@@ -498,9 +502,21 @@ watcher_rs_max_lines = 410
 #   本体零 app/monaco 依赖（单测 node 环境直跑，vi.mock 替身 dialog/invoke）。
 external_change_ts_max_lines = 380
 
-# externalChange.test.ts（同上单测）：294 行（25 用例，含判定矩阵 / 虚拟 tab 跳过 / 单飞 /
-#   dirty 守卫 / 保存拦截递归防弹 / 另存为同路径拒绝六组关键回归）。上限 340。
-external_change_test_ts_max_lines = 340
+# externalChange.test.ts（同上单测）：359 行（30 用例）。上限 410。
+#   首登估 ~245 → 实际 294（外部改动检测主体）；TD-029⑤ 批量冲突合并再 +65（批量只弹一次 /
+#   逐个处理退回单文件 / 全部重载 / 混合批次四组 + 断言数据），属**新功能带来的真实增长**，
+#   不是同体积 water 膨胀，故按实测 +14% 抬到 410。
+external_change_test_ts_max_lines = 410
+
+# watchHealth.ts（监听健康度，TD-029②，2026-10-18 新增）：状态栏芯片 + 有界重订阅。
+#   零新命令（复用 watch_start）、零新依赖；上限 170（实测 ~145 + 余量）。
+watch_health_ts_max_lines = 170
+
+# watchHealth.test.ts（同上单测，happy-dom）：上限 110。
+watch_health_test_ts_max_lines = 110
+
+# styles/watchHealth.css（健康度芯片，2026-10-18 新增）：上限 45。
+styles_watchhealth_css_max_lines = 45
 
 # styles/externalChange.css（外部改动 tab 标记，2026-10-18 新增）：33 行。上限 60
 #   （小文件按绝对行数给余量，同 hotspots.css 口径）。范围：.tab .tab-external-flag

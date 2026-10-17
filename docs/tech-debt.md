@@ -74,6 +74,21 @@
 - **处理时机**：①随性能批、②按网络盘用户实案、③搭车任一批次、④⑤⑥各自独立小项。
 - **涉及文件**：`shell/src-tauri/src/watcher.rs`、`shell/src-tauri/src/plugin_cmds.rs`、`shell/e2e/helpers.ts`、`shell/e2e/ux/01-ux-batch.spec.ts`、`docs/fs_watch_dev_plan.md`、`docs/fs_watch_acceptance_record.md`。
 
+#### 清偿记录（2026-10-18 同一天）：①–⑥ **全部闭环**（TD-029 可归档）
+
+| # | 状态 | 落地 | 验证 |
+|---|---|---|---|
+| **① 监听范围瘦身** | ✅ 已闭环 | `watcher.rs::top_level_targets`：根只做 **NonRecursive**（感知顶层条目增删），其下每个**非忽略**顶层目录逐个 Recursive → `.venv`/`node_modules`/`__pycache__` 整棵不再进回调。运行期新建的顶层目录由回调**动态补订阅**（`Arc<Mutex<..>>` + `try_lock`，取不到就跳过，绝不阻塞/死锁） | Rust 单测 2 组（忽略目录不入表 / 根不存在退化为只听根）；**真机 EC-REAL-4**：新顶层目录内的外部改动仍能自动重载 → PASS |
+| **② 监听健康度** | ✅ 已闭环 | Rust 新增 `fs-watch-health` 事件（`WatchHealth{kind,detail}`，覆盖启动失败与运行期错误，notify 错误按 `MaxFilesWatch/Io` 分类）；前端新增 `shell/src/watchHealth.ts` + 状态栏芯片 `#status-watch`（点击 = 手动重订阅）+ **有界**自动重订阅（2s/6s 两档，用完停手）+ 收到任意 `fs-changed` 即复位并提示「已恢复」 | 单测 5 例；e2e E-EXT-12/13；i18n `watch.health.*` 4 词条 |
+| **③ 两套 watcher 合并** | ✅ 已闭环 | `watcher.rs::spawn_dir_watcher(targets, debounce_ms, on_change)` 成为**唯一** debouncer 装配入口；`plugin_cmds.rs` 的 `PLUGIN_WATCHER` 改为复用它，且插件目录的运行期错误也不再吞掉（转 `fs-watch-health`） | cargo 373→375 通过；e2e plugins 域（241 条广域回归含该域）全绿 |
+| **④ mock 载荷分叉** | ✅ 已闭环 | `helpers.ts` 的 `FS_WRITE_CMDS` 改为与 Rust 同口径：**文件变更推父目录**（原先推文件绝对路径 → mock 层文件树增量刷新整条链从不生效）。修前已盘点依赖方，全量 e2e 回归验证 | e2e 广域（git/ux/editor/p4/session/plugins/p3）**241 全过**，UX-6 亦随之转绿 |
+| **⑤ 批量冲突面板缺失** | ✅ 已闭环 | 整批先静默处理 identical/reload/unreadable，冲突集中到批次末尾：1 个走原单文件三选一，>1 个合并为一次询问（逐个处理 / 全部重载 / 稍后） | e2e E-EXT-11（两个脏 tab 同时外部改动 → 只弹一次批量面板） |
+| **⑥ UX-6 存量** | ✅ 已闭环（根因定位） | `fileTree.ts::restoreExpandedDirs` 对**已展开**目录仍调 `toggleDir`（纯 toggle）→ 反向折回，随后 `saveExpandedDirs` 把残缺集合写穿 localStorage，下次启动再也恢复不回来。修法：已展开则跳过 | `e2e/ux/01` 单独跑 **10/10**（原 1 failed） |
+
+- **顺带修掉的既有缺口**（不在原清单、实施期发现）：notify 对「新建目录」只给目录自身事件 → 父层不刷新，表现为 **mkdir 后树里看不到新目录**（真机 EC-REAL-4 暴露）。修法：目录事件连父目录一起发 `fs-changed`。
+- **预算**：`watcher_rs_max_lines` 410 → **580**（①②③ 三项都落在该文件，实测 531，属新功能真实增长）；新登记 `watch_health_ts`(170) / `watch_health_test_ts`(110) / `styles_watchhealth_css`(45)。
+- **门禁**：tsc 0 · vitest **126 文件 / 1608 用例** · cargo **375** · e2e 广域（git/ux/editor/p4/session/plugins/p3）**241 全过** · 真机 `external-change-real` **4/4** · budget 全 PASS。
+
 ### TD-028 2026-10-10 全量复核遗留项（P2×5，均为窄触发或记录性）
 
 - **起因**：TD-027 三批清偿后的全量代码复核（上方复核记录）。已修项见 `bd9eda0`/`361030a`；以下为裁决**留置**的窄触发/记录性项。

@@ -247,8 +247,7 @@ pub(crate) const MANIFEST_FILE: &str = "opencharm.plugin.json";
 // ---------- 目录监听（去抖由前端做，这里只发「目录变了」信号） ----------
 
 /// 插件目录 watcher（进程内单实例；重扫时先停旧实例）
-static PLUGIN_WATCHER: Mutex<Option<notify_debouncer_mini::Debouncer<notify_debouncer_mini::notify::RecommendedWatcher>>> =
-    Mutex::new(None);
+static PLUGIN_WATCHER: Mutex<Option<crate::watcher::DirWatcher>> = Mutex::new(None);
 
 /// 应用退出清理（P2-6）：释放插件目录 watcher（Drop 即 unwatch；进程退出虽会回收
 /// OS 资源，但显式停掉避免退出瞬间还派发无接收方的事件回调）。
@@ -269,20 +268,32 @@ pub fn watch_plugins_dir(app: AppHandle) -> Result<(), String> {
     let mut guard = crate::util::unpoison(PLUGIN_WATCHER.lock());
     *guard = None; // 停旧实例（Drop 即 unwatch）
 
-    let mut debouncer = notify_debouncer_mini::new_debouncer(
-        std::time::Duration::from_millis(500),
-        move |_res: Result<Vec<notify_debouncer_mini::DebouncedEvent>, notify_debouncer_mini::notify::Error>| {
-            // 只发「变了」信号；事件种类不可靠（Windows 原子写/删除语义），
-            // 由前端全量 diff 决定重载哪些插件（§9.15）
-            let _ = app.emit("plugins-dir-changed", ());
+    // 复用 watcher.rs 的统一装配入口（TD-029③）：不再各写一份 new_debouncer + watch。
+    // 错误也不再静默吞掉——插件目录落在网络盘/同步盘时同样会失效，转健康度事件可见化。
+    let root_for_health = root.clone();
+    let debouncer = crate::watcher::spawn_dir_watcher(
+        &[(root, true)],
+        500,
+        move |res| {
+            match res {
+                Ok(_evts) => {
+                    // 只发「变了」信号；事件种类不可靠（Windows 原子写/删除语义），
+                    // 由前端全量 diff 决定重载哪些插件（§9.15）
+                    let _ = app.emit("plugins-dir-changed", ());
+                }
+                Err(e) => {
+                    let _ = app.emit(
+                        "fs-watch-health",
+                        crate::watcher::WatchHealth {
+                            kind: "error".to_string(),
+                            detail: format!("插件目录（{}）监听错误：{e}", root_for_health.display()),
+                        },
+                    );
+                }
+            }
         },
     )
     .map_err(|e| e.to_string())?;
-
-    debouncer
-        .watcher()
-        .watch(&root, notify_debouncer_mini::notify::RecursiveMode::Recursive)
-        .map_err(|e| e.to_string())?;
     *guard = Some(debouncer);
     Ok(())
 }

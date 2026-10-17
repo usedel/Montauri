@@ -164,6 +164,7 @@ import {
   setDepInstallHandler, wireDepHealthEvents,
 } from "./depHealth";
 import { externalSaveGate, resetExternalChangeState, setExternalChangeActions, wireExternalChange } from "./externalChange"; // 外部改动检测（docs/fs_watch_dev_plan.md）
+import { wireWatchHealth } from "./watchHealth"; // 监听健康度（TD-029②）
 import {
   initDepHealthPanel, renderDepHealth, resetDepHealthPanel, handleScanComplete, setHealthStatus,
   expandDepDetail,
@@ -709,7 +710,7 @@ async function closeAllTabs(): Promise<void> {
 
 // ---------- 文件监听 ----------
 
-/** 启动文件监听（打开工作区时调用）；顺带复位外部改动检测的 pending 态（fs-watch plan §4.8） */
+/** 启动文件监听；顺带复位外部改动检测的 pending 态（fs-watch plan §4.8） */
 async function startFileWatcher(): Promise<void> {
   if (!app.workspaceRoot) return;
   try {
@@ -763,18 +764,9 @@ function handleFsChanged(dirs: string[]): void {
     }
     // P1：文件增删后作废 Search Everywhere 的文件清单缓存（下次打开重新拉取）
     invalidateQuickOpenFiles();
-    // open_file_dev_plan §1.2：纯 md 工作区跳过引擎后，watcher 发现新增 .py/.pyw → 后补启动
-    // （用户把纯笔记目录逐步变成代码仓库时功能不缺失）。lspSkippedForNoPy 带 root 校验防跨工作区误触发。
-    if (root && lspSkippedForNoPy === root) {
-      const hasNewPy = dirs.some((d) => {
-        const n = normalizePath(d);
-        return n.endsWith(".py") || n.endsWith(".pyw");
-      });
-      if (hasNewPy) {
-        lspSkippedForNoPy = null;
-        void startLsp();
-      }
-    }
+    // open_file_dev_plan §1.2 的「无 py 工作区新增 .py 后补启动引擎」不在这里判：
+    // fs-changed 只有**父目录**，按目录名判 .py 在真机从不成立（历史 latent bug，
+    // 只有 mock 推文件路径时才偶然生效）。改由 onFilesChanged 吃 fs-file-changed。
     // Live Templates 热重载（M2）：工作区层 <ws>/.opencharm/ 或用户层 <data_root>/config 变更。
     // TD-027 A6：原 `endsWith("/config")` 把工作区任意 xxx/config 变更也当成模板配置——收紧。
     // 取舍：OPENCHARM_DATA_ROOT 重定向到非默认路径时用户层外部编辑的热重载失效（面板内保存不受影响）。
@@ -1547,6 +1539,15 @@ function buildPluginFacadeDeps() {
 /** open_file_dev_plan §1.2：本会话静态引擎是否因「工作区无 py」被跳过（watcher 后补启动用）。
  *  null = 未跳过（正常启动 / 从未判定）；root 记录跳过时的工作区，切工作区后作废。 */
 let lspSkippedForNoPy: string | null = null;
+
+/** fs-file-changed 的文件级消费者：无 py 工作区出现 .py/.pyw → 后补启动引擎（§1.2）；必须按**文件**判，fs-changed 只给父目录。 */
+function onFilesChanged(filePaths: string[]): void {
+  const root = app.workspaceRoot;
+  if (!root || lspSkippedForNoPy !== root) return;
+  if (!filePaths.some((p) => /\.pyw?$/.test(normalizePath(p)))) return;
+  lspSkippedForNoPy = null;
+  void startLsp();
+}
 
 /** 工作区含 .py/.pyw 才启动静态引擎；探测失败保守放行（宁可空转不丢功能）。 */
 async function shouldStartStaticEngine(): Promise<boolean> {
@@ -2419,9 +2420,10 @@ async function init(): Promise<void> {
 
   // 依赖健康失效矩阵（dep plan M2）：watcher 的 dep-fs-changed / dep-env-changed 事件接线
   await wireDepHealthEvents();
-  // 外部改动检测（fs-watch plan）：接线 + 动作注入。覆盖磁盘必须关保存动作（plan §4.6）。
-  setExternalChangeActions({ overwriteDisk: (tb) => saveTab(tb, { runOnSaveActions: false }), refreshTabs: renderTabs });
+  // 外部改动检测（fs-watch plan）：接线 + 动作注入；覆盖磁盘须关保存动作（§4.6）。
+  setExternalChangeActions({ overwriteDisk: (tb) => saveTab(tb, { runOnSaveActions: false }), refreshTabs: renderTabs, onFilesChanged });
   await wireExternalChange();
+  await wireWatchHealth();
 
   // 首次启动环境引导（第 4 步）：缺失 uv/pyrefly 时弹窗引导一键安装
   await maybePromptToolchain();

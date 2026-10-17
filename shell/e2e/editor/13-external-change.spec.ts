@@ -61,11 +61,12 @@ async function openMain(page: Page): Promise<void> {
   await expect.poll(async () => await modelText(page), { timeout: 10_000 }).toBe(V1);
 }
 
-/** 在编辑器里敲几个字（把 tab 弄脏，模拟用户有未保存修改） */
-async function dirtyTheEditor(page: Page): Promise<void> {
+/** 在编辑器里敲几个字（把 tab 弄脏，模拟用户有未保存修改）。
+ *  `expectDots`：脏圆点总数（多 tab 场景要累加，故不写死为 1）。 */
+async function dirtyTheEditor(page: Page, expectDots = 1): Promise<void> {
   await page.locator(".monaco-editor").click();
   await page.keyboard.type("# my edit");
-  await expect.poll(async () => (await dirtyDots(page)).count(), { timeout: 5_000 }).toBe(1);
+  await expect.poll(async () => (await dirtyDots(page)).count(), { timeout: 5_000 }).toBe(expectDots);
 }
 
 /** 三选一面板的三个按钮（ok 是 #confirm-ok，neutral 是动态插入的普通按钮，cancel 是 #confirm-cancel） */
@@ -243,7 +244,7 @@ test("E-EXT-8 冲突面板选「另存为…」→ 写到新路径，原 tab 与
   await expect(page.locator(".toast", { hasText: "已另存为" })).toBeVisible({ timeout: 10_000 });
 });
 
-// ---------- E-EXT-9：一批多文件事件（git checkout 类风暴）串行处理不崩 ----------
+// ---------- E-EXT-9：一批多文件事件（git checkout 类风暴）串行处理 ----------
 
 test("E-EXT-9 一批多文件事件 → 串行处理，各自落到自己的 tab", async ({ page }) => {
   await openMain(page);
@@ -262,4 +263,96 @@ test("E-EXT-9 一批多文件事件 → 串行处理，各自落到自己的 tab
   await page.locator(".tab", { hasText: "main.py" }).first().click();
   await expect.poll(async () => await modelText(page), { timeout: 10_000 }).toBe("main = 'outside'\n");
   await expect(externalFlags(page)).toHaveCount(0);
+});
+
+// ---------- E-EXT-11：多文件冲突合并为一次询问（TD-029⑤） ----------
+
+test("E-EXT-11 两个脏 tab 同时被外部改动 → 只弹一次批量面板", async ({ page }) => {
+  await openMain(page);
+  await page.locator("#tree .tree-item .name", { hasText: "b.py" }).first().dblclick();
+  await expect.poll(async () => await page.locator(".tab").count(), { timeout: 10_000 }).toBe(2);
+  // 两个 tab 都弄脏（第二个是活动 tab）
+  await dirtyTheEditor(page, 1);
+  await page.locator(".tab", { hasText: "main.py" }).first().click();
+  await dirtyTheEditor(page, 2);
+
+  repo.write("main.py", "main = 'outside'\n");
+  repo.write("b.py", "b = 'outside'\n");
+  await emitFsFileChanged(page, [repo.abs("main.py"), repo.abs("b.py")]);
+
+  // 批量询问：三档按钮按 panel 惯例解析（#confirm-ok 是主按钮 = 逐个处理）
+  await expect(panel(page)).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator("#confirm-message")).toContainText("2");
+  await expect(btnOk(page)).toHaveText("逐个处理");
+  await expect(btnCancel(page)).toHaveText("稍后处理");
+
+  // 选「全部用磁盘版本重载」：两个 tab 都换成磁盘内容
+  await btnNeutral(page).click();
+  await expect(panel(page)).toBeHidden();
+  await expect.poll(async () => await modelText(page), { timeout: 10_000 }).toBe("main = 'outside'\n");
+  await page.locator(".tab", { hasText: "b.py" }).first().click();
+  await expect.poll(async () => await modelText(page), { timeout: 10_000 }).toBe("b = 'outside'\n");
+  await expect(dirtyDots(page)).toHaveCount(0);
+  await expect(externalFlags(page)).toHaveCount(0);
+});
+
+// ---------- E-EXT-12/13：监听健康度（TD-029②） ----------
+
+/** 手工 emit Rust watcher 的健康度事件 */
+async function emitWatchHealth(page: Page, kind: string, detail: string): Promise<void> {
+  await page.evaluate(([k, d]) => {
+    const internals = (window as unknown as { __TAURI_INTERNALS__?: { __emit?: (e: string, p: unknown) => void } }).__TAURI_INTERNALS__;
+    internals?.__emit?.("fs-watch-health", { kind: k, detail: d });
+  }, [kind, detail] as const);
+}
+
+test("E-EXT-12 监听失败 → 状态栏亮「监听异常」芯片（不再只落 console.warn）", async ({ page }) => {
+  // wireWatchHealth 在 init 末尾注册监听，而「树可见」早得多——事件打在空注册表上会静默丢失。
+  // 因此用 toPass 重试发射，直到 init 追上（否则这条用例会变成依赖启动耗时的 flake）。
+  await expect(async () => {
+    await emitWatchHealth(page, "error", "缓冲区溢出丢事件");
+    await expect(page.locator("#status-watch")).toBeVisible({ timeout: 1_000 });
+  }).toPass({ timeout: 30_000 });
+  await expect(page.locator("#status-watch .codicon-warning")).toHaveCount(1); // 图标字形在（防 className 被重写）
+  // 收紧：启动期还有「未检测到 Python 环境」等其它 toast，直接选 .toast 会撞严格模式
+  await expect(page.locator(".toast", { hasText: "文件监听" })).toBeVisible({ timeout: 10_000 });
+});
+
+test("E-EXT-13 监听恢复（后续 fs-changed）→ 芯片自动收起", async ({ page }) => {
+  await expect(async () => {
+    await emitWatchHealth(page, "error", "x");
+    await expect(page.locator("#status-watch")).toBeVisible({ timeout: 1_000 });
+  }).toPass({ timeout: 30_000 });
+  // 推一条正常的 watcher 事件 = 监听确实还在工作 → 芯片应自动收起
+  await expect(async () => {
+    await page.evaluate(() => {
+      const internals = (window as unknown as { __TAURI_INTERNALS__?: { __emit?: (e: string, p: unknown) => void } }).__TAURI_INTERNALS__;
+      internals?.__emit?.("fs-changed", []);
+    });
+    await expect(page.locator("#status-watch")).toBeHidden({ timeout: 1_000 });
+  }).toPass({ timeout: 20_000 });
+});
+
+// ---------- E-EXT-10：无 py 工作区新增 .py → 后补启动静态引擎 ----------
+
+test("E-EXT-10 无 py 工作区新增 .py → 文件级事件后补启动静态引擎", async ({ page }) => {
+  // 该分支历史上按 fs-changed 的**目录名**判 .py，而真机只发父目录 → 从不触发（latent bug）。
+  // 改由 fs-file-changed 的文件路径驱动后，这里是它的第一份覆盖
+  //（控制面 __E2E_OPENFILE__.hasPy 模拟「工作区有无 py」，见 tauri-mock.js）。
+  await page.addInitScript(() => {
+    (window as unknown as { __E2E_OPENFILE__?: { hasPy?: boolean } }).__E2E_OPENFILE__ = { hasPy: false };
+  });
+  await page.reload();
+  await expect(page.locator("#status-lsp")).toContainText("无 Python", { timeout: 20_000 });
+
+  // 别的程序在该工作区里新建了 .py：磁盘真写 + 控制面同步为「已有 py」（二者须一致）
+  repo.write("new_mod.py", "x = 1\n");
+  await page.evaluate(() => {
+    const of = (window as unknown as { __E2E_OPENFILE__?: { hasPy?: boolean } }).__E2E_OPENFILE__;
+    if (of) of.hasPy = true;
+  });
+  await emitFsFileChanged(page, [repo.abs("new_mod.py")]);
+
+  // 后补启动：跳过态被撤销（chip 不再显示「无 Python」）
+  await expect(page.locator("#status-lsp")).not.toContainText("无 Python", { timeout: 15_000 });
 });

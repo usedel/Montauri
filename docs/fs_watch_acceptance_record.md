@@ -46,7 +46,25 @@
 | 真机 `external-change-real` | **EC-REAL-1/2/3 PASS**（43.5s，真实 notify + 真实 read_file + 真实 Ctrl+S） |
 | budget-check | **全 PASS**：watcher.rs 355/410 · externalChange.ts 316/380 · 单测 294/340 · CSS 21/60 · main.ts 2438/2440 · bundle 6017/6050 · index 1606/1700 · 命令面 209/209（**+0**） |
 
-## 4. 计划期已识别、本批未做（登记备查）
+## 4. 后续清偿（2026-10-18 同日，TD-029 ①②③⑤ 闭环）
+
+同日继续清偿 `tech-debt.md` TD-029（明细见该条目），**①–⑥ 全部闭环**：
+
+| # | 项 | 落地要点 | 验证 |
+|---|---|---|---|
+| ① | 监听范围瘦身 | 根 NonRecursive + 非忽略顶层目录逐个 Recursive；运行期新顶层目录动态补订阅（`try_lock`，不阻塞） | Rust 2 组单测 + 真机 **EC-REAL-4 PASS** |
+| ② | 监听健康度 | `fs-watch-health` 事件 + `#status-watch` 状态栏芯片 + 有界自动重订阅（2s/6s）+ 收到 `fs-changed` 即复位 | 单测 5 例 + e2e E-EXT-12/13 |
+| ③ | 两套 watcher 合并 | `spawn_dir_watcher` 成唯一装配入口；插件目录复用并同样上报错误 | cargo 375；plugins 域 e2e 绿 |
+| ⑤ | 批量冲突面板 | 整批先静默处理完毕，>1 个冲突合并为一次询问（逐个/全部重载/稍后） | e2e E-EXT-11 |
+| ④ | mock 载荷分叉 | ✅ 已闭环：bridge 改推**父目录**（与 Rust 同口径），mock 层文件树增量刷新从此真正生效 | e2e 广域 241 全过 |
+| ⑥ | UX-6 存量回归 | ✅ 已闭环（根因在 `fileTree.ts::restoreExpandedDirs` 对已展开目录重复 toggle → 写穿 localStorage） | `e2e/ux/01` 单独跑 10/10 |
+
+**顺带修掉的既有缺口**：notify 对「新建目录」只给目录自身事件 → 父层不刷新 → 真机实测 mkdir 后树里看不到新目录。修法：目录事件连父目录一起发 `fs-changed`（真机 EC-REAL-4 暴露并证伪/证实）。
+
+**门禁**：tsc 0 错 · vitest **126 文件 / 1608 用例** · cargo **375 通过** · e2e 广域（git/ux/editor/p4/session/plugins/p3）**241 全过** · 真机 `external-change-real` **4/4** · budget 全 PASS。
+预算变动：`watcher_rs_max_lines` 410→580（①②③ 都落在该文件，实测 531）；新登记 `watch_health_ts` 170 / `watch_health_test_ts` 110 / `styles_watchhealth_css` 45。
+
+## 5. 计划期已识别、本批未做（登记备查）
 
 | 项 | 状态 |
 |---|---|
@@ -58,7 +76,7 @@
 | 批量冲突合并面板（git checkout 改多文件时逐个弹） | M1 未做；有 800ms 单飞 + 串行处理兜底，人工验收记录在 §5 |
 | 开启 autosave 时的冲突弹面板时序 | 未专项验（gate 对所有 saveTab 入口生效，语义正确） |
 
-## 5. 人工验收记录（待用户补登）
+## 6. 人工验收记录（待用户补登）
 
 - [ ] ① 外部编辑器改 `main.py` → 三选一各点一遍，圆点/灰态符合预期
 - [ ] ② git 切分支改多个已打开文件 → 逐个弹面板是否可接受（M1 未做批量合并）
@@ -66,7 +84,7 @@
 - [ ] ④ 网络盘 / OneDrive 暂停同步 → 不误关 tab（`unreadable` 只提示）
 - [ ] ⑤ 关工作区再开 → pending 标记不残留（`startFileWatcher` 收尾复位 + 每次装饰同步剪枝）
 
-## 6. 已知存量问题（与本批无关，stash 对照实证）
+## 7. 已知存量问题（与本批无关，stash 对照实证）
 
 `e2e/ux/01-ux-batch.spec.ts` **UX-6「文件树展开状态跨会话持久化；刷新后滚动位置恢复」** 在
 `git stash` 掉本批前端改动后同样失败（1 failed / 9 passed）→ 存量回归，需另立小项排查

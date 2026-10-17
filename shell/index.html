@@ -480,6 +480,10 @@
         <span data-i18n-tip="status.statusMem" id="status-mem" class="hidden" data-tip="资源占用（外壳 + 子进程）· 点击查看明细" style="cursor:pointer" role="button" aria-haspopup="dialog" aria-expanded="false" tabindex="0"></span>
         <span data-i18n-tip="status.statusEngine" id="status-engine" data-tip="点击切换静态语义引擎" style="cursor:pointer" role="button" aria-haspopup="menu" aria-expanded="false" tabindex="0"></span>
         <span id="status-lsp"></span>
+        <!-- 文件监听健康度芯片（TD-029②）：默认隐藏，watcher 启动失败 / 运行期错误
+             （网络盘溢出丢事件等）时由 watchHealth.ts 点亮；点击 = 手动重订阅。
+             此前这两类失败只落 console.warn，用户只看到「树不刷新」却不知原因。 -->
+        <span id="status-watch" class="hidden" style="cursor:pointer" role="button" tabindex="0"></span>
         <!-- 问题计数芯片（problemsPanel.ts 驱动）：当前文件 错误/警告 计数；有错红色警示态；
              点击打开问题面板。role=button + tabindex + Enter/Space 激活（可读屏可键盘操作） -->
         <span id="status-problems" class="hidden" style="cursor:pointer" role="button" tabindex="0" aria-haspopup="true" aria-expanded="false"></span>

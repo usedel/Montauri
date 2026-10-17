@@ -91,6 +91,8 @@ export interface ExternalChangeActions {
   overwriteDisk(tab: Tab): Promise<void>;
   /** 重绘 tab 条（dirty 复位 / 装饰变化后调用） */
   refreshTabs(): void;
+  /** 文件级事件的旁路通知（main 的无 py 工作区后补启动引擎用；可选） */
+  onFilesChanged?(filePaths: readonly string[]): void;
 }
 
 let actions: ExternalChangeActions | null = null;
@@ -256,8 +258,12 @@ async function runOverwriteDisk(tab: Tab): Promise<void> {
   syncTabDecorations();
 }
 
-/** 处理一条文件级事件（plan §4.1）。导出供单测直接驱动。 */
-export async function handleFileChanged(path: string): Promise<void> {
+/** 处理一条文件级事件（plan §4.1）。导出供单测直接驱动。
+ *  `deferConflict`：批量模式下把冲突「收集」而不是就地弹面板（见 handleFilesChanged）。 */
+export async function handleFileChanged(
+  path: string,
+  deferConflict?: (tab: Tab, snapshot: string) => void,
+): Promise<void> {
   const tab = findTrackedTab(path);
   if (!tab) {
     // 性能闸门（§4.8）+ 顺手剪枝：该路径没有对应 tab，单飞表条目永不再被读到，
@@ -296,14 +302,55 @@ export async function handleFileChanged(path: string): Promise<void> {
   }
   pendingExternal.add(tabKey(tab.path));
   refreshTabsSafe();
+  // 冲突一律先标记。批量模式下交给批次末尾的合并面板；单文件时就地裁决（保持原 UX）
+  if (deferConflict) {
+    deferConflict(tab, before);
+    return;
+  }
   await showConflictPanel(tab, "watch", before);
 }
 
-/** 一批事件（watcher 的 fs-file-changed 载荷）→ 串行处理，防读盘并发风暴。 */
+/** 一批事件（watcher 的 fs-file-changed 载荷）→ 串行处理，防读盘并发风暴。
+ *  旁路通知先走：它不读盘、与下面的判定无因果，让消费者尽早拿到文件级路径。
+ *
+ *  冲突合并（tech-debt TD-029⑤）：git checkout / 切分支会一次改掉多个已打开文件，
+ *  逐个弹面板等于让用户连点 N 次。这里把**整批**先过一遍——identical / reload /
+ *  unreadable 都静默处理完（本来也不用问），冲突集中到批次末尾：
+ *  1 个 → 原单文件三选一；>1 个 → 一次批量询问，用户可选「逐个处理 / 全部重载 / 稍后」。 */
 export async function handleFilesChanged(paths: readonly string[]): Promise<void> {
+  actions?.onFilesChanged?.(paths);
+  const conflicts: Array<{ tab: Tab; snapshot: string }> = [];
   for (const p of paths) {
-    await handleFileChanged(p);
+    await handleFileChanged(p, (tab, snapshot) => {
+      if (!conflicts.some((c) => c.tab === tab)) conflicts.push({ tab, snapshot });
+    });
   }
+  if (conflicts.length === 1) {
+    await showConflictPanel(conflicts[0].tab, "watch", conflicts[0].snapshot);
+  } else if (conflicts.length > 1) {
+    await showBatchPanel(conflicts);
+  }
+}
+
+/** 多文件冲突的合并面板（TD-029⑤）。三档语义与单文件同构：
+ *  ok = 逐个处理（保住用户每一份未存改动，退回原单文件三选一）
+ *  neutral = 全部用磁盘版本重载（明确知情下丢弃全部未存改动）
+ *  cancel / Esc / 遮罩 = 稍后处理（全部留在 pending，Ctrl+S 时再逐个裁决） */
+async function showBatchPanel(items: Array<{ tab: Tab; snapshot: string }>): Promise<void> {
+  const res: ChoiceResult = await openChoice({
+    title: t("watch.batch.title"),
+    message: t("watch.batch.message", { count: items.length }),
+    okLabel: t("watch.batch.oneByOne"),
+    neutralLabel: t("watch.batch.reloadAll"),
+    cancelLabel: t("watch.batch.later"),
+    kind: "primary", // ok 是「保住改动」那一档，危险按钮不给它
+  });
+  if (res === "cancel") return;
+  if (res === "ok") {
+    for (const it of items) await showConflictPanel(it.tab, "watch", it.snapshot);
+    return;
+  }
+  for (const it of items) await applyFromDisk(it.tab, it.snapshot);
 }
 
 /** 保存拦截（plan §4.6）：main 的 saveTab 在最前面调它。

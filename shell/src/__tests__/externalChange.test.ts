@@ -20,6 +20,7 @@ import {
   classifyExternalChange,
   externalSaveGate,
   handleFileChanged,
+  handleFilesChanged,
   isTrackableTab,
   resetExternalChangeState,
   saveAsDefaultName,
@@ -244,6 +245,70 @@ describe("handleFileChanged（plan §4.1 数据流）", () => {
     await handleFileChanged("C:\\ws\\main.py");
     expect(invoke).toHaveBeenCalledTimes(1);
     expect(t.model.getValue()).toBe("v2\n");
+  });
+});
+
+describe("handleFilesChanged 批量冲突合并（TD-029⑤）", () => {
+  /** 两个脏 tab + 磁盘各自被改（git checkout 同款场景） */
+  function twoConflicts() {
+    const a = tab("C:\\ws\\main.py", { dirty: true, text: "mine A\n" });
+    const b = tab("C:\\ws\\pkg\\util.py", { dirty: true, text: "mine B\n" });
+    app.tabs = [a, b];
+    invoke.mockImplementation(async (_cmd: string, args: Record<string, string>) =>
+      args.path.endsWith("main.py") ? "outside A\n" : "outside B\n");
+    return { a, b };
+  }
+
+  it("多个冲突 → 只弹**一次**批量面板（不是逐个连弹）", async () => {
+    twoConflicts();
+    openChoice.mockResolvedValue("cancel");
+    await handleFilesChanged(["C:\\ws\\main.py", "C:\\ws\\pkg\\util.py"]);
+    expect(openChoice).toHaveBeenCalledTimes(1);
+    const msg = String(openChoice.mock.calls[0][0].message);
+    expect(msg).toContain("2"); // 文案含受影响文件数
+  });
+
+  it("选「稍后处理」→ 两个缓冲都原样保留，pending 留给 Ctrl+S 裁决", async () => {
+    const { a, b } = twoConflicts();
+    openChoice.mockResolvedValue("cancel");
+    await handleFilesChanged(["C:\\ws\\main.py", "C:\\ws\\pkg\\util.py"]);
+    expect(a.model.getValue()).toBe("mine A\n");
+    expect(b.model.getValue()).toBe("mine B\n");
+    expect(a.dirty).toBe(true);
+    expect(b.dirty).toBe(true);
+    // pending 未清 → 保存时仍会被拦截（externalSaveGate 命中）
+    expect(await externalSaveGate(a)).toBe(true);
+  });
+
+  it("选「全部用磁盘版本重载」→ 两个 tab 都换成磁盘内容且脏标记复位", async () => {
+    const { a, b } = twoConflicts();
+    openChoice.mockResolvedValue("neutral");
+    await handleFilesChanged(["C:\\ws\\main.py", "C:\\ws\\pkg\\util.py"]);
+    expect(a.model.getValue()).toBe("outside A\n");
+    expect(b.model.getValue()).toBe("outside B\n");
+    expect(a.dirty).toBe(false);
+    expect(b.dirty).toBe(false);
+  });
+
+  it("选「逐个处理」→ 退回单文件三选一，每个文件各弹一次", async () => {
+    const { a } = twoConflicts();
+    openChoice.mockResolvedValueOnce("ok").mockResolvedValueOnce("cancel").mockResolvedValueOnce("cancel");
+    await handleFilesChanged(["C:\\ws\\main.py", "C:\\ws\\pkg\\util.py"]);
+    expect(openChoice).toHaveBeenCalledTimes(3); // 1 次批量 + 2 次单文件
+    expect(a.model.getValue()).toBe("mine A\n"); // 两次都选了 cancel → 缓冲不动
+  });
+
+  it("混合批次：identical / 未脏的 reload 不占用面板，只有真冲突才问", async () => {
+    const clean = tab("C:\\ws\\clean.py", { text: "old\n" }); // 未脏 → 自动重载
+    const dirty = tab("C:\\ws\\main.py", { dirty: true, text: "mine\n" }); // 脏 → 冲突
+    app.tabs = [clean, dirty];
+    invoke.mockImplementation(async (_cmd: string, args: Record<string, string>) =>
+      args.path.endsWith("clean.py") ? "outside clean\n" : "outside main\n");
+    openChoice.mockResolvedValue("cancel");
+    await handleFilesChanged(["C:\\ws\\clean.py", "C:\\ws\\main.py"]);
+    expect(clean.model.getValue()).toBe("outside clean\n"); // 未脏的已静默重载
+    expect(openChoice).toHaveBeenCalledTimes(1); // 只有 main.py 一个冲突 → 单文件面板
+    expect(dirty.model.getValue()).toBe("mine\n");
   });
 });
 

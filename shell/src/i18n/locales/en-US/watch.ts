@@ -2,6 +2,13 @@
 import type { WatchKey } from "../zh-CN/watch";
 
 export const watch: Record<WatchKey, string> = {
+  // ---- watch.batch ----
+  "watch.batch.later": "Decide later",
+  "watch.batch.message.one": "{count} open files were modified on disk by another program, and all of them have unsaved changes.",
+  "watch.batch.message.other": "{count} open files were modified on disk by another program, and all of them have unsaved changes.",
+  "watch.batch.oneByOne": "Handle one by one",
+  "watch.batch.reloadAll": "Reload all from disk",
+  "watch.batch.title": "Several files changed on disk",
   // ---- watch.conflict ----
   "watch.conflict.cancelSave": "Cancel Save",
   "watch.conflict.later": "Decide Later",
@@ -10,6 +17,11 @@ export const watch: Record<WatchKey, string> = {
   "watch.conflict.reload": "Reload from Disk",
   "watch.conflict.saveAs": "Save As…",
   "watch.conflict.title": "File changed on disk",
+  // ---- watch.health ----
+  "watch.health.label": "Watching broken",
+  "watch.health.restored": "File watching restored",
+  "watch.health.tip": "File watching is not working (common on network/synced drives). Click to resubscribe.",
+  "watch.health.toast": "File watching stopped working: the file tree and git status may no longer refresh automatically (click the status chip to retry)",
   // ---- watch ----
   "watch.saveAsFailed": "Save As failed",
   "watch.saveAsSamePath": "Cannot save as the original file; pick a different path",
