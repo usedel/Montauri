@@ -169,6 +169,7 @@ addLine("shell/src/menuItems.ts", "menu_items_ts_max_lines");
 addLine("shell/src/windowKeys.ts", "window_keys_ts_max_lines");
 addLine("shell/src/windowChrome.ts", "window_chrome_ts_max_lines");
 addLine("shell/src/sidebarViews.ts", "sidebar_views_ts_max_lines");
+addLine("shell/src/workspaceViewRefresh.ts", "workspace_view_refresh_ts_max_lines");
 addLine("shell/src/hotspotsView.ts", "hotspots_view_ts_max_lines");
 addLine("shell/src/endpointView.ts", "endpoint_view_ts_max_lines");
 addLine("shell/src/epSample.ts", "ep_sample_ts_max_lines");

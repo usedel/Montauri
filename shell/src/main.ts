@@ -61,6 +61,7 @@ import { breakDownSaveErrors, saveErrorToastMessage, revealFirstError } from "./
 import * as splitEditor from "./splitEditor"; // P4（C-4）：向右分屏（handlers 注入，防 settingsPanel 成环）
 import { recordClosedTab, resetTabReopen, setTabReopenHandlers } from "./tabReopen"; // PR-A（dx_features_backlog §6.1）：重开关闭的标签
 import { activeView } from "./views";
+import { refreshActiveViewForWorkspace } from "./workspaceViewRefresh"; // 开关工作区时对激活侧栏视图的补偿刷新
 import * as lsp from "./lsp/client";
 import * as kb from "./keybindings";
 import { appendOutputLine, clearOutput, setOutputLevelColorsEnabled, setOutputTracebackHandler, setOutputUrlHandler } from "./output";
@@ -72,7 +73,7 @@ import {
   renderCtxMenu, resetTreeState, scheduleFollowReveal, setFileTreeHandlers, wireFileTree, type CtxItem,
 } from "./fileTree";
 import {
-  cleanupDiffTabState, currentDiffEditor, dismissDiffHost, presentDiffHost, refreshBranchPanel,
+  cleanupDiffTabState, currentDiffEditor, dismissDiffHost, presentDiffHost,
   refreshDiffIfViewing, refreshDiffOnActivate, refreshGitStatus, renderGitPanel, resetGitState,
   setDiffTabHandlers, setGitEditorBridge, setGitOpenFileHandler, setGitReloadHandler, wireGitUI,
 } from "./git";
@@ -112,7 +113,7 @@ import {
 import { initTodoView, resetTodoView, setTodoViewHandlers } from "./todoView"; // P0：TODO 工具窗
 import { getEndpointResults, highlightEndpoint, initEndpointView, resetEndpointView, setEndpointViewHandlers } from "./endpointView"; // F1：端点工具窗
 import { initHotspotsView, resetHotspotsView, setHotspotsViewHandlers } from "./hotspotsView"; // A1：运行时热点
-import { initDbView, resetDbView, refreshDbWorkspace } from "./sqliteView"; // B3：SQLite 数据库侧栏（资源管理器）
+import { initDbView, resetDbView } from "./sqliteView"; // B3：SQLite 数据库侧栏（资源管理器）
 import { setDbTabHandlers, presentDbTab, cleanupDbTab, dismissDbHost, dbTabLabel, dbTabIcon, invalidateDbTokens } from "./sqliteTabs"; // B3：SQLite 编辑器 Tab（表数据 / SQL 查询）
 import { initDebugView, renderDebugView, setDebugViewHandlers, wireDebugViewEvents } from "./debugView";
 import { closeRecentFiles, initRecentFiles, setRecentFilesHandlers } from "./recentFiles"; // P0：最近打开的文件（Ctrl+E）
@@ -406,16 +407,10 @@ async function openWorkspace(root: string): Promise<void> {
     // PR review（dx_features_backlog §6.5）：跨工作区残留一并清空——重开栈与编辑点栈
     resetTabReopen();
     resetEditPoints();
-    // P1-3（2026-09-30 审计）：切换工作区时若用户停在 git 视图，teardown 阶段的空态渲染
-    // 后不会再有 onShow 触发——补一次与新仓库数据的同步刷新（refreshTree 内部的
-    // refreshGitStatus 只更新内存，不重渲染面板 DOM）。
-    if (activeView() === "git") {
-      renderGitPanel();
-      void refreshBranchPanel();
-    }
-    // B3（§10.3-8b 真机发现）：数据库视图若在自动恢复工作区完成前初始化，会停在
-    // 「未打开工作区」空态且无 onShow 触发——工作区就绪后补一次状态刷新。
-    refreshDbWorkspace();
+    // 停在侧栏 tab 上开关工作区：该视图 onShow 不再触发 → 补偿刷新收口一处
+    // （git P1-3 / database B3 / todo·endpoints·runtime 同类缺陷；2026-10-17
+    //  用户实案：端点面板重开工作区后仍显示「未打开工作区」，见该文件头注释）
+    refreshActiveViewForWorkspace();
     updateEditorOverlay();
     // 启动恢复终态：工作区成功打开 → 记录 (true, root)，下次启动据此恢复
     await setLastSession(true, root);
