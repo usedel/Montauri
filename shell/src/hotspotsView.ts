@@ -191,8 +191,8 @@ function updateSortBar(d: RuntimeHotspots | null): void {
   bt.classList.toggle("btn--ghost", sortMode !== "time");
 }
 
-/** 渲染面板（error 非空时显示为空态 + 错误说明）。 */
-function renderHotspots(error?: string): void {
+/** 渲染面板（error 非空时显示为空态 + 错误说明）。导出供 closeWorkspace 终态渲染复用 */
+export function renderHotspots(error?: string): void {
   const list = document.getElementById("hp-results");
   const summary = document.getElementById("hp-summary");
   if (!list) return;

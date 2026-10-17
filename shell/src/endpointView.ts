@@ -177,6 +177,9 @@ export function renderEndpointPanel(error?: string): void {
   if (summary) {
     if (error) summary.textContent = t("endpoints.scanFailedShort");
     else if (loading) summary.textContent = t("endpoints.scanning");
+    // 无工作区时概要说「—」而非「0 项」：后者会被误读成「有工作区但没扫到端点」
+    // （2026-10-17 关闭工作区后的面板状态审查；与 hotspots 的 noWorkspace 分支同口径）
+    else if (!app.workspaceRoot) summary.textContent = "—";
     else if (results.length === 0) summary.textContent = t("endpoints.zeroItems");
     else summary.textContent = t("endpoints.countItems", { count: results.length });
   }

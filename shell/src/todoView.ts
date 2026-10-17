@@ -343,6 +343,9 @@ export function renderTodoPanel(error?: string, options: TodoRenderOptions = {})
   if (summary) {
     if (error) summary.textContent = t("editor.todo.scanFailedShort");
     else if (loading) summary.textContent = t("editor.todo.scanning");
+    // 无工作区时概要说「—」而非「0 项」：后者会被误读成「有工作区但没有 TODO」
+    // （2026-10-17 关闭工作区后的面板状态审查；与 hotspots 的 noWorkspace 分支同口径）
+    else if (!app.workspaceRoot) summary.textContent = "—";
     else if (results.length === 0) summary.textContent = t("editor.todo.zeroItems");
     else if (query) {
       // 过滤中：同时给出命中数与总数，避免用户误以为清单被裁掉了

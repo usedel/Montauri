@@ -61,7 +61,7 @@ import { breakDownSaveErrors, saveErrorToastMessage, revealFirstError } from "./
 import * as splitEditor from "./splitEditor"; // P4（C-4）：向右分屏（handlers 注入，防 settingsPanel 成环）
 import { recordClosedTab, resetTabReopen, setTabReopenHandlers } from "./tabReopen"; // PR-A（dx_features_backlog §6.1）：重开关闭的标签
 import { activeView } from "./views";
-import { refreshActiveViewForWorkspace } from "./workspaceViewRefresh"; // 开关工作区时对激活侧栏视图的补偿刷新
+import { refreshActiveViewForWorkspace, renderActiveViewClosed } from "./workspaceViewRefresh"; // 开关工作区时激活侧栏视图的补偿 / 终态渲染
 import * as lsp from "./lsp/client";
 import * as kb from "./keybindings";
 import { appendOutputLine, clearOutput, setOutputLevelColorsEnabled, setOutputTracebackHandler, setOutputUrlHandler } from "./output";
@@ -445,10 +445,11 @@ async function closeWorkspace(): Promise<void> {
     $("tree-header-text").textContent = t("tree.treeHeaderText"); // UI-13：与 index.html 静态词条同 key（第二十批 i18n）
     statusFileEl.textContent = "";
     clearInterpreterStatus();
-    // P1-3 补充：resetWorkspaceUiState 先于本行执行，其 renderGitPanel 走「不是 Git 仓库」
-    // 分支（gitRepoActive 已 false 但 root 未清）。root 置 null 后补一次终态渲染——
-    // 文案修正为「尚未打开工作区」空态，避免误导用户以为要 git init。
-    renderGitPanel();
+    // resetWorkspaceUiState 里各视图的 reset 是同步渲染、当时 root 尚未置 null，
+    // 画出「没有端点 / 没有待办 / 暂无运行记录」类错误空态，数据库视图更残留整棵
+    // 旧树（2026-10-17 用户实案）——root 置 null 后按激活视图补一次终态渲染，
+    // git 的 P1-3 终态渲染也收口进这里。
+    renderActiveViewClosed();
     // 框架提示去重为工作区级，关闭工作区即清空
     clearRunProfilesCache();
     // 阶段 2：Pydantic 字段改名提示的会话去重同样工作区级

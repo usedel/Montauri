@@ -199,13 +199,19 @@ window_chrome_ts_max_lines = 90
 #   仅注入 refreshOutline 一个回调。
 sidebar_views_ts_max_lines = 130
 
-# workspaceViewRefresh.ts（2026-10-17 新增，缺陷修复落点）：45 行。上限 70（余量 ~56%，
-#   小文件按绝对行数给余量，同 hotspots.css 口径）。
-#   范围：openWorkspace 收尾对「当前激活侧栏视图」的补偿刷新（git/database 从 main.ts
-#   内联收口而来 + todo/endpoints/runtime 首次补偿）。这些视图的内容只在 onShow（切 tab）
+# workspaceViewRefresh.ts（2026-10-17 新增，缺陷修复落点）：45 → **79 行**（同日第二轮
+#   用户实案后扩展）。上限 70 → **90**（余量 ~14%）。上调理由：本文件从「仅打开方向补偿」
+#   扩为「打开 + 关闭两个方向的分发器」——关闭方向的缺口（resetWorkspaceUiState 里各视图
+#   reset 是同步渲染、跑在 root 置 null 之前，画出「没有端点 / 没有待办」类错误空态；
+#   数据库视图 reset 干脆不渲染、整棵旧树残留）是同轮用户实案，收口到这里而非散回
+#   main.ts（已 2429/2440，禁入）。
+#   范围：openWorkspace 收尾 refreshActiveViewForWorkspace()（git/database 自 main.ts
+#   内联收口而来 + todo/endpoints/runtime 首次补偿；这些视图的内容只在 onShow（切 tab）
 #   时刷新，停在 tab 上开关工作区不会触发——2026-10-17 用户实案：端点面板重开工作区后
-#   仍显示「未打开工作区」。新增侧栏视图的补偿分支落这里，main.ts 不再内联（已触顶）。
-workspace_view_refresh_ts_max_lines = 70
+#   仍显示「未打开工作区」）+ closeWorkspace 收尾 renderActiveViewClosed()（激活视图的
+#   「未打开工作区」终态渲染，git 的 P1-3 终态渲染也收口于此）。
+#   新增侧栏视图的分支落这里，main.ts 不再内联（已触顶）。
+workspace_view_refresh_ts_max_lines = 90
 
 # hotspotsView.ts（A1 运行时热点视图，2026-10-06 新增）：282 行。上限 350（余量 ~24%）。
 #   范围：第 8 个侧栏视图的渲染与动作（`#hp-*` 命名空间）；数据来自 intel_cmds::scan_runtime_hotspots。

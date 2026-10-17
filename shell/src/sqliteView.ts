@@ -552,3 +552,13 @@ export function refreshDbWorkspace(): void {
 export function resetDbView(): void {
   resetDbStoreTree();
 }
+
+/**
+ * 对象树终态渲染（closeWorkspace 收尾调用）。
+ * resetDbView 本身不渲染 DOM，且 resetWorkspaceUiState 跑在 root 置 null 之前——
+ * 关工作区后数据库视图会整棵残留旧工作区的树，直到下次 onShow 才被替换。
+ * root 已置 null 时 renderTree 落「未打开工作区」空态分支。
+ */
+export function renderDbTree(): void {
+  renderTree();
+}
