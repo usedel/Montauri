@@ -217,7 +217,7 @@ async function refreshTestsOnce(force: boolean): Promise<void> {
   // collect 落地（全量重建 + 保留展开态 + 结果重放）。**stale 透传**（复核 P1）：
   // 在途期间发生过失效时结果树不含新用例，不得洗成新鲜——保留 stale 并补排重收。
   const wasStale = caches.get(root)?.stale ?? false;
-  const tree = buildTestTree(files, res.nodes);
+  const tree = buildTestTree(files, res.nodes, true);
   putCache(root, { files, nodes: res.nodes, tree, collectedAt: Date.now(), stale: wasStale });
   missingModule = null;
   errorTail = "";

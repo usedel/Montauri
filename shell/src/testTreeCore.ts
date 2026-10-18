@@ -131,9 +131,18 @@ function classGroup(file: string, classPath: readonly string[]): TestGroupNode {
  * - `nodes` 为空 → 仅文件级骨架（scan 先行渲染，不依赖 collect）；
  * - `nodes` 非空 → 用例子节点进 `files` 骨架；collect 收到的**不在** files 里的文件
  *   （自定义 python_files 非常规命名）追加到末尾（保收集序）。
+ * - `pruneEmptyFiles`（仅 collect 成功路径置 true）→ 剔除零用例的骨架文件行：
+ *   pytest 真没收到的文件不该长期占位——scan 剪枝名单的漏网点（如用户现场
+ *   smbter/venv 内三方包自带 test_*.py）与「文件存在但 pytest 未收集」同理。
+ *   默认 false 保留骨架语义：collect 失败 / 取消 / 未安装时树仍可见。
+ *   注意自定义 python_files 的追加文件不受影响（它们自带 case，不会零用例）。
  * 展开态与状态由调用方持有（buildTestTree 之后 applyResults 重放），本函数只管结构。
  */
-export function buildTestTree(files: readonly string[], nodes: readonly string[] = []): TestGroupNode[] {
+export function buildTestTree(
+  files: readonly string[],
+  nodes: readonly string[] = [],
+  pruneEmptyFiles = false,
+): TestGroupNode[] {
   const byFile = new Map<string, TestGroupNode>();
   const roots: TestGroupNode[] = [];
   const ensureFile = (file: string): TestGroupNode => {
@@ -175,7 +184,7 @@ export function buildTestTree(files: readonly string[], nodes: readonly string[]
       message: null,
     });
   }
-  return roots;
+  return pruneEmptyFiles ? roots.filter((r) => r.children.length > 0) : roots;
 }
 
 // ---------- 结果合入 ----------

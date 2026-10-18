@@ -181,9 +181,19 @@ const MAX_MATCHES: usize = 5000;
 /// 搜索忽略目录：`ignore` 遍历的安全网过滤（隐藏目录已由 hidden 规则覆盖，
 /// 此处额外兜底未被 .gitignore 收录的常见噪声目录）。
 /// pub(crate)：fs_cmds（workspace_has_python 的 venv 探测走查）与本文件共享同一名单。
-pub(crate) const SEARCH_IGNORED_DIRS: [&str; 10] = [
+///
+/// 2026-10-18 venv 误收集修复（用户现场 smbter/venv）：补 `venv` / `env` /
+/// `virtualenv` / `site-packages` / `dist-packages` 五项。原名单只有 `.venv`——
+/// 无点命名的 venv 逃过 hidden 规则，且工作区非 git 仓库时 `.gitignore`（含 `venv/`）
+/// 因 ignore crate 的 require_git 默认 true 而不生效，venv 内三方包自带的 test_*.py
+/// 被 pytest scan 收进测试树（用户现场 48 个，项目本体 0 个）。排除组件与 dep_health
+/// 的 Python 侧 `_is_local_path` 保持一致（`.venv*` / `venv` / `site-packages` /
+/// `dist-packages`，不用裸 `env`——故此处 `env` 仅按命名兜底，不参与落点判定）。
+/// 注：`.tox` / `.nox` 无需重复登记（点开头目录已被 hidden 覆盖）。
+pub(crate) const SEARCH_IGNORED_DIRS: [&str; 15] = [
     ".git", ".venv", "node_modules", "__pycache__", ".idea", ".vscode",
     "dist", "build", ".pytest_cache", ".ruff_cache",
+    "venv", "env", "virtualenv", "site-packages", "dist-packages",
 ];
 
 /// 单文件大小上限（超过跳过，防误扫大文件卡顿）。
@@ -1659,6 +1669,38 @@ mod tests {
         let mut sorted = files.clone();
         sorted.sort();
         assert_eq!(files, sorted);
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn test_list_workspace_files_prunes_venv_and_site_packages() {
+        // 2026-10-18 venv 误收集修复：无点命名的 venv / env / virtualenv 与三方包目录
+        // （site-packages / dist-packages）一律剪枝——venv 内三方包自带 test_*.py
+        // 曾把 pytest 测试树灌满。非 git 仓库（tmpdir 无 .git）也走名单兜底，
+        // 不依赖 .gitignore。
+        let base = tmpdir("noisedirs");
+        fs::write(base.join("main.py"), "x=1").unwrap();
+        fs::create_dir_all(base.join("src")).unwrap();
+        fs::write(base.join("src").join("a.py"), "y=1").unwrap();
+        let noise_dirs = [
+            base.join("venv").join("Lib").join("site-packages").join("pkg"),
+            base.join("env").join("Lib").join("site-packages"),
+            base.join("virtualenv").join("Lib").join("site-packages"),
+            base.join("site-packages"),
+            base.join("dist-packages"),
+        ];
+        for dir in &noise_dirs {
+            fs::create_dir_all(dir).unwrap();
+            fs::write(dir.join("test_a.py"), "def test_x(): pass").unwrap();
+        }
+
+        let files = list_workspace_files_impl(&base.to_string_lossy()).unwrap();
+        // 断言落在**相对路径**上（绝对路径前缀含 tmpdir/用户名，子串断言会误伤）
+        let rels: Vec<String> = files
+            .iter()
+            .map(|p| Path::new(p).strip_prefix(&base).unwrap_or(Path::new(p)).to_string_lossy().replace('\\', "/"))
+            .collect();
+        assert_eq!(rels, vec!["main.py".to_string(), "src/a.py".to_string()], "虚拟环境/三方包目录全部剪枝");
         fs::remove_dir_all(&base).unwrap();
     }
 

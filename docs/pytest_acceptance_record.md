@@ -1,7 +1,7 @@
 # pytest 测试运行器验收记录
 
-> 版本：v1.2 · 日期：2026-10-17 · 对应计划 `docs/pytest_dev_plan.md` v1.0
-> 范围：**T1–T5 全部交付并验收**（v1.0 覆盖 T1–T4；v1.1 增补 T5 真机 `pytest-real` 12 项检查 + 真机抓出的 5 个 bug，连同 mock 层共 7 个；v1.2 修掉 §6 audit_tokens 两项存量 FAIL 并勘误）。
+> 版本：v1.3 · 日期：2026-10-18 · 对应计划 `docs/pytest_dev_plan.md` v1.0
+> 范围：**T1–T5 全部交付并验收**（v1.0 覆盖 T1–T4；v1.1 增补 T5 真机 `pytest-real` 12 项检查 + 真机抓出的 5 个 bug，连同 mock 层共 7 个；v1.2 修掉 §6 audit_tokens 两项存量 FAIL 并勘误；**v1.3 venv 误收集修补批**：用户现场 smbter 反馈 venv 三方包测试被收进测试树，§7 记 bug 8/9 与双保险修法）。
 > 约束真源：`ci/budgets.toml` · `docs/adr/0010-performance-lightweight-charter.md`
 
 ---
@@ -157,6 +157,25 @@ i18n                 ✅ 编译期对齐（en-US 为 Record<ZhKey, string>）+ i
    已展开分组的子行不重渲染，且 `expanded` map 仍记为已展开 → 下一次点击先「折叠」一次才展开。
    修法：`visibleNodes()` 按 map 拍平可见节点后再分帧渲染（`toggleExpand` 增删路径不变）。
 
+**venv 误收集（2026-10-18，用户现场 `D:\PycharmProjects\smbter` 反馈，T1–T5 之后的修补批）：**
+
+8. **venv 目录下的三方包测试被收进测试树**（48 个 `test_*.py`，项目本体 0 个）：
+   根因三层叠加——① `scan` 的共享剪枝名单 `SEARCH_IGNORED_DIRS` 只有 `.venv`，
+   无点命名的 `venv` 逃过 `hidden(true)`；② 工作区**非 git 仓库**（无 `.git`）时
+   `.gitignore` 里的 `venv/` 因 ignore crate `require_git` 默认 true 而**不生效**；
+   ③ `buildTestTree` 无条件把全部 scan 文件建成树行，pytest（默认 `norecursedirs`
+   本就含 `venv`）一个用例都没收到的文件仍长期占位。修法：`SEARCH_IGNORED_DIRS`
+   补 `venv` / `env` / `virtualenv` / `site-packages` / `dist-packages`（与 dep_health
+   的 Python 侧 `_is_local_path` 排除组件对齐）+ `buildTestTree` 第三参
+   `pruneEmptyFiles`（仅 collect 成功路径置 true，剔除零用例骨架行）。
+   回归面：Rust `test_list_workspace_files_prunes_venv_and_site_packages` +
+   vitest pruneEmptyFiles 三例 + e2e PT-13。
+9. **`venv` 命名导致解释器自动检测落空**（同一现场的连带缺陷）：
+   `env_cmds.rs::venv_python` 原先只认 `.venv` → 该项目的 pytest collect 退
+   `uv run pytest` 兜底（且该 venv 未装 pytest）。修法：按序识别
+   `.venv` / `venv` / `env`（判据是真实存在 `Scripts/python.exe` / `bin/python`，
+   故名 `env` 的普通源码目录不误判）；回归面 = `test_venv_python_alt_names`。
+
 ## 8. 文档回写
 
 - `docs/pytest_dev_plan.md`：状态 →「T1–T5 已交付（2026-10-17）」。
@@ -164,6 +183,10 @@ i18n                 ✅ 编译期对齐（en-US 为 Record<ZhKey, string>）+ i
 - `docs/improvement_and_roadmap_report.md`：B1 → 已交付（含 T5 真机）。
 - `ci/budgets.toml`：显式修订 4 条（main.ts 2,410→2,440 · testTreeCore 300→400 ·
   testRun 340→460 · 新文件登记），每条均写明理由（见文件内注释）。
+- **v1.3（2026-10-18）**：`docs/pytest_dev_plan.md` §3.2 增补两条口径
+  （venv / 三方包目录剪枝 · 零用例骨架行剔除）；§7 增补 bug 8/9。
+  预算零调整（search_cmds 1,800/2,000 · testTreeCore 392/400 · testRun 470/470 净 0 ·
+  env_cmds 1,515/1,700，非测试代码净 0）。
 
 ## 9. T5 真机验收（pytest-real，12 项检查 PASS）
 

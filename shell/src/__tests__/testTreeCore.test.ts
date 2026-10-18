@@ -133,6 +133,27 @@ describe("buildTestTree", () => {
     const roots = buildTestTree(["t.py"], ["t.py::test_x", "t.py::test_x"]);
     expect(countCases(roots)).toBe(1);
   });
+
+  it("pruneEmptyFiles：collect 成功口径下剔除零用例骨架文件行（venv 误收集修复）", () => {
+    // 现场复刻：scan 骨架里混进 venv/Lib/site-packages 三方包测试文件，而 pytest
+    // 一个用例都没从它们收到——这些行不该在收集成功后长期占位。
+    const roots = buildTestTree(
+      ["tests/test_a.py", "venv/Lib/site-packages/h11/tests/test_io.py", "venv/Lib/site-packages/greenlet/tests/test_gc.py"],
+      ["tests/test_a.py::test_one"],
+      true,
+    );
+    expect(roots.map((r) => r.id)).toEqual(["tests/test_a.py"]);
+  });
+
+  it("pruneEmptyFiles 不误伤自定义 python_files 的追加文件（它们自带 case）", () => {
+    const roots = buildTestTree(["tests/test_a.py", "checks/suite.py"], ["tests/test_a.py::test_one", "checks/suite.py::test_two"], true);
+    expect(roots.map((r) => r.id)).toEqual(["tests/test_a.py", "checks/suite.py"]);
+  });
+
+  it("pruneEmptyFiles 默认 false：骨架语义不变（collect 失败/取消时树仍可见）", () => {
+    const roots = buildTestTree(["tests/test_a.py", "venv/Lib/site-packages/x/test_b.py"], ["tests/test_a.py::test_one"]);
+    expect(roots.map((r) => r.id)).toEqual(["tests/test_a.py", "venv/Lib/site-packages/x/test_b.py"]);
+  });
 });
 
 // ---------- applyResults / rollup ----------

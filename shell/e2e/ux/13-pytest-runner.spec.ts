@@ -11,6 +11,7 @@
  *  - PT-8 gutter 右键菜单「调试此测试」→ debug_start 带 test_node
  *  - PT-9 .py 变更 → dep-fs-changed → stale chip
  *  - PT-10 collect 取消分支：静默复位不报错
+ *  - PT-13 venv 误收集修复：scan 骨架里的 venv 三方包测试文件，collect 成功后剔除
  *
  * mock 面跑在 tauri-mock.js（pytest_action 四动作 + run_in_terminal 记录），预置经
  * window.__E2E_PYTEST__ 注入（须 addInitScript 先于 goto）。真实 collect / junitxml
@@ -378,4 +379,27 @@ test("PT-10 collect 取消：静默复位不报错（树保持骨架）", async 
   // cancelled 分支：phase 回落 idle，文件骨架仍在（scan 先行落地）
   await expect(page.locator('.test-row[data-node="tests/test_api.py"]')).toBeVisible({ timeout: 10_000 });
   await expect(page.locator("#test-cancel")).toHaveClass(/hidden/);
+});
+
+// ---------- PT-13：venv 误收集修复（2026-10-18） ----------
+
+test("PT-13 venv 误收集修复：collect 成功后剔除零用例的 venv 骨架文件行", async ({ page }) => {
+  // 用户现场 smbter：scan 剪枝名单原先只有 .venv，无点命名的 venv 把三方包自带的
+  // test_*.py 收进测试树；且非 git 仓库时 .gitignore 的 venv/ 不生效。
+  // 双保险：Rust 名单补齐 venv/site-packages（Rust 单测覆盖）+ 前端 collect 成功后
+  // 剔除零用例骨架行（本用例主断言，模拟「名单仍漏网」的兜底路径）。
+  await boot(page, repo, {
+    files: [
+      "tests/test_api.py",
+      "venv/Lib/site-packages/h11/tests/test_io.py",
+      "venv/Lib/site-packages/greenlet/tests/test_gc.py",
+    ],
+    nodes: ["tests/test_api.py::test_create", "tests/test_api.py::TestUser::test_x"],
+  });
+  await openTestsView(page);
+  // collect 成功 → 项目测试行在、venv 文件行不在
+  await expect(page.locator('.test-row[data-node="tests/test_api.py"]')).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('.test-row[data-node="venv/Lib/site-packages/h11/tests/test_io.py"]')).toHaveCount(0);
+  await expect(page.locator('.test-row[data-node="venv/Lib/site-packages/greenlet/tests/test_gc.py"]')).toHaveCount(0);
+  await expect(page.locator("#test-count")).toContainText("2", { timeout: 10_000 });
 });

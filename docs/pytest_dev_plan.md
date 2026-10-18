@@ -114,6 +114,8 @@ pub async fn pytest_action(
 **用例级发现为什么不用静态扫描**：parametrize 的 `test_foo[a-b]`、`pytest_generate_tests` 动态生成、插件收集的用例，静态扫不可能扫全；误报漏报直接毁掉树的可信度。`--collect-only -q` 输出是逐行 node id（`tests/test_api.py::TestUser::test_create[1-2]`），格式自 pytest 3.x 起稳定，VS Code 亦同此路线。**但文件级骨架用静态遍历**（见下 bullet）——文件名单漏不掉（默认命名模式 + collect 对自定义 `python_files` 的补齐），先用它兑现首帧，再用 collect 增强。
 
 - **两段式数据流（scan → collect 增强）**：打开视图先 `pytest_action(scan)`（纯 Rust 工作区遍历，**无子进程**，百毫秒级）→ 文件级骨架**先行渲染**（不依赖 collect，兑现 §3.10 首帧要求，60s 病态 collect 也不再阻塞界面）；collect 后台并行跑，落地后用例子节点增强骨架（parametrize / 动态用例 / 自定义 `python_files` 收集到的非常规命名文件 / 收集错误）。scan 与 collect 共用同一份缓存（§3.8）；
+- **venv / 三方包目录剪枝（2026-10-18 修订，用户现场 smbter）**：`SEARCH_IGNORED_DIRS` 自本批起含 `venv` / `env` / `virtualenv` / `site-packages` / `dist-packages`。原名单只有 `.venv`，无点命名的 venv 逃过 `hidden` 规则，且**工作区非 git 仓库时 `.gitignore` 因 ignore crate `require_git` 默认 true 而不生效**——venv 内三方包自带的 `test_*.py`（smbter 现场 48 个）被收进测试树。剪枝后 venv 的 1437 个 `.py` 不再进遍历，scan 同步更快；
+- **零用例骨架行剔除（2026-10-18 修订）**：`buildTestTree(files, nodes, pruneEmptyFiles=true)` 仅在 collect 成功路径置 true——pytest 真没收到的文件（剪枝名单漏网点 / 文件存在但 pytest 未收集）不得在收集成功后长期占位。collect 失败 / 取消 / 未安装时保持骨架语义（树仍可见）。自定义 `python_files` 的追加文件自带 case，不受影响；
 - **按需执行**：仅「打开测试视图且无缓存」或「缓存被失效且视图可见」时 spawn；无常驻、无轮询；
 - **可取消 + 超时**：60s 超时即 `util::kill_process_tree`（铁律：杀子进程必须杀树）；视图提供取消按钮；
 - **解析口径**（Rust 单测钉死）：node id 行 = 含 `.py` 且 `.py` 后为行尾或 `::`（排除 `tests/test_x.py:12: PytestUnknownMarkWarning` 之类告警行、`N tests collected` 摘要行）；退出码非 0 → `error_tail` 带输出尾部 40 行供视图展示；退出码 0 但解析出 0 节点且原始输出非空 → `ok=false` + `error_tail`（防插件改写收集输出时静默空树）；

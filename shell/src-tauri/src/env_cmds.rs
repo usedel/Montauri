@@ -103,9 +103,10 @@ fn venv_python_at(dir: &Path) -> Option<String> {
         .map(|p| p.to_string_lossy().to_string())
 }
 
-/// 工作区 .venv 解释器路径
+/// 工作区虚拟环境解释器路径：`.venv` / `venv` / `env` 三种常见命名取首个存在者
+/// （2026-10-18 扩容，用户现场 smbter/venv——无点命名原会落到 uv 兜底）。
 fn venv_python(root: &str) -> Option<String> {
-    venv_python_at(&Path::new(root).join(".venv"))
+    [".venv", "venv", "env"].iter().find_map(|d| venv_python_at(&Path::new(root).join(d)))
 }
 
 // ---------- 命令执行（带超时） ----------
@@ -544,13 +545,13 @@ fn create_venv_impl(app: AppHandle, workspace_root: String, version: String, wid
 
 /// 获取当前解释器：
 /// - 配置里**存在** interpreter 键 → 尊重用户显式选择（string=指定解释器；null=显式 uv run，不自动检测）；
-/// - **无**该键（从未设置）→ .venv 自动检测兜底。
-/// 区分二者是关键：否则用户选「（默认）uv run」后，.venv 自动检测会把选择覆盖回去（选等于没选）。
+/// - **无**该键（从未设置）→ 虚拟环境自动检测兜底（.venv / venv / env）。
+/// 区分二者是关键：否则用户选「（默认）uv run」后，自动检测会把选择覆盖回去（选等于没选）。
 #[tauri::command]
 pub fn get_interpreter(workspace_root: String) -> Result<Option<String>, String> {
     match load_config(&workspace_root).get("interpreter") {
         Some(v) => Ok(v.as_str().map(String::from)), // 显式设置过：null → None（uv run）
-        None => Ok(venv_python(&workspace_root)),     // 从未设置：自动检测 .venv
+        None => Ok(venv_python(&workspace_root)),     // 从未设置：自动检测 .venv/venv/env
     }
 }
 
@@ -1247,6 +1248,41 @@ mod tests {
     fn test_venv_python_missing() {
         // 不存在的 root 无 .venv → None
         assert_eq!(venv_python("Z:\\__no_such_dir__"), None);
+    }
+
+    /// 2026-10-18 扩容：无点命名的 venv / env 也被识别（用户现场 smbter/venv 原会落到
+    /// uv 兜底）。判据是 venv_python_at 的真实文件存在性，故名 env 的普通目录不误判。
+    #[test]
+    fn test_venv_python_alt_names() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let base = std::env::temp_dir().join(format!("opencharm-venvnames-{nanos}"));
+        let bin = if cfg!(windows) { "Scripts\\python.exe" } else { "bin/python" };
+        let mk_interp = |sub: &str| -> std::path::PathBuf {
+            let p = base.join(sub).join(bin);
+            fs::create_dir_all(p.parent().unwrap()).unwrap();
+            fs::write(&p, "").unwrap();
+            p
+        };
+        let venv_py = mk_interp("venv");
+        let env_py = mk_interp("env");
+        // 名为 env 但**无解释器**的目录（普通源码目录），用于验证不误判
+        let plain = base.join("plain").join("env");
+        fs::create_dir_all(&plain).unwrap();
+
+        let root = base.to_string_lossy().to_string();
+        // .venv 缺位 → 按序取 venv
+        assert_eq!(venv_python(&root).as_deref(), Some(venv_py.to_string_lossy().as_ref()));
+        // .venv 存在 → 优先于 venv（顺序即优先级）
+        let dot_py = mk_interp(".venv");
+        assert_eq!(venv_python(&root).as_deref(), Some(dot_py.to_string_lossy().as_ref()));
+        // 只有普通 env 目录（无解释器）→ None
+        assert_eq!(venv_python(&base.join("plain").to_string_lossy()), None);
+        // env 命名单独生效（删掉 .venv 与 venv 后回落到 env）
+        fs::remove_dir_all(base.join(".venv")).unwrap();
+        fs::remove_dir_all(base.join("venv")).unwrap();
+        assert_eq!(venv_python(&root).as_deref(), Some(env_py.to_string_lossy().as_ref()));
+        fs::remove_dir_all(&base).unwrap();
     }
 
     #[test]
