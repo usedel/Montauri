@@ -58,8 +58,9 @@ test("端点面板：关闭工作区再打开 → 面板刷新（不停留在「
   await page.locator("#menu-dropdown .ctx-menu-item.with-submenu", { hasText: "最近的工作区" }).click();
   await page.locator("#menu-submenu .ctx-menu-item .sub-label", { hasText: repo.root.split(/[\\/]/).pop() ?? "" }).click();
 
-  // 工作区重新打开完成：树头显示根路径 + 分支名再现
-  await expect(page.locator("#tree-header-text")).toHaveText(repo.root);
+  // 工作区重新打开完成：树根节点显示工作区文件夹名 + 分支名再现
+  // （2026-10-18 起树头不再显示全路径，就绪判定改判根节点 .name，见 main.ts openWorkspace）
+  await expect(page.locator("#tree .tree-root .name")).toHaveText(repo.root.split(/[\\/]/).pop() ?? "");
   await expect
     .poll(async () => (await page.locator("#status-git").textContent())?.trim() ?? "", { timeout: 20_000 })
     .not.toBe("");

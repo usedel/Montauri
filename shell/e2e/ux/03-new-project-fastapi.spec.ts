@@ -67,8 +67,8 @@ test("NP-1 默认脚本类型：main.py 为 def main() 模板", async ({ page })
   await expect(page.locator("#new-project-preview")).not.toContainText("FastAPI");
 
   await page.locator("#new-project-create").click();
-  // 工作区切换成功（#tree-header-text 显示新工作区路径，同 git/22 spec 判定方式）
-  await expect(page.locator("#tree-header-text")).toContainText("demo-script", { timeout: 20_000 });
+  // 工作区切换成功（树根节点显示新工作区文件夹名；2026-10-18 起树头不再显示全路径）
+  await expect(page.locator("#tree .tree-root .name")).toHaveText("demo-script", { timeout: 20_000 });
   await expect(page.locator("#tabbar .tab.active .name", { hasText: "main.py" })).toBeVisible({ timeout: 15_000 });
   // 磁盘：脚本模板（回归——F9 不破坏默认路径）
   expect(repo.read("demo-script/main.py")).toContain("def main()");
@@ -87,7 +87,7 @@ test("NP-2 FastAPI 类型：模板 + 依赖落盘 + 全链路反馈", async ({ p
   await expect(page.locator("#new-project-preview")).toContainText("FastAPI 服务 入口 main.py + fastapi / uvicorn 依赖");
 
   await page.locator("#new-project-create").click();
-  await expect(page.locator("#tree-header-text")).toContainText("demo-api", { timeout: 20_000 });
+  await expect(page.locator("#tree .tree-root .name")).toHaveText("demo-api", { timeout: 20_000 });
   await expect(page.locator("#tabbar .tab.active .name", { hasText: "main.py" })).toBeVisible({ timeout: 15_000 });
 
   // 磁盘断言：FastAPI 模板 + pyproject 依赖（mock 模板与 Rust 粗粒度同步）

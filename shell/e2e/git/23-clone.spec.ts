@@ -128,9 +128,9 @@ test("E2E-18 Clone 成功闭环：面板关闭 + 工作区切换 + README 自动
 
   await page.locator("#clone-submit").click();
 
-  // 面板关闭 + 工作区切换为克隆目录
+  // 面板关闭 + 工作区切换为克隆目录（2026-10-18 起树头不显示路径，改判树根节点 .name）
   await expect(page.locator("#new-project-modal")).toBeHidden({ timeout: 20_000 });
-  await expect(page.locator("#tree-header-text")).toContainText("cloned-repo", { timeout: 20_000 });
+  await expect(page.locator("#tree .tree-root .name")).toHaveText("cloned-repo", { timeout: 20_000 });
   // 完成后自动打开 README.md（mock 落盘含 README.md + main.py，README 优先）
   await expect(page.locator("#tabbar .tab.active .name", { hasText: "README.md" })).toBeVisible({ timeout: 15_000 });
 });
@@ -177,6 +177,8 @@ test("E2E-20 流式进度 + 取消：busy 锁 tab，取消后 toast info 且不�
   await expect(page.locator("#clone-progress")).toBeHidden({ timeout: 5_000 });
   await expect(page.locator('.new-project-tab[data-tab="local"]')).toBeEnabled();
   await expect(page.locator("#clone-submit")).toBeEnabled();
-  // openWorkspace 未被调用：工作区仍是空态（tree-header 不出现克隆目录）
-  await expect(page.locator("#tree-header-text")).not.toContainText(`oc-clone-cancel`);
+  // openWorkspace 未被调用：工作区仍是欢迎页空态。2026-10-18 起树头恒为静态「文件」，
+  // 单靠它已无法证伪「切到了克隆目录」，必须补「树无根节点」断言（切换过则必有根节点）。
+  await expect(page.locator("#tree .tree-root")).toHaveCount(0);
+  await expect(page.locator("#tree-header-text")).toHaveText("文件");
 });

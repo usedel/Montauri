@@ -369,7 +369,7 @@ async function openWorkspace(root: string): Promise<void> {
       resetWorkspaceUiState();
     }
     app.workspaceRoot = root;
-    $("tree-header-text").textContent = root;
+    $("tree-header-text").textContent = t("tree.treeHeaderText"); // 2026-10-18：树头不再写工作区全路径（身份由树根节点 basename + hover 全路径承担），保持静态「文件」标签供 index.html #tree 的 aria-labelledby 使用
     wsMark("前置清理完成");
     // P2：书签按工作区持久化，换工作区要重新加载（并刷新 gutter 装饰）
     await loadBookmarks();

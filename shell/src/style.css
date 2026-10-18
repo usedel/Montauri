@@ -885,6 +885,10 @@ button:focus-visible,
 #tree-header {
   display: flex;
   align-items: center;
+  /* 2026-10-18：7 个图标按钮两两加间距（原无 gap，仅贴 .btn--icon 自身 4px 内边距，
+     图标间实际只剩 8px）。取值与 #git-toolbar（同为右对齐图标工具栏）同档；
+     文字与首按钮之间同样获得该间距，不影响 #tree-header-text 的 flex:1 截断行为。 */
+  gap: var(--space-2);
   padding: var(--space-3) var(--space-5);
   font-size: var(--text-xs);
   letter-spacing: 1px;

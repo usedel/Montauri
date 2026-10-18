@@ -73,14 +73,16 @@ async function closeWorkspaceViaMenu(page: Page): Promise<void> {
 
 /** 文件菜单 → 最近的工作区 → 重开 repo（走 openWorkspace 真实链路） */
 async function reopenWorkspaceViaMenu(page: Page, repo: GitRepo): Promise<void> {
+  const rootName = repo.root.split(/[\\/]/).pop() ?? "";
   await page.evaluate(async (root) => {
     const b = (window as { __E2E_BRIDGE__?: (ch: string, cmd: unknown, args: unknown) => Promise<unknown> }).__E2E_BRIDGE__;
     await b?.("setRecentWorkspaces", [root], null);
   }, repo.root);
   await page.locator('.menubar-item[data-menu="file"]').click();
   await page.locator("#menu-dropdown .ctx-menu-item.with-submenu", { hasText: "最近的工作区" }).click();
-  await page.locator("#menu-submenu .ctx-menu-item .sub-label", { hasText: repo.root.split(/[\\/]/).pop() ?? "" }).click();
-  await expect(page.locator("#tree-header-text")).toHaveText(repo.root);
+  await page.locator("#menu-submenu .ctx-menu-item .sub-label", { hasText: rootName }).click();
+  // 2026-10-18 起树头不再显示全路径，工作区就绪改判树根节点 .name（见 main.ts openWorkspace）
+  await expect(page.locator("#tree .tree-root .name")).toHaveText(rootName);
   await expect
     .poll(async () => (await page.locator("#status-git").textContent())?.trim() ?? "", { timeout: 20_000 })
     .not.toBe("");
