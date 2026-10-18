@@ -1028,7 +1028,7 @@ async function doExport(): Promise<void> {
   }
   const target = await saveDialog({
     title: t("lt.exportTitle"),
-    defaultPath: "opencharm-live-templates.json",
+    defaultPath: "montauri-live-templates.json",
     filters: [{ name: "JSON", extensions: ["json"] }],
   });
   if (!target) return;

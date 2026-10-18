@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>OpenCharm</title>
+    <title>Montauri</title>
     <!-- 首屏兜底样式：正式 CSS 由 main.ts 异步注入，此内联样式避免启动瞬间的白底/无样式闪烁（FOUC）。
          必须用字面值而非 var(--token)：本块要在 style.css 之前生效，那时 :root 里的 token 还不存在。
          ⚠ 因此这里与 style.css 的 token 存在隐式同步义务，共 6 项，改动下列任一 token 时须回来同步：
@@ -42,7 +42,7 @@
       <nav data-i18n-aria="menubar.menubar" id="menubar" role="menubar" aria-label="应用菜单">
         <!-- D4 品牌触点：Charm Snake 品牌标（单色，随 --brand） -->
         <span class="menubar-logo" aria-hidden="true"><svg viewBox="0 0 24 24" width="15" height="15"><path d="M6 19C6 15 17 16.5 17 12.5C17 8.5 8 9.5 8 5.8" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><path fill="currentColor" fill-rule="evenodd" d="M10.2 4.9a2.3 2.3 0 1 0-4.6 0a2.3 2.3 0 1 0 4.6 0ZM8 4.3a.7.7 0 1 0-1.4 0a.7.7 0 1 0 1.4 0Z"/><path fill="currentColor" d="M17.5 1.9Q17.5 4.6 20.2 4.6Q17.5 4.6 17.5 7.3Q17.5 4.6 14.8 4.6Q17.5 4.6 17.5 1.9Z"/></svg></span>
-        <span class="menubar-title">OpenCharm</span>
+        <span class="menubar-title">Montauri</span>
         <!-- UI-30：菜单按钮声明 aria-haspopup + aria-expanded（开合态由 showMenuDropdown/hideMenuDropdown 同源切换） -->
         <button data-i18n="menubar.file" class="menubar-item" data-menu="file" role="menuitem" aria-haspopup="menu" aria-expanded="false">文件</button>
         <button data-i18n="menubar.edit" class="menubar-item" data-menu="edit" role="menuitem" aria-haspopup="menu" aria-expanded="false">编辑</button>
@@ -313,7 +313,7 @@
                 <!-- D4 品牌触点：渐变底 + 白色 Charm Snake 品牌标 -->
                 <div class="ew-logo"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M6 19C6 15 17 16.5 17 12.5C17 8.5 8 9.5 8 5.8" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><path fill="currentColor" fill-rule="evenodd" d="M10.2 4.9a2.3 2.3 0 1 0-4.6 0a2.3 2.3 0 1 0 4.6 0ZM8 4.3a.7.7 0 1 0-1.4 0a.7.7 0 1 0 1.4 0Z"/><path fill="currentColor" d="M17.5 1.9Q17.5 4.6 20.2 4.6Q17.5 4.6 17.5 7.3Q17.5 4.6 14.8 4.6Q17.5 4.6 17.5 1.9Z"/></svg></div>
                 <div>
-                  <h1 class="ew-title">OpenCharm</h1>
+                  <h1 class="ew-title">Montauri</h1>
                   <p data-i18n="welcome.getStartedP" class="ew-subtitle">Python IDE 工作区</p>
                 </div>
               </div>
@@ -479,7 +479,7 @@
              点击打开环境面板的「依赖健康」分区。显隐与图标由 depHealthPanel.ts 驱动） -->
         <span data-i18n-tip="status.healthStatus" id="dep-health-status" class="hidden" style="cursor:pointer" role="button" tabindex="0" data-tip="依赖体检"></span>
         <!-- §6.2 uv 建议的持续存在感：解释器芯片 tooltip 常驻「uv 管理依赖」事实 -->
-        <span data-i18n-tip="status.statusInterpreter" id="status-interpreter" data-tip="点击管理 Python 环境 · OpenCharm 以 uv 管理依赖" style="cursor:pointer" role="button" aria-haspopup="dialog" aria-expanded="false" tabindex="0"></span>
+        <span data-i18n-tip="status.statusInterpreter" id="status-interpreter" data-tip="点击管理 Python 环境 · Montauri 以 uv 管理依赖" style="cursor:pointer" role="button" aria-haspopup="dialog" aria-expanded="false" tabindex="0"></span>
         <!-- A-1（PyCharm 调研）：资源可观测芯片——「轻」要可感知；点击打开资源面板（默认隐藏，首次采样成功后显示） -->
         <span data-i18n-tip="status.statusMem" id="status-mem" class="hidden" data-tip="资源占用（外壳 + 子进程）· 点击查看明细" style="cursor:pointer" role="button" aria-haspopup="dialog" aria-expanded="false" tabindex="0"></span>
         <span data-i18n-tip="status.statusEngine" id="status-engine" data-tip="点击切换静态语义引擎" style="cursor:pointer" role="button" aria-haspopup="menu" aria-expanded="false" tabindex="0"></span>
@@ -621,7 +621,7 @@
               </div>
               <div id="dep-health-content" class="dep-health-content" role="tabpanel"></div>
             </div>
-            <div data-i18n="env.modalDiv4" class="dep-uv-note">OpenCharm 使用 uv 管理依赖 · pip 安装同样可检测（但不写入声明）</div>
+            <div data-i18n="env.modalDiv4" class="dep-uv-note">Montauri 使用 uv 管理依赖 · pip 安装同样可检测（但不写入声明）</div>
           </div>
         </div>
       </div>
@@ -1092,7 +1092,7 @@
               <div class="settings-group">
                 <h3 data-i18n="settings.group.editorDiagnostics" class="settings-group-title">诊断</h3>
                 <div class="settings-grid">
-                  <!-- 阶段 4：Pydantic 构造校验诊断（opencharm-pydantic 第四桶） -->
+                  <!-- 阶段 4：Pydantic 构造校验诊断（montauri-pydantic 第四桶） -->
                   <div class="settings-row">
                     <label data-i18n="settings.editor.sectionEditorLabel20" for="settings-pydantic-diagnostics">Pydantic 构造校验（类型 / 必填红线）</label>
                     <input id="settings-pydantic-diagnostics" type="checkbox" autocomplete="off" />
@@ -1368,7 +1368,7 @@
                     <label data-i18n="settings.logging.sectionLoggingLabel3" for="settings-log-keep">保留轮转份数</label>
                     <div class="settings-field">
                       <input id="settings-log-keep" type="number" min="1" max="10" />
-                      <div data-i18n="settings.logging.sectionLoggingDiv" class="settings-row-desc">日志写入数据根的 <code>logs/opencharm.log</code>，单文件超过 1 MiB 自动轮转。关闭「启用日志」后仍会记录错误级日志。</div>
+                      <div data-i18n="settings.logging.sectionLoggingDiv" class="settings-row-desc">日志写入数据根的 <code>logs/montauri.log</code>，单文件超过 1 MiB 自动轮转。关闭「启用日志」后仍会记录错误级日志。</div>
                     </div>
                   </div>
                   <div class="settings-row">
@@ -1452,7 +1452,7 @@
                         <button data-i18n="settings.storage.uvPrune" id="storage-uv-prune" class="btn">清理无效条目…</button>
                         <button data-i18n="settings.storage.uvClean" id="storage-uv-clean" class="btn">深度清理…</button>
                       </div>
-                      <div data-i18n="settings.storage.sectionStorageDiv" class="settings-row-desc">uv 缓存默认与其他项目通过硬链接共享；深度清理后已装环境不受影响，但重装包将重新落盘。uv 位置由用户自有环境变量（<code>UV_CACHE_DIR</code> 等）决定，OpenCharm 不代管。</div>
+                      <div data-i18n="settings.storage.sectionStorageDiv" class="settings-row-desc">uv 缓存默认与其他项目通过硬链接共享；深度清理后已装环境不受影响，但重装包将重新落盘。uv 位置由用户自有环境变量（<code>UV_CACHE_DIR</code> 等）决定，Montauri 不代管。</div>
                     </div>
                   </div>
                 </div>
@@ -1463,7 +1463,7 @@
                   <div class="settings-row">
                     <label data-i18n="settings.storage.sectionStorageLabel5" for="storage-migrate-path">迁移数据到其他盘</label>
                     <div class="settings-controls">
-                      <input id="storage-migrate-path" type="text" autocomplete="off" placeholder="D:\opencharm-data" spellcheck="false" />
+                      <input id="storage-migrate-path" type="text" autocomplete="off" placeholder="D:\montauri-data" spellcheck="false" />
                       <button data-i18n="settings.storage.migrateBrowse" id="storage-migrate-browse" class="btn">浏览…</button>
                     </div>
                   </div>
@@ -1471,7 +1471,7 @@
                     <span class="settings-label-gap" aria-hidden="true"></span>
                     <div class="settings-field">
                       <button data-i18n="settings.storage.migrate" id="storage-migrate" class="btn btn--primary">开始迁移…</button>
-                      <div data-i18n="settings.storage.sectionStorageDiv2" class="settings-row-desc">迁移 = 复制数据到目标并写入数据根指针文件（位于系统配置目录，仅几十字节），重启后生效。uv 缓存/工具目录由你的环境变量（<code>UV_CACHE_DIR</code> / <code>UV_TOOL_DIR</code>）自行管理，OpenCharm 不代管。旧目录不会被自动删除，重启确认无误后可手工删除。</div>
+                      <div data-i18n="settings.storage.sectionStorageDiv2" class="settings-row-desc">迁移 = 复制数据到目标并写入数据根指针文件（位于系统配置目录，仅几十字节），重启后生效。uv 缓存/工具目录由你的环境变量（<code>UV_CACHE_DIR</code> / <code>UV_TOOL_DIR</code>）自行管理，Montauri 不代管。旧目录不会被自动删除，重启确认无误后可手工删除。</div>
                     </div>
                   </div>
                 </div>

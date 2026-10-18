@@ -18,8 +18,8 @@ sys.path.insert(0, str(SRC))
 
 def _env(tmp_path):
     env = os.environ.copy()
-    env["OPENCHARM_PROBE_HOME"] = str(tmp_path / "home")
-    env.pop("OPENCHARM_PROBE_CONFIG", None)
+    env["MONTAURI_PROBE_HOME"] = str(tmp_path / "home")
+    env.pop("MONTAURI_PROBE_CONFIG", None)
     env["PYTHONIOENCODING"] = "utf-8"
     env["PYTHONUTF8"] = "1"
     return env
@@ -27,7 +27,7 @@ def _env(tmp_path):
 
 def _cli(env, *args, cwd=PROBE_ROOT):
     return subprocess.run(
-        [sys.executable, "-m", "opencharm_probe.cli", *args],
+        [sys.executable, "-m", "montauri_probe.cli", *args],
         capture_output=True, text=True, env=env, cwd=str(cwd),
         encoding="utf-8", errors="replace",
     )
@@ -56,12 +56,12 @@ def test_clean_missing_db_returns_2(tmp_path):
 def test_clean_existing_db_reports_stats(tmp_path):
     """有库时 clean 走通并打印 runs/functions 统计（分发层不覆盖统计值本身）。
 
-    CLI 子进程按 OPENCHARM_PROBE_HOME 定位 trace 库（home/traces），
+    CLI 子进程按 MONTAURI_PROBE_HOME 定位 trace 库（home/traces），
     故 save 的 db_dir 与之同根（不走 conftest 的 cfg fixture——那是另一套根）。
     """
-    from opencharm_probe.config import ProbeConfig
-    from opencharm_probe.sink import ObservationSink
-    from opencharm_probe.store import db_path, save
+    from montauri_probe.config import ProbeConfig
+    from montauri_probe.sink import ObservationSink
+    from montauri_probe.store import db_path, save
 
     project = tmp_path / "proj"
     project.mkdir()

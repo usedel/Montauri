@@ -37,7 +37,7 @@ export function registerTabExpand(
   // 命令从未真正释放。改用 addAction：同样支持 keybindings + precondition（语义不变），
   // 且返回真 IDisposable（dispose 即解绑）。副作用：命令面板（F1）可按名触发，可接受。
   return editor.addAction({
-    id: "opencharm.liveTemplates.tabExpand",
+    id: "montauri.liveTemplates.tabExpand",
     label: t("lt.tabExpandActionLabel"),
     keybindings: [monaco.KeyCode.Tab],
     // 补全弹窗接受 / snippet 占位符跳转 / 重命名 / 快速修复 / 参数提示 / 无障碍焦点模式 全部优先

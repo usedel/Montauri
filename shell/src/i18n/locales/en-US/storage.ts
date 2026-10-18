@@ -10,7 +10,7 @@ export const storage: Record<StorageKey, string> = {
   // ---- storage ----
   "storage.cleanFailed": "Cleaning failed",
   "storage.done": "Done.",
-  "storage.exampleDir": "e.g. D:\\opencharm-data",
+  "storage.exampleDir": "e.g. D:\\montauri-data",
   // ---- storage.firstRun ----
   "storage.firstRun.saveFail": "Save first-run settings",
   "storage.firstRun.setMsg": "The data root now points to {dir}. Takes effect after restart (nothing stored yet on first run; restarting loses nothing). Restart now?",
@@ -59,7 +59,7 @@ export const storage: Record<StorageKey, string> = {
   "storage.uv.deepMsg": "This deletes the entire uv cache (installed environments are unaffected; reinstalling packages will download them again). Continue?",
   "storage.uv.deepTitle": "Deep-clean uv cache",
   "storage.uv.msg": "This removes invalid/dangling entries from the uv cache. Continue?",
-  "storage.uv.note": "uv (owned by the user; OpenCharm does not manage it)",
+  "storage.uv.note": "uv (owned by the user; Montauri does not manage it)",
   "storage.uv.title": "Clean uv cache",
   // ---- storage.webview ----
   "storage.webview.msg": "This deletes the WebView2 cache subdirectories (logins and other files are kept). Continue?",

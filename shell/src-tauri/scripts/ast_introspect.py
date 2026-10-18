@@ -1,4 +1,4 @@
-# opencharm 受控脚本 · ast_introspect（内省，默认关）
+# montauri 受控脚本 · ast_introspect（内省，默认关）
 # 职责：**执行用户脚本顶层代码**（副作用！前端必须先 openConfirm 确认，§11.5）后
 # 从运行时对象读取参数默认值：argparse.ArgumentParser 实例（_actions）与
 # click 命令对象（params，typer 构建后同为 click 形态）。
@@ -105,7 +105,7 @@ def run(args):
     if not os.path.isfile(path):
         raise ValueError("脚本不存在：%s" % path)
     import importlib.util
-    name = "_opencharm_introspect_%d" % os.getpid()
+    name = "_montauri_introspect_%d" % os.getpid()
     spec = importlib.util.spec_from_file_location(name, path)
     if spec is None or spec.loader is None:
         raise ValueError("无法加载脚本模块")

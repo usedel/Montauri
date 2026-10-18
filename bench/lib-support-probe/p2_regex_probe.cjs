@@ -164,7 +164,7 @@ async function main() {
 
   await sendRequest("initialize", {
     processId: process.pid,
-    clientInfo: { name: "opencharm-regex-probe", version: "1.0" },
+    clientInfo: { name: "montauri-regex-probe", version: "1.0" },
     rootUri: ROOT_URI,
     capabilities: {
       textDocument: {

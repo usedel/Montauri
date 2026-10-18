@@ -15,7 +15,7 @@ index 5ee3d84..5d0f1a2 100644
          }
          return Array.from(lineHints);
      }
-+    // OpenCharm patch (TD-029): _getInlineHintsForRange dedupes by item identity (Set),
++    // Montauri patch (TD-029): _getInlineHintsForRange dedupes by item identity (Set),
 +    // but stale entries from replaced decorations carry different item objects with the
 +    // same anchor — the Set doesn't collapse them, and the link-gesture re-render below
 +    // then emits one decoration per entry => duplicated hints flash on hover.

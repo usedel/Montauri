@@ -122,7 +122,7 @@ function buildWidget(): void {
   countEl = count;
 
   const widget: MonacoApi.editor.IContentWidget = {
-    getId: () => "opencharm.renameWidget",
+    getId: () => "montauri.renameWidget",
     getDomNode: () => host,
     getPosition: () => {
       if (!anchor) return null;
@@ -473,7 +473,7 @@ async function confirmRename(): Promise<void> {
 export function initRenameWidget(editor: MonacoApi.editor.IStandaloneCodeEditor): MonacoApi.IDisposable {
   editor.addCommand(app.monaco.KeyCode.F2, () => void startRenameAtCursor());
   return editor.addAction({
-    id: "opencharm.rename",
+    id: "montauri.rename",
     label: t("editor.rename.paletteLabel"),
     contextMenuGroupId: "navigation",
     contextMenuOrder: 1.6,

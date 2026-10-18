@@ -2520,6 +2520,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "montauri-shell"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "ignore",
+ "notify-debouncer-mini",
+ "portable-pty",
+ "regex",
+ "reqwest",
+ "rusqlite",
+ "same-file",
+ "serde",
+ "serde_json",
+ "sha1",
+ "shell-words",
+ "sysinfo",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-clipboard-manager",
+ "tauri-plugin-dialog",
+ "tauri-plugin-opener",
+ "tauri-plugin-single-instance",
+ "trash",
+ "zip",
+]
+
+[[package]]
 name = "moxcms"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2919,33 +2946,6 @@ dependencies = [
  "dunce",
  "is-wsl",
  "libc",
-]
-
-[[package]]
-name = "opencharm-shell"
-version = "0.1.0"
-dependencies = [
- "base64 0.22.1",
- "ignore",
- "notify-debouncer-mini",
- "portable-pty",
- "regex",
- "reqwest",
- "rusqlite",
- "same-file",
- "serde",
- "serde_json",
- "sha1",
- "shell-words",
- "sysinfo",
- "tauri",
- "tauri-build",
- "tauri-plugin-clipboard-manager",
- "tauri-plugin-dialog",
- "tauri-plugin-opener",
- "tauri-plugin-single-instance",
- "trash",
- "zip",
 ]
 
 [[package]]

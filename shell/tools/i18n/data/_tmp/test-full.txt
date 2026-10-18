@@ -1,5 +1,5 @@
 
-[1m[46m RUN [49m[22m [36mv3.2.7 [39m[90mD:/aipro/opencharm/shell[39m
+[1m[46m RUN [49m[22m [36mv3.2.7 [39m[90mD:/aipro/montauri/shell[39m
 
  [32m✓[39m src/__tests__/menu.test.ts [2m([22m[2m12 tests[22m[2m)[22m[33m 1185[2mms[22m[39m
  [32m✓[39m src/__tests__/menuBar.test.ts [2m([22m[2m13 tests[22m[2m)[22m[33m 1227[2mms[22m[39m
@@ -97,15 +97,15 @@
 
 [90mstderr[2m | src/__tests__/depHealth.test.ts[2m > [22m[2mM2 环境信号自愈序列（§5.5：快照对比 → 有差异才级联）[2m > [22m[2mdep_env_snapshot 失败 → 不级联（检测是顾问不是路障，§4.5 红线）
 [22m[39m[depHealth] 环境快照对比失败，跳过级联: Error: uv 缺失
-    at [90mD:\aipro\opencharm\shell\[39msrc\__tests__\depHealth.test.ts:424:45
-    at mockCall [90m(file:///D:/aipro/opencharm/shell/[39mnode_modules/[4m@vitest/spy[24m/dist/index.js:96:15[90m)[39m
-    at spy [90m(file:///D:/aipro/opencharm/shell/[39mnode_modules/[4mtinyspy[24m/dist/index.js:47:80[90m)[39m
-    at handleEnvSignal [90m(D:\aipro\opencharm\shell\[39msrc\depHealth.ts:460:18[90m)[39m
-    at [90mD:\aipro\opencharm\shell\[39msrc\depHealth.ts:443:10
-    at callTimer [90m(file:///D:/aipro/opencharm/shell/[39mnode_modules/[4mvitest[24m/dist/chunks/vi.bdSIJ99Y.js:2211:25[90m)[39m
-    at doTickInner [90m(file:///D:/aipro/opencharm/shell/[39mnode_modules/[4mvitest[24m/dist/chunks/vi.bdSIJ99Y.js:2814:30[90m)[39m
-    at doTick [90m(file:///D:/aipro/opencharm/shell/[39mnode_modules/[4mvitest[24m/dist/chunks/vi.bdSIJ99Y.js:2895:21[90m)[39m
-    at Immediate.<anonymous> [90m(file:///D:/aipro/opencharm/shell/[39mnode_modules/[4mvitest[24m/dist/chunks/vi.bdSIJ99Y.js:2915:30[90m)[39m
+    at [90mD:\aipro\montauri\shell\[39msrc\__tests__\depHealth.test.ts:424:45
+    at mockCall [90m(file:///D:/aipro/montauri/shell/[39mnode_modules/[4m@vitest/spy[24m/dist/index.js:96:15[90m)[39m
+    at spy [90m(file:///D:/aipro/montauri/shell/[39mnode_modules/[4mtinyspy[24m/dist/index.js:47:80[90m)[39m
+    at handleEnvSignal [90m(D:\aipro\montauri\shell\[39msrc\depHealth.ts:460:18[90m)[39m
+    at [90mD:\aipro\montauri\shell\[39msrc\depHealth.ts:443:10
+    at callTimer [90m(file:///D:/aipro/montauri/shell/[39mnode_modules/[4mvitest[24m/dist/chunks/vi.bdSIJ99Y.js:2211:25[90m)[39m
+    at doTickInner [90m(file:///D:/aipro/montauri/shell/[39mnode_modules/[4mvitest[24m/dist/chunks/vi.bdSIJ99Y.js:2814:30[90m)[39m
+    at doTick [90m(file:///D:/aipro/montauri/shell/[39mnode_modules/[4mvitest[24m/dist/chunks/vi.bdSIJ99Y.js:2895:21[90m)[39m
+    at Immediate.<anonymous> [90m(file:///D:/aipro/montauri/shell/[39mnode_modules/[4mvitest[24m/dist/chunks/vi.bdSIJ99Y.js:2915:30[90m)[39m
 [90m    at processImmediate (node:internal/timers:504:21)[39m
 
 [90mstderr[2m | src/extensions/__tests__/facade.test.ts[2m > [22m[2m权限门控[2m > [22m[2m未声明 clipboard → readClipboard 抛 PermissionDeniedError

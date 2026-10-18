@@ -183,7 +183,7 @@ fn run_probe_env(
     extra_env: &[(&str, &str)],
 ) -> Result<ProbeOutput, String> {
     let payload_path = std::env::temp_dir().join(format!(
-        "opencharm-dep-probe-{}-{}.json",
+        "montauri-dep-probe-{}-{}.json",
         std::process::id(),
         SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0)
     ));
@@ -1101,7 +1101,7 @@ mod tests {
     /// 测试临时目录 helper（cfg(test) 跨模块各自复制：dep_health.rs 同款）
     fn dep_tmpdir(tag: &str) -> PathBuf {
         let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-        let d = std::env::temp_dir().join(format!("opencharm-dep-{tag}-{nanos}"));
+        let d = std::env::temp_dir().join(format!("montauri-dep-{tag}-{nanos}"));
         fs::create_dir_all(&d).unwrap();
         d
     }
@@ -1545,7 +1545,7 @@ mod tests {
 
     #[test]
     fn save_dep_ignores_dedup_preserves_order() {
-        // 去重保序是 save_dep_ignores 的纯逻辑前段；fs 写回依赖 opencharm_home 不可注入，
+        // 去重保序是 save_dep_ignores 的纯逻辑前段；fs 写回依赖 montauri_home 不可注入，
         // 此处用与 save_dep_ignores 相同的去重表达式锁定语义（重复条目以首次出现为准）
         let list = vec![
             DepIgnoreEntry { edge: "e1".into(), key: "a".into() },
@@ -1932,7 +1932,7 @@ mod tests {
 
     #[test]
     fn dep_scan_rejects_missing_workspace() {
-        let e = dep_scan_impl("Z:\\__opencharm_no_such_ws__", ScanScope::Full).unwrap_err();
+        let e = dep_scan_impl("Z:\\__montauri_no_such_ws__", ScanScope::Full).unwrap_err();
         assert!(e.contains("工作区不存在"));
     }
 

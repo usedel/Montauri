@@ -3,7 +3,7 @@
 import re
 from pathlib import Path
 
-SRC = Path("d:/aipro/opencharm/shell/src")
+SRC = Path("d:/aipro/montauri/shell/src")
 FILES = ["libFormat.ts", "libRegex.ts", "libEval.ts", "libJson.ts", "libInject.ts"]
 
 for rel in FILES:

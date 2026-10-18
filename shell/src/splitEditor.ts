@@ -76,7 +76,7 @@ export function openSplit(): void {
   labelEl.textContent = basename(tab.path);
   ensureEditor().setModel(tab.model);
   // 面板宽度：有记忆则恢复（layout.ts 拖拽落 localStorage），否则走 CSS 默认 50%
-  const saved = localStorage.getItem("opencharm-split-w");
+  const saved = localStorage.getItem("montauri-split-w");
   if (saved) panelEl.style.setProperty("--split-w", `${saved}px`);
   showEl(panelEl);
   hiddenByDiff = false; // 从文件 tab 打开必然不在 diff 态
@@ -124,7 +124,7 @@ export function resetSplitEditor(): void {
 /** 主编辑器右键「向右分屏」（可发现性入口；键位 Ctrl+Backslash 并行） */
 export function initSplitEditorAction(editor: MonacoApi.editor.IStandaloneCodeEditor): MonacoApi.IDisposable {
   return editor.addAction({
-    id: "opencharm.splitRight",
+    id: "montauri.splitRight",
     label: t("ide.split.actionLabel"),
     contextMenuGroupId: "1_modification",
     contextMenuOrder: 4,

@@ -37,9 +37,9 @@ def main() -> int:
         )
         env = dict(os.environ)
         env["PYTHONPATH"] = str(_PROBE_SRC)
-        env["OPENCHARM_PROBE_HOME"] = str(root / "home")
+        env["MONTAURI_PROBE_HOME"] = str(root / "home")
         proc = subprocess.run(
-            [sys.executable, "-m", "opencharm_probe.cli", "run", str(app)],
+            [sys.executable, "-m", "montauri_probe.cli", "run", str(app)],
             capture_output=True,
             text=True,
             encoding="utf-8",

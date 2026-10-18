@@ -224,7 +224,7 @@ async function main() {
     "initialize",
     {
       processId: process.pid,
-      clientInfo: { name: "opencharm-context-coverage-probe", version: "1.0" },
+      clientInfo: { name: "montauri-context-coverage-probe", version: "1.0" },
       rootUri: ROOT_URI,
       capabilities: {
         textDocument: {

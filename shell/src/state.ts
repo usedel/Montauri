@@ -73,7 +73,7 @@ export interface Settings {
   autosave: string;
   autosave_delay: number;
   probe_enabled: boolean;
-  /** A2 性能模式（PR-A2-P5）：默认关；开启后运行注入 OPENCHARM_PROBE_PERF=1，
+  /** A2 性能模式（PR-A2-P5）：默认关；开启后运行注入 MONTAURI_PROBE_PERF=1，
    *  探针记录各函数耗时（含探针开销，用于热点排序，不等于真实耗时）。
    *  仅随探针注入生效——探针关闭时无效果（须与 Rust settings.rs 同步） */
   probe_perf_enabled: boolean;
@@ -101,7 +101,7 @@ export interface Settings {
   ruff_severity_w: string;
   ruff_severity_f: string;
   runtime_intel_enabled: boolean;
-  /** 阶段 4：Pydantic 构造校验诊断（opencharm-pydantic 桶 + rename 传播补充）总开关 */
+  /** 阶段 4：Pydantic 构造校验诊断（montauri-pydantic 桶 + rename 传播补充）总开关 */
   pydantic_diagnostics: boolean;
   /** 零引擎静态关键字补全（无 LSP 引擎的语言；python 不受影响——由三段语义补全负责） */
   keyword_completion: boolean;
@@ -205,7 +205,7 @@ export function migrateLegacyFontSettings<T extends { font_family: string }>(set
 /** 存量设置迁移：主题名（ui_premium 批 4 · §5.4 连带项 2）。
  *
  *  为什么必须做：老用户 `settings.json` 里存的是出厂串（深 `vs-dark` / 浅 `vs`）。批 4 把编辑器
- *  切到自定义主题 `opencharm-dark` / `opencharm-light`，而 **Monaco 对未注册的主题名不报错、
+ *  切到自定义主题 `montauri-dark` / `montauri-light`，而 **Monaco 对未注册的主题名不报错、
  *  静默回落到出厂 vs-dark**——不迁移的症状是「用户升级后编辑器悄悄变回原厂主题且无任何提示」，
  *  这是最难排查的一类静默回归。
  *
@@ -220,7 +220,7 @@ export function migrateLegacyThemeSettings<T extends { theme: string }>(settings
 
 /** Settings 出厂默认值（「恢复默认」与 app.settings 初始值共用；须与 Rust Settings::default 保持一致） */
 export const DEFAULT_SETTINGS: Settings = {
-  // 批 4：编辑器从出厂 vs-dark 切到自定义主题 opencharm-dark（色值真源仍是 style.css 的 token，
+  // 批 4：编辑器从出厂 vs-dark 切到自定义主题 montauri-dark（色值真源仍是 style.css 的 token，
   // 见 theme/tokens.ts）。存量 `vs-dark` / `vs` 由 migrateLegacyThemeSettings 迁移。
   theme: EDITOR_THEME_DARK,
   font_size: 14,
@@ -356,14 +356,14 @@ let _withEditorTheme: (<T>(to: string, from: string, fn: () => Promise<T>) => Pr
 
 export const app: AppState = {
   get monaco(): MonacoModule {
-    if (_monaco === null) throw new Error("[OpenCharm] Monaco 尚未初始化（app.monaco 在 init 动态加载后才可用）");
+    if (_monaco === null) throw new Error("[Montauri] Monaco 尚未初始化（app.monaco 在 init 动态加载后才可用）");
     return _monaco;
   },
   set monaco(m: MonacoModule) {
     _monaco = m;
   },
   get editor(): MonacoApi.editor.IStandaloneCodeEditor {
-    if (_editor === null) throw new Error("[OpenCharm] 编辑器尚未初始化（app.editor 在 init 创建后才可用）");
+    if (_editor === null) throw new Error("[Montauri] 编辑器尚未初始化（app.editor 在 init 创建后才可用）");
     return _editor;
   },
   set editor(e: MonacoApi.editor.IStandaloneCodeEditor) {
@@ -371,7 +371,7 @@ export const app: AppState = {
   },
   get applyEditorTheme(): (theme: string) => void {
     if (_applyEditorTheme === null) {
-      throw new Error("[OpenCharm] applyEditorTheme 尚未注入（init 加载 monaco.ts 后赋值）");
+      throw new Error("[Montauri] applyEditorTheme 尚未注入（init 加载 monaco.ts 后赋值）");
     }
     return _applyEditorTheme;
   },
@@ -380,7 +380,7 @@ export const app: AppState = {
   },
   get withEditorTheme(): <T>(to: string, from: string, fn: () => Promise<T>) => Promise<T> {
     if (_withEditorTheme === null) {
-      throw new Error("[OpenCharm] withEditorTheme 尚未注入（init 加载 monaco.ts 后赋值）");
+      throw new Error("[Montauri] withEditorTheme 尚未注入（init 加载 monaco.ts 后赋值）");
     }
     return _withEditorTheme;
   },

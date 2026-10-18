@@ -33,7 +33,7 @@ export const LOCALE_OPTIONS: { id: Locale; label: string }[] = [
   { id: "en-US", label: "English" },
 ];
 
-const STORE_KEY = "opencharm.locale";
+const STORE_KEY = "montauri.locale";
 
 /** 语言包表：`Record<string, string>` 是刻意的——en-US 已经用 `Record<TKey, string>` 在编译期
  *  保证了与 zh-CN 同构，运行时再按字面量类型索引只会徒增类型体操开销。 */

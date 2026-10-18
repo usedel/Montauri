@@ -32,7 +32,7 @@
   var SETTINGS = {
     // 批 4：自定义主题名（须与 src/theme/tokens.ts 的 EDITOR_THEME_DARK 一致，
     // 由 __tests__/themeTokens.test.ts 的「e2e mock 默认主题」断言钉死）。
-    theme: "opencharm-dark",
+    theme: "montauri-dark",
     font_size: 14,
     font_family: "",
     font_ligatures: true,
@@ -251,7 +251,7 @@
     // A-1 资源快照（面板 E2E）：固定样本（外壳 + 两个子进程）
     proc_stats: function () {
       return {
-        shell: { pid: 4242, name: "OpenCharm（外壳）", rssMb: 182.3, cpu: 0 },
+        shell: { pid: 4242, name: "Montauri（外壳）", rssMb: 182.3, cpu: 0 },
         children: [
           { pid: 5151, name: "pyrefly.exe", rssMb: 96.4, cpu: 1.2 },
           { pid: 5152, name: "python.exe", rssMb: 48.1, cpu: 0 },
@@ -1237,10 +1237,10 @@
       // P0-B：延迟分支包 setTimeout，模拟慢引擎「在用户已继续输入之后才落地」的响应
       var emitLsp = function () {
         emitEvent("lsp-message", { engine: eng0, id: rid, result: result0 });
-        // 诊断用：记录 LSP 请求方法 + 结果（供 E2E 调试读取 window.__OPENCHARM_LSP_LOG__）
-        window.__OPENCHARM_LSP_LOG__ = window.__OPENCHARM_LSP_LOG__ || [];
-        window.__OPENCHARM_LSP_LOG__.push({ m: method0, params: params0, r: result0 });
-        if (window.__OPENCHARM_LSP_LOG__.length > 60) window.__OPENCHARM_LSP_LOG__.shift();
+        // 诊断用：记录 LSP 请求方法 + 结果（供 E2E 调试读取 window.__MONTAURI_LSP_LOG__）
+        window.__MONTAURI_LSP_LOG__ = window.__MONTAURI_LSP_LOG__ || [];
+        window.__MONTAURI_LSP_LOG__.push({ m: method0, params: params0, r: result0 });
+        if (window.__MONTAURI_LSP_LOG__.length > 60) window.__MONTAURI_LSP_LOG__.shift();
       };
       if (delayMs > 0) setTimeout(emitLsp, delayMs);
       else emitLsp();
@@ -1269,8 +1269,8 @@
       return null;
     }
     if (cmd === "lsp_send_response" || cmd === "lsp_start" || cmd === "lsp_stop") return null;
-    // 4.55) intel 启动信息（P0-C 观察点2 e2e 用）：浏览器侧无真实 opencharm-intel 二进制，
-    //       mock 返回伪 command，让 startIntel 走到 ready（真实链路由 opencharm-intel 构建 + 真机覆盖）。
+    // 4.55) intel 启动信息（P0-C 观察点2 e2e 用）：浏览器侧无真实 montauri-intel 二进制，
+    //       mock 返回伪 command，让 startIntel 走到 ready（真实链路由 montauri-intel 构建 + 真机覆盖）。
     if (cmd === "get_intel_info") {
       return { command: "intel-mock", traceDbPath: "" };
     }

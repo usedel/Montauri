@@ -29,7 +29,7 @@
 | 批 2a | 深浅两套表面阶梯 + `--bg-panel` 21 处拆分 + 三层同步义务 + `styleTokens.test.ts` | ✅ 已落地（2026-10-03，记录见 §7.2） |
 | 批 2b | 19 处 `--bg-alt` → S3 审计 + 派生交互 token 重算 + `--fg-dim` 246 处抬升面审计 + 浮层 `--elev` 归属 | ✅ 已落地（2026-10-03，记录见 §7.3） |
 | 批 3 | 等宽字体五处改动 + JetBrains Mono 随包（**落地路径已修订为 `public/fonts/` 入库**，见 §7.4.1） | ✅ 已落地（2026-10-03，记录见 §7.4） |
-| 批 4 | Monaco 自定义主题 `opencharm-dark/light` + `--syntax-*` 与 `rules` 同批 | ✅ 已落地（2026-10-03，记录见 §7.5） |
+| 批 4 | Monaco 自定义主题 `montauri-dark/light` + `--syntax-*` 与 `rules` 同批 | ✅ 已落地（2026-10-03，记录见 §7.5） |
 | 批 5 | 边框三档 alpha（**只换值 + 重点提升**，§6.5）· 圆角档位 3→6px（**最大面积单点改动**，§6.5） | ✅ 5a（§7.6）· ✅ 5b（§7.7）· ✅ 5c（§7.8）—— **六批全部落地** |
 | 修记 A | 用户报「编辑器滚动条是纯红」→ 根因是 **Monaco 只认 hex 色值**，`rgba()` 被静默判成 `#ff0000`（含 `minimapSlider` 派生与三条浮层红边框）；修法是**边界归一**（`toMonacoHexColor`），不动 CSS。另顺带把编辑器滚动条宽度 14px → **10px**（Monaco 自绘控件，只能走 editorOption；外壳是 8px） | ✅ 已落地（2026-10-03，记录见 §7.9）· 真机层缺口 2026-10-04 补齐（§8.1.3） |
 | 修记 B | 行号色「死映射」：`editorGutter.foreground` 在 Monaco 0.52.2 **未注册** → 换 `editorLineNumber.foreground` / `.activeForeground`（浅色行号由出厂蓝 `#237893` 转中性）。由真机 R-FIXA-1 判负引出 | ✅ 已落地（2026-10-04，记录见 §7.10；commit 未提交） |
@@ -163,7 +163,7 @@
 | 8 | 真机 CDP（**低频**：跨域改动 / 发版前） | `node shell/e2e-real/ui-real.cjs`（当前 **39/39**）。补的是浏览器层原理上测不到的：`dpr=1.25` 缩放、WebView2 渲染、真实数据根走完整用户路径、随包字体可达性、**Monaco 注入变量的真实形态**（修记 B 的死映射就是这条抓的）。首跑 ~394s（cargo 冷编译），预检要求 5173 / 9223 空闲 |
 
 > **门禁执行注意**（本机 harness 三条坑，已固化进脚本）：
-> ① 命令串含 `vitest` 会被执行监控判为 watch 并在约 10s 后杀进程且吞 stdout → 一律走 `gate-tests.mjs`（内部 spawnSync + 落盘 `%TEMP%\opencharm-gates\<kind>.log` 后回显尾部）；
+> ① 命令串含 `vitest` 会被执行监控判为 watch 并在约 10s 后杀进程且吞 stdout → 一律走 `gate-tests.mjs`（内部 spawnSync + 落盘 `%TEMP%\montauri-gates\<kind>.log` 后回显尾部）；
 > ② 本机 `cd <绝对路径>` 单条会报「系统找不到指定的路径」→ 用 `cmd /c "cd /d <路径> && …"`；
 > ③ e2e 产物必须落系统 TEMP（工作区路径会触发 safe-delete 确认门槛）。
 >
@@ -182,7 +182,7 @@ node scripts/ui-baseline.mjs --tag before-b1     # 改造前
 node scripts/ui-baseline.mjs --tag after-b1      # 改造后
 ```
 
-- 产物：`%TEMP%\opencharm-ui-baseline\<tag>\<theme>-<view>.png`，共 **8 张**（深/浅 × 编辑区 / 侧栏 / 终端 / 设置）；
+- 产物：`%TEMP%\montauri-ui-baseline\<tag>\<theme>-<view>.png`，共 **8 张**（深/浅 × 编辑区 / 侧栏 / 终端 / 设置）；
 - 侧栏视图含文件树 + Git 状态色，终端走 `#tab-terminal`，设置走 `Ctrl+Alt+S`；
 - 浅色组通过 `.theme-swatch[data-theme="vs"]` + `#settings-save` 切换（与 `themePicker.ts` 的 radiogroup 语义一致）；
 - 视口固定 1440×900、`deviceScaleFactor: 1`，保证前后可比。
@@ -213,7 +213,7 @@ node scripts/ui-baseline.mjs --tag after-b1      # 改造后
 
 ### 6.4 批 4 —— Monaco 主题（方案 §5.4）✅ 已落地
 
-`shell/src/theme/tokens.ts` 单一真源 → `defineTheme` ×2（`opencharm-dark` / `opencharm-light`）→ 接线点 → 既有测试（`state.test.ts` / `themePicker.test.ts`）→ `loadSettings` 主题名迁移（`vs-dark` / `vs` → 新名）→ `--syntax-*` 与 `rules` 同批 → 四方一致单测。
+`shell/src/theme/tokens.ts` 单一真源 → `defineTheme` ×2（`montauri-dark` / `montauri-light`）→ 接线点 → 既有测试（`state.test.ts` / `themePicker.test.ts`）→ `loadSettings` 主题名迁移（`vs-dark` / `vs` → 新名）→ `--syntax-*` 与 `rules` 同批 → 四方一致单测。
 
 **落地时修订三处**（详见 §7.5）：① 色值真源仍是 `style.css`，`tokens.ts` **零色值**只有映射表（拍板）；② 存量浅色名是 `"vs"` 而非方案写的 `"vs-light"`，迁移表补第三个串；③ 接线点由 5 处增至 **7 处**（方案漏了 `applyShellTheme` 与 `terminal.ts` 两处 `=== "vs"` 判定）。
 
@@ -245,7 +245,7 @@ node scripts/ui-baseline.mjs --tag after-b1      # 改造后
 |---|---|
 | ADR-0005 + README 登记 | ✅ `docs/adr/0005-brand-accent-unification.md`（修订 D4 / UI-06 / 浅色层 accent 跨主题一致三条）+ `docs/adr/README.md` 决策表新增 0005 行，悬空链接消除 |
 | `tools/ui/audit_tokens.py` | ✅ 新建。4 项门禁（单色相 / accent 面 / 白字 on fill / 浅色 `--fg-dim`）全部落地，含 KNOWN_RESIDUALS 残留登记机制 |
-| 基线截图（改造前） | ✅ 8 张 → `%TEMP%\opencharm-ui-baseline\before-b1\` |
+| 基线截图（改造前） | ✅ 8 张 → `%TEMP%\montauri-ui-baseline\before-b1\` |
 | 11 取值点 + 浅色 AA + 注释考古 | ✅ 全部落地（见 §7.1.4） |
 | 门禁全绿 | ✅ 见 §7.1.5 |
 
@@ -292,10 +292,10 @@ node scripts/ui-baseline.mjs --tag after-b1      # 改造后
 | 3 | `npm run build`（tsc） | ✅ tsc 0 错 + vite build 通过 |
 | 4 | vitest 全量 | ✅ **89 文件 / 994 用例**全绿 |
 | 5 | playwright e2e 全量 | ⚠ **278 passed / 2 failed**，两条均经 `git stash` 对照确认为**存量失败，与批 1 无关**：<br>① `e2e/libs/04-monaco-memory-r5.spec.ts`（堆回收实测 830 KB < 1 MB 门槛）——单独重跑**通过**，属堆测量敏感的环境 flake；<br>② `e2e/dx/08-problems-panel.spec.ts:154 E-DX-PB6`（`#problems-panel .pb-empty` 未出现）——在**未改色的原始代码上 stash 对照同样失败**，确认为存量。 |
-| 6 | 截图对照 | ✅ 8 张 → `%TEMP%\opencharm-ui-baseline\after-b1\`；与 before 逐张比对确认：Git 面板「提交(B)」主按钮蓝底→青绿底、聚焦环 / 「2 处引用」链接 / 输入框选中态同步青绿，设置页「保存」与勾选框青绿化，两套主题均无布局位移 |
+| 6 | 截图对照 | ✅ 8 张 → `%TEMP%\montauri-ui-baseline\after-b1\`；与 before 逐张比对确认：Git 面板「提交(B)」主按钮蓝底→青绿底、聚焦环 / 「2 处引用」链接 / 输入框选中态同步青绿，设置页「保存」与勾选框青绿化，两套主题均无布局位移 |
 | 7 | `--motion` / `prefers-reduced-motion` | ✅ 批 1 未触及动效 token，e2e 全量覆盖通过 |
 
-> **门禁执行注意（已固化为 `shell/scripts/gate-tests.mjs`）**：① 本机 harness 的 `cd <绝对路径>` 会报「系统找不到指定的路径」，须用 `cmd /c "cd /d <路径> && …"`；② 命令串含 `vitest` 会被执行监控判为 watch 并在约 10s 后杀进程且吞 stdout，故测试全量一律走 `node shell/scripts/gate-tests.mjs unit|e2e`（落盘 `%TEMP%\opencharm-gates\<kind>.log` 后回显尾部）。
+> **门禁执行注意（已固化为 `shell/scripts/gate-tests.mjs`）**：① 本机 harness 的 `cd <绝对路径>` 会报「系统找不到指定的路径」，须用 `cmd /c "cd /d <路径> && …"`；② 命令串含 `vitest` 会被执行监控判为 watch 并在约 10s 后杀进程且吞 stdout，故测试全量一律走 `node shell/scripts/gate-tests.mjs unit|e2e`（落盘 `%TEMP%\montauri-gates\<kind>.log` 后回显尾部）。
 
 ### 7.2 批 2a（2026-10-03）—— 表面阶梯 + `--bg-panel` 拆分 + 三层同步
 
@@ -349,7 +349,7 @@ node scripts/ui-baseline.mjs --tag after-b1      # 改造后
 | 3 | `npm run build` | ✅ tsc 0 错 |
 | 4 | vitest 全量 | ✅ **90 文件 / 1010 用例**（新增 16 条三方一致断言） |
 | 5 | e2e 视觉关键子集 | ✅ **51 用例 / 3.6min** 全绿（全量 62 spec / 26min，**7.2× 加速**） |
-| 6 | 截图对照 | ✅ 8 张 → `%TEMP%\opencharm-ui-baseline\after-2a\`；与 after-b1 逐张比对：深色下 chrome / 面板底 / 画布三档可辨（此前 menubar 与画布几乎同色），浅色下侧栏灰、画布白、面板底深灰，无布局位移 |
+| 6 | 截图对照 | ✅ 8 张 → `%TEMP%\montauri-ui-baseline\after-2a\`；与 after-b1 逐张比对：深色下 chrome / 面板底 / 画布三档可辨（此前 menubar 与画布几乎同色），浅色下侧栏灰、画布白、面板底深灰，无布局位移 |
 | 7 | `--motion` 回归 | ✅ 未触及动效 token |
 
 > **门禁定义的两处自我修正**（脚本先判负、复核后按报告口径改定义，而不是改设计）：
@@ -385,7 +385,7 @@ node scripts/ui-baseline.mjs --tag after-b1      # 改造后
 | 2 | `npm run build` | ✅ tsc 0 错 |
 | 3 | vitest 全量 | ✅ **90 文件 / 1011 用例**（`styleTokens.test.ts` 随本批 +1 条） |
 | 4 | e2e 视觉关键子集 | ✅ **51 用例 / 3.5min** 全绿 |
-| 5 | 截图对照 | ✅ 8 张 → `%TEMP%\opencharm-ui-baseline\after-2b\`；文件树选中行由灰 `--selected #37373d` 变青绿染色 `#26443f`，hover 面更深，粘性表头/行号列文字转 `--fg-muted` 后更清晰，无布局位移 |
+| 5 | 截图对照 | ✅ 8 张 → `%TEMP%\montauri-ui-baseline\after-2b\`；文件树选中行由灰 `--selected #37373d` 变青绿染色 `#26443f`，hover 面更深，粘性表头/行号列文字转 `--fg-muted` 后更清晰，无布局位移 |
 
 > **一处工具级教训（值得记）**：选择器级扫描器第一版按「行」切块，**单行规则**（`sel { a: b; }`）的声明全丢 → 门禁静默返回「0 命中」的**假阴性**；第二版又因复用了只认 `--` 自定义属性的 `parse_decls` 而丢弃全部普通声明。两次都是「扫描器返回 0」而非「报错」，若不是同时用 `--refs` 交叉核对（`--refs` 走的是另一条解析路径，能正确报出 19/21 处），就会把假阴性当成「已达标」写进验收记录。
 > 教训落成三条硬规矩：① 审计脚本的「0 命中」必须与另一条独立路径（`--refs`）交叉验证；② `parse_decls`（只取自定义属性）与 `parse_style_decls`（取全部声明）必须分开，不能复用；③ CSS 解析必须字符级 + at-rule 递归，不能按行猜块边界。
@@ -441,7 +441,7 @@ Monaco 用 canvas `measureText` 测字符宽度并缓存（`CharConfig`），字
 | 3 | vitest 全量 | ✅ **91 文件 / 1026 用例**（新增 `fontStack.test.ts` **15 条**：四方字面一致 / @font-face 4 条 face 与 woff2 存在 / OFL 随包 / 迁移 5 条 / body 走 token / 无旧裸栈残留） |
 | 4 | `cargo test settings::` | ✅ **3 passed**（`test_defaults` 与「旧配置缺字段回落」两处断言同步改） |
 | 5 | e2e 视觉关键子集 | ✅ **53 用例 / 3.7min** 全绿（新增 `e2e/editor/10-font-family.spec.ts` 2 条，已登记进 `UI_KEY_SPECS`） |
-| 6 | 截图对照 | ✅ 8 张 → `%TEMP%\opencharm-ui-baseline\after-b3\`；`->` / `=>` 已合成为单符（连字可见），`0` 带斜杠、`l` 带尾钩（JetBrains Mono 字形），无布局位移 |
+| 6 | 截图对照 | ✅ 8 张 → `%TEMP%\montauri-ui-baseline\after-b3\`；`->` / `=>` 已合成为单符（连字可见），`0` 带斜杠、`l` 带尾钩（JetBrains Mono 字形），无布局位移 |
 | 7 | **字体实测**（方案 §5.3-3b 第 5 步「这一步不做等于没做」） | ✅ 由 `ui-baseline.mjs --probe-fonts` 固化为脚本门禁：4 个 woff2 全 **200 / font/woff2**（3–6ms）· `document.fonts.load` **8ms resolve** · `document.fonts.check('14px "JetBrains Mono"')` **true** · `--mono` token 与外壳 computed 一致 · e2e 侧 `.view-lines` 的 computed `font-family` **含 JetBrains Mono**（Monaco 不读 CSS，这是「编辑器真用上了」的唯一权威证据） |
 
 #### 7.4.8 工具级教训两则（值得记）
@@ -500,7 +500,7 @@ Monaco 主题的色值是**注册那一刻从 CSS 变量读到的快照**。故�
 | 4 | `cargo test settings` | ✅ 3 passed（默认主题 3 处断言同步） |
 | 5 | e2e `editor/11-monaco-theme.spec.ts` | ✅ **6/6**（表面 / gutter / 当前行 / 边框透明 / 选区 / 语法色 / 存量迁移） |
 | 6 | e2e-ui 视觉子集 | ✅ 51 passed；8 failed **经 stash 对照确认为存量**（见 §7.5.7 其三） |
-| 7 | 基线截图 | ✅ 8 张 → `%TEMP%\opencharm-ui-baseline\batch4\`（深浅编辑区青绿 identifier + 紫 keyword 区分清晰，当前行高亮与缩进线可见） |
+| 7 | 基线截图 | ✅ 8 张 → `%TEMP%\montauri-ui-baseline\batch4\`（深浅编辑区青绿 identifier + 紫 keyword 区分清晰，当前行高亮与缩进线可见） |
 
 `themeTokens.test.ts` 的门禁项：迁移映射与幂等 / 未知值兜底 / 前后端出厂名一致（含跨语言断言 `settings.rs`）/ **接线点完整性**（7 个文件里不得残留 `"vs"` / `"vs-dark"` 字面量）/ **色值真源单一性**（映射表内联 hex 仅限 `lineHighlightBorder`）/ **映射引用的 CSS 变量在 `:root` 与浅色覆盖层下都存在**（防 `var()` 在 computed-value time 失效后颜色 unset 继承）/ 7 个语法色取值。
 
@@ -566,7 +566,7 @@ Monaco 主题的色值是**注册那一刻从 CSS 变量读到的快照**。故�
 | 3 | vitest 全量 | ✅ **92 文件 / 1060 用例**（`styleTokens.test.ts` +10：曲线三档、时长档挂 motion、双环结构、内缩组关双环） |
 | 4 | e2e `editor/12-motion-focus.spec.ts` | ✅ **2/2**：`--motion` 归零实测 + 焦点环双环 computed |
 | 5 | e2e-ui 视觉子集 | ✅ 51 passed；8 failed **经 stash 对照确认为存量**（同 §7.5.7 其三） |
-| 6 | 基线截图 | ✅ 8 张 → `%TEMP%\opencharm-ui-baseline\batch5a\` |
+| 6 | 基线截图 | ✅ 8 张 → `%TEMP%\montauri-ui-baseline\batch5a\` |
 
 **新增 e2e 的价值**（单测与门禁脚本都覆盖不到）：`--transition-base` 写的是 `calc(0.15s * var(--motion))`，单测只能断言「字符串里有 `var(--motion)`」，无法证明浏览器真的算出 `0s`；焦点环「两层 spread 是否真叠成两圈」同理要读 computed。方案 §7-16「reduce-motion 下全部动效为 0」此前**只有代码审查、没有实测**，现由 T-B5A-1 承担。
 
@@ -629,7 +629,7 @@ alpha 叠色把「同一色值在两个面上表现不一致」抹平了 —— 
 | 2 | `npm run build`（tsc） | ✅ 0 错 |
 | 3 | vitest 全量 | ✅ **92 文件 / 1064 用例**（`styleTokens.test.ts` +4） |
 | 4 | e2e-ui 视觉子集 | ✅ 53 passed；8 failed 同存量（§7.5.7 其三） |
-| 5 | 基线截图 | ✅ 8 张 → `%TEMP%\opencharm-ui-baseline\batch5b\`（边框更融入，面板边界/输入框/状态栏分隔线仍清晰） |
+| 5 | 基线截图 | ✅ 8 张 → `%TEMP%\montauri-ui-baseline\batch5b\`（边框更融入，面板边界/输入框/状态栏分隔线仍清晰） |
 
 **注入自检**：把 `.modal-card` 边框改回 `var(--border)` → 单测如期变红。
 
@@ -712,7 +712,7 @@ alpha 叠色把「同一色值在两个面上表现不一致」抹平了 —— 
 | 2 | `npm run build`（tsc） | ✅ 0 错 |
 | 3 | vitest 全量 | ✅ **92 文件 / 1074 用例**（`styleTokens.test.ts` +6）<br>⚠ 原记 1070，与修记 A 后 1081 相差 11，但两提交间**只有 `themeTokens.test.ts` 变更（25 → 32，+7）**，故 1070 应为 1074（口径待原记录复核，总数 1081 无误） |
 | 4 | e2e-ui 视觉子集 | ✅ 53 passed；8 failed 同存量（§7.5.7 其三）——该 8 条的根因在 §8.1.2 实证闭环（长期运行的 vite），**非存量环境问题** |
-| 5 | 基线截图逐张比对 | ✅ 8 张 → `%TEMP%\opencharm-ui-baseline\batch5c\` |
+| 5 | 基线截图逐张比对 | ✅ 8 张 → `%TEMP%\montauri-ui-baseline\batch5c\` |
 
 **视觉结论**（逐张看过深/浅 × 编辑区/侧栏/设置/终端）：密集列表**没有松垮感**——因为文件树项、设置导航项这类列表行**本身不设圆角**，改的只是控件（按钮/输入/浮层）；chip 类走 3px 后比例回到 34% 上下；浅色设置面板在白底上 6px 不显松垮（控件高 24–28px，比例 21–25%）。若日后觉得偏圆，**回退只需改 `style.css` 的 5 行 token**，不必逐处回改。
 

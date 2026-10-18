@@ -24,7 +24,7 @@
  *
  * 用法：cd shell && node e2e-real/metrics-real.cjs
  * 环境变量：OC_CDP_PORT(9225) / OC_CDP_TIMEOUT(300) / OC_MODE=dev|release
- *          / OC_REAL_PYTHON（解释器）/ OC_METRICS_OUT（报告路径，默认 %TEMP%\opencharm-metrics\）
+ *          / OC_REAL_PYTHON（解释器）/ OC_METRICS_OUT（报告路径，默认 %TEMP%\montauri-metrics\）
  *          / OC_KEEP_APP=1
  */
 'use strict';
@@ -44,9 +44,9 @@ const MODE = (process.env.OC_MODE || 'dev').toLowerCase(); // dev | release
 const CDP_PORT = Number(process.env.OC_CDP_PORT || 9225);
 const CDP_TIMEOUT_MS = Number(process.env.OC_CDP_TIMEOUT || 300) * 1000;
 const REAL_PYTHON = process.env.OC_REAL_PYTHON || 'D:\\py\\python.exe';
-const OUT_DIR = process.env.OC_METRICS_OUT || path.join(os.tmpdir(), 'opencharm-metrics');
+const OUT_DIR = process.env.OC_METRICS_OUT || path.join(os.tmpdir(), 'montauri-metrics');
 const DEV_URL_HOST = 'localhost:5173';
-const BUILD_EXE = path.join(REPO, 'shell', 'src-tauri', 'target', 'release', 'opencharm-shell.exe');
+const BUILD_EXE = path.join(REPO, 'shell', 'src-tauri', 'target', 'release', 'montauri-shell.exe');
 
 // 工作区内容：一个有错误 import 的文件（触发 T7 诊断）+ 干净文件（T5/T6 编辑与补全）
 const FILES = {
@@ -106,7 +106,7 @@ function fmtStat(s) {
   const logFd = fs.openSync(logPath, 'w');
   const env = {
     ...process.env,
-    OPENCHARM_DATA_ROOT: dataRoot,
+    MONTAURI_DATA_ROOT: dataRoot,
     WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${CDP_PORT}`,
   };
   let child;
@@ -287,7 +287,7 @@ function fmtStat(s) {
   const stamp = new Date().toISOString().replace(/[:T]/g, '-').slice(0, 17);
   const reportPath = path.join(OUT_DIR, `metrics-real-${MODE}-${stamp}.json`);
   const payload = {
-    schema: 'opencharm-metrics-real/1',
+    schema: 'montauri-metrics-real/1',
     mode: MODE,
     at: new Date().toISOString(),
     headCommit: gitHead(),

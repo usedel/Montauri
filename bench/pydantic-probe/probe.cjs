@@ -159,7 +159,7 @@ async function referencesStable(uri, position) {
 async function main() {
   await sendRequest("initialize", {
     processId: process.pid,
-    clientInfo: { name: "opencharm-pydantic-probe", version: "1.0" },
+    clientInfo: { name: "montauri-pydantic-probe", version: "1.0" },
     rootUri: ROOT_URI,
     capabilities: {
       textDocument: {

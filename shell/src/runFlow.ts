@@ -58,7 +58,7 @@ export function setRunFlowHandlers(h: RunFlowHandlers): void {
 }
 
 function h(): RunFlowHandlers {
-  if (!handlers) throw new Error("[OpenCharm] runFlow 尚未接线（setRunFlowHandlers 须在 init 中先于任何运行调用）");
+  if (!handlers) throw new Error("[Montauri] runFlow 尚未接线（setRunFlowHandlers 须在 init 中先于任何运行调用）");
   return handlers;
 }
 
@@ -795,7 +795,7 @@ export async function runSelection(): Promise<void> {
     // 结束后由 settleExited → cleanupSelectionRunMeta 删除；watcher 侧按前缀忽略。
     const tempPath = joinPath(
       parentDirOf(path),
-      `__opencharm_selection__${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}.py`,
+      `__montauri_selection__${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}.py`,
     );
     try {
       await invoke("write_file", { path: tempPath, content: code });

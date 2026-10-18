@@ -122,7 +122,7 @@ export async function diffFileWithClipboard(path: string): Promise<void> {
 /** 编辑器右键菜单「与剪贴板对比」（可发现性；有选区比选区） */
 export function initClipboardDiffAction(editor: MonacoApi.editor.IStandaloneCodeEditor): MonacoApi.IDisposable {
   return editor.addAction({
-    id: "opencharm.diffWithClipboard",
+    id: "montauri.diffWithClipboard",
     label: t("ide.cd.actionLabel"),
     contextMenuGroupId: "9_cutcopypaste",
     contextMenuOrder: 1.5,

@@ -48,7 +48,7 @@ export function installPasteJson(editor: MonacoApi.editor.IStandaloneCodeEditor)
     const text = model.getValueInRange(e.range);
     const py = jsonToPythonLiteral(text);
     if (py === null || py === text.trim()) return;
-    editor.executeEdits("opencharm-paste-json", [{ range: e.range, text: py }]);
+    editor.executeEdits("montauri-paste-json", [{ range: e.range, text: py }]);
     toast("JSON 已转换为 Python 字面量（Ctrl+Z 可撤销）", "info");
   });
 }

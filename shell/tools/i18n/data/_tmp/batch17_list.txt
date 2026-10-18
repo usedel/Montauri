@@ -1,4 +1,4 @@
-唯一模板 295 → d:\aipro\opencharm\shell\tools\i18n\data\_tmp\batch17_templates.json
+唯一模板 295 → d:\aipro\montauri\shell\tools\i18n\data\_tmp\batch17_templates.json
  14  builtin.ts                                       | 爬虫
  14  base64.ts,caseconvert.ts,curl2python.ts,htmlenti | 转换
  11  base64.ts,color.ts,hash.ts,htmlentity.ts,jsonfmt | 失败

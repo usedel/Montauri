@@ -75,7 +75,7 @@ export function registerArgVarInline(
         endColumn: position.column,
       });
       if (auto && (chBefore === "(" || chBefore === ",")) return { items };
-      const path = (model as { __opencharmPath?: string }).__opencharmPath;
+      const path = (model as { __montauriPath?: string }).__montauriPath;
       if (!path) return { items };
       const uri = "file:///" + path.replace(/\\/g, "/");
       const sig = await sigQuery({

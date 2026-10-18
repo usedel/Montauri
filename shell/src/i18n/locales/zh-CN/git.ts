@@ -216,7 +216,7 @@ export const git = {
   "git.panel.cleanHint": "工作区干净",
   "git.panel.commitBtn": "提交({n})",
   "git.panel.gitMissing": "未检测到 Git",
-  "git.panel.gitMissingHint": "源代码管理需要 Git；安装 Git 后重启 OpenCharm 即可启用",
+  "git.panel.gitMissingHint": "源代码管理需要 Git；安装 Git 后重启 Montauri 即可启用",
   "git.panel.initHint": "在工作区根目录执行 git init",
   "git.panel.noChanges": "无更改",
   "git.panel.noWorkspace": "尚未打开工作区",

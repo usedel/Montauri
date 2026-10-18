@@ -43,7 +43,7 @@ export function hideEl(el: HTMLElement): void {
 
 // ---------- 「减少动画」开关（localStorage 持久化，同 D2 布局尺寸的存储策略） ----------
 
-const REDUCE_MOTION_KEY = "opencharm.reduce_motion";
+const REDUCE_MOTION_KEY = "montauri.reduce_motion";
 
 export function reduceMotionEnabled(): boolean {
   return localStorage.getItem(REDUCE_MOTION_KEY) === "1";

@@ -6,19 +6,19 @@
 // 「资源目录解压 + 首次启动引导安装」，本层只做解析、不做安装。
 //
 // 解析优先级：
-//   1. 环境变量显式指定（如 OPENCHARM_UV_BIN，值须为现存文件的路径）；
+//   1. 环境变量显式指定（如 MONTAURI_UV_BIN，值须为现存文件的路径）；
 //   2. uv 官方默认用户级安装目录 ~/.local/bin/<name>[.exe]（引导安装落点，无需刷新 PATH 即可命中）；
 //   3. 均未命中 → 回退 Command::new(name)（走系统 PATH，保持现状行为，开发态零破坏）。
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::util::{opencharm_home, user_home};
+use crate::util::{montauri_home, user_home};
 
 // 各工具的环境变量 override 名（约定为完整路径或二进制名，便于 CI / 用户注入）
-pub const ENV_UV: &str = "OPENCHARM_UV_BIN";
-pub const ENV_RUFF: &str = "OPENCHARM_RUFF_BIN";
-pub const ENV_GIT: &str = "OPENCHARM_GIT_BIN";
+pub const ENV_UV: &str = "MONTAURI_UV_BIN";
+pub const ENV_RUFF: &str = "MONTAURI_RUFF_BIN";
+pub const ENV_GIT: &str = "MONTAURI_GIT_BIN";
 
 /// 为 uv 子进程注入 PyPI 包源（值来自设置项 `Settings.pypi_index`，默认官方源；
 /// 国内网络可在设置面板「Python → PyPI 镜像源」切镜像，规避 files.pythonhosted.org
@@ -46,10 +46,10 @@ fn inject_python_install_mirror(cmd: &mut Command) {
     }
 }
 
-/// OpenCharm 运行时组件目录：<data_root>/runtime（放置随包分发的自研组件——
-/// opencharm-intel 二进制、probe/src 源码等，见第 2 步 locate_* 函数）。
+/// Montauri 运行时组件目录：<data_root>/runtime（放置随包分发的自研组件——
+/// montauri-intel 二进制、probe/src 源码等，见第 2 步 locate_* 函数）。
 pub fn runtime_dir() -> PathBuf {
-    opencharm_home().join("runtime")
+    montauri_home().join("runtime")
 }
 
 /// uv / uv tool 的默认用户级安装目录：~/.local/bin（Windows：%USERPROFILE%\\.local\\bin）。
@@ -162,7 +162,7 @@ mod tests {
 
     fn tmpdir(tag: &str) -> PathBuf {
         let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-        let d = std::env::temp_dir().join(format!("opencharm-tool-path-{tag}-{nanos}"));
+        let d = std::env::temp_dir().join(format!("montauri-tool-path-{tag}-{nanos}"));
         std::fs::create_dir_all(&d).unwrap();
         d
     }
@@ -214,7 +214,7 @@ mod tests {
     #[test]
     fn resolve_lsp_command_falls_back_to_bare_name() {
         // 用必然不存在的工具名，避免受本机工具环境干扰
-        let cmd = resolve_lsp_command("__opencharm_no_such_lsp__");
-        assert_eq!(cmd.get_program().to_string_lossy(), "__opencharm_no_such_lsp__");
+        let cmd = resolve_lsp_command("__montauri_no_such_lsp__");
+        assert_eq!(cmd.get_program().to_string_lossy(), "__montauri_no_such_lsp__");
     }
 }

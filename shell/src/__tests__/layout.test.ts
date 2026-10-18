@@ -9,9 +9,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { restoreLayout, wireSplitters } from "../layout";
 
-const OUTLINE_KEY = "opencharm.outline_height";
-const SIDEBAR_KEY = "opencharm.sidebar_width";
-const RIGHT_KEY = "opencharm.rightpanel_width";
+const OUTLINE_KEY = "montauri.outline_height";
+const SIDEBAR_KEY = "montauri.sidebar_width";
+const RIGHT_KEY = "montauri.rightpanel_width";
 /** style.css 的 `#center { min-width }`；测试环境无样式表，layout.ts 回落到同值常量 */
 const CENTER_MIN = 240;
 
@@ -125,7 +125,7 @@ describe("底部面板高度拖拽（--bottom-h）", () => {
     drag(splitter, 500); // happy-dom innerHeight=768 → h = 768 − 500 = 268（在 [120, 460] 内）
     expect(bottom.style.getPropertyValue("--bottom-h")).toBe("268px");
     expect(bottom.style.height).toBe(""); // 关键不变量：绝不写内联 height（否则折叠失效）
-    expect(localStorage.getItem("opencharm.bottom_height")).toBe("268");
+    expect(localStorage.getItem("montauri.bottom_height")).toBe("268");
   });
 
   it("折叠态拖动先移除 .collapsed；双击清除 --bottom-h 回落 CSS 默认并移除持久化", () => {
@@ -139,13 +139,13 @@ describe("底部面板高度拖拽（--bottom-h）", () => {
     splitter.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true }));
     expect(bottom.style.getPropertyValue("--bottom-h")).toBe(""); // 回落 var(--bottom-h, 220px)
     expect(bottom.style.height).toBe("");
-    expect(localStorage.getItem("opencharm.bottom_height")).toBeNull();
+    expect(localStorage.getItem("montauri.bottom_height")).toBeNull();
   });
 
   it("restoreLayout 恢复上次高度：写 --bottom-h，仍不碰内联 height", () => {
     setupDom();
     const bottom = document.getElementById("bottom")!;
-    localStorage.setItem("opencharm.bottom_height", "300");
+    localStorage.setItem("montauri.bottom_height", "300");
     restoreLayout(); // innerHeight=768 → 上限 floor(768×0.6)=460，300 未被裁剪
     expect(bottom.style.getPropertyValue("--bottom-h")).toBe("300px");
     expect(bottom.style.height).toBe("");
@@ -262,7 +262,7 @@ describe("分屏面板宽度拖拽（C-4）", () => {
     wireSplitters();
     dragX(splitter, 150); // 500 − 150 = 350（在 [240, 560] 内）
     expect(panel.style.getPropertyValue("--split-w")).toBe("350px");
-    expect(localStorage.getItem("opencharm-split-w")).toBe("350");
+    expect(localStorage.getItem("montauri-split-w")).toBe("350");
     dragX(splitter, 450); // 500 − 450 = 50 → 下限 240
     expect(panel.style.getPropertyValue("--split-w")).toBe("240px");
   });
@@ -271,9 +271,9 @@ describe("分屏面板宽度拖拽（C-4）", () => {
     const { panel, splitter } = setupSplit();
     wireSplitters();
     dragX(splitter, 150);
-    expect(localStorage.getItem("opencharm-split-w")).toBe("350");
+    expect(localStorage.getItem("montauri-split-w")).toBe("350");
     splitter.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true }));
     expect(panel.style.getPropertyValue("--split-w")).toBe("");
-    expect(localStorage.getItem("opencharm-split-w")).toBeNull();
+    expect(localStorage.getItem("montauri-split-w")).toBeNull();
   });
 });

@@ -70,15 +70,15 @@ export interface ToolModuleLike {
   [handler: string]: unknown;
 }
 
-/** 内置插件 manifest 构建（字段与磁盘版同构；id 固定 opencharm.builtin）。
+/** 内置插件 manifest 构建（字段与磁盘版同构；id 固定 montauri.builtin）。
  *  构建函数而非模块级常量：title/description/inline 走 t() 取词，语言切换重注册时重建（踩坑 ④）。 */
 export function buildBuiltinManifest(): PluginManifest {
   return {
   schemaVersion: 1,
-  id: "opencharm.builtin",
+  id: "montauri.builtin",
   name: t("devtools.manifest.name"),
   version: "1.0.0",
-  engines: { opencharm: ">=0.1.0" },
+  engines: { montauri: ">=0.1.0" },
   contributes: {
     tools: [
       {

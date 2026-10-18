@@ -1,4 +1,4 @@
-# OpenCharm 插件系统设计方案（v0.2）
+# Montauri 插件系统设计方案（v0.2）
 
 > 状态：方向稿 + **工具插件垂直切片详细设计**（第九节，**已实现**，见 `docs/devtools_plugin_acceptance_record.md`）。
 > 本文先确定**进程模型 / 扩展点边界 / 激活与权限模型 / 迁移路线**的方向；
@@ -17,7 +17,7 @@
 ## 一、设计目标与铁律对齐
 
 1. **承袭架构第一原则**：插件是**独立进程或独立包**，不侵入外壳（Tauri + Monaco）与静态引擎（Pyrefly）内核。外壳只暴露**稳定的扩展点 API**，插件通过协议与之通信——不得直接引用 `shell/src` 内部模块或 `state.ts` 私有状态。
-2. **Python 优先**：OpenCharm 是 Python IDE。能力型插件应允许用 Python 编写（呼应 `probe` 本身就是 Python 包）；UI 型插件用 TypeScript（与 Monaco/WebView 生态一致）。
+2. **Python 优先**：Montauri 是 Python IDE。能力型插件应允许用 Python 编写（呼应 `probe` 本身就是 Python 包）；UI 型插件用 TypeScript（与 Monaco/WebView 生态一致）。
 3. **安全可控**：插件代码与用户项目代码、外壳进程三者隔离；权限（文件 / 网络 / 子进程 / 剪贴板 / 环境变量）显式声明、最小授予。
 4. **最小内核 + 内置即插件**：鼓励把外壳内置功能瘦身为「内置插件」，为第三方让出扩展点；但**核心可用性不依赖插件加载成功**——插件机制失效时内置静态引擎 / 编辑 / 运行 / 调试仍可用。
 5. **渐进式**：先用现有 `intel` / `probe` 重构为「一等公民插件」验证模型，再开放第三方。
@@ -31,7 +31,7 @@
 - **运行位置**：WebView 内的 Extension Host sandbox（受控环境，与主 UI 同源但隔离）。
 - **语言**：TypeScript / JavaScript。
 - **适合**：命令、菜单、快捷键、命令面板、侧栏 / 底部 / 右栏视图、Monaco provider（completion / hover / definition / diagnostic / format）、主题、图标、状态栏项。
-- **通信**：通过 host 暴露的 `opencharm.*` API facade 调用外壳能力；**不得直接 `invoke` Tauri 命令**，须经 host 转发并受权限网关校验。
+- **通信**：通过 host 暴露的 `montauri.*` API facade 调用外壳能力；**不得直接 `invoke` Tauri 命令**，须经 host 转发并受权限网关校验。
 - **与铁律的关系**：sandbox 内运行、不持有外壳内部引用，仍属「不侵入内核」——边界由 API facade + 权限层强制。
 
 > 后续可探索 Python-to-Web 桥（PyScript/Pyodide）让 Python 也能写 UI 插件，v0.1 不做。
@@ -40,7 +40,7 @@
 
 - **运行位置**：独立操作系统进程（任意语言可执行 / Python 包 / WASM 模块）。
 - **适合**：语言服务（LSP）、调试适配器（DAP）、运行时采样、代码分析、外部工具桥接。
-- **通信**：**OpenCharm Extension Protocol（OEP）** —— 基于 JSON-RPC 2.0 over stdio，与 LSP / DAP 同族。复用 `intel` / `probe` 已验证的进程托管模型（spawn + 生命周期 + 心跳 + 日志采集 + 崩溃重启）。
+- **通信**：**Montauri Extension Protocol（OEP）** —— 基于 JSON-RPC 2.0 over stdio，与 LSP / DAP 同族。复用 `intel` / `probe` 已验证的进程托管模型（spawn + 生命周期 + 心跳 + 日志采集 + 崩溃重启）。
 - **这正是 `intel` / `probe` 今天的形态** —— 它们就是第一批「一等公民」进程插件。
 
 > 决策点（仅方向）：是否需要「混合插件」——一个包同时含 UI 与进程两部分？建议 v0.1 先分轨，后续用 manifest 的 `contributes` 聚合对外呈现为单一插件。
@@ -81,9 +81,9 @@
 
 ## 五、Manifest 与权限
 
-每个插件包根目录 `opencharm.plugin.json`：
+每个插件包根目录 `montauri.plugin.json`：
 
-- `id` `version` `engines`（OpenCharm 版本约束，借鉴 `engines.vscode` 避免 API 破坏性变更击穿插件）
+- `id` `version` `engines`（Montauri 版本约束，借鉴 `engines.vscode` 避免 API 破坏性变更击穿插件）
 - `main`（轨 A 入口）/ `runtime` + `entry`（轨 B：解释器或可执行路径）
 - `contributes`：commands / views / providers / themes / debuggers / ...
 - `activationEvents`
@@ -99,7 +99,7 @@
 
 - `host.ts` —— Web Extension host：加载、沙箱化、API facade 注册
 - `registry.ts` —— manifest 注册表、激活事件分发
-- `api.ts` —— 暴露给插件的 `opencharm.*` 命名空间（commands / editor / views / lsp / statusbar / ...）
+- `api.ts` —— 暴露给插件的 `montauri.*` 命名空间（commands / editor / views / lsp / statusbar / ...）
 - `protocol.ts` —— OEP 协议编解码（轨 B）
 - `manager.rs`（src-tauri）—— 进程插件进程托管（spawn / kill / 日志 / 健康检查），复用 intel 托管经验
 - **权限网关**：所有外壳能力调用经此层校验
@@ -125,7 +125,7 @@
 
 - **P0 模型验证**：定义 OEP 协议骨架 + manifest schema；把 `intel` 接入 OEP（不改其实现，只换通信壳），证明进程插件模型可行。
 - **P1 工具插件切片（首个垂直落地，详见第九节）**：把 `devtools` 改写为 Web Extension——内置工具迁为「内置插件」，开放 `contributes.tools` 第三方加载，跑通 manifest → 发现 → 加载 → API facade → 生命周期闭环。
-- **P2 第三方开放**：`opencharm.*` API 稳定化、权限模型落地、本地安装 `.ocx` 包、插件清单 / 启停页。
+- **P2 第三方开放**：`montauri.*` API 稳定化、权限模型落地、本地安装 `.ocx` 包、插件清单 / 启停页。
 - **P3 生态**：市场 / 分发、签名、版本兼容矩阵、自动更新。
 
 ---
@@ -147,7 +147,7 @@
 
 ### 9.2 Manifest 规范（`contributes.tools`）
 
-复用第五节的 `opencharm.plugin.json`，工具插件只需填 `contributes.tools`：
+复用第五节的 `montauri.plugin.json`，工具插件只需填 `contributes.tools`：
 
 ```jsonc
 {
@@ -155,7 +155,7 @@
   "id": "com.example.my-tools",        // 反向域名，全局唯一
   "name": "My Dev Tools",
   "version": "1.0.0",
-  "engines": { "opencharm": ">=0.5.0" }, // 版本兼容闸门，不兼容则跳过加载并提示（v1 仅支持 >=X.Y.Z 形式）
+  "engines": { "montauri": ">=0.5.0" }, // 版本兼容闸门，不兼容则跳过加载并提示（v1 仅支持 >=X.Y.Z 形式）
   "contributes": {
     "tools": [
       {
@@ -178,7 +178,7 @@
 
 字段约束：
 - `schemaVersion` 固定 1；`id` / `title` / `category` / `entry` 必填；`inline` 与 `mount` 导出至少实现其一。
-- `engines.opencharm` v1 仅支持 `>=X.Y.Z` 一种范围形式（不引库、不手写完整 semver）；不满足则跳过加载并提示。
+- `engines.montauri` v1 仅支持 `>=X.Y.Z` 一种范围形式（不引库、不手写完整 semver）；不满足则跳过加载并提示。
 - `entry` **必须单文件、禁止插件内相对 import**——热重载 cache-bust 只作用入口 URL，单文件约定消除多文件依赖一致性问题（见 9.15）。
 - `permissions` 缺省 = 仅通用默认能力（`toast`）；`clipboard` / `selection` / `fs:read` / `storage` / `monaco` 须显式声明，未声明则 facade 拒绝。
 
@@ -254,7 +254,7 @@ type InlineHost = BaseHost;
 
 - 未声明权限 → facade 抛 `PermissionDeniedError` 并记日志（对应第五节「权限网关统一校验、违规拒绝并上报」）。
 - `monaco` 默认**不授予**：只读预览统一走 `kit.output`；第三方需裸 Monaco 才显式声明 `monaco` 权限（v1 无内置工具需要）。
-- `storage` 强制命名空间隔离 `opencharm.plugin.<id>.`，插件停用/卸载时由外壳清理该前缀。
+- `storage` 强制命名空间隔离 `montauri.plugin.<id>.`，插件停用/卸载时由外壳清理该前缀。
 - facade 方法签名一旦进入稳定期即受 `engines` 版本约束；破坏性变更须升 `schemaVersion` 或主版本。
 
 ### 9.5 发现与加载
@@ -262,16 +262,16 @@ type InlineHost = BaseHost;
 **v1 仅扫全局目录**（已拍板，决策点 #7）：
 
 ```
-~/.opencharm/extensions/<plugin-id>/opencharm.plugin.json     ← 全局（用户自装）
+~/.montauri/extensions/<plugin-id>/montauri.plugin.json     ← 全局（用户自装）
 ```
 
-> 工作区级 `<workspace>/.opencharm/extensions`（团队共享、可入仓）**v1 不做**，以简化首版。
+> 工作区级 `<workspace>/.montauri/extensions`（团队共享、可入仓）**v1 不做**，以简化首版。
 > 由于加载器只是「多一个扫描根」，日后追加工作区级是**非破坏性扩展**——manifest 格式、facade、registry 均不变。
 
 加载流程：
 1. 启动扫描全局目录 + 文件监听。**文件监听不依赖细粒度「单文件变更」事件**（Windows 下原子写 / 目录删除事件语义不可靠）：目录级变化 → 去抖（约 500ms）→ 全量 diff（manifest + 各 entry 的 mtime/内容 hash）→ 重载受影响插件；设置页另提供「重新扫描」手动兜底（见 9.14）。
-2. 解析并校验 manifest（`schemaVersion` + `engines.opencharm >=X.Y.Z` 兼容）→ 不兼容/非法跳过并上报。
-3. JS 入口经 Tauri `fs` 读取 → `Blob` → `URL.createObjectURL` → 动态 `import()`（应用外目录 `~/.opencharm` 不适用 asset 协议，fs+blob 更稳）。
+2. 解析并校验 manifest（`schemaVersion` + `engines.montauri >=X.Y.Z` 兼容）→ 不兼容/非法跳过并上报。
+3. JS 入口经 Tauri `fs` 读取 → `Blob` → `URL.createObjectURL` → 动态 `import()`（应用外目录 `~/.montauri` 不适用 asset 协议，fs+blob 更稳）。
 4. 调用模块导出，包装成 `DevTool` 注册进 registry → 菜单 / picker / 命令面板自动刷新。
 5. 设置页新增「插件」tab：列表、启停、重载、查看声明权限与运行日志。
 
@@ -344,7 +344,7 @@ type InlineHost = BaseHost;
 
 ### 9.10 Python 作者展望（不阻塞 v1）
 
-OpenCharm 是 Python IDE，长期应支持「用 Python 写工具」。对应原方向稿「Python-to-Web 桥」的留白：
+Montauri 是 Python IDE，长期应支持「用 Python 写工具」。对应原方向稿「Python-to-Web 桥」的留白：
 
 - **v1 只支持 JS/TS**（WebView 原生，零额外运行时）。
 - **v2 对纯函数型工具**（text→text，如 md5/进制转换）提供 Python 桥：候选 Pyodide（WebView 内跑纯计算）或走轨 B Process Extension（OEP，spawn 用户 Python 脚本）。UI 型工具仍用 JS。
@@ -434,7 +434,7 @@ kit 统一兜底（工具不再各自处理）：输入框 `autocomplete=off`/`s
 - 键盘：`↑↓` 漫游（跳过 group header）、`Enter` 激活、`Esc` 关闭、输入即过滤；焦点恒在搜索框（同 quickOpen 焦点模型）。
 - 选中 → `activateTool(id)` + 关 picker + 写 recent；点击 picker 外（面板 body 区）→ 关闭。
 - 显示：item 右侧灰字 = category；`description` 作第二行副文本（过长截断），工具多后可辨识（对齐「title + description」的识别需求）。
-- recent 持久化：`localStorage["opencharm.devtools.recent"]`（tool id 数组，最近在前，截断 5）；渲染时**过滤已注销的 tool id**（插件热重载/停用后产生），避免僵尸条目。
+- recent 持久化：`localStorage["montauri.devtools.recent"]`（tool id 数组，最近在前，截断 5）；渲染时**过滤已注销的 tool id**（插件热重载/停用后产生），避免僵尸条目。
 
 **DOM 结构**：
 ```
@@ -453,7 +453,7 @@ kit 统一兜底（工具不再各自处理）：输入框 `autocomplete=off`/`s
 **布局**：
 ```
 ┌─ 设置 · 插件 ──────────────────────────────────────┐
-│ 目录: ~/.opencharm/extensions   [打开目录] [重新扫描] │
+│ 目录: ~/.montauri/extensions   [打开目录] [重新扫描] │
 ├────────────────────────────────────────────────────┤
 │ ▸ {} 内置工具            内置 · 10 工具 · 已启用     │ ← 行（点击展开）
 │ ▸ 🔑 My Dev Tools 1.0.0  全局 · 2 工具 · 已启用      │
@@ -487,7 +487,7 @@ interface PluginRecord {
 ```
 
 **行为**：
-- 停用/启用 → 写 `localStorage["opencharm.plugins.disabled"]`（id 数组）；停用即注销其工具 + dispose 存活实例 + 刷新菜单/picker；启用即重新 import + 注册。
+- 停用/启用 → 写 `localStorage["montauri.plugins.disabled"]`（id 数组）；停用即注销其工具 + dispose 存活实例 + 刷新菜单/picker；启用即重新 import + 注册。
 - 重载 = 热重载（revoke URL → re-import → 重注册）；打开目录 = Tauri reveal（内置行禁用）；重新扫描 = 重跑发现流程。
 - 错误态行红字 + 摘要，展开看完整错误与日志，提供「重试」。
 - 日志环形缓冲仅内存（重启后运行时日志丢失，`error` 字段保留但缓冲清空）；跨重启诊断落盘 `<data_root>/logs/plugins/<id>.log`（**已落地 v1.1，2026-09-30**：Rust `append_plugin_log` 旁路追加写——id 白名单收口防逃逸、换行剥离防注入、64KB 上限滚动截断保尾部；前端 fire-and-forget，失败静默不反噬主流程）。
@@ -498,9 +498,9 @@ interface PluginRecord {
 ```
 boot → loader.init()
   ├─ 注册内置插件（打包内清单，source=builtin）
-  ├─ readDir(~/.opencharm/extensions) → [pluginDir…]
+  ├─ readDir(~/.montauri/extensions) → [pluginDir…]
   ├─ for each pluginDir:
-  │   ├─ read opencharm.plugin.json
+  │   ├─ read montauri.plugin.json
   │   ├─ validateManifest ──✗→ record.status=error(原因); continue
   │   ├─ checkEngines(>=X.Y.Z) ──✗→ status=error; continue
   │   ├─ id ∈ disabled? → status=disabled; continue（不 import）
@@ -509,7 +509,7 @@ boot → loader.init()
   │   │     wrap exports(mount / inline.handler) → DevTool → registerDevTool()
   │   └─ status=active
   ├─ refresh 菜单(分类子菜单) / picker / 命令面板
-  └─ fs.watch(~/.opencharm/extensions, recursive) → onChange
+  └─ fs.watch(~/.montauri/extensions, recursive) → onChange
 ```
 
 **热重载（去抖 + 全量 diff，不依赖细粒度单文件事件）**：
@@ -566,7 +566,7 @@ openDevTools(toolId)（菜单 / picker / 命令面板 / Ctrl+Shift+T）
 |---|---|---|
 | **脚手架** | 设置 → 插件 →「新建插件…」 | 对话框收 id/名称 → Rust `scaffold_plugin` 落盘「注释即教程」模板（面板 + inline + host.log 全演示）→ 主动重扫加载 → toast 引导下一步。不覆盖已有目录（幂等保护） |
 | **host.log** | 插件代码 `host.log(msg)` | 默认权限。release 版 WebView 无控制台，这是插件作者**唯一**调试输出通道——写入该插件记录的日志环形缓冲（设置页日志面板**常驻展示**，空态提示用法） |
-| **真实路径** | 设置 → 插件 顶部 | `get_plugins_dir` 显示绝对路径 + 「复制路径」（修掉写死 `~/.opencharm/extensions` 的错误提示——Windows 实际在 `%LOCALAPPDATA%`） |
+| **真实路径** | 设置 → 插件 顶部 | `get_plugins_dir` 显示绝对路径 + 「复制路径」（修掉写死 `~/.montauri/extensions` 的错误提示——Windows 实际在 `%LOCALAPPDATA%`） |
 | **内置指南** | 设置 → 插件 →「作者指南」 | `devtools_plugin_guide.md` 经 vite `?raw` 打包进应用 → 落盘数据根 `docs/` → `openFile`（.md 自动开应用自己的 Markdown 预览）。离线可用，零新基建 |
 
 **设计取舍**：
@@ -575,7 +575,7 @@ openDevTools(toolId)（菜单 / picker / 命令面板 / Ctrl+Shift+T）
 - 指南用 Markdown 预览打开：「自己的 IDE 渲染自己的文档」本身即引导。
 
 P1（已实现，2026-09-20）：
-- **类型提示**：`opencharm-plugin.d.ts`（ToolHost/ToolKit/ToolInstance 全量 JSDoc）随脚手架落盘；
+- **类型提示**：`montauri-plugin.d.ts`（ToolHost/ToolKit/ToolInstance 全量 JSDoc）随脚手架落盘；
   entry 模板首行 `// @ts-check`——VS Code 打开即有补全与检查（tsc strict checkJs 验证三模板零错误）；
   Rust `include_str!` 编译期内嵌，运行时零资源依赖。
 - **三模板选择**：面板工具 / 选区变换（inline）/ 空白——脚手架对话框单表单（id+名称+模板单选），
@@ -593,7 +593,7 @@ P2（已实现，2026-09-20）：
   zip 编解码与安全校验由 Rust 单测覆盖（5 项）；E2E 验证 UI 全链路（导出→删源→导入→工具恢复）。
 - v2 的 `.ocx` 市场在此之上演进（签名 / 元数据清单 / 版本升级覆盖策略）。
 
-长线：Python 工具桥（§9.10）——OpenCharm 的用户是 Python 开发者，Python 模板才是最大的引导杠杆。
+长线：Python 工具桥（§9.10）——Montauri 的用户是 Python 开发者，Python 模板才是最大的引导杠杆。
 
 ---
 
@@ -610,7 +610,7 @@ P2（已实现，2026-09-20）：
 ### 10.2 工具切片专属（2026-09-20 已拍板）
 
 6. **v1 信任模型** → **同源 import + API facade**：不做硬沙箱，靠 facade + 权限门控约束，对齐 VS Code「装你信任的插件」信任模型；v2 再上 iframe 沙箱，届时 facade 换跨 realm 代理、插件作者无感。见 9.6。
-7. **插件目录范围** → **v1 仅全局 `~/.opencharm/extensions`**：简化首版；工作区级（团队共享、可入仓）延后，因加载器只是「多一个扫描根」，日后追加为非破坏性扩展。见 9.5。
+7. **插件目录范围** → **v1 仅全局 `~/.montauri/extensions`**：简化首版；工作区级（团队共享、可入仓）延后，因加载器只是「多一个扫描根」，日后追加为非破坏性扩展。见 9.5。
 8. **内置工具改写时机** → **v1 即迁为内置插件**：内置与第三方走完全相同的 manifest + 加载流程，dogfooding 保证 API 不跑偏并给第三方现成范例。见 9.7。
 9. **Python 工具桥** → **v1 仅在 manifest 预留 `runtime: "js" | "python"` 字段**（仅 `js` 生效），避免日后破坏性变更；Python 桥（Pyodide 或轨 B 子进程）v2 再做。见 9.10。
 10. **category 取值** → **半开放**：预置有序集 `编码 / 哈希 / 格式化 / 转换 / 生成 / 提取 / 文本 / 其他`，插件可声明预置值（按预置序）或自定义字符串（追加在「其他」前，字母序）。见 9.8。

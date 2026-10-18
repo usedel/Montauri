@@ -10,7 +10,7 @@
   "新建插件…": {"key": "ext.newPlugin"},
   "导入插件…": {"key": "ext.importPluginMenu"},
   "作者指南": {"key": "ext.authorGuide"},
-  "暂无插件。点击「新建插件…」用模板起步，或将含 opencharm.plugin.json 的插件目录放入上述目录后「重新扫描」。": {"key": "ext.empty"},
+  "暂无插件。点击「新建插件…」用模板起步，或将含 montauri.plugin.json 的插件目录放入上述目录后「重新扫描」。": {"key": "ext.empty"},
   "打开指南失败：§": {"key": "ext.guideFailed", "params": ["error"]},
   "导入插件（zip）": {"key": "ext.importZipTitle"},
   "插件包": {"key": "ext.pluginPkgFilter"},

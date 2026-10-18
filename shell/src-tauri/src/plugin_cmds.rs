@@ -1,5 +1,5 @@
 // 插件域命令（PR-2，plugin_system_design §9.5）：开发工具插件的发现与读取。
-// v1 仅扫全局目录 <data_root>/extensions/<plugin-id>/opencharm.plugin.json。
+// v1 仅扫全局目录 <data_root>/extensions/<plugin-id>/montauri.plugin.json。
 //
 // 设计边界（§9.15）：
 // - 本模块只做「列出 + 读文件 + 监听变更」三件事，不做校验/解析业务——
@@ -12,11 +12,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use tauri::AppHandle;
 
-use crate::util::opencharm_home;
+use crate::util::montauri_home;
 
 /// 全局插件目录：<data_root>/extensions（v1 唯一扫描根，决策点 #7）
 pub fn extensions_dir() -> PathBuf {
-    opencharm_home().join("extensions")
+    montauri_home().join("extensions")
 }
 
 /// 一个插件的磁盘信息（manifest 内容由前端读取解析，这里只透传路径）
@@ -28,7 +28,7 @@ pub struct PluginDirEntry {
     pub dir_path: String,
 }
 
-/// 扫描插件目录：列出 <data_root>/extensions 下所有含 opencharm.plugin.json 的一级子目录。
+/// 扫描插件目录：列出 <data_root>/extensions 下所有含 montauri.plugin.json 的一级子目录。
 /// 目录不存在返回空列表（首启无任何插件是正常态）；非目录条目静默跳过。
 #[tauri::command]
 pub fn list_plugin_dirs() -> Result<Vec<PluginDirEntry>, String> {
@@ -43,7 +43,7 @@ pub fn list_plugin_dirs() -> Result<Vec<PluginDirEntry>, String> {
         if !p.is_dir() {
             continue;
         }
-        if !p.join("opencharm.plugin.json").is_file() {
+        if !p.join("montauri.plugin.json").is_file() {
             continue;
         }
         let dir_name = p
@@ -65,8 +65,8 @@ pub fn list_plugin_dirs() -> Result<Vec<PluginDirEntry>, String> {
 
 // ---------- P0 DX：路径查询 + 脚手架落盘 ----------
 
-/// 插件目录的真实绝对路径（设置页展示用——此前前端写死 "~/.opencharm/extensions"，
-/// Windows 实际是 %LOCALAPPDATA%\OpenCharm\extensions，提示与事实不符）。
+/// 插件目录的真实绝对路径（设置页展示用——此前前端写死 "~/.montauri/extensions"，
+/// Windows 实际是 %LOCALAPPDATA%\Montauri\extensions，提示与事实不符）。
 #[tauri::command]
 pub fn get_plugins_dir() -> String {
     extensions_dir().to_string_lossy().to_string()
@@ -79,7 +79,7 @@ pub fn get_data_doc_path(name: &str) -> Result<String, String> {
     if name.is_empty() || name.contains('/') || name.contains('\\') || name.contains("..") {
         return Err(format!("文档名不合法：{name}"));
     }
-    let dir = opencharm_home().join("docs");
+    let dir = montauri_home().join("docs");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     Ok(dir.join(name).to_string_lossy().to_string())
 }
@@ -157,7 +157,7 @@ fn manifest_template(id: &str, name: &str, tpl: ScaffoldTemplate) -> Result<Stri
   "id": "{id}",
   "name": {name_json},
   "version": "0.1.0",
-  "engines": {{ "opencharm": ">=0.1.0" }},
+  "engines": {{ "montauri": ">=0.1.0" }},
   "contributes": {{
     "tools": [
       {{
@@ -199,12 +199,12 @@ pub fn scaffold_plugin(id: &str, name: &str, template: &str) -> Result<String, S
     let entry = tpl.entry_src();
     let entry_file = ScaffoldTemplate::entry_name(tpl).trim_start_matches("./");
 
-    std::fs::write(root.join("opencharm.plugin.json"), manifest).map_err(|e| e.to_string())?;
+    std::fs::write(root.join("montauri.plugin.json"), manifest).map_err(|e| e.to_string())?;
     std::fs::write(root.join(entry_file), entry).map_err(|e| e.to_string())?;
     // P1：类型声明随脚手架落盘——entry 首行 // @ts-check 即获得 VS Code 补全
     std::fs::write(
-        root.join("opencharm-plugin.d.ts"),
-        include_str!("../templates/opencharm-plugin.d.ts"),
+        root.join("montauri-plugin.d.ts"),
+        include_str!("../templates/montauri-plugin.d.ts"),
     )
     .map_err(|e| e.to_string())?;
     Ok(root.to_string_lossy().to_string())
@@ -242,7 +242,7 @@ pub fn read_plugin_file(plugin_dir: &str, rel: &str) -> Result<String, String> {
 
 /// manifest 约定文件名（前端读 manifest 也走 read_plugin_file，保持单通道）
 #[allow(dead_code)]
-pub(crate) const MANIFEST_FILE: &str = "opencharm.plugin.json";
+pub(crate) const MANIFEST_FILE: &str = "montauri.plugin.json";
 
 // ---------- 目录监听（去抖由前端做，这里只发「目录变了」信号） ----------
 
@@ -325,7 +325,7 @@ const PLUGIN_LOG_MAX_BYTES: u64 = 64 * 1024;
 
 /// 插件日志目录：<data_root>/logs/plugins
 fn plugin_logs_dir() -> PathBuf {
-    opencharm_home().join("logs").join("plugins")
+    montauri_home().join("logs").join("plugins")
 }
 
 /// 追加一行插件日志（时间戳前缀由前端格式化后传入，这里只做纯追加）。
@@ -388,7 +388,7 @@ mod tests {
     fn list_plugin_dirs_empty_when_missing() {
         // extensions 目录不存在 → 空列表（正常态，不是错误）
         // 注：用临时数据根隔离本机真实目录
-        let dir = std::env::temp_dir().join("opencharm-plugin-test-noexist");
+        let dir = std::env::temp_dir().join("montauri-plugin-test-noexist");
         let _ = std::fs::remove_dir_all(&dir);
         let entries = list_plugin_dirs_in(&dir).unwrap();
         assert!(entries.is_empty());
@@ -396,13 +396,13 @@ mod tests {
 
     #[test]
     fn list_plugin_dirs_finds_manifest_dirs_only() {
-        let dir = std::env::temp_dir().join("opencharm-plugin-test-scan");
+        let dir = std::env::temp_dir().join("montauri-plugin-test-scan");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("com.a.good").join("tools")).unwrap();
-        std::fs::write(dir.join("com.a.good").join("opencharm.plugin.json"), "{}").unwrap();
+        std::fs::write(dir.join("com.a.good").join("montauri.plugin.json"), "{}").unwrap();
         std::fs::create_dir_all(dir.join("com.b.no-manifest")).unwrap();
         std::fs::create_dir_all(dir.join("com.c.good")).unwrap();
-        std::fs::write(dir.join("com.c.good").join("opencharm.plugin.json"), "{}").unwrap();
+        std::fs::write(dir.join("com.c.good").join("montauri.plugin.json"), "{}").unwrap();
         std::fs::write(dir.join("stray-file.txt"), "x").unwrap(); // 非目录跳过
 
         let entries = list_plugin_dirs_in(&dir).unwrap();
@@ -413,7 +413,7 @@ mod tests {
 
     #[test]
     fn read_plugin_file_blocks_escape() {
-        let dir = std::env::temp_dir().join("opencharm-plugin-test-escape");
+        let dir = std::env::temp_dir().join("montauri-plugin-test-escape");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("ok.js"), "export const x = 1;").unwrap();
@@ -428,13 +428,13 @@ mod tests {
         // P2-5 回归：逃逸目标真实存在时也必须拒绝——原 starts_with 检查放行该形态
         //（目标文件不存在时走「插件文件不存在」分支，掩盖了检查失效）。
         let parent = dir.parent().unwrap().to_path_buf();
-        std::fs::write(parent.join("opencharm-plugin-test-escape-secret.txt"), "secret").unwrap();
-        let r = read_plugin_file_in(dir.to_str().unwrap(), "../opencharm-plugin-test-escape-secret.txt");
+        std::fs::write(parent.join("montauri-plugin-test-escape-secret.txt"), "secret").unwrap();
+        let r = read_plugin_file_in(dir.to_str().unwrap(), "../montauri-plugin-test-escape-secret.txt");
         assert!(r.is_err(), "逃逸到真实存在的文件必须被拒绝");
         // 不存在报错
         assert!(read_plugin_file_in(dir.to_str().unwrap(), "nope.js").is_err());
         std::fs::remove_dir_all(&dir).unwrap();
-        std::fs::remove_file(parent.join("opencharm-plugin-test-escape-secret.txt")).unwrap();
+        std::fs::remove_file(parent.join("montauri-plugin-test-escape-secret.txt")).unwrap();
     }
 
     #[test]
@@ -496,7 +496,7 @@ mod tests {
         let mut out = Vec::new();
         for e in std::fs::read_dir(root).map_err(|e| e.to_string())?.flatten() {
             let p = e.path();
-            if !p.is_dir() || !p.join("opencharm.plugin.json").is_file() {
+            if !p.is_dir() || !p.join("montauri.plugin.json").is_file() {
                 continue;
             }
             let dir_name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
@@ -518,7 +518,7 @@ mod tests {
     // ---- 插件日志落盘（v1.1 §9.14） ----
 
     fn logs_root() -> PathBuf {
-        std::env::temp_dir().join("opencharm-plugin-log-test")
+        std::env::temp_dir().join("montauri-plugin-log-test")
     }
 
     #[test]

@@ -19,11 +19,11 @@ export { groupToolsByCategory, PRESET_CATEGORIES, categoryLabel } from "./types"
 
 /**
  * 内置 HTTP 工具的**全局 id**：`openDevTools` 收的是 `<pluginId>.<toolId>` 形态
- * （同 dslLens.ts 的 `opencharm.builtin.regex` / jsonLiteral.ts 的 `...jsonpath`）。
+ * （同 dslLens.ts 的 `montauri.builtin.regex` / jsonLiteral.ts 的 `...jsonpath`）。
  * 传裸 `"http"` 会让 `getDevTool` 返回 undefined → 静默回落到「最近使用」工具，
  * 表现为「面板开了但打开的是别的工具」——2026-10-06 由 e2e EP-S2 抓到并修。
  */
-const HTTP_TOOL_ID = "opencharm.builtin.http";
+const HTTP_TOOL_ID = "montauri.builtin.http";
 
 /**
  * 打开 HTTP 工具并预填请求（B4 PR-B4-3 端点视图联动；A5① 起可带方法与请求体）。

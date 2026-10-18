@@ -215,7 +215,7 @@ export async function initLiveTemplates(
     const root = host.getWorkspaceRoot();
     workspaceFile = root
       ? await readConfig(() =>
-          invoke<string>("read_file", { path: joinPath(root, ".opencharm/templates.json") }).catch(
+          invoke<string>("read_file", { path: joinPath(root, ".montauri/templates.json") }).catch(
             () => null,
           ),
         )
@@ -264,7 +264,7 @@ export async function initLiveTemplates(
     // ⚡ 强制全显（S1-T03）：置一次性开关后立即触发补全弹窗（editor 级命令面板动作）
     forceShowAll: () => {
       setForceShowAll(true);
-      editor.trigger("opencharm.liveTemplates", "editor.action.triggerSuggest", null);
+      editor.trigger("montauri.liveTemplates", "editor.action.triggerSuggest", null);
     },
     insertByAbbreviation,
     listEffective: () => registry.listEffective(),

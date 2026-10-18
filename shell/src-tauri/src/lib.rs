@@ -63,7 +63,7 @@ pub fn run() {
             std::fs::create_dir_all(&webview_dir)?;
 
             let builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
-                .title("OpenCharm")
+                .title("Montauri")
                 .inner_size(crate::util::WIN_PREF_W, crate::util::WIN_PREF_H)
                 // UI-23：窗口下限（本项目窗口在 Rust 侧手动构建，故约束在这里而非 tauri.conf.json 的 app.windows）。
                 // 800 不是随手取的：三栏布局的宽度下限之和 = 侧栏 180 + 编辑区 240 + 右面板 260 = 680

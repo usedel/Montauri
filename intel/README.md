@@ -1,6 +1,6 @@
-# opencharm-intel
+# montauri-intel
 
-OpenCharm 运行时智能 LSP（Phase 3）。独立 Rust 包/进程，经 stdio 挂着到 shell 的 LSP 桥，消费 opencharm-probe 写入的 SQLite trace 库，提供运行时驱动的代码补全 / 跳转 / hover。
+Montauri 运行时智能 LSP（Phase 3）。独立 Rust 包/进程，经 stdio 挂着到 shell 的 LSP 桥，消费 montauri-probe 写入的 SQLite trace 库，提供运行时驱动的代码补全 / 跳转 / hover。
 
 **独立包，不依赖外壳内部 API（架构第一原则）。**
 
@@ -14,7 +14,7 @@ OpenCharm 运行时智能 LSP（Phase 3）。独立 Rust 包/进程，经 stdio 
 
 ## 数据契约
 
-读取 `~/.opencharm/traces/<project-hash>.db`（probe 的 trace 库，schema 见 `probe/src/opencharm_probe/store.py`）：
+读取 `~/.montauri/traces/<project-hash>.db`（probe 的 trace 库，schema 见 `probe/src/montauri_probe/store.py`）：
 
 - `functions(filename, qualname, lineno, hits, stale)` —— 函数自然键 + 命中数 + 陈旧标记；
 - `arg_types(fid, arg, type_label, shape, count)` / `ret_types` / `exc_types` —— 类型观测跨运行累加；
@@ -28,7 +28,7 @@ cargo build            # debug
 cargo build --release  # P3-T02 性能验收用
 ```
 
-> ⚠️ 联调 shell 前必须 `cargo build -p opencharm-intel`（**非 `cargo test`**）——`cargo test` 只构建测试 harness，不刷新 shell 调用的 `opencharm-intel.exe`（曾因此踩坑：shell 加载到 P3-T01 骨架版，补全返回 `method_not_found`）。
+> ⚠️ 联调 shell 前必须 `cargo build -p montauri-intel`（**非 `cargo test`**）——`cargo test` 只构建测试 harness，不刷新 shell 调用的 `montauri-intel.exe`（曾因此踩坑：shell 加载到 P3-T01 骨架版，补全返回 `method_not_found`）。
 
 ## 阶段任务
 
@@ -57,7 +57,7 @@ cargo build --release  # P3-T02 性能验收用
 | 确定性口径 base 数值 | ✅ 23/23 = 100%（`bench/reports/gate-d-runtime-completion.md`），红线 ≥85% PASS |
 | 评测覆盖的已知空洞 | ⚠️ `completion.rs::bench_seed()` 的 6 个函数**全部 `stale=0`** → 23 个评测点对**降权策略零覆盖**；100% 既不能证明也不能反驳降权合理性。已补单测 `stale_candidates_rank_below_fresh_ones` 钉住降权行为（33/33 通过） |
 | 降权参数的依据 | 🔄 此前是裸字面量 `f.hits / 2`。现已提成具名常量 `STALE_HITS_DIVISOR`（值不变）+ 注释记录首个实测：改 1/2 源文件后只跑另一半，**stale 占比 30.0%**（3/10）——即常见编辑流下约 1/3 观测立刻变 stale。取值待真实项目 ≥1000 条观测后用 `tools/intel/trace_stats.py` 复核 |
-| 人工横向对标 | ❌ **已撤下（2026-10-07）**：本机无 PyCharm，roadmap P0-2 的二选一截止规则到期（v1.4 仍无对标）即撤项。工作单 `bench/reports/gate-d-ab-worklist.md` 保留归档（OpenCharm 侧 23 点排名已填好），将来换对照组（如 VS Code + Pylance）可直接复用——但结论必须改写为"对 X"，不得拿它冒充原命题。**在新证据出现前，"比 PyCharm 更准"是不可写的表述**（口径纪律见 `CONTENT-SERIES.md`） |
+| 人工横向对标 | ❌ **已撤下（2026-10-07）**：本机无 PyCharm，roadmap P0-2 的二选一截止规则到期（v1.4 仍无对标）即撤项。工作单 `bench/reports/gate-d-ab-worklist.md` 保留归档（Montauri 侧 23 点排名已填好），将来换对照组（如 VS Code + Pylance）可直接复用——但结论必须改写为"对 X"，不得拿它冒充原命题。**在新证据出现前，"比 PyCharm 更准"是不可写的表述**（口径纪律见 `CONTENT-SERIES.md`） |
 | 真实项目端到端 | ✅ **已采并收口（2026-10-07）**：跨 **3 个真实项目 / 7 次运行 / 497 条函数观测**（`metawake/backend` 277 · `pylume/probe` 187 · `cb_watcher/backend` 33），742 B/条，hits p50 2 / p99 121，stale 仍 0.0%。真源 `bench/reports/trace-stats-cumulative.md`；**门槛口径（「≥1000 条」= 函数观测）与「不再专门采样、改为日常累积」的处置见 `bench/reports/trace-sample-threshold.md`** |
 | trace 库保留窗口 | ⏳ 现行无条数/体积上限；`probe clean --days N` **只删 runs 行、不删观测数据**（易被误读为保留窗口）。`trace_stats.py` 建议按 8 MB 预算设条数上限（按当前 742 B/条反推约 ≤11,309 条）并已在报告中给出反推口径——**仍是建议值，未落代码**（同样受 ≥1000 条复核门槛约束） |
 
@@ -130,7 +130,7 @@ A3③ 改为**intel 优先、无结果回落 static**（`querySignatureHelp(engi
 intel 链路都不出结果**（既有设计，非本项引入）；若要让 intel 独立可用，须三项一起改。
 
 ## 索引与并发模型（2026-09-10 整改后）
-- **倒排索引**（`opencharm-intel-index/src/trace.rs`）：加载期预建 `by_qualname` / `by_location` / `by_file` / `by_last_segment`（qualname 最后段，**排序数组**——C2 后前缀查询走二分下界 + 命中区段扫描）/ `by_second_last_segment` / `by_type_label`（类型 → 观测定位）；消费端 7 处全量线性扫描全部改为索引查询，shape 解析带请求级缓存。
+- **倒排索引**（`montauri-intel-index/src/trace.rs`）：加载期预建 `by_qualname` / `by_location` / `by_file` / `by_last_segment`（qualname 最后段，**排序数组**——C2 后前缀查询走二分下界 + 命中区段扫描）/ `by_second_last_segment` / `by_type_label`（类型 → 观测定位）；消费端 7 处全量线性扫描全部改为索引查询，shape 解析带请求级缓存。
 - **只读打开**：`TraceIndex::open` 用 `SQLITE_OPEN_READ_ONLY` + 路径不存在直接报错（不创建垃圾 .db）+ `busy_timeout(2s)`。
 - **server.rs 并发**：`parking_lot::RwLock`（无中毒）+ `Option<Arc<TraceIndex>>` 快照（读锁内只 clone，重计算锁外）+ 补全/hover/definition/inlay/诊断全部 `spawn_blocking`；didChange 带 **version 校验**（旧版本后到不覆盖新文本）；索引加载失败**指数退避**（连续失败后按 2 的幂间隔重试，不再每键重试刷 stderr）。
 

@@ -640,7 +640,7 @@ const MISSING_IMPORT_SCRIPT: &str = r#"import ast, importlib.util, sys, os, json
 def main(path):
     d = os.path.dirname(os.path.abspath(path))
     sys.path.insert(0, d)
-    root = os.environ.get("OPENCHARM_WORKSPACE_ROOT")
+    root = os.environ.get("MONTAURI_WORKSPACE_ROOT")
     if root:
         sys.path.insert(0, root)
     with open(path, encoding="utf-8") as f:
@@ -715,7 +715,7 @@ fn check_missing_imports_impl(
         .arg(&path)
         .current_dir(&dir);
     if let Some(root) = &workspace_root {
-        cmd.env("OPENCHARM_WORKSPACE_ROOT", root);
+        cmd.env("MONTAURI_WORKSPACE_ROOT", root);
     }
 
     let (out, err, code) = run_with_timeout(&mut cmd, Duration::from_secs(10))?;
@@ -1256,7 +1256,7 @@ mod tests {
     fn test_venv_python_alt_names() {
         use std::time::{SystemTime, UNIX_EPOCH};
         let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-        let base = std::env::temp_dir().join(format!("opencharm-venvnames-{nanos}"));
+        let base = std::env::temp_dir().join(format!("montauri-venvnames-{nanos}"));
         let bin = if cfg!(windows) { "Scripts\\python.exe" } else { "bin/python" };
         let mk_interp = |sub: &str| -> std::path::PathBuf {
             let p = base.join(sub).join(bin);
@@ -1332,7 +1332,7 @@ mod tests {
     fn detect_tmpdir(tag: &str) -> std::path::PathBuf {
         use std::time::{SystemTime, UNIX_EPOCH};
         let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-        let d = std::env::temp_dir().join(format!("opencharm-detect-{tag}-{nanos}"));
+        let d = std::env::temp_dir().join(format!("montauri-detect-{tag}-{nanos}"));
         std::fs::create_dir_all(&d).unwrap();
         d
     }

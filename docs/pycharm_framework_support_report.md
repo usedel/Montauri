@@ -5,7 +5,7 @@
 > 覆盖：Django / Flask / FastAPI 三大主线，DRF、Pydantic 等生态层，以及 Pyramid / web2py / GAE / Sanic / Tornado 等"非主线"框架的存废状态
 > **v1.1 变更**：按产品裁决重排优先级——**FastAPI 第一（做深）、Flask 第二（做中）、Django 第三（做浅）**；§0 新增裁决条目，§8 重写为三档路线图 + FastAPI 深化清单（§8.3）
 > **v1.2 变更（2026-09-30）**：§8.3 新增 **F9（新建 FastAPI 项目模板）** 条目 + 完整实施计划（PR-R，1.5~2 天）——对齐 PyCharm「专属项目类型」能力（§3.3：装 fastapi+uvicorn、生成 main.py、可直接跑），下游探针表/端点视图/运行配置链路已全部就绪，只缺创建入口。
-> 结论用途：为 OpenCharm「是否做框架支持、做到什么程度」提供输入；**是否立项、何时排期仍以 `python_ide_dev_plan_v2.md` 及产品负责人裁决为准**（tech plan v3 §1.2 已明确"❌ 复刻 PyCharm 全部功能"为非目标）
+> 结论用途：为 Montauri「是否做框架支持、做到什么程度」提供输入；**是否立项、何时排期仍以 `python_ide_dev_plan_v2.md` 及产品负责人裁决为准**（tech plan v3 §1.2 已明确"❌ 复刻 PyCharm 全部功能"为非目标）
 
 ---
 
@@ -16,7 +16,7 @@
 3. **真正拉开差距的不是"框架知识"，而是三件公共基建**：① Endpoints 工具窗口（三框架共用）；② HTTP Client（`.http` 文件 + 从端点一键生成请求）；③ OpenAPI 规范插件（把外部 Swagger 的 URL 也接进补全）。这三者把"写后端"和"调后端"合成一个闭环——这是 PyCharm Web 体验的护城河。
 4. **生态层补位**：Pydantic 已**内置**为一等公民（BaseModel 字段补全/类型检查/缺失必填检查/改名传播，v1+v2 双支持），这实际上承担了 FastAPI 的大部分"智能感"；DRF 无独立插件，靠 Django 插件 + Endpoints 覆盖。
 5. **小众框架全面退场**：Pyramid 官方明确"not bundled"；web2py、Google App Engine 在当前帮助文档已检索不到独立页面（GAE 文档只存在于 2023.3 及更早版本存档）；Sanic / Tornado / aiohttp / Falcon / Bottle / Litestar 等**均无官方专属集成**（仅为通用 Python 支持）。
-6. **对 OpenCharm 的直接启示**：我们已有的框架探测（`detect_fastapi`，P1 已泛化为 `detect_framework` 三框架探针表）+ 一键运行预设 + 依赖健康，恰好落在 PyCharm"投入产出比最高"的那一档（**静态约定识别 → 自动生成运行/调试配置**）。Python 侧的"深度框架语义"成本极高且非本项目目标用户（自用脚本/小项目）的高频诉求，建议不立项；可低成本扩展的是**框架探针表**（Django / Flask / FastAPI 三条规则）与**服务 URL 自动打开**（已有）。
+6. **对 Montauri 的直接启示**：我们已有的框架探测（`detect_fastapi`，P1 已泛化为 `detect_framework` 三框架探针表）+ 一键运行预设 + 依赖健康，恰好落在 PyCharm"投入产出比最高"的那一档（**静态约定识别 → 自动生成运行/调试配置**）。Python 侧的"深度框架语义"成本极高且非本项目目标用户（自用脚本/小项目）的高频诉求，建议不立项；可低成本扩展的是**框架探针表**（Django / Flask / FastAPI 三条规则）与**服务 URL 自动打开**（已有）。
 7. **优先级裁决（2026-09-26）：FastAPI 第一、Flask 第二、Django 浅做**。数据依据（一手，PSF + JetBrains 第八次 Python 开发者调查，2025-08 发布，3 万+ 受访）：**FastAPI 使用率 29% → 38%**（相对增长约 30%，年度最大赢家），Django / Flask 约 35% / 34%（二手报道口径，见 §9）；Python Web 开发占比在 45→43→42 连年下滑后回升至 **46%**。三条支撑"FastAPI 优先"的判断：① 与我们的技术栈**同构**（类型注解驱动 → 静态引擎 pyrefly 直接吃得到；Pydantic 模型；ASGI）；② 用户画像重合——调查显示 **50% 受访者编程经验不足 2 年**，且"把 ML 模型用 FastAPI 包成 API"是明确趋势，与本项目"自用脚本 / 小项目 / 轻量服务"定位吻合；③ PyCharm 给 FastAPI 的正是**最细的运行/调试配置**（Uvicorn / Hypercorn / Dev mode 三选一），是我们已经踩中的那一档，继续往下做是顺势加长板。
 8. **据此重排的投入分配**：FastAPI 做到「**端点可见 + 端点可调**」（对标 PyCharm 的 Endpoints + HTTP Client 两件套，按我们架构裁剪为「静态扫描侧栏 + 复用系统浏览器」，不引入 HTTP Client / OpenAPI 引擎）；Flask 只做"**复用 FastAPI 的同一套扫描与 UI，加一条路由规则**"；Django **冻结在「探测 + 运行配置」层**，明确不做 ORM / 模板 / 结构窗口。
 
@@ -237,7 +237,7 @@ Django/DRF 场景下 `db.sqlite3` 首次打开即被注册为数据源，Databas
 
 ---
 
-## 8. 对 OpenCharm 的启示
+## 8. 对 Montauri 的启示
 
 ### 8.1 现状核对
 
@@ -337,7 +337,7 @@ Django/DRF 场景下 `db.sqlite3` 首次打开即被注册为数据源，Databas
 
    @app.get("/")
    def root() -> str:
-       return "Hello from OpenCharm FastAPI!"
+       return "Hello from Montauri FastAPI!"
 
 
    @app.get("/items/{item_id}")

@@ -37,7 +37,7 @@
  *   OC_KEEP_APP=1   结束后不杀应用（保留现场人工检查；临时目录同样保留）
  *
  * 实现要点（沿 M4 运行验收既有经验）：
- *   - 隔离数据根 OPENCHARM_DATA_ROOT + 预置 config/recent-workspaces.json（Node 写入天然无 BOM，
+ *   - 隔离数据根 MONTAURI_DATA_ROOT + 预置 config/recent-workspaces.json（Node 写入天然无 BOM，
  *     规避 PS Set-Content 带 BOM 被 serde 静默拒读的坑）；
  *   - WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=<port> 打开 CDP；
  *   - Playwright connectOverCDP 驱动真实窗口；断点用 dev 钩子 __OC_DEBUG_TEST__

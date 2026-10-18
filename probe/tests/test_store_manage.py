@@ -9,9 +9,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from opencharm_probe.config import ProbeConfig  # noqa: E402
-from opencharm_probe.sink import ObservationSink  # noqa: E402
-from opencharm_probe.store import clean, db_path, load_summary, save  # noqa: E402
+from montauri_probe.config import ProbeConfig  # noqa: E402
+from montauri_probe.sink import ObservationSink  # noqa: E402
+from montauri_probe.store import clean, db_path, load_summary, save  # noqa: E402
 
 
 def _fill(sink: ObservationSink, filename: str = "F:/proj/scraper.py"):

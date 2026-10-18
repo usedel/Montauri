@@ -20,7 +20,7 @@ const MAIN_PY = [
   "from lib import add_score",
   "",
   's = "hello"',
-  'name = "opencharm"',
+  'name = "montauri"',
   "",
   "total = add_score(2, 3)",
   "print(total)",

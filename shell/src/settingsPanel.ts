@@ -61,7 +61,7 @@ export function setSettingsPanelHandlers(h: SettingsPanelHandlers): void {
 }
 
 function sh(): SettingsPanelHandlers {
-  if (!handlers) throw new Error("[OpenCharm] settingsPanel 尚未接线（setSettingsPanelHandlers 须在 init 中先于设置面板交互）");
+  if (!handlers) throw new Error("[Montauri] settingsPanel 尚未接线（setSettingsPanelHandlers 须在 init 中先于设置面板交互）");
   return handlers;
 }
 
@@ -964,7 +964,7 @@ function renderRuffHint(st: ToolchainStatus): void {
 
 /**
  * 两个入口共用一次探测（状态来自 toolchain.ts 的缓存）。
- * @param force 面板**打开时传 true**——用户可能在 OpenCharm 之外自己装了工具，
+ * @param force 面板**打开时传 true**——用户可能在 Montauri 之外自己装了工具，
  *   走缓存会一直显示「未安装」；面板打开是低频动作，四次 `is_available` 的代价可忽略。
  *   安装完成后的刷新不必 force：`installToolNamed` 已失效缓存。
  * 探测失败静默——设置面板不该因探测挂掉。
@@ -1224,7 +1224,7 @@ async function applySettingsPanel(): Promise<void> {
   await commitSettingsPanel(false);
 }
 
-/** 一键开启/关闭运行时智能层（opencharm-intel），不影响静态引擎 */
+/** 一键开启/关闭运行时智能层（montauri-intel），不影响静态引擎 */
 async function applyIntelToggle(enabled: boolean): Promise<void> {
   if (!app.workspaceRoot) return;
   if (enabled) {

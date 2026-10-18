@@ -40,7 +40,7 @@ test("E-DX-RH1 命中速释表的规则码：marker 消息追加〔速释〕段"
   const messages = await page.evaluate(async () => {
     const { app } = (await import(/* @vite-ignore */ "/src/state.ts")) as any;
     return app.monaco.editor
-      .getModelMarkers({ owner: "opencharm-ruff" })
+      .getModelMarkers({ owner: "montauri-ruff" })
       .map((m: any) => m.message);
   });
   expect(messages).toHaveLength(1);
@@ -58,7 +58,7 @@ test("E-DX-RH2 未命中规则码保持原形态；严重度映射不受速释�
   const markers = await page.evaluate(async () => {
     const { app } = (await import(/* @vite-ignore */ "/src/state.ts")) as any;
     return app.monaco.editor
-      .getModelMarkers({ owner: "opencharm-ruff" })
+      .getModelMarkers({ owner: "montauri-ruff" })
       .map((m: any) => ({ message: m.message, severity: m.severity }));
   });
   expect(markers).toHaveLength(2);

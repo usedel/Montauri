@@ -21,11 +21,11 @@ const SRC = Array.from({ length: 20 }, (_, i) => `v${i} = ${i}`).join("\n") + "\
 
 let repo: GitRepo;
 
-/** 注入 marker（owner opencharm-lsp，与 handleDiagnostics 同一落点） */
+/** 注入 marker（owner montauri-lsp，与 handleDiagnostics 同一落点） */
 async function inject(page: Page, markers: unknown[]): Promise<void> {
   await page.evaluate(async (ms) => {
     const { app } = (await import(/* @vite-ignore */ "/src/state.ts")) as any;
-    app.monaco.editor.setModelMarkers(app.editor.getModel(), "opencharm-lsp", ms as any[]);
+    app.monaco.editor.setModelMarkers(app.editor.getModel(), "montauri-lsp", ms as any[]);
   }, markers);
 }
 

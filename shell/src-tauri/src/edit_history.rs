@@ -14,7 +14,7 @@ use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 
-use crate::util::opencharm_home;
+use crate::util::montauri_home;
 
 /// 单文件超过此字节数即轮转（8 MiB；正常采集量级一年仅数 MB，此上限纯属防御）。
 const MAX_BYTES: u64 = 8 * 1024 * 1024;
@@ -39,7 +39,7 @@ pub struct EditEvent {
 }
 
 fn dir() -> PathBuf {
-    opencharm_home().join("edit_history")
+    montauri_home().join("edit_history")
 }
 
 fn current_file() -> PathBuf {

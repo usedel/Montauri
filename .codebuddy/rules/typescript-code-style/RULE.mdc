@@ -66,7 +66,7 @@ provider:
 - `editHistory.ts` — 编辑历史采集（低延迟编辑预测数据源）：行对事件落盘 Rust JSONL。
 - `browserKeys.ts` — 浏览器原生快捷键护栏（capture 阶段）：吞掉应用未认领的 WebView2 加速器（Ctrl+R/Ctrl+F5 重载、Ctrl+P 打印、Ctrl+O/U、Ctrl+N/T/W、Ctrl+Shift+Delete、F7、Alt+←→、编辑器外的 Ctrl+D/H/J/K/L、F3/F12 等）；应用已认领的组合只 `preventDefault` 不 `stopPropagation`（补 main.ts 在输入框内整段跳过的泄漏口）。焦点在 Monaco 内只拦「危险级」子集，避免误伤 Monaco 自带键位。判定纯函数 `isBlockedCombo(combo, inMonaco)` 可单测。
 - `editorFind.ts` — Ctrl+F 活动标签内查找：window 级 capture 拦截（**必须 preventDefault，否则 WebView2 会弹原生查找条**）；有活动标签 → 打开该标签的 Monaco `actions.find`（diff 标签走 modified 侧，编辑器实例由 `setFindDiffEditorProvider` 注入防循环），无活动标签 / 有模态 / Quick Open 打开时只吞键。焦点已在 `.monaco-editor` 内时不 stopPropagation，交回 Monaco 自带键位。
-- `ruffLint.ts` — ruff 实时 lint（P2）：诊断第三桶（owner=`opencharm-ruff`），与静态引擎 / 运行时 intel 三桶并存。
+- `ruffLint.ts` — ruff 实时 lint（P2）：诊断第三桶（owner=`montauri-ruff`），与静态引擎 / 运行时 intel 三桶并存。
 - `todoView.ts` — TODO 工具窗（P0）：扫描 TODO/FIXME 等标记分组列出并跳转（Rust `fs_cmds::scan_todos`）。
 - `endpointView.ts` — 端点工具窗（F1/F2/F4）：FastAPI / Flask 静态路由分组列出（Rust `fs_cmds::scan_endpoints`）+ 跳转声明 + 浏览器打开/复制 URL（base 来自 `termUi::lastServiceBaseUrl`）+ `/docs`、`/openapi.json` 入口；路由合并纯函数 `joinRoute`/`fullEndpointUrl` 在 `frameworks.ts`。
 - `envPanel.ts` — Python 环境面板域（TD-14 拆分）：解释器状态栏 / 环境面板 / venv / 包管理 / 装包 / .venv 检测 / 工具链首启引导。
@@ -91,7 +91,7 @@ provider:
 
 ## Live Templates 配置（Schema v2）
 
-- 三层来源：内置（`builtin.ts`）→ 用户 `~/.opencharm/templates.json` → 工作区 `<workspace>/.opencharm/templates.json`；键 = `abbreviation + scope`，窄层覆盖宽层，`enabled: false` 为墓碑。
+- 三层来源：内置（`builtin.ts`）→ 用户 `~/.montauri/templates.json` → 工作区 `<workspace>/.montauri/templates.json`；键 = `abbreviation + scope`，窄层覆盖宽层，`enabled: false` 为墓碑。
 - `body` 用 `$VAR$` 命名变量语法：`$END$` 终点、`$$` 字面美元符；变量经 `engine.ts` 求值后由 `compiler.ts` 编译为 Monaco snippet（占位符跳转复用 SnippetController2，经 `editor.getContribution("snippetController2").insert()` 注入）。
 - `tabExpand: false` 的模板（关键字类缩写）仅走补全弹窗；缩写扫描字符集 `[A-Za-z0-9_-]`（`.` 留给成员访问/后缀）。
 - 单测：`live-templates/__tests__/`（vitest，`npm test`）；引擎/编译器/迁移为纯函数，禁止在其中 import Monaco。

@@ -1,4 +1,4 @@
-# OpenCharm pytest 测试运行器开发计划
+# Montauri pytest 测试运行器开发计划
 
 > 版本：v1.0 · 日期：2026-10-16 · 状态：**T1–T5 已交付并验收（2026-10-17）**
 > 验收记录：`docs/pytest_acceptance_record.md` **v1.1**（门禁 + 真机数字真源；含真机抓出的 5 个 bug）
@@ -177,7 +177,7 @@ pub async fn pytest_action(
 
 ### 3.9 pytest 依赖解决（四层防线）
 
-**定位：pytest 不随包分发，它是用户项目的测试框架**（与 debugpy 捆随包的本质区别：debugpy 是 IDE 自带能力、版本由 `ci/versions.toml` 锁；pytest 的版本与插件集由项目 pyproject 定——用我们的副本跑用户的测试会因版本 / 插件错配（conftest、pytest-asyncio、entry points 发现）产生误导性结果，且 +1.5~2MB 体积纯为用户少装一个 dev 依赖买单，违背体积章程）。OpenCharm 只做「检测 + 引导」，安装动作全部委托既有 dep 编排，**只响应用户显式动作**（R5），不预检弹窗、不静默安装。
+**定位：pytest 不随包分发，它是用户项目的测试框架**（与 debugpy 捆随包的本质区别：debugpy 是 IDE 自带能力、版本由 `ci/versions.toml` 锁；pytest 的版本与插件集由项目 pyproject 定——用我们的副本跑用户的测试会因版本 / 插件错配（conftest、pytest-asyncio、entry points 发现）产生误导性结果，且 +1.5~2MB 体积纯为用户少装一个 dev 依赖买单，违背体积章程）。Montauri 只做「检测 + 引导」，安装动作全部委托既有 dep 编排，**只响应用户显式动作**（R5），不预检弹窗、不静默安装。
 
 | 防线 | 信号来源 | 现状 | 本方案落点 |
 |---|---|---|---|

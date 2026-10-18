@@ -47,8 +47,8 @@ describe("Base64（UTF-8 安全）", () => {
     expect(base64Decode("aGVsbG8=")).toBe("hello");
   });
   it("中文往返（UTF-8 多字节）", () => {
-    const e = base64Encode("你好，OpenCharm！");
-    expect(base64Decode(e)).toBe("你好，OpenCharm！");
+    const e = base64Encode("你好，Montauri！");
+    expect(base64Decode(e)).toBe("你好，Montauri！");
   });
   it("emoji 往返（4 字节码点）", () => {
     const e = base64Encode("👍🐍");

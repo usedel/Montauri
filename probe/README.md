@@ -1,6 +1,6 @@
-# opencharm-probe
+# montauri-probe
 
-OpenCharm 运行时探针：基于 **PEP 669（`sys.monitoring`，Python 3.12+）** 采集运行时类型与调用信息，写入 SQLite trace 库。Phase 2 交付物（P2-T01~T08），项目差异化核心的第一块基石。
+Montauri 运行时探针：基于 **PEP 669（`sys.monitoring`，Python 3.12+）** 采集运行时类型与调用信息，写入 SQLite trace 库。Phase 2 交付物（P2-T01~T08），项目差异化核心的第一块基石。
 
 **独立包，零第三方依赖，不依赖外壳**（架构第一原则）。
 
@@ -12,19 +12,19 @@ uv sync                 # 建 venv（Python 3.13.7）
 uv run pytest           # 71 个单测全绿
 
 # 采集运行（同进程模式：脚本无第三方依赖时）
-uv run opencharm-probe run <script.py>
+uv run montauri-probe run <script.py>
 
 # 采集运行（注入模式：脚本有自己的 venv/依赖时，如 bench 样例）
-uv run opencharm-probe inject -- uv run python <script.py>
+uv run montauri-probe inject -- uv run python <script.py>
 
 # 查看 trace 库
-uv run opencharm-probe show [--project <dir>] [pattern] [--json]
+uv run montauri-probe show [--project <dir>] [pattern] [--json]
 
 # trace 库清理（P2-T07）
-uv run opencharm-probe clean [--project <dir>] [--days N] [--stale] [--all-runs]
+uv run montauri-probe clean [--project <dir>] [--days N] [--stale] [--all-runs]
 
 # 正确率抽检（P2-T08；--uv 用目标项目 venv 运行）
-uv run opencharm-probe check <script.py> [--expect file.json] [--uv] [--threshold 98]
+uv run montauri-probe check <script.py> [--expect file.json] [--uv] [--threshold 98]
 ```
 
 ## 架构
@@ -41,7 +41,7 @@ uv run opencharm-probe check <script.py> [--expect file.json] [--uv] [--threshol
 ├────────────────────────────────────────────────────────────┤
 │ compact（类型紧凑表示）→ sink（内存聚合，运行期零 I/O）        │
 ├────────────────────────────────────────────────────────────┤
-│ store（SQLite：~/.opencharm/traces/<project-hash>.db）      │
+│ store（SQLite：~/.montauri/traces/<project-hash>.db）      │
 └────────────────────────────────────────────────────────────┘
 ```
 
@@ -85,7 +85,7 @@ uv run opencharm-probe check <script.py> [--expect file.json] [--uv] [--threshol
 
 ### trace 库（P2-T05 + P2-T07）
 
-`~/.opencharm/traces/<project-hash>.db`（项目根 realpath 的 sha1 前 12 位）：
+`~/.montauri/traces/<project-hash>.db`（项目根 realpath 的 sha1 前 12 位）：
 
 - `runs`：每次运行一行（时间/耗时/脚本/Python 版本/探针版本）；
 - `functions`：`(filename, qualname, lineno)` 自然键 + hits 累加 + `stale` 陈旧标记；
@@ -97,7 +97,7 @@ uv run opencharm-probe check <script.py> [--expect file.json] [--uv] [--threshol
 
 ## 配置
 
-默认值 ← `~/.opencharm/config/probe.json` ← 环境变量 ← CLI 覆盖：
+默认值 ← `~/.montauri/config/probe.json` ← 环境变量 ← CLI 覆盖：
 
 ```json
 {
@@ -119,18 +119,18 @@ uv run opencharm-probe check <script.py> [--expect file.json] [--uv] [--threshol
 - `include_modules` / `exclude_modules`：相对项目根的 POSIX 风格 glob 列表（`"tests"` ≙ `tests/*`，`*` 跨目录）；白名单非空时仅采集匹配路径，**黑名单优先于白名单**；
 - `max_call_depth`：调用栈深度上限（从被监控帧沿 `f_back` 计数）；超限调用**仍计 hits**（静音兜底照常触发）但不记参数观测；`0` = 不限；
 
-环境变量：`OPENCHARM_PROBE_HOME`（重定向 `~/.opencharm`，测试隔离用）、`OPENCHARM_PROBE_CONFIG`（配置文件路径）、`OPENCHARM_PROBE_QUIET=1`（抑制摘要）。
+环境变量：`MONTAURI_PROBE_HOME`（重定向 `~/.montauri`，测试隔离用）、`MONTAURI_PROBE_CONFIG`（配置文件路径）、`MONTAURI_PROBE_QUIET=1`（抑制摘要）。
 
 ## 注入模式（P2-T06 预演）
 
 `inject` 命令 = 目标项目自己的 venv + `PYTHONPATH` 注入 `src/`（含 `sitecustomize.py` 顶层模块）+ 环境变量激活：
 
-- `OPENCHARM_PROBE_AUTOSTART=1` 才激活，**未设置则零介入**（不侵入原则）；
+- `MONTAURI_PROBE_AUTOSTART=1` 才激活，**未设置则零介入**（不侵入原则）；
 - `argv[0]` 守卫：仅主脚本进程挂探针（multiprocessing spawn 子进程跳过）；
 - `atexit` 落库：正常退出 / `sys.exit()` / 未捕获异常都会落库；
 - 探针任何失败（注入/落库）只打警告，绝不改写用户进程退出码。
 
-shell 运行按钮集成（P2-T06，已交付，运行已统一迁移至 PTY 入口）：`terminal::run_in_terminal` 经 `run_env.rs::build_run_env` 在脚本启动前注入同款环境变量（`PYTHONPATH` 前置 `probe/src` + `OPENCHARM_PROBE_AUTOSTART=1` + `OPENCHARM_PROBE_SCRIPT=<绝对路径>`，多实例并行时附 `OPENCHARM_PROBE_INSTANCE`）；probe/src 定位顺序：环境变量 `OPENCHARM_PROBE_SRC` → `<data_root>/runtime/probe/src` → Tauri 资源目录 → 相对 exe 上溯仓库布局；找不到则照常运行仅提示（探针缺席不拖垮脚本）。探针摘要走 stderr，输出面板以中性色透传。
+shell 运行按钮集成（P2-T06，已交付，运行已统一迁移至 PTY 入口）：`terminal::run_in_terminal` 经 `run_env.rs::build_run_env` 在脚本启动前注入同款环境变量（`PYTHONPATH` 前置 `probe/src` + `MONTAURI_PROBE_AUTOSTART=1` + `MONTAURI_PROBE_SCRIPT=<绝对路径>`，多实例并行时附 `MONTAURI_PROBE_INSTANCE`）；probe/src 定位顺序：环境变量 `MONTAURI_PROBE_SRC` → `<data_root>/runtime/probe/src` → Tauri 资源目录 → 相对 exe 上溯仓库布局；找不到则照常运行仅提示（探针缺席不拖垮脚本）。探针摘要走 stderr，输出面板以中性色透传。
 
 ## PEP 669 实测语义备忘（2026-08-21，Python 3.13.7）
 
@@ -163,6 +163,6 @@ Gate C 四项验收指标全部达标并未留待办。
 | 项 | 结果 |
 |---|---|
 | 开销正式基准（重建 `bench_probe.py`/`bench_probe.ps1` 后） | **1.35x PASS**（31.0ms / 42.0ms，best of 3；Windows Python 3.13.7） |
-| `runs.instance` 运行实例归属（§19-5） | ✅ shell PTY 注入 `OPENCHARM_PROBE_INSTANCE` → `runs.instance`，多实例并行归属正确（端到端实测） |
+| `runs.instance` 运行实例归属（§19-5） | ✅ shell PTY 注入 `MONTAURI_PROBE_INSTANCE` → `runs.instance`，多实例并行归属正确（端到端实测） |
 | 多进程并发写库 | ✅ 8 进程并行 `save` 同一库：全部成功、零丢失、WAL 生效（`test_instance_concurrency.py`） |
 | PTY 注入链采集 | ✅ 实测发现并修复 sitecustomize 链噪音误关发现窗口（`_MIN_DISCOVERY_FLOOR`，见上「M4 开销修复」段同批），PTY 下 6 函数全采集 |

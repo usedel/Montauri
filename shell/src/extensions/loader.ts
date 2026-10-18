@@ -23,7 +23,7 @@ export function setAppVersion(v: string): void {
 }
 
 /** 停用清单持久化键（插件 id 数组） */
-const DISABLED_KEY = "opencharm.plugins.disabled";
+const DISABLED_KEY = "montauri.plugins.disabled";
 
 /** 工具模块须导出的契约面（§9.3） */
 export interface ToolModule {
@@ -315,7 +315,7 @@ export async function scanPlugins(): Promise<void> {
 
     let manifestJson: string;
     try {
-      manifestJson = await invoke<string>("read_plugin_file", { pluginDir: d.dir_path, rel: "opencharm.plugin.json" });
+      manifestJson = await invoke<string>("read_plugin_file", { pluginDir: d.dir_path, rel: "montauri.plugin.json" });
     } catch (e) {
       upsertRecord(pluginId, d.dir_path, {
         id: pluginId, name: pluginId, version: "?", source: "global", dir: d.dir_path,
@@ -342,10 +342,10 @@ export async function scanPlugins(): Promise<void> {
       continue;
     }
 
-    if (!checkEnginesCompatible(manifest.engines.opencharm, APP_VERSION)) {
+    if (!checkEnginesCompatible(manifest.engines.montauri, APP_VERSION)) {
       upsertRecord(pluginId, d.dir_path, {
         id: pluginId, name: manifest.name, version: manifest.version, source: "global", dir: d.dir_path,
-        manifest, error: t("ext.engineIncompatible", { required: manifest.engines.opencharm, current: APP_VERSION }),
+        manifest, error: t("ext.engineIncompatible", { required: manifest.engines.montauri, current: APP_VERSION }),
       });
       continue;
     }

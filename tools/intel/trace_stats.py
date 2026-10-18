@@ -9,9 +9,9 @@
 
 | 参数 | 现值 | 位置 |
 |---|---|---|
-| stale 补全降权 | `hits / 2`（0.5） | `intel/crates/opencharm-intel/src/completion.rs:168` |
+| stale 补全降权 | `hits / 2`（0.5） | `intel/crates/montauri-intel/src/completion.rs:168` |
 | stale 类型推断 | 直接丢弃 | `type_infer.rs:88,170,269,297` |
-| trace 保留窗口 | 无（仅手动 `probe clean --days N`，且只删 runs 行） | `probe/src/opencharm_probe/store.py:214` |
+| trace 保留窗口 | 无（仅手动 `probe clean --days N`，且只删 runs 行） | `probe/src/montauri_probe/store.py:214` |
 
 用法：
     python tools/intel/trace_stats.py                # 扫默认数据根
@@ -48,13 +48,13 @@ STALE_TYPE_INFER_DROP = True
 def default_data_roots() -> list[Path]:
     """trace 库数据根候选（口径对齐 shell/src-tauri/src/util.rs:55-80）。"""
     roots: list[Path] = []
-    if os.environ.get("OPENCHARM_DATA_ROOT"):
-        roots.append(Path(os.environ["OPENCHARM_DATA_ROOT"]))
+    if os.environ.get("MONTAURI_DATA_ROOT"):
+        roots.append(Path(os.environ["MONTAURI_DATA_ROOT"]))
     if os.environ.get("LOCALAPPDATA"):
-        roots.append(Path(os.environ["LOCALAPPDATA"]) / "OpenCharm")
-    if os.environ.get("OPENCHARM_PROBE_HOME"):
-        roots.append(Path(os.environ["OPENCHARM_PROBE_HOME"]))
-    roots.append(Path.home() / ".opencharm")
+        roots.append(Path(os.environ["LOCALAPPDATA"]) / "Montauri")
+    if os.environ.get("MONTAURI_PROBE_HOME"):
+        roots.append(Path(os.environ["MONTAURI_PROBE_HOME"]))
+    roots.append(Path.home() / ".montauri")
     seen, out = set(), []
     for r in roots:
         k = str(r).rstrip("\\/").lower()
@@ -274,9 +274,9 @@ def render(a: dict, stats: list[DbStats], recs: list[dict], at: str) -> str:
             "- 要把参数改成有据值，第一步是**用 IDE 真机跑一次带探针的脚本**生成 trace 库。", "",
             "手工生成方式（等价于 IDE 注入的那套 env）：", "",
             "```",
-            "set OPENCHARM_PROBE_AUTOSTART=1",
-            "set OPENCHARM_PROBE_SCRIPT=<主脚本绝对路径>",
-            "set OPENCHARM_PROBE_HOME=<数据根>",
+            "set MONTAURI_PROBE_AUTOSTART=1",
+            "set MONTAURI_PROBE_SCRIPT=<主脚本绝对路径>",
+            "set MONTAURI_PROBE_HOME=<数据根>",
             "set PYTHONPATH=<probe/src>;%PYTHONPATH%",
             "python <主脚本绝对路径>",
             "```", "",
@@ -315,7 +315,7 @@ def render(a: dict, stats: list[DbStats], recs: list[dict], at: str) -> str:
                  f"| {s.stale_functions} | {s.stale_ratio:.1%} | {last} |")
     L += ["",
           "> 口径：`functions.stale=1` 表示该函数所在文件在**末次运行之后**被修改过",
-          "> （判据：文件 mtime > `MAX(runs.started)`，`probe/src/opencharm_probe/store.py:185-211`）；",
+          "> （判据：文件 mtime > `MAX(runs.started)`，`probe/src/montauri_probe/store.py:185-211`）；",
           "> 它**不是**「N 天未运行」——真实库没有 per-function 时间戳，这是结构性限制。", ""]
     return "\n".join(L)
 

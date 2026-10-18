@@ -1,7 +1,7 @@
 /**
  * Release 模式真机验收 —— 对应 docs/debug_acceptance_record.md §五 第 8 项「真安装包验收」。
  *
- * 验的是**安装后的程序**（默认从注册表 HKCU\...\Uninstall\OpenCharm\InstallLocation 读路径），
+ * 验的是**安装后的程序**（默认从注册表 HKCU\...\Uninstall\Montauri\InstallLocation 读路径），
  * 而不是构建产物——这才是"安装后能不能真正干活"的实际口径。
  *
  * 覆盖的断言：
@@ -46,31 +46,31 @@ const {
 
 const REPO = path.resolve(__dirname, '..', '..');
 // 默认验「安装后的程序」；可用 OC_RELEASE_EXE 覆盖为构建产物路径。
-// 安装位置从注册表 HKCU\...\Uninstall\OpenCharm\InstallLocation 读（NSIS currentUser 模式
-// 默认装到 %LOCALAPPDATA%\OpenCharm，但允许 /D= 覆盖，故不能写死）。
+// 安装位置从注册表 HKCU\...\Uninstall\Montauri\InstallLocation 读（NSIS currentUser 模式
+// 默认装到 %LOCALAPPDATA%\Montauri，但允许 /D= 覆盖，故不能写死）。
 function resolveExe() {
   const override = process.env.OC_RELEASE_EXE;
   if (override) return override;
   const candidates = [];
   try {
     const out = require('child_process').execSync(
-      'reg query "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\OpenCharm" /v InstallLocation',
+      'reg query "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Montauri" /v InstallLocation',
       { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] },
     );
     const m = out.match(/InstallLocation\s+REG_SZ\s+"([^"]+)"/);
-    if (m) candidates.push(path.join(m[1], 'opencharm-shell.exe'));
+    if (m) candidates.push(path.join(m[1], 'montauri-shell.exe'));
   } catch { /* 未安装 */ }
   candidates.push(
-    path.join(REPO, 'shell', 'src-tauri', 'target', 'release', 'opencharm-shell.exe'),
-    path.join(process.env.LOCALAPPDATA || '', 'OpenCharm', 'opencharm-shell.exe'),
-    'C:\\Program Files\\OpenCharm\\opencharm-shell.exe',
+    path.join(REPO, 'shell', 'src-tauri', 'target', 'release', 'montauri-shell.exe'),
+    path.join(process.env.LOCALAPPDATA || '', 'Montauri', 'montauri-shell.exe'),
+    'C:\\Program Files\\Montauri\\montauri-shell.exe',
   );
   const hit = candidates.find((p) => fs.existsSync(p));
   return hit || candidates[0];
 }
 const EXE = resolveExe();
 /** 刚构建的产物（发布前验收的目标）：-PreRelease 会通过 OC_RELEASE_EXE 指向它 */
-const BUILD_EXE = path.join(REPO, 'shell', 'src-tauri', 'target', 'release', 'opencharm-shell.exe');
+const BUILD_EXE = path.join(REPO, 'shell', 'src-tauri', 'target', 'release', 'montauri-shell.exe');
 const CDP_PORT = Number(process.env.OC_CDP_PORT || 9223);
 const CDP_TIMEOUT_MS = Number(process.env.OC_CDP_TIMEOUT || 180) * 1000;
 const OUT_DIR = path.join(REPO, 'scripts', '_tmp', 'release-real-shots');
@@ -82,7 +82,7 @@ function mtimeOf(p) {
 
 /**
  * 「验的是哪个产物」——必须显式告警，否则门禁会给出**假信心**。
- * 2026-10-07 实测：`resolveExe()` 优先取注册表安装位，而本机 `D:\OpenCharm\` 里躺着一个
+ * 2026-10-07 实测：`resolveExe()` 优先取注册表安装位，而本机 `D:\Montauri\` 里躺着一个
  * 10-04 的旧安装 → release-real 默默验了旧包（7/7 PASS），而用户 18:29 刚构建的产物
  * 根本没被验到；报告里还看不出来（当时 JSON 连 exe 字段都不落盘）。
  */
@@ -160,7 +160,7 @@ async function main() {
     cwd: path.dirname(EXE),
     env: {
       ...process.env,
-      OPENCHARM_DATA_ROOT: dataRoot,
+      MONTAURI_DATA_ROOT: dataRoot,
       WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${CDP_PORT}`,
     },
     stdio: ['ignore', out, out],

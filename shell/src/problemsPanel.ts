@@ -5,8 +5,8 @@
 //   1. 状态栏芯片：当前文件 错误/警告 计数常驻（有错即亮，点击打开问题面板）；
 //   2. 问题面板：底部「问题」标签，按文件分组列出全部打开文件的诊断，点击条目跳转定位。
 //
-// 数据源：Monaco marker（全 owner 桶统一覆盖——opencharm-lsp / opencharm-intel /
-// opencharm-ruff / opencharm-pydantic / opencharm-libs，与 saveTab / markerNavigation 同口径）。
+// 数据源：Monaco marker（全 owner 桶统一覆盖——montauri-lsp / montauri-intel /
+// montauri-ruff / montauri-pydantic / montauri-libs，与 saveTab / markerNavigation 同口径）。
 // 刷新驱动：onDidChangeMarkers 订阅 + 500ms 防抖（pyrefly didOpen 首批与语义批相隔可达数秒，
 // 且 ruffLint 保存后也各自刷 marker，防抖合并成一次渲染）。
 //

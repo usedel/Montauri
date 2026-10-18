@@ -132,12 +132,12 @@ describe("批 4 · 主题名与迁移（存量 vs-dark / vs）", () => {
 });
 
 describe("批 4 · 前后端出厂主题名一致", () => {
-  it("state.ts DEFAULT_SETTINGS.theme === opencharm-dark", () => {
+  it("state.ts DEFAULT_SETTINGS.theme === montauri-dark", () => {
     expect(DEFAULT_SETTINGS.theme).toBe(EDITOR_THEME_DARK);
   });
 
   it("settings.rs Settings::default 的 theme 与前端一致（不跨语言漂移）", () => {
-    // 取 default() 里 theme 那一行；要求出现且值为 opencharm-dark
+    // 取 default() 里 theme 那一行；要求出现且值为 montauri-dark
     const m = rust.match(/theme:\s*"([^"]+)"\.into\(\)/);
     expect(m).not.toBeNull();
     expect(m?.[1]).toBe(EDITOR_THEME_DARK);

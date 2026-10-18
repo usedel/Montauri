@@ -24,7 +24,7 @@
   "env.tabEdge": "By Broken Edge",
   "env.tabFile": "By File",
   "env.tabIgnored": "Ignored",
-  "env.modalDiv4": "OpenCharm manages dependencies with uv · pip installs are detected too (but not written to the manifest)",
+  "env.modalDiv4": "Montauri manages dependencies with uv · pip installs are detected too (but not written to the manifest)",
   "env.venv.venvVersionTitle": "Select Python Version",
   "env.venv.venvVersionList": "Python Versions",
   "storage.obTitle": "Choose Data Storage Location",

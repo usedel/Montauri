@@ -16,7 +16,7 @@ provider:
   - `fs_cmds.rs` — 文件树/读写/工作区记忆/全局搜索；
   - `file_ops.rs` — 文件写操作（增删改/复制粘贴/回收站/最近文件）+ 打开系统浏览器（`open_external`，仅放行 http/https 外链）；
   - `env_cmds.rs` — Python 环境（解释器列举/venv/包管理）；
-  - `settings.rs` — 全局设置（存 `~/.opencharm/settings.json`）；
+  - `settings.rs` — 全局设置（存 `~/.montauri/settings.json`）；
   - `lsp.rs` — LSP 桥（spawn/帧解析/事件转发，stdin 独立 `Arc<Mutex>` 持有）；
   - `dap.rs` — DAP 桥 / debugpy 调试会话（stdio adapter 模式，与 `lsp.rs` 对称但不混入，见「调试桥」章节）；
   - `git_cmds.rs` / `git_status.rs` — Git 状态装饰与写操作（暂存/提交/diff/分支/远程/stash/blame）；
@@ -24,11 +24,11 @@ provider:
   - `run_env.rs` — 运行环境装配单一来源（`build_run_env`：解释器解析 / env / PYTHONPATH 四段约定 / 探针注入，脚本·项目·调试三链路共用）；
   - `watcher.rs` — 文件监听（增量刷新源）；
   - `storage_cmds.rs` — 存储页后端（占用可视化 / 可再生清理 / 数据根落位与迁移，`docs/disk-space-plan.md` P1/P2）；
-  - `tool_paths.rs` — 外部命令统一定位（uv / pyrefly / ruff / git：环境变量 → `~/.opencharm/bin` / `~/.local/bin` → 系统 PATH；只解析不安装）；
+  - `tool_paths.rs` — 外部命令统一定位（uv / pyrefly / ruff / git：环境变量 → `~/.montauri/bin` / `~/.local/bin` → 系统 PATH；只解析不安装）；
   - `toolchain.rs` — 工具链引导（首次启动探测 + 一键安装 uv / pyrefly / basedpyright 到用户目录）；
   - `edit_history.rs` — 编辑历史采集（低延迟编辑预测数据源：行对事件落 JSONL，本地）；
   - `history.rs` — 本地历史快照（保存时自动快照 + 回滚，`<data_root>/history/`）；
-  - `util.rs` — 跨模块共享工具（`opencharm_home` / `no_window` / `unpoison` / `kill_process_tree` / `allow_asset_dir` asset 协议动态授权）。
+  - `util.rs` — 跨模块共享工具（`montauri_home` / `no_window` / `unpoison` / `kill_process_tree` / `allow_asset_dir` asset 协议动态授权）。
 
 ## LSP 桥（ADR-0003）
 
@@ -46,14 +46,14 @@ provider:
 - **`debug_stop` 立即返回**（CR-10 纪律）：取槽后杀进程树（`kill_pid_tree`，`taskkill /T /F`）/ 杀 adapter 全部后台线程化——同步 taskkill 对 debugpy 进程树可耗时数秒会冻结 UI（实测踩坑）。只有应用退出钩子 `debug_stop_for_exit` 例外用同步清理（CR-14）。
 - **会话退出监视以 `seq` 锁定**（同 lsp.rs 先例）：adapter 死亡 / debuggee 退出各起监视线程，`seq` 不匹配（已被新会话替换）立即退出，防误报 `debug-exited` 串线。
 - **互斥（v3.4 收窄）**：`debug_busy()` 单实例守卫；调试与**脚本运行**互斥（`terminal::script_run_busy()` 只看 `run-term-script` 会话），项目实例（长驻服务）可与调试并存（§13.2 裁决 10）。调试态 `probe` 恒 `false`（`build_run_env(..., probe=false)`），不与 probe 采样同时跑。
-- **`locate_debugpy_dir` 出口统一剥 `\\?\` verbatim 前缀**（实测坑）：Tauri `resource_dir()` 返回 verbatim 路径，作 `python <路径>` 参数会使 debugpy 自举 import 失败（`ModuleNotFoundError`）→ 假 `10061`。四级查找：`OPENCHARM_DEBUGPY_DIR` → `runtime_dir()/debugpy/debugpy` → `util::resource_candidates` → dev 上溯 `vendor/debugpy/debugpy`。
+- **`locate_debugpy_dir` 出口统一剥 `\\?\` verbatim 前缀**（实测坑）：Tauri `resource_dir()` 返回 verbatim 路径，作 `python <路径>` 参数会使 debugpy 自举 import 失败（`ModuleNotFoundError`）→ 假 `10061`。四级查找：`MONTAURI_DEBUGPY_DIR` → `runtime_dir()/debugpy/debugpy` → `util::resource_candidates` → dev 上溯 `vendor/debugpy/debugpy`。
 
 ## 运行（run_in_terminal，统一 PTY 入口）
 
 - v3.4 §17-12：运行统一走 PTY（真 TTY），`run_in_terminal(kind: "script" | "project")`——脚本 / 项目两种运行共用 `run_env::build_run_env` 单一装配来源（env / PYTHONPATH / args），已无 piped 运行路径（`run_script`/`stop_script` 等删净）。
 - 解释器解析口径：配置级覆盖 > 工作区配置 > `.venv` 自动检测 > `uv run` 兜底（`run_env::resolve_run_command`）。
 - 会话 id 约定：`run-term-script` / `run-term-project-<N>`（沿用 `RUN_TERM_PREFIX`）；`script_run_busy()` 只看脚本会话，供调试互斥判定（§13.2 收窄）。
-- 探针注入：probe 受全局 `probe_enabled` 开关控制（`settings::current_probe_enabled`），经 `build_run_env` 注入 `OPENCHARM_PROBE_AUTOSTART=1` + `OPENCHARM_PROBE_SCRIPT=<绝对路径>` + `OPENCHARM_PROBE_INSTANCE=<会话 id>`（多实例归属）；probe/src 定位顺序：`OPENCHARM_PROBE_SRC` → 托管目录 → Tauri 资源目录 → dev 相对 exe 上溯布局；找不到则照常运行仅提示（**探针缺席不拖垮脚本**）。
+- 探针注入：probe 受全局 `probe_enabled` 开关控制（`settings::current_probe_enabled`），经 `build_run_env` 注入 `MONTAURI_PROBE_AUTOSTART=1` + `MONTAURI_PROBE_SCRIPT=<绝对路径>` + `MONTAURI_PROBE_INSTANCE=<会话 id>`（多实例归属）；probe/src 定位顺序：`MONTAURI_PROBE_SRC` → 托管目录 → Tauri 资源目录 → dev 相对 exe 上溯布局；找不到则照常运行仅提示（**探针缺席不拖垮脚本**）。
 
 ## 进程与锁约定（务必遵守）
 

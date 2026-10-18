@@ -1,6 +1,6 @@
 """§19-5（M4-4.1）：runs.instance 运行实例标识 + 多进程并发写库。
 
-- instance 显式传参 / 环境变量 OPENCHARM_PROBE_INSTANCE / 双缺回落 ''；
+- instance 显式传参 / 环境变量 MONTAURI_PROBE_INSTANCE / 双缺回落 ''；
 - 旧库（无 instance 列）自动迁移；
 - 多进程并发 save 同一 trace 库：WAL + busy_timeout 下全部落库成功、归属正确。
 """
@@ -15,9 +15,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from opencharm_probe.config import ProbeConfig  # noqa: E402
-from opencharm_probe.sink import ObservationSink  # noqa: E402
-from opencharm_probe.store import db_path, save  # noqa: E402
+from montauri_probe.config import ProbeConfig  # noqa: E402
+from montauri_probe.sink import ObservationSink  # noqa: E402
+from montauri_probe.store import db_path, save  # noqa: E402
 
 
 def _fill(sink: ObservationSink, hits: int = 1) -> None:
@@ -28,7 +28,7 @@ def _fill(sink: ObservationSink, hits: int = 1) -> None:
 
 
 def test_instance_explicit_param_beats_env(cfg, monkeypatch):
-    monkeypatch.setenv("OPENCHARM_PROBE_INSTANCE", "run-term-project-2")
+    monkeypatch.setenv("MONTAURI_PROBE_INSTANCE", "run-term-project-2")
     path = save(cfg, ObservationSink(), "F:/proj", "app.py", 1.0, 0.1,
                 instance="run-term-script")
     conn = sqlite3.connect(path)
@@ -40,7 +40,7 @@ def test_instance_explicit_param_beats_env(cfg, monkeypatch):
 
 
 def test_instance_falls_back_to_env(cfg, monkeypatch):
-    monkeypatch.setenv("OPENCHARM_PROBE_INSTANCE", "run-term-project-3")
+    monkeypatch.setenv("MONTAURI_PROBE_INSTANCE", "run-term-project-3")
     path = save(cfg, ObservationSink(), "F:/proj", "app.py", 1.0, 0.1)
     conn = sqlite3.connect(path)
     try:
@@ -51,7 +51,7 @@ def test_instance_falls_back_to_env(cfg, monkeypatch):
 
 
 def test_instance_defaults_to_empty(cfg, monkeypatch):
-    monkeypatch.delenv("OPENCHARM_PROBE_INSTANCE", raising=False)
+    monkeypatch.delenv("MONTAURI_PROBE_INSTANCE", raising=False)
     path = save(cfg, ObservationSink(), "F:/proj", "app.py", 1.0, 0.1)
     conn = sqlite3.connect(path)
     try:
@@ -102,9 +102,9 @@ import sys
 from pathlib import Path
 sys.path.insert(0, r"{src}")
 tag = sys.argv[1]
-from opencharm_probe.sink import ObservationSink
-from opencharm_probe.store import save
-from opencharm_probe.config import ProbeConfig
+from montauri_probe.sink import ObservationSink
+from montauri_probe.store import save
+from montauri_probe.config import ProbeConfig
 
 sink = ObservationSink()
 fid = sink.func_id(r"F:/proj/app.py", "work_" + tag, 3)

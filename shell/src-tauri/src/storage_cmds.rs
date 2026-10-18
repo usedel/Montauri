@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use crate::tool_paths::{tool_command, ENV_UV};
-use crate::util::opencharm_home;
+use crate::util::montauri_home;
 
 const CMD_TIMEOUT: Duration = Duration::from_secs(120);
 
@@ -90,7 +90,7 @@ pub struct StorageUsage {
     pub uv: Vec<UvEntry>,
 }
 
-/// uv 官方默认目录（存在才返回；OpenCharm 不托管、只展示与引导）。
+/// uv 官方默认目录（存在才返回；Montauri 不托管、只展示与引导）。
 fn uv_cache_dir() -> Option<PathBuf> {
     let d = std::env::var("LOCALAPPDATA").ok().map(|l| PathBuf::from(l).join("uv").join("cache"))?;
     d.is_dir().then_some(d)
@@ -111,7 +111,7 @@ pub async fn storage_usage() -> Result<StorageUsage, String> {
 }
 
 fn storage_usage_impl() -> StorageUsage {
-    let root = opencharm_home();
+    let root = montauri_home();
     let entry = |key: &str, label: &str, rel: &str, renewable: &str| StorageEntry {
         key: key.into(),
         label: label.into(),
@@ -196,7 +196,7 @@ pub async fn clean_traces(hash: Option<String>) -> Result<u64, String> {
 }
 
 fn clean_traces_impl(hash: Option<String>) -> Result<u64, String> {
-    let dir = opencharm_home().join("traces");
+    let dir = montauri_home().join("traces");
     let mut targets = Vec::new();
     match hash {
         Some(h) if !h.trim().is_empty() => {
@@ -228,14 +228,14 @@ pub async fn clean_webview_cache() -> Result<u64, String> {
 }
 
 fn clean_webview_cache_impl() -> Result<u64, String> {
-    let webview = opencharm_home().join("webview");
+    let webview = montauri_home().join("webview");
     const CACHE_SUBDIRS: [&str; 5] =
         ["Cache", "Code Cache", "GPUCache", "DawnCache", "DawnGraphiteCache"];
     let targets: Vec<PathBuf> = CACHE_SUBDIRS.iter().map(|d| webview.join(d)).collect();
     Ok(freed_of(&targets, |p| std::fs::remove_dir_all(p)))
 }
 
-/// 清理轮转日志（opencharm.log.N，保留当前 opencharm.log）。返回释放字节数。
+/// 清理轮转日志（montauri.log.N，保留当前 montauri.log）。返回释放字节数。
 #[tauri::command]
 pub async fn clean_log_rotation() -> Result<u64, String> {
     tauri::async_runtime::spawn_blocking(clean_log_rotation_impl)
@@ -249,7 +249,7 @@ fn clean_log_rotation_impl() -> Result<u64, String> {
     if let Ok(rd) = std::fs::read_dir(&logs) {
         for e in rd.flatten() {
             let name = e.file_name().to_string_lossy().to_string();
-            if name.starts_with("opencharm.log.") && name != "opencharm.log" {
+            if name.starts_with("montauri.log.") && name != "montauri.log" {
                 targets.push(e.path());
             }
         }
@@ -346,7 +346,7 @@ pub struct FirstRunStatus {
 /// 首启检测：三个条件同时满足才提示落位（见 disk-space-plan.md P2-a）。
 #[tauri::command]
 pub fn first_run_status() -> FirstRunStatus {
-    let root = opencharm_home();
+    let root = montauri_home();
     let pointer_set = crate::util::data_root_pointer().is_file();
     let settings_exists = root.join("config").join("settings.json").is_file();
     let migration_pending = root.join(".migration-in-progress").is_file();
@@ -362,7 +362,7 @@ pub fn first_run_status() -> FirstRunStatus {
 /// 校验目录可写：创建 + 写临时探测文件 + 删除。
 fn verify_writable(dir: &Path) -> Result<(), String> {
     std::fs::create_dir_all(dir).map_err(|e| format!("无法创建目录 {dir:?}：{e}"))?;
-    let probe = dir.join(format!(".opencharm-wprobe-{}", std::process::id()));
+    let probe = dir.join(format!(".montauri-wprobe-{}", std::process::id()));
     std::fs::write(&probe, b"").map_err(|e| format!("目录不可写 {dir:?}：{e}"))?;
     let _ = std::fs::remove_file(&probe);
     Ok(())
@@ -380,7 +380,7 @@ fn write_data_root_pointer(target: &Path) -> Result<(), String> {
 /// 用户选默认位置：写指针文件指向当前数据根（此后不再弹首启提示）。
 #[tauri::command]
 pub fn ack_first_run() -> Result<(), String> {
-    write_data_root_pointer(&opencharm_home())
+    write_data_root_pointer(&montauri_home())
 }
 
 /// 首启选自定义位置：校验目标 → 写数据根指针文件。
@@ -443,7 +443,7 @@ pub async fn migrate_data_root(target: String) -> Result<MigrateResult, String> 
 }
 
 fn migrate_data_root_impl(target: String) -> Result<MigrateResult, String> {
-    let old = opencharm_home();
+    let old = montauri_home();
     let new_root = PathBuf::from(target.trim());
     if new_root.as_os_str().is_empty() {
         return Err("路径为空".into());

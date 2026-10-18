@@ -62,7 +62,7 @@ MAP_ADD = {
     "应用资源目录损坏，或开发环境未运行 tools/fetch-debugpy.ps1 拉取。\\n\\n": {"key": "main.debug.noDebugpyBody1"},
     "请重新安装应用，或在仓库根目录执行：\\n": {"key": "main.debug.noDebugpyBody2"},
     "知道了": {"key": "main.debug.gotIt"},
-    "提示：§ 声明了 debugpy —— OpenCharm 调试使用自带副本，二者互不影响，可按需移除声明。": {"key": "main.debug.depHint", "params": ["files"]},
+    "提示：§ 声明了 debugpy —— Montauri 调试使用自带副本，二者互不影响，可按需移除声明。": {"key": "main.debug.depHint", "params": ["files"]},
     "调试启动失败: §": {"key": "main.debug.startFailed", "params": ["msg"]},
     "已新建草稿（不入库，可直接运行 / 调试）": {"key": "main.scratch.created"},
     "新建草稿": {"key": "main.scratch.failAction"},
@@ -166,8 +166,8 @@ MAP_ADD = {
     # ---- 窗口 / 关于 / URL ----
     "还原": {"key": "main.win.restore"},
     "最大化": {"key": "main.win.maximize"},
-    "关于 OpenCharm": {"key": "main.about.title"},
-    "OpenCharm §\\n轻量级 Python IDE（Tauri 2 + Monaco）\\n静态语义：Pyrefly / basedpyright · 运行时：opencharm-probe + opencharm-intel": {"key": "main.about.body", "params": ["version"]},
+    "关于 Montauri": {"key": "main.about.title"},
+    "Montauri §\\n轻量级 Python IDE（Tauri 2 + Monaco）\\n静态语义：Pyrefly / basedpyright · 运行时：montauri-probe + montauri-intel": {"key": "main.about.body", "params": ["version"]},
     "读取版本失败": {"key": "main.about.versionFail"},
     "打开日志目录": {"key": "main.about.openLogDir"},
     "打开数据目录": {"key": "main.about.openDataDir"},
@@ -191,7 +191,7 @@ def entry_of(tpl: str, params: list[str]) -> str:
 ZH_OVERRIDES = {
     "main.debug.noDebugpyBody1": "应用资源目录损坏，或开发环境未运行 tools/fetch-debugpy.ps1 拉取。\n\n",
     "main.debug.noDebugpyBody2": "请重新安装应用，或在仓库根目录执行：\n",
-    "main.about.body": "OpenCharm {version}\n轻量级 Python IDE（Tauri 2 + Monaco）\n静态语义：Pyrefly / basedpyright · 运行时：opencharm-probe + opencharm-intel",
+    "main.about.body": "Montauri {version}\n轻量级 Python IDE（Tauri 2 + Monaco）\n静态语义：Pyrefly / basedpyright · 运行时：montauri-probe + montauri-intel",
 }
 
 # 1) map 追加

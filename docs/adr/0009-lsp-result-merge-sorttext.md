@@ -4,7 +4,7 @@
 - 日期：2026-08-20（补记 2026-10-03）
 - 决策者：产品负责人裁决
 - 上游：`docs/python_ide_tech_plan_v3.md` v3.0 · `.codebuddy/rules/typescript-code-style/RULE.mdc`（补全段位铁律）
-- 落地：`shell/src/lsp/client.ts`（`registerLspCompletion` 合并与降级）· `intel/crates/opencharm-intel/src/completion.rs` · `shell/src/live-templates/` · `shell/src/autoImport.ts` · `shell/src/importAlias.ts` · `shell/src/completion/keywordCompletion.ts`
+- 落地：`shell/src/lsp/client.ts`（`registerLspCompletion` 合并与降级）· `intel/crates/montauri-intel/src/completion.rs` · `shell/src/live-templates/` · `shell/src/autoImport.ts` · `shell/src/importAlias.ts` · `shell/src/completion/keywordCompletion.ts`
 
 ## 背景
 

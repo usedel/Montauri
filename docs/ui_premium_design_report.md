@@ -1,4 +1,4 @@
-# OpenCharm 视觉「高级感」诊断与改造方案
+# Montauri 视觉「高级感」诊断与改造方案
 
 > 版本：**v1.3（实施回填版）** · 日期：2026-10-02（v1.2 二轮评审）· **2026-10-03 回填实施结论** · 状态：**方向已批准且六批已全部落地 + 修记 A**
 > 审阅对象：`shell/`（Tauri 2 + Monaco 外壳前端）——`index.html`、`src/style.css`（v1.2 时实测 **5394 行 / 214 KB**）、`src/*.ts`、`src-tauri/`
@@ -56,14 +56,14 @@ v1.0 提交评审后，对全部数值做了独立复算，并核对了既有裁
 
 | # | 评审发现 | 处置 | 落地位置 |
 |---|---|---|---|
-| 10 | **P0 · 杠杆 3「改一行 CSS」不成立**：Monaco 编辑器字体由 `state.ts:136 font_family` 经 `buildEditorOptions`（`settingsPanel.ts:394-431`）注入，有 **4 个注入点**（`main.ts:2093 / 2104 / 2521`、`settingsPanel.ts:880`）；CSS `--mono` 到不了编辑器，另 `style.css:1209` 有一处裸栈。且**存量 `settings.json` 的 `font_family` 已固化旧栈**——这与批 4 的 `vs-dark → opencharm-dark` 迁移完全同构，批 3 却完全漏了 | 3a 从"1 行"扩为**五处改动 + 默认值迁移**；`font_ligatures` 默认 `false`（`state.ts:137`）导致连字不生效，一并处理 | §5.3 · §7-13 |
+| 10 | **P0 · 杠杆 3「改一行 CSS」不成立**：Monaco 编辑器字体由 `state.ts:136 font_family` 经 `buildEditorOptions`（`settingsPanel.ts:394-431`）注入，有 **4 个注入点**（`main.ts:2093 / 2104 / 2521`、`settingsPanel.ts:880`）；CSS `--mono` 到不了编辑器，另 `style.css:1209` 有一处裸栈。且**存量 `settings.json` 的 `font_family` 已固化旧栈**——这与批 4 的 `vs-dark → montauri-dark` 迁移完全同构，批 3 却完全漏了 | 3a 从"1 行"扩为**五处改动 + 默认值迁移**；`font_ligatures` 默认 `false`（`state.ts:137`）导致连字不生效，一并处理 | §5.3 · §7-13 |
 | 11 | **P0 · `--bg-panel` 21 处从未审计**：其中 `#menubar`(490) `#sidebar`(623) `#tabbar`(769) `#split-editor-header`(1160) 若随 `--bg-panel → S0`，会让 menubar 与 sidebar **同色（对比 1.00）**，比现状 1.033 **更糟**，反向违反本批"拉开差距"的目标；且 §5.2.1 自注 S1 = 侧栏 | 新增选择器级归属表，拆出 `--bg-chrome`（→ S1）；成本从"≈20 行"上修为"21 处审计 + 1 个新别名" | §5.2.1 · §5.2.2 |
 | 12 | **P0 · `--accent` / `--link` 作为文字色有 4 个面跌破 4.5**：`S4 4.11` · `--hover 4.42` · `--control-hover 3.81` · `--selected 3.63`。§5.1 只核了 S2 / S3 就宣布"11 个 token 全部达标"，而 S4 的定义恰是 hover / 浮层强调面 | 新增**九面门禁**与 `--accent-emphasis` | §5.1 · §7-2 |
 | 13 | **P1 · 浅色覆盖层 53 个 token 的同步清单缺位**：`[data-theme="light"]`（`style.css:218-290`）实定义 53 个，含 `--bg-alt / --hover / --selected / --control-hover / --tab-inactive-bg / --tab-active-bg / --scrollbar-thumb / --overlay / --indent-guide`，而 §5.2.3 派生表**只给深色值**；且浅色侧仍有 3 个蓝色 token（`--selected #d6ebff`、`--link #0f6cbd`、`--diff-hunk #3070c0`）从未列入 | §5.2.3 补浅色列；蓝色系 token 从 11 个扩为 **14 个**；§5.2.4 扩为三层同步义务 | §5.1 · §5.2.3 · §5.2.4 |
 | 14 | **P1 · ADR 要修订的裁决漏了第三条**：`style.css:216` 注释写明"accent/danger 等语义色保持深色值，确保强调色跨主题一致"，§5.1 新增 light `--accent: #0e7261` 正在推翻它 | ADR-0005 修订范围补为 D4 + UI-06 + 本条 | §5.1 · 附录 C |
 | 15 | **P1 · FOUC 块漏了第 6 个同步项**：`index.html:19` 写死 `font-family`，而 §5.3-3c 正要改 body 字体 → 首帧与稳定帧不一致会产生可见抖动 | 同步项从 5 个改为 6 个 | §5.2.4 · §7-8 |
 | 16 | **P1 · §5.6 落点错 + §3.6 的"全部"不成立**：`@keyframes oc-modal-in/out`（192-199）内部**没有任何缓动关键字**，缓动写在 9 处 `animation` 简写里；`transition` 实测 23/27 走 token（`none` ×2、`transform 0.12s`、`width 0.2s`） | 提示改指 `animation` 简写；"全部收口"下修为 23/27；验收 11 改写为可执行判定式 | §3.6 · §5.6 · §7-11 |
-| 17 | **P1 · `markdownPreview.ts:315` 归因偏差**：它在 `buildExportHtml()` 内、靠 `finally` 恢复 `origTheme`，并非"预览着色永远用 stock 主题" | 结论仍需改（批 4 后应切 `opencharm-light`），但理由改写，并注明必须保住 `finally` 恢复路径 | §5.4 |
+| 17 | **P1 · `markdownPreview.ts:315` 归因偏差**：它在 `buildExportHtml()` 内、靠 `finally` 恢复 `origTheme`，并非"预览着色永远用 stock 主题" | 结论仍需改（批 4 后应切 `montauri-light`），但理由改写，并注明必须保住 `finally` 恢复路径 | §5.4 |
 | 18 | **P1 · 批 2a 的"四方一致"门禁时序上不可执行**：`theme/tokens.ts` 要到批 4 才建（`shell/src/theme/` 当前不存在），§7-5 却从批 2a 起要求四方对齐 | 明确"批 2a 三方一致，批 4 补第四方" | §7-5 |
 | 19 | **P2 · 新发现 3 处浅色 AA 缺陷**（§3.8 只找到 `--fg-dim` / 面板底 4.44 一处）：旧 `--fg-dim #6c6c6c` 在 `--control-hover #c8c8c8` 上仅 **3.14**、在 `--selected #d6ebff` 上 **4.30**、在 `--tab-inactive-bg #ececec` 上 **4.44** | 并入 §5.9 与浅色派生表一并治理 | §3.8 · §5.2.3 · §5.9 |
 | 20 | **P2 · `--fg` 的取值从未定义**：附录 A 用 `#e4e4e8` 算正文对比，但 §5 全文没有任何一处说要把 `--fg` 从 `#d4d4d4` 改掉（若保持原值，新画布下为 **11.07**，附录那三行不成立） | 显式定义 `--fg`，二选一后回填 | §5.1 · 附录 A |
@@ -85,7 +85,7 @@ v1.0 提交评审后，对全部数值做了独立复算，并核对了既有裁
 
 ## 1. 一句话结论
 
-**OpenCharm 现在看起来"称职但衍生"——像一个没有贴牌的 VS Code。**
+**Montauri 现在看起来"称职但衍生"——像一个没有贴牌的 VS Code。**
 
 这不是能力问题，是**身份问题**。代码质量很高：token 化彻底（347 处 `font-size` 中 337 处走变量）、双主题对比度逐条按 WCAG 公式核算过、ARIA 语义四类模式齐全。工程底座是 A 级的。
 
@@ -271,7 +271,7 @@ AA 要求是 **4.5:1**。**差 0.06。** 状态栏、次要说明、时间戳等
 
 在给方案之前先统一标尺。"高级感"不是玄学，它由六个可验证的来源构成，按对观感的**贡献权重**排序：
 
-| 权重 | 来源 | 通俗解释 | OpenCharm 现状 |
+| 权重 | 来源 | 通俗解释 | Montauri 现状 |
 |---|---|---|---|
 | **35%** | **材质（Material）** | 表面分层、投影、边框质感。界面看起来是"一层层叠起来的实物"还是"用线框画的表格" | ★☆☆☆☆ 分层失效 |
 | **25%** | **身份（Identity）** | 品牌色是否单一且贯穿、字体是否有辨识度、图标是否自成体系 | ★★☆☆☆ 交互色仍是原厂蓝 |
@@ -641,7 +641,7 @@ if (family) opts.fontFamily = family;
 | 4 | `loadSettings` | **存量 `settings.json` 迁移**（详见下） |
 | 5 | 设置面板 `--font-ui` preset 下拉（`settings-font-family-preset`） | 首选项同步；并处理 `font_ligatures` 默认 `false` |
 
-**第 4 项是本次评审新增的必做项**，它漏得很隐蔽：已存在用户的 `settings.json` 里 `font_family` 已固化为旧栈，**不做迁移的话随包字体对这些用户 100% 无效**（抽象层级上，这与批 4「`vs-dark` → `opencharm-dark` 主题名迁移」是**完全同构**的问题；那一处在 §5.4 被识别到了，这一处没有）。
+**第 4 项是本次评审新增的必做项**，它漏得很隐蔽：已存在用户的 `settings.json` 里 `font_family` 已固化为旧栈，**不做迁移的话随包字体对这些用户 100% 无效**（抽象层级上，这与批 4「`vs-dark` → `montauri-dark` 主题名迁移」是**完全同构**的问题；那一处在 §5.4 被识别到了，这一处没有）。
 
 迁移策略与批 4 对齐：**仅在 `font_family` 等于旧出厂默认串时替换为新串；用户自定义值一律保留、绝不覆盖。**
 
@@ -655,7 +655,7 @@ if (family) opts.fontFamily = family;
 
 **3b. JetBrains Mono 随包分发（决策：只随包等宽字体）**
 
-Inter 走系统栈（`--font-ui: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif`）——OpenCharm 是**单人自用** IDE，跨机器字体一致性的收益为零，不值得为它改 CSP + 增 300 KB。等宽字体不同：它是**代码**字体，命中 80% 注视时间，且 Consolas 兜底体验确实明显差一档，故随包。
+Inter 走系统栈（`--font-ui: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif`）——Montauri 是**单人自用** IDE，跨机器字体一致性的收益为零，不值得为它改 CSP + 增 300 KB。等宽字体不同：它是**代码**字体，命中 80% 注视时间，且 Consolas 兜底体验确实明显差一档，故随包。
 
 > **v1.2 的 CSP 前置条件不变**（该判断已由二轮回读 `tauri.conf.json` 逐字核实），但本项的改动面请以 3a 的五处清单为准，不要按"改一行 CSS"排期。
 
@@ -710,7 +710,7 @@ body {
 // src/theme/tokens.ts —— CSS 与 Monaco 主题的单一真源
 export const editorTheme = {
   dark: {
-    name: "opencharm-dark",
+    name: "montauri-dark",
     surface: { s2: "#1f1f24", s3: "#2a2a30", s4: "#35353d" },
     colors: {
       "editor.background": "#1f1f24",              // = --surface-2
@@ -737,15 +737,15 @@ export const editorTheme = {
 | # | 位置 | 现状 | 动作 |
 |---|---|---|---|
 | 1 | `src/monaco.ts` | 0 处 `defineTheme` | 遍历 `editorTheme` 调 `defineTheme`（`base: "vs-dark"` / `"vs"`，`inherit: true`） |
-| 2 | `src/state.ts:133` | `theme: "vs-dark"` | 默认改 `opencharm-dark` |
+| 2 | `src/state.ts:133` | `theme: "vs-dark"` | 默认改 `montauri-dark` |
 | 3 | `src/themePicker.ts:24/32` | 候选项 + `FALLBACK_THEME` | 改新名；`FALLBACK_THEME` 同步 |
 | 4 | `src/settingsPanel.ts:869` · `src/main.ts:2083` | 两处 `setTheme(app.settings.theme)` | 值域不变，**无需改**，但要进回归清单 |
-| 5 | `src/markdownPreview.ts:315`（在 `buildExportHtml()` 内） | 导出 HTML 时硬编码 `setTheme("vs")`，并在 `finally` 里用 `setTheme(origTheme)` 恢复 | **v1.2 修正归因**：这不是"预览着色永远用 stock 主题"——它是导出自包含 HTML 时的一次临时切换，且恢复路径是健全的。**真实问题**是：批 4 引入 `opencharm-light` 后这里仍写死 `"vs"`，导出文件的语法高亮会与用户在编辑器里看到的**不是同一套配色**。改为切到当前主题的浅色变体即可。**⚠ 改动必须保住 `finally` 恢复路径**——`setTheme` 是全局副作用，一旦泄漏会静默污染用户会话着色 |
+| 5 | `src/markdownPreview.ts:315`（在 `buildExportHtml()` 内） | 导出 HTML 时硬编码 `setTheme("vs")`，并在 `finally` 里用 `setTheme(origTheme)` 恢复 | **v1.2 修正归因**：这不是"预览着色永远用 stock 主题"——它是导出自包含 HTML 时的一次临时切换，且恢复路径是健全的。**真实问题**是：批 4 引入 `montauri-light` 后这里仍写死 `"vs"`，导出文件的语法高亮会与用户在编辑器里看到的**不是同一套配色**。改为切到当前主题的浅色变体即可。**⚠ 改动必须保住 `finally` 恢复路径**——`setTheme` 是全局副作用，一旦泄漏会静默污染用户会话着色 |
 
 **必须同步处理的 4 项连带**：
 
 1. **两个既有测试会直接变红**：`__tests__/state.test.ts:22`（`expect(DEFAULT_SETTINGS.theme).toBe("vs-dark")`）、`__tests__/themePicker.test.ts:14`（`const DARK = "vs-dark"`）。批 4 第一步就改它们。
-2. **持久化设置迁移**：用户 `settings.json` 里存的是 `"vs-dark"`。Monaco 对未知主题名会回落默认主题（不报错），所以最坏情况是"用户升级后编辑器变回 stock 主题且无提示"。须在 `loadSettings` 加映射：`vs-dark → opencharm-dark`、`vs-light → opencharm-light`，并单测覆盖。
+2. **持久化设置迁移**：用户 `settings.json` 里存的是 `"vs-dark"`。Monaco 对未知主题名会回落默认主题（不报错），所以最坏情况是"用户升级后编辑器变回 stock 主题且无提示"。须在 `loadSettings` 加映射：`vs-dark → montauri-dark`、`vs-light → montauri-light`，并单测覆盖。
 3. **`--syntax-*` 语法色与 Monaco `rules` 同批改**（§5.1 已明确排除在批 1 之外）。`--syntax-var #9cdcfe` / `--syntax-boolean #569cd6` 及其浅色 `#001080` / `#0000ff` 都要青绿化，与 `rules` 一一对应。
 4. **视图区一致性回归**：编辑器主题一换，行高亮/当前行边框/缩进参考线/选区颜色全变，既有 e2e 中若有颜色或几何断言（如 `debugGutter` 行高亮、view zone 位置）需整批回归。
 
@@ -926,7 +926,7 @@ alpha 叠色的好处：边框颜色自动跟随所在表面，**跨 S0–S4 五
 | 不要把 Monaco 的任何外观项当成"改 CSS 就行" | 字体走 `settings.font_family` → `buildEditorOptions` 的 4 个注入点，主题走 `setTheme`，两者都不是 CSS。外观类改动先问一句"编辑器自己是怎么拿到这个值的" |
 | 不要用 `grep ease` 当门禁 | 会命中 `var(--ease-out)` 造成假阳性；而缓动实际写在 `animation` 简写里，`@keyframes` 内部一个都没有（§7-11） |
 
-**克制本身就是高级感。** OpenCharm 已经有一套工程上很扎实的 token 系统——需要做的不是往里加东西，是**把已有系统的分层拉开、把打架的色系统一、把缺失的编辑器环节补上**。
+**克制本身就是高级感。** Montauri 已经有一套工程上很扎实的 token 系统——需要做的不是往里加东西，是**把已有系统的分层拉开、把打架的色系统一、把缺失的编辑器环节补上**。
 
 ---
 

@@ -416,16 +416,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
-name = "once_cell"
-version = "1.21.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
-
-[[package]]
-name = "opencharm-intel"
+name = "montauri-intel"
 version = "0.1.0"
 dependencies = [
- "opencharm-intel-index",
+ "montauri-intel-index",
  "parking_lot",
  "rusqlite",
  "serde_json",
@@ -435,12 +429,18 @@ dependencies = [
 ]
 
 [[package]]
-name = "opencharm-intel-index"
+name = "montauri-intel-index"
 version = "0.1.0"
 dependencies = [
  "rusqlite",
  "tempfile",
 ]
+
+[[package]]
+name = "once_cell"
+version = "1.21.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
 name = "parking_lot"

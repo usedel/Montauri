@@ -169,8 +169,8 @@ function renderLineContent(
   cls: string,
   onLink: (link: OutputLink) => void,
 ): void {
-  // 探针摘要行（[opencharm-probe] 前缀）：中性色，与真实错误区分
-  if (cls === "stderr" && text.startsWith("[opencharm-probe]")) {
+  // 探针摘要行（[montauri-probe] 前缀）：中性色，与真实错误区分
+  if (cls === "stderr" && text.startsWith("[montauri-probe]")) {
     cls = "probe";
   }
   el.className = `out-line ${cls}`;

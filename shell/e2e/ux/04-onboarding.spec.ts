@@ -3,7 +3,7 @@
  *
  *  - OG-1 帮助菜单「新手指南」→ md 落盘打开且预览含「uv 速查卡」标题
  *  - OG-1b 帮助菜单「帮助文档」→ 内置手册落盘打开且预览含目录标题（正文来自 public/help/）
- *  - OG-1c 英文界面下同一入口 → 取英文正文 opencharm-help.en.md（语言路由）
+ *  - OG-1c 英文界面下同一入口 → 取英文正文 montauri-help.en.md（语言路由）
  *  - OG-1d 中文目录锚点可跳转（回归：marked 对中文 href 施加 encodeURI，点击需解码）
  *  - OG-1e 预览 Tab 右键「在终端中打开」→ 终端 cwd 为文档真实目录（回归：mdpreview: 虚拟 path）
  *  - OG-1f 语言切换 → 预览工具栏与 tab 标题同步重取词（回归：面板 chrome 惰性构建一次不刷词）
@@ -28,7 +28,7 @@ import { equipPage, makeGitRepo, makePlainDir, type GitRepo } from "../helpers";
 async function bootEmpty(page: Page, repo: GitRepo, locale?: string): Promise<void> {
   await equipPage(page, repo, { startEmpty: true });
   // 语言须先于页面脚本落 localStorage（键见 docs/i18n.md；默认 zh-CN）
-  if (locale) await page.addInitScript((l) => localStorage.setItem("opencharm.locale", l), locale);
+  if (locale) await page.addInitScript((l) => localStorage.setItem("montauri.locale", l), locale);
   await page.goto("/");
   await expect(page.locator("#ew-new-project")).toBeVisible({ timeout: 20_000 });
   await expect
@@ -88,21 +88,21 @@ test.describe("OG-1/2：指南入口 + 欢迎页三步卡", () => {
 
     await clickHelpMenu(page, "帮助文档");
     // 与 OG-1 同款落盘 + 预览；差别在正文来源是 public/help/（fetch 同源静态资源，非 ?raw 内联）
-    await expect(page.locator("#tabbar .tab.active .name", { hasText: "opencharm-help.md" })).toContainText("预览", { timeout: 15_000 });
+    await expect(page.locator("#tabbar .tab.active .name", { hasText: "montauri-help.md" })).toContainText("预览", { timeout: 15_000 });
     await expect(page.locator("#md-preview-tab-panel")).toBeVisible();
     await expect(page.locator("#md-preview-tab-panel")).toContainText("快捷键总表", { timeout: 10_000 });
-    expect(repo.read("docs/opencharm-help.md")).toContain("快捷键总表");
+    expect(repo.read("docs/montauri-help.md")).toContain("快捷键总表");
   });
 
-  test("OG-1c 英文界面 → 帮助菜单取英文正文（opencharm-help.en.md）", async ({ page }) => {
+  test("OG-1c 英文界面 → 帮助菜单取英文正文（montauri-help.en.md）", async ({ page }) => {
     const repo = await makePlainDir({ "a.py": "x = 1\n" });
     await bootEmpty(page, repo, "en-US");
 
     await clickHelpMenu(page, "Help Documentation");
-    // 语言路由：英文界面取 .en.md（中文界面取 opencharm-help.md，见 OG-1b）
-    await expect(page.locator("#tabbar .tab.active .name", { hasText: "opencharm-help.en.md" })).toContainText("Preview", { timeout: 15_000 });
+    // 语言路由：英文界面取 .en.md（中文界面取 montauri-help.md，见 OG-1b）
+    await expect(page.locator("#tabbar .tab.active .name", { hasText: "montauri-help.en.md" })).toContainText("Preview", { timeout: 15_000 });
     await expect(page.locator("#md-preview-tab-panel")).toContainText("Keyboard Shortcuts", { timeout: 10_000 });
-    expect(repo.read("docs/opencharm-help.en.md")).toContain("Keyboard Shortcuts");
+    expect(repo.read("docs/montauri-help.en.md")).toContain("Keyboard Shortcuts");
   });
 
   test("OG-1d 中文目录锚点可跳转（回归：marked 百分号编码 href）", async ({ page }) => {
@@ -285,7 +285,7 @@ test.describe("OG-6/7：功能巡礼", () => {
     // 清巡礼完成态（localStorage 持久化，跨用例不污染）
     await page.addInitScript(() => {
       try {
-        for (const k of Object.keys(localStorage)) if (k.startsWith("opencharm.tour.")) localStorage.removeItem(k);
+        for (const k of Object.keys(localStorage)) if (k.startsWith("montauri.tour.")) localStorage.removeItem(k);
       } catch { /* 忽略 */ }
     });
   });
@@ -304,7 +304,7 @@ test.describe("OG-6/7：功能巡礼", () => {
     await expect(row).toHaveClass(/done/);
     await expect(page.locator("#ew-tour-count")).toHaveText("1/6 已体验");
     // localStorage 已持久化
-    const stored = await page.evaluate(() => localStorage.getItem("opencharm.tour.open_devtools"));
+    const stored = await page.evaluate(() => localStorage.getItem("montauri.tour.open_devtools"));
     expect(stored).toBe("1");
   });
 
@@ -317,7 +317,7 @@ test.describe("OG-6/7：功能巡礼", () => {
     // 直接经页内 API 标记全部完成 + 重渲（6 条逐一「试一下」会真的开 6 个面板，不适合 e2e）
     await page.evaluate(async () => {
       const wg = (await import(/* @vite-ignore */ "/src/welcomeGuide.ts")) as any;
-      for (const t of wg.TOUR_ITEMS) localStorage.setItem(`opencharm.tour.${t.quickOpenId}`, "1");
+      for (const t of wg.TOUR_ITEMS) localStorage.setItem(`montauri.tour.${t.quickOpenId}`, "1");
       wg.renderTour();
     });
     await expect(page.locator("#ew-tour-count")).toHaveText("6/6 已体验");

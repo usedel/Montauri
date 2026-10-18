@@ -17,7 +17,7 @@
   1. **升级跟踪**（最高杠杆）：跟踪 pyrefly 上游 `dataclass_transform` / 构造参数校验进度，达标即升级回补；
   2. **显式化短板**（低风险兜底）：把 pyrefly 已知缺口（重点是「字段重命名静默漏改」）显式提示，不静默踩坑；
   3. **撤销推荐**（前置关停）：移除现有「切 basedpyright」推荐链路；
-  4. **自研 Pydantic 语义层**（中期差异化）：用 OpenCharm 已有 AST + 诊断 owner 分层，自研补齐构造校验与字段改名传播。
+  4. **自研 Pydantic 语义层**（中期差异化）：用 Montauri 已有 AST + 诊断 owner 分层，自研补齐构造校验与字段改名传播。
 - **执行顺序**：阶段 1（撤销推荐）→ 阶段 2（兜底提示）为串行依赖（先撤推荐再上兜底，避免同屏出现矛盾信息：一边说「切 basedpyright」一边说「留在 pyrefly 注意边界」）；阶段 3（探针重跑 / 性能落盘）与 1/2 **可并行**；阶段 4 在 1/2 稳定后**单独立项**（需过 §3.4.0 架构裁决）。
 
 ---
@@ -128,7 +128,7 @@ basedpyright 1.40.1 覆盖 4/6（仅 alias 场景有双向误报，且误报与�
 
 ### 3.4 阶段 4：自研 Pydantic 语义层（中期差异化）
 
-**目标**：在 pyrefly 缺的两项（构造校验 + 改名传播）上，用 OpenCharm 自己的 AST 能力补齐。
+**目标**：在 pyrefly 缺的两项（构造校验 + 改名传播）上，用 Montauri 自己的 AST 能力补齐。
 
 #### 3.4.0 架构归属裁决（v0.2 新增，立项前置条件）
 
@@ -142,12 +142,12 @@ basedpyright 1.40.1 覆盖 4/6（仅 alias 场景有双向误报，且误报与�
   4. 触发方式为「前端显式 invoke 拉取」，被动响应而非主动推送。
 - **裁决结论（默认方案）**：
   - **子项 1（构造校验）**：满足四条 → 留 shell（`fs_cmds.rs` 新增 `scan_pydantic_issues`，形态对齐 `scan_endpoints`）。
-  - **子项 2（改名传播）**：第一版设计为「rename 时**一次性按需扫描**构造调用点」（无持久索引，见 3.4.3），满足四条 → 留 shell；若实测性能不达标（超 §5 开销红线）需要缓存/持久索引，则**触发拆包**：独立包（如 `pydantic-ref-index`）或并入 opencharm-intel 扩展，重新立项评审。
+  - **子项 2（改名传播）**：第一版设计为「rename 时**一次性按需扫描**构造调用点」（无持久索引，见 3.4.3），满足四条 → 留 shell；若实测性能不达标（超 §5 开销红线）需要缓存/持久索引，则**触发拆包**：独立包（如 `pydantic-ref-index`）或并入 montauri-intel 扩展，重新立项评审。
 - 本节结论须写入立项 PR 描述；违反任一条即回到「拆独立包」路径。
 
 #### 3.4.1 架构依托（已具备）
 
-- `diagnosticsCache`（`lsp/client.ts:1628`）是 **owner 分层**的：`normPath → (owner → markers)`，现 owner 有 `opencharm-lsp` / `opencharm-intel`。新增 owner `"opencharm-pydantic"` 即可并存显示，不覆盖 pyrefly 诊断。
+- `diagnosticsCache`（`lsp/client.ts:1628`）是 **owner 分层**的：`normPath → (owner → markers)`，现 owner 有 `montauri-lsp` / `montauri-intel`。新增 owner `"montauri-pydantic"` 即可并存显示，不覆盖 pyrefly 诊断。
 - `fs_cmds.rs` 已有 Python 轻量解析先例（`ep_parse_route_decorator` / `ep_parse_router_decl` / `ep_parse_def_name` 等，`fs_cmds.rs:1466-1540`），可扩展为 Pydantic 字段解析；工作区受限扫描先例 `scan_app_decl`（`env_cmds.rs:1309`，深度/数量上限模式）。
 - 开关复用 `detect_pydantic_stack`（依赖含 pydantic/fastapi 判定）——非此类工作区零开销。
 
@@ -166,8 +166,8 @@ basedpyright 1.40.1 覆盖 4/6（仅 alias 场景有双向误报，且误报与�
 
 **前端侧**（`lsp/client.ts` 或 `main.ts` 接线）：
 - 触发：工作区打开时（`detect_pydantic_stack` 命中后）一次全量 + 文件保存后防抖 1.5s 增量（只重扫保存文件 + 引用其模型的文件）。
-- 注入：`invoke("scan_pydantic_issues")` 返回 → 逐 path `setMarkers(path, markers, "opencharm-pydantic")`。
-- **诊断刷新策略**（v0.2 补，关键坑）：`client.ts::startEngine` 里 `diagnosticsCache.clear()`（`client.ts:309`）会**连带清掉 `opencharm-pydantic` owner**。修复：`clear()` 改为 owner 感知——跳过 `opencharm-pydantic`（语义正确：pydantic 诊断不属于任何静态引擎，引擎切换不应使其实效）；同时引擎就绪（`engineStatus === "ready"`）后对已打开 model 重放一次缓存诊断（复用 `applyCachedDiagnostics` 现有机制即可，无需新协议）。
+- 注入：`invoke("scan_pydantic_issues")` 返回 → 逐 path `setMarkers(path, markers, "montauri-pydantic")`。
+- **诊断刷新策略**（v0.2 补，关键坑）：`client.ts::startEngine` 里 `diagnosticsCache.clear()`（`client.ts:309`）会**连带清掉 `montauri-pydantic` owner**。修复：`clear()` 改为 owner 感知——跳过 `montauri-pydantic`（语义正确：pydantic 诊断不属于任何静态引擎，引擎切换不应使其实效）；同时引擎就绪（`engineStatus === "ready"`）后对已打开 model 重放一次缓存诊断（复用 `applyCachedDiagnostics` 现有机制即可，无需新协议）。
 - 打开文件回放：`applyCachedDiagnostics` 已按 owner 遍历回放，天然兼容，无需改。
 
 #### 3.4.3 子项 2：字段改名传播（补最危险的「静默漏改」）
@@ -206,8 +206,8 @@ basedpyright 1.40.1 覆盖 4/6（仅 alias 场景有双向误报，且误报与�
 ### 阶段 4（自研语义层）— 单独立项，过 3.4.0 裁决后启动
 - [ ] 立项 PR：附架构归属裁决结论（四条标准逐条对照）+ 本节规模预估。
 - [ ] 子项 1a（Rust）：`pydantic_parse_models` + `scan_pydantic_issues` + v2 语义跳过清单（3.4.2 五条）+ 单测（继承合并 / alias 跳过 / Optional 必填 / `**kwargs` 跳过）。
-- [ ] 子项 1b（前端）：`pydantic_diagnostics` 设置项 + 保存防抖增量触发 + `opencharm-pydantic` owner 注入。
-- [ ] 子项 1c：`diagnosticsCache.clear()` 改 owner 感知（跳过 `opencharm-pydantic`）+ 引擎就绪后重放。
+- [ ] 子项 1b（前端）：`pydantic_diagnostics` 设置项 + 保存防抖增量触发 + `montauri-pydantic` owner 注入。
+- [ ] 子项 1c：`diagnosticsCache.clear()` 改 owner 感知（跳过 `montauri-pydantic`）+ 引擎就绪后重放。
 - [ ] 子项 2a（Rust）：`scan_pydantic_ctor_refs`（按需扫描，无索引）+ 单测（`Model(field=` 命中 / 同前缀字段不命中 / 跨行空白）。
 - [ ] 子项 2b（前端）：`confirmRename` 追加补充 refs + 按 `path + 位置` 去重合并 + 超时 2s 降级。
 - [ ] 验收：见 §5 阶段 4（含开销红线与引擎切换诊断不丢）。
@@ -246,9 +246,9 @@ basedpyright 1.40.1 覆盖 4/6（仅 alias 场景有双向误报，且误报与�
 5. 未转绿 → 仅更新 §4.2 的版本号与日期，结论不变。
 
 ### 阶段 4
-- 子项 1：`usage.py` 类用例（`User(id="str")` 类型错 / `User(id=1)` 缺必填）在 pyrefly 下产生 `opencharm-pydantic` owner 的红线，且不与 pyrefly 诊断冲突；alias / `**kwargs` / 位置参数用例**零误报**。
+- 子项 1：`usage.py` 类用例（`User(id="str")` 类型错 / `User(id=1)` 缺必填）在 pyrefly 下产生 `montauri-pydantic` owner 的红线，且不与 pyrefly 诊断冲突；alias / `**kwargs` / 位置参数用例**零误报**。
 - 子项 2：rename Pydantic 字段时，`Model(field=)` 构造调用处一并被改，`references` 计数覆盖声明处 + 调用处；`summarizeRenameTargets` 预览中可见补充的调用点文件。
-- **诊断不丢**：pyrefly → basedpyright → pyrefly 切换引擎后，`opencharm-pydantic` 诊断仍在（不被 `startEngine` 的 clear 清掉）。
+- **诊断不丢**：pyrefly → basedpyright → pyrefly 切换引擎后，`montauri-pydantic` 诊断仍在（不被 `startEngine` 的 clear 清掉）。
 - **开销红线**（初值，验收时按真实工作区校准后固化进本表）：受控用例（`bench/sample/pydantic_models/`）全量扫描 < 500ms；≤ 2000 个 .py 文件的工作区全量 < 3s；单文件保存增量 < 100ms；`scan_pydantic_ctor_refs` 单次 < 2s（超时降级路径可用）；非 Pydantic 栈工作区零扫描零诊断。
 
 ---
@@ -314,8 +314,8 @@ basedpyright 1.40.1 覆盖 4/6（仅 alias 场景有双向误报，且误报与�
 
 - **子项 1a（Rust）**：`pyd_parse_file`（类/字段轻量解析，缩进判类体边界）+ `pyd_class_is_model`（同文件继承链 memo 判定）+ `pyd_resolve_fields`（继承合并、同名覆盖、depth 防环）+ `scan_pydantic_issues`（kwargs 提取 → unknown/type/missing 三类）。v2 红线全落地：alias 字段按别名放行且类型检查跳过、`**` 整行跳过、位置参数整点跳过、字面量类型只做名义等价（复杂表达式跳过）、`find_call_head` 引号状态机排除字符串内误命中。
 - **子项 2a（Rust）**：`scan_pydantic_ctor_refs(root, model, field)`——`Model(field=` 文本级定位，空白容忍、同前缀字段不误命中。
-- **子项 1b（前端）**：新域模块 `pydanticDiagnostics.ts`（owner `opencharm-pydantic` 第四桶，`ruffLint.ts` 同款 handlers 注入形态）；触发 = 工作区打开（`detect_pydantic_stack` 门控）+ 保存防抖 1.5s；`pydantic_diagnostics` 设置项（默认开，TS/Rust 双侧 + 设置面板 UI 行）；消失文件显式清空防残留。
-- **子项 1c**：`client.ts` 的 `diagnosticsCache.clear()` 改 owner 感知 `clearEngineDiagnostics()`（只清 `opencharm-lsp`）；新增 `replayPersistentDiagnostics`，main 在 `onEngineStatus("ready")` 时对已打开 tab 重放自研桶。
+- **子项 1b（前端）**：新域模块 `pydanticDiagnostics.ts`（owner `montauri-pydantic` 第四桶，`ruffLint.ts` 同款 handlers 注入形态）；触发 = 工作区打开（`detect_pydantic_stack` 门控）+ 保存防抖 1.5s；`pydantic_diagnostics` 设置项（默认开，TS/Rust 双侧 + 设置面板 UI 行）；消失文件显式清空防残留。
+- **子项 1c**：`client.ts` 的 `diagnosticsCache.clear()` 改 owner 感知 `clearEngineDiagnostics()`（只清 `montauri-lsp`）；新增 `replayPersistentDiagnostics`，main 在 `onEngineStatus("ready")` 时对已打开 tab 重放自研桶。
 - **子项 2b（前端）**：`renameWidget.ts::confirmRename` 在 `fetchRenameChanges` 后调 `supplementPydanticCtorRefs`（pyrefly 引擎 + `isPydanticFieldDecl` 命中 + 设置开三重门控）；`mergeCtorRefsIntoFiles` 纯函数做 normPath+行+列去重合并（引擎优先）；2s 超时降级为纯引擎结果；basedpyright 引擎下不走补充（其自身传播）。
 
 **测试与验收**：

@@ -1,6 +1,6 @@
 # 补全交互层开发计划
 
-> 面向：OpenCharm 补全功能后续迭代。本文自包含，不依赖任何外部参考资料。
+> 面向：Montauri 补全功能后续迭代。本文自包含，不依赖任何外部参考资料。
 > 定位：把「补全引擎能力」之外的**交互体验层**缺口拆成可逐项落地的开发项，按投入产出比排序。
 > 状态：**已收官**（2026-10-08：P0-C 落地 + P1-B 的 `commitCharacters` 下发 spike 结清，§2 四个批次全部交付；维护态下仅受理缺陷修复）。
 > 编写时间：2026-10-07　·　评审修订：2026-10-07（逐项核对代码后修正 P0-A/P0-B 的落地前提，补遗留缺口登记，v2 起为 §8）
@@ -77,8 +77,8 @@
 
 **现状定位**
 
-- `intel/crates/opencharm-intel/src/server.rs:348` 返回 `Ok(Some(CompletionResponse::Array(items)))`——**LSP 裸数组无法携带 `isIncomplete`**。
-- `intel/crates/opencharm-intel/src/completion.rs:23` `const MAX_CANDIDATES: usize = 50`；`:579` `v.truncate(MAX_CANDIDATES)`——intel **实际在截断，却从不声明**。
+- `intel/crates/montauri-intel/src/server.rs:348` 返回 `Ok(Some(CompletionResponse::Array(items)))`——**LSP 裸数组无法携带 `isIncomplete`**。
+- `intel/crates/montauri-intel/src/completion.rs:23` `const MAX_CANDIDATES: usize = 50`；`:579` `v.truncate(MAX_CANDIDATES)`——intel **实际在截断，却从不声明**。
 - 截断信息在 `dedup_sort_truncate`（`:566-581`）内部丢失；`complete()`（`:74`）只返回 `Vec<Candidate>`，调用方无从得知是否截断。
 - `dedup_sort_truncate` 共 4 个调用点：`:90`（jmespath 分支）、`:111`（调用实参分支，经 `param_candidates` `:206-228` 间接）、`:183`（主路径末尾）、`:228`（`param_candidates` 内部）。
 
@@ -131,7 +131,7 @@ fn to_completion_response(outcome: CompletionOutcome) -> CompletionResponse {
 **A1-4 手测剧本**：bench 仓造一个含 60+ 个 `data_*` 键的 dict 字面量并运行一次（让 trace 库有观测）→ 编辑器输入 `data[` → 补全仅 50 条 → 继续输键名前缀 → 断言目标键（按 score 排在 50 名外）出现。
 
 **预算影响**：`completion.rs` 1,672 → ≈ 1,700（上限 1,950 ✓）；`server.rs` ≈ +20 行（未入预算面，按既有口径登记观察即可）。
-**门禁**：`cd intel && cargo test`（A1-1/2/3）+ **`cargo build -p opencharm-intel`**（`cargo test` 不刷新 shell 调用的 exe，联调前必须 build）。
+**门禁**：`cd intel && cargo test`（A1-1/2/3）+ **`cargo build -p montauri-intel`**（`cargo test` 不刷新 shell 调用的 exe，联调前必须 build）。
 **风险与回滚**：响应形状从 Array 变 List——客户端 P0-A2 的 `normalizeCompletionList` 两种形态都兼容，**先合 A1 不会打破旧客户端**（旧客户端 `result?.items ?? []` 对 List 形态同样成立；对 Array 形态走 `Array.isArray`）。回滚 = revert 单文件。
 
 ---
@@ -236,7 +236,7 @@ async provideCompletionItems(model, position, _context, token) {
 | # | 用例 | 落点 |
 |---|---|---|
 | B-1 | mock 层给 static completion 注入 300ms 延迟（**mock 扩展**：`tauri-mock.js:981-983` 分支读 `window.__E2E_LSP_PRESET__ = { completionDelayMs }`，`emitEvent` 包 `setTimeout`——先例见 `:944-946` 的 `__E2E_CLONE_PRESET__` 模式）。输入 `s.` 触发后立即续打 `pl`，断言：面板最终只含 `split` 族（最新前缀结果），不闪现旧全量列表 | 新建 `shell/e2e/lsp/04-completion-stale.spec.ts` |
-| B-2 | 同场景读 `window.__OPENCHARM_LSP_LOG__`（`tauri-mock.js:1011-1013` 已有），断言触发 ≥2 次 completion 请求且面板内容与末次一致 | 同上 |
+| B-2 | 同场景读 `window.__MONTAURI_LSP_LOG__`（`tauri-mock.js:1011-1013` 已有），断言触发 ≥2 次 completion 请求且面板内容与末次一致 | 同上 |
 | B-3 | 手测：大仓库（`bench/large_repo`）内快速连打 + 频繁触发字符，无「旧建议先显示再跳变」错位感；Esc 取消面板后继续打字面板不复活 | 手测剧本 |
 
 **预算影响**：client.ts ≈ +11（世代声明 + 签名 + 3 检查点 + 注释）。
@@ -461,7 +461,7 @@ monaco 与 `../state` 的 `app`，**不是可直接单测的纯函数模块**。
 | 延迟注入 | `window.__E2E_LSP_PRESET__ = { completionDelayMs: 300 }`，`tauri-mock.js:981` completion 分支 `emitEvent` 包 `setTimeout` | `__E2E_CLONE_PRESET__`（`tauri-mock.js:944-946`，页面侧 `addInitScript` 注入） |
 | 夹具候选 | `__E2E_LSP_PRESET__.completionExtraItems = [...]`，`lspComplete` 结果尾部追加（含 `additionalTextEdits` / resolve 才补编辑的特判 label） | 同上 |
 
-诊断通道：`window.__OPENCHARM_LSP_LOG__`（`tauri-mock.js:1011-1013`，环形 60 条）可直接断言请求次数与载荷。
+诊断通道：`window.__MONTAURI_LSP_LOG__`（`tauri-mock.js:1011-1013`，环形 60 条）可直接断言请求次数与载荷。
 
 同理，`client.ts` 现有可测邻居只有 `autoImport.test.ts` / `importAlias.test.ts` / `keywordCompletion.test.ts`，
 它们之所以能单测，是因为各自是纯逻辑模块——新增测试时优先沿用这个形态。
@@ -472,7 +472,7 @@ monaco 与 `../state` 的 `app`，**不是可直接单测的纯函数模块**。
 
 - **门禁**：每次改动后 `cd shell && npm test`（补全相关单测）、`npm run build`（tsc 类型检查）、
   `node shell/scripts/budget-check.mjs`（**评审修订：原写 `scripts\budget-check.mjs`，实际在 `shell/scripts/` 下**）。
-  改 `intel` 时另需 `cd intel && cargo test` + **`cargo build -p opencharm-intel`**（`cargo test` 不刷新 shell 调用的 exe）。
+  改 `intel` 时另需 `cd intel && cargo test` + **`cargo build -p montauri-intel`**（`cargo test` 不刷新 shell 调用的 exe）。
 - **预算余量（逐项估算，动手前先核）**：
 
 | 文件 | 现值 / 上限 | 批次 1 | 批次 2 | 批次 3 | 批次 4 | **实测落地值**（2026-10-08 `budget-check` 44 项全 PASS） |

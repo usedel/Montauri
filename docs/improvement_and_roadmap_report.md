@@ -1,4 +1,4 @@
-# OpenCharm 现状评估 · 改进建议与未来功能规划
+# Montauri 现状评估 · 改进建议与未来功能规划
 
 > 版本：**v1.5** · 日期：2026-10-12 · 状态：**现行（维护态清理版）**
 > 性质：基于当前代码库与全部 `docs/` 文档的**现状评估 + 改进清单 + 未来功能候选池**，不是开发计划（不直接排期）。
@@ -18,7 +18,7 @@
 
 ## 0. 一页结论
 
-**OpenCharm 当前处于 Phase 4 打磨期（维护态）**：定位「高性能 · 轻量 Python IDE」（`ADR-0010`，2026-10-05 起性能与体积升为一等目标）。最小闭环（补全 / 跳转 / Hover / 诊断 + 运行 + 调试）早已交付，此后陆续落地 Git 六迭代、SQLite 工具、多窗口、插件切片、国际化、UI 视觉六批、HTTP 请求工具、结构化运行日志，以及一批差异化功能：运行时热点视图、端点请求样例 / 一键 curl、trace 驱动的调用实参补全 / hover 观测签名 / 签名帮助、选择器测试器与响应→模型桥、内置 Profiler（默认关）、端点 CodeLens 反向跳转与 OpenAPI 面板内预览——**全部有验收记录与单测 / e2e 兜底**（记录见 `delivery-overview.md` §2）。
+**Montauri 当前处于 Phase 4 打磨期（维护态）**：定位「高性能 · 轻量 Python IDE」（`ADR-0010`，2026-10-05 起性能与体积升为一等目标）。最小闭环（补全 / 跳转 / Hover / 诊断 + 运行 + 调试）早已交付，此后陆续落地 Git 六迭代、SQLite 工具、多窗口、插件切片、国际化、UI 视觉六批、HTTP 请求工具、结构化运行日志，以及一批差异化功能：运行时热点视图、端点请求样例 / 一键 curl、trace 驱动的调用实参补全 / hover 观测签名 / 签名帮助、选择器测试器与响应→模型桥、内置 Profiler（默认关）、端点 CodeLens 反向跳转与 OpenAPI 面板内预览——**全部有验收记录与单测 / e2e 兜底**（记录见 `delivery-overview.md` §2）。
 
 **本报告 P0 档已全部关闭**（预算回绿 · 门禁闭环与 CI 落点裁决 · Gate D 两格按规则关闭 · 三个产品缺陷修复 · 结构性债裁决并执行拆分），阶段二（深化期）已收口。按本报告自身的校验位口径：**清单里不再有"永远挂着"的项**——连续两版零进展的条目按"要么做、要么显式撤下"的二选一截止规则处理（该规则此后常驻，见 §9）。
 
@@ -26,7 +26,7 @@
 
 | # | 事项 | 性质 |
 |---|---|---|
-| 1 | **CI 无宿主**：本仓远端只有 `gitee.com/usedel/opencharm`，Gitee 不执行 GitHub Actions，两份 workflow 是"将来推 GitHub 的预埋" | **待外部事件**：迁移后首次 push 的 run 记录即验（谁推谁验） |
+| 1 | **CI 无宿主**：本仓远端只有 `gitee.com/usedel/montauri`，Gitee 不执行 GitHub Actions，两份 workflow 是"将来推 GitHub 的预埋" | **待外部事件**：迁移后首次 push 的 run 记录即验（谁推谁验） |
 | 2 | **trace 样本量未达复核门槛**：跨 3 个真实项目累计 497 条函数观测（门槛 ≥1000） | 已裁定**日常自然累积**，不再专门采样；`STALE_HITS_DIVISOR` 维持 2 |
 | 3 | **TD-025 复审清单 6 条**（nightly 只告警 / 更新通道 / Inter 字体 / Watches localStorage / 插件沙箱 / HTTP 私网提示） | 待产品裁决，见 §8 与 `docs/tech-debt.md` |
 | 4 | **候选池剩余条目**（A6 · B2 · C 类；**B1 已于 2026-10-17 交付 T1–T5 含真机验收**）与 P1 / P2 档建议 | 本报告 §2~§5 的主体，等待挑选 |
@@ -79,7 +79,7 @@
 | 数据库 | `sqliteView.ts` / `sqliteTabs.ts` / `sqliteSql.ts` / `sqliteStore.ts` + Rust `db_cmds.rs` / `db_rows` | ✅ **B3 已交付 v1.4**（编辑器 Tab 化重设计）；真机 `db-real` **18/18 PASS**（2026-10-07）；真源 `docs/sqlite_tool_dev_plan.md` §17 |
 | 插件 | `devtools/` + `extensions/` + Rust `plugin_cmds.rs` / `plugin_pkg.rs` | ✅ 工具切片 PR-1~4（490 测试）；v1 信任模型 = 同源 + facade；**v2 议题未启动**（见 P1-6） |
 | 国际化 | `i18n/` | ✅ zh-CN / en-US 双语，20 批抽取，编译期对齐 |
-| UI 视觉身份 | `theme/tokens.ts` + `style.css` + `tools/ui/audit_tokens.py` + `docs/adr/0005` | ✅ **六批全部落地**（批 1 / 2a / 2b / 3 / 4 / 5a / 5b / 5c）；Monaco 自定义主题 `opencharm-dark/light` + JetBrains Mono 随包；audit 98 项 0 FAIL 0 WARN；真机主题验收 32/32 PASS |
+| UI 视觉身份 | `theme/tokens.ts` + `style.css` + `tools/ui/audit_tokens.py` + `docs/adr/0005` | ✅ **六批全部落地**（批 1 / 2a / 2b / 3 / 4 / 5a / 5b / 5c）；Monaco 自定义主题 `montauri-dark/light` + JetBrains Mono 随包；audit 98 项 0 FAIL 0 WARN；真机主题验收 32/32 PASS |
 | HTTP 请求工具（B4） | `devtools/builtin/http.ts` / `httpRequest.ts` + Rust `http_cmds.rs`（reqwest） | ✅ devtools 面板驱动（发送 / 响应 / 变量 / 历史 / curl 导入 / 端点联动）；reqwest 真实链路有真机覆盖（`http-real.cjs` HR-1~HR-11）。真源 `docs/toolbox_dev_plan.md` §5.9–5.11 |
 | 结构化运行日志（B5） | `logView.ts` / `logStore.ts` / `logParse.ts` / `editorInsert.ts` | ✅ 底部「运行日志」tab：多播采集 + 级别过滤 + 字段折叠/导出。真源 `docs/toolbox_dev_plan.md` §6.10–6.12 |
 | TODO 增强（B6-3） | `todoView.ts` | ✅ 过滤 + 按文件分组 + 跳转 + 计数。**B6 整体已终止**——大纲与 Mermaid 取消（§7.7），状态"部分交付后终止" |
@@ -144,7 +144,7 @@
 
 ### P2-1 · UI 视觉「批 6+」第二阶段（可选，非必需）
 
-视觉六批已全部落地并通过真机验收（ADR-0005 + `ui_premium_dev_plan.md`）。本项仅登记后续可能方向，**不排期**：材质细节再深化、`opencharm-dark/light` 语法色与外壳的进一步同色、字体副档。若开，须沿用 `ui_premium_dev_plan.md` §6 的批次入口 + §4 门禁（`audit_tokens.py` 已进 CI + token 单测 + e2e computed-style 断言 + 截图比对），且**不得往 `main.ts` / `style.css` 堆逻辑**——两者均有预算上限，拆出的样式分文件也各有上限，静默增长会被 `budget-check.mjs` 拦。
+视觉六批已全部落地并通过真机验收（ADR-0005 + `ui_premium_dev_plan.md`）。本项仅登记后续可能方向，**不排期**：材质细节再深化、`montauri-dark/light` 语法色与外壳的进一步同色、字体副档。若开，须沿用 `ui_premium_dev_plan.md` §6 的批次入口 + §4 门禁（`audit_tokens.py` 已进 CI + token 单测 + e2e computed-style 断言 + 截图比对），且**不得往 `main.ts` / `style.css` 堆逻辑**——两者均有预算上限，拆出的样式分文件也各有上限，静默增长会被 `budget-check.mjs` 拦。
 
 ### P2-3 · 跨仓库/跨机器设置同步
 
@@ -193,7 +193,7 @@ A 类全部复用已有的 probe trace 数据或外壳基建，**别人抄不走
 
 - 插件 v2：硬沙箱（iframe/Worker）+ 跨 realm facade、Python 工具桥（Pyodide / 轨 B 子进程）、`.ocx` 安装包格式；
 - 插件市场 / 模板分享（当前明确不做，维持）；
-- OEP（OpenCharm Extension Protocol）复用 LSP 超集的决策点；
+- OEP（Montauri Extension Protocol）复用 LSP 超集的决策点；
 - 多语言支持（现为 Python 专用，铁律未禁止但会稀释定位）。
 
 ---
@@ -321,7 +321,7 @@ A 类全部复用已有的 probe trace 数据或外壳基建，**别人抄不走
 | 门禁 | `node shell/scripts/gate-tests.mjs unit\|e2e\|e2e-ui`（**不要直接跑 `vitest`**，本机会被判为 watch 并杀进程） |
 | token 门禁 | `python tools\ui\audit_tokens.py`（98 项检查，退出码非 0 即失败） |
 | trace 库统计（Gate D 调参） | `python tools/intel/trace_stats.py`（只读；`--out <报告>`） |
-| Gate D 人工对标工作单 | `set OC_GATE_D_WORKLIST=<路径>` + `cargo test -p opencharm-intel -- --nocapture runtime_completion_accuracy`（第一格已撤下，工作单转存档；换对照组时结论须改写为"对 X"） |
+| Gate D 人工对标工作单 | `set OC_GATE_D_WORKLIST=<路径>` + `cargo test -p montauri-intel -- --nocapture runtime_completion_accuracy`（第一格已撤下，工作单转存档；换对照组时结论须改写为"对 X"） |
 | 真机层（本机一键全量） | `powershell -File shell\e2e-real\run-real-all.ps1`（串行；`-Only` / `-Skip` / `-Strict`；发布前用 `-PreRelease -Strict`） |
 | 真机层（单套件） | `cd shell && set "OC_JSON_OUT=<路径>" && node e2e-real\<name>.cjs` |
 
@@ -354,7 +354,7 @@ A 类全部复用已有的 probe trace 数据或外壳基建，**别人抄不走
 | `docs/ui_premium_dev_plan.md` / `docs/ui_premium_design_report.md` v1.2 | P2-1 的执行真源与论证（§6 批次入口 / §4 门禁） |
 | `docs/sqlite_tool_dev_plan.md` v1.5 | B3 唯一真源（§17 交互方案 / §17.7 真机验收 18/18） |
 | `bench/reports/gate-d-runtime-completion.md` | Gate D 确定性口径 base 数值（23/23）与两格的定义 |
-| `bench/reports/gate-d-ab-worklist.md` | ❌ **第一格已撤下转存档（2026-10-07）**（OpenCharm 列已填好，PyCharm 列 23 行仍全为 `☐`；将来换对照组可复用，但结论须改写为"对 X"） |
+| `bench/reports/gate-d-ab-worklist.md` | ❌ **第一格已撤下转存档（2026-10-07）**（Montauri 列已填好，PyCharm 列 23 行仍全为 `☐`；将来换对照组可复用，但结论须改写为"对 X"） |
 | `bench/reports/trace-stats-cumulative.md` + `bench/reports/trace-sample-threshold.md` | P0-2 第二格的当前样本（3 项目 / 497 条函数观测）与门槛口径 / 收口处置 |
 | `docs/tech-debt.md` | 债务明细：待处理 TD-021② / TD-022 / TD-024 / **TD-025**（「自用」论据失效复审清单，6 条） |
 | `docs/e2e_divergence_ledger.md` | 真机才暴露的集成缺陷台账（门禁价值的论据） |

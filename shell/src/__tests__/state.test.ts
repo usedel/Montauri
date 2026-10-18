@@ -19,7 +19,7 @@ describe("Settings 前端单源一致性（P2-A）", () => {
   });
 
   it("关键默认值与后端 Settings::default 对齐（新增字段时需同步两侧）", () => {
-    expect(DEFAULT_SETTINGS.theme).toBe("opencharm-dark");
+    expect(DEFAULT_SETTINGS.theme).toBe("montauri-dark");
     expect(DEFAULT_SETTINGS.font_size).toBe(14);
     expect(DEFAULT_SETTINGS.font_family).toBe(DEFAULT_FONT_FAMILY);
     // 批 3：连字出厂默认开（JetBrains Mono 的编程连字是核心卖点）

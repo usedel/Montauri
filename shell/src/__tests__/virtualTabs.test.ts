@@ -21,7 +21,7 @@ function stubTab(path: string, kind: Tab["kind"]): Tab {
 }
 
 const ROOT = "D:\\proj";
-const SRC = "D:\\proj\\docs\\opencharm-help.md";
+const SRC = "D:\\proj\\docs\\montauri-help.md";
 
 describe("tabRealPath：虚拟 path → 真实文件路径", () => {
   afterEach(() => {
@@ -76,13 +76,13 @@ describe("tabRelativePath：真实路径 → 工作区相对路径", () => {
 
   it("工作区内取相对路径", () => {
     app.workspaceRoot = ROOT;
-    expect(tabRelativePath(SRC)).toBe("docs\\opencharm-help.md");
+    expect(tabRelativePath(SRC)).toBe("docs\\montauri-help.md");
   });
 
   it("工作区外/无工作区回落文件名", () => {
     app.workspaceRoot = ROOT;
     expect(tabRelativePath("C:\\elsewhere\\a.py")).toBe("a.py");
     app.workspaceRoot = null;
-    expect(tabRelativePath(SRC)).toBe("opencharm-help.md");
+    expect(tabRelativePath(SRC)).toBe("montauri-help.md");
   });
 });

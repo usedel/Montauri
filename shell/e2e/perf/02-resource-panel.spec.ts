@@ -41,7 +41,7 @@ test("R-2 面板打开：明细表含外壳与子进程，CPU 首采样为「—
 
   const rows = page.locator("#resource-rows tr");
   await expect(rows).toHaveCount(3); // 外壳 + pyrefly + python
-  await expect(rows.nth(0)).toContainText("OpenCharm（外壳）");
+  await expect(rows.nth(0)).toContainText("Montauri（外壳）");
   await expect(rows.nth(1)).toContainText("pyrefly.exe");
   await expect(rows.nth(2)).toContainText("python.exe");
   // 子进程按内存降序：pyrefly(96.4) 在 python(48.1) 之前

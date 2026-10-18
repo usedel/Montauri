@@ -18,7 +18,7 @@
   3. 行中补全：给出行前半段（默认 50% 字符）作前缀，能否回放出整行
 
 用法：
-  python -u tools/edit_history_stats.py --jsonl %LOCALAPPDATA%\\OpenCharm\\edit_history\\events.jsonl
+  python -u tools/edit_history_stats.py --jsonl %LOCALAPPDATA%\\Montauri\\edit_history\\events.jsonl
   python -u tools/edit_history_stats.py --dir bench/sample
   python -u tools/edit_history_stats.py --dir . --jsonl events.jsonl   # 混合
 """

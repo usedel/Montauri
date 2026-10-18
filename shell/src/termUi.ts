@@ -848,7 +848,7 @@ export async function disposeTerminal(): Promise<void> {
 
 /** P1（UX 审查）：切换底部面板展开/收起（#btn-toggle-output 与键位 Alt+F12 共用唯一实现）。
  *  B 批：折叠态写穿 localStorage，启动时恢复（wireBottomPanel）。 */
-const BOTTOM_COLLAPSED_KEY = "opencharm.bottom_collapsed";
+const BOTTOM_COLLAPSED_KEY = "montauri.bottom_collapsed";
 
 export function toggleBottomPanel(): void {
   const bottom = $("bottom");

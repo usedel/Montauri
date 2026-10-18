@@ -1,4 +1,4 @@
-# OpenCharm：低延迟编辑预测 研究方案
+# Montauri：低延迟编辑预测 研究方案
 
 > 版本：v0.1 · 日期：2026-09-15 · 状态：**探索中**（采集器已埋点，待真实数据驱动决策）
 > 关联文档：`python_ide_tech_plan_v3.md`（外壳/三层补全）· `python_ide_dev_plan_v2.md`（Phase 4 打磨期）· `data-directory-layout-v2.md`（数据目录）
@@ -26,7 +26,7 @@
 
 因此命题转化为：**能不能在小分布上，用「结构化本地信号」打到大分布的效果。** 结论是能，且有 LLM 都没有的两张牌：
 
-1. **运行时 trace 的确定性语义**（`opencharm-intel` 已知道 `o` 的运行时类型与 shape，属观测事实而非统计猜测）；
+1. **运行时 trace 的确定性语义**（`montauri-intel` 已知道 `o` 的运行时类型与 shape，属观测事实而非统计猜测）；
 2. **逐键预算 < 30 ms 的内存化索引**（`TraceIndex` 已全量载入内存、纯函数、无进程往返）。
 
 ---
@@ -104,7 +104,7 @@
 数据攒足（建议 2~4 周）后，跑统计脚本量化「可预测性地板」：
 
 ```powershell
-python -u tools/edit_history_stats.py --jsonl %LOCALAPPDATA%\OpenCharm\edit_history\events.jsonl
+python -u tools/edit_history_stats.py --jsonl %LOCALAPPDATA%\Montauri\edit_history\events.jsonl
 ```
 
 关键指标：**覆盖率**（prev 有历史可查的比例）、**行中补全精确率**（前缀 50% 字符）、**整行 top-1 / top-K 精确率**、**行对复现频次分布**。

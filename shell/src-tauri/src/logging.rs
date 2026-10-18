@@ -5,7 +5,7 @@
 //   - log_keep     保留的轮转文件份数（1-10）
 //   - log_stdout   是否同时打印 stdout（dev 终端可见，release 无控制台时可关）
 //
-// 日志文件：<data_root>/logs/opencharm.log，超过 LOG_MAX_BYTES 轮转为 .1/.2/...
+// 日志文件：<data_root>/logs/montauri.log，超过 LOG_MAX_BYTES 轮转为 .1/.2/...
 // （保留 log_keep 份）。窗口期不重建，进程内始终追加当前文件。
 
 use std::io::Write;
@@ -54,9 +54,9 @@ pub(crate) fn log_dir() -> PathBuf {
     logs_dir()
 }
 
-/// 当前日志文件：<data_root>/logs/opencharm.log
+/// 当前日志文件：<data_root>/logs/montauri.log
 fn current_log() -> PathBuf {
-    log_dir().join("opencharm.log")
+    log_dir().join("montauri.log")
 }
 
 /// 写一行日志（调用方已通过 `log_line` 过滤级别）。
@@ -66,7 +66,7 @@ fn write_line(level: Level, msg: &str) {
     if guard.is_none() {
         let dir = log_dir();
         if std::fs::create_dir_all(&dir).is_err() {
-            eprintln!("[opencharm-log] create_dir_all({dir:?}) failed");
+            eprintln!("[montauri-log] create_dir_all({dir:?}) failed");
             return;
         }
         *guard = std::fs::OpenOptions::new()
@@ -76,7 +76,7 @@ fn write_line(level: Level, msg: &str) {
             .ok();
     }
     let Some(f) = guard.as_mut() else {
-        eprintln!("[opencharm-log] open({:?}) failed", current_log());
+        eprintln!("[montauri-log] open({:?}) failed", current_log());
         return;
     };
 
@@ -101,25 +101,25 @@ fn write_line(level: Level, msg: &str) {
     let _ = f.flush();
 }
 
-/// 轮转：opencharm.log.N 依次后移，超保留份数即删除。
+/// 轮转：montauri.log.N 依次后移，超保留份数即删除。
 fn rotate() {
     let keep = settings::load().log_keep.clamp(1, 10); // 低频路径（轮转时一次）
     let dir = log_dir();
     // 从最老开始：keep-1 → keep 存在则删；再依次后移
-    let oldest = dir.join(format!("opencharm.log.{keep}"));
+    let oldest = dir.join(format!("montauri.log.{keep}"));
     if oldest.is_file() {
         let _ = std::fs::remove_file(&oldest);
     }
     for i in (1..keep).rev() {
-        let src = dir.join(format!("opencharm.log.{i}"));
-        let dst = dir.join(format!("opencharm.log.{}", i + 1));
+        let src = dir.join(format!("montauri.log.{i}"));
+        let dst = dir.join(format!("montauri.log.{}", i + 1));
         if src.is_file() {
             let _ = std::fs::rename(&src, &dst);
         }
     }
-    let cur = dir.join("opencharm.log");
+    let cur = dir.join("montauri.log");
     if cur.is_file() {
-        let _ = std::fs::rename(&cur, dir.join("opencharm.log.1"));
+        let _ = std::fs::rename(&cur, dir.join("montauri.log.1"));
     }
 }
 
@@ -193,5 +193,5 @@ pub fn open_log_dir() -> Result<(), String> {
 /// 在系统资源管理器中打开数据根目录（设置面板入口；含 config/traces/envs 等子目录）。
 #[tauri::command]
 pub fn open_data_dir() -> Result<(), String> {
-    reveal_dir(crate::util::opencharm_home(), "数据目录")
+    reveal_dir(crate::util::montauri_home(), "数据目录")
 }

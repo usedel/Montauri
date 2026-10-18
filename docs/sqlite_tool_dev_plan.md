@@ -99,7 +99,7 @@
 
 | 控件 | 行为 |
 |---|---|
-| 连接下拉 | 列出全局连接（`~/.opencharm/config/db_connections.json`），格式 `<文件名> · <父目录>`；切换即 `db_close` 旧连接 + `db_open` 新连接 + 刷新树；**切换是切换不是叠加**（同时只活一个，避免多连接状态复杂度） |
+| 连接下拉 | 列出全局连接（`~/.montauri/config/db_connections.json`），格式 `<文件名> · <父目录>`；切换即 `db_close` 旧连接 + `db_open` 新连接 + 刷新树；**切换是切换不是叠加**（同时只活一个，避免多连接状态复杂度） |
 | ＋ 添加 | `pick_file`（`fs_cmds.rs:224`，带后缀过滤 `.sqlite/.sqlite3/.db/.db3`）→ `validate_db_path` 校验 → `db_open` → 追加到全局列表并持久化 |
 | 🗑 移除 | 仅从列表移除（不删文件）；确认框（自绘 `openConfirm`）；若移除的是当前连接 → 关闭连接 + 清空树与结果 |
 | 🔒 可写 | `aria-pressed` 切换；关闭态（默认）显示锁形 + tip「只读模式（点击允许写入）」；开启时 tip 改「可写模式（点击回到只读）」，且**树与工具条加一条淡色警示条**（`#db-write-banner`，文案见 §7） |
@@ -185,9 +185,9 @@
 
 | 数据 | 位置 | 由谁写 |
 |---|---|---|
-| 连接列表（含 SQL 草稿、查询历史、可写标志） | **全局** `~/.opencharm/config/db_connections.json` | Rust `db_cmds`（`db_connections_load` / `db_connections_save`） |
+| 连接列表（含 SQL 草稿、查询历史、可写标志） | **全局** `~/.montauri/config/db_connections.json` | Rust `db_cmds`（`db_connections_load` / `db_connections_save`） |
 | 当前选中的连接 id | 前端内存 + 工作区会话恢复不做（v1） | — |
-| 展开/折叠状态 | 前端 localStorage `opencharm.db.sections` | 前端 |
+| 展开/折叠状态 | 前端 localStorage `montauri.db.sections` | 前端 |
 
 > 为什么连接列表放**全局**而非工作区 config：数据库文件通常在项目外（用户数据目录、爬虫产物），与工作区生命周期无关。工作区 config（`env_cmds.rs:85 workspace_config_path`）仅用于项目相关配置。
 
@@ -453,7 +453,7 @@ function ensureSqlEditor(): MonacoApi.editor.IStandaloneCodeEditor {
     scrollBeyondLastLine: false,
     ...handlers?.buildOptions(),   // 与主编辑器同源（字号/主题/连字）
   });
-  sqlEditor.addAction({ id: "opencharm.dbRun", label: "执行当前语句",
+  sqlEditor.addAction({ id: "montauri.dbRun", label: "执行当前语句",
     keybindings: [app.monaco.KeyMod.CtrlCmd | app.monaco.KeyCode.Enter], run: () => void runCurrent() });
   return sqlEditor;
 }
@@ -623,7 +623,7 @@ function ensureSqlEditor(): MonacoApi.editor.IStandaloneCodeEditor {
 
 - 全量 `cargo test --offline db_`：**32 passed / 0 failed**（纯函数 22 例 + 集成 10 例），耗时 5.5 s；
 - **坑 1 · 临时文件并发冲突**：`save_connections` 的 tmp 文件名固定为 `db_connections.json.tmp`，多个集成用例并行保存时互相踩（A 写 tmp → B 覆盖 tmp → A rename 找不到文件 → `DbIo: os error 2`）。修复：tmp 名加纳秒后缀。
-- **坑 2 · 全局连接列表的测试竞态**：集成用例共用同一份 `~/.opencharm/config/db_connections.json`，并行会丢更新。修复：`tests` 内加 `TEST_LOCK: Mutex<()>` 串行锁（`test_guard()`），9 个集成用例统一持有；纯函数用例不受影响。
+- **坑 2 · 全局连接列表的测试竞态**：集成用例共用同一份 `~/.montauri/config/db_connections.json`，并行会丢更新。修复：`tests` 内加 `TEST_LOCK: Mutex<()>` 串行锁（`test_guard()`），9 个集成用例统一持有；纯函数用例不受影响。
 - **坑 3 · 取消用例不稳定**：初版用 3^8 笛卡尔积（6561 行）做慢查询，SQLite 瞬间跑完导致取消窗口不足而失败。修复：改 `WITH RECURSIVE` 生成 500 万行 + `started` 原子标志消除「线程未启动即取消」的竞态 + 50ms 等待。
 
 **PR-2 DoD 达成情况**：✅ 4 个命令 ✅ 8 个纯函数 ✅ 对抗样本用例齐（注释/块注释/字符串内分号与关键字/PRAGMA 读写分家/CTE 前缀/大小写/空白）✅ 只读硬闸门 ✅ 可取消 ✅ 分页与硬上限 ✅ 集成用例覆盖真实 SQLite 文件。
@@ -635,7 +635,7 @@ function ensureSqlEditor(): MonacoApi.editor.IStandaloneCodeEditor {
 | 文件 | 内容 |
 |---|---|
 | `shell/src/sqliteGrid.ts`（新，约 240 行） | **纯渲染层**（零 DOM 依赖，单测友好）：`formatCell`（null/blob/empty/text 四态）、`PageInfo` / `pageOf` / `offsetOfPage`、`ROWNO_W` / `MIN_COL_W` / `MIN_VISIBLE_COLS` / `visibleColumnCount`（窄栏裁列）、`csvCell`（RFC 4180）/ `toCsv`（CRLF）、`statusText`、`buildGridTable` |
-| `shell/src/sqliteView.ts`（新，约 1400 行） | 视图主体：DOM 装配、连接管理（增/删/切换/持久化）、对象树（表/视图/索引三组 + 列 + 行数）、SQL 分类镜像（`stripSqlNoise` / `topLevelWords` / `classifySql`，与 Rust 同 9 条对抗样本）、语句切分（`statementSpans` / `splitSqlStatements` / `currentStatement`）、段折叠持久化（`opencharm.db.sections`） |
+| `shell/src/sqliteView.ts`（新，约 1400 行） | 视图主体：DOM 装配、连接管理（增/删/切换/持久化）、对象树（表/视图/索引三组 + 列 + 行数）、SQL 分类镜像（`stripSqlNoise` / `topLevelWords` / `classifySql`，与 Rust 同 9 条对抗样本）、语句切分（`statementSpans` / `splitSqlStatements` / `currentStatement`）、段折叠持久化（`montauri.db.sections`） |
 | `shell/src/views.ts` | `SidebarViewId` 加 `"database"` |
 | `shell/index.html` | Activity Bar 第七项 `#tab-database`（`codicon-database`）+ `#view-database` 容器；设置面板导航项 `data-cat="database"` + `#settings-section-database`（`#settings-db-page-size` / `#settings-db-warn-on-write`） |
 | `shell/src/main.ts` | `initDbView()` / `restoreDbSections()` / `setDbViewHandlers()`；`registerSidebarView({ id:"database", … })`；工作区复位调 `resetDbView()`；命令表加 `db_add_connection` / `db_new_query` |
@@ -739,7 +739,7 @@ mock 桩实际位置在 `e2e/mocks/tauri-mock.js` 的 `dbHandle()`（**纯 JS**�
 | DB-CONN-6 | 可写开关二次确认；取消不变、确认后 `aria-pressed=true` + 警示条出现 |
 | DB-CONN-7 | 移除连接只摘列表（确认框含「不会删除文件」）+ 落盘列表不含它 |
 | DB-CONN-8 | ＋ 走 `pick_file` → 下拉从 1 项变 2 项并自动切换 |
-| DB-CONN-9 | 段折叠写入 `localStorage["opencharm.db.sections"]`，重载后仍折叠 |
+| DB-CONN-9 | 段折叠写入 `localStorage["montauri.db.sections"]`，重载后仍折叠 |
 | DB-Q-1 | **分页**：250 行 / 每页 200 → 2 页；行号为绝对行号（1…200 / 201…250） |
 | DB-Q-2 | 只读连接执行写语句 → 前端前置拦截，**不发 IPC** + 提示 |
 | DB-Q-3 | 可写连接执行写语句 → 确认框 → 「影响 N 行」，且 SQL 确实发出 |
@@ -844,7 +844,7 @@ mock 桩实际位置在 `e2e/mocks/tauri-mock.js` 的 `dbHandle()`（**纯 JS**�
 | 第二 Monaco 实例范式 | `splitEditor.ts:47-55`（ensureEditor，含 lazyEl 踩坑注释 `:23-25`）、`:130 refreshSplitEditorOptions` |
 | 文件选择对话框 | `fs_cmds.rs:224 pick_file`（另有 `pick_folder:207`） |
 | 工作区配置读写（**本项目不用**，全局连接列表另存） | `env_cmds.rs:85/90/100` |
-| 全局主目录 | `util.rs:79 opencharm_home()` |
+| 全局主目录 | `util.rs:79 montauri_home()` |
 | 命令注册 | `lib.rs:75` `generate_handler!` 列表（按域分组）；mod 列表 `lib.rs:1-25` |
 | 退出清理 | `lib.rs:305-319` `RunEvent::Exit` 分支 |
 | 异步阻塞调用范式 | `lib_cmds.rs:173`（`spawn_blocking`） |
@@ -1216,7 +1216,7 @@ grid 定义（写进 `style.css`）：
 | 查询进行中 | 允许切换模式；`db_cancel` 与结果保留不受影响（I5） |
 | Monaco 建议弹层开着 | `Esc` 先被 Monaco 消费（`addCommand` 的 Esc 优先级更高）→ 表现为「第一次 Esc 关弹层、第二次退出宽屏」。**可接受，不做特殊处理**（与 §15.4 真机经验一致） |
 | **宽屏态下折叠「对象树」段** | **停用**：宽屏态两段恒展开、段头锁定（`.db-section-locked` + `aria-disabled="true"` + `pointer-events:none`）。理由见下方注 1。实现：`enterDbWide()` 快照 `collapsedBeforeWide` → 强制 `setSectionCollapsed(id, false)` → `setSectionLocked(true)`；`exitDbWide()` 逆序还原（`setSectionLocked(false)` → 按快照还原折叠）。实际拦截在 `section()` 的 `click` / `dblclick` handler（首行 `if (dbWide) return;`） |
-| 段折叠状态跨模式 | 两种模式**共用**同一份 `localStorage["opencharm.db.sections"]`（I5）。宽屏态的强制展开 / 还原**只改视觉、不写 localStorage**——用户的真实偏好始终由侧栏态拥有 |
+| 段折叠状态跨模式 | 两种模式**共用**同一份 `localStorage["montauri.db.sections"]`（I5）。宽屏态的强制展开 / 还原**只改视觉、不写 localStorage**——用户的真实偏好始终由侧栏态拥有 |
 | 进入宽屏时的焦点 | `enterDbWide()` 末尾：焦点不在 `#db-wide-panel` 内时把焦点收进面板（`#db-wide-panel` 带 `tabindex="-1"`）。理由见下方注 2 |
 
 > **注 1（为什么宽屏态必须停用段折叠）**：宽屏 grid 的行高（`140px` / `1fr`）与列宽（`--db-tree-w`）是**固定**的，
@@ -1237,9 +1237,9 @@ grid 定义（写进 `style.css`）：
 
 | 键 | 类型 | 默认 | 说明 |
 |---|---|---|---|
-| `opencharm.db.wide_tree_w` | number（px） | `240` | 宽屏态对象树列宽。越界忽略（照 `layout.ts::readStored` 口径），clamp `[180, 480]` |
+| `montauri.db.wide_tree_w` | number（px） | `240` | 宽屏态对象树列宽。越界忽略（照 `layout.ts::readStored` 口径），clamp `[180, 480]` |
 
-> **不新增** `opencharm.db.wide`（宽屏态不持久化，I4）。段折叠继续用 `opencharm.db.sections`（§3.9）。
+> **不新增** `montauri.db.wide`（宽屏态不持久化，I4）。段折叠继续用 `montauri.db.sections`（§3.9）。
 
 ### 16.6 接线清单（逐文件）
 
@@ -1249,7 +1249,7 @@ grid 定义（写进 `style.css`）：
 | `shell/src/style.css` | ① `.db-wide-*` 段（`#db-wide-panel` / `#db-wide-splitter` / `.db-wide-placeholder`）；② `#view-database.db-wide` 的 grid 与 `.db-section-locked`（§16.3）；③ `#editor-row.db-wide-on > …` 压制规则（§16.8）；④ `.db-toolbar` / `.db-pager` 加 `flex-wrap: wrap`（顺带止血） | `.db-*` 段（`:2206-2354`）；`#git-diff-panel`（`:4008`） |
 | `shell/src/sqliteView.ts` | ① 导出 `enterDbWide` / `exitDbWide` / `isDbWide` / `toggleDbWide`；② `#db-wide-toggle` 按钮（`initDbView` 工具条段，`#db-more` 之后）；③ `#db-wide-splitter` 元素（`initDbView` 的 `root.append(...)`，插在 `treeWrap` 之后）+ 末尾调 `wireDbWideSplitter()`；④ `#db-wide-panel` 的 `keydown`（Esc）；⑤ `setSectionCollapsed` / `setSectionLocked` 两个单一写入点，并接进 `section()` 的 `toggle()` / `dblclick`（首行 `if (dbWide) return;`）与 `restoreDbSections()`；⑥ `renderResult` 宽屏分支（全列）；⑦ `renderToolbar` 同步按钮态；⑧ `resetDbView` 首行加 `exitDbWide()`；⑨ `watchDbWide()`（`ResizeObserver` on `#editor-row`）；⑩ `enterDbWide` 末尾把焦点收进面板 | `initDbView`（`:337-406`）、`renderResult`（`:968-1011`）、`renderToolbar`（`:786-822`）、`resetDbView`、`restoreDbSections` |
 | `shell/src/sqliteGrid.ts` | **零改动**（`visibleColumnCount` 保留；宽屏分支不走它） | — |
-| `shell/src/layout.ts` | ① 新增 `DB_TREE_W_KEY = "opencharm.db.wide_tree_w"` / `DB_TREE_MIN=180` / `DB_TREE_MAX=480` / `DB_TREE_DEF=240`；② 新增 `export function wireDbWideSplitter()`（复用 `startDrag`，写 `--db-tree-w` + localStorage，双击重置）；③ `restoreLayout()` 末尾恢复 `--db-tree-w` | `wireSplitters`（`:124-268`）、`startDrag`（`:107`）、`readStored`（`:61`）、`restoreLayout`（`:73-104`） |
+| `shell/src/layout.ts` | ① 新增 `DB_TREE_W_KEY = "montauri.db.wide_tree_w"` / `DB_TREE_MIN=180` / `DB_TREE_MAX=480` / `DB_TREE_DEF=240`；② 新增 `export function wireDbWideSplitter()`（复用 `startDrag`，写 `--db-tree-w` + localStorage，双击重置）；③ `restoreLayout()` 末尾恢复 `--db-tree-w` | `wireSplitters`（`:124-268`）、`startDrag`（`:107`）、`readStored`（`:61`）、`restoreLayout`（`:73-104`） |
 | `shell/src/main.ts` | ① `activateTab` 加 `exitDbWide()`（`consumeWelcomeForce()` 之后、diff 分支之前）；② database 视图注册项加 `onHide: () => exitDbWide()`（`:2710-2715`）；③ 命令表加 `database.toggleWide`（`:1570` 附近，与 `db_add_connection` 同段） | `:920-968`、`:2710-2715` |
 | `shell/src/views.ts` | **零改动**（只用既有 `onHide` 钩子） | `:7-17` |
 | `shell/src/i18n/` | `database` 域加 9 条（§16.7） | §7 流程 |
@@ -1312,8 +1312,8 @@ grid 定义（写进 `style.css`）：
 | DB-W-5 | 宽屏态下点 `#tab-files` → 自动退出 + `#view-files` 可见 + `#view-database` 带 `.hidden` + `#db-wide-panel` 带 `.hidden`（**陷阱 1 的回归护栏**） |
 | DB-W-6 | 宽屏态下按 `Ctrl+Tab` 切标签 → 自动退出 + `#editor` 可见且 `#editor .monaco-editor` 尺寸非零（**陷阱 2 的回归护栏**；`activateTab` 的守卫对所有调用点生效，不只「点 tab」） |
 | DB-W-7 | 宽屏态下连接切换 / 执行 SQL / 翻页仍正常；`activeId` 与结果保留（I5） |
-| DB-W-8 | 拖 `#db-wide-splitter` 改 `--db-tree-w` 并落 `localStorage["opencharm.db.wide_tree_w"]`；双击重置 240 |
-| DB-W-9 | 宽屏态下两段被强制展开且段头锁定（`aria-expanded="true"` + `aria-disabled="true"` + `.db-section-locked`），键盘 Enter 也改不动折叠态；退出宽屏后锁解除、按进入前的快照还原折叠，且 `localStorage["opencharm.db.sections"]` **逐字节不变**（§16.4.10 注 1） |
+| DB-W-8 | 拖 `#db-wide-splitter` 改 `--db-tree-w` 并落 `localStorage["montauri.db.wide_tree_w"]`；双击重置 240 |
+| DB-W-9 | 宽屏态下两段被强制展开且段头锁定（`aria-expanded="true"` + `aria-disabled="true"` + `.db-section-locked`），键盘 Enter 也改不动折叠态；退出宽屏后锁解除、按进入前的快照还原折叠，且 `localStorage["montauri.db.sections"]` **逐字节不变**（§16.4.10 注 1） |
 | DB-W-10 | `#editor-row` 宽 < 560px 时 `#db-wide-toggle` disabled 且点图标不进宽屏；宽屏态下缩窄 → 自动退出 + toast「已退出宽屏」 |
 | DB-W-11 | 宽屏态下 `#md-preview` / `#btn-md-preview` / `#btn-md-export` 均不可见（I6，z-index:30 浮层护栏）；退出后全部恢复（不改 mdPreview 自身状态） |
 | DB-W-12 | 宽屏态下 `#split-editor-panel` / `#split-splitter` 不可见（I6）；退出后恢复 |

@@ -31,9 +31,9 @@
 // 登记为已知缺口，待 Monaco 升级到支持该槽位的版本再补。
 
 /** 出厂深色主题名（= Settings.theme 的深色取值） */
-export const EDITOR_THEME_DARK = "opencharm-dark";
+export const EDITOR_THEME_DARK = "montauri-dark";
 /** 出厂浅色主题名（= Settings.theme 的浅色取值） */
-export const EDITOR_THEME_LIGHT = "opencharm-light";
+export const EDITOR_THEME_LIGHT = "montauri-light";
 
 /** 批 4 之前的出厂主题名 → 新名。
  *

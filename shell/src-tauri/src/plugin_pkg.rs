@@ -12,7 +12,7 @@ use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
-use crate::util::opencharm_home;
+use crate::util::montauri_home;
 
 /// 导出插件目录为 zip（保存路径由前端文件对话框选择后传入）。
 /// 目录名（=插件 id）作为 zip 内的根目录前缀——导入端据此还原结构。
@@ -110,7 +110,7 @@ fn import_plugin_impl(zip_path: &str) -> Result<String, String> {
 
     // 1) 解包到临时目录（先校验条目名，防 Zip Slip）
     let tmp = std::env::temp_dir().join(format!(
-        "opencharm-import-{}",
+        "montauri-import-{}",
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
@@ -166,7 +166,7 @@ fn import_inner(
         fs::write(&dest, &bytes).map_err(|e| format!("写入 {} 失败：{e}", dest.display()))?;
     }
 
-    // 3) 定位插件根：zip 应有且仅有一个顶层目录（= 插件 id），内含 opencharm.plugin.json
+    // 3) 定位插件根：zip 应有且仅有一个顶层目录（= 插件 id），内含 montauri.plugin.json
     let top: Vec<_> = fs::read_dir(tmp)
         .map_err(|e| e.to_string())?
         .flatten()
@@ -179,9 +179,9 @@ fn import_inner(
     if !crate::plugin_cmds::valid_plugin_id(&plugin_id) {
         return Err(format!("顶层目录名不是合法插件 id：{plugin_id}"));
     }
-    let manifest_path = plugin_root.join("opencharm.plugin.json");
+    let manifest_path = plugin_root.join("montauri.plugin.json");
     if !manifest_path.is_file() {
-        return Err("插件目录缺少 opencharm.plugin.json".into());
+        return Err("插件目录缺少 montauri.plugin.json".into());
     }
 
     // 4) manifest 校验（结构与 id 一致性；权限白名单校验在前端 loader，导入端先挡结构错）
@@ -197,7 +197,7 @@ fn import_inner(
 
     // 5) 落盘 extensions/（已存在拒绝——不静默覆盖）。
     // 失败清理：copy_dir 中途失败会在 dest 留半成品，挡住下次导入（误报「已存在」）——回滚删除。
-    let dest_root = opencharm_home().join("extensions").join(&plugin_id);
+    let dest_root = montauri_home().join("extensions").join(&plugin_id);
     if dest_root.exists() {
         return Err(format!(
             "插件 {plugin_id} 已存在（不覆盖；如需更新请先在插件目录删除旧版）"
@@ -230,7 +230,7 @@ fn copy_dir(src: &Path, dest: &Path) -> Result<(), String> {
 /// 导出默认文件名建议（前端对话框 default_path 用）：<id>-<version>.zip
 #[tauri::command]
 pub fn plugin_export_filename(plugin_dir: &str) -> Result<String, String> {
-    let manifest_path = Path::new(plugin_dir).join("opencharm.plugin.json");
+    let manifest_path = Path::new(plugin_dir).join("montauri.plugin.json");
     let manifest = match fs::read_to_string(&manifest_path) {
         Ok(s) => s,
         Err(e) => return Err(format!("读取 manifest 失败：{e}")),
@@ -253,7 +253,7 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let d = std::env::temp_dir().join(format!("opencharm-plugin-pkg-{tag}-{nanos}"));
+        let d = std::env::temp_dir().join(format!("montauri-plugin-pkg-{tag}-{nanos}"));
         fs::create_dir_all(&d).unwrap();
         d
     }
@@ -262,8 +262,8 @@ mod tests {
         let dir = root.join(id);
         fs::create_dir_all(&dir).unwrap();
         fs::write(
-            dir.join("opencharm.plugin.json"),
-            format!(r#"{{"schemaVersion":1,"id":"{id}","name":"测试","version":"1.2.3","engines":{{"opencharm":">=0.1.0"}},"contributes":{{"tools":[{{"id":"t","title":"T","entry":"./t.js"}}]}},"permissions":[]}}"#),
+            dir.join("montauri.plugin.json"),
+            format!(r#"{{"schemaVersion":1,"id":"{id}","name":"测试","version":"1.2.3","engines":{{"montauri":">=0.1.0"}},"contributes":{{"tools":[{{"id":"t","title":"T","entry":"./t.js"}}]}},"permissions":[]}}"#),
         )
         .unwrap();
         fs::write(dir.join("t.js"), entry_content).unwrap();
@@ -287,7 +287,7 @@ mod tests {
         let names: Vec<String> = (0..zip.len())
             .map(|i| zip.by_index(i).unwrap().name().to_string())
             .collect();
-        assert!(names.contains(&"com.test.round/opencharm.plugin.json".to_string()));
+        assert!(names.contains(&"com.test.round/montauri.plugin.json".to_string()));
         assert!(names.contains(&"com.test.round/t.js".to_string()));
         assert!(!names.iter().any(|n| n.contains(".DS_Store"))); // 噪声被跳过
         let _ = fs::remove_dir_all(&work);

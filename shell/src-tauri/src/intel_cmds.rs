@@ -1,7 +1,7 @@
 //! 运行时热点数据（A1 · `docs/improvement_and_roadmap_report.md` §3「A 类 · 深化差异化」A1）。
 //!
 //! 把两处数据对齐成「跑过的函数 vs 定义了但没跑过的函数」：
-//! 1. **probe trace 库**（`<data_root>/traces/<project_hash>.db`，由 opencharm-probe 写入）：
+//! 1. **probe trace 库**（`<data_root>/traces/<project_hash>.db`，由 montauri-probe 写入）：
 //!    `functions(fid, filename, qualname, lineno, hits, stale)` +
 //!    `exc_types(fid, exc_label, count)` —— 「真实跑过的」一侧；
 //! 2. **项目源码静态扫描**（复用 `fs_cmds::collect_files`，尊重 .gitignore）：
@@ -29,7 +29,7 @@ use serde::Serialize;
 
 use crate::file_ops::project_hash;
 use crate::search_cmds::collect_files;
-use crate::util::opencharm_home;
+use crate::util::montauri_home;
 
 /// 单文件扫描上限（与 `fs_cmds::MAX_FILE_SIZE` 同口径：超过则跳过，防大文件拖慢扫描）。
 const MAX_FILE_SIZE: u64 = 2 * 1024 * 1024;
@@ -262,7 +262,7 @@ fn scan_runtime_hotspots_impl(root: &str) -> Result<RuntimeHotspots, String> {
     if !root_path.is_dir() {
         return Err(format!("工作区目录不存在：{root}"));
     }
-    let trace_db = opencharm_home()
+    let trace_db = montauri_home()
         .join("traces")
         .join(format!("{}.db", project_hash(root)));
     let trace_db_str = trace_db.to_string_lossy().replace('\\', "/");
@@ -471,7 +471,7 @@ mod tests {
         }
 
         // 直接调内部实现（命令层只是 spawn_blocking 包装）
-        // 通过临时 HOME 让 opencharm_home 指向 base？opencharm_home 走 data_root()，
+        // 通过临时 HOME 让 montauri_home 指向 base？montauri_home 走 data_root()，
         // 测试里改 env 不可靠——改为直接验证 diff 逻辑：用 read_trace + 手工差集。
         let rows = read_trace(&db).expect("trace 库应可读");
         assert_eq!(rows.runs, 1);

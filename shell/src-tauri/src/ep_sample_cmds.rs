@@ -744,7 +744,7 @@ mod tests {
     fn tmpdir(tag: &str) -> std::path::PathBuf {
         use std::time::{SystemTime, UNIX_EPOCH};
         let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-        let d = std::env::temp_dir().join(format!("opencharm-epsample-{tag}-{nanos}"));
+        let d = std::env::temp_dir().join(format!("montauri-epsample-{tag}-{nanos}"));
         fs::create_dir_all(&d).unwrap();
         d
     }

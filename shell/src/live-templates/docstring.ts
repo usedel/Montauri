@@ -133,7 +133,7 @@ export function registerDocstringTrigger(
       pos.lineNumber,
       model.getLineMaxColumn(pos.lineNumber),
     );
-    editor.executeEdits("opencharm-docstring", [{ range, text: doc, forceMoveMarkers: true }]);
+    editor.executeEdits("montauri-docstring", [{ range, text: doc, forceMoveMarkers: true }]);
     // 光标落在开引号 `"""` 之后（描述位），用户即可续写 summary
     editor.setPosition({ lineNumber: pos.lineNumber, column: sig.indent.length + 4 });
     editor.focus();

@@ -252,9 +252,9 @@ test("UX-8 底部面板 / 侧栏视图 / 大纲折叠态跨会话持久化", asy
   await expect(page.locator("#outline-section"), "大纲保持折叠").toHaveClass(/collapsed/);
   // localStorage 落键
   const ls = await page.evaluate(() => ({
-    bottom: localStorage.getItem("opencharm.bottom_collapsed"),
-    view: localStorage.getItem("opencharm.sidebar_view"),
-    outline: localStorage.getItem("opencharm.outline_collapsed"),
+    bottom: localStorage.getItem("montauri.bottom_collapsed"),
+    view: localStorage.getItem("montauri.sidebar_view"),
+    outline: localStorage.getItem("montauri.outline_collapsed"),
   }));
   expect(ls).toEqual({ bottom: "1", view: "git", outline: "1" });
 });

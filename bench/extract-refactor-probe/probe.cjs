@@ -180,7 +180,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function main() {
   await sendRequest("initialize", {
     processId: process.pid,
-    clientInfo: { name: "opencharm-extract-probe", version: "1.0" },
+    clientInfo: { name: "montauri-extract-probe", version: "1.0" },
     rootUri: ROOT_URI,
     capabilities: {
       textDocument: {

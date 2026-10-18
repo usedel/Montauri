@@ -141,7 +141,7 @@ fn py_eval_impl(root: &str, kind: &str, args_json: &str) -> Result<String, Strin
         .arg(kind) // kind 走 argv（脚本侧可校验；args_json 走 stdin）
         .current_dir(root);
     if !root.is_empty() {
-        cmd.env("OPENCHARM_WORKSPACE_ROOT", root); // 沿用 check_missing_imports_impl 先例
+        cmd.env("MONTAURI_WORKSPACE_ROOT", root); // 沿用 check_missing_imports_impl 先例
     }
 
     let (out, err, code) = env_cmds::run_with_timeout_bytes(&mut cmd, eval_timeout(kind), Some(args_json.as_bytes()))
@@ -184,7 +184,7 @@ mod tests {
 
     fn tmpdir(tag: &str) -> String {
         let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-        let d = std::env::temp_dir().join(format!("opencharm-lib-cmds-{tag}-{nanos}"));
+        let d = std::env::temp_dir().join(format!("montauri-lib-cmds-{tag}-{nanos}"));
         std::fs::create_dir_all(&d).unwrap();
         d.to_string_lossy().to_string()
     }

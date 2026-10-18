@@ -371,7 +371,7 @@ function renderPluginDetail(rec: PluginRecord): HTMLElement {
   };
 
   detail.append(line(t("ext.fieldVersion"), rec.version));
-  if (rec.manifest?.engines) detail.append(line(t("ext.fieldEngines"), rec.manifest.engines.opencharm));
+  if (rec.manifest?.engines) detail.append(line(t("ext.fieldEngines"), rec.manifest.engines.montauri));
   detail.append(line(t("ext.fieldPermissions"), (rec.manifest?.permissions ?? []).join(", ") || t("ext.permDefault")));
 
   const toolTitles = (rec.manifest?.contributes?.tools ?? []).map((t) => t.title).join("、");

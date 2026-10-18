@@ -1,4 +1,4 @@
-# OpenCharm 开发计划 v2.1
+# Montauri 开发计划 v2.1
 
 > 版本：v2.2 · 日期：2026-10-16 · 状态：进行中（Phase 4 打磨，进度见 §7）
 > v2.2 修订 §1.1 一处功能裁决（**pytest：由「不做」修订为分层裁决**，产品负责人 2026-10-16 裁决）并在 §7 新增一行；**排期、Phase 划分、验收矩阵一律不变**。修订动因：FastAPI 画像下 pytest 是事实标准，缺测试运行入口构成真实缺口；当年否掉的是「面板 / 结果树」重量级形态，「跑测试」本身从未被单独评估。执行真源 `docs/pytest_dev_plan.md`。
@@ -11,11 +11,11 @@
 
 ### 1.1 目标
 
-为「FastAPI + 爬虫 + 小脚本」场景构建**高性能 · 轻量 Python IDE**（代号 OpenCharm）：
+为「FastAPI + 爬虫 + 小脚本」场景构建**高性能 · 轻量 Python IDE**（代号 Montauri）：
 
 - **外壳**：Tauri 2 + Monaco（Vanilla TS + Vite），2026-08-20 裁决；
 - **静态语义**：Pyrefly（默认）/ basedpyright（备选），经自研 LSP 桥接层挂载（ADR-0003），第一天即可切换；
-- **差异化核心**：运行时类型采样（PEP 669）+ 自研运行时智能 LSP（opencharm-intel）；
+- **差异化核心**：运行时类型采样（PEP 669）+ 自研运行时智能 LSP（montauri-intel）；
 - **功能范围**：补全 / 跳转 / Hover / 诊断 + 智能 live template + 脚本/项目运行（统一 PTY 控制台）与 traceback 点击跳转；
 - **明确不做**：AI 能力、插件市场、协作编辑；调试（DAP）推迟到 Phase 3 后评估（已立项并交付最小闭环，见 §7）。
 - **pytest（v2.2 修订，2026-10-16 产品负责人裁决）**：原「不做 pytest 面板」修订为分层口径——**做**：测试发现（`pytest --collect-only -q` 按需子进程）+ 侧栏测试树（结果状态合入）+ 绿箭头逐用例运行 / 调试 + 失败点击跳转；**维持不做**：独立结果面板与断言差异对比窗、覆盖率运行（F-3 缓议）、watch 模式、向用户进程注入 pytest 插件、每项目 pytest 参数 UI（推 M2）。执行真源：`docs/pytest_dev_plan.md`。
@@ -56,8 +56,8 @@
 | 角色 | 人数 | 职责范围 |
 |---|---|---|
 | 产品负责人（用户本人） | 1 | 真实使用验证、每阶段验收打分、需求裁决 |
-| Rust 工程师 | 1 | shell Rust 侧、LSP 桥、opencharm-intel |
-| Python 工具链工程师 | 1 | opencharm-probe、trace 库、bench 脚本 |
+| Rust 工程师 | 1 | shell Rust 侧、LSP 桥、montauri-intel |
+| Python 工具链工程师 | 1 | montauri-probe、trace 库、bench 脚本 |
 | 基础设施（兼职） | 0.5 | CI、版本锁定、回归测试自动化 |
 
 协作机制不变：kickoff / gate 评审 / 周报 / ADR。
@@ -70,8 +70,8 @@ open-charm/
 │   └── adr/
 ├── shell/                   # Tauri 2 + Monaco 外壳（Phase 1 重建）
 ├── bench/                   # 基准项目集 + 指标采集脚本 + 历次报告（Phase 1 重建）
-├── probe/                   # opencharm-probe（Phase 2 重建）
-├── intel/                   # opencharm-intel（Phase 3 重建）
+├── probe/                   # montauri-probe（Phase 2 重建）
+├── intel/                   # montauri-intel（Phase 3 重建）
 └── ci/                      # 回归测试与自动化脚本（Phase 1 重建）
 ```
 
@@ -79,7 +79,7 @@ open-charm/
 
 ## 4. Phase 1 · 外壳重建期（第 1-8 周，约 2 个月）
 
-**目标**：交付「OpenCharm Shell 1.0」——Tauri+Monaco 外壳最小闭环：编辑器 + 文件树 + 多标签 + 可配置智能 live template + pyrefly LSP（补全/跳转/Hover/诊断）+ 运行按钮 + traceback 点击跳转。
+**目标**：交付「Montauri Shell 1.0」——Tauri+Monaco 外壳最小闭环：编辑器 + 文件树 + 多标签 + 可配置智能 live template + pyrefly LSP（补全/跳转/Hover/诊断）+ 运行按钮 + traceback 点击跳转。
 
 > 范围裁决（2026-08-20，产品负责人）：**最小闭环**。集成终端（xterm.js）、Git 状态、全局搜索后置到 Phase 1 后期或 Phase 4；调试推迟到 Phase 3 后。
 
@@ -105,9 +105,9 @@ open-charm/
 
 ## 5. Phase 2 · 运行时采样期（第 9-24 周，约 4 个月）
 
-**目标与任务不变**（见 v1 计划 §6，P2-T01~T09）：交付 opencharm-probe——PEP 669 采集、类型紧凑表示、采样限流、SQLite trace 库、与 `uv run` 集成自动注入。
+**目标与任务不变**（见 v1 计划 §6，P2-T01~T09）：交付 montauri-probe——PEP 669 采集、类型紧凑表示、采样限流、SQLite trace 库、与 `uv run` 集成自动注入。
 
-**v2 增补**：运行集成（P2-T06）的注入点从「Zed task」改为「shell 运行按钮/task 系统」；trace 库路径约定 `~/.opencharm/traces/` 不变。
+**v2 增补**：运行集成（P2-T06）的注入点从「Zed task」改为「shell 运行按钮/task 系统」；trace 库路径约定 `~/.montauri/traces/` 不变。
 
 **Gate C 验收标准不变**：探针开销 < 1.5x；trace 正确率抽检 ≥ 98%；采集无感；trace 库稳定。
 
@@ -116,14 +116,14 @@ open-charm/
 **目标与任务基本不变**（见 v1 计划 §7，P3-T01~T10），挂载对象从「Zed 多 LSP」改为「Monaco LSP 桥」：
 
 - P3-T06 原「Zed 多 LSP 合并 spike」**作废**——合并策略在自家 Monaco 桥内实现（三层 sortText：模板 `0xx` / 运行时 `1xx` / 静态 `2xx`），无需 spike 验证第三方行为；
-- 新增 P3-T06'：intel 挂载到 LSP 桥（spawn opencharm-intel，补全项标注 `⟳ runtime`，sortText `1xx` 段）；
+- 新增 P3-T06'：intel 挂载到 LSP 桥（spawn montauri-intel，补全项标注 `⟳ runtime`，sortText `1xx` 段）；
 - 其余（trace 索引层、补全/跳转 provider、hover + inlay hints、新鲜度、降级开关、A/B 对标）不变。
 
 **Gate D 验收标准不变**：运行过的无注解代码路径补全 ≥ 85% 且 ≥ PyCharm；动态架构样例跳转可用；运行时层可一键关闭。
 
 ## 7. Phase 4 · 打磨期（第 41 周起，持续）
 
-> 进度（**2026-10-07 回填**，上一版 2026-10-03）：Phase 3（opencharm-intel）P3-T01~T09 已交付；**P3-T10 的两格 PENDING 已全部关闭**（2026-10-07）——①「≥ PyCharm 同场景人工横向对标」❌ **按二选一截止规则撤下**（本机无 PyCharm，roadmap v1.4 死线到期），README「已知边界」已定稿声明「未与 PyCharm 做过横向对比」，工作单 `bench/reports/gate-d-ab-worklist.md` 转存档；②「真实项目 trace 端到端」✅ **已采并收口**（跨 3 个真实项目 / 7 次运行 / **497 条函数观测**，未达「≥1000 条」门槛 → 改为日常 IDE 使用自然累积，真源 `bench/reports/trace-sample-threshold.md`）。确定性口径已 PASS：`bench/reports/gate-d-runtime-completion.md` 23/23 = 100%，红线 ≥85%。项目已实际进入本阶段。
+> 进度（**2026-10-07 回填**，上一版 2026-10-03）：Phase 3（montauri-intel）P3-T01~T09 已交付；**P3-T10 的两格 PENDING 已全部关闭**（2026-10-07）——①「≥ PyCharm 同场景人工横向对标」❌ **按二选一截止规则撤下**（本机无 PyCharm，roadmap v1.4 死线到期），README「已知边界」已定稿声明「未与 PyCharm 做过横向对比」，工作单 `bench/reports/gate-d-ab-worklist.md` 转存档；②「真实项目 trace 端到端」✅ **已采并收口**（跨 3 个真实项目 / 7 次运行 / **497 条函数观测**，未达「≥1000 条」门槛 → 改为日常 IDE 使用自然累积，真源 `bench/reports/trace-sample-threshold.md`）。确定性口径已 PASS：`bench/reports/gate-d-runtime-completion.md` 23/23 = 100%，红线 ≥85%。项目已实际进入本阶段。
 > **逐功能域的交付日期 · 计划真源 · 验收记录 · 状态，见 [`docs/delivery-overview.md`](delivery-overview.md)（20 个功能域总表）**；本表只保留打磨期任务与后续功能域的粗粒度状态。全局改进优先级见 `docs/improvement_and_roadmap_report.md` v1.2。
 
 | 任务 | 说明 | 状态 |
@@ -131,7 +131,7 @@ open-charm/
 | 上游跟随 | Tauri / Monaco / Pyrefly / basedpyright / ruff 升级走回归 CI | ✅ 版本已锁定（`ci/versions.toml`）；**主干触发已修**（`ci.yml` 的 `on.push.branches` 2026-10-03 由 `[main]` 对齐为 `[master, main]`）；**`nightly.yml` 已建**（`schedule` 每日：真机全量 + bench 红线 + 预算门禁，失败只告警）；⏳ 升级回归演练仍未固化 |
 | 体积与规模预算 | 给唯一逆势增长的文件与巨型文件装刹车 | ✅ **已交付**（2026-10-03，`docs/improvement_and_roadmap_report.md` P1-3）：`ci/budgets.toml` + `shell/scripts/budget-check.mjs` + `tools/stats/repo-stats.mjs`（阈值只允许显式 PR 抬升，含 `.ps1` 编码卫生检查）；本机 10 项全绿 |
 | 外壳基本功补齐 | 集成终端（xterm.js + portable-pty 多会话）、Git 集成（状态装饰 + 暂存/提交/diff/分支起步，后续扩展远程/worktree/rebase 等，见 `docs/git_improvement_report.md`）、全局搜索（`ignore` crate 遍历 + 自实现并行匹配） | ✅ 已交付 |
-| 打包发布 + 首次启动环境引导 | 自研组件（`opencharm-intel`、`probe/src`）随 NSIS 安装包分发（`bundle.resources`，运行时按 `locate_*` 查找资源目录）；外部命令（uv/pyrefly/ruff/git）统一经 `shell/src-tauri/src/tool_paths.rs` 解析（环境变量 → `~/.opencharm/bin`/`~/.local/bin` → 系统 PATH）；全新系统缺 uv/pyrefly 时由 `toolchain.rs` 探测、前端弹「环境引导」一键安装到用户目录；`build-release.ps1` 一键打包（清理 → intel release 构建 → 前端依赖 → `tauri build` nsis） | ✅ 已交付（Phase 4 第 1~4 步） |
+| 打包发布 + 首次启动环境引导 | 自研组件（`montauri-intel`、`probe/src`）随 NSIS 安装包分发（`bundle.resources`，运行时按 `locate_*` 查找资源目录）；外部命令（uv/pyrefly/ruff/git）统一经 `shell/src-tauri/src/tool_paths.rs` 解析（环境变量 → `~/.montauri/bin`/`~/.local/bin` → 系统 PATH）；全新系统缺 uv/pyrefly 时由 `toolchain.rs` 探测、前端弹「环境引导」一键安装到用户目录；`build-release.ps1` 一键打包（清理 → intel release 构建 → 前端依赖 → `tauri build` nsis） | ✅ 已交付（Phase 4 第 1~4 步） |
 | 调试评估 | debugpy DAP 集成是否立项（Phase 3 后裁决） | ✅ 已立项并交付最小闭环（`docs/python_debug_dev_plan.md` v1.3：debugpy 1.8.21 随包分发 + DAP 桥 + 断点/步进/调用栈/变量；验收记录 `docs/debug_acceptance_record.md`，人工验收清单待办） |
 | 运行交互重构 | 「两种运行 + 统一运行控制台」（`docs/python_run_dev_plan.md` v3.4：脚本/项目运行 + PTY 终端控制台 + 多实例并行 + 运行历史按实例归属；probe 运行路径开启并实测 1.35x < 1.5x） | ✅ 已交付（迁移计划 M1-M4 全部完成；验收记录 `docs/run_acceptance_record.md`） |
 | 测试运行器（pytest） | 测试发现 + 侧栏测试树 + 绿箭头逐用例运行 / 调试 + 结果状态合入（`docs/pytest_dev_plan.md` v1.0，2026-10-16 立项） | 🔄 计划中（T1–T5；裁决修订见 §1.1 v2.2） |
@@ -177,9 +177,9 @@ open-charm/
 
 | 里程碑 | 时间点 | 交付物 | 闸门 |
 |---|---|---|---|
-| M1 外壳可用 | 第 8 周末 | OpenCharm Shell 1.0（最小闭环）+ bench 体系 | Gate B |
-| M2 采集可用 | 第 24 周末 | opencharm-probe + trace 库 | Gate C |
-| M3 差异化达成 | 第 40 周末 | opencharm-intel + A/B 报告 | Gate D |
+| M1 外壳可用 | 第 8 周末 | Montauri Shell 1.0（最小闭环）+ bench 体系 | Gate B |
+| M2 采集可用 | 第 24 周末 | montauri-probe + trace 库 | Gate C |
+| M3 差异化达成 | 第 40 周末 | montauri-intel + A/B 报告 | Gate D |
 | M4 持续打磨 | 第 41 周起 | 跟随上游、基本功补齐、边角修复 | — |
 
 **总周期约 10 个月；每个闸门都是继续/止损的决策点，产品负责人拥有一票否决权。**

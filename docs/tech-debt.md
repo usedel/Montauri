@@ -92,13 +92,13 @@
 ### TD-028 2026-10-10 全量复核遗留项（P2×5，均为窄触发或记录性）
 
 - **起因**：TD-027 三批清偿后的全量代码复核（上方复核记录）。已修项见 `bd9eda0`/`361030a`；以下为裁决**留置**的窄触发/记录性项。
-- **① B8 UNC 路径**：`store.py::load_summary` 的 `as_uri()` 在 db_dir 为 UNC 网络盘（`\\server\share`）时产出 `file://server/...`，而 SQLite URI 只接受空/localhost authority → 报错；save 端普通 connect 可用，形成「可写不可读」不对称。修法：UNC 检测回落普通 connect + `PRAGMA query_only=ON`。触发面：`OPENCHARM_PROBE_HOME` 指向网络盘。
+- **① B8 UNC 路径**：`store.py::load_summary` 的 `as_uri()` 在 db_dir 为 UNC 网络盘（`\\server\share`）时产出 `file://server/...`，而 SQLite URI 只接受空/localhost authority → 报错；save 端普通 connect 可用，形成「可写不可读」不对称。修法：UNC 检测回落普通 connect + `PRAGMA query_only=ON`。触发面：`MONTAURI_PROBE_HOME` 指向网络盘。
 - **② D11 残余**：`_cmd_show` 的 startswith 无路径边界分隔符（`f:\proj` 前缀误匹配 `f:\project\app.py`）且 dirname 计算两次。观感项，修法一行。
 - **③ B4 overrides 路径不校验**：`load_config(**overrides)` 只护手写 JSON，代码传参不校验（IDE/测试可抓，docstring 未声明取舍）。
 - **④ B4 定长 tuple 标注**：`_matches` 对 `tuple[int, str]` 只校验首元素；当前无 tuple 字段，未来陷阱，登记备查。
 - **⑤ D4 记录修正**：原文「functions/by_location/by_file 有真实调用方保留」不精确——`functions()` 有 src 调用（type_infer.rs:335），`by_location` 仅 examples、`by_file`/`by_qualname` 仅 tests。按 ParsedShape::keys 同标准可再删三个，下批卫生顺手处理。
 - **处理时机**：随下个卫生批顺手清；①② 各约 5-10 行 + 测试。
-- **涉及文件**：`probe/src/opencharm_probe/store.py`、`probe/src/opencharm_probe/cli.py`、`probe/src/opencharm_probe/config.py`、`intel/crates/opencharm-intel-index/src/trace.rs`。
+- **涉及文件**：`probe/src/montauri_probe/store.py`、`probe/src/montauri_probe/cli.py`、`probe/src/montauri_probe/config.py`、`intel/crates/montauri-intel-index/src/trace.rs`。
 
 ### TD-027 2026-10-08 全项目代码审查批次（P2×42，其中 1 项已随 P1 修复；intel 杂项 1 项拆为 3 个卫生点）
 
@@ -115,7 +115,7 @@
 | ~~A3~~ | ~~调试快捷键硬编码 threadId=1~~ | ~~windowKeys.ts:79-84~~ | ✅ 已修（`0c881b2`）：F5/F10/F11/Shift+F11 改 `currentThreadId()`（debugView.ts:81-83 单一真源），menuItems.ts 步进项同步 |
 | ~~A4~~ | ~~reopenConnection 顶掉活动连接~~ | ~~sqliteStore.ts:225-238~~ | ✅ 已修（`0c881b2`）：重开后重拉连接列表 + activeId 命中即 refreshTree（sqliteStore.ts:239-256）；conn_id 按归一化路径派生、同路径 id 稳定，无需迁移 |
 | ~~A5~~ | ~~serviceTail 跨实例共享~~ | ~~termUi.ts:699-752~~ | ✅ 已修（`b4b439a`）：改 Map 按运行实例 id 分桶；命中即弃 / closeTerminal / term-exit / disposeTerminal 四路径清理 |
-| ~~A6~~ | ~~模板热重载目录判定过宽~~ | ~~main.ts:754-760~~ | ✅ 已修（`4ab4277`）：收紧为 `/.opencharm`、`/.opencharm/config`、`/opencharm/config` 三前缀；取舍：DATA_ROOT 重定向非默认路径时用户层外部编辑热重载失效 |
+| ~~A6~~ | ~~模板热重载目录判定过宽~~ | ~~main.ts:754-760~~ | ✅ 已修（`4ab4277`）：收紧为 `/.montauri`、`/.montauri/config`、`/montauri/config` 三前缀；取舍：DATA_ROOT 重定向非默认路径时用户层外部编辑热重载失效 |
 | ~~A7~~ | ~~scope 搜索掩码大小写失配~~ | ~~search.ts:68 + searchFilters.ts:88-91~~ | ✅ 已修（`0c881b2`）：searchFilters.ts:90-95 正则加 `i` 标志；附回归测试 searchFilters.test.ts:91-102（`*.Py` 正反用例） |
 | ~~A8~~ | ~~`__init__` 回退全名精确匹配~~ | ~~intel completion.rs:305-310~~ | ✅ 已修（`0c881b2`）：resolve_callee 改取 callee 末段做段边界后缀匹配 + (非 stale, hits) 裁决（completion.rs:315-346）；附正负回归测试 |
 | ~~A9~~ | ~~didOpen languageId 恒 "python"~~ | ~~lsp/client.ts:480-489~~ | ✅ 已修（`5eb36d2`）：改 `model.getLanguageId()`（Monaco 注册 id 与 LSP languageId 同源）；didOpenText 保留 "python"（rename 只作用 .py） |
@@ -255,14 +255,14 @@
 | TD-027-B8 | load_summary URI 未百分号编码（B 组） | 2026-10-09 | 提交 `3f92077`：`f"file:{path}?mode=ro"` 改 `path.resolve().as_uri() + "?mode=ro"` 标准百分号编码（`#` 截断 / `%` 转义修复）；load_summary_json 复用同路径一并修复；intel trace.rs 经核实走 OpenFlags 路径直开、无同款问题。test_store 新增 `#`/`%` 目录 save→load 往返用例 |
 | TD-027-A1 | db_cancel 取消检查死代码（A 组） | 2026-10-09 | 提交 `5514baf`：删「store(false) 后紧跟 load」的不可达分支与 DbOp.cancel 字段——interrupt 句柄即取消单一真值（db_cancel → interrupt() → SQLite 安全点 interrupted → map_sql_err 映射 DbCancelled:）；AtomicBool import 下移测试模块；顺手清拆分批遗留 2 处 unused import（fs_cmds/pydantic_cmds）。cargo test 340 全绿零警告 |
 | TD-027-A5 | serviceTail 跨实例共享（A 组） | 2026-10-09 | 提交 `b4b439a`：模块级单变量缓冲改 `Map<实例id, string>` 分桶，多项目并行运行的就绪行缓冲互不污染；命中即弃 / closeTerminal / term-exit 自然退出 / disposeTerminal 工作区复位四路径清理（上限 512 字符/实例）。vitest 1342 全绿 |
-| TD-027-A6 | 模板热重载目录判定过宽（A 组） | 2026-10-09 | 提交 `4ab4277`：`endsWith("/config")` 收紧为 `/.opencharm`、`/.opencharm/config`、`/opencharm/config` 三前缀，工作区任意 xxx/config 变更不再触发 registry 全量 rebuild。取舍：OPENCHARM_DATA_ROOT 重定向非默认路径时用户层外部编辑热重载失效（面板内保存不受影响）。lt/01 e2e 5 条全绿 |
+| TD-027-A6 | 模板热重载目录判定过宽（A 组） | 2026-10-09 | 提交 `4ab4277`：`endsWith("/config")` 收紧为 `/.montauri`、`/.montauri/config`、`/montauri/config` 三前缀，工作区任意 xxx/config 变更不再触发 registry 全量 rebuild。取舍：MONTAURI_DATA_ROOT 重定向非默认路径时用户层外部编辑热重载失效（面板内保存不受影响）。lt/01 e2e 5 条全绿 |
 | TD-027-A9 | didOpen languageId 恒 "python"（A 组） | 2026-10-09 | 提交 `5eb36d2`：改 `model.getLanguageId()`（Monaco 注册 id 与 LSP languageId 同源约定，零新依赖），md/json/yaml 不再全发 python；didOpenText 保留 "python"（rename 只作用 .py）。lsp/03 e2e 9 条全绿；client.ts 1848/1850 |
-| TD-027-A2 | git_apply_hunk 固定 patch 路径竞态（A 组） | 2026-10-09 | 提交 `0c881b2`：patch 文件名加 nanos+pid+单调序号唯一后缀（`.opencharm-hunk-{…}.patch`），写入后无论成败清理，快速连点互踩消除（git_cmds.rs:519-560，代码内留 `TD-027 A2` 标记） |
+| TD-027-A2 | git_apply_hunk 固定 patch 路径竞态（A 组） | 2026-10-09 | 提交 `0c881b2`：patch 文件名加 nanos+pid+单调序号唯一后缀（`.montauri-hunk-{…}.patch`），写入后无论成败清理，快速连点互踩消除（git_cmds.rs:519-560，代码内留 `TD-027 A2` 标记） |
 | TD-027-A3 | 调试快捷键硬编码 threadId=1（A 组） | 2026-10-09 | 提交 `0c881b2`：F5/F10/F11/Shift+F11 改经 `currentThreadId()` 读 debugView 的 stopped 事件维护值（单一真源），menuItems.ts 菜单步进项同步改用同源（windowKeys.ts:78-87） |
 | TD-027-A4 | reopenConnection 顶掉活动连接（A 组） | 2026-10-09 | 提交 `0c881b2`：重开后重拉连接列表，activeId 命中新连接即 refreshTree 完成状态迁移；conn_id 按归一化路径哈希派生、同路径 id 天然稳定无需迁移（sqliteStore.ts:239-256） |
 | TD-027-A7 | scope 搜索掩码大小写失配（A 组） | 2026-10-09 | 提交 `0c881b2`：掩码正则加 `i` 标志（searchFilters.ts:90-95），`*.Py` 等大写掩码不再静默 0 结果；附回归测试 `searchFilters.test.ts`（`*.Py` 正反向用例） |
 | TD-027-A8 | intel `__init__` 回退全名精确匹配（A 组） | 2026-10-09 | 提交 `0c881b2`：resolve_callee 改取 callee 末段做**段边界后缀匹配**（防 `Foo.__init__` 误中 `MyFoo.__init__`）+ (非 stale, hits) 双键裁决（completion.rs:315-346）；`mymod.Scraper(` 构造补全恢复命中，附正负回归测试 |
-| TD-020 | 停止运行时探针摘要重复打印/重复落库（P3，观感/数据卫生） | 2026-09-28 | 根因坐实（Python 3.13 复现）：`argv[0]` 守卫拦不住 argv 相同的父子进程（uvicorn `--reload` fork / 子进程自重启），多进程各自触发 `atexit._finalize` → 重复打印 + 多 `runs` 行 + `hits` 翻倍。修复：后端 `run_env.rs::build_run_env` 注入每次运行唯一的 `OPENCHARM_PROBE_RUN_ID`（纯 std：纳秒时间戳 + pid + 单调序号）；探针 `autostart._finalize` 用 `os.open(O_CREAT\|O_EXCL)` 墓碑文件（键=run_id，mtime 惰性清理）保证同 run_id 只落库+打印一次，非法 run_id / OSError 保守放行。probe pytest 全绿（新增 `test_run_lock.py` 3 例 + `test_inject.py` 1 例）、shell `cargo test run_env` 20 例全绿。**取舍面（2026-10-08 TD-027/D15 补注）**：去重语义 = 首个进程胜出，同 run_id 后续进程的观测**整段丢弃**——子进程做不同工作的场景（如 worker 进程）观测丢失；且被去重的子进程不 stop 监控（全局 RAISE 持续派发到进程死，无正确性影响） |
+| TD-020 | 停止运行时探针摘要重复打印/重复落库（P3，观感/数据卫生） | 2026-09-28 | 根因坐实（Python 3.13 复现）：`argv[0]` 守卫拦不住 argv 相同的父子进程（uvicorn `--reload` fork / 子进程自重启），多进程各自触发 `atexit._finalize` → 重复打印 + 多 `runs` 行 + `hits` 翻倍。修复：后端 `run_env.rs::build_run_env` 注入每次运行唯一的 `MONTAURI_PROBE_RUN_ID`（纯 std：纳秒时间戳 + pid + 单调序号）；探针 `autostart._finalize` 用 `os.open(O_CREAT\|O_EXCL)` 墓碑文件（键=run_id，mtime 惰性清理）保证同 run_id 只落库+打印一次，非法 run_id / OSError 保守放行。probe pytest 全绿（新增 `test_run_lock.py` 3 例 + `test_inject.py` 1 例）、shell `cargo test run_env` 20 例全绿。**取舍面（2026-10-08 TD-027/D15 补注）**：去重语义 = 首个进程胜出，同 run_id 后续进程的观测**整段丢弃**——子进程做不同工作的场景（如 worker 进程）观测丢失；且被去重的子进程不 stop 监控（全局 RAISE 持续派发到进程死，无正确性影响） |
 | 12 | pyproject.toml 两条生成路径包名归一化（P4，观感） | 2026-09-15 | 收敛：`fs_cmds.rs` 新增 `normalize_project_name`（字符串行扫描，定位 `[project].name` 改写为 `sanitize_pkg_name` 结果，不引入 TOML 依赖）+ `is_name_field` 防误配同前缀键；`ensure_pyproject` uv 生成后调用；`test_normalize_project_name` 覆盖大小写/空格与 `[tool.uv]` 段不误改 |
 | 17 | 全项目输入框未统一 autocomplete="off"（P4，一致性） | 2026-09-15 | `index.html` 10 处 `type=text` 输入框补 `autocomplete="off"`（tree-filter/search/env-pkg/new-project-*/settings-*/lt-search/storage-migrate-path/palette-search）；动态输入补 `settingsPanel.ts` 键位行 / `git.ts` 新分支 / `fileTree.ts` 内联重命名 / `manager.ts` 两处 text input |
 | 18 | 模态点遮罩关闭不一致（P4，一致性/数据安全） | 2026-09-15 | 含可编辑内容的模态统一「点遮罩不关闭 + Esc 关闭」：`dialog.ts::openPrompt`、`settingsPanel.ts`、`newProject.ts` 三处去遮罩关闭、补 document 级 keydown（open 挂/close 移除，对齐 runConfigPanel 范式）；其余选择/确认框点遮罩=取消语义保留 |
@@ -288,6 +288,6 @@
 | TD-006 | 上帝文件 main.ts 拆分（第一步）+ LSP/终端补单测 | 2026-08-25 | 抽 10 个纯函数到 `util.ts` + 7 个单测 |
 | TD-005 | panic unwrap 与进程收尾收敛 | 2026-08-25 | 新增 `unpoison` + kill 后 `wait` 收尾 |
 | TD-004 | intel 能力声明与索引加载修正 | 2026-08-25 | 删除未实现的 references 声明 + 索引 `spawn_blocking` 加载 + tokio 精简 |
-| TD-003 | Rust 侧重复实现收敛（opencharm_home / no_window） | 2026-08-25 | 抽 `util.rs` 统一实现，四处改 import 复用 |
+| TD-003 | Rust 侧重复实现收敛（montauri_home / no_window） | 2026-08-25 | 抽 `util.rs` 统一实现，四处改 import 复用 |
 | TD-002 | Git 集成增强（行内 diff / 远程 / 状态刷新性能） | 2026-08-25 | 新增 9 个命令 + diff 视图 + 增量刷新 |
 | TD-001 | 侧栏视图独立化（视图注册表 + Activity Bar） | 2026-08-25 | 视图注册表 + Activity Bar + OUTLINE 并入文件视图 |

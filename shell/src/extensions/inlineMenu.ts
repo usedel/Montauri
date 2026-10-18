@@ -27,10 +27,10 @@ import { listPluginRecords } from "./loader";
 import { t } from "../i18n"; // 第十六批 i18n：右键菜单标题走语言包
 
 /** 右键「变换选区」子菜单 id（MenuId 实例须全局唯一，new 私有实例） */
-const TRANSFORM_SUBMENU = new MenuId("opencharm.editorContext.transformSelection");
+const TRANSFORM_SUBMENU = new MenuId("montauri.editorContext.transformSelection");
 
 /** 子菜单 command id 前缀（CommandsRegistry 全局注册，须与菜单条目 id 一致） */
-const INLINE_CMD_PREFIX = "opencharm.inline.";
+const INLINE_CMD_PREFIX = "montauri.inline.";
 
 /** 应用级 disposable（lspProviders 范式：测试 teardown / 重复 init 防泄漏累积） */
 const inlineMenuDisposables = new DisposableStore();

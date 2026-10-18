@@ -1,6 +1,6 @@
 # 上下文感知增量开发计划（P3-T12）
 
-> 面向：OpenCharm 补全与模板动作的上下文增量。本文自包含，不依赖任何外部参考资料。
+> 面向：Montauri 补全与模板动作的上下文增量。本文自包含，不依赖任何外部参考资料。
 > 定位：把 2026-10-12「PyCharm 上下文补全机制」讨论与代码核对后筛出的**真实缺口**落成可逐项开发的计划——四项，全部轻量、本地、零新依赖。
 > 状态：**待评审**（2026-10-12 用户裁决「出增量开发计划文档，不动代码」后编写；注意本计划在维护态下属增强批，是否排期需用户明确）
 > 编写时间：2026-10-12
@@ -312,7 +312,7 @@ export function classifySelectionShape(
 
 ## 8. 门禁、红线与登记
 
-- **门禁**：intel 项 `cd intel && cargo test` + `cargo build -p opencharm-intel`（test 不刷新 shell 调用的 exe）；shell 项 `npm test`（相关文件）+ `npm run build`（tsc 0 错）+ `npm run e2e -- e2e/lt`；每项落地前后各跑一次 `node shell/scripts/budget-check.mjs`（**现值以实测为准，注释会滞后**）。
+- **门禁**：intel 项 `cd intel && cargo test` + `cargo build -p montauri-intel`（test 不刷新 shell 调用的 exe）；shell 项 `npm test`（相关文件）+ `npm run build`（tsc 0 错）+ `npm run e2e -- e2e/lt`；每项落地前后各跑一次 `node shell/scripts/budget-check.mjs`（**现值以实测为准，注释会滞后**）。
 - **新文件登记（评审补充）**：本计划新建 `arg_ctx_tests.rs`，登记须**两处都改**——`ci/budgets.toml` 加 `intel_arg_ctx_tests_rs_max_lines = 250` + `shell/scripts/budget-check.mjs` 的 `addLine(...)` 加一行。只改 toml 不接线 = 无守护（反面先例：`except_completion.rs`）。
 - **红线核对**：不动 probe/intel **采集路径**（四项全在消费侧）；不新增常驻进程/依赖；六段 sortText 契约不破（C/D 过滤在候选构造前，段位逻辑零改动）；无新增用户可见 i18n 文案（两个新字段是行为数据，不进面板）；`env_cmds.rs` 冻结不涉及。
 - **维护态说明**：B 属缺陷修复（维护态可受理）；A/C/D 属增强，**排期需用户明确裁决**（本文状态即为待评审）。

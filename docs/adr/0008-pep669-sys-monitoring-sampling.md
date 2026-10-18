@@ -4,7 +4,7 @@
 - 日期：2026-08-21（补记 2026-10-03）
 - 决策者：产品负责人裁决（红线约束），开发团队实施并经 bench 实测定型
 - 上游：`docs/python_ide_tech_plan_v3.md` v3.0（探针章节 · 开销红线 < 1.5x）
-- 落地：`probe/src/opencharm_probe/monitor.py`（采集核心）· `probe/tests/test_monitor.py` · `bench/`（开销基线）
+- 落地：`probe/src/montauri_probe/monitor.py`（采集核心）· `probe/tests/test_monitor.py` · `bench/`（开销基线）
 
 ## 背景
 

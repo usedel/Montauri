@@ -255,7 +255,7 @@ mod tests {
 
     /// 与 git_cmds::tests::set_repo_identity 同款（测试 mod 私有无法跨文件复用，复制一份）
     fn set_repo_identity(root: &str) {
-        for (k, v) in [("user.name", "opencharm-test"), ("user.email", "test@opencharm.local")] {
+        for (k, v) in [("user.name", "montauri-test"), ("user.email", "test@montauri.local")] {
             let mut cfg = tool_command("git", ENV_GIT);
             cfg.arg("config").arg(k).arg(v);
             assert!(exec_git(root, cfg).is_ok(), "设置 {k} 失败");
@@ -303,7 +303,7 @@ mod tests {
     /// 需环境已安装 git；无 git 时静默跳过。
     #[test]
     fn test_git_clone_roundtrip() {
-        let tmp = std::env::temp_dir().join("opencharm-git-clone-e2e");
+        let tmp = std::env::temp_dir().join("montauri-git-clone-e2e");
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
 

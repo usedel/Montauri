@@ -8,8 +8,8 @@ import json
 import re
 from pathlib import Path
 
-P = Path("d:/aipro/opencharm/shell/src/devtools/builtin/index.ts")
-zh = json.loads(Path("d:/aipro/opencharm/shell/tools/i18n/data/devtools_zh.json").read_text(encoding="utf-8"))
+P = Path("d:/aipro/montauri/shell/src/devtools/builtin/index.ts")
+zh = json.loads(Path("d:/aipro/montauri/shell/tools/i18n/data/devtools_zh.json").read_text(encoding="utf-8"))
 reverse = {}
 for k, v in zh.items():
     reverse.setdefault(v, []).append(k)
@@ -18,8 +18,8 @@ src = P.read_text(encoding="utf-8")
 
 # 1) const → build 函数
 src = src.replace(
-    "/** 内置插件 manifest（字段与磁盘版同构；id 固定 opencharm.builtin） */\nexport const BUILTIN_MANIFEST: PluginManifest = {",
-    "/** 内置插件 manifest 构建（字段与磁盘版同构；id 固定 opencharm.builtin）。\n"
+    "/** 内置插件 manifest（字段与磁盘版同构；id 固定 montauri.builtin） */\nexport const BUILTIN_MANIFEST: PluginManifest = {",
+    "/** 内置插件 manifest 构建（字段与磁盘版同构；id 固定 montauri.builtin）。\n"
     " *  构建函数而非模块级常量：title/description/inline 走 t() 取词，语言切换重注册时重建（踩坑 ④）。 */\n"
     "export function buildBuiltinManifest(): PluginManifest {\n  return {",
 )

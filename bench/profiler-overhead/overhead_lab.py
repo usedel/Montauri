@@ -46,9 +46,9 @@ if _PROBE_SRC not in sys.path:
 
 import workload  # noqa: E402  (sys.path 装配后方可 import)
 
-from opencharm_probe.config import ProbeConfig  # noqa: E402
-from opencharm_probe.monitor import Monitor  # noqa: E402
-from opencharm_probe.sink import ObservationSink  # noqa: E402
+from montauri_probe.config import ProbeConfig  # noqa: E402
+from montauri_probe.monitor import Monitor  # noqa: E402
+from montauri_probe.sink import ObservationSink  # noqa: E402
 
 ROUNDS = 2000
 BIG = 10 ** 9  # 事实上的"不静音"（每函数调用数上限抬到不可能触发）
@@ -563,7 +563,7 @@ def main() -> int:
 
     if args.json_out:
         payload = {
-            "schema": "opencharm-a2-overhead-lab/2",
+            "schema": "montauri-a2-overhead-lab/2",
             "caliber": "inside-script workload only (matches bench_probe.ps1)",
             "rounds": args.rounds,
             "reps": args.reps,

@@ -122,7 +122,7 @@ fn fetch_openapi_impl(base_url: &str) -> Result<Vec<OpenApiOp>, String> {
     let timeout = clamp_timeout_ms(Some(OPENAPI_TIMEOUT_MS));
 
     let client = reqwest::blocking::Client::builder()
-        .user_agent("OpenCharm/0.1")
+        .user_agent("Montauri/0.1")
         .timeout(Duration::from_millis(timeout))
         .redirect(reqwest::redirect::Policy::none())
         .build()

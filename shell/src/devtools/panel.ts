@@ -22,7 +22,7 @@ const pickerEl = lazyEl("devtools-picker");
 const CACHE_MAX = 5;
 
 /** recent 持久化键（tool id 数组，最近在前） */
-const RECENT_KEY = "opencharm.devtools.recent";
+const RECENT_KEY = "montauri.devtools.recent";
 
 interface CacheEntry {
   instance: ToolInstance | null;

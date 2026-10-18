@@ -1,4 +1,4 @@
-# OpenCharm 工具箱开发计划（SQLite · HTTP Client · 结构化日志 · TODO/Markdown 增强）
+# Montauri 工具箱开发计划（SQLite · HTTP Client · 结构化日志 · TODO/Markdown 增强）
 
 > 版本：v1.6 · 日期：2026-10-07 · 状态：**B3 / B4 / B5 三功能已闭环**；**B6 于 2026-10-06 终止**（仅保留已交付的 PR-B6-3，PR-B6-1 / PR-B6-2 不再实施）；**A5③④ 端点面板余项 2026-10-07 破例立项交付**（§12）
 > **v1.6 变更：A5③④ 端点面板余项交付**（§12 交付记录；2026-10-07，维护态下产品负责人破例立项）——③ handler→route 反向跳转（CodeLens「端点 N」）与 ④ OpenAPI 面板内预览（懒加载展开块）。本报告继续为回溯文档。
@@ -45,7 +45,7 @@
 
 | 机制 | 落点 | 证据 |
 |---|---|---|
-| 侧栏视图注册表 | `views.ts:5` `SidebarViewId` 联合类型；`:7-17` `SidebarView { id, rootId, tabId, onShow?, onHide? }`；`:37` `registerSidebarView`；`:47` `setSidebarTab`（隐藏所有根 → 显示激活根 → 写 `localStorage "opencharm.sidebar_view"`） | 注册示例 `main.ts:2653`（files）、`:2667`（todo） |
+| 侧栏视图注册表 | `views.ts:5` `SidebarViewId` 联合类型；`:7-17` `SidebarView { id, rootId, tabId, onShow?, onHide? }`；`:37` `registerSidebarView`；`:47` `setSidebarTab`（隐藏所有根 → 显示激活根 → 写 `localStorage "montauri.sidebar_view"`） | 注册示例 `main.ts:2653`（files）、`:2667`（todo） |
 | 新增侧栏视图要碰 5 处 | ① `views.ts:5` 加 id ② `index.html` Activity Bar 按钮（`:91` `tab-todo`）+ 面板根容器（`:161` `#view-todo`）③ `main.ts:2653-2696` 注册 + `:2699-2704` 点击绑定 ④ `style.css` 样式段 ⑤ i18n `activity.*` | — |
 | 底部面板 tab | `termUi.ts:69` `BottomTab = "output"|"terminal"|"git"|"findUsages"|"problems"`（**5 个**，与旧文档"收窄为 3 个"不符，以代码为准） | `:71` 当前值；`:111-138` `setBottomTab` |
 | 新增底部 tab 要碰 **4 处** | ① `termUi.ts:69` 枚举 ② `setBottomTab` 三张同步表：tab 按钮 `:114`、面板容器 `:125`、辅助元素 `:130` ③ `resetOutputChannelUi()` 复位表 `:764-781`（**漏改会导致关闭工作区后状态残留**，`:776` 有专门注释）④ `index.html:353-357` 按钮 + `:392-405` 容器 + `wireBottomPanel()`（`:805`）点击 | — |
@@ -86,7 +86,7 @@
 | 流式 + 可取消基建 | `git_cmds.rs:760-909`：`GIT_NET_OPS: PerWindow<HashMap<String, GitNetOp>>`、spawn + stderr 逐行线程 emit（`git-op-stdout`，payload `{op,data}`）+ 主线程 100ms 轮询 `cancel`/`try_wait` + 240s 兜底 + `kill_process_tree`；`git_cancel_op` 只置标志；`git_stop_net_ops_for_exit()` | 同族事件：`pip-stdout`、`term-data`、`debug-stdout`、`lsp-stderr` |
 | 进程管理 | `util.rs:96/103 no_window()`、`:125 kill_process_tree`、`:150 _async`、`:202 kill_pid_tree`、`:227 kill_pty_tree`、`:109 unpoison()`；**无全局句柄表**，各域自建 `PerWindow<...>`，`lib.rs:305-319 RunEvent::Exit` 统一调 `*_for_exit()` | 新模块**必须照做** |
 | Python 求值桥 | `lib_cmds.rs:171 py_eval(workspace_root, kind, args_json)`：kind 白名单 `SCRIPTS`(`:30-35`) → `resolve_interpreter`(`:75`) → `python -I -X utf8 -c`，args 走 stdin → `env_cmds::run_with_timeout_bytes`(`:394`)；超时 3s/5s/8s(`:38-42`)；错误码 `NoInterpreter/Timeout/BadKind/ScriptError` | 实测 126ms（缓存后 179ms）vs `uv run` 475ms |
-| 持久化 | 工作区 config：`env_cmds.rs:85 workspace_config_path` = `opencharm_home()/workspaces/<project_hash>.json`；`load_config(root)`(`:90`，缺失/损坏返回 `{}`) + `save_config(root,&Value)`(`:100`)。同文件已有 `interpreter` / `run_configs` / `framework_hints` / `dep_ignored` / `import_aliases` | 新增 `db_connections` / `http_history` 直接走这对函数 |
+| 持久化 | 工作区 config：`env_cmds.rs:85 workspace_config_path` = `montauri_home()/workspaces/<project_hash>.json`；`load_config(root)`(`:90`，缺失/损坏返回 `{}`) + `save_config(root,&Value)`(`:100`)。同文件已有 `interpreter` / `run_configs` / `framework_hints` / `dep_ignored` / `import_aliases` | 新增 `db_connections` / `http_history` 直接走这对函数 |
 | 全局设置 | `settings.rs:104 settings_path()` = `<data_root>/config/settings.json`；`Settings`(`:110`) `#[serde(default)]`，加字段 + 同步前端 `state.ts DEFAULT_SETTINGS` | 漂移锁 `__tests__/keybindings.test.ts:118` |
 | 事件定向 | 统一 `app.emit_to(window_label, ...)`（`per_window.rs`，`WindowKey` = window label）。**新增事件必须带 wid** | 仅 `plugins-dir-changed` 用全局 emit |
 | 安全守卫 | `git_cmds.rs:325 validate_repo_relative`（拒绝对/拒 `..`/canonicalize 后须 `starts_with(root)`）、`:1451 validate_clone_url`（scheme 白名单）、`:1471 validate_clone_target` | **无 SSRF 防护**，B4 需新写 |
@@ -289,7 +289,7 @@ struct DbOp { conn: Arc<Mutex<Connection>>, interrupt: InterruptHandle, cancel: 
 
 | 数据 | 落点 | 机制 |
 |---|---|---|
-| 请求草稿、发送历史、当前环境名 | **localStorage**，经 `host.storage`（`extensions/facade.ts:111-121`，按插件 id 命名空间隔离） | manifest 声明权限 `"storage"`；**零 Rust 命令**；物理落盘在 WebView2 用户数据目录 `opencharm_home()/webview`（`util.rs:85`），与项目目录无关 |
+| 请求草稿、发送历史、当前环境名 | **localStorage**，经 `host.storage`（`extensions/facade.ts:111-121`，按插件 id 命名空间隔离） | manifest 声明权限 `"storage"`；**零 Rust 命令**；物理落盘在 WebView2 用户数据目录 `montauri_home()/webview`（`util.rs:85`），与项目目录无关 |
 | 环境变量 / token | 同上，独立 key | 受 `http_save_tokens` 开关约束（默认开；关闭时敏感值**不落盘**，仅存活于本次会话） |
 | 响应导出 | 用户显式点「保存」→ 系统保存对话框 | 走既有 `fs_cmds::write_file`，**不新增命令** |
 | 未打开工作区时 | 同 localStorage，key 前缀 `global` | `host.workspaceRoot()` 返回 `null` 时的兜底（**必须实现**，否则"随时"在无项目时失效） |
@@ -1161,5 +1161,5 @@ B6 终止不影响该 bug 的独立性——它是 PR-B6-2 调研时**从代码�
 | 内置工具注册 | `shell/src/devtools/builtin/index.ts`（`BUILTIN_TOOL_MODULES` + manifest 表，**两处都要加**）；范例 `builtin/curl2python.ts`（`mount(host: PanelHost)` 返回 `{ dispose }`） |
 | 插件 host 能力 | `shell/src/extensions/facade.ts:21-39 BaseHost`（含 `storage` 命名空间隔离，`:111-121`）、`:42-46 PanelHost`、`manifest.ts:48 KNOWN_PERMISSIONS`（`clipboard/selection/fs:read/storage/monaco`，**B4 需追加 `net`**）、`:24-30 contributes.tools[].inline` |
 | 端点视图联动 | `shell/src/endpointView.ts`（route 扫描）、`frameworks.ts fullEndpointUrl`、`termUi.ts lastServiceBaseUrl` |
-| 数据落盘位置 | `util.rs:22 data_root()`、`:79 opencharm_home()`、`:85 webview_data_dir()`（localStorage 落点）；`settings.rs:104 settings_path()`；`env_cmds.rs:85-101` workspace config |
+| 数据落盘位置 | `util.rs:22 data_root()`、`:79 montauri_home()`、`:85 webview_data_dir()`（localStorage 落点）；`settings.rs:104 settings_path()`；`env_cmds.rs:85-101` workspace config |
 | e2e | `shell/e2e/<域>/NN-*.spec.ts`；mock `shell/e2e/mocks/tauri-mock.js:57 staticHandlers`、`:68 get_settings`、`:102`（数组返回 `[]`） |

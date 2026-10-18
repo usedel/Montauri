@@ -3,10 +3,10 @@ import type { MainKey } from "../zh-CN/main";
 
 export const main: Record<MainKey, string> = {
   // ---- main.about ----
-  "main.about.body": "OpenCharm {version}\nLightweight Python IDE (Tauri 2 + Monaco)\nStatic semantics: Pyrefly / basedpyright · Runtime: opencharm-probe + opencharm-intel",
+  "main.about.body": "Montauri {version}\nLightweight Python IDE (Tauri 2 + Monaco)\nStatic semantics: Pyrefly / basedpyright · Runtime: montauri-probe + montauri-intel",
   "main.about.openDataDir": "Open data directory",
   "main.about.openLogDir": "Open log directory",
-  "main.about.title": "About OpenCharm",
+  "main.about.title": "About Montauri",
   "main.about.versionFail": "Failed to read version",
   // ---- main.bp ----
   "main.bp.addCondition": "Add conditional breakpoint…",
@@ -96,7 +96,7 @@ export const main: Record<MainKey, string> = {
   "main.confirm.closeWorkspace": "There are unsaved changes (kept as drafts and restored when you reopen the workspace). Close the workspace?",
   // ---- main.debug ----
   "main.debug.argsLine": "args {args}",
-  "main.debug.depHint": "Note: {files} declares debugpy — OpenCharm debugging uses its own bundled copy; the two do not conflict. You may remove the declaration if unwanted.",
+  "main.debug.depHint": "Note: {files} declares debugpy — Montauri debugging uses its own bundled copy; the two do not conflict. You may remove the declaration if unwanted.",
   "main.debug.detect": "Debug environment detection",
   "main.debug.detectError": "Debug environment detection failed: {msg}",
   "main.debug.envLine": "{n} env vars",

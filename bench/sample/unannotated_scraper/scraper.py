@@ -1,7 +1,7 @@
 """无注解爬虫样例（bench：运行时采样价值考察）。
 
 刻意无类型注解、动态结构多——静态引擎在此场景弱，
-Phase 2/3 的 opencharm-probe/intel 主战场：
+Phase 2/3 的 montauri-probe/intel 主战场：
 - parse_page 返回 dict，静态无法推断字段
 - 工厂函数 make_fetcher 返回闭包，动态分发
 - 插件式 handler 注册表

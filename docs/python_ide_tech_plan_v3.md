@@ -1,4 +1,4 @@
-# OpenCharm：高性能 · 轻量 Python IDE 技术方案 v3.1
+# Montauri：高性能 · 轻量 Python IDE 技术方案 v3.1
 
 > 版本：v3.1 · 日期：2026-10-05 · 状态：已与产品负责人对齐关键议题（外壳栈 / 内存红线 / Phase 1 范围 / 调试时机）
 > v3.1 仅修订 §1 项目定位与 §1.1 设计目标（**「单人自用」定位作废，性能与体积升为一等目标**，章程见 `docs/adr/0010-performance-lightweight-charter.md`）；其余章节与 v3.0 一致，未被本文重写的部分继续有效。
@@ -73,8 +73,8 @@ open-charm/
 │   ├── package.json
 │   └── vite.config.ts
 ├── docs/                     # 方案、计划、ADR（现有）
-├── probe/                    # opencharm-probe（Phase 2 重建）
-├── intel/                    # opencharm-intel（Phase 3 重建）
+├── probe/                    # montauri-probe（Phase 2 重建）
+├── intel/                    # montauri-intel（Phase 3 重建）
 ├── bench/                    # 基准项目集（Phase 1 重建）
 └── ci/                       # 回归测试（Phase 1 重建）
 ```
@@ -89,7 +89,7 @@ Monaco providers (TS) ←→ Tauri IPC (invoke/event) ←→ Rust lsp.rs (stdio 
 
 - **Rust 侧**：spawn 引擎进程（stdio）、`Content-Length` 帧解析、事件转发（`lsp-message` / `lsp-stderr` / `lsp-exit`）；
 - **TS 侧**：JSON-RPC 关联（请求/响应/通知/取消）、Monaco provider 注册（completion / hover / definition / diagnostics）、位置换算（UTF-16 0 基 ↔ Monaco 1 基）；
-- **引擎切换** = 更换 spawn 命令表条目，桥接层引擎无关（basedpyright / opencharm-intel 直接复用）。
+- **引擎切换** = 更换 spawn 命令表条目，桥接层引擎无关（basedpyright / montauri-intel 直接复用）。
 
 ### 2.4 补全三层合并（外壳核心能力）
 
@@ -128,8 +128,8 @@ Monaco providers (TS) ←→ Tauri IPC (invoke/event) ←→ Rust lsp.rs (stdio 
 │  补全三层合并：模板 0xx / 运行时 1xx / 静态 2xx              │
 ├──────────────────────┬─────────────────────────────────────┤
 │ 静态语义（外部进程）   │ 运行时智能（自研，独立进程）          │
-│ Pyrefly / basedpyright│ opencharm-intel（Rust, LSP）        │
-│ Ruff · uv             │ opencharm-probe（Python 注入探针）   │
+│ Pyrefly / basedpyright│ montauri-intel（Rust, LSP）        │
+│ Ruff · uv             │ montauri-probe（Python 注入探针）   │
 │                       │ trace 库（SQLite）                   │
 └──────────────────────┴─────────────────────────────────────┘
 ```
@@ -165,4 +165,4 @@ Monaco providers (TS) ←→ Tauri IPC (invoke/event) ←→ Rust lsp.rs (stdio 
 | 组件 | 协议 |
 |---|---|
 | Tauri 2 / Monaco / Pyrefly / Ruff / uv / basedpyright | MIT / Apache-2.0（原版使用，不修改） |
-| opencharm-probe / opencharm-intel / shell | MIT（自研层） |
+| montauri-probe / montauri-intel / shell | MIT（自研层） |

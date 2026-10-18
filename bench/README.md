@@ -17,7 +17,7 @@
 
 ## errors 验收步骤（S1-T05）
 
-在 OpenCharm 中打开 `bench/sample/errors/` 为工作区，逐条运行（运行按钮或终端）：
+在 Montauri 中打开 `bench/sample/errors/` 为工作区，逐条运行（运行按钮或终端）：
 
 ```powershell
 uv run main.py -- --case runtime    # ZeroDivisionError（line 23）

@@ -24,7 +24,7 @@ use crate::env_cmds;
 use crate::util::{kill_process_tree, no_window, unpoison};
 
 /// 结束哨兵：单元格代码跑完由 driver 打印一次，Rust 侧据此判定「这段的输出到此为止」
-const SENTINEL: &str = "__OPENCHARM_SCRATCH_END__";
+const SENTINEL: &str = "__MONTAURI_SCRATCH_END__";
 
 /// 单元格执行超时（死循环 / 阻塞 IO 的兜底；超时即杀会话，下次执行重新起）
 const EVAL_TIMEOUT: Duration = Duration::from_secs(30);
@@ -37,7 +37,7 @@ const IDLE_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const DRIVER: &str = r#"
 import sys
 
-SENT = "__OPENCHARM_SCRATCH_END__"
+SENT = "__MONTAURI_SCRATCH_END__"
 ns = {"__name__": "__main__"}
 stdin = sys.stdin.buffer
 while True:

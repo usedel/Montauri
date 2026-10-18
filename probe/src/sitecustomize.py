@@ -1,14 +1,14 @@
 """sitecustomize 注入入口（顶层模块，经 PYTHONPATH 生效）。
 
-仅当 OPENCHARM_PROBE_AUTOSTART=1 时激活；否则零动作。
+仅当 MONTAURI_PROBE_AUTOSTART=1 时激活；否则零动作。
 注意：PYTHONPATH 注入会遮蔽目标 venv 自身的 sitecustomize（显式运行场景可接受）。
 """
 import os
 import sys
 
-if os.environ.get("OPENCHARM_PROBE_AUTOSTART") == "1":
+if os.environ.get("MONTAURI_PROBE_AUTOSTART") == "1":
     try:
-        from opencharm_probe.autostart import bootstrap
+        from montauri_probe.autostart import bootstrap
         bootstrap()
     except Exception as e:  # noqa: BLE001 - 探针失败绝不拖垮用户脚本
-        print(f"[opencharm-probe] ⚠ 注入失败（忽略，继续正常运行）：{e}", file=sys.stderr)
+        print(f"[montauri-probe] ⚠ 注入失败（忽略，继续正常运行）：{e}", file=sys.stderr)

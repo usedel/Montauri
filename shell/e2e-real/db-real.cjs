@@ -36,7 +36,7 @@ const OUT_DIR = path.join(__dirname, '..', '..', 'scripts', '_tmp');
  * 内联后脚本自足；规格 = T14-0：3 表 1 视图 1 索引 + 万行 users + 8 列 wide + 3 行 logs。
  */
 const MAKE_DB_FIXTURE_PY = `#!/usr/bin/env python3
-"""OpenCharm db-real fixture：3 表 1 视图 1 索引（规格见 db-real.cjs T14-0）。"""
+"""Montauri db-real fixture：3 表 1 视图 1 索引（规格见 db-real.cjs T14-0）。"""
 import sqlite3
 import sys
 
@@ -295,7 +295,7 @@ function startApp(dataRoot, logPath) {
     stdio: ['ignore', logFd, logFd],
     env: {
       ...process.env,
-      OPENCHARM_DATA_ROOT: dataRoot,
+      MONTAURI_DATA_ROOT: dataRoot,
       WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${CDP_PORT}`,
     },
   });
@@ -345,7 +345,7 @@ function killWebviewLeftovers(port) {
       { stdio: 'ignore' },
     );
   } catch { /* 无残留 */ }
-  try { execSync('taskkill /IM opencharm-shell.exe /F 2>nul', { stdio: 'ignore' }); } catch { /* 无残留 */ }
+  try { execSync('taskkill /IM montauri-shell.exe /F 2>nul', { stdio: 'ignore' }); } catch { /* 无残留 */ }
 }
 
 // ———————————————— 主流程 ————————————————
@@ -725,7 +725,7 @@ function killWebviewLeftovers(port) {
     let leftover = '';
     try {
       const tl = execSync('tasklist /FO CSV /NH', { encoding: 'utf8' });
-      leftover = tl.split(/\r?\n/).filter((l) => /opencharm/i.test(l)).join('; ');
+      leftover = tl.split(/\r?\n/).filter((l) => /montauri/i.test(l)).join('; ');
     } catch { leftover = '(tasklist 失败)'; }
     let lockFree = false;
     for (let i = 0; i < 20 && !lockFree; i++) {
@@ -776,7 +776,7 @@ function killWebviewLeftovers(port) {
       console.log(`\n[保留] 应用未杀（OC_KEEP_APP=1），pid=${child.pid}；临时目录: ${tmp}`);
     } else {
       await killTree(child);
-      try { execSync('taskkill /IM opencharm-shell.exe /F 2>nul', { stdio: 'ignore' }); } catch { /* 已退出 */ }
+      try { execSync('taskkill /IM montauri-shell.exe /F 2>nul', { stdio: 'ignore' }); } catch { /* 已退出 */ }
     }
   }
 

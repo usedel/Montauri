@@ -169,7 +169,7 @@ connect → initialize → attach({"justMyCode":true}) → [initialized 事件]
 5. 调试中普通运行被拒绝（三态互斥）（代码接线已验证，人工抽查） → **✅ 2026-10-03 已自动化**：`e2e-real/debug-real.cjs` 新增 `R-REAL-9`（运行按钮 `aria-disabled=true` + `data-tip="调试进行中，请先停止调试"`，点击被静默拦截：无 toast、调试态不变）
 6. 调试退出后进程树无残留（E2E bridge 侧已验证 debuggee 被杀；人工抽查任务管理器） → **✅ 2026-10-03 已自动化**：`R-REAL-8` 实测 python 进程 3 → 2
 7. 设置面板改键后调试快捷键生效 → **✅ 2026-10-03 已自动化**：`R-REAL-11`（设置面板录入 F6 → 无冲突 → `settings.json` 落盘 F6）+ `R-REAL-12`（**新键 F6 能启动调试并命中断点，旧键 F5 无效果**）
-8. `build-release.ps1` 全流程出包 + 安装后调试可用（真安装包验收） → **✅ 2026-10-03 已完成**：出包链路修复后打出安装包（8.63 MB），安装至 `D:\OpenCharm`（四项自研组件随包落地：`opencharm-shell.exe` 20.58 MB / `opencharm-intel.exe` 4.75 MB / `probe/src` / `debugpy`），`e2e-real/release-real.cjs` 对**安装后的程序**实测 **7/7 PASS**（含 debugpy 随包可用、运行脚本真实输出 `RESULT 11 22`）
+8. `build-release.ps1` 全流程出包 + 安装后调试可用（真安装包验收） → **✅ 2026-10-03 已完成**：出包链路修复后打出安装包（8.63 MB），安装至 `D:\Montauri`（四项自研组件随包落地：`montauri-shell.exe` 20.58 MB / `montauri-intel.exe` 4.75 MB / `probe/src` / `debugpy`），`e2e-real/release-real.cjs` 对**安装后的程序**实测 **7/7 PASS**（含 debugpy 随包可用、运行脚本真实输出 `RESULT 11 22`）
 
 ### 5.1 第 8 项阻塞说明（2026-10-03）
 
@@ -186,11 +186,11 @@ connect → initialize → attach({"justMyCode":true}) → [initialized 事件]
 2. 新增 **`tools/msvc-env.ps1`**（`Import-MsvcEnv`）：用 `vswhere` 定位工具链，在**进程环境**里前置 `link.exe` 与 SDK 的 `LIB` / `INCLUDE`。选进程环境而非 `.cargo/config.toml`，正是因为 tauri 只覆盖自己 spawn 的子进程环境、而 `.cargo/config.toml` 里的 `link-arg` 在含空格路径上会被 rustc 截断（表现为 `LNK1181` 找不到 `Files.obj`）。
 3. `build-release.ps1` 在任何 cargo/tauri 调用**之前** dot-source 该脚本；同时新增 `Invoke-Native` 包装 —— PowerShell 的 `$ErrorActionPreference="Stop"` 会把 cargo/npm 写到 stderr 的进度行（`Finished release profile …`）当成致命错误，导致构建 5 秒后假失败。
 
-**解决后实测**：`npx tauri build` 成功出包（8.63 MB）；安装至 `D:\OpenCharm`，四项自研组件随包落地（`opencharm-shell.exe` 20.58 MB · `opencharm-intel.exe` 4.75 MB · `probe/src` · `debugpy`）；`e2e-real/release-real.cjs` 对**安装后的程序**实测 **7/7 PASS**。
+**解决后实测**：`npx tauri build` 成功出包（8.63 MB）；安装至 `D:\Montauri`，四项自研组件随包落地（`montauri-shell.exe` 20.58 MB · `montauri-intel.exe` 4.75 MB · `probe/src` · `debugpy`）；`e2e-real/release-real.cjs` 对**安装后的程序**实测 **7/7 PASS**。
 
 - 完整根因、证据、候选修法对比：本地证据 `bench/reports/release-build-blocker.md`（2026-10-08 起该目录不再入库，结论数字已内联上文；确需留证用 `git add -f`）
 - 附带发现：安装包 `/S` **静默安装无效**（退出码 0 但无文件、无注册表项），故验收走"安装后程序 + CDP"，不用静默安装。
-- `e2e-real/release-real.cjs` 默认从注册表 `HKCU\...\Uninstall\OpenCharm\InstallLocation` 读安装路径（NSIS 允许 `/D=` 覆盖，不能写死 `%LOCALAPPDATA%\OpenCharm`）；可用 `OC_RELEASE_EXE` 覆盖为构建产物路径。
+- `e2e-real/release-real.cjs` 默认从注册表 `HKCU\...\Uninstall\Montauri\InstallLocation` 读安装路径（NSIS 允许 `/D=` 覆盖，不能写死 `%LOCALAPPDATA%\Montauri`）；可用 `OC_RELEASE_EXE` 覆盖为构建产物路径。
 
 ### 5.2 本轮真机验收附带发现的产品缺陷
 

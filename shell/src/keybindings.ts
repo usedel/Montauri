@@ -210,7 +210,7 @@ export function bindingChord(raw: string): string[] {
 
 // ---------- editor 级命令与映射 ----------
 
-const COMMAND_PREFIX = "opencharm.kb.";
+const COMMAND_PREFIX = "montauri.kb.";
 const handlers = new Map<KeybindingId, () => void>();
 let commandsRegistered = false;
 let rulesDisposable: MonacoApi.IDisposable | null = null;
@@ -238,7 +238,7 @@ function duplicateCurrentLine(): void {
   }
   const endLine = sel.endLineNumber;
   const endCol = model.getLineMaxColumn(endLine);
-  editor.executeEdits("opencharm-duplicate", [
+  editor.executeEdits("montauri-duplicate", [
     {
       range: new app.monaco.Range(endLine, endCol, endLine, endCol),
       text: "\n" + lines.join("\n"),

@@ -16,7 +16,7 @@
   "env.bootstrapEcho": "> 工具链引导：安装 {tools}",
   "env.bootstrapMissing": "检测到缺少以下工具：",
   "env.bootstrapOk": "工具链就绪。",
-  "env.bootstrapPartial": "安装结束，但部分工具仍不可见，请重启 OpenCharm 后再试。",
+  "env.bootstrapPartial": "安装结束，但部分工具仍不可见，请重启 Montauri 后再试。",
   "env.bootstrapWhy": "补全、跳转与运行都需要它们。可一键下载安装到用户目录（不影响系统，需联网）。",
   "env.confirm.cancel": "取消",
   "env.createDiscarded": "已切换工作区，创建结果未应用",

@@ -24,7 +24,7 @@
 function Import-MsvcEnv {
     param(
         # SDK 导入库暂存目录；必须无空格，若含空格则自动回退到 C 盘根目录
-        [string]$StageDir = (Join-Path $env:LOCALAPPDATA "OpenCharm\msvc-lib")
+        [string]$StageDir = (Join-Path $env:LOCALAPPDATA "Montauri\msvc-lib")
     )
 
     $ErrorActionPreference = "Continue"
@@ -62,7 +62,7 @@ function Import-MsvcEnv {
     $sdkInclude = Join-Path $kitsRoot "Include\$($sdkVer.Name)"
 
     # ---------- 3. 暂存 SDK 导入库到无空格目录 ----------
-    if ($StageDir -match "\s") { $StageDir = "C:\opencharm-msvc-lib" }
+    if ($StageDir -match "\s") { $StageDir = "C:\montauri-msvc-lib" }
     $stageX64 = Join-Path $StageDir "x64"
     New-Item -ItemType Directory -Force -Path $stageX64 | Out-Null
     foreach ($sub in @("ucrt", "um")) {

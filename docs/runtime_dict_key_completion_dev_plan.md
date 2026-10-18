@@ -1,6 +1,6 @@
 # 运行时字典键补全开发计划（P3-T13）
 
-> 面向：OpenCharm 运行时补全（intel）维护态下的零依赖增量批。
+> 面向：Montauri 运行时补全（intel）维护态下的零依赖增量批。
 > 定位：把 `docs/context_awareness_dev_plan.md` §10 实测收敛后**唯一剩下的零依赖真实增量**——「键补全」补两个位点：容器方法位（`d.get(`）与实参位 dict 字面量（`f(headers={"|`）。
 > 状态：**待评审**（2026-10-12 用户裁决「按投入产出比排序、挑前几条写成可执行小计划」后编写；维护态下属增强，排期需用户明确）
 > 编写时间：2026-10-12
@@ -70,7 +70,7 @@ requests.get(params={"|     # → 参数字典的常见键
 
 **改动方案**
 
-1. 新建 `intel/crates/opencharm-intel/src/dict_key_completion.rs`（先例：`except_completion.rs` —— 同类小特性外提 + 独立预算项）：
+1. 新建 `intel/crates/montauri-intel/src/dict_key_completion.rs`（先例：`except_completion.rs` —— 同类小特性外提 + 独立预算项）：
 
 ```rust
 /// 容器方法位的键补全：`<recv>.<method>(` 且 method ∈ {get,pop,setdefault}。
@@ -208,7 +208,7 @@ pub(crate) fn dict_literal_arg_ctx_at(
 
 ## 7. 门禁、红线与登记
 
-- **门禁**：`cd intel && cargo test` + **`cargo build -p opencharm-intel`**（`cargo test` 不刷新 shell 调用的 exe）+ `node shell/scripts/budget-check.mjs`
+- **门禁**：`cd intel && cargo test` + **`cargo build -p montauri-intel`**（`cargo test` 不刷新 shell 调用的 exe）+ `node shell/scripts/budget-check.mjs`
 - **真机手测剧本**（跑批只能在用户 PowerShell 终端；输出不过 PowerShell）：跑一个会产出 dict 的项目脚本（bench/sample 的爬虫样例）→ 写 `d = resp.json()` → 输入 `d.get(` 断言键候选带引号；再试 `requests.get(headers={"|`
 - **红线核对**：不动 probe/intel **采集路径**（只碰消费侧补全）；不新增常驻进程/依赖；六段 sortText 契约不破（键候选在 `1xx` 段）；`MAX_CANDIDATES = 50` 不动；无新增用户可见 i18n 文案（detail 是运行时数据，同既有 `⟳ runtime` 格式）
 - **登记**（落地后）：`docs/delivery-overview.md` 版本 +1；**新文件两处登记**——`ci/budgets.toml` 加 `intel_dict_key_completion_rs_max_lines = 200` / `intel_dict_key_completion_tests_rs_max_lines = 250`，**且** `shell/scripts/budget-check.mjs` 的 `addLine(...)` 各加一行（只改 toml 不接线 = 无守护，反面先例 `except_completion.rs`）；工作记忆回填

@@ -9,7 +9,7 @@ export const storage = {
   // ---- storage ----
   "storage.cleanFailed": "清理失败",
   "storage.done": "完成。",
-  "storage.exampleDir": "例如 D:\\\\opencharm-data",
+  "storage.exampleDir": "例如 D:\\\\montauri-data",
   // ---- storage.firstRun ----
   "storage.firstRun.saveFail": "保存首启设置",
   "storage.firstRun.setMsg": "数据根已指向 {dir}。重启后生效（首启尚无数据，重启无损失）。现在重启？",
@@ -58,7 +58,7 @@ export const storage = {
   "storage.uv.deepMsg": "将删除全部 uv 缓存（已装环境不受影响；之后重装包会重新下载落盘）。继续？",
   "storage.uv.deepTitle": "uv 缓存深度清理",
   "storage.uv.msg": "将清理 uv 缓存中的无效/悬空条目。继续？",
-  "storage.uv.note": "uv（用户自有位置，OpenCharm 不代管）",
+  "storage.uv.note": "uv（用户自有位置，Montauri 不代管）",
   "storage.uv.title": "uv 缓存清理",
   // ---- storage.webview ----
   "storage.webview.msg": "将删除 WebView2 的缓存子目录（登录态等文件保留）。继续？",

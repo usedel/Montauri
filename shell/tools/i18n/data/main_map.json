@@ -68,7 +68,7 @@
  "Markdown 预览": {
   "key": "main.cmd.mdPreview"
  },
- "OpenCharm §\\n轻量级 Python IDE（Tauri 2 + Monaco）\\n静态语义：Pyrefly / basedpyright · 运行时：opencharm-probe + opencharm-intel": {
+ "Montauri §\\n轻量级 Python IDE（Tauri 2 + Monaco）\\n静态语义：Pyrefly / basedpyright · 运行时：montauri-probe + montauri-intel": {
   "key": "main.about.body",
   "params": [
    "version"
@@ -128,7 +128,7 @@
  "全局搜索": {
   "key": "main.cmd.globalSearch"
  },
- "关于 OpenCharm": {
+ "关于 Montauri": {
   "key": "main.about.title"
  },
  "关闭": {
@@ -306,7 +306,7 @@
  "括号匹配跳转": {
   "key": "main.cmd.jumpBracket"
  },
- "提示：§ 声明了 debugpy —— OpenCharm 调试使用自带副本，二者互不影响，可按需移除声明。": {
+ "提示：§ 声明了 debugpy —— Montauri 调试使用自带副本，二者互不影响，可按需移除声明。": {
   "key": "main.debug.depHint",
   "params": [
    "files"

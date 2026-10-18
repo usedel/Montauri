@@ -1,4 +1,4 @@
-# PyCharm 口碑调研与 OpenCharm 改进建议
+# PyCharm 口碑调研与 Montauri 改进建议
 
 > 版本：v1.0 · 日期：2026-09-25 · 性质：调研报告 + 改进建议（**非排期依据**）
 > 上游文档：`docs/pycharm_feature_research_report.md`（v1.1，功能清单视角，P0/P1/P2 共 13 项已闭环）
@@ -22,7 +22,7 @@ PyCharm 的口碑呈现一个**高度对称的结构**：
 - **好评集中在「确定性能力」**：可视化调试器、重构（尤其 Shift+F6 重命名）、深层类型推断、Local History、Git 集成、导航闭环、batteries-included 的「开箱即用」。这些能力的共性是：**用户不需要配置、不需要装插件、不需要思考，它就在那儿且是对的**。
 - **差评集中在「代价」**：内存/CPU/风扇（"resource pigs"、"space heater"）、需要每隔几天重启一次、索引慢且索引期间几乎不可用、大版本升级回归、海量输出时 UI 冻结、功能与设置过多导致新手不知所措、静态分析反被专用 LSP（pyrefly/ty）超过、AI 与订阅策略混乱。
 
-对 OpenCharm 的战略含义只有两句：
+对 Montauri 的战略含义只有两句：
 
 1. **「轻」是我们唯一无法被抄袭、且 PyCharm 结构性无法修复的护城河**——它是 JVM + 全量索引架构的必然代价，不是调参能解决的。所以我们要做的不是"更轻"（已经轻了），而是**让"轻"可证明、可感知、可持续**（§6-A）。
 2. **「默认就对」是 PyCharm 好评的真正来源，而不是功能数量**。我们已经把功能清单补齐到 13/13，但**「默认就对」还差 6 个具体缺口**（§5 表中 🟡/❌ 项），这些缺口全是小成本、高体感的：智能选区、移动行、分屏、输出护栏、会话恢复、诊断可配置。
@@ -48,7 +48,7 @@ PyCharm 的口碑呈现一个**高度对称的结构**：
 
 ## 2. 广受好评的细节（值得学）
 
-> 每条结构：**行为细节 → 为什么好 → 社区原声 → 对 OpenCharm 的启示**
+> 每条结构：**行为细节 → 为什么好 → 社区原声 → 对 Montauri 的启示**
 
 ### 2.1 调试器：PyCharm 的「killer feature」
 
@@ -138,7 +138,7 @@ Search Everywhere（Double Shift）、Go to File/Line、Recent Files/Locations�
 
 ## 3. 广受批评的点（值得反思/防守）
 
-> 每条结构：**症状 → 架构根因 → 社区原声 → 对 OpenCharm 的反思**
+> 每条结构：**症状 → 架构根因 → 社区原声 → 对 Montauri 的反思**
 
 ### 3.1 资源占用：内存、CPU、风扇、需要定期重启
 
@@ -431,7 +431,7 @@ Search Everywhere（Double Shift）、Go to File/Line、Recent Files/Locations�
 沿用工程规范 §8.4（每阶段验收报告存 `docs/`）：
 
 1. **调试对标**：新增真机 e2e 用例（§6-B），与 PyCharm 同场景人工对照（断点→步进→Watches→异常断点→hover 求值），记录"能否完成"而非"是否更快"。
-2. **资源对标（我们的优势项，必须量化）**：同一工作区下，OpenCharm 与 PyCharm 的冷启动、打开后 5 分钟内存、10 分钟长跑后内存增量做成对比表存 `bench/reports/`。**这是唯一能写进 README 的硬指标。**
+2. **资源对标（我们的优势项，必须量化）**：同一工作区下，Montauri 与 PyCharm 的冷启动、打开后 5 分钟内存、10 分钟长跑后内存增量做成对比表存 `bench/reports/`。**这是唯一能写进 README 的硬指标。**
 3. **稳定性对标**：连续运行 10 万行打印任务不冻结（A-2/A-3 回归）——对应 PyCharm 被批评的"大输出卡死"。
 4. **细节清单自检**：§6 C 组每项补一个 vitest 纯函数单测（沿用 `util.ts` / `navHistory.ts` 的单测范式）。
 
@@ -611,7 +611,7 @@ Search Everywhere（Double Shift）、Go to File/Line、Recent Files/Locations�
 
 ## 13. P1 落地记录（2026-09-25）：A-1 资源可观测面板
 
-> 「轻」是 OpenCharm 唯一无法被抄袭的护城河（§4 洞察 2），但必须**可感知**——状态栏常驻 MEM 芯片 + 进程明细面板，让用户随时回答「现在是谁在吃内存」。这正是 PyCharm 用户想要而拿不到的东西。
+> 「轻」是 Montauri 唯一无法被抄袭的护城河（§4 洞察 2），但必须**可感知**——状态栏常驻 MEM 芯片 + 进程明细面板，让用户随时回答「现在是谁在吃内存」。这正是 PyCharm 用户想要而拿不到的东西。
 
 ### 实现
 
@@ -801,7 +801,7 @@ mock 罐头的 evaluate/variables 都是静态值，以下两点需真机（CDP�
 |---|---|
 | **C-3 列选择**（`keybindings.ts` / `keybindingDefaults.ts` / `settings.rs`） | 键位 `Alt+Shift+Insert`「切换列选择模式」：Monaco 0.52 中列选择是**核心 editor option**（`columnSelection`，无独立 contrib/命令），handler 切换 option + toast 可见反馈（G-3：模式切换必须可见，否则用户忘记开过会把矩形选中当 bug）。键位三处同步 + 漂移锁 44→45（settings.rs 两处断言）。Alt+Shift+Insert 非浏览器危险键（Insert 不在 browserKeys 护栏清单） |
 | **D-4 诊断严重度映射 + `# noqa`**（`ruffLint.ts` / `settingsPanel.ts` / `index.html` / `state.ts` / `settings.rs` / `main.ts`） | 设置项 `ruff_severity_e/w/f`（hint/info/warning/error，默认全 warning = 维持既有行为），Python 设置区三个下拉，保存后立即重查当前文件；`lintActiveFile` 按规则码首字母（E/W/F）映射到 MarkerSeverity，其余类别回落 warning，非法存储值 `normalizeSeverity` 归一（G-3 防静默失效）；编辑器右键「忽略此规则（行尾添加 # noqa）」：定位光标处 ruff 诊断（`getModelMarkers` 按 owner 过滤）→ `buildNoqaLine` 纯函数构造/扩展/判重 → 行尾写入并立即重查（波浪线即时消失） |
-| **D-1 + D-2 自研快速修复**（新域 `quickFix.ts`） | `registerCodeActionProvider("python")`（Ctrl+. / 灯泡）：从两桶（opencharm-lsp / opencharm-ruff）诊断文案提取未定义名字（`extractUndefinedName` 覆盖 pyrefly / basedpyright / ruff F821 句式）；本文件已有顶层定义则不出主意（作用域/拼写问题对症的是人）。**D-1**：工作区同名顶层符号扫描（`list_workspace_files` 过滤 .py 取前 200 个 + `read_file` 逐个 `scanTopLevelSymbol` 轻量解析；`modulePathOf` 走 `relativePathRaw` 归一（CR-28）；命中 ≤3 个来源 → 「从 pkg.mod 导入 X」，插入行由 `findImportInsertLine` 定位（shebang/编码注释/模块 docstring 之后、最后一条顶层 import 之下），当前文件自身定义跳过）。**D-2**：工作区也没有 → 「创建函数（`inferCallArity` 按调用形态数实参，含字符串/注释/嵌套括号处理；`*` 展开传参 → `*args, **kwargs`）/ 创建类 / 创建变量」，stub 追加文件末尾。G-1：扫描文件数与来源缓存（上限 50，工作区切换失效）均有界 |
+| **D-1 + D-2 自研快速修复**（新域 `quickFix.ts`） | `registerCodeActionProvider("python")`（Ctrl+. / 灯泡）：从两桶（montauri-lsp / montauri-ruff）诊断文案提取未定义名字（`extractUndefinedName` 覆盖 pyrefly / basedpyright / ruff F821 句式）；本文件已有顶层定义则不出主意（作用域/拼写问题对症的是人）。**D-1**：工作区同名顶层符号扫描（`list_workspace_files` 过滤 .py 取前 200 个 + `read_file` 逐个 `scanTopLevelSymbol` 轻量解析；`modulePathOf` 走 `relativePathRaw` 归一（CR-28）；命中 ≤3 个来源 → 「从 pkg.mod 导入 X」，插入行由 `findImportInsertLine` 定位（shebang/编码注释/模块 docstring 之后、最后一条顶层 import 之下），当前文件自身定义跳过）。**D-2**：工作区也没有 → 「创建函数（`inferCallArity` 按调用形态数实参，含字符串/注释/嵌套括号处理；`*` 展开传参 → `*args, **kwargs`）/ 创建类 / 创建变量」，stub 追加文件末尾。G-1：扫描文件数与来源缓存（上限 50，工作区切换失效）均有界 |
 | **A-4 红线入 CI 补项**（`bench/collect-metrics.ps1` / `e2e/perf/03-large-file.spec.ts`） | bench 脚本加 `-SoakMinutes` 参数：长跑内存采样（暖机 60s 取基线，每 30s 一采），**暖机后增量 ≤ 150 MB** 红线纳入报告与退出码断言（CI 门禁复用）；「大文件打开」新增 e2e `perf/03`（2MB / ≈17 万行 .py 打开耗时 < 5000ms + 打开后可定位可交互）；「输出洪峰」红线由既有 `perf/01-output-guard`（环形缓冲 + 背压）钉住——三项分别落在最合适的载体，脚本不重复驱动 UI |
 
 ### 验收
@@ -840,7 +840,7 @@ mock 罐头的 evaluate/variables 都是静态值，以下两点需真机（CDP�
 |---|---|
 | 新域 `splitEditor.ts` | 实例懒创建常驻复用（G-1：不随开随弃）；`openSplit`（幂等，diff tab/无标签给可见提示）/`closeSplit`/`toggleSplit`/`setDiffActive`（diff 占满编辑区时同步隐藏，open 态保留）/`onModelDisposed`（钉住的 model 在 tab 关闭时 dispose → **先于 dispose 同步收起**，避免渲染已释放内容）/`resetSplitEditor`（工作区切换兜底）；快照不含分屏态（重开工作区分屏收起，预期行为）。`buildOptions` 由 main 注入（防 settingsPanel ⇄ splitEditor 成环）；settingsPanel 保存路径调 `refreshSplitEditorOptions` 同源生效 |
 | 入口 | 键位 `Ctrl+\`「向右分屏」（三处同步 + 漂移锁 45→46；键串用符号字面 `Ctrl+\`——`parseKeyToken` 不认 "Backslash" 名，同 "/" 先例）；编辑器右键「向右分屏」（addAction）；命令面板 `split_editor`（hint 自动跟随改键） |
-| 布局 `index.html` / `style.css` / `layout.ts` | `#split-editor-panel`（`--split-w` 默认 50%）+ `#split-splitter` 并排 flex 分隔条（与 md-preview 同范式，不复用 .splitter 的 absolute 定位）；拖拽写自定义属性 + localStorage `opencharm-split-w`（开屏时恢复）、双击重置、宽度上限随 editor-row 动态收口 |
+| 布局 `index.html` / `style.css` / `layout.ts` | `#split-editor-panel`（`--split-w` 默认 50%）+ `#split-splitter` 并排 flex 分隔条（与 md-preview 同范式，不复用 .splitter 的 absolute 定位）；拖拽写自定义属性 + localStorage `montauri-split-w`（开屏时恢复）、双击重置、宽度上限随 editor-row 动态收口 |
 | 已知边界 | 分屏面板内暂无 ▶/断点/git gutter 装饰与行内书签（这些装饰系统绑定主编辑器实例）；编辑、诊断波浪线、补全、hover 等随共享 model 天然可用 |
 
 ### 验收

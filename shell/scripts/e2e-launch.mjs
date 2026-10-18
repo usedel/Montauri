@@ -91,7 +91,7 @@ if (!(await portOpen(PORT))) {
   console.log("[e2e] 5173 无 dev server，先起一个（约 3 秒）…");
   // 输出落系统临时目录（与 playwright 的 outputDir 同一约定，不污染工作区）：
   // stdio 用文件而不是管道——父进程退出后不会被未关闭的 stream 拖住。
-  const logPath = join(tmpdir(), "opencharm-e2e-vite.log");
+  const logPath = join(tmpdir(), "montauri-e2e-vite.log");
   const logFd = openSync(logPath, "a");
   const child = spawn(process.execPath, ["node_modules/vite/bin/vite.js"], {
     stdio: ["ignore", logFd, logFd],

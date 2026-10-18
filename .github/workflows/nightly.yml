@@ -1,4 +1,4 @@
-# OpenCharm Nightly（低频真机 + 性能红线 + 预算门禁）
+# Montauri Nightly（低频真机 + 性能红线 + 预算门禁）
 #
 # 为什么要独立于 ci.yml（improvement_and_roadmap_report.md §2 P0-1 子项 2）：
 #   真机层（e2e-real）慢且不稳，**绝不能进 PR 门禁**——否则会被"改个文案跑 40 分钟

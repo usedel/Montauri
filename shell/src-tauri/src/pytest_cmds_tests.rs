@@ -3,7 +3,7 @@ use super::*;
     fn tmpdir(tag: &str) -> std::path::PathBuf {
         use std::time::{SystemTime, UNIX_EPOCH};
         let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-        let d = std::env::temp_dir().join(format!("opencharm-test-pytest-{tag}-{nanos}"));
+        let d = std::env::temp_dir().join(format!("montauri-test-pytest-{tag}-{nanos}"));
         std::fs::create_dir_all(&d).unwrap();
         d
     }
@@ -44,7 +44,7 @@ use super::*;
 
     #[test]
     fn scan_missing_dir_errors() {
-        let v = scan_impl("Z:\\opencharm-no-such-dir-xyz");
+        let v = scan_impl("Z:\\montauri-no-such-dir-xyz");
         assert!(v.is_err());
     }
 

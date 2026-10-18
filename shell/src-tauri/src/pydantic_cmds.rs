@@ -602,7 +602,7 @@ fn pyd_annot_type(text: &str) -> Option<String> {
     }
 }
 
-/// 构造调用诊断（owner = opencharm-pydantic，前端第四桶）
+/// 构造调用诊断（owner = montauri-pydantic，前端第四桶）
 #[derive(Serialize, Clone, Debug)]
 pub struct PydanticIssue {
     /// 诊断所在文件（绝对路径正斜杠）
@@ -971,7 +971,7 @@ mod tests {
 
     fn tmpdir(tag: &str) -> PathBuf {
         let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-        let d = std::env::temp_dir().join(format!("opencharm-pydcmds-{tag}-{nanos}"));
+        let d = std::env::temp_dir().join(format!("montauri-pydcmds-{tag}-{nanos}"));
         fs::create_dir_all(&d).unwrap();
         d
     }
@@ -1138,7 +1138,7 @@ mod tests {
 
     fn pyd_tmpdir(tag: &str) -> PathBuf {
         let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-        let d = std::env::temp_dir().join(format!("opencharm-pyd-{tag}-{nanos}"));
+        let d = std::env::temp_dir().join(format!("montauri-pyd-{tag}-{nanos}"));
         fs::create_dir_all(&d).unwrap();
         d
     }

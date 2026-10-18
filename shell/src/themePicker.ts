@@ -20,7 +20,7 @@ import { codicon } from "./util";
 
 /** 可选主题：value 与 Monaco 主题名 / Settings.theme 一致；pv 对应 .theme-pv--{pv} 预览配色。
  *  name 是展示文案——构建函数 + let + onLocaleChange 重建（⑧/⑮ 模式），语言切换后卡片名就地更新。
- *  ⚠ 批 4 起 value 是自定义主题名（opencharm-*）而非 Monaco 出厂名，判定浅色一律走
+ *  ⚠ 批 4 起 value 是自定义主题名（montauri-*）而非 Monaco 出厂名，判定浅色一律走
  *  shellThemeOf（theme/tokens.ts），不要在本文件里写 `=== "vs"` 字面量。 */
 function buildThemes(): Array<{ value: string; name: string; pv: string }> {
   return [

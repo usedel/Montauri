@@ -28,7 +28,7 @@ export const test = {
   "test.retry": "重试",
   // ---- test.pytestMissing ----
   "test.pytestMissing": "未安装 pytest",
-  "test.pytestMissingHint": "pytest 是项目级测试框架，OpenCharm 不随包分发。安装后即可收集与运行测试。",
+  "test.pytestMissingHint": "pytest 是项目级测试框架，Montauri 不随包分发。安装后即可收集与运行测试。",
   "test.installPytest": "安装 pytest",
   "test.installTitle": "安装 pytest",
   // ---- test.status ----

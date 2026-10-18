@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use tauri::command;
 
 use crate::file_ops::project_hash;
-use crate::util::opencharm_home;
+use crate::util::montauri_home;
 
 /// 单文件保留的快照上限（超出按时间淘汰最旧的）
 const MAX_ENTRIES_PER_FILE: usize = 100;
@@ -57,7 +57,7 @@ fn relative_key(workspace_root: &str, path: &str) -> String {
 }
 
 fn history_dir(workspace_root: &str, path: &str) -> PathBuf {
-    opencharm_home()
+    montauri_home()
         .join("history")
         .join(project_hash(workspace_root))
         .join(file_hash(workspace_root, path))
@@ -222,7 +222,7 @@ mod tests {
 
     fn tmpdir(tag: &str) -> PathBuf {
         let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-        let d = std::env::temp_dir().join(format!("opencharm-hist-{tag}-{nanos}"));
+        let d = std::env::temp_dir().join(format!("montauri-hist-{tag}-{nanos}"));
         fs::create_dir_all(&d).unwrap();
         d
     }

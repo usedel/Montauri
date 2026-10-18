@@ -5,7 +5,7 @@
  * 本脚本验的是 **Tauri 外壳全链路**：
  *
  *   点 ▶ 运行按钮 → terminal.rs PTY → run_env.rs 注入 probe（PYTHONPATH+AUTOSTART）
- *   → probe 采样写 trace 库 → lsp.rs 桥起的 opencharm-intel（mtime+size 自动重载）
+ *   → probe 采样写 trace 库 → lsp.rs 桥起的 montauri-intel（mtime+size 自动重载）
  *   → client.ts CompletionItemProvider → Monaco suggest-widget 出链式候选
  *
  * 任何一环断掉（注入失败 / 库写错位置 / 桥没起 / 前端没注册 provider），都会以
@@ -177,7 +177,7 @@ runWithRealApp(
     // src-tauri/target/<profile>/）里的 intel exe 旧副本静默盖过 intel/target 工作副本，
     // 「链式用例过 + except 新用例挂 + 无新代码日志」三现象并存（本批实锤）。
     const os = require('os');
-    const exeName = 'opencharm-intel.exe';
+    const exeName = 'montauri-intel.exe';
     const newestOf = (paths) => paths
       .filter((p) => fs.existsSync(p))
       .map((p) => ({ p, mtime: fs.statSync(p).mtimeMs }))
@@ -186,11 +186,11 @@ runWithRealApp(
     const shellTarget = path.join(__dirname, '..', 'src-tauri', 'target');
     const intelTarget = path.join(__dirname, '..', '..', 'intel', 'target');
     const pickOrder = [];
-    if (process.env.OPENCHARM_INTEL_BIN) {
-      pickOrder.push(['env OPENCHARM_INTEL_BIN', [process.env.OPENCHARM_INTEL_BIN]]);
+    if (process.env.MONTAURI_INTEL_BIN) {
+      pickOrder.push(['env MONTAURI_INTEL_BIN', [process.env.MONTAURI_INTEL_BIN]]);
     }
     pickOrder.push(
-      ['runtime_dir', [path.join(home, '.opencharm', 'runtime', exeName)]],
+      ['runtime_dir', [path.join(home, '.montauri', 'runtime', exeName)]],
       // tauri dev = debug 构建 → lsp.rs 的 dev 分支（intel/target mtime 新者）优先于 resource
       ['dev(intel/target 新者)', ['debug', 'release'].map((d) => path.join(intelTarget, d, exeName))],
       ['resource(src-tauri/target 新者)', ['debug', 'release'].map((d) => path.join(shellTarget, d, exeName))],
@@ -203,15 +203,15 @@ runWithRealApp(
       if (hit) { picked = hit; pickedStage = stage; break; }
     }
     if (!picked) {
-      record('CHAIN-0', 'opencharm-intel.exe 已定位（完整查找顺序）', false,
-        '未在任何候选位置找到 opencharm-intel.exe，先 cargo build -p opencharm-intel');
+      record('CHAIN-0', 'montauri-intel.exe 已定位（完整查找顺序）', false,
+        '未在任何候选位置找到 montauri-intel.exe，先 cargo build -p montauri-intel');
       return;
     }
     const ageMin = Math.round((Date.now() - picked.mtime) / 60000);
     const newestWorkspace = newestOf(['debug', 'release'].map((d) => path.join(intelTarget, d, exeName)));
     const lagNote = newestWorkspace && newestWorkspace.p !== picked.p
       ? `；⚠ intel/target 最新为 ${newestWorkspace.p}` : '';
-    record('CHAIN-0', 'opencharm-intel.exe 已定位（按修复后查找顺序=真机实际执行者）', true,
+    record('CHAIN-0', 'montauri-intel.exe 已定位（按修复后查找顺序=真机实际执行者）', true,
       `命中 ${pickedStage}：${picked.p}（mtime 距今 ${ageMin} 分钟）${lagNote}`);
 
     await dismissBlockingModals(page);

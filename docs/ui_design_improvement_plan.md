@@ -1,4 +1,4 @@
-# OpenCharm 界面设计改进计划
+# Montauri 界面设计改进计划
 
 > 版本：v2.1 · 日期：2026-09-11 · 状态：**全部完成（30/30 + 遗留 2 项）**——第一至十批已交付：P0 缺陷 5 项、一致性小改动 7 项、UI-08 按钮体系 + UI-18 scale token、UI-09/11/12、UI-15/17、UI-16 ARIA 语义、UI-19/21/22/27 视觉层次与信息密度、UI-23/24/25/26 响应式边缘情况与细节打磨、UI-29 字号/字体族接入用户设置 + UI-30 菜单 ARIA 与键盘导航（第九批）；第八批登记的两条清单外存量缺口（表单 label 无 for/id 关联、`#bottom` 分隔条内联 height 压过折叠态）已在第十批一并修掉。见 §7 进度记录。
 > 来源：基于 `shell/src`（`index.html` / `style.css` / `main.ts` / `layout.ts` / `debugView.ts` / `settingsPanel.ts` / `termUi.ts` / `search.ts` / `dialog.ts` / `util.ts` / `engineChip.ts` / `runWidget.ts` / `fileTree.ts` / `tooltip.ts` / `anim.ts`）的全量 UI 代码审阅。

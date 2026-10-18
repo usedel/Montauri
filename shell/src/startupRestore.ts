@@ -86,7 +86,7 @@ export async function openInitialWorkspace(): Promise<void> {
   if (winProject) {
     await need().openWorkspace(winProject).catch((e) => console.error("打开窗口项目失败", e));
   } else {
-    // 双击关联文件冷启动（opencharm.exe D:\x\note.md）：优先打开该文件
+    // 双击关联文件冷启动（montauri.exe D:\x\note.md）：优先打开该文件
     //（openSingleFile 内部 find_project_root → openWorkspace → openFile，与欢迎页
     // 「打开文件」按钮同一条链路；mdMode 不带 → 按设置分流 preview/edit）
     const startupFile = await invoke<string | null>("get_startup_file").catch(() => null);

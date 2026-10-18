@@ -57,7 +57,7 @@ static COLLECT_PROCS: LazyLock<Mutex<std::collections::HashMap<String, CollectPr
 
 /// 测试结果目录：`<data_root>/test-results/`（后端内部契约，前端不碰）。
 pub(crate) fn test_results_dir() -> PathBuf {
-    crate::util::opencharm_home().join("test-results")
+    crate::util::montauri_home().join("test-results")
 }
 
 /// 机会性清理超过 RESULT_TTL 的 junitxml 残留（目录不存在 / 读取失败均静默跳过——

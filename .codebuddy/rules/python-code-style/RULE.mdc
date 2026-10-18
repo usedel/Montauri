@@ -1,5 +1,5 @@
 ---
-description: opencharm-probe 与 Python 源码规范（开销红线、架构分层、PEP 669 语义）
+description: montauri-probe 与 Python 源码规范（开销红线、架构分层、PEP 669 语义）
 globs: "**/*.py"
 alwaysApply: false
 enabled: true
@@ -7,7 +7,7 @@ updatedAt: 2026-09-10T00:00:00.000Z
 provider:
 ---
 
-# Python 代码规范（opencharm-probe）
+# Python 代码规范（montauri-probe）
 
 ## 环境与依赖
 
@@ -56,5 +56,5 @@ cli（run/show/inject/clean/check）
 
 ## 不侵入原则
 
-- `OPENCHARM_PROBE_AUTOSTART=1` 才激活，未设置则零介入。
+- `MONTAURI_PROBE_AUTOSTART=1` 才激活，未设置则零介入。
 - 探针任何失败（注入/落库）只打警告，**不改写用户进程退出码**。

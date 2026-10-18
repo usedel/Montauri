@@ -1,7 +1,7 @@
 // 示例工具 1：ROT13（面板 + inline 双模式）。
-// 这是 OpenCharm 开发工具插件的「最小完整样例」——复制本目录即可开始写你自己的插件。
+// 这是 Montauri 开发工具插件的「最小完整样例」——复制本目录即可开始写你自己的插件。
 // 契约要点（完整文档见 docs/devtools_plugin_guide.md）：
-// - 只通过入参 host 与外壳交互，禁止 import OpenCharm 内部模块；
+// - 只通过入参 host 与外壳交互，禁止 import Montauri 内部模块；
 // - mount(host) 挂载面板 UI（host.root + host.kit 积木），返回 { dispose } 可省略；
 // - inline handler（manifest 里声明的函数名）做「选中 → 变换 → 原地替换」，抛错则保留原文。
 

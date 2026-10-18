@@ -19,7 +19,7 @@
 1. **双引擎并存，第一天即可切换**：默认 Pyrefly，备选 basedpyright。设置项 `lsp_engine: String`（`settings.rs:153`），取值为 `"pyrefly" | "basedpyright"`。
 2. **引擎差异集中在两处，不外溢**：
    - 启动命令与安装包名映射：`toolchain.rs::engine_command`（`pyrefly` / `basedpyright-langserver`）与 `engine_package`（`pyrefly` / `basedpyright`），供工具链引导一键安装使用；
-   - LSP 桥只认"命令不同"：`lsp.rs` 头注释明确「引擎无关：pyrefly / basedpyright / opencharm-intel 只是前端传入的命令不同」，桥内无任何引擎分支。
+   - LSP 桥只认"命令不同"：`lsp.rs` 头注释明确「引擎无关：pyrefly / basedpyright / montauri-intel 只是前端传入的命令不同」，桥内无任何引擎分支。
 3. **不把 Pyrefly 换成第三方语义服务**：铁律「第三方只补充不替换」——引擎可换，但桥必须自研（ADR-0003 已否决 monaco-languageclient）。
 4. **切换是用户显式动作**：工作区检测到 `pydantic` / `fastapi` 依赖时**提示推荐**切换，绝不静默改设置（`env_cmds.rs:1558-1561`）；用户可对工作区关闭该提示（`framework_hints`）。
 

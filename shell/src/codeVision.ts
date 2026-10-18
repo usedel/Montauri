@@ -130,7 +130,7 @@ async function showUsagesPopup(line: number, col: number): Promise<void> {
   }
 
   popupWidget = {
-    getId: () => "opencharm.codeVisionPopup",
+    getId: () => "montauri.codeVisionPopup",
     getDomNode: () => host,
     getPosition: () => ({
       position: pos,

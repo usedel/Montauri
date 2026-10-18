@@ -308,8 +308,8 @@ export async function startDebug(
 
   // initialize 握手
   await request("initialize", {
-    clientID: "opencharm",
-    clientName: "OpenCharm",
+    clientID: "montauri",
+    clientName: "Montauri",
     adapterID: "debugpy",
     locale: "en",
     linesStartAt1: true,

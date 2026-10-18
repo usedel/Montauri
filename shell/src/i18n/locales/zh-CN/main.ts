@@ -2,10 +2,10 @@
 // 复数条目（含 {count}）自动展开 .one/.other 两份——中文两形同文。
 export const main = {
   // ---- main.about ----
-  "main.about.body": "OpenCharm {version}\n轻量级 Python IDE（Tauri 2 + Monaco）\n静态语义：Pyrefly / basedpyright · 运行时：opencharm-probe + opencharm-intel",
+  "main.about.body": "Montauri {version}\n轻量级 Python IDE（Tauri 2 + Monaco）\n静态语义：Pyrefly / basedpyright · 运行时：montauri-probe + montauri-intel",
   "main.about.openDataDir": "打开数据目录",
   "main.about.openLogDir": "打开日志目录",
-  "main.about.title": "关于 OpenCharm",
+  "main.about.title": "关于 Montauri",
   "main.about.versionFail": "读取版本失败",
   // ---- main.bp ----
   "main.bp.addCondition": "添加条件断点…",
@@ -95,7 +95,7 @@ export const main = {
   "main.confirm.closeWorkspace": "存在未保存的修改（将以草稿形式保留，重开工作区自动恢复），确认关闭工作区？",
   // ---- main.debug ----
   "main.debug.argsLine": "参数 {args}",
-  "main.debug.depHint": "提示：{files} 声明了 debugpy —— OpenCharm 调试使用自带副本，二者互不影响，可按需移除声明。",
+  "main.debug.depHint": "提示：{files} 声明了 debugpy —— Montauri 调试使用自带副本，二者互不影响，可按需移除声明。",
   "main.debug.detect": "调试环境检测",
   "main.debug.detectError": "调试环境检测失败: {msg}",
   "main.debug.envLine": "环境变量 {n} 项",

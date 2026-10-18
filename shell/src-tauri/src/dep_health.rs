@@ -37,7 +37,7 @@ use crate::tool_paths::{tool_command, ENV_UV};
 
 pub(crate) const DEP_PROBE_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// E3 漂移排除清单：前三项为 OpenCharm 工具链自装的开发工具（§3.3 字段语义）；
+/// E3 漂移排除清单：前三项为 Montauri 工具链自装的开发工具（§3.3 字段语义）；
 /// 后四项为 Python 环境基础设施包——老 venv（python -m venv）常自带 pip/setuptools/wheel，
 /// 它们不是项目依赖，报漂移纯属噪声（对计划的小幅扩展，已记 §11 v1.3 修订）。
 pub(crate) const DRIFT_EXCLUDED: [&str; 7] = ["pyrefly", "ruff", "debugpy", "pip", "setuptools", "wheel", "uv"];
@@ -859,7 +859,7 @@ mod tests {
 
     fn dep_tmpdir(tag: &str) -> PathBuf {
         let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-        let d = std::env::temp_dir().join(format!("opencharm-dep-{tag}-{nanos}"));
+        let d = std::env::temp_dir().join(format!("montauri-dep-{tag}-{nanos}"));
         fs::create_dir_all(&d).unwrap();
         d
     }

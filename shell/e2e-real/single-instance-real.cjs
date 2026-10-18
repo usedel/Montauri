@@ -11,7 +11,7 @@
  *
  * 实现要点：
  *  - 主实例走 npm run tauri dev（real-env 基建 + CDP）；第二实例用同一 dev 产物 exe
- *    （target/debug/opencharm-shell.exe）直接 spawn——同 identifier → 命中同一 mutex。
+ *    （target/debug/montauri-shell.exe）直接 spawn——同 identifier → 命中同一 mutex。
  *  - ⚠ dev 与安装版共用 identifier 互斥是已知边界；本脚本验证 dev↔dev（同产物）。
  *  - 第二实例不能带 CDP 环境变量（否则新开 9223 会话干扰主实例断言）。
  */
@@ -27,7 +27,7 @@ const {
 } = require('./lib/real-env.cjs');
 
 const CDP_PORT = 9231; // 独立端口（不与常规 9223 套件互抢）
-const EXE = path.join(__dirname, '..', 'src-tauri', 'target', 'debug', 'opencharm-shell.exe');
+const EXE = path.join(__dirname, '..', 'src-tauri', 'target', 'debug', 'montauri-shell.exe');
 
 /** spawn 第二实例（不带 CDP env），返回 [child, 退出码 Promise] */
 function spawnSecondInstance(fileArg, dataRoot) {
@@ -37,7 +37,7 @@ function spawnSecondInstance(fileArg, dataRoot) {
     stdio: 'ignore',
     env: {
       ...process.env,
-      OPENCHARM_DATA_ROOT: dataRoot,
+      MONTAURI_DATA_ROOT: dataRoot,
       // 显式清掉主实例的 CDP 参数，防止第二实例抢 9223/9231
       WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: '',
     },

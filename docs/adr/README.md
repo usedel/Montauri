@@ -10,7 +10,7 @@
 | [0004](0004-dap-bridge-debugpy-bundled.md) | 调试接入采用自研轻量 DAP 桥 + debugpy 随应用打包分发（stdio adapter 模式） | 已定案 | 2026-09-10 |
 | [0005](0005-brand-accent-unification.md) | 品牌色与交互色统一到青绿单色相轴（修订 D4 / UI-06 / 浅色层 accent 跨主题一致；accent 拆三角色） | 已定案 | 2026-10-03 |
 | [0006](0006-dual-static-engine-switchable.md) | 双静态引擎并存（Pyrefly 默认 / basedpyright 备选）+ 首日引擎无关抽象层 | 已定案（补记） | 2026-08-20 |
-| [0007](0007-intel-as-independent-lsp.md) | 运行时智能作为独立 LSP（opencharm-intel）+ 独立 probe 包，不修改 Pyrefly 内核 | 已定案（补记） | 2026-08-20 |
+| [0007](0007-intel-as-independent-lsp.md) | 运行时智能作为独立 LSP（montauri-intel）+ 独立 probe 包，不修改 Pyrefly 内核 | 已定案（补记） | 2026-08-20 |
 | [0008](0008-pep669-sys-monitoring-sampling.md) | 运行时采样技术选型：PEP 669 `sys.monitoring`（三段式事件策略，开销红线 1.5x） | 已定案（补记） | 2026-08-21 |
 | [0009](0009-lsp-result-merge-sorttext.md) | LSP 结果合并策略：固定 sortText 段位（0NN/0y/0z/1xx/2xx/3xx）+ `⟳ runtime` 来源标注 + 运行时优先 | 已定案（补记） | 2026-08-20 |
 | [0010](0010-performance-lightweight-charter.md) | 产品定位转向「高性能 · 轻量」，性能与体积升为一等目标（画像不变 / 数值维持现值 / 门禁策略不改） | 已定案 | 2026-10-05 |

@@ -12,7 +12,7 @@ use std::sync::{Arc, LazyLock, Mutex};
 use tauri::{AppHandle, Emitter};
 
 use crate::per_window::PerWindow;
-use crate::util::opencharm_home;
+use crate::util::montauri_home;
 
 /// dep 域失效信号（M2，docs/dep_health_dev_plan.md §4.4）：变更文件的相对路径 + 分层分类。
 /// 与 `fs-changed`（只发父目录，服务树/git 增量刷新）分开——depHealth 需要**文件级**信息
@@ -29,7 +29,7 @@ pub struct DepFileEvent {
 const WATCH_IGNORED: [&str; 6] = [".git", ".venv", "node_modules", "__pycache__", ".idea", ".vscode"];
 
 /// 忽略的文件名前缀（CR-05：选区运行临时文件，写删都不触发树刷新/Git 幽灵变更）
-const WATCH_IGNORED_PREFIXES: [&str; 1] = ["__opencharm_selection__"];
+const WATCH_IGNORED_PREFIXES: [&str; 1] = ["__montauri_selection__"];
 
 /// 全局 watcher 实例（同一时刻只监听一个工作区）。
 /// TD-029①：包一层 Arc<Mutex<_>>——回调线程要为「运行期新建的顶层目录」动态补订阅，
@@ -208,7 +208,7 @@ pub fn watch_start(app: AppHandle, window: tauri::WebviewWindow, root: String) -
         .map(|(p, _)| p.clone())
         .collect();
     // 附加监听用户级 Live Templates 目录（M2 热重载）；目录不存在时静默跳过
-    let lt_dir = opencharm_home().join("config");
+    let lt_dir = montauri_home().join("config");
     if lt_dir.is_dir() {
         targets.push((lt_dir, false));
     }
@@ -383,10 +383,10 @@ mod tests {
     fn test_should_ignore_selection_temp_and_noise_dirs() {
         // 选区临时文件：任意随机后缀都被前缀规则忽略
         assert!(should_ignore(Path::new(
-            r"C:\ws\proj\__opencharm_selection__lx2k-a1b2c3.py"
+            r"C:\ws\proj\__montauri_selection__lx2k-a1b2c3.py"
         )));
         assert!(should_ignore(Path::new(
-            r"C:\ws\proj\pkg\__opencharm_selection__9f8e7d-x0y9.py"
+            r"C:\ws\proj\pkg\__montauri_selection__9f8e7d-x0y9.py"
         )));
         // 噪声目录：任一层级命中即忽略
         assert!(should_ignore(Path::new(r"C:\ws\proj\.git\HEAD")));
@@ -395,8 +395,8 @@ mod tests {
         // 正常项目文件：不忽略
         assert!(!should_ignore(Path::new(r"C:\ws\proj\main.py")));
         assert!(!should_ignore(Path::new(r"C:\ws\proj\pkg\util.py")));
-        // 前缀相似但不同的文件：不忽略（避免误伤用户以 __opencharm 开头的文件）
-        assert!(!should_ignore(Path::new(r"C:\ws\proj\__opencharm_config__.py")));
+        // 前缀相似但不同的文件：不忽略（避免误伤用户以 __montauri 开头的文件）
+        assert!(!should_ignore(Path::new(r"C:\ws\proj\__montauri_config__.py")));
     }
 
     /// M2 §4.4：dep 域文件分类——py=代码层 / declaration=声明层 / other 不发。
@@ -478,7 +478,7 @@ mod tests {
         .is_none());
         // 选区运行临时文件：不发（CR-05 同口径，否则面板会被自己的运行打扰）
         assert!(emit_file_path(Path::new(
-            r"C:\ws\proj\__opencharm_selection__lx2k-a1b2c3.py"
+            r"C:\ws\proj\__montauri_selection__lx2k-a1b2c3.py"
         ))
         .is_none());
     }

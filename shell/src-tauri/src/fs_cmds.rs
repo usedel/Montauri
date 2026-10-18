@@ -6,7 +6,7 @@ use tauri_plugin_dialog::DialogExt;
 use crate::git_cmds::GIT_MISSING_PREFIX;
 use crate::search_cmds::SEARCH_IGNORED_DIRS;
 use crate::tool_paths::{tool_command, ENV_GIT, ENV_UV};
-use crate::util::{no_window, opencharm_home};
+use crate::util::{no_window, montauri_home};
 
 #[derive(Serialize)]
 pub struct Entry {
@@ -141,7 +141,7 @@ pub fn delete_file(path: &str) -> Result<(), String> {
 }
 
 /// 写入 Live Templates 配置（M2 管理面板 / 导入）
-/// scope="user" → <data_root>/config/templates.json；scope="workspace" → <workspace_root>/.opencharm/templates.json
+/// scope="user" → <data_root>/config/templates.json；scope="workspace" → <workspace_root>/.montauri/templates.json
 #[tauri::command]
 pub fn write_templates_config(
     scope: &str,
@@ -149,11 +149,11 @@ pub fn write_templates_config(
     content: &str,
 ) -> Result<(), String> {
     let path = match scope {
-        "user" => opencharm_home().join("config").join("templates.json"),
+        "user" => montauri_home().join("config").join("templates.json"),
         "workspace" => {
             let root = workspace_root
                 .ok_or_else(|| "workspace 层写入需要 workspace_root".to_string())?;
-            Path::new(&root).join(".opencharm").join("templates.json")
+            Path::new(&root).join(".montauri").join("templates.json")
         }
         _ => return Err(format!("未知配置层：{scope}")),
     };
@@ -174,7 +174,7 @@ pub fn get_user_name() -> Result<String, String> {
 /// 智能模板用户配置路径：<data_root>/config/templates.json（不存在返回 null）
 #[tauri::command]
 pub fn read_templates_config() -> Result<Option<String>, String> {
-    let p = opencharm_home().join("config").join("templates.json");
+    let p = montauri_home().join("config").join("templates.json");
     if p.exists() {
         fs::read_to_string(p).map(Some).map_err(|e| e.to_string())
     } else {
@@ -185,7 +185,7 @@ pub fn read_templates_config() -> Result<Option<String>, String> {
 /// 最近工作区列表：<data_root>/config/recent-workspaces.json（启动自动恢复 / 「最近的工作区」菜单）
 #[tauri::command]
 pub fn get_recent_workspaces() -> Result<Vec<String>, String> {
-    let p = opencharm_home().join("config").join("recent-workspaces.json");
+    let p = montauri_home().join("config").join("recent-workspaces.json");
     if !p.exists() {
         return Ok(Vec::new());
     }
@@ -198,7 +198,7 @@ pub fn get_recent_workspaces() -> Result<Vec<String>, String> {
 /// 记录最近工作区（去重 + 置顶 + 上限 10），返回更新后的列表
 #[tauri::command]
 pub fn add_recent_workspace(path: &str) -> Result<Vec<String>, String> {
-    let dir = opencharm_home().join("config");
+    let dir = montauri_home().join("config");
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let p = dir.join("recent-workspaces.json");
     let mut list: Vec<String> = if p.exists() {
@@ -220,7 +220,7 @@ pub fn add_recent_workspace(path: &str) -> Result<Vec<String>, String> {
 /// 清空最近工作区列表（直接删除存储文件，get_recent_workspaces 对不存在返回空）
 #[tauri::command]
 pub fn clear_recent_workspaces() -> Result<(), String> {
-    let p = opencharm_home().join("config").join("recent-workspaces.json");
+    let p = montauri_home().join("config").join("recent-workspaces.json");
     let _ = fs::remove_file(&p);
     Ok(())
 }
@@ -244,7 +244,7 @@ pub struct LastSession {
 }
 
 fn last_session_path() -> PathBuf {
-    opencharm_home().join("config").join("last-session.json")
+    montauri_home().join("config").join("last-session.json")
 }
 
 /// 读取上次会话终态；文件不存在（首启 / 旧版本升级）返回 None = 沿用 recents 恢复（向后兼容）
@@ -272,7 +272,7 @@ pub fn set_last_session(window: tauri::WebviewWindow, open: bool, workspace: Opt
     if window.label() != "main" {
         return Ok(()); // 项目窗口的生命周期不反映主窗口的启动恢复意图
     }
-    let dir = opencharm_home().join("config");
+    let dir = montauri_home().join("config");
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let v = LastSession { open, workspace };
     let payload = serde_json::to_string(&v).map_err(|e| e.to_string())?;
@@ -282,7 +282,7 @@ pub fn set_last_session(window: tauri::WebviewWindow, open: bool, workspace: Opt
 
 // ---------- 启动参数（文件关联 / 命令行文件参数）----------
 //
-// 「双击 md 却恢复上次工作区」的修复：资源管理器双击关联文件 = `opencharm.exe D:\x\note.md`。
+// 「双击 md 却恢复上次工作区」的修复：资源管理器双击关联文件 = `montauri.exe D:\x\note.md`。
 // 启动时提取 argv 里第一个「存在的文件」路径交给前端（openSingleFile 链路：探测项目根 →
 // openWorkspace → 定位文件），优先级高于恢复最近工作区。
 // 注意 tauri run() 自身会吞掉非 flag 的位置参数（如 `--flag`），这里只挑「存在的文件」，
@@ -342,7 +342,7 @@ mod extract_startup_file_tests {
 pub fn remove_recent_workspace(path: String) -> Result<Vec<String>, String> {
     let mut list = get_recent_workspaces()?;
     list.retain(|x| x != &path);
-    let dir = opencharm_home().join("config");
+    let dir = montauri_home().join("config");
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let payload = serde_json::to_string(&list).map_err(|e| e.to_string())?;
     fs::write(dir.join("recent-workspaces.json"), payload).map_err(|e| e.to_string())?;
@@ -850,7 +850,7 @@ pub async fn create_project(
 /// - `app = FastAPI(` 命中 detect_framework 探针的 scan_app_decl；
 /// - 两条路由让端点视图开箱有内容（`{item_id}` 顺带演示路径参数）；
 /// - 注解驱动契合静态引擎；`str | None` 需 3.10+（默认 requires-python >= 3.12 已满足）。
-const FASTAPI_MAIN_PY: &str = "from fastapi import FastAPI\n\napp = FastAPI()\n\n\n@app.get(\"/\")\ndef root() -> str:\n    return \"Hello from OpenCharm FastAPI!\"\n\n\n@app.get(\"/items/{item_id}\")\ndef read_item(item_id: int, q: str | None = None) -> dict:\n    return {\"item_id\": item_id, \"q\": q}\n";
+const FASTAPI_MAIN_PY: &str = "from fastapi import FastAPI\n\napp = FastAPI()\n\n\n@app.get(\"/\")\ndef root() -> str:\n    return \"Hello from Montauri FastAPI!\"\n\n\n@app.get(\"/items/{item_id}\")\ndef read_item(item_id: int, q: str | None = None) -> dict:\n    return {\"item_id\": item_id, \"q\": q}\n";
 
 /// F9：FastAPI 项目的 pyproject dependencies（uvicorn 为 uv add 的服务依赖）。
 const FASTAPI_PROJECT_DEPS: &[&str] = &["fastapi", "uvicorn"];
@@ -858,7 +858,7 @@ const FASTAPI_PROJECT_DEPS: &[&str] = &["fastapi", "uvicorn"];
 /// C-11：爬虫模板 main.py（目标画像「FastAPI + 爬虫 + 小脚本」此前没有爬虫起点）。
 /// - requests.get + BeautifulSoup 起步，`list[str]` 注解需 3.9+（默认 >=3.12 满足）；
 /// - `raise_for_status()` 与 UA 头给的是可跑通的最小完整闭环，用户可直接替换 URL。
-const SCRAPER_MAIN_PY: &str = "from bs4 import BeautifulSoup\nimport requests\n\n\ndef fetch_titles(url: str) -> list[str]:\n    resp = requests.get(url, timeout=10, headers={\"User-Agent\": \"OpenCharm demo scraper\"})\n    resp.raise_for_status()\n    soup = BeautifulSoup(resp.text, \"html.parser\")\n    return [t.get_text(strip=True) for t in soup.find_all(\"h1\")]\n\n\ndef main() -> None:\n    for title in fetch_titles(\"https://example.com\"):\n        print(title)\n\n\nif __name__ == \"__main__\":\n    main()\n";
+const SCRAPER_MAIN_PY: &str = "from bs4 import BeautifulSoup\nimport requests\n\n\ndef fetch_titles(url: str) -> list[str]:\n    resp = requests.get(url, timeout=10, headers={\"User-Agent\": \"Montauri demo scraper\"})\n    resp.raise_for_status()\n    soup = BeautifulSoup(resp.text, \"html.parser\")\n    return [t.get_text(strip=True) for t in soup.find_all(\"h1\")]\n\n\ndef main() -> None:\n    for title in fetch_titles(\"https://example.com\"):\n        print(title)\n\n\nif __name__ == \"__main__\":\n    main()\n";
 
 /// C-11：爬虫项目的 pyproject dependencies（bs4 的发行名是 beautifulsoup4）。
 const SCRAPER_PROJECT_DEPS: &[&str] = &["requests", "beautifulsoup4"];
@@ -891,7 +891,7 @@ fn create_project_impl(
     } else if is_scraper {
         SCRAPER_MAIN_PY
     } else {
-        "def main() -> None:\n    print(\"Hello from OpenCharm!\")\n\n\nif __name__ == \"__main__\":\n    main()\n"
+        "def main() -> None:\n    print(\"Hello from Montauri!\")\n\n\nif __name__ == \"__main__\":\n    main()\n"
     };
     fs::write(root.join("main.py"), main_py).map_err(|e| e.to_string())?;
 
@@ -935,7 +935,7 @@ fn create_project_impl(
 /// 草稿目录：`<data_root>/scratches/`——刻意放在**数据根而非工作区**里：
 /// 草稿的定义就是「不入库、不污染项目」，放工作区迟早会被误提交或误删。
 fn scratch_dir() -> PathBuf {
-    opencharm_home().join("scratches")
+    montauri_home().join("scratches")
 }
 
 /// 在给定目录下创建下一个空闲编号的草稿文件（纯逻辑，可在单测里锁定）
@@ -956,7 +956,7 @@ fn create_scratch_in(dir: &Path, ext: &str) -> Result<PathBuf, String> {
         if !p.exists() {
             // Python 草稿给个可直接跑的骨架（含 __main__ 守卫，与「运行当前文件」的守卫行判定对齐）
             let body = if ext == ".py" || ext == ".pyw" {
-                "# OpenCharm 草稿（不入库，可直接运行 / 调试）\n\n\ndef main() -> None:\n    pass\n\n\nif __name__ == \"__main__\":\n    main()\n"
+                "# Montauri 草稿（不入库，可直接运行 / 调试）\n\n\ndef main() -> None:\n    pass\n\n\nif __name__ == \"__main__\":\n    main()\n"
             } else {
                 ""
             };
@@ -987,7 +987,7 @@ mod tests {
 
     fn tmpdir(tag: &str) -> PathBuf {
         let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-        let d = std::env::temp_dir().join(format!("opencharm-test-{tag}-{nanos}"));
+        let d = std::env::temp_dir().join(format!("montauri-test-{tag}-{nanos}"));
         fs::create_dir_all(&d).unwrap();
         d
     }

@@ -4,13 +4,13 @@
 
 import { $ } from "./state";
 
-const SIDEBAR_KEY = "opencharm.sidebar_width";
-const BOTTOM_KEY = "opencharm.bottom_height";
-const RIGHT_KEY = "opencharm.rightpanel_width";
-const OUTLINE_KEY = "opencharm.outline_height";
-const MD_PREVIEW_KEY = "opencharm.mdpreview_width";
+const SIDEBAR_KEY = "montauri.sidebar_width";
+const BOTTOM_KEY = "montauri.bottom_height";
+const RIGHT_KEY = "montauri.rightpanel_width";
+const OUTLINE_KEY = "montauri.outline_height";
+const MD_PREVIEW_KEY = "montauri.mdpreview_width";
 /** C-4：分屏面板宽度记忆（键名风格与其余面板键一致；splitEditor.ts 恢复时读同一键） */
-const SPLIT_W_KEY = "opencharm-split-w";
+const SPLIT_W_KEY = "montauri-split-w";
 
 const SIDEBAR_MIN = 180;
 const SIDEBAR_MAX = 480;

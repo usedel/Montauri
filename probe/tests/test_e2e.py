@@ -10,8 +10,8 @@ from pathlib import Path
 PROBE_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROBE_ROOT / "src"))
 
-from opencharm_probe.config import ProbeConfig  # noqa: E402
-from opencharm_probe.runner import run_with_probe  # noqa: E402
+from montauri_probe.config import ProbeConfig  # noqa: E402
+from montauri_probe.runner import run_with_probe  # noqa: E402
 
 SCRIPT = '''
 import sys
@@ -41,8 +41,8 @@ main()
 
 def _env(tmp_path):
     env = os.environ.copy()
-    env["OPENCHARM_PROBE_HOME"] = str(tmp_path / "home")
-    env.pop("OPENCHARM_PROBE_CONFIG", None)
+    env["MONTAURI_PROBE_HOME"] = str(tmp_path / "home")
+    env.pop("MONTAURI_PROBE_CONFIG", None)
     env["PYTHONIOENCODING"] = "utf-8"
     env["PYTHONUTF8"] = "1"
     return env
@@ -132,7 +132,7 @@ def test_cli_run_and_show(tmp_path):
     (tmp_path / "home").mkdir()
 
     r = subprocess.run(
-        [sys.executable, "-m", "opencharm_probe.cli", "run", str(script)],
+        [sys.executable, "-m", "montauri_probe.cli", "run", str(script)],
         capture_output=True, text=True, env=env, cwd=str(PROBE_ROOT),
         encoding="utf-8", errors="replace",
     )
@@ -140,7 +140,7 @@ def test_cli_run_and_show(tmp_path):
     assert "✓" in r.stdout
 
     r2 = subprocess.run(
-        [sys.executable, "-m", "opencharm_probe.cli", "show", "add", "--project",
+        [sys.executable, "-m", "montauri_probe.cli", "show", "add", "--project",
          str(script.parent)],
         capture_output=True, text=True, env=env, cwd=str(PROBE_ROOT),
         encoding="utf-8", errors="replace",
@@ -151,7 +151,7 @@ def test_cli_run_and_show(tmp_path):
 
     # JSON 输出（shell/Phase 3 消费接口）
     r3 = subprocess.run(
-        [sys.executable, "-m", "opencharm_probe.cli", "show", "--json", "--project",
+        [sys.executable, "-m", "montauri_probe.cli", "show", "--json", "--project",
          str(script.parent)],
         capture_output=True, text=True, env=env, cwd=str(PROBE_ROOT),
         encoding="utf-8", errors="replace",

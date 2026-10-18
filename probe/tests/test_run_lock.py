@@ -9,7 +9,7 @@ import os
 import time
 from pathlib import Path
 
-from opencharm_probe.autostart import (
+from montauri_probe.autostart import (
     _LOCK_MAX_AGE,
     _acquire_run_lock,
     _cleanup_stale_locks,

@@ -45,7 +45,7 @@ bench/reports/
 *.swp
 
 # 运行时产物（trace 库、bench 报告临时文件）
-~/.opencharm/
+~/.montauri/
 *.db
 *.db-wal
 *.db-shm

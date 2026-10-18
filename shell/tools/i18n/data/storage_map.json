@@ -5,7 +5,7 @@
   "删除": {"key": "storage.action.delete"},
   "全部清理": {"key": "storage.action.cleanAll"},
   "（全部 trace）": {"key": "storage.trace.allLabel"},
-  "uv（用户自有位置，OpenCharm 不代管）": {"key": "storage.uv.note"},
+  "uv（用户自有位置，Montauri 不代管）": {"key": "storage.uv.note"},
   "统计中…": {"key": "storage.state.measuring"},
   "占用统计失败：§": {"key": "storage.usageFailed", "params": ["error"]},
   "清理全部 trace 库": {"key": "storage.trace.cleanAllTitle"},

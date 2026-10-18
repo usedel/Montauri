@@ -541,7 +541,7 @@ pub async fn git_apply_hunk(
                 .map(|d| d.as_nanos())
                 .unwrap_or(0);
             let unique = format!(
-                ".opencharm-hunk-{now:x}-{pid:x}-{seq:x}.patch",
+                ".montauri-hunk-{now:x}-{pid:x}-{seq:x}.patch",
                 now = nanos,
                 pid = std::process::id(),
                 seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
@@ -1383,7 +1383,7 @@ mod tests {
     /// 为临时仓库设置仓库级提交身份：CI runner 不保证有全局 user.name/email，
     /// 任何会 `git commit` 的端到端测试都必须先调这个。
     fn set_repo_identity(root: &str) {
-        for (k, v) in [("user.name", "opencharm-test"), ("user.email", "test@opencharm.local")] {
+        for (k, v) in [("user.name", "montauri-test"), ("user.email", "test@montauri.local")] {
             let mut cfg = tool_command("git", ENV_GIT);
             cfg.arg("config").arg(k).arg(v);
             assert!(exec_git(root, cfg).is_ok(), "设置 {k} 失败");
@@ -1461,7 +1461,7 @@ filename a.py
     /// 在临时目录初始化一个 git 仓库，便于端到端验证命令层（需要环境已安装 git）。
     #[test]
     fn test_git_commands_roundtrip() {
-        let tmp = std::env::temp_dir().join("opencharm-git-cmds-test");
+        let tmp = std::env::temp_dir().join("montauri-git-cmds-test");
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
         let root = tmp.to_string_lossy().to_string();
@@ -1538,7 +1538,7 @@ filename a.py
     /// CR-06：validate_repo_relative 三类路径——`..` 穿越与绝对路径拒绝，正常相对路径放行。
     #[test]
     fn test_validate_repo_relative_rejects_traversal() {
-        let tmp = std::env::temp_dir().join("opencharm-path-guard-test");
+        let tmp = std::env::temp_dir().join("montauri-path-guard-test");
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(tmp.join("sub")).unwrap();
         std::fs::write(tmp.join("secret.txt"), "top-secret").unwrap();
@@ -1569,7 +1569,7 @@ filename a.py
     /// CR-06 端到端：git_diff_versions 对穿越路径返回 Err，正常路径返回内容。
     #[test]
     fn test_git_diff_versions_rejects_traversal() {
-        let tmp = std::env::temp_dir().join("opencharm-git-diff-guard-test");
+        let tmp = std::env::temp_dir().join("montauri-git-diff-guard-test");
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
         let root = tmp.to_string_lossy().to_string();
@@ -1584,13 +1584,13 @@ filename a.py
             return; // 环境无 git 时跳过
         }
         std::fs::write(tmp.join("a.py"), "print(1)\n").unwrap();
-        let secret = tmp.parent().unwrap().join("opencharm-git-diff-guard-secret.txt");
+        let secret = tmp.parent().unwrap().join("montauri-git-diff-guard-secret.txt");
         std::fs::write(&secret, "TOP-SECRET").unwrap();
 
         // 穿越路径：拒绝（绝不读出仓库外内容）
         let bad = tauri::async_runtime::block_on(git_diff_versions(
             root.clone(),
-            "../opencharm-git-diff-guard-secret.txt".into(),
+            "../montauri-git-diff-guard-secret.txt".into(),
             false,
             None,
             None,

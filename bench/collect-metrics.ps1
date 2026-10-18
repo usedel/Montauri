@@ -1,4 +1,4 @@
-﻿# OpenCharm bench 指标采集脚本（S1-T07；A-4 补项：长跑内存增长红线）
+﻿# Montauri bench 指标采集脚本（S1-T07；A-4 补项：长跑内存增长红线）
 # 用法：powershell -File bench/collect-metrics.ps1 [-Runs 3] [-SoakMinutes 10]
 # 产出：冷启动时间 + 内存（主进程 + WebView2 子进程）+ 可选长跑内存采样，
 #       写入 bench/reports/metrics-<date>.md；任一红线破则非零退出（供 CI 门禁复用）。
@@ -12,7 +12,7 @@
 
 param(
     [int]$Runs = 3,
-    [string]$Exe = "$PSScriptRoot\..\shell\src-tauri\target\release\opencharm-shell.exe",
+    [string]$Exe = "$PSScriptRoot\..\shell\src-tauri\target\release\montauri-shell.exe",
     [int]$SoakMinutes = 0
 )
 
@@ -45,7 +45,7 @@ function Get-TreeMemoryMB([System.Diagnostics.Process]$Proc) {
 $results = @()
 for ($i = 1; $i -le $Runs; $i++) {
     # 清理旧实例
-    Get-Process opencharm-shell -ErrorAction SilentlyContinue | Stop-Process -Force
+    Get-Process montauri-shell -ErrorAction SilentlyContinue | Stop-Process -Force
     Start-Sleep -Milliseconds 500
 
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
@@ -86,7 +86,7 @@ for ($i = 1; $i -le $Runs; $i++) {
     }
     Write-Host ("run {0}: startup={1}ms main={2}MB webview={3}MB total={4}MB" -f $i, $startupMs, $mainMb, $wvMb, $totalMb)
 
-    Get-Process opencharm-shell -ErrorAction SilentlyContinue | Stop-Process -Force
+    Get-Process montauri-shell -ErrorAction SilentlyContinue | Stop-Process -Force
 }
 
 # 汇总
@@ -101,7 +101,7 @@ $soakSamples = @()
 if ($SoakMinutes -gt 0) {
     Write-Host ""
     Write-Host ("=== 长跑内存采样（{0} 分钟，暖机 60s，每 30s 一采）===" -f $SoakMinutes)
-    Get-Process opencharm-shell -ErrorAction SilentlyContinue | Stop-Process -Force
+    Get-Process montauri-shell -ErrorAction SilentlyContinue | Stop-Process -Force
     Start-Sleep -Milliseconds 500
     $soakProc = Start-Process $exe -PassThru
     Start-Sleep -Seconds 60   # 暖机：等 Monaco / 引擎等子进程全部就位后再取基线
@@ -117,7 +117,7 @@ if ($SoakMinutes -gt 0) {
     }
     $lastMb = $soakSamples[-1].TotalMB
     $soakGrowthMb = $lastMb - $firstMb
-    Get-Process opencharm-shell -ErrorAction SilentlyContinue | Stop-Process -Force
+    Get-Process montauri-shell -ErrorAction SilentlyContinue | Stop-Process -Force
     Write-Host ("长跑内存增量: {0} MB（红线 <= 150 MB）" -f $soakGrowthMb)
 }
 

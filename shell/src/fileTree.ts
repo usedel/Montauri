@@ -50,7 +50,7 @@ export function setFileTreeHandlers(h: FileTreeHandlers): void {
 }
 
 function fh(): FileTreeHandlers {
-  if (!handlers) throw new Error("[OpenCharm] fileTree 尚未接线（setFileTreeHandlers 须在 init 中先于文件树交互）");
+  if (!handlers) throw new Error("[Montauri] fileTree 尚未接线（setFileTreeHandlers 须在 init 中先于文件树交互）");
   return handlers;
 }
 
@@ -78,7 +78,7 @@ const expandedDirs = new Set<string>();
 
 // ---------- 展开状态持久化（按工作区，localStorage；B 批体验项） ----------
 
-const TREE_EXPANDED_KEY_PREFIX = "opencharm.tree_expanded:";
+const TREE_EXPANDED_KEY_PREFIX = "montauri.tree_expanded:";
 /** G-1 红线：持久化必须有界——超出视为异常膨胀（如循环符号链接误展开），放弃落盘 */
 const MAX_PERSISTED_DIRS = 500;
 
@@ -780,7 +780,7 @@ export async function revealActiveFile(): Promise<void> {
 
 // ---------- B 批：切文件自动在树中定位（可关开关，localStorage 持久化） ----------
 
-const TREE_FOLLOW_KEY = "opencharm.tree_follow";
+const TREE_FOLLOW_KEY = "montauri.tree_follow";
 /** 默认开启；存 "0" 视为关闭（用户主动关过）。顶层取值兜底 try/catch——
  *  纯 Node 测试环境无 localStorage，import 不可即炸（CR-26 同款考虑） */
 let followActiveFile = (() => {

@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from opencharm_probe.compact import compact_type, shape_fingerprint, type_label  # noqa: E402
+from montauri_probe.compact import compact_type, shape_fingerprint, type_label  # noqa: E402
 
 MOD = __name__  # pytest 导入名（test_compact，无包前缀）
 

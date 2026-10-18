@@ -25,9 +25,9 @@ print("done")
 
 def _env(tmp_path):
     env = os.environ.copy()
-    env["OPENCHARM_PROBE_HOME"] = str(tmp_path / "home")
-    env["OPENCHARM_PROBE_AUTOSTART"] = "1"
-    env["OPENCHARM_PROBE_SCRIPT"] = str(tmp_path / "app.py")
+    env["MONTAURI_PROBE_HOME"] = str(tmp_path / "home")
+    env["MONTAURI_PROBE_AUTOSTART"] = "1"
+    env["MONTAURI_PROBE_SCRIPT"] = str(tmp_path / "app.py")
     env["PYTHONPATH"] = str(SRC)
     env["PYTHONIOENCODING"] = "utf-8"
     env["PYTHONUTF8"] = "1"
@@ -93,7 +93,7 @@ def test_inject_argv_guard(tmp_path):
     script.write_text("print('plain')\n", encoding="utf-8")
     (tmp_path / "home").mkdir()
     env = _env(tmp_path)
-    # OPENCHARM_PROBE_SCRIPT 指向 app.py，但实际运行另一个脚本
+    # MONTAURI_PROBE_SCRIPT 指向 app.py，但实际运行另一个脚本
     other = tmp_path / "other.py"
     other.write_text("print('other')\n", encoding="utf-8")
     r = subprocess.run(
@@ -102,7 +102,7 @@ def test_inject_argv_guard(tmp_path):
         encoding="utf-8", errors="replace",
     )
     assert r.returncode == 0
-    assert "opencharm-probe" not in r.stderr  # 未激活
+    assert "montauri-probe" not in r.stderr  # 未激活
 
 
 def test_no_autostart_noop(tmp_path):
@@ -110,7 +110,7 @@ def test_no_autostart_noop(tmp_path):
     script = tmp_path / "app.py"
     script.write_text("print('plain')\n", encoding="utf-8")
     env = os.environ.copy()
-    env.pop("OPENCHARM_PROBE_AUTOSTART", None)
+    env.pop("MONTAURI_PROBE_AUTOSTART", None)
     env["PYTHONPATH"] = str(SRC)
     env["PYTHONIOENCODING"] = "utf-8"
     r = subprocess.run(
@@ -120,7 +120,7 @@ def test_no_autostart_noop(tmp_path):
     )
     assert r.returncode == 0
     assert r.stdout.strip() == "plain"
-    assert "opencharm-probe" not in r.stderr
+    assert "montauri-probe" not in r.stderr
 
 
 def test_inject_old_python_skips_gracefully(tmp_path, monkeypatch):
@@ -132,16 +132,16 @@ def test_inject_old_python_skips_gracefully(tmp_path, monkeypatch):
     import contextlib
     import io
 
-    import opencharm_probe.autostart as autostart
+    import montauri_probe.autostart as autostart
 
     script = tmp_path / "app.py"
     script.write_text("print('ok')\n", encoding="utf-8")
     (tmp_path / "home").mkdir()
 
     # 激活注入路径（目标脚本存在 + argv[0] 守卫通过）
-    monkeypatch.setenv("OPENCHARM_PROBE_SCRIPT", str(script))
+    monkeypatch.setenv("MONTAURI_PROBE_SCRIPT", str(script))
     monkeypatch.setattr(sys, "argv", [str(script)])
-    monkeypatch.setenv("OPENCHARM_PROBE_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("MONTAURI_PROBE_HOME", str(tmp_path / "home"))
     # 伪装低版本（真元组：比较语义与 sys.version_info 一致）
     monkeypatch.setattr(autostart.sys, "version_info", (3, 11, 9, "final", 0))
     monkeypatch.setattr(autostart.sys, "version", "3.11.9 (fake)")
@@ -173,7 +173,7 @@ def test_inject_run_id_dedups_duplicate_summary(tmp_path):
         encoding="utf-8",
     )
     env = _env(tmp_path)
-    env["OPENCHARM_PROBE_RUN_ID"] = "run-dedup-1"
+    env["MONTAURI_PROBE_RUN_ID"] = "run-dedup-1"
 
     r = subprocess.run(
         [sys.executable, "-u", str(script)],

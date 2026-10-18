@@ -13,12 +13,12 @@ pub(crate) fn user_home() -> PathBuf {
         .unwrap_or_else(|_| PathBuf::from("."))
 }
 
-/// OpenCharm 数据根目录，进程内只探测一次（OnceLock 缓存）。
+/// Montauri 数据根目录，进程内只探测一次（OnceLock 缓存）。
 ///
 /// 决策顺序（三级，无便携形态，跨平台无注册表依赖）：
-/// 1. `OPENCHARM_DATA_ROOT` 环境变量（仅开发 / 测试 / 高级用户重定向，应用自身不写入）；
+/// 1. `MONTAURI_DATA_ROOT` 环境变量（仅开发 / 测试 / 高级用户重定向，应用自身不写入）；
 /// 2. 数据根指针文件（首启落位提示 / 迁移向导写入，见 `data_root_pointer`）；
-/// 3. 平台默认：Windows 为 `%LOCALAPPDATA%\OpenCharm`（Known Folders 惯例）。
+/// 3. 平台默认：Windows 为 `%LOCALAPPDATA%\Montauri`（Known Folders 惯例）。
 pub(crate) fn data_root() -> &'static PathBuf {
     static ROOT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
     ROOT.get_or_init(resolve_data_root)
@@ -26,35 +26,49 @@ pub(crate) fn data_root() -> &'static PathBuf {
 
 /// 数据根指针文件目录：平台标准配置目录（与数据根解耦——指针只有几十字节，
 /// 落在系统盘无妨；真正的大体积数据按指针指向落盘，跨平台无注册表/环境变量依赖）。
-/// Windows: `%APPDATA%\OpenCharm`；Linux: `$XDG_CONFIG_HOME/opencharm`；
-/// macOS: `~/Library/Application Support/OpenCharm`。
+/// Windows: `%APPDATA%\Montauri`；Linux: `$XDG_CONFIG_HOME/montauri`；
+/// macOS: `~/Library/Application Support/Montauri`。
 pub(crate) fn pointer_dir() -> PathBuf {
     #[cfg(windows)]
     {
         std::env::var("APPDATA")
-            .map(|d| PathBuf::from(d).join("OpenCharm"))
-            .unwrap_or_else(|_| user_home().join("AppData").join("Roaming").join("OpenCharm"))
+            .map(|d| PathBuf::from(d).join("Montauri"))
+            .unwrap_or_else(|_| user_home().join("AppData").join("Roaming").join("Montauri"))
     }
     #[cfg(target_os = "macos")]
     {
-        user_home().join("Library").join("Application Support").join("OpenCharm")
+        user_home().join("Library").join("Application Support").join("Montauri")
     }
     #[cfg(all(not(windows), not(target_os = "macos")))]
     {
         std::env::var("XDG_CONFIG_HOME")
-            .map(|d| PathBuf::from(d).join("opencharm"))
-            .unwrap_or_else(|_| user_home().join(".config").join("opencharm"))
+            .map(|d| PathBuf::from(d).join("montauri"))
+            .unwrap_or_else(|_| user_home().join(".config").join("montauri"))
     }
 }
 
 /// 数据根指针文件（内容 = 数据根绝对路径；不存在 = 用平台默认）。
+/// v1「OpenCharm」→ v2「Montauri」一次性迁移：旧指针存在则复制过来，
+/// 保住自定义数据根用户的指向（复制而非搬移，旧文件留着无害）。
 pub(crate) fn data_root_pointer() -> PathBuf {
-    pointer_dir().join("data-root")
+    let p = pointer_dir().join("data-root");
+    if !p.exists() {
+        if let Some(parent) = pointer_dir().parent() {
+            for legacy in ["OpenCharm", "opencharm"] {
+                let lp = parent.join(legacy).join("data-root");
+                if lp.is_file() {
+                    let _ = std::fs::copy(&lp, &p);
+                    break;
+                }
+            }
+        }
+    }
+    p
 }
 
 fn resolve_data_root() -> PathBuf {
     // 1. 显式环境变量覆盖（仅开发 / 测试 / 高级用户，应用自身不写入环境变量）
-    if let Ok(dir) = std::env::var("OPENCHARM_DATA_ROOT") {
+    if let Ok(dir) = std::env::var("MONTAURI_DATA_ROOT") {
         let p = PathBuf::from(dir.trim());
         if !p.as_os_str().is_empty() {
             return p;
@@ -67,28 +81,43 @@ fn resolve_data_root() -> PathBuf {
             return p;
         }
     }
-    // 3. 平台默认：Known Folders（Windows %LOCALAPPDATA%\OpenCharm）
-    std::env::var("LOCALAPPDATA")
-        .map(|d| PathBuf::from(d).join("OpenCharm"))
-        .unwrap_or_else(|_| user_home().join("OpenCharm"))
+    // 3. 平台默认：Known Folders（Windows %LOCALAPPDATA%\Montauri）
+    let root = std::env::var("LOCALAPPDATA")
+        .map(|d| PathBuf::from(d).join("Montauri"))
+        .unwrap_or_else(|_| user_home().join("Montauri"));
+    // v1「OpenCharm」→ v2「Montauri」一次性迁移：旧根存在且新根不存在时整体搬移，
+    // 保住既有 trace 库 / 配置 / 日志（probe 经 MONTAURI_PROBE_HOME 环境变量跟随新根）。
+    // 失败静默——不影响启动，最坏后果是重新采集。
+    if !root.exists() {
+        for legacy in ["OpenCharm", "opencharm", ".opencharm"] {
+            let old = std::env::var("LOCALAPPDATA")
+                .map(|d| PathBuf::from(d).join(legacy))
+                .unwrap_or_else(|_| user_home().join(legacy));
+            if old.is_dir() {
+                let _ = std::fs::rename(&old, &root);
+                break;
+            }
+        }
+    }
+    root
 }
 
-/// OpenCharm 用户数据根（即 data_root）。
+/// Montauri 用户数据根（即 data_root）。
 /// 各模块在此目录下按功能划分子目录（config/ workspaces/ recent/ traces/
 /// runtime/ webview/ logs/），不要把文件平铺到根目录。
-pub(crate) fn opencharm_home() -> PathBuf {
+pub(crate) fn montauri_home() -> PathBuf {
     data_root().to_path_buf()
 }
 
 /// WebView2 用户数据目录（localStorage / Cookie / 缓存落盘位置，仅 Windows WebView2 使用）。
 #[cfg(windows)]
 pub(crate) fn webview_data_dir() -> PathBuf {
-    opencharm_home().join("webview")
+    montauri_home().join("webview")
 }
 
 /// 诊断日志目录（按天轮转，保留 14 天，见 logging.rs）。
 pub(crate) fn logs_dir() -> PathBuf {
-    opencharm_home().join("logs")
+    montauri_home().join("logs")
 }
 
 /// Windows 下为子进程附加 CREATE_NO_WINDOW，避免弹出控制台窗口；其他平台原样返回。

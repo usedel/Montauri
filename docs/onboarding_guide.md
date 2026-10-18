@@ -1,7 +1,7 @@
-# OpenCharm 新手指南
+# Montauri 新手指南
 
 > 版本：v1.0 · 日期：2026-09-30（随 PR-S1 交付）· 状态：**已交付**
-> 面向第一次使用 OpenCharm 的你。从零到跑通第一个 Python 程序，大约需要三分钟。
+> 面向第一次使用 Montauri 的你。从零到跑通第一个 Python 程序，大约需要三分钟。
 > **本文档是 `docs/onboarding_dev_plan.md` v1.3 的 PR-S1 产物**：源文件经 Vite `?raw` 打包（`shell/src/welcomeGuide.ts:24`），由 `openOnboardingGuide()` 写入数据根 `docs/` 后打开并渲染 Markdown 预览——**每次打开都从仓库最新版覆写，无版本陈旧问题**。
 > 入口三处：帮助菜单「新手指南」· 命令面板搜「新手指南」· 欢迎页「查看完整指南」链接。
 > 修改本文档后**无需额外构建步骤**（?raw 走 Vite 依赖图，热更新即生效）；新增功能发现条目请同时更新 `shell/src/welcomeGuide.ts` 的巡礼策展数据（单一数据源纪律见计划 §2.0）。
@@ -42,16 +42,16 @@
 
 ## 2. uv 速查卡
 
-### 为什么 OpenCharm 用 uv
+### 为什么 Montauri 用 uv
 
 - **快**：Rust 实现，装包比 pip 快一个量级，自带全局缓存；
 - **省心**：`uv run` 按声明自动同步环境再执行，没有「装了忘了」的漂移；
 - **托管解释器**：`uv venv` / `uv python install` 让你不必手动去官网下载 Python；
-- **统一**：OpenCharm 界面上所有「安装」按钮内部就是 uv，终端里也能直接用。
+- **统一**：Montauri 界面上所有「安装」按钮内部就是 uv，终端里也能直接用。
 
 ### 命令对照表
 
-| 你习惯的 pip 命令 | OpenCharm 推荐 | 说明 |
+| 你习惯的 pip 命令 | Montauri 推荐 | 说明 |
 |---|---|---|
 | `pip install requests` | `uv add requests` | 写入 pyproject 声明 + 更新 uv.lock |
 | `pip install requests`（不想写声明） | `uv pip install requests` | 语法与 pip 相同，更快 |
@@ -60,7 +60,7 @@
 | `pip list --outdated` | `uv pip list --outdated` | |
 | `python main.py` | `uv run main.py` | 自动按声明同步环境 |
 
-**一句话边界**：OpenCharm 内所有「安装」按钮内部就是 uv；终端里敲 pip 也能用，只是慢且不写声明。
+**一句话边界**：Montauri 内所有「安装」按钮内部就是 uv；终端里敲 pip 也能用，只是慢且不写声明。
 
 ---
 
@@ -90,7 +90,7 @@
 ## 4. 常见问题
 
 **Q：中文输入法下 Ctrl+Space 没有弹出补全？**
-中文 IME 会吞掉 Ctrl+Space（切输入法的系统级冲突），OpenCharm 提供备选键 `Alt+/` 触发补全建议。
+中文 IME 会吞掉 Ctrl+Space（切输入法的系统级冲突），Montauri 提供备选键 `Alt+/` 触发补全建议。
 
 **Q：首启时数据放在哪个目录？**
 帮助菜单 **打开数据目录** 可直接查看。设置、缓存、日志都在里面，首次启动会有落位提示。

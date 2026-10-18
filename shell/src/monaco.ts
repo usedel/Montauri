@@ -139,7 +139,7 @@ window.addEventListener("unhandledrejection", (e) => {
   if (reason?.name === "Canceled" || reason?.message === "Canceled") e.preventDefault();
 });
 
-// --- 自定义主题 opencharm-dark / opencharm-light（ui_premium 批 4 · 设计报告 §5.4）---
+// --- 自定义主题 montauri-dark / montauri-light（ui_premium 批 4 · 设计报告 §5.4）---
 //
 // 改造前编辑器跑的是 Monaco 出厂 vs-dark / vs，与外壳 token 系统不同源——占屏 60–70% 的区域
 // 颜色全部来自出厂主题，是「拼装感」的最大来源。

@@ -2,7 +2,7 @@
 
 This file provides guidance to coding agents when working with code in this repository.
 
-OpenCharm 是面向「FastAPI + 爬虫 + 小脚本」开发者的**高性能 · 轻量 Python IDE**。现行技术方案 `docs/python_ide_tech_plan_v3.md`，现行开发计划 `docs/python_ide_dev_plan_v2.md`（两者冲突时以开发计划为准）。
+Montauri 是面向「FastAPI + 爬虫 + 小脚本」开发者的**高性能 · 轻量 Python IDE**。现行技术方案 `docs/python_ide_tech_plan_v3.md`，现行开发计划 `docs/python_ide_dev_plan_v2.md`（两者冲突时以开发计划为准）。
 
 > 定位变更（2026-10-05）：原「单人自用」定位作废，**性能与体积升为一等目标**（与功能正确性同权），章程见 `docs/adr/0010-performance-lightweight-charter.md`。目标用户画像**不变**（FastAPI + 爬虫 + 小脚本），既有功能裁决继续成立。
 
@@ -25,7 +25,7 @@ CodeBuddy 自动加载 `RULE.mdc` 全文；其他 agent 遵循以下内联的架
 |---|---|
 | 外壳 | Tauri 2 + Monaco（取代原 Zed 方案） |
 | 静态语义 | Pyrefly（默认）/ basedpyright（备选），首日可切换 |
-| 运行时 | PEP 669 `sys.monitoring` 采样 + 自研运行时 LSP `opencharm-intel`（Phase 3） |
+| 运行时 | PEP 669 `sys.monitoring` 采样 + 自研运行时 LSP `montauri-intel`（Phase 3） |
 | 调试 | debugpy（随应用打包分发，版本锁 `ci/versions.toml`）+ 自研轻量 DAP 桥（ADR-0004，stdio adapter 模式） |
 | 功能范围 | 补全 / 跳转 / Hover / 诊断 + 脚本运行与 traceback 点击跳转 + 调试（断点 / 单步 / 调用栈 / 变量，最小闭环）+ 测试运行器（pytest：发现 / 侧栏测试树 / 绿箭头逐用例运行调试 / 失败跳转，`docs/pytest_dev_plan.md`；**独立结果面板 / 覆盖率 / watch 不做**） |
 
@@ -57,7 +57,7 @@ CodeBuddy 自动加载 `RULE.mdc` 全文；其他 agent 遵循以下内联的架
 - 类型紧凑表示**绝不 repr 值本身**；trace 库 `shape` 列存**空串而非 NULL**（SQLite 唯一约束对 NULL 不生效，否则 upsert 失效）。
 - `_active` 计数**禁止在 RAISE 回调里递减**，只能在关窗决策点用 `_sync_active()` 从调用栈重算；改 `monitor` 必须跑 `test_monitor` 回归。
 - trace 库读写设 `busy_timeout`，写库加 WAL + `synchronous=NORMAL`；wheel 打包必须含顶层 `sitecustomize.py`；argv[0] 守卫用 `os.path.normcase` 归一。
-- **不侵入原则**：`OPENCHARM_PROBE_AUTOSTART=1` 才激活，未设置零介入；探针任何失败只打警告，**不改写用户进程退出码**。
+- **不侵入原则**：`MONTAURI_PROBE_AUTOSTART=1` 才激活，未设置零介入；探针任何失败只打警告，**不改写用户进程退出码**。
 
 ### Rust 规范核心红线（全文见 `.codebuddy/rules/rust-code-style/RULE.mdc`）
 
@@ -105,8 +105,8 @@ cd shell/src-tauri && cargo build            # debug
 cargo test
 
 # intel（运行时 LSP）——联调 shell 前必须 build 而非 test
-cd intel && cargo build -p opencharm-intel   # cargo test 不刷新 shell 调用的 exe
-cargo build -p opencharm-intel --release     # 打包/性能验收用
+cd intel && cargo build -p montauri-intel   # cargo test 不刷新 shell 调用的 exe
+cargo build -p montauri-intel --release     # 打包/性能验收用
 cargo test                                   # 单测（intel workspace：60 例 = 47 + 6 + 7）
 
 # probe（运行时探针，Python 3.13.7，uv 管理）
@@ -129,7 +129,7 @@ powershell -File shell\e2e-real\run-real-all.ps1 -Only http-real       # 单套�
 cd shell/src-tauri && cargo test --release bench_dep_scan -- --ignored --nocapture
 ```
 
-安装包输出在 `shell/src-tauri/target/release/bundle/nsis/`。日志落盘 `~/.opencharm/logs/opencharm.log`。
+安装包输出在 `shell/src-tauri/target/release/bundle/nsis/`。日志落盘 `~/.montauri/logs/montauri.log`。
 
 ## 整体架构
 
@@ -137,8 +137,8 @@ cd shell/src-tauri && cargo test --release bench_dep_scan -- --ignored --nocaptu
 
 ```
 shell/   Tauri 2 + Monaco 外壳（前端 Vanilla TS + Vite；后端 Rust src-tauri）
-probe/   opencharm-probe：PEP 669 sys.monitoring 运行时采样（独立 Python 包）
-intel/   opencharm-intel：消费 trace 库的运行时智能 LSP（独立 Rust 进程，stdio）
+probe/   montauri-probe：PEP 669 sys.monitoring 运行时采样（独立 Python 包）
+intel/   montauri-intel：消费 trace 库的运行时智能 LSP（独立 Rust 进程，stdio）
 bench/   基准项目集（sample/errors、unannotated_scraper、large_repo 等）+ 指标采集
 ci/      版本锁定基线 versions.toml
 tools/   构建辅助（fetch-debugpy.ps1 按 sha256 拉取打包 debugpy → vendor/debugpy/，不入库）
@@ -147,9 +147,9 @@ docs/    方案 / 开发计划 / ADR / 验收记录（新旧版本文档冲突�
 
 ### 数据流（核心闭环）
 
-1. **运行采集**：shell 点击运行 → `src-tauri/src/terminal.rs`（portable-pty 多会话 PTY）→ `run_env.rs::build_run_env` 注入环境变量（`PYTHONPATH` 前置 probe/src + `OPENCHARM_PROBE_AUTOSTART=1`）；
-2. **probe**（`probe/src/opencharm_probe/`）：发现窗口 + 局部事件 arm + 降采样，把运行时类型观测（紧凑表示：`dict[str, int]`、shape 指纹，绝不 repr 值）写入 SQLite trace 库 `~/.opencharm/traces/<project-hash>.db`；
-3. **intel**（`intel/opencharm-intel-index/src/`）：只读打开 trace 库建倒排索引，提供补全/跳转/hover/inlay（LSP stdio）；
+1. **运行采集**：shell 点击运行 → `src-tauri/src/terminal.rs`（portable-pty 多会话 PTY）→ `run_env.rs::build_run_env` 注入环境变量（`PYTHONPATH` 前置 probe/src + `MONTAURI_PROBE_AUTOSTART=1`）；
+2. **probe**（`probe/src/montauri_probe/`）：发现窗口 + 局部事件 arm + 降采样，把运行时类型观测（紧凑表示：`dict[str, int]`、shape 指纹，绝不 repr 值）写入 SQLite trace 库 `~/.montauri/traces/<project-hash>.db`；
+3. **intel**（`intel/montauri-intel-index/src/`）：只读打开 trace 库建倒排索引，提供补全/跳转/hover/inlay（LSP stdio）；
 4. **shell LSP 桥**：`src-tauri/src/lsp.rs`（Rust 侧 spawn + 帧解析，engine 键区分 static/intel）+ `src/lsp/client.ts`（TS 侧 JSON-RPC + Monaco providers）。
 
 **关键 hash 对齐**：`project_hash` 两端必须一致——Rust `fs::canonicalize` 在 Windows 返回 `\\?\` verbatim 前缀 + 大小写不敏感，probe 用 `os.path.realpath` + `os.path.normcase`；对齐逻辑在 `shell/src-tauri/src/file_ops.rs::strip_verbatim_prefix`，改动路径处理时不得破坏。同理 `lsp.rs::lsp_start` 必须给静态引擎传 `cwd`（workspaceRoot），否则 pyrefly 发现不了 `pyproject.toml`，references/rename 只覆盖已打开文件。
@@ -163,7 +163,7 @@ docs/    方案 / 开发计划 / ADR / 验收记录（新旧版本文档冲突�
 - 前端 `shell/src/`：`main.ts`（生命周期/接线胶水）、`state.ts`（AppState 跨域上下文）、`views.ts`（侧栏视图注册表）、`fileTree.ts`、`git.ts`、`termUi.ts`/`terminal.ts`、`search.ts`（ripgrep）、`live-templates/`（三层配置合并 + 表达式引擎）、`lsp/client.ts`、`dap/client.ts`、`devtools/`（插件）、i18n 语言包。
 - 后端 `shell/src-tauri/src/`：`lib.rs`（命令注册）、`lsp.rs`（LSP 桥）、`dap.rs`（debugpy DAP 桥，stdio adapter）、`fs_cmds.rs`、`file_ops.rs`、`git_cmds.rs`/`git_status.rs`、`terminal.rs`（统一 PTY 运行入口）、`run_env.rs`（运行环境装配单一来源）、`tool_paths.rs`（uv/pyrefly/ruff/git 定位）、`toolchain.rs`（首启环境引导）、`settings.rs`、`util.rs`（data_root/no_window/kill_process_tree）。
 - 打包自研组件经 `tauri.conf.json bundle.resources` 进安装包，运行时四级查找：环境变量 → `<data_root>/runtime` → Tauri 资源目录 → dev 仓库布局。
-- 数据根默认 `%LOCALAPPDATA%\OpenCharm`（`OPENCHARM_DATA_ROOT` 可重定向）。
+- 数据根默认 `%LOCALAPPDATA%\Montauri`（`MONTAURI_DATA_ROOT` 可重定向）。
 
 ## 领域约定
 

@@ -1,0 +1,21 @@
+[package]
+name = "montauri-intel"
+version = "0.1.0"
+edition = "2021"
+description = "Montauri runtime intelligence LSP (Phase 3) — 消费 probe 的 SQLite trace 库，提供运行时补全/跳转/hover"
+license = "MIT"
+
+[[bin]]
+name = "montauri-intel"
+path = "src/main.rs"
+
+[dependencies]
+tower-lsp = "0.20.0"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std"] }
+serde_json = "1"
+parking_lot = "0.12"
+montauri-intel-index = { path = "../montauri-intel-index" }
+
+[dev-dependencies]
+rusqlite = { version = "0.32", features = ["bundled"] }
+tempfile = "3"

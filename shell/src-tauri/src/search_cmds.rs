@@ -1192,7 +1192,7 @@ mod tests {
 
     fn tmpdir(tag: &str) -> PathBuf {
         let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-        let d = std::env::temp_dir().join(format!("opencharm-search-{tag}-{nanos}"));
+        let d = std::env::temp_dir().join(format!("montauri-search-{tag}-{nanos}"));
         fs::create_dir_all(&d).unwrap();
         d
     }
@@ -1437,7 +1437,7 @@ mod tests {
 
     #[test]
     fn scan_todos_rejects_missing_root() {
-        let missing = std::env::temp_dir().join("opencharm-scan-todos-missing-dir");
+        let missing = std::env::temp_dir().join("montauri-scan-todos-missing-dir");
         assert!(scan_todos_impl(&missing.to_string_lossy()).is_err());
     }
 
@@ -1576,7 +1576,7 @@ mod tests {
 
     #[test]
     fn scan_import_aliases_rejects_missing_root() {
-        let missing = std::env::temp_dir().join("opencharm-import-alias-missing-dir");
+        let missing = std::env::temp_dir().join("montauri-import-alias-missing-dir");
         assert!(scan_import_aliases_impl(&missing.to_string_lossy()).is_err());
     }
 
@@ -1794,7 +1794,7 @@ mod tests {
 
     #[test]
     fn list_workspace_files_rejects_missing_root() {
-        let missing = std::env::temp_dir().join("opencharm-file-list-missing-dir");
+        let missing = std::env::temp_dir().join("montauri-file-list-missing-dir");
         assert!(list_workspace_files_impl(&missing.to_string_lossy()).is_err());
     }
 }

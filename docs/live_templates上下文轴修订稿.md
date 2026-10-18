@@ -1,4 +1,4 @@
-# OpenCharm Live Templates 上下文位置轴修订稿
+# Montauri Live Templates 上下文位置轴修订稿
 
 > 版本：v1.1 · 日期：2026-08-25 · 状态：已实现（相位 A/B 落地，实现注记见 §8/§9；相位 C 为可选项，待 LSP AST 成熟再评估）
 > 上游文档：live templates 重构方案 v1.0（M1-M4 已交付，文档已归档）
@@ -102,7 +102,7 @@ classify(model, position, symbols) -> SyntaxContext
 
 ### 3.1 可替换性承诺（对齐 PyCharm ContextType 扩展点）
 
-`PositionClassifier` 是**可替换实现**：v1.1 用启发式扫描；将来换 LSP AST（`opencharm-intel` Phase 3）或 tree-sitter，只替换 `classify` 的实现，**模板模型与查询面均不动**。这是「根治」而非「多写一条 if」的本质——判定器是插件点，模型是稳定边界。
+`PositionClassifier` 是**可替换实现**：v1.1 用启发式扫描；将来换 LSP AST（`montauri-intel` Phase 3）或 tree-sitter，只替换 `classify` 的实现，**模板模型与查询面均不动**。这是「根治」而非「多写一条 if」的本质——判定器是插件点，模型是稳定边界。
 
 ## 4. Registry / 查询面修订（§5.2 / 各查询）
 

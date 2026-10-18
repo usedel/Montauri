@@ -1,4 +1,4 @@
-# OpenCharm 体积 / 规模预算基线（P1-3 已交付，编号存档于 improvement_and_roadmap_report.md 附二）
+# Montauri 体积 / 规模预算基线（P1-3 已交付，编号存档于 improvement_and_roadmap_report.md 附二）
 #
 # 纪律：
 #   · 阈值 = 当前实测值 + 明确余量，**只允许通过显式 PR 修改本文件**，不允许脚本自动抬阈值。
@@ -145,7 +145,7 @@ main_ts_max_lines = 2440
 
 # helpDocs.ts（帮助菜单「帮助文档」入口，2026-10-11 新增）：49 → 70 行（同日加中英双语路由）。
 #   上限 90（余量 ~22%）。
-#   范围：按界面语言选正文（en → `opencharm-help.en.md`，其余 → `opencharm-help.md`；本语 404 回落中文）
+#   范围：按界面语言选正文（en → `montauri-help.en.md`，其余 → `montauri-help.md`；本语 404 回落中文）
 #   → fetch 内置静态正文（`shell/public/help/`，**不进前端 JS 包**——2026-10-11 时总量预算余量仅
 #   ~18 KB，正文 ?raw 内联必顶穿（现余量 ~14 KB 同样如此）；放 public/ 则构建后落 dist/help/
 #   而非 dist/assets/，不计体积，与 public/fonts 同一条「self 同源静态」路径）→ get_data_doc_path + write_file 落盘数据根
@@ -433,11 +433,11 @@ test_run_ts_max_lines = 470
 #   预估 ~150。上限 200（小文件按绝对行数给余量，同 hotspots.css 口径）。
 styles_testtree_css_max_lines = 200
 
-# —— intel crate（opencharm-intel 独立 LSP 包）——
+# —— intel crate（montauri-intel 独立 LSP 包）——
 # 该 crate 此前**完全在预算面之外**；A3 首次让它显著增长（completion.rs 1,114 → 1,618）。
 # 按 endpointView.ts 的「首次登记」先例，逐轮登记**本轮增长 / 新增**的文件，其余（type_infer /
 # definition / diagnostics / inlay / main）待后续按同一口径补登——**不假装整个 crate 已覆盖**。
-# 注意：`trace.rs` 属另一个 crate（opencharm-intel-index），同样未纳入。
+# 注意：`trace.rs` 属另一个 crate（montauri-intel-index），同样未纳入。
 #
 # completion.rs（A3① 调用实参补全 +519 · A3③ 抽出共用 `call_frame_at` +40）：1,672 → 1,943（TD-027
 #   复核期测试扩充）→ 1,729（C3 拆出 call_context.rs）→ **849（2026-10-10 P1 调用链批：

@@ -25,7 +25,7 @@
  * 且同一文件既是本次结论也是下次对比基线。
  *
  * 实现要点（沿既有真机验收经验）：
- *   - 隔离数据根 OPENCHARM_DATA_ROOT + 预置 config/recent-workspaces.json
+ *   - 隔离数据根 MONTAURI_DATA_ROOT + 预置 config/recent-workspaces.json
  *     （Node 写入天然无 BOM，规避 PS Set-Content 带 BOM 被 serde 静默拒读的坑）；
  *   - WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=<port> 打开 CDP；
  *   - Playwright connectOverCDP 驱动真实窗口；
@@ -73,7 +73,7 @@ function writeJsonSummary(meta) {
   const failed = results.filter((r) => !r.ok).length;
   const error = meta.error || null;
   const payload = {
-    schema: 'opencharm-e2e-real-summary/1',
+    schema: 'montauri-e2e-real-summary/1',
     suite: meta.suite || 'unknown',
     at: new Date().toISOString(),
     // 有用例失败或预检/运行中断（error）都算不通过；「0 项 + 无 error」视为空跑，判 false 以免被误当通过
@@ -425,7 +425,7 @@ async function runWithRealApp(options, checks) {
     stdio: ['ignore', logFd, logFd],
     env: {
       ...process.env,
-      OPENCHARM_DATA_ROOT: dataRoot,
+      MONTAURI_DATA_ROOT: dataRoot,
       WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${o.cdpPort}`,
     },
   });

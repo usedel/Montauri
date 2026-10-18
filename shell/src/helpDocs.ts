@@ -1,11 +1,11 @@
 // 帮助文档入口（帮助菜单 → 帮助文档）。
 //
-// 形态：正文是随包分发的静态 Markdown（`shell/public/help/opencharm-help{,.en}.md`），**不进前端 JS 包**——
+// 形态：正文是随包分发的静态 Markdown（`shell/public/help/montauri-help{,.en}.md`），**不进前端 JS 包**——
 // 前端 JS+CSS 产物体积预算（ci/budgets.toml `max_bundle_kb`）余量极小，正文用 `?raw` 内联会直接顶穿；
 // 放 public/ 则 dev/prod 同由「self」同源静态服务（与 public/fonts 的 `/fonts/...` 同一条路径，
 // CSP 无需放开），构建后落在 dist/help/ 而非 dist/assets/，不计入 JS+CSS 体积。
 //
-// 语言：按**当前界面语言**选正文（en-US → `opencharm-help.en.md`，其余 → 中文 `opencharm-help.md`）；
+// 语言：按**当前界面语言**选正文（en-US → `montauri-help.en.md`，其余 → 中文 `montauri-help.md`）；
 // 本语缺失（未随包分发）时回落中文，保证入口永远可用。两份正文落盘为两个不同文件名，
 // 故中英文可各开一个预览 Tab 互不覆盖。
 //
@@ -22,7 +22,7 @@ import { localizeBackendError } from "./i18n/backendError";
 import { toast } from "./toast";
 import { errMsg } from "./util";
 
-const HELP_DOC_BASE = "opencharm-help";
+const HELP_DOC_BASE = "montauri-help";
 /** 中文正文文件名（兜底） */
 const HELP_DOC_ZH = `${HELP_DOC_BASE}.md`;
 

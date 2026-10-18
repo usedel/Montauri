@@ -14,7 +14,7 @@
  *   node scripts/ui-baseline.mjs --tag x --out D:\some\dir
  *
  * 产物：<out>/<tag>/<theme>-<view>.png，共 8 张（深/浅 × 编辑区/侧栏/终端/设置）。
- * 默认 out = %TEMP%\opencharm-ui-baseline（**必须落系统 TEMP**：工作区路径会触发
+ * 默认 out = %TEMP%\montauri-ui-baseline（**必须落系统 TEMP**：工作区路径会触发
  * safe-delete 批量删除确认门槛，见 playwright.config.ts outputDir 同款约束）。
  */
 import { spawn } from "node:child_process";
@@ -32,7 +32,7 @@ const VIEWPORT = { width: 1440, height: 900 };
 /** 样例文件：覆盖语法高亮（类/装饰器/字符串/数字）、缩进参考线、行号栏 */
 const FIXTURE_FILES = {
   "main.py": [
-    '"""OpenCharm UI 基线样例。"""',
+    '"""Montauri UI 基线样例。"""',
     "from dataclasses import dataclass",
     "",
     "@dataclass",
@@ -63,7 +63,7 @@ const FIXTURE_FILES = {
     "TAGS = (\"ui\", \"baseline\")",
     "",
   ].join("\n"),
-  "README.md": "# OpenCharm\n\nUI 基线截图样例工作区。\n",
+  "README.md": "# Montauri\n\nUI 基线截图样例工作区。\n",
   "data/config.json": '{\n  "theme": "dark",\n  "fontSize": 14\n}\n',
 };
 
@@ -80,7 +80,7 @@ const GIT_STATUS = {
 };
 
 function parseArgs(argv) {
-  const out = { tag: "baseline", out: join(tmpdir(), "opencharm-ui-baseline"), probeFonts: false };
+  const out = { tag: "baseline", out: join(tmpdir(), "montauri-ui-baseline"), probeFonts: false };
   for (let i = 2; i < argv.length; i += 1) {
     const a = argv[i];
     if (a === "--tag") out.tag = argv[++i];
@@ -129,7 +129,7 @@ async function ensureDevServer() {
 
 /** 样例工作区（真实磁盘：文件树/编辑器读的是真文件） */
 function makeFixture() {
-  const root = join(tmpdir(), "opencharm-ui-baseline-ws");
+  const root = join(tmpdir(), "montauri-ui-baseline-ws");
   if (existsSync(root)) rmSync(root, { recursive: true, force: true });
   for (const [rel, content] of Object.entries(FIXTURE_FILES)) {
     const abs = join(root, rel);
@@ -195,10 +195,10 @@ async function closeSettings(page) {
   await page.locator("#settings-modal").waitFor({ state: "hidden", timeout: 10_000 });
 }
 
-/** 编辑器主题名（批 4 起是自定义名 opencharm-*，与 src/theme/tokens.ts 常量一致）。
+/** 编辑器主题名（批 4 起是自定义名 montauri-*，与 src/theme/tokens.ts 常量一致）。
  *  ⚠ 这里写死字面量而非 import TS：脚本是纯 Node 工具，不走 vite。漂移由
  *  __tests__/themeTokens.test.ts 的「基线截图脚本的卡片选择器用新名」断言兜住。 */
-const EDITOR_THEME = { dark: "opencharm-dark", light: "opencharm-light" };
+const EDITOR_THEME = { dark: "montauri-dark", light: "montauri-light" };
 
 /** 走真实链路切主题（设置 → 外观 → 色卡 → 保存），与 themePicker.ts 的 radiogroup 语义一致。
  *  仅作备用路径；主路径是每套主题一个独立页面 + __E2E_SETTINGS_PRESET__（见 main）。 */

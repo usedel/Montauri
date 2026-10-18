@@ -132,7 +132,7 @@ function requirePerm(perms: string[], perm: string, method: string): void {
 /** 构造 BaseHost（权限门控）；storage 按插件 id 命名空间隔离 */
 function createBaseHost(manifest: PluginManifest, pluginDir: string, deps: FacadeDeps): BaseHost {
   const perms = manifest.permissions ?? [];
-  const ns = `opencharm.plugin.${manifest.id}.`;
+  const ns = `montauri.plugin.${manifest.id}.`;
   return {
     toast: (msg, kind, action) =>
       toast(msg, kind === "error" ? "error" : kind === "ok" ? "success" : "info", action ? { actionLabel: action.label, onAction: action.run } : {}),
@@ -243,7 +243,7 @@ export function createInlineHost(manifest: PluginManifest, pluginDir: string, de
 
 /** 清理插件 storage 命名空间（停用/卸载时由 loader 调用，§9.4） */
 export function clearPluginStorage(pluginId: string): void {
-  const ns = `opencharm.plugin.${pluginId}.`;
+  const ns = `montauri.plugin.${pluginId}.`;
   const keys: string[] = [];
   for (let i = 0; i < localStorage.length; i++) {
     const k = localStorage.key(i);

@@ -49,7 +49,7 @@ export type EngineStatus = "off" | "starting" | "ready" | "error" | "exited";
 
 let nextRequestId = 1;
 
-/** 引擎会话：每个引擎实例独立 pending 与状态（"static" = pyrefly/basedpyright，"intel" = opencharm-intel）。 */
+/** 引擎会话：每个引擎实例独立 pending 与状态（"static" = pyrefly/basedpyright，"intel" = montauri-intel）。 */
 interface EngineSession {
   engine: string;
   status: EngineStatus;
@@ -307,8 +307,8 @@ async function doEnsureListeners(): Promise<void> {
 export async function startEngine(engine: string, rootUri: string, interpreter: string | null, cwd?: string): Promise<void> {
   await stopEngine();
   setEngineStatus("starting");
-  // 阶段 4 子项 1c：owner 感知清空——只清静态引擎桶（opencharm-lsp），
-  // opencharm-intel / opencharm-pydantic 等自研桶不随引擎切换失效
+  // 阶段 4 子项 1c：owner 感知清空——只清静态引擎桶（montauri-lsp），
+  // montauri-intel / montauri-pydantic 等自研桶不随引擎切换失效
   //（pydantic 诊断不属于任何静态引擎，切引擎丢它是语义错误）。
   clearEngineDiagnostics();
   currentEngine = engine;
@@ -364,7 +364,7 @@ export async function startEngine(engine: string, rootUri: string, interpreter: 
   session("static").status = "ready";
   flushStartingQueue("static"); // CR-23：冲刷 starting 期间排队的文档同步
   setEngineStatus("ready");
-  // 阶段 4 子项 1c：引擎重启后重放缓存的非引擎诊断（opencharm-pydantic 桶等）。
+  // 阶段 4 子项 1c：引擎重启后重放缓存的非引擎诊断（montauri-pydantic 桶等）。
   // 已打开 model 由 main 的 onEngineStatus 监听统一重放（这里只负责状态翻转通知）。
   // PR-N：inlay hints 配置必须在就绪**之后**推（pyrefly 默认 `callArgumentNames: "off"`，
   // 不推就永远只有变量类型提示、没有参数名提示）。推的是 Pyright 兼容设置形态
@@ -376,7 +376,7 @@ export async function startEngine(engine: string, rootUri: string, interpreter: 
 
 interface IntelInfo { command: string | null; traceDbPath: string }
 
-/** 启动 opencharm-intel（运行时引擎）。失败/未构建仅静默降级，静态引擎照常工作。 */
+/** 启动 montauri-intel（运行时引擎）。失败/未构建仅静默降级，静态引擎照常工作。 */
 export async function startIntel(workspaceRoot: string, rootUri: string): Promise<boolean> {
   const s = session("intel");
   for (const [, p] of s.pending) {
@@ -395,7 +395,7 @@ export async function startIntel(workspaceRoot: string, rootUri: string): Promis
     return false;
   }
   if (!info.command) {
-    console.warn("[intel] 未找到 opencharm-intel 二进制，运行时智能不可用（可先构建 intel）");
+    console.warn("[intel] 未找到 montauri-intel 二进制，运行时智能不可用（可先构建 intel）");
     s.status = "error";
     return false;
   }
@@ -448,7 +448,7 @@ export async function stopEngine(): Promise<void> {
   setEngineStatus("off");
 }
 
-/** 单独停止运行时引擎（opencharm-intel），静态引擎不动（P3-T09 一键关闭） */
+/** 单独停止运行时引擎（montauri-intel），静态引擎不动（P3-T09 一键关闭） */
 export async function stopIntel(): Promise<void> {
   try {
     await invoke("lsp_stop", { engine: "intel" });
@@ -787,16 +787,16 @@ export function registerLspCompletion(): MonacoApi.IDisposable {
 }
 
 function currentPath(model: MonacoApi.editor.ITextModel): string {
-  return (model as any).__opencharmPath ?? "";
+  return (model as any).__montauriPath ?? "";
 }
 
 export function markModelPath(model: MonacoApi.editor.ITextModel, path: string): void {
-  (model as any).__opencharmPath = path;
+  (model as any).__montauriPath = path;
 }
 
 /** model → 文件路径（由 markModelPath 设置）；未标记返回 null（live templates M2 符号索引用） */
 export function modelPath(model: MonacoApi.editor.ITextModel): string | null {
-  return (model as any).__opencharmPath ?? null;
+  return (model as any).__montauriPath ?? null;
 }
 
 /** Hover contents 归一化为纯文本（空则 ""） */
@@ -1404,7 +1404,7 @@ export function registerLspSignatureHelp(): MonacoApi.IDisposable {
 // ---------- 缺失包安装提示（借鉴 PyCharm） ----------
 
 /** 安装包动作的命令 id：由 main.ts 经 editor.addAction 注册为可执行命令 */
-export const INSTALL_PACKAGE_COMMAND = "opencharm.installPackage";
+export const INSTALL_PACKAGE_COMMAND = "montauri.installPackage";
 
 /** 判定诊断 code 是否为「缺失 import / 缺源码」类（pyrefly: missing-import；basedpyright: reportMissingImports / reportMissingModuleSource） */
 function isMissingImportCode(code: string): boolean {
@@ -1460,7 +1460,7 @@ function buildInstallActions(markers: MonacoApi.editor.IMarkerData[]): MonacoApi
 }
 
 /** 「安装 X 并加入 pyproject」动作的命令 id（§6.3 E4/E3 → declare = uv add；main.ts 注册） */
-export const DECLARE_PACKAGE_COMMAND = "opencharm.declarePackage";
+export const DECLARE_PACKAGE_COMMAND = "montauri.declarePackage";
 
 /** 依赖健康灯泡动作（§6.3 M3：diff 数据源 + 光标行匹配定案）：
  *  E1 →「安装 X」（marker 路径保留为兜底）；E4 →「安装 X 并加入 pyproject」。
@@ -1706,14 +1706,14 @@ function normPath(p: string): string {
   return p.replace(/\\/g, "/").toLowerCase();
 }
 
-/** 诊断缓存：normPath → (owner → { 原始 path, markers })。不同引擎（pyrefly / opencharm-intel）分 owner 并存显示 */
+/** 诊断缓存：normPath → (owner → { 原始 path, markers })。不同引擎（pyrefly / montauri-intel）分 owner 并存显示 */
 const diagnosticsCache = new Map<string, Map<string, { path: string; markers: MonacoApi.editor.IMarkerData[] }>>();
 
-/** 静态引擎切换时只清引擎自己的诊断桶（opencharm-lsp），自研桶（intel / pydantic / ruff）
+/** 静态引擎切换时只清引擎自己的诊断桶（montauri-lsp），自研桶（intel / pydantic / ruff）
  *  不随引擎重启失效——它们与静态引擎生命周期无关（阶段 4 子项 1c）。 */
 function clearEngineDiagnostics(): void {
   for (const [norm, byOwner] of diagnosticsCache) {
-    byOwner.delete("opencharm-lsp");
+    byOwner.delete("montauri-lsp");
     if (byOwner.size === 0) diagnosticsCache.delete(norm);
   }
 }
@@ -1733,7 +1733,7 @@ export function handleDiagnostics(
   setMarkers: (path: string, markers: MonacoApi.editor.IMarkerData[], owner?: string) => void,
 ): void {
   const path = fileUriToPath(params.uri);
-  const owner = engine === "intel" ? "opencharm-intel" : "opencharm-lsp";
+  const owner = engine === "intel" ? "montauri-intel" : "montauri-lsp";
   // 去重（2026-09-29 实测）：pyrefly 单批内会对同一位置重复推送同形态诊断
   //（实案：`Unpacked keyword argument` 一条消息 ×19 份同 range），不去重时 hover
   // 列表 / 问题面板 / 保存 toast 计数全部虚高，squiggle 也因同 range 装饰互相

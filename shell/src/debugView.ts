@@ -91,7 +91,7 @@ export function notifyDepFound(files: string[]): void {
   if (depNoticeShown || files.length === 0) return;
   depNoticeShown = true;
   const list = files.join("、");
-  console.info(`[debug] 项目依赖清单（${list}）声明了 debugpy：OpenCharm 调试使用自带副本，二者互不影响，可按需移除声明。`);
+  console.info(`[debug] 项目依赖清单（${list}）声明了 debugpy：Montauri 调试使用自带副本，二者互不影响，可按需移除声明。`);
 }
 
 // ---------- 渲染 ----------

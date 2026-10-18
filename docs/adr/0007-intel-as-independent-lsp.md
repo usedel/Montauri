@@ -1,4 +1,4 @@
-# ADR-0007: 运行时智能作为独立 LSP（opencharm-intel），不修改 Pyrefly 内核
+# ADR-0007: 运行时智能作为独立 LSP（montauri-intel），不修改 Pyrefly 内核
 
 - 状态：**已定案**（决策自 2026-08-20 生效；2026-10-03 追溯补记）
 - 日期：2026-08-20（补记 2026-10-03）
@@ -8,7 +8,7 @@
 
 ## 背景
 
-OpenCharm 的差异化不是"又一个 Python IDE"，而是**用真实运行数据补上静态引擎看不到的那一半**（无注解代码的字段/属性/参数类型）。这层能力有两个天然诱惑：
+Montauri 的差异化不是"又一个 Python IDE"，而是**用真实运行数据补上静态引擎看不到的那一半**（无注解代码的字段/属性/参数类型）。这层能力有两个天然诱惑：
 
 1. 直接改 Pyrefly 源码，让它读 trace 数据 —— 违反「不侵入静态引擎内核」铁律，且升级即冲突；
 2. 塞进外壳（Rust/TS）里做推理 —— 变成外壳的一部分，无法独立测试、独立升级、独立打包。
@@ -22,7 +22,7 @@ OpenCharm 的差异化不是"又一个 Python IDE"，而是**用真实运行数�
    - `intel/` —— 独立 Rust crate（独立 workspace，stdio LSP），**只读**打开 trace 库建倒排索引，对外提供补全 / 跳转 / hover / inlay / 运行时诊断。
 2. **外壳只做 spawn 与帧解析**：与静态引擎共用 `lsp.rs`，用 `engine` 键区分实例（`"static"` / `"intel"`），事件 payload 带 engine 供前端分流。intel 启动失败**静默降级**（静态引擎照常工作）。
 3. **不修改 Pyrefly 内核，也不 fork**：运行时结果与静态结果在同一份 LSP 协议层合并（策略见 ADR-0009），pyrefly 保持原样可随时替换。
-4. **探针严格不侵入**：仅 `OPENCHARM_PROBE_AUTOSTART=1` 时激活，未设置零介入；探针任何失败只打警告，**不改写用户进程退出码**。
+4. **探针严格不侵入**：仅 `MONTAURI_PROBE_AUTOSTART=1` 时激活，未设置零介入；探针任何失败只打警告，**不改写用户进程退出码**。
 
 ## 备选方案
 
@@ -35,7 +35,7 @@ OpenCharm 的差异化不是"又一个 Python IDE"，而是**用真实运行数�
 
 ## 后果
 
-- **正面**：intel 可 `cargo build -p opencharm-intel --release` 单独出包进安装包；探针与外壳解耦，探针崩了 IDE 照常；能力边界写在各自 README 里。
+- **正面**：intel 可 `cargo build -p montauri-intel --release` 单独出包进安装包；探针与外壳解耦，探针崩了 IDE 照常；能力边界写在各自 README 里。
 - **负面 / 取舍**：
   - trace 库成为跨语言契约（Python 写 / Rust 读），**schema 变更要双边同步**；shape 列存**空串而非 NULL**（SQLite 唯一约束对 NULL 不生效，否则 upsert 失效）。
   - **`project_hash` 两端必须一致**：Rust `fs::canonicalize` 在 Windows 返回 `\\?\` verbatim 前缀且大小写不敏感，probe 用 `os.path.realpath` + `os.path.normcase`；对齐逻辑在 `file_ops.rs::strip_verbatim_prefix`。改路径处理不得破坏。

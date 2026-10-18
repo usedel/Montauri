@@ -217,7 +217,7 @@ export const git: Record<GitKey, string> = {
   "git.panel.cleanHint": "Working tree is clean",
   "git.panel.commitBtn": "Commit ({n})",
   "git.panel.gitMissing": "Git not detected",
-  "git.panel.gitMissingHint": "Source control requires Git; install it and restart OpenCharm to enable it",
+  "git.panel.gitMissingHint": "Source control requires Git; install it and restart Montauri to enable it",
   "git.panel.initHint": "Runs git init in the workspace root",
   "git.panel.noChanges": "No changes",
   "git.panel.noWorkspace": "No workspace open",

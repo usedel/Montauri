@@ -1,5 +1,5 @@
 
-[1m[46m RUN [49m[22m [36mv3.2.7 [39m[90mD:/aipro/opencharm/shell[39m
+[1m[46m RUN [49m[22m [36mv3.2.7 [39m[90mD:/aipro/montauri/shell[39m
 
  [32m✓[39m src/extensions/__tests__/manifest.test.ts [2m([22m[2m14 tests[22m[2m)[22m[32m 22[2mms[22m[39m
  [32m✓[39m src/devtools/builtin/__tests__/pure.test.ts [2m([22m[2m21 tests[22m[2m)[22m[32m 28[2mms[22m[39m

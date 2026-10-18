@@ -45,8 +45,8 @@ EXPECT = {
 
 def _env(tmp_path):
     env = os.environ.copy()
-    env["OPENCHARM_PROBE_HOME"] = str(tmp_path / "home")
-    env.pop("OPENCHARM_PROBE_CONFIG", None)
+    env["MONTAURI_PROBE_HOME"] = str(tmp_path / "home")
+    env.pop("MONTAURI_PROBE_CONFIG", None)
     env["PYTHONIOENCODING"] = "utf-8"
     env["PYTHONUTF8"] = "1"
     return env
@@ -60,7 +60,7 @@ def test_check_pass(tmp_path):
     (tmp_path / "home").mkdir()
 
     r = subprocess.run(
-        [sys.executable, "-m", "opencharm_probe.cli", "check", str(script)],
+        [sys.executable, "-m", "montauri_probe.cli", "check", str(script)],
         capture_output=True, text=True, env=_env(tmp_path), cwd=str(PROBE_ROOT),
         encoding="utf-8", errors="replace",
     )
@@ -78,7 +78,7 @@ def test_check_miss_reported(tmp_path):
     (tmp_path / "home").mkdir()
 
     r = subprocess.run(
-        [sys.executable, "-m", "opencharm_probe.cli", "check", str(script),
+        [sys.executable, "-m", "montauri_probe.cli", "check", str(script),
          "--threshold", "99"],
         capture_output=True, text=True, env=_env(tmp_path), cwd=str(PROBE_ROOT),
         encoding="utf-8", errors="replace",
@@ -92,7 +92,7 @@ def test_check_missing_expect_file(tmp_path):
     script.write_text("print('x')\n", encoding="utf-8")
     (tmp_path / "home").mkdir()
     r = subprocess.run(
-        [sys.executable, "-m", "opencharm_probe.cli", "check", str(script)],
+        [sys.executable, "-m", "montauri_probe.cli", "check", str(script)],
         capture_output=True, text=True, env=_env(tmp_path), cwd=str(PROBE_ROOT),
         encoding="utf-8", errors="replace",
     )
@@ -108,7 +108,7 @@ def test_check_timeout_interrupts_hung_script(tmp_path):
         json.dumps({"functions": []}), encoding="utf-8")
     (tmp_path / "home").mkdir()
     r = subprocess.run(
-        [sys.executable, "-m", "opencharm_probe.cli", "check", str(script),
+        [sys.executable, "-m", "montauri_probe.cli", "check", str(script),
          "--timeout", "1"],
         capture_output=True, text=True, env=_env(tmp_path), cwd=str(PROBE_ROOT),
         encoding="utf-8", errors="replace",

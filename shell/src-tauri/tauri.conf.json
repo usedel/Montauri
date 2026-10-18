@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "OpenCharm",
+  "productName": "Montauri",
   "version": "0.1.0",
-  "identifier": "com.opencharm.shell",
+  "identifier": "com.montauri.shell",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:5173",
@@ -34,7 +34,7 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "../../intel/target/release/opencharm-intel.exe": "opencharm-intel.exe",
+      "../../intel/target/release/montauri-intel.exe": "montauri-intel.exe",
       "../../probe/src/": "probe/src/",
       "../../vendor/debugpy/": "debugpy/"
     }

@@ -183,7 +183,7 @@ mod tests {
 
     #[test]
     fn test_git_status_non_git_dir() {
-        let tmp = std::env::temp_dir().join("opencharm-git-test-nongit");
+        let tmp = std::env::temp_dir().join("montauri-git-test-nongit");
         std::fs::create_dir_all(&tmp).unwrap();
         let r = git_status_impl(tmp.to_str().unwrap(), None).unwrap();
         assert!(!r.is_git);

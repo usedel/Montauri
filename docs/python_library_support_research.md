@@ -7,7 +7,7 @@
 > **v1.2 变更**：三份探针实测回填——**P1** 求值桥耗时（定 `-I` + 解释器缓存 + 超时档位）· **P2** pyrefly 对字符串内 DSL **零支持**（L1 必须自研）· **P6** 只读 Monaco 边际成本 ~8ms（Q2 关闭）。新增待跑探针 P7（内存）。
 > **v1.3 变更**（评审后的动工前置修订，只动协议与探针口径，不动 §11 交互冻结项）：① 求值桥命令定档 **`python -I -X utf8 -c`**——`-I` 会忽略 `PYTHONIOENCODING`/`PYTHONUTF8`，Windows 默认 locale 编码（cp936）会破坏 stdout JSON，须用不受 `-I` 影响的 `-X utf8` 强制 UTF-8（§5.2）；② `args_json` 改走 **stdin**（正则模式含引号/反斜杠/换行，`re.X` 多行是明确支持场景；Windows argv 有 ~32K 限制与引号转义问题）（§5.2）；③ **P1b 补测**回填「无 `.venv` 冷启动」：实测 **965ms**（原 1017ms 无报告留痕，已替换为可溯源数字）（§10.1）；④ P1b 发现 **`.venv` 创建前 `uv python find` 返回系统解释器而非项目解释器** → 解释器路径缓存增加「仅缓存指向工作区 `.venv` 的结果」失效条件（§5.2、§10.1）；⑤ 内省受控脚本须显式 `sys.path.insert(0, os.getcwd())`（`-I` 隐含 `-P`，cwd 不在 `sys.path`）（§4.3）。新增脚本/报告：`bench/lib-support-probe/p1b_coldstart.py` / `bench/reports/lib-support-probe-p1b-coldstart.json`；⑥ 维护修订：requests/httpx → cURL 反向生成补入 P1（#9，§0-10、§7.2）· 诊断 owner 锚点修正（§6）· P1 表 179ms/126ms 口径说明（§10.1）。
 > 调研对象：Python 标准库 + 第三方常用库的「IDE 特别支持」形态；PyCharm / VS Code 既有做法；本仓库现状逐条核对
-> 结论用途：为「OpenCharm 要不要给某个库做专属支持、做多深」提供输入；**是否立项、何时排期以 `python_ide_dev_plan_v2.md` 及产品负责人裁决为准**（tech plan v3 §1.2 已明确「❌ 复刻 PyCharm 全部功能」为非目标）
+> 结论用途：为「Montauri 要不要给某个库做专属支持、做多深」提供输入；**是否立项、何时排期以 `python_ide_dev_plan_v2.md` 及产品负责人裁决为准**（tech plan v3 §1.2 已明确「❌ 复刻 PyCharm 全部功能」为非目标）
 > **交互设计**：§11（线框 / 状态机 / 冲突规则 / 文案模板）——动手前定死，实现阶段只做填空题。看排期看 §7，看交互看 §11。
 > 与既有文档的关系：
 > - `pycharm_framework_support_report.md` 管**框架**（Django/Flask/FastAPI，项目级约定 → 运行配置 / 端点）；本文档管**库**（标准库 + 第三方包，字面量语义 + 交互工具）。两条线不重叠。
@@ -269,7 +269,7 @@ pub async fn py_eval(
 | 编辑器右键 | `editor.addAction` + `contextMenuGroupId` | `findUsages.ts:287` / `renameWidget.ts:313` 为样板 |
 | CodeLens 入口 | `registerCodeLensProvider("python")` | `codeVision.ts:255` |
 | Hover | 现有合并管线（静态 + intel） | `lsp/client.ts:714` |
-| 诊断 | 新增第四桶 owner（建议 `opencharm-libs`），与 `opencharm-lsp`/`opencharm-intel`/`opencharm-ruff` 并列（lsp/intel 桶在 `client.ts:1572-1581` 的 diagnosticsCache 按 owner 分桶；ruff 桶常量在 `ruffLint.ts:30`） | `lsp/client.ts:1572-1581`、`ruffLint.ts:30`（v1.3 修正：原引 1523 行为 inlay hints 注册处） |
+| 诊断 | 新增第四桶 owner（建议 `montauri-libs`），与 `montauri-lsp`/`montauri-intel`/`montauri-ruff` 并列（lsp/intel 桶在 `client.ts:1572-1581` 的 diagnosticsCache 按 owner 分桶；ruff 桶常量在 `ruffLint.ts:30`） | `lsp/client.ts:1572-1581`、`ruffLint.ts:30`（v1.3 修正：原引 1523 行为 inlay hints 注册处） |
 | 字面量高亮 | Monaco decorations（自研扫描器产出 range） | —（新增） |
 | 侧栏视图（参数表单可能用到） | `views.ts` 注册表，现 6 个视图 | `views.ts`、`main.ts:2391-2434` |
 | 求值 | **新增** `py_eval`（§5） | `lib.rs` generate_handler |

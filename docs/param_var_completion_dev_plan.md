@@ -1,6 +1,6 @@
 # 参数位变量补全开发计划（P3-T11）
 
-> 面向：OpenCharm 运行时补全下一迭代。本文自包含，不依赖任何外部参考资料。
+> 面向：Montauri 运行时补全下一迭代。本文自包含，不依赖任何外部参考资料。
 > 定位：借鉴 PyCharm「智能类型匹配补全」机制，在调用实参位补上「作用域变量候选」这一层——不建索引、不改架构、零新依赖、零上行。
 > 状态：**待评审**（2026-10-12 用户裁决「先出方案设计，不动代码」后编写；评审通过才进开发，维护态门禁见 §8）
 > 编写时间：2026-10-12
@@ -40,7 +40,7 @@
 
 | 能力 | 现状 | 位置 |
 |---|---|---|
-| 光标在调用实参位的括号栈检测（有界 64 KB 窗口扫描） | 已实现 | `intel/crates/opencharm-intel/src/call_context.rs` `call_frame_at` |
+| 光标在调用实参位的括号栈检测（有界 64 KB 窗口扫描） | 已实现 | `intel/crates/montauri-intel/src/call_context.rs` `call_frame_at` |
 | callee 解析（末段匹配 + 类构造回落） | 已实现 | `completion.rs` `resolve_callee` / `best_function` |
 | 参数位观测聚合（arg_types → 参数名 / 类型 / shape / 证据数） | 已实现 | `completion.rs` `param_observations` |
 | 参数名候选 + 位置参数前跳 | 已实现（A3①） | `completion.rs` `param_candidates` |
@@ -214,7 +214,7 @@ pub fn variable_candidates(
 
 ## 8. 门禁、红线与登记
 
-- **门禁**：`cd intel && cargo test`（T1~T9、T11）+ `cargo build -p opencharm-intel`（test 不刷新 shell 调用的 exe）+ `node shell/scripts/budget-check.mjs`；T10 哨兵 `--ignored` 显式跑
+- **门禁**：`cd intel && cargo test`（T1~T9、T11）+ `cargo build -p montauri-intel`（test 不刷新 shell 调用的 exe）+ `node shell/scripts/budget-check.mjs`；T10 哨兵 `--ignored` 显式跑
 - **真机**：跑批只能在用户 PowerShell 终端执行（会话 shell 跑 tauri dev 不稳定）；输出不过 PowerShell（长行 + 全角会抛终止性异常）；中文注释 `.ps1` 带 UTF-8 BOM
 - **红线核对**：不动 probe / intel **采集路径**（本项只碰消费侧补全）；不新增常驻进程 / 依赖；六段 sortText 契约不破；`MAX_CANDIDATES = 50` 不动；无新增用户可见 i18n 文案（detail 是运行时数据，同既有 `⟳ runtime` 格式）
 - **登记**（落地后，不提前）：`docs/delivery-overview.md` 版本 +1；`ci/budgets.toml` 增新文件条目；工作记忆回填结论

@@ -1,11 +1,11 @@
-# OpenCharm
+# Montauri
 
 面向「FastAPI + 爬虫 + 小脚本」开发者的**高性能 · 轻量 Python IDE**。
 
 - **一等目标**：性能与体积与功能正确性同权，任何功能不得突破 `ci/budgets.toml` 预算（章程见 [`docs/adr/0010-performance-lightweight-charter.md`](docs/adr/0010-performance-lightweight-charter.md)）
 - **外壳**：**Tauri 2 + Monaco**（2026-08-20 裁决，取代原 Zed 方案）
 - **静态语义**：Pyrefly（默认）/ basedpyright（备选），第一天实现可切换
-- **差异化核心**：运行时类型采样（PEP 669 `sys.monitoring`）+ 自研运行时智能 LSP（`opencharm-intel`）
+- **差异化核心**：运行时类型采样（PEP 669 `sys.monitoring`）+ 自研运行时智能 LSP（`montauri-intel`）
 - **调试**：debugpy（随应用打包分发，版本锁 `ci/versions.toml`）+ 自研轻量 DAP 桥（stdio adapter 模式，见 ADR-0004）
 - **功能范围**：补全 / 跳转 / Hover / 诊断 + 脚本运行与 traceback 点击跳转 + 调试（断点 / 单步 / 调用栈 / 变量，最小闭环）
 
@@ -68,8 +68,8 @@ open-charm/
 ├── bench/                   # ✅ 基准项目集 + 指标采集脚本
 ├── ci/                      # ✅ 版本锁定基线
 ├── docs/                    # 方案、开发计划、ADR、技术债登记
-├── probe/                   # ✅ opencharm-probe（Phase 2 交付，Gate C 达标）
-├── intel/                   # ✅ opencharm-intel（Phase 3 已基本交付，见 intel/README.md）
+├── probe/                   # ✅ montauri-probe（Phase 2 交付，Gate C 达标）
+├── intel/                   # ✅ montauri-intel（Phase 3 已基本交付，见 intel/README.md）
 └── tools/                   # 构建辅助脚本（fetch-debugpy.ps1 拉取打包 debugpy；edit_history_stats.py 统计编辑历史）
 ```
 
@@ -83,8 +83,8 @@ open-charm/
 
 全新 Windows 系统开箱即用依赖「随包分发 + 首次启动引导」，已落地（Phase 4 第 1~4 步）：
 
-- **外部命令解析**：`uv` / `pyrefly` / `ruff` / `git` 统一经 `shell/src-tauri/src/tool_paths.rs` 定位（环境变量 → `~/.opencharm/bin` / `~/.local/bin` → 系统 PATH）；
-- **自研组件随包分发**：`opencharm-intel` 与 `probe/src` 经 `tauri.conf.json` 的 `bundle.resources` 打进安装包；运行时分别由 `lsp.rs::locate_intel_binary` 与 `run_env.rs::locate_probe_src` 查找（环境变量 → `<data_root>/runtime` → Tauri 资源目录 → dev 仓库布局）；
+- **外部命令解析**：`uv` / `pyrefly` / `ruff` / `git` 统一经 `shell/src-tauri/src/tool_paths.rs` 定位（环境变量 → `~/.montauri/bin` / `~/.local/bin` → 系统 PATH）；
+- **自研组件随包分发**：`montauri-intel` 与 `probe/src` 经 `tauri.conf.json` 的 `bundle.resources` 打进安装包；运行时分别由 `lsp.rs::locate_intel_binary` 与 `run_env.rs::locate_probe_src` 查找（环境变量 → `<data_root>/runtime` → Tauri 资源目录 → dev 仓库布局）；
 - **调试器随包分发**：`debugpy`（锁定版本 + 五个 sha256，见 `ci/versions.toml [debugger]`）经 `tools/fetch-debugpy.ps1` 拉取合并到 `vendor/debugpy/`（`.gitignore` 不入库），再经 `bundle.resources` 打进安装包，运行时按 `dap.rs::locate_debugpy_dir` 四级查找（同上）；零安装、零网络、切换 venv 无感（见 ADR-0004）；
 - **首次启动环境引导**：`shell/src-tauri/src/toolchain.rs` 提供探测与一键安装；缺失 `uv` / `pyrefly`（或 `basedpyright`）时，前端弹「环境引导」确认框，安装进度经 `toolchain-stdout/stderr` 流式展示，工具装到用户目录（不影响系统）。
 
@@ -103,7 +103,7 @@ powershell -File .\build-release.ps1
 
 统一日志工具（`shell/src-tauri/src/logging.rs`，设置面板「日志」分类可配置）：
 
-- **落盘位置**：`~/.opencharm/logs/opencharm.log`（固定用户主目录，release / 打包后仍可稳定定位）。
+- **落盘位置**：`~/.montauri/logs/montauri.log`（固定用户主目录，release / 打包后仍可稳定定位）。
 - **级别过滤**：`error` / `warn` / `info` / `debug`，按设置阈值过滤（默认 `info`）。
 - **大小轮转**：单文件超 1 MiB 自动切成 `.1` / `.2` …，保留 `log_keep` 份（默认 3）。
 - **stdout 双写**：受 `log_stdout` 开关控制（dev 终端可见；release 无控制台可关）。
@@ -122,13 +122,13 @@ powershell -File .\build-release.ps1
 
 ## 已知边界
 
-- **Pydantic 构造校验**：默认引擎 pyrefly 不对 `BaseModel` 子类的构造调用做静态红线；OpenCharm 以自研第四桶诊断（`opencharm-pydantic`）补齐**类型错 / 缺失必填 / 未知字段**三类检查（设置 → Pydantic 构造校验，默认开）。检查为轻量文本解析（非完整类型系统）：跨文件继承链不合并、多行构造调用跳过、复杂表达式跳过；alias 字段按别名放行。实测与上游跟踪见 [`bench/reports/pydantic-engine-probe.md`](bench/reports/pydantic-engine-probe.md)。
-- **Pydantic 字段重命名**：pyrefly 对此类字段 references=0（只改声明处）；OpenCharm 已自研**改名传播补充**——rename 时扫描 `Model(field=` 构造调用点并入编辑集（引擎结果优先去重，扫描 2s 超时自动降级）。basedpyright 引擎下两者均由引擎自身覆盖，自研层自动旁路。计划与实施记录见 [`docs/pyrefly_pydantic_support_plan.md`](docs/pyrefly_pydantic_support_plan.md)。
+- **Pydantic 构造校验**：默认引擎 pyrefly 不对 `BaseModel` 子类的构造调用做静态红线；Montauri 以自研第四桶诊断（`montauri-pydantic`）补齐**类型错 / 缺失必填 / 未知字段**三类检查（设置 → Pydantic 构造校验，默认开）。检查为轻量文本解析（非完整类型系统）：跨文件继承链不合并、多行构造调用跳过、复杂表达式跳过；alias 字段按别名放行。实测与上游跟踪见 [`bench/reports/pydantic-engine-probe.md`](bench/reports/pydantic-engine-probe.md)。
+- **Pydantic 字段重命名**：pyrefly 对此类字段 references=0（只改声明处）；Montauri 已自研**改名传播补充**——rename 时扫描 `Model(field=` 构造调用点并入编辑集（引擎结果优先去重，扫描 2s 超时自动降级）。basedpyright 引擎下两者均由引擎自身覆盖，自研层自动旁路。计划与实施记录见 [`docs/pyrefly_pydantic_support_plan.md`](docs/pyrefly_pydantic_support_plan.md)。
 - **运行时补全（intel）只有自证数据，未与 PyCharm 做过横向对比**：自测口径下 **23/23 = 100%**（期望 label 出现在 top-5，见 [`bench/reports/gate-d-runtime-completion.md`](bench/reports/gate-d-runtime-completion.md)）。原计划的「PyCharm 同场景人工横向对标（23 点）」**已于 2026-10-07 撤下**——本机无 PyCharm，按二选一截止规则执行（v1.4 死线到期撤项；撤项与收口记录见 [`docs/delivery-overview.md`](docs/delivery-overview.md) v1.14）；工作单 [`bench/reports/gate-d-ab-worklist.md`](bench/reports/gate-d-ab-worklist.md) 保留归档，供将来换对照组（如 VS Code + Pylance）时复用。**⇒ 本项目没有"比 PyCharm 更准"的证据，任何对比表述都必须限定为"在自有样例集上"。** 相关降权参数（`STALE_HITS_DIVISOR = 2`）仍是**建议值**：真实项目样本已跨 3 个项目累计 **497 条函数观测**（见 [`bench/reports/trace-stats-cumulative.md`](bench/reports/trace-stats-cumulative.md)），未达「跨 ≥2~3 个项目累计 ≥1000 条」的复核门槛，故未落值；门槛口径与收口处置（不再专门采样，改为日常 IDE 使用自然累积）见 [`bench/reports/trace-sample-threshold.md`](bench/reports/trace-sample-threshold.md)。
 
 ## 当前状态
 
-- 项目阶段：**Phase 1 / Phase 2 / Phase 3（opencharm-intel）均已交付**；当前进入 **Phase 4（持续打磨）**，进度见 `docs/python_ide_dev_plan_v2.md` §7。
+- 项目阶段：**Phase 1 / Phase 2 / Phase 3（montauri-intel）均已交付**；当前进入 **Phase 4（持续打磨）**，进度见 `docs/python_ide_dev_plan_v2.md` §7。
 - **调试功能（DAP / debugpy 最小闭环）已交付**：D1–D5 / Gate E 见 [`docs/debug_acceptance_record.md`](docs/debug_acceptance_record.md)；真机 CDP 验收 **12/12 PASS**（含三态互斥与改键生效）；**真安装包验收已完成**（出包 → 安装 → 对安装后的程序实测 **7/7 PASS**，见 `e2e-real/release-real.cjs`）。
 - **运行功能迁移（M1–M4）已交付**：脚本/项目两种运行 + 统一 PTY 运行控制台 + 多实例并行 + 运行历史按实例归属；交互口径 [`docs/python_run_dev_plan.md`](docs/python_run_dev_plan.md) v3.4、验收记录 [`docs/run_acceptance_record.md`](docs/run_acceptance_record.md)。
 - **界面设计改进计划已收官**（十批，30/30 项 + 2 条遗留）：按钮体系 / scale token / Tooltip 双轨收敛 / ARIA 语义（tree·tabs·dialog·tooltip·menu）/ 浅色主题对比度达标 / 响应式下限 / 字号字体族全局跟随设置；沉淀的硬规则已固化到 `.codebuddy/rules/typescript-code-style`，逐批可见变化的人工抽查清单见计划文档 §7。

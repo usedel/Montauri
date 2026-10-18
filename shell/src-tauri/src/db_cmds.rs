@@ -26,7 +26,7 @@ use regex::Regex;
 use rusqlite::{types::Value, Connection, OpenFlags};
 use serde::{Deserialize, Serialize};
 
-use crate::util::{opencharm_home, unpoison};
+use crate::util::{montauri_home, unpoison};
 
 // ---------- 常量 ----------
 
@@ -462,7 +462,7 @@ pub(crate) fn serialize_connections(list: &[DbConnection]) -> Result<String, Str
 // ---------- 持久化（薄 IO） ----------
 
 fn connections_path() -> PathBuf {
-    opencharm_home().join("config").join("db_connections.json")
+    montauri_home().join("config").join("db_connections.json")
 }
 
 /// 读全局连接列表（缺失 / 损坏 → 空列表）。
@@ -1345,7 +1345,7 @@ mod tests {
     // ---------- PR-2：集成（真实 SQLite 文件） ----------
 
     /// 集成测试串行锁：所有集成用例都会读写**同一份全局连接列表**
-    /// （`~/.opencharm/config/db_connections.json`），并行跑会互相覆盖导致 flaky。
+    /// （`~/.montauri/config/db_connections.json`），并行跑会互相覆盖导致 flaky。
     /// 纯函数用例不需要它。
     static TEST_LOCK: Mutex<()> = Mutex::new(());
 

@@ -8,7 +8,7 @@
  *
  * 本脚本驱动真实 Tauri 应用 + 真实 reqwest，对打一个**本机 Node HTTP 服务**：
  * 服务端把收到的请求原样记下并回显，前端再把它渲染出来 —— 一条请求被**两端同时观测**，
- * 这是"跨进程链路真的通了"的硬证据（服务端观测到的 `User-Agent: OpenCharm/0.1`
+ * 这是"跨进程链路真的通了"的硬证据（服务端观测到的 `User-Agent: Montauri/0.1`
  * 直接证明请求出自应用内核的 reqwest，而非任何 mock）。
  *
  * 全程离线（不碰外网）。若要额外覆盖 DNS/TLS 公网链路，设 `OC_HTTP_REAL_NET=1`
@@ -87,7 +87,7 @@ function startServer() {
       };
       switch (u.pathname) {
         case '/json':
-          return json(200, { ok: true, items: [1, 2, 3], tag, note: 'opencharm-http-real' });
+          return json(200, { ok: true, items: [1, 2, 3], tag, note: 'montauri-http-real' });
         case '/echo':
           return json(200, { method: req.method, token: req.headers['x-token'] || null, tag, body });
         case '/redirect':
@@ -321,10 +321,10 @@ async function runChecks(s, port, seen, streams) {
     );
     const req = seen[n0];
     const ok = /200 OK/.test(s1.code)
-      && s1.leaves.some((t) => t.includes('opencharm-http-real'))
+      && s1.leaves.some((t) => t.includes('montauri-http-real'))
       && s1.leaves.some((t) => t.includes('r1'))
-      && req?.ua === 'OpenCharm/0.1';
-    record('HR-1', 'GET JSON：真实 reqwest 打通本机服务（服务端观测到 UA=OpenCharm/0.1）+ JSON 树渲染',
+      && req?.ua === 'Montauri/0.1';
+    record('HR-1', 'GET JSON：真实 reqwest 打通本机服务（服务端观测到 UA=Montauri/0.1）+ JSON 树渲染',
       ok,
       `code="${s1.code}" meta="${s1.meta}" 服务端观测=${JSON.stringify(req && { path: req.path, ua: req.ua })} 叶子=${JSON.stringify(s1.leaves.slice(0, 8))}`);
   }

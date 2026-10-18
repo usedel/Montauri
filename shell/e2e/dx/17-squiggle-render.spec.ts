@@ -19,11 +19,11 @@ import { equipPage, makePlainDir } from "../helpers";
 
 const SRC = Array.from({ length: 720 }, (_, i) => `v${i} = ${i}`).join("\n") + "\n"; // SQ5 需 ≥709 行
 
-/** 注入 marker（owner opencharm-lsp，与 handleDiagnostics 同链） */
+/** 注入 marker（owner montauri-lsp，与 handleDiagnostics 同链） */
 async function inject(page: Page, markers: unknown[]): Promise<void> {
   await page.evaluate(async (ms) => {
     const { app } = (await import(/* @vite-ignore */ "/src/state.ts")) as any;
-    app.monaco.editor.setModelMarkers(app.editor.getModel(), "opencharm-lsp", ms as any[]);
+    app.monaco.editor.setModelMarkers(app.editor.getModel(), "montauri-lsp", ms as any[]);
   }, markers);
 }
 
@@ -54,7 +54,7 @@ async function publishDiagnostics(page: Page, diagnostics: unknown[]): Promise<v
       "static",
       (p: string, markers: any[], owner?: string) => {
         const tab = app.tabs.find((t: any) => norm(t.path) === norm(p));
-        if (tab) app.monaco.editor.setModelMarkers(tab.model, owner ?? "opencharm-lsp", markers);
+        if (tab) app.monaco.editor.setModelMarkers(tab.model, owner ?? "montauri-lsp", markers);
       },
     );
   }, diagnostics);

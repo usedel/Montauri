@@ -1,4 +1,4 @@
-# OpenCharm 调试功能开发计划（Debug / DAP 集成）
+# Montauri 调试功能开发计划（Debug / DAP 集成）
 
 > 版本：v1.3 · 日期：2026-09-10 · 状态：已实施（D1~D5，验收记录 `docs/debug_acceptance_record.md`；人工验收清单待办）
 > 归属：`docs/python_ide_dev_plan_v2.md` §7「调试评估」项的落地拆解
@@ -12,7 +12,7 @@
 
 ## 1. 目标与范围
 
-为 OpenCharm 增加 **Python 最小闭环调试能力**，让单人自用场景（FastAPI / 爬虫 / 小脚本）从「print + traceback 跳转」升级到「断点 + 单步 + 调用栈 + 变量」。
+为 Montauri 增加 **Python 最小闭环调试能力**，让单人自用场景（FastAPI / 爬虫 / 小脚本）从「print + traceback 跳转」升级到「断点 + 单步 + 调用栈 + 变量」。
 
 ### 1.1 最小闭环（本期交付）
 
@@ -98,7 +98,7 @@ v1.0 的「探测 + 引导 `pip install` 到用户解释器环境」方案**废�
 5. `vendor/debugpy/` 加入 `.gitignore`（拉取产物不入库，构建时按 sha256 锁定复现）；
 6. `tauri.conf.json` `bundle.resources` 增加映射 `"../../vendor/debugpy/": "debugpy/"`。
 
-体积实测（2026-09-10，debugpy 1.8.20 合并目录；基准安装包 `OpenCharm_0.1.0_x64-setup.exe` = 5.31 MB）：
+体积实测（2026-09-10，debugpy 1.8.20 合并目录；基准安装包 `Montauri_0.1.0_x64-setup.exe` = 5.31 MB）：
 
 | 策略 | 安装后增量 | 压缩后（下载）增量 |
 |---|---|---|
@@ -110,7 +110,7 @@ v1.0 的「探测 + 引导 `pip install` 到用户解释器环境」方案**废�
 
 ### 3.5 依赖声明检测（v1.1 降级：提示性质）
 
-原目的「防止我们把 debugpy 写进项目清单」随零安装方案自然消解。保留检测仅用于**解惑**：用户项目 `pyproject.toml` / `requirements*.txt` 若声明了 debugpy（多为其他工具遗留或模板习惯），OpenCharm 调试使用**自带副本**（§3.1），二者互不影响；输出面板一次性提示「无需安装，可按需移除声明」。纯文件扫描、无子进程、不弹窗、不阻断（实现见 §5.1.6）。
+原目的「防止我们把 debugpy 写进项目清单」随零安装方案自然消解。保留检测仅用于**解惑**：用户项目 `pyproject.toml` / `requirements*.txt` 若声明了 debugpy（多为其他工具遗留或模板习惯），Montauri 调试使用**自带副本**（§3.1），二者互不影响；输出面板一次性提示「无需安装，可按需移除声明」。纯文件扫描、无子进程、不弹窗、不阻断（实现见 §5.1.6）。
 
 ---
 
@@ -173,7 +173,7 @@ pub(crate) fn debug_busy() -> bool {
 1. `debug_busy()` 单实例 + `terminal::script_run_busy()` 脚本运行互斥检查（v3.4 收窄后，项目实例放行）。
 2. 解析脚本路径 / 文件名（同 `run_in_terminal` 脚本分支的 `script_abs` / `fname` / `dir` 逻辑）。
 3. 解析解释器（`env_cmds::get_interpreter`）与运行配置（`env_cmds::read_run_config`）。
-4. **定位自带 debugpy**：`locate_debugpy_dir(&app)` 四级查找——`OPENCHARM_DEBUGPY_DIR` 环境变量 → `~/.opencharm/runtime/debugpy` → Tauri 资源目录候选（`util::resource_candidates`）→ dev 仓库布局上溯 `vendor/debugpy`（同 `lsp.rs::locate_intel_binary` 先例）；返回含 `__main__.py` 的包目录。缺失 → 可诊断错误（安装包损坏 / dev 未运行 `tools/fetch-debugpy.ps1`），**无安装分支**。
+4. **定位自带 debugpy**：`locate_debugpy_dir(&app)` 四级查找——`MONTAURI_DEBUGPY_DIR` 环境变量 → `~/.montauri/runtime/debugpy` → Tauri 资源目录候选（`util::resource_candidates`）→ dev 仓库布局上溯 `vendor/debugpy`（同 `lsp.rs::locate_intel_binary` 先例）；返回含 `__main__.py` 的包目录。缺失 → 可诊断错误（安装包损坏 / dev 未运行 `tools/fetch-debugpy.ps1`），**无安装分支**。
 5. **依赖声明检测（提示性质）**：扫 `workspace_root` 下 `pyproject.toml` / `requirements*.txt`（见 §5.1.6），命中则回传前端做一次性提示，不阻断。
 6. **端口预分配**：`TcpListener::bind("127.0.0.1:0")` 取 port，drop。
 7. **构造命令**（见 §5.2）。
@@ -401,7 +401,7 @@ type DebugPhase = "idle" | "starting" | "running" | "stopped" | "exited";
 2. 新建 `shell/src-tauri/src/dap.rs`，`lib.rs` 注册 `mod dap;` 并加入 `invoke_handler`：
    - `dap::debug_detect`（`locate_debugpy_dir` 结果 + 依赖声明扫描结果，**无子进程探测**）
    - `dap::debug_start`（spawn + 端口预分配 + PTY 落地 + TCP 连接）
-3. `locate_debugpy_dir(app)`：四级查找（`OPENCHARM_DEBUGPY_DIR` → `~/.opencharm/runtime/debugpy` → `util::resource_candidates` → dev 仓库上溯 `vendor/debugpy`），同 `lsp.rs::locate_intel_binary` 先例；纯文件系统操作。
+3. `locate_debugpy_dir(app)`：四级查找（`MONTAURI_DEBUGPY_DIR` → `~/.montauri/runtime/debugpy` → `util::resource_candidates` → dev 仓库上溯 `vendor/debugpy`），同 `lsp.rs::locate_intel_binary` 先例；纯文件系统操作。
 4. 互斥（v3.4 收窄）：在 `terminal.rs::run_in_terminal` 脚本分支加 `dap::debug_busy()` 检查；在 `debug_start` 里检查 `terminal::script_run_busy()`；项目实例与调试并存。
 5. `debug_detect` 返回 `{ debugpyOk: bool, debugpyDir: string | null, depFound: bool, depFiles: string[] }`。
 6. PTY 落地：把 `terminal.rs::start_session` 调整为 `pub(crate)`（或不导出而在 dap.rs 内复用 openpty 模式），会话 id 用新前缀。

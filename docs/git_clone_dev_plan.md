@@ -1,4 +1,4 @@
-# OpenCharm Git 远端克隆开发计划（迭代 6）
+# Montauri Git 远端克隆开发计划（迭代 6）
 
 > 版本：v1.0 · 日期：2026-10-01 · 状态：**已交付（2026-10-01）**
 > 归属：`git_improvement_report.md` 迭代 6
@@ -9,7 +9,7 @@
 
 ## 1. 目标与价值
 
-补齐 OpenCharm「创建项目」链路的最后一块——**从远端仓库克隆**。对标 PyCharm「Get from VCS」、VS Code「Clone Git Repository」。
+补齐 Montauri「创建项目」链路的最后一块——**从远端仓库克隆**。对标 PyCharm「Get from VCS」、VS Code「Clone Git Repository」。
 
 复用已交付的流式/可取消/P2-2 凭据引导基建（`exec_git_streaming`、`git_cancel_op`），**零新依赖、零新密钥管理**。
 

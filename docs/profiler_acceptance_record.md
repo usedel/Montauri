@@ -9,16 +9,16 @@
 | PR | 层 | 交付物 | 说明 |
 |---|---|---|---|
 | P0 | bench | `bench/profiler-overhead/overhead_lab.py` + `bench/reports/a2-overhead-lab.md` v1.0 | 开销门槛实验：**perf 3.02x ≤ cProfile 5.45x**；默认路径逐字不动（零回归） |
-| P1 | probe | `probe/src/opencharm_probe/` `perf_mode`（`OPENCHARM_PROBE_PERF=1` 开关 + 计时回调 + 聚合）| 默认零介入；开/关两路单测 |
+| P1 | probe | `probe/src/montauri_probe/` `perf_mode`（`MONTAURI_PROBE_PERF=1` 开关 + 计时回调 + 聚合）| 默认零介入；开/关两路单测 |
 | P2 | probe | exclusive(self) time（帧栈 `[code, t0, child_ns]`，样本含 excl_total/excl_max）| 单帧栈算法，无新配置项；2.95x ≤ cProfile 5.10x |
 | P3 | probe/shell/intel | trace 库 `functions` 表 +5 列 `perf_*`（旧库 ALTER 迁移）；`scan_runtime_hotspots` 扩展（调用次数 / 平均耗时 / 样本数）| 命令面 196 不变；intel 72 测试通过 |
 | P4 | shell | 热点视图耗时视角：`#hp-sort` 排序切换（调用次数 ⇄ 平均耗时）、平均耗时 × N 样本、`noPerfHint` | `hotspotsView.ts` 350/350（已满）+ `hotspots.css` 48/60 |
-| P5 | shell/前端/i18n | 设置项「性能模式（默认关）+ 开销提示文案」：Rust `Settings.probe_perf_enabled` + `run_env` 注入 `OPENCHARM_PROBE_PERF=1`（仅探针开启时）+ 设置行（§5 红线文案）+ i18n 三步流程 | e2e settings 域 4/4；产物 5,035/5,120 KB |
+| P5 | shell/前端/i18n | 设置项「性能模式（默认关）+ 开销提示文案」：Rust `Settings.probe_perf_enabled` + `run_env` 注入 `MONTAURI_PROBE_PERF=1`（仅探针开启时）+ 设置行（§5 红线文案）+ i18n 三步流程 | e2e settings 域 4/4；产物 5,035/5,120 KB |
 
 ## 二、与计划的实施偏差（反馈修订项）
 
 1. **P4 口径调整**：计划的「平均耗时 / P99 列」改为「**平均耗时 + 样本数**」——sink 只有聚合无直方图，P99 无法准确计算（遵循 §5 样本完整度 + P1 `PY_UNWIND` 先例）。P99 不作为本轮交付项，且收口裁决不再扩大视图。
-2. **P5 注入门控**：`OPENCHARM_PROBE_PERF=1` 仅在 `probe_src.is_some() && perf_mode` 时注入——探针关闭时 perf 无意义（四象限单测钉住）。
+2. **P5 注入门控**：`MONTAURI_PROBE_PERF=1` 仅在 `probe_src.is_some() && perf_mode` 时注入——探针关闭时 perf 无意义（四象限单测钉住）。
 3. **e2e 基建修复**（P5 顺手）：`tauri-mock` 的 staticHandlers 分派原不传 args（`set_settings` 收不到入参），改为 `h(args)` 透传并记录 `__E2E_SETTINGS_SAVED__`。
 
 ## 三、验证结果

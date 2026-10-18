@@ -1,4 +1,4 @@
-# opencharm 受控脚本 · regex_test
+# montauri 受控脚本 · regex_test
 # 职责：在真实 Python re 引擎下验证正则模式（match / finditer / subn）。
 # 约束（docs/python_library_support_dev_plan.md §3.1）：只读、无网络、无写文件、只用标准库；
 # 入参经 stdin 读 JSON（args_json 不走 argv——正则含引号/反斜杠/换行，且 Windows argv 有 32K 限制）；

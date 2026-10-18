@@ -6,7 +6,7 @@ P3 探针：intel 对 pandas / NumPy 运行时变量实际能提供什么？（r
 「运行时对象卡」（§11.8：变量行 chip + 列 chips）；给不到 → 登记放弃。
 
 口径：intel hover 的 shape 字段直接来自 probe 的
-`opencharm_probe.compact.shape_fingerprint`（compact.py）——probe 侧产出的
+`montauri_probe.compact.shape_fingerprint`（compact.py）——probe 侧产出的
 结构指纹就是 intel `render_variable` 展示的「字段（shape）」的唯一来源。
 因此本探针直接在真实 pandas / NumPy 对象上运行 shape_fingerprint + compact_type，
 其输出即为 intel hover 将呈现的内容（不需要起完整外壳做端到端验证）。
@@ -27,7 +27,7 @@ REPORT = os.path.join(HERE, "..", "reports", "lib-support-probe-p3-pandas.json")
 
 sys.path.insert(0, PROBE_SRC)
 
-from opencharm_probe.compact import compact_type, shape_fingerprint  # noqa: E402
+from montauri_probe.compact import compact_type, shape_fingerprint  # noqa: E402
 
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402

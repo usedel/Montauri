@@ -3,7 +3,7 @@
 // 全新 Windows 系统缺 uv / pyrefly 时，shell 的补全、跳转、运行均无法工作。
 // 本模块补上「随包分发」外的最后一块：探测缺失项，并引导用户一键把外部工具
 // 安装到**用户自有位置**（uv 官方默认 ~/.local/bin；工具本体落用户 uv 工具目录）。
-// 工具归用户所有、跨项目可复用，OpenCharm 不托管、不重定向（见
+// 工具归用户所有、跨项目可复用，Montauri 不托管、不重定向（见
 // docs/data-directory-layout-v2.md §4.2 工具所有权原则）。
 //
 // 设计边界：只做「探测」与「引导安装」，不做版本锁定与升级；版本锁定仍走 ci/versions.toml。
@@ -119,7 +119,7 @@ fn install_toolchain_impl(
 
     // 2. 定位 uv 绝对路径（~/.local/bin 命中，无需新 shell 刷新 PATH）
     let uv = resolve_tool("uv", ENV_UV)
-        .ok_or_else(|| "uv 安装后仍未找到，请重启 OpenCharm 或手动把 uv 加入 PATH".to_string())?;
+        .ok_or_else(|| "uv 安装后仍未找到，请重启 Montauri 或手动把 uv 加入 PATH".to_string())?;
     emit(&app, "toolchain-stdout", &format!("uv 位置：{}\n", uv.display()), wid)?;
 
     // 3. 安装静态引擎（uv tool install，走用户 uv 默认工具目录，入口脚本落 ~/.local/bin）
@@ -168,7 +168,7 @@ fn install_toolchain_impl(
     emit(
         &app,
         "toolchain-stdout",
-        if ok { "环境就绪。\n" } else { "安装结束，但引擎仍不可见；请重启 OpenCharm 后再试。\n" },
+        if ok { "环境就绪。\n" } else { "安装结束，但引擎仍不可见；请重启 Montauri 后再试。\n" },
         wid,
     )?;
     Ok(ok)

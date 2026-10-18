@@ -9,7 +9,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
-use crate::util::{no_window, opencharm_home};
+use crate::util::{no_window, montauri_home};
 
 /// 新建空文件（父目录不存在时自动创建）；已存在则报错。
 #[tauri::command]
@@ -286,7 +286,7 @@ fn unique_target(dst: &Path) -> PathBuf {
 }
 
 /// 工作区哈希（复用 probe 的算法：realpath 归一化后 sha1 前 12 位 hex）。
-/// 见 probe/src/opencharm_probe/store.py::project_hash。
+/// 见 probe/src/montauri_probe/store.py::project_hash。
 pub fn project_hash(root: &str) -> String {
     use sha1::{Digest, Sha1};
     let canonical = fs::canonicalize(root).unwrap_or_else(|_| PathBuf::from(root));
@@ -319,7 +319,7 @@ fn strip_verbatim_prefix(path: &str) -> String {
 // ---------- 最近打开文件（P25-T09，工作区级，存 <data_root>/recent/<hash>.json） ----------
 
 fn recent_path(root: &str) -> PathBuf {
-    opencharm_home().join("recent").join(format!("{}.json", project_hash(root)))
+    montauri_home().join("recent").join(format!("{}.json", project_hash(root)))
 }
 
 #[tauri::command]
@@ -357,7 +357,7 @@ pub struct Bookmark {
 }
 
 fn bookmarks_path(root: &str) -> PathBuf {
-    opencharm_home().join("bookmarks").join(format!("{}.json", project_hash(root)))
+    montauri_home().join("bookmarks").join(format!("{}.json", project_hash(root)))
 }
 
 /// 全部书签（按添加顺序）
@@ -433,7 +433,7 @@ fn default_enabled() -> bool {
 }
 
 fn breakpoints_path(root: &str) -> PathBuf {
-    opencharm_home().join("breakpoints").join(format!("{}.json", project_hash(root)))
+    montauri_home().join("breakpoints").join(format!("{}.json", project_hash(root)))
 }
 
 /// 全部持久化断点（文件不存在返回空表）
@@ -465,7 +465,7 @@ mod tests {
 
     fn tmpdir(tag: &str) -> PathBuf {
         let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-        let d = std::env::temp_dir().join(format!("opencharm-test-{tag}-{nanos}"));
+        let d = std::env::temp_dir().join(format!("montauri-test-{tag}-{nanos}"));
         fs::create_dir_all(&d).unwrap();
         d
     }
@@ -622,7 +622,7 @@ mod tests {
 
     /// 与 probe 的口径对齐验证（**不依赖任何具体机器路径**）。
     ///
-    /// probe（`probe/src/opencharm_probe/store.py::project_hash`）的哈希输入是
+    /// probe（`probe/src/montauri_probe/store.py::project_hash`）的哈希输入是
     /// `sha1(normcase(normpath(realpath(root))))[:12]`：realpath 解析真实路径并去掉尾部分隔符，
     /// normpath 统一为反斜杠、normcase 统一大小写（Windows）。因此「同一目录的不同书写形式」
     /// （含大小写变体）在两端必须落到同一个 trace 库文件名上——这里用运行期真实存在的

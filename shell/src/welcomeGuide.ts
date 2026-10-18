@@ -167,7 +167,7 @@ function buildTourItems(): TourItem[] { return [
 export let TOUR_ITEMS: TourItem[] = buildTourItems();
 
 /** 完成态 localStorage key（按条目持久化；key = quickOpenId） */
-const TOUR_KEY_PREFIX = "opencharm.tour.";
+const TOUR_KEY_PREFIX = "montauri.tour.";
 
 export function tourDoneKey(quickOpenId: string): string {
   return TOUR_KEY_PREFIX + quickOpenId;

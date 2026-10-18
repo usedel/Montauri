@@ -438,7 +438,7 @@ pub fn run_in_terminal(
     }
     // probe 受全局设置控制（§5.4 运行路径必开；§17-13 接线 probe_enabled）。
     // instance（§19-5）：本会话 id 即运行实例标识（run-term-script / run-term-project-<N>），
-    // 经 OPENCHARM_PROBE_INSTANCE 注入 → probe 落库 runs.instance——多实例并行时 trace
+    // 经 MONTAURI_PROBE_INSTANCE 注入 → probe 落库 runs.instance——多实例并行时 trace
     // 可归属到单次运行（调试链路 build_run_env 传 None，不受影响）。
     let probe = crate::settings::current_probe_enabled(&app);
     // PR-A2-P5：性能模式随探针注入（探针关闭时无效果，run_env 内部有 probe_src.is_some() 门控）
@@ -600,7 +600,7 @@ mod tests {
     fn tmpdir(tag: &str) -> std::path::PathBuf {
         use std::time::{SystemTime, UNIX_EPOCH};
         let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-        let d = std::env::temp_dir().join(format!("opencharm-test-{tag}-{nanos}"));
+        let d = std::env::temp_dir().join(format!("montauri-test-{tag}-{nanos}"));
         std::fs::create_dir_all(&d).unwrap();
         d
     }

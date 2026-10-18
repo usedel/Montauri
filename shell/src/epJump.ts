@@ -185,7 +185,7 @@ async function showEpPopup(line: number, col: number): Promise<void> {
   host.appendChild(list);
 
   popupWidget = {
-    getId: () => "opencharm.epJumpPopup",
+    getId: () => "montauri.epJumpPopup",
     getDomNode: () => host,
     getPosition: () => ({
       position: pos,

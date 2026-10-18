@@ -44,7 +44,7 @@
 
 1. **设置项四步接线**：`state.ts` 的 `Settings` 接口 + `DEFAULT_SETTINGS`（`:104` 区）→ `index.html` 控件 → `settingsPanel.ts` 回填（`:485`）与保存（`:569`）→ Rust `settings.rs`（`:101-213`）struct + `Default` 同步。旧配置一律 `!== false` 兜底。
 2. **键位三处同步**：`keybindingDefaults.ts`（单一来源）→ Rust `settings.rs::default_keybindings` → `keybindings.test.ts` 漂移锁（现 56 项，加一条要同步两处条目数断言）。
-3. **诊断新桶**：`opencharm-libs`，与 `opencharm-lsp` / `opencharm-intel`（`lsp/client.ts:1572-1581`）/ `opencharm-ruff`（`ruffLint.ts:30`）并列；**只用 warning / error 两级**。
+3. **诊断新桶**：`montauri-libs`，与 `montauri-lsp` / `montauri-intel`（`lsp/client.ts:1572-1581`）/ `montauri-ruff`（`ruffLint.ts:30`）并列；**只用 warning / error 两级**。
 4. **写回编辑器**：一律 `executeEdits` / `pushEditOperations`，**禁止 `model.setValue()` 整文替换**（`dx_features_backlog.md` PR-C 教训：只有保存动作才用整文写入）。
 5. **求值统一走 helper**：`shell/src/libEval.ts::evalKind`，自带 200ms 防抖 + LRU(100) + stale 标志 + `Ctrl+Enter` 强制求值 + 四态错误码。禁止各面板自己写 `invoke`。
 6. **无障碍**：多选语义用 `aria-pressed`（flags、日志级别过滤），互斥语义用 `kit.radioGroup`（格式串三模式）；图标按钮 `data-tip` + `aria-label`（UI-09）。
@@ -73,7 +73,7 @@ pub async fn py_eval(
 | **脚本来源** | `include_str!("../scripts/<kind>.py")` 编译进二进制——**不走 bundle resources**，避免打包遗漏（R-3）。脚本表 `const SCRIPTS: &[(&str, &str)]` 常量数组 |
 | **kind 白名单** | 未命中 → `Err("BadKind: ...")`，**绝不拼字符串到命令行** |
 | **解释器** | `env_cmds::get_interpreter(workspace_root)`（`env_cmds.rs:733`）；`None` → 查缓存 → 无则 `uv python find`（cwd = workspace_root，超时 8s）→ 写入 `static INTERPRETER_CACHE: Mutex<HashMap<String, String>>`（key = 工作区根，换工作区/换解释器失效） |
-| **启动参数** | `Command::new(interp).arg("-I").arg("-X").arg("utf8").arg("-c").arg(SCRIPT).current_dir(workspace_root)`（v1.1：`-X utf8` 强制 UTF-8 stdio，`-I` 屏蔽 `PYTHONIOENCODING`，Windows locale 编码会破坏 stdout JSON）；**`args_json` 走 stdin**（`Stdio::piped()` 写入后关闭——正则模式含引号/反斜杠/换行，`re.X` 多行是支持场景，Windows argv 有 ~32K 限制与引号转义陷阱；`kind` 仍走 argv）；`OPENCHARM_*` 环境变量沿用 `check_missing_imports_impl`（`env_cmds.rs:898-901`）先例 |
+| **启动参数** | `Command::new(interp).arg("-I").arg("-X").arg("utf8").arg("-c").arg(SCRIPT).current_dir(workspace_root)`（v1.1：`-X utf8` 强制 UTF-8 stdio，`-I` 屏蔽 `PYTHONIOENCODING`，Windows locale 编码会破坏 stdout JSON）；**`args_json` 走 stdin**（`Stdio::piped()` 写入后关闭——正则模式含引号/反斜杠/换行，`re.X` 多行是支持场景，Windows argv 有 ~32K 限制与引号转义陷阱；`kind` 仍走 argv）；`MONTAURI_*` 环境变量沿用 `check_missing_imports_impl`（`env_cmds.rs:898-901`）先例 |
 | **执行与超时** | `run_with_timeout`（`env_cmds.rs:391`）——**当前是私有 `fn`，需改 `pub(crate)`**（R-4）。直连 3s；`uv python find` 8s；`ast_argparse` 5s |
 | **输出协议** | stdout 单行 JSON `{"ok":true,"data":…}` / `{"ok":false,"error":"…"}`；stderr 并入 error；非 0 退出一律失败；Rust 侧按 **UTF-8 字节显式解码**（配合 `-X utf8`，不依赖系统 locale） |
 | **错误码** | `NoInterpreter` / `Timeout` / `BadKind` / `ScriptError`（前端按码分流到 §11.2 的四态文案） |
@@ -113,7 +113,7 @@ pub async fn py_eval(
 ### 4.2 编辑器侧（L1）
 
 - **高亮**：`monaco.editor.createDecorationsCollection`，只改前景色与下划线样式，**不改字体/背景**（避免与主题语法着色打架）。
-- **诊断**：`setModelMarkers(model, "opencharm-libs", …)`，仅 warning/error。
+- **诊断**：`setModelMarkers(model, "montauri-libs", …)`，仅 warning/error。
 - **hover**：⚠️ **风险 R-1**——Monaco 多 hover provider 是否合并未经验证。开工第一步先实测：不合并则改为在 `lsp/client.ts:714` 的现有 hover 合并管线里追加自研段（推荐后者，与 intel 合并同源，避免双 provider 打架）。
 - **入口**：新建 `shell/src/dslLens.ts`（**不动 `codeVision.ts` 的引用逻辑**），注册 CodeLens；顺序 `[工具][引用]` 需实测 provider 注册顺序是否决定显示顺序（R-2）；单文件上限 20；`libs_editor_lens` 开关。右键 `editor.addAction`（`findUsages.ts:287` 为样板）；命令面板 `buildQuickOpenActions`（`main.ts:1339`）；键位 `open_regex_tester`（`Ctrl+Alt+R`，**先核对现有 55 项键位表冲突**，PR-A 先例）+ 漂移锁三处。
 

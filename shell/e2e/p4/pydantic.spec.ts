@@ -2,7 +2,7 @@
  * 阶段 4 · 自研 Pydantic 语义层 E2E 验收（docs/pyrefly_pydantic_support_plan.md §5）。
  *
  * 覆盖：
- *  1. 子项 1b：Pydantic 栈工作区打开 → 第四桶诊断（opencharm-pydantic）渲染为红线
+ *  1. 子项 1b：Pydantic 栈工作区打开 → 第四桶诊断（montauri-pydantic）渲染为红线
  *     （type / missing）+ DOM 层 squiggly 波浪线；非 Pydantic 栈零注入（门控）。
  *  2. 保存后防抖重扫：预置清空 → 保存 → marker 清空。
  *  3. 设置开关（PR-2 修复项）：设置面板关闭 pydantic_diagnostics → 保存 → 即时清空。

@@ -143,7 +143,7 @@ M4 实测与文档收尾（§17-19 + §19 风险闭环）
   - C7 Shift+F5/工具栏停止后按钮全禁用（exited 复位正确；debug-toolbar 常驻 DOM 属设计，以按钮态判定）。
 - [x] 运行主链路（A 组）✅：A1 运行+回显+退出、A2 tab 复用+标题更新、A5 Ctrl+C 优雅停止、A6 关 tab 无孤儿进程（Win32 进程核验）、A7 关 tab 后重跑自动重建、A9 运行中再运行终止重跑（**发现回归并已修复**：M2 简化时把覆盖语义改成了静默忽略，修复后 tick 归零验证通过）、A10 选区/E1 连点（三连点单实例）。
 - [x] 配置面板（D 组）✅：D1 打开+7 项精简表单、D2 保存+读回一致、D4 运行生效（read_run_config 同源）。
-- [x] probe PTY 实测（§19-1 首证）✅：`[opencharm-probe] ✓ … → traces\*.db` 在 PTY 会话正常出现，不污染 stdout 可读性、trace 落库（开销正式基准留 M4-4.1）。
+- [x] probe PTY 实测（§19-1 首证）✅：`[montauri-probe] ✓ … → traces\*.db` 在 PTY 会话正常出现，不污染 stdout 可读性、trace 落库（开销正式基准留 M4-4.1）。
 - [x] 全局 grep：`run-stdout` / `run-stderr` / `run-exit` / `RUN_CHILD` / `run_stdin` / `stop_script(` / `run_script(` / `run_profile(` 无残留 ✅
 - [ ] 应用退出时无孤儿进程——待手测（关闭 dev 窗口后查任务管理器）
 - [ ] Logpoint 三路回归的第三路（调试控制台）——未覆盖，待手测
@@ -229,7 +229,7 @@ M4 实测与文档收尾（§17-19 + §19 风险闭环）
   - [x] A6 二选一「新建实例（并行）」→ 「项目」「项目 2」tab 并行 running；
   - [x] A7 二选一「停止并重跑」= 停全部项目实例 → 复用「项目」主 tab（裁决 9）；
   - [x] A8 Ctrl+Shift+R 历史列表 + 退出码 + 目标名展示；
-  - [x] A9 probe 注入 PTY 会话且脚本输出完整（OPENCHARM_PROBE_SRC 显式指定）；
+  - [x] A9 probe 注入 PTY 会话且脚本输出完整（MONTAURI_PROBE_SRC 显式指定）；
   - [x] A10 运行组状态矩阵（idle/running/exited × 四控件 + tooltip 文案）；
   - [x] A11 崩溃脚本：非零退出码 + 不弹错误框 + traceback 入历史快照；
   - [x] 孤儿进程核查：全部用例跑完无遗留 python 进程（Win32 进程表核验）；
@@ -284,7 +284,7 @@ M4 实测与文档收尾（§17-19 + §19 风险闭环）
 
 测试基建（`__ocProbe` 钩子保留在 `runFlow.ts`，一次性测试文件已于验收后清理）：
 - `window.__ocProbe`（runFlow 注入的只读快照：实例列表 + 历史摘要），生产无消费者，M4 复测可直接使用；
-- M4 若需重跑 UI 自动化，重建方法：临时目录放测试脚本工作区 + 隔离数据根（`OPENCHARM_DATA_ROOT` 指向 + 预置**无 BOM** 的 `config/recent-workspaces.json`）+ `start-dev.ps1`（`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9223` + `OPENCHARM_PROBE_SRC`）+ CDP runner（Playwright `connectOverCDP`）；
+- M4 若需重跑 UI 自动化，重建方法：临时目录放测试脚本工作区 + 隔离数据根（`MONTAURI_DATA_ROOT` 指向 + 预置**无 BOM** 的 `config/recent-workspaces.json`）+ `start-dev.ps1`（`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9223` + `MONTAURI_PROBE_SRC`）+ CDP runner（Playwright `connectOverCDP`）；
 - 两个必踩的坑（实测记录）：① PowerShell `Set-Content -Encoding UTF8` 带 **BOM**，serde 解析失败**静默**返回空——必须用 `[IO.File]::WriteAllText` 无 BOM 写入；② 运行组按钮故意不用原生 disabled（UX P0-3，保 data-tip），Playwright 的可用性等待会永远超时——必须 `force: true` 点击。
 
 ---
@@ -297,7 +297,7 @@ M4 实测与文档收尾（§17-19 + §19 风险闭环）
 
 - [x] **4.1 probe PTY 实测**（§19-1，最高风险）✅ 2026-09-15
   - 确认：PTY 下 probe 不污染 stdout、开销 < 1.5x；✅（开销 **1.35x PASS**；摘要走 stderr；PTY 注入链 6 函数全采集——**实测暴露并修复两个 probe 缺陷**：quiet 节流失效致 1.84x 超标、sitecustomize 链噪音误关发现窗口致 0 采集，见验收记录 §二）
-  - **覆盖多实例并发**（§19-5）：脚本 + N 项目实例并行，多进程同时写同一 trace 库 → trace 库开 WAL + busy_timeout，trace 记录附运行实例标识（可归属到单次运行）；✅（`runs.instance` 列 + `OPENCHARM_PROBE_INSTANCE` 四件套注入；8 进程并发写库自动化用例 + dev 应用端到端归属验证）
+  - **覆盖多实例并发**（§19-5）：脚本 + N 项目实例并行，多进程同时写同一 trace 库 → trace 库开 WAL + busy_timeout，trace 记录附运行实例标识（可归属到单次运行）；✅（`runs.instance` 列 + `MONTAURI_PROBE_INSTANCE` 四件套注入；8 进程并发写库自动化用例 + dev 应用端到端归属验证）
   - 不通过 → 触发裁决 6 决策点：届时重写混合方案，接受返工。✅（无需返工：两个缺陷修复后全通过）
   - ⚠️ 建议 M3 中段（3.7 完成后、并行能力可用时）即插入首轮实测，避免 UI 层返工叠加。→（M3 验收 A9 已做首轮 probe 首证；M4 完成全量实测）
 - [x] **4.2 稳定性复测**（§19-2/3/4）✅ 2026-09-15

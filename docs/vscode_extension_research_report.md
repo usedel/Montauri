@@ -1,15 +1,15 @@
-# VS Code Python 插件调研报告与 OpenCharm 借鉴建议
+# VS Code Python 插件调研报告与 Montauri 借鉴建议
 
 > 版本：**v1.0** · 日期：**2026-10-10** · 性质：**调研报告（非排期依据）**
 > 调研方法：VS Code Marketplace 榜单 + 中英文社区榜单交叉（4 篇 2026 年榜单，见 §7）+ **本仓库 `shell/` 源码逐项核对**（证据见 §3，均为 file:line 级）。
 > 结论用途：为 Phase 4「打磨期」的功能取舍提供输入。**是否立项、何时排期仍以 `docs/python_ide_dev_plan_v2.md` 及产品负责人裁决为准**（与 `docs/pycharm_feature_research_report.md` 同性质）。
-> ⚠ **口径纪律（本报告不得被越界引用）**：本报告只做**能力覆盖对照**，不做质量优劣对比。**禁止**据此写出「OpenCharm 比 VS Code / Pylance 更好 / 更准」类表述——横向对标纪律见 `README.md`「已知边界」与 `docs/improvement_and_roadmap_report.md` §5「口径纪律」（可写口径只有自证：自有样例集 **23/23**）。
+> ⚠ **口径纪律（本报告不得被越界引用）**：本报告只做**能力覆盖对照**，不做质量优劣对比。**禁止**据此写出「Montauri 比 VS Code / Pylance 更好 / 更准」类表述——横向对标纪律见 `README.md`「已知边界」与 `docs/improvement_and_roadmap_report.md` §5「口径纪律」（可写口径只有自证：自有样例集 **23/23**）。
 
 ---
 
 ## 0. 一页结论
 
-**VS Code Python 插件榜前 10 名，OpenCharm 已有 9 项等价物**（逐项源码核对，§3.1）。真正的能力空白只有 4 项，且全部满足「小、零新依赖、与画像（FastAPI + 爬虫 + 小脚本）相关」——**不需要动 `ci/budgets.toml` 预算即可落地**：
+**VS Code Python 插件榜前 10 名，Montauri 已有 9 项等价物**（逐项源码核对，§3.1）。真正的能力空白只有 4 项，且全部满足「小、零新依赖、与画像（FastAPI + 爬虫 + 小脚本）相关」——**不需要动 `ci/budgets.toml` 预算即可落地**：
 
 | 序 | 借鉴项 | 对标插件 | 缺口性质 | 成本量级 |
 |---|---|---|---|---|
@@ -21,7 +21,7 @@
 
 **另有 5 项明确不学**（§5）：AI 三件（IntelliCode / Copilot / Sourcery）、Test Explorer、Remote-SSH / WSL、Mermaid——全部与既有裁决或 ADR-0010 冲突。
 
-**战略结论**：Python 开发者的刚需是**收敛**的，不需要插件生态来补齐。榜单前 10 名覆盖率约 90% 这一事实，正面支撑「不做插件市场」的定位裁决（`improvement_and_roadmap_report.md` §7）——**但「装一堆扩展」这个模式本身不要学**：VS Code 的强项是生态，OpenCharm 的强项是零配置开箱 + 单色相轴视觉 + 体积预算，把生态当卖点是与 ADR-0010 直接对撞的路。
+**战略结论**：Python 开发者的刚需是**收敛**的，不需要插件生态来补齐。榜单前 10 名覆盖率约 90% 这一事实，正面支撑「不做插件市场」的定位裁决（`improvement_and_roadmap_report.md` §7）——**但「装一堆扩展」这个模式本身不要学**：VS Code 的强项是生态，Montauri 的强项是零配置开箱 + 单色相轴视觉 + 体积预算，把生态当卖点是与 ADR-0010 直接对撞的路。
 
 ---
 
@@ -54,11 +54,11 @@
 
 ---
 
-## 3. 逐项对照（OpenCharm 现状，附源码证据）
+## 3. 逐项对照（Montauri 现状，附源码证据）
 
 ### 3.1 已有等价物（9 项，无需借鉴）
 
-| # | 插件 | OpenCharm 等价物 | 源码证据 |
+| # | 插件 | Montauri 等价物 | 源码证据 |
 |---|---|---|---|
 | 1 | Pylance | pyrefly（静态）+ intel（运行时）双引擎 | 补全四层合并 / 跳转 / hover / 诊断 / inlay hint / 签名帮助（`shell/src/lsp/client.ts` · `intel/`） |
 | 2 | Python（扩展本体） | 解释器与环境选择 + 运行 + traceback 点击跳转 | 环境面板 · 统一 PTY（`shell/src-tauri/src/terminal.rs`）· `run_env.rs` |

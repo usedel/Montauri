@@ -1,5 +1,5 @@
 // 库支持编辑器侧 L1/L2 入口（库特别支持 PR-2，docs/python_library_support_dev_plan.md §4.2）。
-// 职责：正则字面量的 CodeLens（🧪 测试正则）/ 高亮装饰 / 静态诊断（opencharm-libs 桶）/
+// 职责：正则字面量的 CodeLens（🧪 测试正则）/ 高亮装饰 / 静态诊断（montauri-libs 桶）/
 // 右键菜单 / 键位 handler 桥。不动 codeVision.ts 的引用逻辑（D-2：两条并存，Monaco 多 provider 合并）。
 // R-1 结论：hover 不注册第二 provider，走 lsp/client.ts 的既有合并管线追加（本模块只提供 regexHoverAt）。
 
@@ -32,11 +32,11 @@ function ruleDecorClass(id: InjectLiteral["rule"]): string | undefined {
   return ruleOf(id).decorClass;
 }
 
-/** 诊断新桶（与 opencharm-lsp / opencharm-intel / opencharm-ruff 并列；仅 warning/error 两级） */
-export const LIBS_OWNER = "opencharm-libs";
+/** 诊断新桶（与 montauri-lsp / montauri-intel / montauri-ruff 并列；仅 warning/error 两级） */
+export const LIBS_OWNER = "montauri-libs";
 
 /** 面板工具全局 id（= `<pluginId>.<toolId>`，builtin/index.ts manifest 的 regex 项） */
-const REGEX_TOOL_ID = "opencharm.builtin.regex";
+const REGEX_TOOL_ID = "montauri.builtin.regex";
 /** 单文件 lens 上限（D-2） */
 const LENS_MAX = 20;
 /** 超上限时对「可见区域 + 光标 ±50 行」出 lens（§11.1-3） */
@@ -82,7 +82,7 @@ export function openRegexTesterAtCursor(): void {
 }
 
 /** 面板工具全局 id（builtin/index.ts manifest 的 format 项） */
-const FORMAT_TOOL_ID = "opencharm.builtin.format";
+const FORMAT_TOOL_ID = "montauri.builtin.format";
 
 /** 格式串字面量 → 打开格式串面板并带入选中模式与格式串（§11.1-2 聚合 lens 落点） */
 export function openFormatTester(hit: Pick<FormatHit, "mode" | "fmt">): void {
@@ -166,7 +166,7 @@ function updateLibsArtifacts(editor: MonacoApi.editor.IStandaloneCodeEditor): vo
   // 装饰：规则自带 decorClass（只改前景色 + 下划线，§11.3.4；format 无装饰）
   applyDecorations(model, literals.filter((l) => ruleDecorClass(l.rule) !== undefined));
 
-  // 诊断：规则表统一收集 → opencharm-libs 桶
+  // 诊断：规则表统一收集 → montauri-libs 桶
   const markers: MonacoApi.editor.IMarkerData[] = [];
   const pushMarker = (offset: number, message: string, isError: boolean, length: number): void => {
     const p = offsetToPosition(text, offset);
@@ -219,7 +219,7 @@ const argsCountCache = new Map<string, Promise<number | null>>();
 let lastArgsComputeAt = 0;
 
 function modelPathOf(model: MonacoApi.editor.ITextModel): string | null {
-  return (model as unknown as { __opencharmPath?: string }).__opencharmPath ?? null;
+  return (model as unknown as { __montauriPath?: string }).__montauriPath ?? null;
 }
 
 /** 参数计数（py_eval ast_argparse；节流 1.5s 防键入期连续 spawn；缓存上限 20 版本） */
@@ -265,7 +265,7 @@ export function initDslLens(editor: MonacoApi.editor.IStandaloneCodeEditor): Mon
   const fire = (delay = 300): void => {
     window.clearTimeout(fireTimer);
     fireTimer = window.setTimeout(() => {
-      updateLibsArtifacts(editor); // 装饰 + opencharm-libs 诊断随 lens 同步刷新
+      updateLibsArtifacts(editor); // 装饰 + montauri-libs 诊断随 lens 同步刷新
       for (const l of listeners) l(provider);
     }, delay);
   };
@@ -371,7 +371,7 @@ export function initDslLens(editor: MonacoApi.editor.IStandaloneCodeEditor): Mon
   // precondition：仅 Python 文件可见（编辑器级 action 无法按语言注册，用上下文键门控）
   store.add(
     editor.addAction({
-      id: "opencharm.openRegexTester",
+      id: "montauri.openRegexTester",
       label: t("ide.lens.openRegex"),
       contextMenuGroupId: "navigation",
       contextMenuOrder: 1.8,
@@ -383,7 +383,7 @@ export function initDslLens(editor: MonacoApi.editor.IStandaloneCodeEditor): Mon
   // 右键菜单「在格式串工具中打开」（I-2：工具必须有编辑器内入口，§11.1）
   store.add(
     editor.addAction({
-      id: "opencharm.openFormatTester",
+      id: "montauri.openFormatTester",
       label: t("ide.lens.openFormat"),
       contextMenuGroupId: "navigation",
       contextMenuOrder: 1.9,

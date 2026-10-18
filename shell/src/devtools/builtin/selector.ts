@@ -42,7 +42,7 @@ const pendingConsumers = new Set<(html: string) => void>();
  * 本工具的全局 id（`<pluginId>.<toolId>`）。传裸 `"selector"` 会让 `openDevTools` 静默回落到
  * 「最近使用」工具（面板开了但打开的是别的工具）——同 devtools/index.ts 的 HTTP_TOOL_ID 踩坑。
  */
-export const SELECTOR_TOOL_ID = pluginToolId("opencharm.builtin", "selector");
+export const SELECTOR_TOOL_ID = pluginToolId("montauri.builtin", "selector");
 
 /** 预置待测 HTML（HTTP 工具响应工具栏「测试选择器」调用） */
 export function setPendingSelectorHtml(html: string): void {

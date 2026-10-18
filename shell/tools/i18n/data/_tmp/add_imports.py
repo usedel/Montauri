@@ -3,7 +3,7 @@
 import re
 from pathlib import Path
 
-SRC = Path("d:/aipro/opencharm/shell/src")
+SRC = Path("d:/aipro/montauri/shell/src")
 
 FILES = [
     "devtools/builtin/password.ts",

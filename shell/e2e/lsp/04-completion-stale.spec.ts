@@ -101,8 +101,8 @@ test("B-2 同词内继续输入触发重新请求（P0-A2 强判别）", async (
       () =>
         page.evaluate(() => {
           const log =
-            (window as unknown as { __OPENCHARM_LSP_LOG__?: Array<{ m: string }> })
-              .__OPENCHARM_LSP_LOG__ ?? [];
+            (window as unknown as { __MONTAURI_LSP_LOG__?: Array<{ m: string }> })
+              .__MONTAURI_LSP_LOG__ ?? [];
           return log.filter((e) => e.m === "textDocument/completion").length;
         }),
       { timeout: 5_000 },

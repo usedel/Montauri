@@ -240,12 +240,12 @@ async function runChecks(page, projRoot, dataRoot) {
   // —— NP-REAL-5（体验审查 C-1）：创建收尾环境级联 ——
   // 证据全部磁盘侧：
   // ① workspaces/<hash>.json：interpreter == 新建 .venv 的 python（set_interpreter 落对根、落对路径）
-  // ② logs/opencharm.log：pyvenv.cfg 落盘后出现 dep_scan interpreter=true → 随后一次
+  // ② logs/montauri.log：pyvenv.cfg 落盘后出现 dep_scan interpreter=true → 随后一次
   //    [lsp_stop]（引擎重启级联 = afterEnvChanged 收尾；修复前 startLsp 只在 venv 存在前跑过一次）
   const projCfg = path.join(dataRoot, 'workspaces', `${projectHash(projRoot)}.json`);
   const venvPyDisk = path.join(projRoot, '.venv', 'Scripts', 'python.exe');
   const venvCfg = path.join(projRoot, '.venv', 'pyvenv.cfg');
-  const appLog = path.join(dataRoot, 'logs', 'opencharm.log');
+  const appLog = path.join(dataRoot, 'logs', 'montauri.log');
   const msOf = (line) => { const m = line.match(/^\[(\d{2}):(\d{2}):(\d{2})\.(\d{3})\]/); return m ? ((+m[1] * 3600 + +m[2] * 60 + +m[3]) * 1000 + +m[4]) : null; };
 
   let legA = null;
@@ -451,7 +451,7 @@ async function runChecks(page, projRoot, dataRoot) {
     stdio: ['ignore', logFd, logFd],
     env: {
       ...process.env,
-      OPENCHARM_DATA_ROOT: dataRoot,
+      MONTAURI_DATA_ROOT: dataRoot,
       WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${CDP_PORT}`,
     },
   });

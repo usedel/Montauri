@@ -9,7 +9,7 @@ const VALID = JSON.stringify({
   id: "com.example.my-tools",
   name: "My Tools",
   version: "1.0.0",
-  engines: { opencharm: ">=0.5.0" },
+  engines: { montauri: ">=0.5.0" },
   contributes: {
     tools: [
       {
@@ -70,7 +70,7 @@ describe("validateManifest", () => {
   it("engines 仅支持 >=X.Y.Z 形式", () => {
     for (const spec of ["^1.0.0", "0.5.0", ">0.5", ">=1.0"]) {
       const bad = JSON.parse(VALID);
-      bad.engines = { opencharm: spec };
+      bad.engines = { montauri: spec };
       const r = validateManifest(JSON.stringify(bad));
       expect(r.ok).toBe(false);
       expect(r.errors.map((e) => e.key).join()).toContain("ext.mf.engines");

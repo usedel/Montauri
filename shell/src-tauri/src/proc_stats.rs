@@ -86,7 +86,7 @@ fn proc_stats_impl() -> Result<ProcStats, String> {
     let me = sys
         .process(self_pid)
         .ok_or_else(|| "proc_stats: 自身进程不可见（异常环境）".to_string())?;
-    let shell = to_info(self_pid, "OpenCharm（外壳）".into(), me.memory(), me.cpu_usage());
+    let shell = to_info(self_pid, "Montauri（外壳）".into(), me.memory(), me.cpu_usage());
 
     // TD-021④：运行链存在中间层（cmd /c、shell 包装）时孙进程内存不计入合计，芯片口径
     // 偏小。改为按进程树递归收集全部后代（BFS + visited 防环），再统一映射成 ProcInfo。

@@ -66,7 +66,7 @@ fn is_debugpy_pkg(dir: &std::path::Path) -> bool {
 }
 
 /// 定位自带 debugpy 包目录，优先顺序（同 lsp.rs::locate_intel_binary 先例）：
-/// 1) 环境变量 OPENCHARM_DEBUGPY_DIR（指向 debugpy/ 包目录本身）；
+/// 1) 环境变量 MONTAURI_DEBUGPY_DIR（指向 debugpy/ 包目录本身）；
 /// 2) 托管目录 <data_root>/runtime/debugpy/debugpy；
 /// 3) Tauri 资源目录（打包分发，bundle.resources "vendor/debugpy/" -> "debugpy/"）；
 /// 4) dev 相对 exe 上溯仓库布局（vendor/debugpy/debugpy，需先跑 tools/fetch-debugpy.ps1）。
@@ -80,7 +80,7 @@ fn locate_debugpy_dir(app: &AppHandle) -> Option<PathBuf> {
 }
 
 fn locate_debugpy_dir_raw(app: &AppHandle) -> Option<PathBuf> {
-    if let Ok(p) = std::env::var("OPENCHARM_DEBUGPY_DIR") {
+    if let Ok(p) = std::env::var("MONTAURI_DEBUGPY_DIR") {
         let p = PathBuf::from(p);
         if is_debugpy_pkg(&p) {
             return Some(p);
@@ -897,7 +897,7 @@ mod tests {
     fn tmpdir(tag: &str) -> std::path::PathBuf {
         use std::time::{SystemTime, UNIX_EPOCH};
         let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-        let d = std::env::temp_dir().join(format!("opencharm-dap-{tag}-{nanos}"));
+        let d = std::env::temp_dir().join(format!("montauri-dap-{tag}-{nanos}"));
         std::fs::create_dir_all(&d).unwrap();
         d
     }

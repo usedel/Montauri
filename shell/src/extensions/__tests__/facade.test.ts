@@ -12,7 +12,7 @@ const MANIFEST_JSON = JSON.stringify({
   id: "com.test.demo",
   name: "Demo",
   version: "1.0.0",
-  engines: { opencharm: ">=0.1.0" },
+  engines: { montauri: ">=0.1.0" },
   contributes: {
     tools: [{ id: "t1", title: "T1", entry: "./t.js", inline: { label: "变换", handler: "h" } }],
   },
@@ -59,9 +59,9 @@ describe("权限门控", () => {
     const yes = createInlineHost(manifestWith(["storage"]), "/dir", deps);
     yes.storage.set("k", "v");
     expect(yes.storage.get("k")).toBe("v");
-    expect(localStorage.getItem("opencharm.plugin.com.test.demo.k")).toBe("v"); // 命名空间隔离
+    expect(localStorage.getItem("montauri.plugin.com.test.demo.k")).toBe("v"); // 命名空间隔离
     yes.storage.clear();
-    expect(localStorage.getItem("opencharm.plugin.com.test.demo.k")).toBeNull();
+    expect(localStorage.getItem("montauri.plugin.com.test.demo.k")).toBeNull();
   });
 
   it("fs:read 未声明 → workspaceRoot / readFile 拒绝", () => {
@@ -112,12 +112,12 @@ describe("PanelHost / InlineHost 分型", () => {
 
 describe("clearPluginStorage", () => {
   it("只清目标插件前缀，不动其他", () => {
-    localStorage.setItem("opencharm.plugin.com.test.demo.a", "1");
-    localStorage.setItem("opencharm.plugin.com.other.b", "2");
+    localStorage.setItem("montauri.plugin.com.test.demo.a", "1");
+    localStorage.setItem("montauri.plugin.com.other.b", "2");
     localStorage.setItem("unrelated", "3");
     clearPluginStorage("com.test.demo");
-    expect(localStorage.getItem("opencharm.plugin.com.test.demo.a")).toBeNull();
-    expect(localStorage.getItem("opencharm.plugin.com.other.b")).toBe("2");
+    expect(localStorage.getItem("montauri.plugin.com.test.demo.a")).toBeNull();
+    expect(localStorage.getItem("montauri.plugin.com.other.b")).toBe("2");
     expect(localStorage.getItem("unrelated")).toBe("3");
     localStorage.clear();
   });

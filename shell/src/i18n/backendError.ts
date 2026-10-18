@@ -120,7 +120,7 @@ const PATTERNS: ErrPattern[] = [
   { zh: "zip 累计解压量超过 64MB 上限", en: "Cumulative zip extraction exceeds the 64 MB limit" },
   { zh: "zip 结构不对：应只有一个顶层目录（插件 id）", en: "Invalid zip structure: expected exactly one top-level directory (the plugin id)" },
   { zh: "顶层目录名不是合法插件 id：{plugin_id}", en: "The top-level directory name is not a valid plugin id: {plugin_id}" },
-  { zh: "插件目录缺少 opencharm.plugin.json", en: "The plugin directory is missing opencharm.plugin.json" },
+  { zh: "插件目录缺少 montauri.plugin.json", en: "The plugin directory is missing montauri.plugin.json" },
   { zh: "manifest.id（{manifest_id}）与目录名（{plugin_id}）不一致", en: "manifest.id ({manifest_id}) does not match the directory name ({plugin_id})" },
   { zh: "插件 {plugin_id} 已存在（不覆盖；如需更新请先在插件目录删除旧版）", en: "Plugin {plugin_id} already exists (not overwritten; to update, delete the old version from the plugin directory first)" },
   { zh: "落盘失败：{e}", en: "Failed to write to disk: {e}" },

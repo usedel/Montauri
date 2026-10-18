@@ -959,7 +959,7 @@ def audit(css_path: Path) -> Report:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="OpenCharm UI token 审计 + WCAG 门禁")
+    ap = argparse.ArgumentParser(description="Montauri UI token 审计 + WCAG 门禁")
     ap.add_argument("--css", default=str(DEFAULT_CSS), help="style.css 路径")
     ap.add_argument("--json", action="store_true", help="输出 JSON（仍按门禁给退出码）")
     ap.add_argument("--out", help="把 JSON 报告写到该文件（逐批对照用；退出码不受影响）")
@@ -994,7 +994,7 @@ def main() -> int:
 
     total = len(report.rows)
     bad = [r for r in report.rows if not r["ok"]]
-    print(f"OpenCharm UI token 审计 —— {css_path}")
+    print(f"Montauri UI token 审计 —— {css_path}")
     print(f"共 {total} 项判定，未达标 {len(bad)} 项；FAIL {len(report.fails)} · WARN {len(report.warns)}\n")
     for gate in ("单色相", "accent 面", "白字 on fill", "fg-dim 面", "阶梯轴", "chrome 分离",
                  "阴影纪律", "抬升面文字", "accent 面归属"):

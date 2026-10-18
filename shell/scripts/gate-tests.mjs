@@ -8,7 +8,7 @@
 //   node shell/scripts/gate-tests.mjs e2e-ui          # **视觉关键子集**（12 spec / 66 用例，见 UI_KEY_SPECS）
 //   node shell/scripts/gate-tests.mjs e2e <spec...>   # playwright e2e（可指定 spec）
 //
-// 产物：%TEMP%\opencharm-gates\<kind>.log（覆盖写）；退出码透传。
+// 产物：%TEMP%\montauri-gates\<kind>.log（覆盖写）；退出码透传。
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -16,7 +16,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const SHELL_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const OUT_DIR = join(tmpdir(), "opencharm-gates");
+const OUT_DIR = join(tmpdir(), "montauri-gates");
 const kind = process.argv[2] ?? "unit";
 const rest = process.argv.slice(3);
 mkdirSync(OUT_DIR, { recursive: true });

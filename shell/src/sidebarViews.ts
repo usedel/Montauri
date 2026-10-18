@@ -111,7 +111,7 @@ export function wireSidebarViews(deps: SidebarViewDeps): void {
     const collapsed = $("outline-section").classList.toggle("collapsed");
     outlineHeader.setAttribute("aria-expanded", String(!collapsed));
     try {
-      localStorage.setItem("opencharm.outline_collapsed", collapsed ? "1" : "0"); // B 批：写穿持久化
+      localStorage.setItem("montauri.outline_collapsed", collapsed ? "1" : "0"); // B 批：写穿持久化
     } catch {
       // 存储不可用：本次会话内仍生效
     }
@@ -124,7 +124,7 @@ export function wireSidebarViews(deps: SidebarViewDeps): void {
     }
   });
   // B 批：恢复上次的大纲折叠态（存 "1" 且默认展开 → 切一次即折叠）
-  if (localStorage.getItem("opencharm.outline_collapsed") === "1") toggleOutline();
+  if (localStorage.getItem("montauri.outline_collapsed") === "1") toggleOutline();
   // 初始化激活视图：优先恢复上次会话的选择（B 批持久化），无记录/非法值回退 files
   restoreSidebarView("files");
 }

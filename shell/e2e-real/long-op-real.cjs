@@ -278,7 +278,7 @@ async function runChecks(page, wsRoot) {
     stdio: ['ignore', logFd, logFd],
     env: {
       ...process.env,
-      OPENCHARM_DATA_ROOT: dataRoot,
+      MONTAURI_DATA_ROOT: dataRoot,
       WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${CDP_PORT}`,
     },
   });

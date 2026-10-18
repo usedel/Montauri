@@ -1,4 +1,4 @@
-# opencharm 受控脚本 · format_preview
+# montauri 受控脚本 · format_preview
 # 职责：在真实 Python 运行时预览三类格式串（strftime / format spec / logging %()s）。
 # 约束同 regex_test.py：只读、无网络、只用标准库、stdin 进 JSON、stdout 出单行 JSON。
 # 由 Rust 侧以 `python -I -X utf8 -c <本文件> <kind>` 启动。

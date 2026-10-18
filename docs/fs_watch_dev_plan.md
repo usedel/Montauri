@@ -1,4 +1,4 @@
-# OpenCharm 文件监听（notify）增强开发计划
+# Montauri 文件监听（notify）增强开发计划
 
 > 版本：**v1.0（已交付）** · 日期：2026-10-18 · 状态：**T1–T8 全部交付并验收通过**
 > 验收记录：`docs/fs_watch_acceptance_record.md` **v1.0**（门禁数字 + 真机 3/3 + 实现偏差对账真源）
@@ -16,7 +16,7 @@
 notify-debouncer-mini = "0.6"
 ```
 
-`cargo tree -i notify` 实测：`notify v8.2.0` ← `notify-debouncer-mini v0.6.0` ← `opencharm-shell`（2026-10-17 核实）。本计划要处理的是**已存在监听能力的缺口**，不是新增依赖或新增监听器。
+`cargo tree -i notify` 实测：`notify v8.2.0` ← `notify-debouncer-mini v0.6.0` ← `montauri-shell`（2026-10-17 核实）。本计划要处理的是**已存在监听能力的缺口**，不是新增依赖或新增监听器。
 
 ---
 
@@ -29,7 +29,7 @@ notify-debouncer-mini = "0.6"
 | 目录级事件 | `fs-changed`（`Vec<String>`，**只发受影响父目录**，`watcher.rs:160-162`） | 服务文件树 / git 增量 / diff 重拉 / QuickOpen 缓存失效 / 无 .py 工作区补起引擎 |
 | 文件级事件 | `dep-fs-changed`（`DepFileEvent{path, kind}`，`kind ∈ {py, declaration}`，`watcher.rs:152-158`） | 只覆盖 `.py` 与声明文件，**外部改动检测不能复用它的过滤**（§4.2） |
 | 环境信号 | `dep-env-changed`（`.venv` 下 `RECORD` / `*.dist-info` 例外放行，`is_site_packages_signal`） | 与本计划正交 |
-| 噪声过滤 | `should_ignore`（`.git` / `.venv` / `node_modules` / `__pycache__` / `.idea` / `.vscode` + `__opencharm_selection__` 前缀），**事后过滤** | 复用判据；「事前不监听」属 W2（§11） |
+| 噪声过滤 | `should_ignore`（`.git` / `.venv` / `node_modules` / `__pycache__` / `.idea` / `.vscode` + `__montauri_selection__` 前缀），**事后过滤** | 复用判据；「事前不监听」属 W2（§11） |
 | 前端消费 | `main.ts::handleFsChanged`（200ms 二次防抖 → `reloadDir` / `refreshGitStatus(relPaths)` / `renderGitPanel` / `refreshDiffIfViewing` / `invalidateQuickOpenFiles` / `loadTemplatesConfig`） | 复用防抖与归一手法，不改其行为 |
 | 生命周期 | `openWorkspace` → `watch_start`（`main.ts:713`）· `closeWorkspace` → `watch_stop` · 窗口关闭 `window_mgr.rs:194` · 退出 `watch_stop_all_for_exit` | 已完备 |
 | 脏状态 | `Tab.dirty`（`state.ts:18-22`，`saveTab` 落盘后置 false，`main.ts:1421`）；**会话快照持久化未保存内容**（`sessions.rs::SessionTab.draft: Option<String>`） | 冲突判定与「稍后处理」的兜底依据（§8） |
@@ -119,7 +119,7 @@ notify（磁盘变更）
 | 载荷 | 说明 |
 |---|---|
 | `Vec<String>` | 受影响**文件**的绝对路径（与 `fs-changed` 的目录口径并列，互不干扰） |
-| 发出条件 | 通过 `should_ignore` 且**不是**目录、**不是** `__opencharm_selection__*` 临时文件；`site-packages` 例外信号仍只走 `dep-env-changed`（不重复发） |
+| 发出条件 | 通过 `should_ignore` 且**不是**目录、**不是** `__montauri_selection__*` 临时文件；`site-packages` 例外信号仍只走 `dep-env-changed`（不重复发） |
 
 **为什么加新事件而不改 `fs-changed` 的形状**：`fs-changed` 已有 4 个消费点（`main.ts::handleFsChanged`）+ e2e mock 桥 + 真机套件依赖其「目录」语义；改成结构体是破坏性变更且无收益。新事件是纯加法，符合项目「新能力一律加法」的既有惯例。
 

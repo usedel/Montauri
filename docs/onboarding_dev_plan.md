@@ -1,4 +1,4 @@
-# OpenCharm 新手引导 + uv 速查卡开发计划
+# Montauri 新手引导 + uv 速查卡开发计划
 
 > 版本：**v1.4** · 日期：2026-10-18（v1.3 2026-10-03）· 状态：**PR-S1 / S2 / S4 已交付**（2026-09-30 入库 `14164e4`）· **v1.4 欢迎页布局调整已交付**（顺序对调 + 巡礼默认折叠，2026-10-18）· e2e `shell/e2e/ux/04-onboarding.spec.ts` **OG-1..OG-9 全绿**；PR-S3（裸 pip → uv hint，可选 P2）**未开工**；PR-S5（键盘提升提示）**登记不排期**
 > **v1.4 修订（2026-10-18）**：欢迎页布局对调 + 巡礼默认折叠（缘起：用户反馈「快速开始 / 探索功能干扰查看最近的工作区」——两块引导把最近列表挤到第二屏）。① `index.html` 区块顺序改为 **动作按钮 → 最近的工作区 → 快速开始 → 探索功能 → 快捷键**（`updateEditorOverlay` 按 id 显隐，与顺序无关，零逻辑改动）；② 巡礼**默认折叠**成一行（复用既有 `tourCollapsed` 机制，点标题行展开）——顺序对调后若仍默认展开，最近列表依旧被挤出首屏；③ e2e OG-2 锁「默认折叠 + 展开后 6 条」，OG-6 / OG-7 先展开再交互。**v1.3 及以前 §3.2a 记录的「插在 `#ew-actions` 与 `#ew-recent-section` 之间」作废**，以本节与 `index.html` 现状为准。
@@ -103,10 +103,10 @@ DX 三梯队（`dx_features_backlog.md` 全部收官）、devtools 插件系统�
 
 1. **三分钟上手**：新建项目（含 FastAPI 类型，PR-R 落地后同步补）→ 运行脚本（▶ / Ctrl+Shift+F10）→ 下断点调试（F5 语义：`debug` 键位）。
 2. **uv 速查卡**（uv 推荐的主载体）：
-   - 为什么 OpenCharm 用 uv：装包快、带缓存、`uv run` 兜底免配环境、`uv venv` / `uv python install` 托管解释器；
+   - 为什么 Montauri 用 uv：装包快、带缓存、`uv run` 兜底免配环境、`uv venv` / `uv python install` 托管解释器；
    - 命令对照表（核心交付）：
 
-     | 你习惯的 pip 命令 | OpenCharm 推荐 | 说明 |
+     | 你习惯的 pip 命令 | Montauri 推荐 | 说明 |
      |---|---|---|
      | `pip install requests` | `uv add requests` | 写入 pyproject 声明 + 更新 uv.lock |
      | `pip install requests`（不想写声明） | `uv pip install requests` | 语法与 pip 相同，更快 |
@@ -114,7 +114,7 @@ DX 三梯队（`dx_features_backlog.md` 全部收官）、devtools 插件系统�
      | `pip uninstall requests` | `uv pip uninstall requests` | |
      | `pip list --outdated` | `uv pip list --outdated` | |
      | `python main.py` | `uv run main.py` | 自动按声明同步环境 |
-   - 一句话边界：OpenCharm 内所有「安装」按钮内部就是 uv；终端里敲 pip 也能用，只是慢且不写声明。
+   - 一句话边界：Montauri 内所有「安装」按钮内部就是 uv；终端里敲 pip 也能用，只是慢且不写声明。
 3. **功能发现**（每项一句话 + 入口，从现有模块盘点）：devtools 工具箱（Ctrl+Shift+T）、live templates（Ctrl+J / Ctrl+Alt+T）、端点视图（FastAPI/Flask 项目自动出现）、依赖健康面板、本地历史（Ctrl+Shift+H）、TODO 视图、运行历史、书签、剪贴板 diff。
 4. **常见问题**：中文 IME 吞 Ctrl+Space（用 Alt+/，见 PR-J 结论）· 首启数据目录在哪 · uv 缺失会怎样（工具链引导）。
 
@@ -193,7 +193,7 @@ import guideRaw from "../../docs/onboarding_guide.md?raw";
   ```
 
   **「试一下」的执行路径（v1.2 定稿）**：`welcomeGuide` 导出 `runTourAction(quickOpenId: string): boolean`——内部经 quickOpen 的注册表读取器（见 §8 前置 P0）按 id 查 `run` 并调用；查不到（注册表重构后 id 消失）返回 false → 条目行降级显示「（该功能已变更）」并 toast 提示，不静默失效。
-- 完成态 = localStorage `opencharm.tour.<id>` 按条目持久化（key = quickOpenId）；标题行显示「N/M 已体验」。
+- 完成态 = localStorage `montauri.tour.<id>` 按条目持久化（key = quickOpenId）；标题行显示「N/M 已体验」。
 - **点击「试一下」即记完成**——不做真实使用追踪（裁决见 §2.0），语义是「我看过它了」而非「我以后会天天用」。
 - 完成态交互：已完成条目淡化 + 勾选；「全部完成 / 不感兴趣」链接 → 整区折叠成一行「探索功能（6/6）」+ 展开箭头，可重新展开（退场律：用户能关掉它）。
 - **默认折叠（v1.4）**：巡礼初始即折叠成一行（标题 + 「N/M 已体验」+ 展开箭头），点击标题行展开——欢迎页首屏让位「最近的工作区」；用户主动「全部完成 / 不感兴趣」的折叠行为与折叠态样式不变（CSS `.ew-tour-section.collapsed` 早已就绪，本次只改 `tourCollapsed` 初值）。

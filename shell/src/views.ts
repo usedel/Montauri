@@ -20,7 +20,7 @@ const views: SidebarView[] = [];
 let activeId: SidebarViewId | null = null;
 
 /** B 批：激活视图持久化（启动时恢复上次的选择；习惯开 git/search 视图的用户不再每次回到 files） */
-const VIEW_KEY = "opencharm.sidebar_view";
+const VIEW_KEY = "montauri.sidebar_view";
 
 /** 启动恢复上次激活视图；无记录/非法值/存储不可用时回退 fallback（须在视图注册完成后调用） */
 export function restoreSidebarView(fallback: SidebarViewId): void {

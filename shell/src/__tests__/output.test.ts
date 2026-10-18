@@ -47,7 +47,7 @@ describe("appendOutputLine（一次性整行；调试输出承载）", () => {
 
   it("探针摘要行用中性色（probe）而非报错色", () => {
     const container = document.createElement("div");
-    appendOutputLine(container, "[opencharm-probe] 采集完成", "stderr", vi.fn());
+    appendOutputLine(container, "[montauri-probe] 采集完成", "stderr", vi.fn());
     expect(container.querySelector(".out-line")?.classList.contains("probe")).toBe(true);
   });
 

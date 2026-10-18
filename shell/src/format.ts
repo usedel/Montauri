@@ -105,7 +105,7 @@ export async function optimizeImportsSource(path: string, content: string): Prom
 export function registerRuffFormatter(monaco: typeof MonacoApi): MonacoApi.IDisposable {
   return monaco.languages.registerDocumentFormattingEditProvider("python", {
     async provideDocumentFormattingEdits(model: MonacoApi.editor.ITextModel) {
-      const path = (model as any).__opencharmPath as string | undefined;
+      const path = (model as any).__montauriPath as string | undefined;
       if (!path) return [];
       const formatted = await formatPythonSource(path, model.getValue());
       if (formatted === null || formatted === model.getValue()) return [];

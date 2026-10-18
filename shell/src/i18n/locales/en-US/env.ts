@@ -21,7 +21,7 @@ export const env: Record<EnvKey, string> = {
   "env.bootstrapEcho": "> Toolchain bootstrap: installing {tools}",
   "env.bootstrapMissing": "The following tools are missing:",
   "env.bootstrapOk": "Toolchain ready.",
-  "env.bootstrapPartial": "Installation finished, but some tools are still not visible. Restart OpenCharm and try again.",
+  "env.bootstrapPartial": "Installation finished, but some tools are still not visible. Restart Montauri and try again.",
   "env.bootstrapWhy": "Completion, navigation and running all need them. They can be downloaded and installed to the user directory in one click (no system changes; requires internet).",
   // ---- env.confirm ----
   "env.confirm.cancel": "Cancel",

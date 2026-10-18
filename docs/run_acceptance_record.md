@@ -21,11 +21,11 @@ M4 以「实测与文档收尾」为纲，最终交付：
 
 | 层 | 文件 | 说明 |
 |---|---|---|
-| probe | `src/opencharm_probe/store.py` | `runs.instance` 列（§19-5 运行实例归属）+ 旧库自动迁移 + `save(instance=)` 环境变量回落 |
-| probe | `src/opencharm_probe/monitor.py` | 两处修复：窗口延长路径重置 `_quiet`（节流恢复）；静默关窗 `_MIN_DISCOVERY_FLOOR` 时间地板（sitecustomize 噪音免疫） |
+| probe | `src/montauri_probe/store.py` | `runs.instance` 列（§19-5 运行实例归属）+ 旧库自动迁移 + `save(instance=)` 环境变量回落 |
+| probe | `src/montauri_probe/monitor.py` | 两处修复：窗口延长路径重置 `_quiet`（节流恢复）；静默关窗 `_MIN_DISCOVERY_FLOOR` 时间地板（sitecustomize 噪音免疫） |
 | probe | `tests/test_instance_concurrency.py`（新增） | instance 归属 + 旧库迁移 + 8 进程并发写库 |
 | probe | `tests/test_monitor.py` | 两个 M4 修复的回归钉 |
-| shell Rust | `run_env.rs` / `terminal.rs` / `dap.rs` | probe 四件套（新增 `OPENCHARM_PROBE_INSTANCE`，terminal 按会话 id 注入 / 调试 None）；删死代码 `run_terminal_busy` / `soft_kill_pid` |
+| shell Rust | `run_env.rs` / `terminal.rs` / `dap.rs` | probe 四件套（新增 `MONTAURI_PROBE_INSTANCE`，terminal 按会话 id 注入 / 调试 None）；删死代码 `run_terminal_busy` / `soft_kill_pid` |
 | shell 前端 | `runFlow.ts` / `runState.ts` | `stopping` 标志（\x03 竞态下「用户停止」不再误记 code） |
 | shell 前端 | `runHistory.ts` / `main.ts` / `index.html` / `style.css` | M3 中间态收口：保存输出（P2-O）移入历史列表行；`#run-tabs-row` 残留 DOM 与 chip 样式删净 |
 | bench | `bench_probe.py`（重建） / `bench_probe.ps1`（修复） | 基准目标脚本曾被覆盖为 scraper 副本（无计时输出）；ps1 补 CWD 锚定 + 纯 ASCII 化 |
@@ -57,7 +57,7 @@ M4 以「实测与文档收尾」为纲，最终交付：
 
 - `bench_probe.py` 在仓库初始提交即被覆盖为 `scraper.py` 副本（无 `bench:` 计时输出，`bench_probe.ps1` 必然失败）——按 README 记载的「2000 轮 × 3 函数」负载重建；
 - `bench_probe.ps1` 依赖调用方 CWD（`-File` 子进程不继承）+ 含中文注释（PS 5.1 GBK 解码坑，`fetch-debugpy.ps1` 同款先例）——补 `Set-Location $here` + 纯 ASCII 化；
-- 清理旧版选区运行遗留临时文件 `__opencharm_selection__.py`（M3 起临时文件带随机后缀且退出即清理）。
+- 清理旧版选区运行遗留临时文件 `__montauri_selection__.py`（M3 起临时文件带随机后缀且退出即清理）。
 
 ## 三、验收结果
 
@@ -88,7 +88,7 @@ M4 以「实测与文档收尾」为纲，最终交付：
 
 - `python_debug_dev_plan.md` §10 附录：被删符号（`run_script` / `run_slot_busy` / `RUN_CHILD` / `stopRunTerminal` 等）已更新为 PTY 时代实际集成点（含 §13.2 互斥收窄、§13.4 probe=false、output.ts 调试承载）；
 - `python_ide_dev_plan_v2.md` §7 新增「运行交互重构」条目（指向本文与 run 方案）；
-- `python_run_dev_plan.md` §5.3 probe 三件套 → **四件套**（`OPENCHARM_PROBE_INSTANCE`）；§19-1/5 风险项标注结论；
+- `python_run_dev_plan.md` §5.3 probe 三件套 → **四件套**（`MONTAURI_PROBE_INSTANCE`）；§19-1/5 风险项标注结论；
 - `probe/README.md`：M4 修复批次（两个缺陷的根因/修复/回归钉）+ Gate C 表更新（1.35x / 70 单测 / WAL 并发）；
 - 运行域注释锚定：M3 已按 v3.4 章节号改写（`runFlow.ts` / `runState.ts` / `runWidget.ts` / `termUi.ts` / `output.ts` 等，见 M3 执行记录），M4 无新增 v2/v3.x 残留引用（grep 复核）。
 

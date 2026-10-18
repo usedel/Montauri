@@ -73,6 +73,6 @@
   "稍后": {"key": "env.action.later"},
   "> 工具链引导：安装 §": {"key": "env.bootstrapEcho", "params": ["tools"]},
   "工具链就绪。": {"key": "env.bootstrapOk"},
-  "安装结束，但部分工具仍不可见，请重启 OpenCharm 后再试。": {"key": "env.bootstrapPartial"},
+  "安装结束，但部分工具仍不可见，请重启 Montauri 后再试。": {"key": "env.bootstrapPartial"},
   "· §": {"key": "env.bootstrapBullet", "params": ["tool"]}
 }

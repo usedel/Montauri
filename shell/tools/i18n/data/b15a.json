@@ -157,17 +157,17 @@
    }
   ]
  },
- "暂无插件。点击「新建插件…」用模板起步，或将含 opencharm.plugin.json 的插件目录放入上述目录后「重新扫描」。": {
+ "暂无插件。点击「新建插件…」用模板起步，或将含 montauri.plugin.json 的插件目录放入上述目录后「重新扫描」。": {
   "count": 1,
   "exprs": [],
   "sites": [
    {
     "line": 108,
     "quote": "\"",
-    "body": "暂无插件。点击「新建插件…」用模板起步，或将含 opencharm.plugin.json 的插件目录放入上述目录后「重新扫描」。",
+    "body": "暂无插件。点击「新建插件…」用模板起步，或将含 montauri.plugin.json 的插件目录放入上述目录后「重新扫描」。",
     "start": 4281,
     "end": 4348,
-    "src": "empty.textContent = \"暂无插件。点击「新建插件…」用模板起步，或将含 opencharm.plugin.json 的插件目录放入上述目录后「重新扫描」。\";"
+    "src": "empty.textContent = \"暂无插件。点击「新建插件…」用模板起步，或将含 montauri.plugin.json 的插件目录放入上述目录后「重新扫描」。\";"
    }
   ]
  },
@@ -763,7 +763,7 @@
     "body": "引擎要求",
     "start": 14103,
     "end": 14109,
-    "src": "if (rec.manifest?.engines) detail.append(line(\"引擎要求\", rec.manifest.engines.opencharm));"
+    "src": "if (rec.manifest?.engines) detail.append(line(\"引擎要求\", rec.manifest.engines.montauri));"
    }
   ]
  },

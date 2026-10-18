@@ -23,7 +23,7 @@ const GOOD_MANIFEST = JSON.stringify({
   id: "com.e2e.sample",
   name: "E2E 样例",
   version: "1.0.0",
-  engines: { opencharm: ">=0.1.0" },
+  engines: { montauri: ">=0.1.0" },
   contributes: {
     tools: [
       {
@@ -72,7 +72,7 @@ const BAD_MANIFEST = JSON.stringify({
   id: "com.e2e.broken",
   name: "坏插件",
   version: "1.0.0",
-  engines: { opencharm: ">=0.1.0" },
+  engines: { montauri: ">=0.1.0" },
   contributes: { tools: [{ id: "x", title: "X", entry: "./x.js" }] },
   permissions: ["not-a-perm"],
 });
@@ -88,7 +88,7 @@ interface Equipped {
 
 async function equip(page: Page, pluginFiles?: Record<string, string>): Promise<Equipped> {
   const repo = await makePlainDir({ "main.py": "print('hello world')\n" });
-  const pluginsDir = mkdtempSync(join(tmpdir(), "opencharm-e2e-plugins-"));
+  const pluginsDir = mkdtempSync(join(tmpdir(), "montauri-e2e-plugins-"));
   if (pluginFiles) {
     for (const [rel, content] of Object.entries(pluginFiles)) {
       const target = join(pluginsDir, rel);
@@ -210,7 +210,7 @@ test.describe("工具插件 E2E 验收", () => {
 
   test("03 第三方插件安装流：目录 → 扫描 → 三入口可达（§9.5）", async ({ page }) => {
     await equip(page, {
-      "com.e2e.sample/opencharm.plugin.json": GOOD_MANIFEST,
+      "com.e2e.sample/montauri.plugin.json": GOOD_MANIFEST,
       "com.e2e.sample/upper.js": UPPER_JS_V1,
     });
     // picker 可搜到 + 面板 mount 生效
@@ -233,7 +233,7 @@ test.describe("工具插件 E2E 验收", () => {
 
   test("04 inline 变换：命令面板 → 原地替换 → 撤销（§9.15）", async ({ page }) => {
     await equip(page, {
-      "com.e2e.sample/opencharm.plugin.json": GOOD_MANIFEST,
+      "com.e2e.sample/montauri.plugin.json": GOOD_MANIFEST,
       "com.e2e.sample/upper.js": UPPER_JS_V1,
     });
     // 经文件树打开 main.py（启动只开工作区不开文件）
@@ -257,9 +257,9 @@ test.describe("工具插件 E2E 验收", () => {
 
   test("05 坏插件整包失败 + 好插件不受连累（§9.2 错误隔离）", async ({ page }) => {
     await equip(page, {
-      "com.e2e.broken/opencharm.plugin.json": BAD_MANIFEST,
+      "com.e2e.broken/montauri.plugin.json": BAD_MANIFEST,
       "com.e2e.broken/x.js": BROKEN_JS,
-      "com.e2e.sample/opencharm.plugin.json": GOOD_MANIFEST,
+      "com.e2e.sample/montauri.plugin.json": GOOD_MANIFEST,
       "com.e2e.sample/upper.js": UPPER_JS_V1,
     });
     await openPanelFresh(page);
@@ -278,7 +278,7 @@ test.describe("工具插件 E2E 验收", () => {
 
   test("06 热重载：entry 变更 → 新代码生效（§9.15 diff）", async ({ page }) => {
     const eq = await equip(page, {
-      "com.e2e.sample/opencharm.plugin.json": GOOD_MANIFEST,
+      "com.e2e.sample/montauri.plugin.json": GOOD_MANIFEST,
       "com.e2e.sample/upper.js": UPPER_JS_V1,
     });
     await openPanelFresh(page);
@@ -295,7 +295,7 @@ test.describe("工具插件 E2E 验收", () => {
 
   test("07 停用/启用：设置页操作 + 入口消失/恢复（§9.14）", async ({ page }) => {
     await equip(page, {
-      "com.e2e.sample/opencharm.plugin.json": GOOD_MANIFEST,
+      "com.e2e.sample/montauri.plugin.json": GOOD_MANIFEST,
       "com.e2e.sample/upper.js": UPPER_JS_V1,
     });
     // 停用（内置工具行排在列表首位——必须按名称精确定位第三方行）
@@ -369,10 +369,10 @@ test.describe("工具插件 E2E 验收", () => {
 
   test("09 脚手架：新建插件 → 10 秒正反馈闭环（DX P0）", async ({ page }) => {
     await equip(page);
-    // 真实路径显示（不再是写死的 ~/opencharm/extensions）
+    // 真实路径显示（不再是写死的 ~/montauri/extensions）
     await page.locator('.menubar-item[data-menu="tools"]').click();
     await page.locator('#menu-dropdown .ctx-menu-item', { hasText: "插件管理…" }).click();
-    await expect(page.locator(".plugins-dir-label")).toContainText("opencharm-e2e-plugins");
+    await expect(page.locator(".plugins-dir-label")).toContainText("montauri-e2e-plugins");
 
     // 单表单对话框（id + 名称 + 模板单选，一次填完）
     await page.locator("button", { hasText: "新建插件…" }).click();
@@ -421,7 +421,7 @@ test.describe("工具插件 E2E 验收", () => {
     await page.keyboard.press("Enter");
     await expect(page.locator("#devtools-body .tool-label")).toContainText("选区变换");
     const benchInput = page.locator(".devtools-tool-root:not(.hidden) .tool-textarea");
-    await benchInput.fill("OpenCharm");
+    await benchInput.fill("Montauri");
     await page.locator("#devtools-body button", { hasText: "运行" }).click();
     await page.waitForTimeout(300);
     // host.log 落了变换输入日志（inline 模板 handler 里带 host.log）
@@ -472,9 +472,9 @@ test.describe("工具插件 E2E 验收", () => {
 
   test("11 分发闭环：导出 zip → 删源 → 导入恢复（DX P2）", async ({ page }) => {
     const eq = await equip(page, {
-      "com.e2e.share/opencharm.plugin.json": JSON.stringify({
+      "com.e2e.share/montauri.plugin.json": JSON.stringify({
         schemaVersion: 1, id: "com.e2e.share", name: "分享测试", version: "2.0.0",
-        engines: { opencharm: ">=0.1.0" },
+        engines: { montauri: ">=0.1.0" },
         contributes: { tools: [{ id: "t", title: "分享工具", description: "P2", category: "文本", icon: "rocket", entry: "./t.js" }] },
         permissions: [],
       }),
@@ -514,7 +514,7 @@ test.describe("工具插件 E2E 验收", () => {
 
   test("12 编辑器右键「变换选区 ▸」：子菜单 → 原地替换（v1 P2 遗留项）", async ({ page }) => {
     await equip(page, {
-      "com.e2e.sample/opencharm.plugin.json": GOOD_MANIFEST,
+      "com.e2e.sample/montauri.plugin.json": GOOD_MANIFEST,
       "com.e2e.sample/upper.js": UPPER_JS_V1,
     });
     // 打开 main.py 并选中首行（Shift+End 全行选中 → editorHasSelection 置位）
@@ -557,7 +557,7 @@ test.describe("工具插件 E2E 验收", () => {
 
   test("13 无选区时右键不显示「变换选区」（editorHasSelection 门控）", async ({ page }) => {
     await equip(page, {
-      "com.e2e.sample/opencharm.plugin.json": GOOD_MANIFEST,
+      "com.e2e.sample/montauri.plugin.json": GOOD_MANIFEST,
       "com.e2e.sample/upper.js": UPPER_JS_V1,
     });
     await page.locator('.tree-item.file[data-path*="main.py"]').first().dblclick();
@@ -575,7 +575,7 @@ test.describe("工具插件 E2E 验收", () => {
 
   test("14 Ctrl+Shift+T 上下文感知：有选区 → inline 模式过滤 + 选中即变换（§9.9 v1.1）", async ({ page }) => {
     await equip(page, {
-      "com.e2e.sample/opencharm.plugin.json": GOOD_MANIFEST,
+      "com.e2e.sample/montauri.plugin.json": GOOD_MANIFEST,
       "com.e2e.sample/upper.js": UPPER_JS_V1,
     });
     // 打开文件并选中首行

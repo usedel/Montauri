@@ -1,7 +1,7 @@
-# OpenCharm 开发工具插件 · 作者指南
+# Montauri 开发工具插件 · 作者指南
 
 > 版本：v1（对应 `docs/plugin_system_design.md` §9 工具切片 · schemaVersion 1）· 2026-09-20
-> 适用：想给 OpenCharm 写「开发小工具」（编码 / 哈希 / 格式化 / 转换 / 提取等）的插件作者。
+> 适用：想给 Montauri 写「开发小工具」（编码 / 哈希 / 格式化 / 转换 / 提取等）的插件作者。
 > 可运行样例：`examples/devtools-plugin-sample/`（复制即用）。
 
 ---
@@ -17,14 +17,14 @@
 
 ## 一、5 分钟上手
 
-**最快路径（推荐）**：设置 → 插件 → **「新建插件…」**——填 id 和名称，OpenCharm 落盘一份
+**最快路径（推荐）**：设置 → 插件 → **「新建插件…」**——填 id 和名称，Montauri 落盘一份
 「注释即教程」的模板（面板 + inline + host.log 全演示），自动加载。然后打开插件目录改
 `hello.js`，**保存即热重载**。
 
 手动路径：
 
 1. **建目录**：`<数据根>/extensions/<你的插件id>/`（设置 → 插件 页顶部有**真实路径**与「复制路径」按钮；**目录名必须等于 manifest 的 `id`**）。
-2. **写 manifest**（`opencharm.plugin.json`）：
+2. **写 manifest**（`montauri.plugin.json`）：
 
 ```jsonc
 {
@@ -32,7 +32,7 @@
   "id": "com.yourname.your-tools",
   "name": "你的工具集",
   "version": "0.1.0",
-  "engines": { "opencharm": ">=0.1.0" },
+  "engines": { "montauri": ">=0.1.0" },
   "contributes": {
     "tools": [
       {
@@ -66,7 +66,7 @@ export function mySelection(text) {
 }
 ```
 
-4. **安装**：重启 OpenCharm（或 设置 → 插件 → 重新扫描）。完成。
+4. **安装**：重启 Montauri（或 设置 → 插件 → 重新扫描）。完成。
 
 ---
 
@@ -77,7 +77,7 @@ export function mySelection(text) {
 | `schemaVersion` | ✓ | 固定 `1` |
 | `id` | ✓ | `字母数字开头` 的点分/连字符名（建议反向域名）；**必须与目录名一致** |
 | `name` / `version` | ✓ | 非空字符串 |
-| `engines.opencharm` | ✓ | 仅支持 `">=X.Y.Z"` 一种形式 |
+| `engines.montauri` | ✓ | 仅支持 `">=X.Y.Z"` 一种形式 |
 | `contributes.tools[]` | ✓ | 至少 1 个；空数组 = 校验失败 |
 | `permissions[]` | — | 白名单见 §四；**未知值（含拼错）= 校验失败** |
 | 工具 `id`/`title`/`entry` | ✓ | `entry` 相对 manifest 的路径 |
@@ -91,7 +91,7 @@ export function mySelection(text) {
 
 - **至少实现其一**：`mount(host)`（面板模式）或 `inline.handler`（就地变换）；
 - **单文件 entry**：`entry` 模块不得 `import` 插件包内其他文件（热重载按入口粒度 cache-bust，多文件依赖会拿到旧代码）；浏览器全局（`crypto` / `TextEncoder` 等）与 kit/host 提供的能力随便用；
-- **只通过 `host` 与外壳交互**：禁止 import OpenCharm 内部模块（`shell/src/**`）——这是 API facade 硬约束，v2 沙箱化后违反即坏；
+- **只通过 `host` 与外壳交互**：禁止 import Montauri 内部模块（`shell/src/**`）——这是 API facade 硬约束，v2 沙箱化后违反即坏；
 - `mount` 返回 `{ dispose() {} }` 可省略；有 Monaco 实例/定时器/监听器时**必须**在 `dispose` 清理；
 - `inline.handler(text, host)` 返回 `string`（同步或 `Promise<string>`）；抛错 = toast 报错 + **保留原文**；
 - inline 触发时**面板可能从未打开**——`inline.handler` 收到的 `host` **没有** `root` / `kit` / `monaco`；
@@ -109,7 +109,7 @@ export function mySelection(text) {
 | `host.kit.*`（面板） | 默认 | UI 积木，见 §五 |
 | `host.copyToClipboard(text)` / `host.readClipboard()` | `clipboard` | 复制 / 读剪贴板 |
 | `host.getSelectedText()` / `host.replaceSelection(text)` / `host.insertToEditor(text)` | `selection` | 选区读取 / 原地替换（无选区=光标处插入）/ 插入文档末尾 |
-| `host.storage.get/set/clear(key)` | `storage` | 插件私有命名空间（`opencharm.plugin.<id>.` 前缀），停用时清空 |
+| `host.storage.get/set/clear(key)` | `storage` | 插件私有命名空间（`montauri.plugin.<id>.` 前缀），停用时清空 |
 | `host.workspaceRoot()` / `host.readFile(rel)` | `fs:read` | 工作区根 / 读**插件目录内**相对路径文件（路径越界拒绝） |
 | `host.monaco`（面板） | `monaco` | 裸 Monaco 模块。**一般不需要**——预览用 `kit.output` 即可（无权限也可用） |
 
@@ -149,7 +149,7 @@ export function mySelection(text) {
   64KB 滚动截断）——设置 → 插件 页顶部有数据根真实路径与「复制路径」按钮；
 - **inline 工具免选区调试**：声明 inline（且无 mount）的工具在面板打开时自动获得
   **调试台**——输入文本 → 「运行」→ 结果/错误就地显示，不用去编辑器选文本；
-- **VS Code 类型补全**：脚手架生成的插件目录带 `opencharm-plugin.d.ts`——entry 首行
+- **VS Code 类型补全**：脚手架生成的插件目录带 `montauri-plugin.d.ts`——entry 首行
   已有 `// @ts-check`，用 VS Code 打开即获得 `host`/`kit` 的完整补全与检查；
 - `console.log/warn` 仅 dev 模式（`tauri dev`）的 WebView 控制台可见，release 不可达；
 - 改完 entry 文件**保存即热重载**，无需重启（面板正打开的工具会以新代码重挂）；
@@ -158,7 +158,7 @@ export function mySelection(text) {
 
 ## 八、信任模型（重要，请作者知悉）
 
-v1 是**同源加载**（无硬沙箱）：你写的插件与 OpenCharm 主界面同一运行环境，理论上可访问页面 DOM——因此 OpenCharm 的信任边界是「**你安装你信任的插件**」（对齐 VS Code）。请：
+v1 是**同源加载**（无硬沙箱）：你写的插件与 Montauri 主界面同一运行环境，理论上可访问页面 DOM——因此 Montauri 的信任边界是「**你安装你信任的插件**」（对齐 VS Code）。请：
 
 - 只从信任的来源安装插件；
 - 发布插件时请勿做破坏 facade 契约的事（读写他人 DOM、绕过 host 直接调系统）——v2 沙箱化后这些行为会被硬性阻断，你的插件会坏。

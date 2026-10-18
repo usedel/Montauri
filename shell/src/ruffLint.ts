@@ -1,8 +1,8 @@
 // ruff 实时 lint（P2 · PyCharm PEP8 实时检查对标）：诊断的**第三桶**。
 //
 // 诊断分桶架构（lsp/client.ts::handleDiagnostics）本就按 owner 分别缓存与下发，
-// 故新增 ruff 桶不需要动桥：这里直接以 `opencharm-ruff` 为 owner 调 setModelMarkers，
-// 与静态引擎（`opencharm-lsp`）、运行时 intel（`opencharm-intel`）三桶并存互补。
+// 故新增 ruff 桶不需要动桥：这里直接以 `montauri-ruff` 为 owner 调 setModelMarkers，
+// 与静态引擎（`montauri-lsp`）、运行时 intel（`montauri-intel`）三桶并存互补。
 //
 // 为什么是「离线 ruff check」而不是「ruff server LSP」：
 //   · 与 Optimize Imports / 格式化同一个 stdin 管线（架构铁律：ruff 走独立子进程）；
@@ -29,7 +29,7 @@ export interface RuffDiagnostic {
 }
 
 /** 诊断 owner（三桶之一，与 lsp/client.ts 的两桶并列；marker 按 owner 独立管理） */
-export const RUFF_OWNER = "opencharm-ruff";
+export const RUFF_OWNER = "montauri-ruff";
 
 /** 停手多久后跑一次（ms）：比 didChange 同步的 200ms 更长，避免边打字边刷波浪线 */
 const LINT_DEBOUNCE_MS = 800;
@@ -108,7 +108,7 @@ export async function addNoqaAtCursor(): Promise<void> {
     toast(t("ide.ruff.alreadyIgnored", { code: code }), "info");
     return;
   }
-  ed.executeEdits("opencharm-noqa", [
+  ed.executeEdits("montauri-noqa", [
     {
       range: new app.monaco.Range(lineNo, 1, lineNo, model.getLineMaxColumn(lineNo)),
       text: next,
@@ -121,7 +121,7 @@ export async function addNoqaAtCursor(): Promise<void> {
 /** 编辑器右键菜单入口（main.ts 的 disposable store 收口） */
 export function initNoqaAction(editor: MonacoApi.editor.IStandaloneCodeEditor): MonacoApi.IDisposable {
   return editor.addAction({
-    id: "opencharm.noqaRule",
+    id: "montauri.noqaRule",
     label: t("ide.ruff.actionLabel"),
     contextMenuGroupId: "1_modification",
     contextMenuOrder: 3,

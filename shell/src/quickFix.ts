@@ -241,8 +241,8 @@ export function initQuickFixActions(): void {
       const actions: MonacoApi.languages.CodeAction[] = [];
       const names = new Set<string>();
       // context.markers 不带 owner（IMarkerData），自取两桶 marker（IMarker 有 owner）再按范围求交
-      const engine = app.monaco.editor.getModelMarkers({ owner: "opencharm-lsp", resource: model.uri });
-      const ruff = app.monaco.editor.getModelMarkers({ owner: "opencharm-ruff", resource: model.uri });
+      const engine = app.monaco.editor.getModelMarkers({ owner: "montauri-lsp", resource: model.uri });
+      const ruff = app.monaco.editor.getModelMarkers({ owner: "montauri-ruff", resource: model.uri });
       const markers = [...engine, ...ruff].filter(
         (m) => m.startLineNumber <= range.endLineNumber && m.endLineNumber >= range.startLineNumber,
       );

@@ -1,4 +1,4 @@
-# OpenCharm 依赖健康机制开发计划（Dep Health / 三层一致性维护）
+# Montauri 依赖健康机制开发计划（Dep Health / 三层一致性维护）
 
 > 版本：v1.7 · 日期：2026-09-16 · 状态：**M1 已交付**（§7 M1 含提交号与验证数据）· **M2 已交付**（§7 M2 含提交号）· **M3 已交付**（§7 M3 含提交号与验证数据）· **M4 已交付**（§7 M4 含验证数据）
 > **v1.7 修订（2026-09-16，fika-admin 实测反馈「E1 pytest ×5 提示过多」）**：E1 语义收窄为「未声明的缺失」——已写入声明全集（extras/groups）的 missing 模块分流到 E2 分组新小节「已声明未安装（代码引用）」汇总呈现（A）；E1 面板按模块聚合展示（B）；预检 `missingForFile` 同步剔除已声明缺失。详见 §11 v1.7。
@@ -18,7 +18,7 @@
 
 ### 1.1 用户反馈（症状）
 
-1. 老项目（requirements.txt + venv）用 OpenCharm 创建 .env 后没装依赖；自行 `uv pip install -r requirements.txt` 装上后，pyproject.toml 没有同步；
+1. 老项目（requirements.txt + venv）用 Montauri 创建 .env 后没装依赖；自行 `uv pip install -r requirements.txt` 装上后，pyproject.toml 没有同步；
 2. 不在 requirements.txt 里的依赖没有检测到，运行时报 ImportError；
 3. 终端手动 `uv pip install` 后，编辑器红线不消失、pyrefly 诊断不更新；
 4. 期望「一套完整的依赖检测和修复机制」。
@@ -136,7 +136,7 @@ interface DepDiff {
 - `lazy: true`：import 位于函数/方法体内（惰性导入），仅提示不阻塞运行预检（M4 精度项）。
 - `declaredMissing` 的 `spec`：保留 requirements / pyproject 原始版本约束串（如 `>=1.0,<2`），修复时原样交给 `uv add -r` / `uv sync`。
 - `requirementsUninstalled`：style=requirements 且整个 requirements 文件未被安装（E2 特例），供横幅优先级 3 直接消费；pyproject 项目恒为 false。
-- `envDrift` **排除** OpenCharm 与工具链自装的开发工具（pyrefly / ruff / debugpy）——它们不属于项目依赖漂移。
+- `envDrift` **排除** Montauri 与工具链自装的开发工具（pyrefly / ruff / debugpy）——它们不属于项目依赖漂移。
 - `interpreter = null`（uv run 兜底）时：`missingInEnv` / `envDrift` / `declaredMissing`（E1/E2/E3，需环境内容对比）置为空；`lockOutOfDate`（E5，仅 `pyproject.toml` ↔ `uv.lock` 文件比对，不依赖解释器）**照常计算**；`undeclared`（E4）与 `style` 有效——UI 须显式呈现「未选择解释器，环境侧检测不可用」，但 E5 过期提示（§5.4）在兜底路径仍可用。
 
 ---
@@ -176,7 +176,7 @@ interface DepDiff {
 
 **外部管理器（poetry / pipenv / pdm / conda）**：锁文件格式我们不解析，声明侧对比（E2/E4/E5）与漂移收敛（E3）**主动禁用**而非给出错误结果；健康面板顶部显示边界横幅：
 
-> 「OpenCharm 以 uv 管理依赖（一致性检测 / 一键修复）。检测到 poetry.lock——本项目的声明层检测已降级，仅环境可用性（缺失 import）生效。建议迁移到 uv。」
+> 「Montauri 以 uv 管理依赖（一致性检测 / 一键修复）。检测到 poetry.lock——本项目的声明层检测已降级，仅环境可用性（缺失 import）生效。建议迁移到 uv。」
 
 **动机**：用户在终端 `poetry add x` 后，若编辑器无任何表示（红线依旧、诊断不刷新），会被当成我们的 bug。显式声明「这类项目我们只管环境不管声明」，把沉默的失效变成有解释的边界。
 
@@ -347,12 +347,12 @@ L3 = 联网 + 秒级到分钟级 + uv 进程不可中断，交互单独定规范
 
 | 优先级 | 触发 | 文案要点 | 主按钮 |
 |---|---|---|---|
-| 1 | `style=external` | 「检测到 poetry.lock——OpenCharm 以 uv 管理依赖，声明层检测已降级（仅缺失 import 生效）」 | 「了解迁移」 |
+| 1 | `style=external` | 「检测到 poetry.lock——Montauri 以 uv 管理依赖，声明层检测已降级（仅缺失 import 生效）」 | 「了解迁移」 |
 | 2 | `style=bare` | 「无 pyproject.toml / requirements.txt，建议用 uv 声明依赖（可生成最小 pyproject）」 | 「生成 pyproject.toml」（复用 `init_pyproject`） |
 | 3 | E2 非空（含 `requirementsUninstalled` 表达的「整个 requirements 未安装」） | 「N 个已声明依赖未安装」 | 「安装缺失依赖」/「同步环境」/「迁移到 pyproject」 |
 | 4 | `envDrift` 非空 | 「检测到 N 个包已安装但未声明（pip 安装不写入声明属正常现象）」 | 「查看」/「写入 pyproject」 |
 
-**uv 建议的持续存在感**（评审关注点 ②）：不只靠横幅——状态栏解释器芯片的 tooltip、健康面板顶部常驻一行小字「OpenCharm 使用 uv 管理依赖 · pip 安装同样可检测（但不写入声明）」、`pip_install` 走非 uv add 分支时的输出面板提示（现有「仅安装到解释器环境（不记录依赖）」文案升级为「建议改用 uv add 或在终端使用 uv pip install，保持声明同步」）。让用户在任何入口都能看到「我们在用 uv」这一事实。
+**uv 建议的持续存在感**（评审关注点 ②）：不只靠横幅——状态栏解释器芯片的 tooltip、健康面板顶部常驻一行小字「Montauri 使用 uv 管理依赖 · pip 安装同样可检测（但不写入声明）」、`pip_install` 走非 uv add 分支时的输出面板提示（现有「仅安装到解释器环境（不记录依赖）」文案升级为「建议改用 uv add 或在终端使用 uv pip install，保持声明同步」）。让用户在任何入口都能看到「我们在用 uv」这一事实。
 
 位置：环境面板顶部（非编辑器顶栏，无多通知栏框架）。同会话内同状态去重（复用 `venvPrompted` 模式）。
 
@@ -525,7 +525,7 @@ traceback 出口（`tracebackLink.ts`）识别 `ModuleNotFoundError: No module n
   ⑥ **toast 归属 M3**：§5.5 步骤 2 的 envDrift toast +「查看」按钮依赖健康面板（M3 才有落点），M2 环境信号有差异时**静默**重算 + 重启，toast 随 M3 面板一起落（对齐 §7 M2 范围仅列接线与级联）。
   ⑦ **已知代价（M2 记录）**：面板装包（`afterEnvChanged` 已 restartEngine）后 site-packages 监听会再触发一次 `handleEnvSignal`——此时 diff 快照刚被 `resetDepHealth` 清空，重算属**有益**（重建快照），但 `restartEngine` 会冗余执行一次（~500ms，幂等无害，2s 防抖已合并突发）。外部终端（编辑器外）装包 site-packages 监听不到、嗅探也覆盖不到——属 R2 已知边界，非 M2 缺陷。M3 补充：`runDepFix` 收尾协议已内置 `refreshEnvBaseline`（修复完成即刷新基线），面板路径的这次冗余级联已被吸收，仅纯手动终端装包仍走完整 §5.5 序列。
 - **v1.5（2026-09-16，M3 实施反馈，健康面板/横幅/灯泡落地时定案）**：
-  ① **三视图口径以 §6.1 为准**：§3.2 概述行「包列表升级」与 §6.1「已忽略」矛盾，经复核定案按 §6.1（按断边/按文件/已忽略）——「已忽略」是 §5.3 行级忽略机制的唯一 UI 归宿（M3 任务清单同口径），且「包列表升级」全文无配套细节设计、搬移重构与最小闭环相悖；现有包列表分区**保持原样**，仅按 §6.2 在健康分区加「OpenCharm 使用 uv 管理依赖 · pip 安装同样可检测（但不写入声明）」常驻小字行。§3.2 已同步修订。
+  ① **三视图口径以 §6.1 为准**：§3.2 概述行「包列表升级」与 §6.1「已忽略」矛盾，经复核定案按 §6.1（按断边/按文件/已忽略）——「已忽略」是 §5.3 行级忽略机制的唯一 UI 归宿（M3 任务清单同口径），且「包列表升级」全文无配套细节设计、搬移重构与最小闭环相悖；现有包列表分区**保持原样**，仅按 §6.2 在健康分区加「Montauri 使用 uv 管理依赖 · pip 安装同样可检测（但不写入声明）」常驻小字行。§3.2 已同步修订。
   ② **忽略清单后端统一过滤**：`dep_scan` 计算 diff 后、返回前按 `dep_ignored` 过滤（E1/E4 模块名大小写敏感精确匹配；E2/E3 dist 键 PEP 503 归一存储、过滤时两侧归一防御手改配置）——prepareRun/灯泡/面板所有消费者拿到同一份已过滤真值，单一口径；「已忽略」视图经 `dep_ignore_list` 单独读清单展示（不受过滤影响）。存储复用 `workspaces/<hash>.json`（R9），新增 `dep_ignore_list/add/remove` 三同步命令；E5 是项目级布尔无行级忽略语义，不参与。
   ③ **灯泡 E3/E4 触发形态（用户定案）**：E3/E4 的包 import 可正常解析、无红色 marker，传统「诊断 marker 触发」不成立——落地为**光标行匹配 diff**（`depActionsForLine` 纯函数：解析光标行 import 语句取顶层模块，按当前文件匹配 missingInEnv/undeclared；Monaco 光标移动时自动询问 provider，灯泡可亮）。E3 漂移包**被本文件 import 时与 E4 是同一事实**（装了+未声明+有光标锚点），收敛为同一 declare 动作（`uv add`），不重复出两个同效动作；纯未被 import 的漂移包由面板 E3 行级「写入 pyproject」提供。marker 路径保留为兜底（引擎诊断先于 diff 快照到达的窗口期），与 diff 动作按模块去重。前端 `PACKAGE_ALIASES` 7 项硬编码退役（Rust `DIST_ALIAS_FALLBACK` 为唯一兜底，M1 已迁入）。
   ④ **dep_fix 形态**：单命令 + action 枚举（`install`/`sync`/`declare`/`lock`/`migrate`），action × style → uv 参数由 `plan_dep_fix` **纯函数单点构建**（测试与执行共用，10 项单测锁矩阵）；前端 `fixInFlight` 标志（触发期 `.dep-fix-btn` 全禁用）+ 后端 `AtomicBool` 会话互斥**双保险**（并发第二次直接明确报错，不等 uv 的 lock 文件锁报错）；流式输出复用 `pip-stdout`/`pip-stderr` 事件（§5.6-2 明定，前端输出面板零新监听）。install 对 external 项目按 bare 同路径（`uv pip install --python`，只动环境侧不写声明——external 声明层归外部管理器，R11）；declare 仅 pyproject（其余 style 明确报错引导先迁移）；`uv sync` 确认弹窗走 danger 语义并明示「将按 lock 移除未声明包」（§5.1 脚注 1）；migrate 的 style 判定在 ensure pyproject **之前**（先生成 pyproject 会翻转 style 丢失 requirements_file），缺 pyproject 时复用 `init_pyproject_impl` 幂等生成最小模板（R4.1 原文件只读不删）。

@@ -7,7 +7,7 @@
 
 ## 背景
 
-换壳（Tauri 2 + Monaco）后，需要把 pyrefly（默认）/ basedpyright（备选）/ ruff / 未来的 opencharm-intel 挂载到 Monaco。社区标准方案是 `monaco-languageclient`（TypeFox）。
+换壳（Tauri 2 + Monaco）后，需要把 pyrefly（默认）/ basedpyright（备选）/ ruff / 未来的 montauri-intel 挂载到 Monaco。社区标准方案是 `monaco-languageclient`（TypeFox）。
 
 ## 调研（2026-08-20）
 
@@ -33,6 +33,6 @@
 
 ## 后果
 
-- **正面**：补全三层合并（模板 `0xx` / 运行时 `1xx` 预留 / 静态 `2xx`）完全可控；内存友好；Monaco 可独立升级；为 opencharm-intel 的挂载预留了干净的合并点。
+- **正面**：补全三层合并（模板 `0xx` / 运行时 `1xx` 预留 / 静态 `2xx`）完全可控；内存友好；Monaco 可独立升级；为 montauri-intel 的挂载预留了干净的合并点。
 - **负面**：LSP 客户端子集自维护（增量同步、UTF-16 位置换算、请求取消）；后续需要 rename / semantic tokens 等重功能时按需扩协议，或届时再评估引入 monaco-languageclient。
-- **约束**：桥接层必须保持**引擎无关**（不出现 pyrefly 专属分支逻辑），保证 basedpyright 与 opencharm-intel 可直接复用。
+- **约束**：桥接层必须保持**引擎无关**（不出现 pyrefly 专属分支逻辑），保证 basedpyright 与 montauri-intel 可直接复用。

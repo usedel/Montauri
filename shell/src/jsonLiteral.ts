@@ -1,5 +1,5 @@
 // JSON 字面量注入 · 编辑器侧（库特别支持 P1 §7-3）：
-// 高亮装饰与 opencharm-libs 诊断已收敛进规则表 dispatcher（libInject.ts，dslLens 统一渲染），
+// 高亮装饰与 montauri-libs 诊断已收敛进规则表 dispatcher（libInject.ts，dslLens 统一渲染），
 // 本模块只保留 JSON 特有的两件事：多行三引号字面量的折叠区间 + 右键三项
 // （格式化 / 压缩 / JSONPath 提取——后两项是既有 jsonfmt / jsonpath 能力的编辑器入口）。
 // 写回一律 executeEdits（§2 纪律 4：禁 setValue 整文替换）。
@@ -21,7 +21,7 @@ import { localizeBackendError } from "./i18n/backendError";
 import { errMsg } from "./util";
 
 const MAX_SCAN_CHARS = 500_000; // 与 dslLens 同一预算
-const JSONPATH_TOOL_ID = "opencharm.builtin.jsonpath";
+const JSONPATH_TOOL_ID = "montauri.builtin.jsonpath";
 
 // ---------- 右键三项 ----------
 
@@ -122,7 +122,7 @@ export function initJsonLiteral(editor: MonacoApi.editor.IStandaloneCodeEditor):
   // 右键三项（导航组，正则入口 1.8 之后；格式化/压缩是就地写回，提取是面板入口）
   store.add(
     editor.addAction({
-      id: "opencharm.jsonFormat",
+      id: "montauri.jsonFormat",
       label: t("ide.json.formatTitle"),
       contextMenuGroupId: "navigation",
       contextMenuOrder: 1.85,
@@ -134,7 +134,7 @@ export function initJsonLiteral(editor: MonacoApi.editor.IStandaloneCodeEditor):
   );
   store.add(
     editor.addAction({
-      id: "opencharm.jsonMinify",
+      id: "montauri.jsonMinify",
       label: t("ide.json.minifyTitle"),
       contextMenuGroupId: "navigation",
       contextMenuOrder: 1.86,
@@ -146,7 +146,7 @@ export function initJsonLiteral(editor: MonacoApi.editor.IStandaloneCodeEditor):
   );
   store.add(
     editor.addAction({
-      id: "opencharm.jsonPathExtract",
+      id: "montauri.jsonPathExtract",
       label: t("ide.json.openJsonpath"),
       contextMenuGroupId: "navigation",
       contextMenuOrder: 1.87,

@@ -1,4 +1,4 @@
-# OpenCharm 运行功能交互设计
+# Montauri 运行功能交互设计
 
 > 版本：v3.4 · 日期：2026-09-14 · 状态：现行方案（运行功能唯一权威交互口径）· **已实施**（2026-09-15，迁移计划 M1–M4 全部完成）
 > 取代：v2.0（配置列表 + 粘性目标 + 输出面板输入框模型，已偏离产品预期）；v3.3 → v3.4 为评审修订：修复内部矛盾（迁移口径三处打架、§7.3 矩阵自相矛盾、§5.3 PYTHONPATH 例外、stopped 状态并入 exited、tab 分配原则措辞），补齐遗漏（preparing×关闭 tab 竞态、termUi 按实例化、probe 多实例并发、历史归属、FastAPI 开浏览器机制、**§13 与调试的关联全面扩充**、**§17 关联遗漏**：键位三处同步与漂移锁、`lib.rs` 命令注销、`stop_script`/`run_stdin` 删除、调试事件前端承接、`maybeAutoRerun` 调用点、TS 侧类型与面板高级项、单测同步、跨文档索引），并落实 §18 裁决 6-10。
@@ -136,8 +136,8 @@ module  → <解释器> -m <模块> <args>           或  uv run python -m <模�
 ③ .env 文件键值（有序，靠前文件优先；注入在默认值之后、用户 env 之前）
 ④ 用户自定义 env（覆盖 ①③；**PYTHONPATH 例外**，见下）
 ⑤ probe 四件套（仅 probe 开启时）
-   OPENCHARM_PROBE_AUTOSTART=1 · OPENCHARM_PROBE_SCRIPT · OPENCHARM_PROBE_HOME ·
-   OPENCHARM_PROBE_INSTANCE（= 运行会话 id：`run-term-script` / `run-term-project-<N>`，
+   MONTAURI_PROBE_AUTOSTART=1 · MONTAURI_PROBE_SCRIPT · MONTAURI_PROBE_HOME ·
+   MONTAURI_PROBE_INSTANCE（= 运行会话 id：`run-term-script` / `run-term-project-<N>`，
    §19-5 多实例 trace 归属——runs 表 instance 列可把每次落库归属到单次运行；调试与
    选区运行 probe=false，不注入）
 ```
@@ -576,7 +576,7 @@ v3 已无「输出面板运行 vs 运行终端」双通道，互斥语义重新�
 | 2 | PTY 输出流下 traceback 链接匹配稳定性 | 中 | xterm link provider 已用于运行终端，需在新回显/告警混排下复测 |
 | 3 | 脚本 tab 复用时，长驻脚本（等输入）被新运行终止 | 中 | §6.4「直接终止重跑」；观察是否需改为提示 |
 | 4 | Windows ConPTY 下 `\x03` 对 Python 的生效性 | 中 | 现状「在终端中运行」已用同机制，复用即可 |
-| 5 | **probe 多实例并发**：脚本 + N 个项目实例并行时多进程同时 autostart probe，写同一 SQLite trace 库 | 中：写冲突 / trace 归属混乱，影响运行时补全链路 | ✅ 已落地：trace 库 WAL + busy_timeout（store._set_pragmas，Phase 2 已设）；运行实例标识经 `OPENCHARM_PROBE_INSTANCE` 注入 → `runs.instance` 列（§5.3 ⑤，M4-4.1）；并行场景实测通过（见 `docs/run_acceptance_record.md`） |
+| 5 | **probe 多实例并发**：脚本 + N 个项目实例并行时多进程同时 autostart probe，写同一 SQLite trace 库 | 中：写冲突 / trace 归属混乱，影响运行时补全链路 | ✅ 已落地：trace 库 WAL + busy_timeout（store._set_pragmas，Phase 2 已设）；运行实例标识经 `MONTAURI_PROBE_INSTANCE` 注入 → `runs.instance` 列（§5.3 ⑤，M4-4.1）；并行场景实测通过（见 `docs/run_acceptance_record.md`） |
 | 6 | 剥离 ANSI 的历史快照采集 | 低 | 采集层去转义；失败降级为原样入档 |
 | 7 | 多实例运行态改造（§17-4/§17-5）比单一 running 复杂——`termUi` 的 `runExitHook` / `runActive` / tab 查找均为单实例假设 | 中 | 实例列表集中管理，`isRunning()`、停止路由、退出回调统一走实例 id；先落单实例再扩并行 |
 | 8 | 关闭 tab 未杀进程 | **已核实降级**：`IntegratedTerminal.dispose()` 在 `started=true` 时已含 `term_kill`，`closeTerminal` 已复位运行态 | 剩余缺口是 preparing 竞态（kill 打到未登记 id 落空），按 §17-5 的 canceled + spawn 后补杀方案处理 |

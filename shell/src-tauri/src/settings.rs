@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 
-use crate::util::opencharm_home;
+use crate::util::montauri_home;
 
 /// 默认快捷键（PyCharm 风格）：id 语义与前端 keybindings.ts 的 KEYBINDING_META 保持一致，
 /// 新增/改键需同步三处（此处 + state.ts DEFAULT_SETTINGS + keybindings.ts META）。
@@ -110,13 +110,13 @@ fn default_keybindings() -> HashMap<String, String> {
 }
 
 fn settings_path() -> std::path::PathBuf {
-    opencharm_home().join("config").join("settings.json")
+    montauri_home().join("config").join("settings.json")
 }
 
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(default)]
 pub struct Settings {
-    /// 批 4：主题名 "opencharm-dark" | "opencharm-light"（自定义 Monaco 主题，见 src/theme/tokens.ts）。
+    /// 批 4：主题名 "montauri-dark" | "montauri-light"（自定义 Monaco 主题，见 src/theme/tokens.ts）。
     /// 存量 "vs-dark" / "vs" 由前端 loadSettings::migrateLegacyThemeSettings 迁移
     /// （只改内存不落盘，Rust 侧不重复实现同一条规则）。
     pub theme: String,
@@ -166,7 +166,7 @@ pub struct Settings {
     pub autosave_delay: u64,
     /// 运行时探针开关（关闭时 run_script 不注入）
     pub probe_enabled: bool,
-    /// A2 性能模式（PR-A2-P5）：默认关；开启时 run_script 注入 OPENCHARM_PROBE_PERF=1，
+    /// A2 性能模式（PR-A2-P5）：默认关；开启时 run_script 注入 MONTAURI_PROBE_PERF=1，
     /// probe 以 perf_mode 注册计时回调（per-call 耗时聚合，开销约为同场景 cProfile 的一半）。
     /// 仅随探针注入生效——探针关闭时本字段无效果（须与前端 DEFAULT_SETTINGS 同步）。
     pub probe_perf_enabled: bool,
@@ -186,9 +186,9 @@ pub struct Settings {
     pub ruff_severity_e: String,
     pub ruff_severity_w: String,
     pub ruff_severity_f: String,
-    /// 运行时智能层（opencharm-intel）开关——关闭时 LSP 桥不启动 intel（P3-T09）
+    /// 运行时智能层（montauri-intel）开关——关闭时 LSP 桥不启动 intel（P3-T09）
     pub runtime_intel_enabled: bool,
-    /// Pydantic 构造校验诊断与改名传播（阶段 4：opencharm-pydantic 桶；须与前端同步）
+    /// Pydantic 构造校验诊断与改名传播（阶段 4：montauri-pydantic 桶；须与前端同步）
     pub pydantic_diagnostics: bool,
     /// 零引擎静态关键字补全开关（无 LSP 引擎的语言；python 不受影响）
     pub keyword_completion: bool,
@@ -260,7 +260,7 @@ impl Default for Settings {
         Settings {
             // 批 4：编辑器从出厂 vs-dark 切到自定义主题。色值真源仍是 style.css 的 token
             // （shell/src/theme/tokens.ts 只声明 Monaco 槽位 → CSS 变量的映射）。
-            theme: "opencharm-dark".into(),
+            theme: "montauri-dark".into(),
             font_size: 14,
             // D3 P-14 起为常用等宽栈；批 3（ui_premium §5.3）起 JetBrains Mono 随包并排到首位，
             // 须与前端 DEFAULT_FONT_FAMILY / style.css --mono / index.html 字体族 preset 一致。
@@ -432,7 +432,7 @@ mod tests {
     #[test]
     fn test_defaults() {
         let d = Settings::default();
-        assert_eq!(d.theme, "opencharm-dark");
+        assert_eq!(d.theme, "montauri-dark");
         assert_eq!(d.font_size, 14);
         assert_eq!(d.font_family, "\"JetBrains Mono\", \"Cascadia Code\", \"SF Mono\", Consolas, monospace");
         assert_eq!(d.font_ligatures, true);
@@ -553,7 +553,7 @@ mod tests {
         let json = r#"{"font_size":18}"#;
         let s: Settings = serde_json::from_str(json).unwrap();
         assert_eq!(s.font_size, 18);
-        assert_eq!(s.theme, "opencharm-dark"); // 未提供的字段走 default
+        assert_eq!(s.theme, "montauri-dark"); // 未提供的字段走 default
         assert_eq!(s.probe_enabled, true);
         assert_eq!(s.probe_perf_enabled, false); // 旧配置文件无此字段 → 默认关闭（A2）
         assert_eq!(s.format_on_save, false); // 旧配置文件无此字段 → 默认关闭

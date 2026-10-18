@@ -1,5 +1,5 @@
 ﻿// LSP 桥 Rust 侧（ADR-0003）：spawn 引擎进程（stdio）+ Content-Length 帧解析 + 事件转发。
-// 引擎无关：pyrefly / basedpyright / opencharm-intel 只是前端传入的命令不同。
+// 引擎无关：pyrefly / basedpyright / montauri-intel 只是前端传入的命令不同。
 //
 // P3-T06'：多引擎支持——`engine` 键区分实例（"static" / "intel"），事件 payload 带 engine
 // 供前端按引擎分发；intel 缺席不拖垮静态引擎（两实例独立 stdio/线程）。
@@ -14,7 +14,7 @@ use tauri::{AppHandle, Emitter};
 use crate::file_ops::project_hash;
 use crate::tool_paths::resolve_lsp_command;
 use crate::logging::{log_line, Level};
-use crate::util::{kill_process_tree, kill_process_tree_async, no_window, opencharm_home, unpoison};
+use crate::util::{kill_process_tree, kill_process_tree_async, no_window, montauri_home, unpoison};
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -257,19 +257,19 @@ pub fn lsp_stop(window: tauri::WebviewWindow, engine: String) -> Result<(), Stri
     Ok(())
 }
 
-/// 定位 opencharm-intel 二进制，优先顺序：
-/// 1) 环境变量 OPENCHARM_INTEL_BIN；
+/// 定位 montauri-intel 二进制，优先顺序：
+/// 1) 环境变量 MONTAURI_INTEL_BIN；
 /// 2) 托管目录 <data_root>/runtime/；
 /// 3) Tauri 资源目录（打包分发，第 3 步 bundle.resources 落地）；
 /// 4) dev 相对 exe 上溯仓库布局（intel/target/<profile>/）。
 fn locate_intel_binary(app: &AppHandle) -> Option<std::path::PathBuf> {
-    if let Ok(p) = std::env::var("OPENCHARM_INTEL_BIN") {
+    if let Ok(p) = std::env::var("MONTAURI_INTEL_BIN") {
         let p = std::path::PathBuf::from(p);
         if p.is_file() {
             return Some(p);
         }
     }
-    let exe_name = if cfg!(windows) { "opencharm-intel.exe" } else { "opencharm-intel" };
+    let exe_name = if cfg!(windows) { "montauri-intel.exe" } else { "montauri-intel" };
 
     let runtime = crate::tool_paths::runtime_dir().join(exe_name);
     if runtime.is_file() {
@@ -329,7 +329,7 @@ fn dev_workspace_intel(exe_name: &str) -> Option<std::path::PathBuf> {
 /// 供前端启动 intel：返回 { command, traceDbPath }（command 为 null 表示二进制未构建）。
 #[tauri::command]
 pub fn get_intel_info(app: AppHandle, workspace_root: String) -> Result<Value, String> {
-    let dir = opencharm_home().join("traces");
+    let dir = montauri_home().join("traces");
     let trace_db_path = dir
         .join(format!("{}.db", project_hash(&workspace_root)))
         .to_string_lossy()

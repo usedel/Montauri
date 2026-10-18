@@ -93,9 +93,9 @@ describe("isSyntaxErrorMarker：两引擎 + ruff 的语法错误判定", () => {
   });
 
   it("自研桶（无 code）非语法错误", () => {
-    expect(isSyntaxErrorMarker({ source: "opencharm-pydantic" })).toBe(false);
-    expect(isSyntaxErrorMarker({ source: "opencharm-libs" })).toBe(false);
-    expect(isSyntaxErrorMarker({ source: "opencharm-intel" })).toBe(false);
+    expect(isSyntaxErrorMarker({ source: "montauri-pydantic" })).toBe(false);
+    expect(isSyntaxErrorMarker({ source: "montauri-libs" })).toBe(false);
+    expect(isSyntaxErrorMarker({ source: "montauri-intel" })).toBe(false);
   });
 
   it("source 缺失且无 code（兜底归语法）", () => {

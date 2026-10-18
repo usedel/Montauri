@@ -13,7 +13,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use crate::file_ops::project_hash;
-use crate::util::opencharm_home;
+use crate::util::montauri_home;
 
 /// 快照里单个标签页的状态
 #[derive(Serialize, Deserialize, Clone)]
@@ -41,7 +41,7 @@ pub struct SessionState {
 const MAX_TABS: usize = 40;
 
 fn session_path(root: &str) -> PathBuf {
-    opencharm_home()
+    montauri_home()
         .join("sessions")
         .join(format!("{}.json", project_hash(root)))
 }

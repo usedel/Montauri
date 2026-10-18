@@ -357,7 +357,7 @@ let loadToken = 0;
 
 // ---------- B 批：最近查询历史（有界 20 条，localStorage） ----------
 
-const HISTORY_KEY = "opencharm.quickopen_history";
+const HISTORY_KEY = "montauri.quickopen_history";
 const HISTORY_MAX = 20;
 /** -1 = 未处于历史浏览态；≥0 指向 queryHistory 下标（↑/↓ 在输入为空时回溯） */
 let histIdx = -1;

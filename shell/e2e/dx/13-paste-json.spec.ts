@@ -14,7 +14,7 @@ test.use({ permissions: ["clipboard-read", "clipboard-write"] });
 let repo: GitRepo;
 const pageErrors: string[] = [];
 
-const JSON_TEXT = '{"name": "opencharm", "ok": true, "vals": [1, null]}';
+const JSON_TEXT = '{"name": "montauri", "ok": true, "vals": [1, null]}';
 
 /** 打开 a.py 并把光标放行尾、焦点交给编辑器 */
 async function openPyAndFocus(page: Page): Promise<void> {

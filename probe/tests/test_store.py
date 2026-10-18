@@ -9,10 +9,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-import opencharm_probe.store as store  # noqa: E402
-from opencharm_probe.config import ProbeConfig  # noqa: E402
-from opencharm_probe.sink import ObservationSink  # noqa: E402
-from opencharm_probe.store import _ensure_perf_columns, db_path, load_summary, project_hash, save  # noqa: E402
+import montauri_probe.store as store  # noqa: E402
+from montauri_probe.config import ProbeConfig  # noqa: E402
+from montauri_probe.sink import ObservationSink  # noqa: E402
+from montauri_probe.store import _ensure_perf_columns, db_path, load_summary, project_hash, save  # noqa: E402
 
 
 def _fill(sink: ObservationSink):
@@ -41,7 +41,7 @@ def test_load_summary_special_chars_in_db_dir(tmp_path):
     手拼 f"file:{path}?mode=ro" 下 `#` 会截断 URI、`%` 会被当转义——
     现经 as_uri() 百分号编码，两条路径都能只读打开。
     """
-    from opencharm_probe.sink import ObservationSink
+    from montauri_probe.sink import ObservationSink
 
     for tag in ("hash#dir", "pct%dir"):
         db_dir = tmp_path / tag

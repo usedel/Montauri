@@ -47,7 +47,7 @@ const REDIRECT_MAX: usize = 20;
 /// 分块读取缓冲（同时是进度事件的粒度）
 const CHUNK: usize = 8 * 1024;
 /// 取消标志轮询分块粒度：每读一块检查一次
-const USER_AGENT: &str = "OpenCharm/0.1";
+const USER_AGENT: &str = "Montauri/0.1";
 
 /// 由客户端计算的头：一律剔除，防用户手填导致请求畸形（文档 §5.3 纯函数口径）
 const SKIP_HEADERS: [&str; 3] = ["host", "content-length", "transfer-encoding"];

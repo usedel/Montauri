@@ -35,7 +35,7 @@ pub(crate) struct RunEnv {
 }
 
 /// 定位 probe/src 注入目录（含 sitecustomize.py 顶层模块），优先顺序：
-/// 1) 环境变量 OPENCHARM_PROBE_SRC；
+/// 1) 环境变量 MONTAURI_PROBE_SRC；
 /// 2) 托管目录 <data_root>/runtime/probe/src（及 /probe 兼容）；
 /// 3) Tauri 资源目录（打包分发）；
 /// 4) dev 相对 exe 上溯仓库布局（probe/src）。
@@ -43,7 +43,7 @@ pub(crate) struct RunEnv {
 pub(crate) fn locate_probe_src(app: &AppHandle) -> Option<PathBuf> {
     let is_probe = |p: &Path| p.join("sitecustomize.py").is_file();
 
-    if let Ok(p) = std::env::var("OPENCHARM_PROBE_SRC") {
+    if let Ok(p) = std::env::var("MONTAURI_PROBE_SRC") {
         let p = PathBuf::from(p);
         if is_probe(&p) {
             return Some(p);
@@ -88,7 +88,7 @@ pub(crate) fn locate_probe_src(app: &AppHandle) -> Option<PathBuf> {
 /// ```
 ///
 /// ③ 工作区根用于对齐 `check_missing_imports`（预检把 root 塞进 sys.path），消除「预检通过但运行
-/// ModuleNotFoundError」的双标；④ probe 包名 `opencharm_probe` 独占命名空间，置末不影响其可导入性，
+/// ModuleNotFoundError」的双标；④ probe 包名 `montauri_probe` 独占命名空间，置末不影响其可导入性，
 /// 但能保证用户同名模块优先命中（不被探针遮蔽）。
 ///
 /// **改动本函数前请先读上述约定**：这是两条运行路径一致性的唯一保证点。
@@ -187,7 +187,7 @@ pub(crate) fn load_env_files(
                     }
                 }
             }
-            Err(e) => warnings.push(format!("[opencharm] .env 文件无法读取：{}（{e}）\n", path.to_string_lossy())),
+            Err(e) => warnings.push(format!("[montauri] .env 文件无法读取：{}（{e}）\n", path.to_string_lossy())),
         }
     }
     out
@@ -269,30 +269,30 @@ pub(crate) fn assemble(
     }
 
     // ④ probe 四件套（probe/src 已经 ②-4 进 PYTHONPATH，这里补 autostart 开关与元信息）。
-    // OPENCHARM_PROBE_INSTANCE（§19-5 运行实例归属）：terminal::run_in_terminal 按会话 id
+    // MONTAURI_PROBE_INSTANCE（§19-5 运行实例归属）：terminal::run_in_terminal 按会话 id
     // 注入（run-term-script / run-term-project-<N>），probe 落库时写 runs.instance——
     // 多实例并行时每次 trace 可归属到单次运行；None（调试链路 / 旧调用方）不注入。
-    // OPENCHARM_PROBE_RUN_ID（TD-020）：每次运行唯一，probe 据此跨进程去重。
+    // MONTAURI_PROBE_RUN_ID（TD-020）：每次运行唯一，probe 据此跨进程去重。
     if probe_src.is_some() {
-        env.push(("OPENCHARM_PROBE_AUTOSTART".to_string(), "1".to_string()));
+        env.push(("MONTAURI_PROBE_AUTOSTART".to_string(), "1".to_string()));
         // A2 性能模式（PR-A2-P5）：perf 计时仅随探针注入——探针关闭时 perf 无意义，
-        // 故不注入。探针的 config.py 只在 OPENCHARM_PROBE_PERF=="1" 时开计时回调。
+        // 故不注入。探针的 config.py 只在 MONTAURI_PROBE_PERF=="1" 时开计时回调。
         if perf_mode {
-            env.push(("OPENCHARM_PROBE_PERF".to_string(), "1".to_string()));
+            env.push(("MONTAURI_PROBE_PERF".to_string(), "1".to_string()));
         }
         env.push((
-            "OPENCHARM_PROBE_SCRIPT".to_string(),
+            "MONTAURI_PROBE_SCRIPT".to_string(),
             script_abs.to_string_lossy().to_string(),
         ));
         env.push((
-            "OPENCHARM_PROBE_HOME".to_string(),
-            crate::util::opencharm_home().to_string_lossy().to_string(),
+            "MONTAURI_PROBE_HOME".to_string(),
+            crate::util::montauri_home().to_string_lossy().to_string(),
         ));
         if let Some(inst) = instance {
-            env.push(("OPENCHARM_PROBE_INSTANCE".to_string(), inst.to_string()));
+            env.push(("MONTAURI_PROBE_INSTANCE".to_string(), inst.to_string()));
         }
         if let Some(rid) = run_id.filter(|s| !s.is_empty()) {
-            env.push(("OPENCHARM_PROBE_RUN_ID".to_string(), rid.to_string()));
+            env.push(("MONTAURI_PROBE_RUN_ID".to_string(), rid.to_string()));
         }
     }
 
@@ -301,7 +301,7 @@ pub(crate) fn assemble(
     if !run_config.args.trim().is_empty() {
         match shell_words::split(&run_config.args) {
             Ok(tokens) => args = tokens,
-            Err(e) => warnings.push(format!("[opencharm] 运行参数解析失败，已忽略 Parameters：{e}\n")),
+            Err(e) => warnings.push(format!("[montauri] 运行参数解析失败，已忽略 Parameters：{e}\n")),
         }
     }
 
@@ -367,7 +367,7 @@ pub(crate) fn resolve_run_command(
             is_uv: false,
         },
         None => {
-            // 走 tool_command 以保持与 run_script 同一套 uv 解析（OPENCHARM_UV_BIN → ~/.local/bin → PATH）
+            // 走 tool_command 以保持与 run_script 同一套 uv 解析（MONTAURI_UV_BIN → ~/.local/bin → PATH）
             // 与 PyPI 镜像注入；这里把解析结果拆成 program + env，供 CommandBuilder 套用。
             let cmd = tool_command("uv", ENV_UV);
             let program = cmd.get_program().to_string_lossy().to_string();
@@ -594,16 +594,16 @@ mod tests {
         let parts: Vec<&str> = pp.split(sep).collect();
         assert_eq!(parts.first().unwrap(), &"/ws/root");
         assert_eq!(parts.last().unwrap(), &probe_src.to_string_lossy());
-        assert_eq!(env_value(&e, "OPENCHARM_PROBE_AUTOSTART").as_deref(), Some("1"));
-        assert_eq!(env_value(&e, "OPENCHARM_PROBE_SCRIPT").as_deref(), Some(SCRIPT));
-        assert!(!crate::util::opencharm_home().to_string_lossy().is_empty());
-        assert!(env_value(&e, "OPENCHARM_PROBE_HOME").is_some());
+        assert_eq!(env_value(&e, "MONTAURI_PROBE_AUTOSTART").as_deref(), Some("1"));
+        assert_eq!(env_value(&e, "MONTAURI_PROBE_SCRIPT").as_deref(), Some(SCRIPT));
+        assert!(!crate::util::montauri_home().to_string_lossy().is_empty());
+        assert!(env_value(&e, "MONTAURI_PROBE_HOME").is_some());
         assert_eq!(e.probe_src.as_deref(), Some(probe_src.as_path()));
         // instance 未传 → 不注入（调试链路 / 无归属语义的调用方）
-        assert!(env_value(&e, "OPENCHARM_PROBE_INSTANCE").is_none());
+        assert!(env_value(&e, "MONTAURI_PROBE_INSTANCE").is_none());
     }
 
-    /// §19-5：instance 传入 → OPENCHARM_PROBE_INSTANCE 注入（runs.instance 归属键）
+    /// §19-5：instance 传入 → MONTAURI_PROBE_INSTANCE 注入（runs.instance 归属键）
     #[test]
     fn probe_instance_env_injected_when_provided() {
         let probe_src = PathBuf::from(if cfg!(windows) { "F:\\oc\\probe\\src" } else { "/oc/probe/src" });
@@ -618,14 +618,14 @@ mod tests {
             Some("run-term-project-2"),
             None,
         );
-        assert_eq!(env_value(&e, "OPENCHARM_PROBE_INSTANCE").as_deref(), Some("run-term-project-2"));
+        assert_eq!(env_value(&e, "MONTAURI_PROBE_INSTANCE").as_deref(), Some("run-term-project-2"));
         // probe 关闭时 instance 一并不注入（四件套整体缺席）
         let e2 = asm(&rc("", vec![]), Some("/ws/root"));
-        assert!(env_value(&e2, "OPENCHARM_PROBE_INSTANCE").is_none());
-        assert!(env_value(&e2, "OPENCHARM_PROBE_AUTOSTART").is_none());
+        assert!(env_value(&e2, "MONTAURI_PROBE_INSTANCE").is_none());
+        assert!(env_value(&e2, "MONTAURI_PROBE_AUTOSTART").is_none());
     }
 
-    /// TD-020：run_id 传入 → OPENCHARM_PROBE_RUN_ID 注入（父子共享、跨进程去重键）
+    /// TD-020：run_id 传入 → MONTAURI_PROBE_RUN_ID 注入（父子共享、跨进程去重键）
     #[test]
     fn probe_run_id_env_injected_when_provided() {
         let probe_src = PathBuf::from(if cfg!(windows) { "F:\\oc\\probe\\src" } else { "/oc/probe/src" });
@@ -640,10 +640,10 @@ mod tests {
             None,
             Some("run-abc123"),
         );
-        assert_eq!(env_value(&e, "OPENCHARM_PROBE_RUN_ID").as_deref(), Some("run-abc123"));
+        assert_eq!(env_value(&e, "MONTAURI_PROBE_RUN_ID").as_deref(), Some("run-abc123"));
         // probe 关闭 → 不注入
         let e2 = asm(&rc("", vec![]), Some("/ws/root"));
-        assert!(env_value(&e2, "OPENCHARM_PROBE_RUN_ID").is_none());
+        assert!(env_value(&e2, "MONTAURI_PROBE_RUN_ID").is_none());
         // run_id 为空串 → 不注入
         let e3 = assemble(
             Path::new(SCRIPT),
@@ -656,14 +656,14 @@ mod tests {
             None,
             Some(""),
         );
-        assert!(env_value(&e3, "OPENCHARM_PROBE_RUN_ID").is_none());
+        assert!(env_value(&e3, "MONTAURI_PROBE_RUN_ID").is_none());
     }
 
     /// PR-A2-P5：性能模式计时开关——perf 仅随探针注入（探针关闭时 perf 无意义，故不注入）
     #[test]
     fn probe_perf_env_injected_only_when_probe_and_perf_on() {
         let probe_src = PathBuf::from(if cfg!(windows) { "F:\\oc\\probe\\src" } else { "/oc/probe/src" });
-        // ① 探针开 + perf 开 → OPENCHARM_PROBE_PERF=1 注入
+        // ① 探针开 + perf 开 → MONTAURI_PROBE_PERF=1 注入
         let e = assemble(
             Path::new(SCRIPT),
             Some("/ws/root"),
@@ -675,15 +675,15 @@ mod tests {
             None,
             None,
         );
-        assert_eq!(env_value(&e, "OPENCHARM_PROBE_PERF").as_deref(), Some("1"));
+        assert_eq!(env_value(&e, "MONTAURI_PROBE_PERF").as_deref(), Some("1"));
         // ② perf 开 + 探针关 → 不注入（无探针则 perf 计时无处安放）
         let e2 = assemble(Path::new(SCRIPT), Some("/ws/root"), &rc("", vec![]), None, None, &[], true, None, None);
-        assert!(env_value(&e2, "OPENCHARM_PROBE_PERF").is_none());
-        assert!(env_value(&e2, "OPENCHARM_PROBE_AUTOSTART").is_none());
+        assert!(env_value(&e2, "MONTAURI_PROBE_PERF").is_none());
+        assert!(env_value(&e2, "MONTAURI_PROBE_AUTOSTART").is_none());
         // ③ 探针开 + perf 关 → 不注入（默认关）
         let e3 = assemble(Path::new(SCRIPT), Some("/ws/root"), &rc("", vec![]), Some(probe_src), None, &[], false, None, None);
-        assert!(env_value(&e3, "OPENCHARM_PROBE_PERF").is_none());
-        assert_eq!(env_value(&e3, "OPENCHARM_PROBE_AUTOSTART").as_deref(), Some("1"));
+        assert!(env_value(&e3, "MONTAURI_PROBE_PERF").is_none());
+        assert_eq!(env_value(&e3, "MONTAURI_PROBE_AUTOSTART").as_deref(), Some("1"));
     }
 
     #[test]

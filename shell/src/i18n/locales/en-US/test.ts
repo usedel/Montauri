@@ -29,7 +29,7 @@ export const test: Record<TestKey, string> = {
   "test.retry": "Retry",
   // ---- test.pytestMissing ----
   "test.pytestMissing": "pytest is not installed",
-  "test.pytestMissingHint": "pytest is a project-level test framework and is not bundled with OpenCharm. Install it to collect and run tests.",
+  "test.pytestMissingHint": "pytest is a project-level test framework and is not bundled with Montauri. Install it to collect and run tests.",
   "test.installPytest": "Install pytest",
   "test.installTitle": "Install pytest",
   // ---- test.status ----

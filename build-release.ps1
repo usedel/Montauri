@@ -1,5 +1,5 @@
-﻿# OpenCharm release packaging script (NSIS installer only).
-# Runs the full pipeline: clean -> build opencharm-intel (release) -> npm install -> tauri build.
+﻿# Montauri release packaging script (NSIS installer only).
+# Runs the full pipeline: clean -> build montauri-intel (release) -> npm install -> tauri build.
 # Usage (from repo root):
 #   powershell -File .\build-release.ps1                  # full build
 #   powershell -File .\build-release.ps1 -SkipNpmInstall  # skip npm install
@@ -13,7 +13,7 @@
 #
 # Requires: Rust toolchain (cargo) and Node.js (npm), see ci/versions.toml for pinned versions.
 # Note: uv / pyrefly are managed at user runtime, not needed for packaging.
-#       opencharm-intel and probe/src are bundled via shell/src-tauri/tauri.conf.json
+#       montauri-intel and probe/src are bundled via shell/src-tauri/tauri.conf.json
 #       bundle.resources; step 2 builds the release intel binary first.
 #       Bundle target is fixed to NSIS (tauri.conf.json bundle.targets = "nsis").
 
@@ -86,12 +86,12 @@ if ($pycache) {
     Write-Host "No __pycache__ dirs, skip"
 }
 
-# ---------- 2. build opencharm-intel (release) ----------
-Step "Build opencharm-intel (release, lto, may take a while)"
+# ---------- 2. build montauri-intel (release) ----------
+Step "Build montauri-intel (release, lto, may take a while)"
 Push-Location (Join-Path $Root "intel")
 try {
-    Invoke-Native cargo build -p opencharm-intel --release
-    if ($LASTEXITCODE -ne 0) { Fail "opencharm-intel release build failed" }
+    Invoke-Native cargo build -p montauri-intel --release
+    if ($LASTEXITCODE -ne 0) { Fail "montauri-intel release build failed" }
 } finally {
     Pop-Location
 }
@@ -151,4 +151,4 @@ if ($Verify) {
 # ---------- 6. done ----------
 Step "Done"
 Write-Host "Bundle output: shell/src-tauri/target/release/bundle/nsis/"
-Write-Host "opencharm-intel.exe and probe/src are bundled as resources (see shell/src-tauri/tauri.conf.json bundle.resources)"
+Write-Host "montauri-intel.exe and probe/src are bundled as resources (see shell/src-tauri/tauri.conf.json bundle.resources)"

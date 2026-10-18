@@ -664,13 +664,13 @@ function ensureSqlEditor(): MonacoApi.editor.IStandaloneCodeEditor {
   const monaco = app.monaco;
   sqlEditor = monaco.editor.create($("db-query-editor-host"), sqlEditorOptions());
   sqlEditor.addAction({
-    id: "opencharm.dbRun",
+    id: "montauri.dbRun",
     label: t("database.runTip"),
     keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter],
     run: () => void runCurrent(),
   });
   sqlEditor.addAction({
-    id: "opencharm.dbRunAll",
+    id: "montauri.dbRunAll",
     label: t("database.runAllTip"),
     keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.Enter],
     run: () => void runAllStatements(),

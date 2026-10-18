@@ -1,5 +1,5 @@
 /**
- * E2E：批 4 · Monaco 自定义主题 opencharm-dark / opencharm-light。
+ * E2E：批 4 · Monaco 自定义主题 montauri-dark / montauri-light。
  *
  * ## 为什么单测钉不住、必须上 e2e
  *
@@ -154,11 +154,11 @@ test.beforeEach(async () => {
   repo = await makePlainDir({ "main.py": SRC });
 });
 
-test.describe("深色主题 opencharm-dark", () => {
+test.describe("深色主题 montauri-dark", () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
       (window as unknown as { __E2E_SETTINGS_PRESET__?: Record<string, unknown> }).__E2E_SETTINGS_PRESET__ = {
-        theme: "opencharm-dark",
+        theme: "montauri-dark",
       };
     });
     await openPy(page);
@@ -239,11 +239,11 @@ test.describe("深色主题 opencharm-dark", () => {
   });
 });
 
-test.describe("浅色主题 opencharm-light", () => {
+test.describe("浅色主题 montauri-light", () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
       (window as unknown as { __E2E_SETTINGS_PRESET__?: Record<string, unknown> }).__E2E_SETTINGS_PRESET__ = {
-        theme: "opencharm-light",
+        theme: "montauri-light",
       };
     });
     await openPy(page);
@@ -287,7 +287,7 @@ test.describe("浅色主题 opencharm-light", () => {
 test.describe("存量设置迁移（旧出厂主题名 → 自定义名）", () => {
   // 这条是批 4 最大的静默风险：Monaco 对未注册的主题名**不报错**，
   // 静默回落到出厂 vs-dark。不迁移的症状是「用户升级后编辑器悄悄变回原厂主题且无提示」。
-  test("T-B4-6 存量 theme=\"vs\" 迁移为 opencharm-light 并真正生效", async ({ page }) => {
+  test("T-B4-6 存量 theme=\"vs\" 迁移为 montauri-light 并真正生效", async ({ page }) => {
     await page.addInitScript(() => {
       (window as unknown as { __E2E_SETTINGS_PRESET__?: Record<string, unknown> }).__E2E_SETTINGS_PRESET__ = {
         theme: "vs", // 批 4 之前用户 settings.json 里的真实存量值
@@ -323,7 +323,7 @@ test.describe("修记 A · 编辑器滚动条真实底色（长文件，滚动�
   test("T-B4-9 滑块底色是无彩色半透明（不是纯红）", async ({ page }) => {
     await page.addInitScript(() => {
       (window as unknown as { __E2E_SETTINGS_PRESET__?: Record<string, unknown> }).__E2E_SETTINGS_PRESET__ = {
-        theme: "opencharm-dark",
+        theme: "montauri-dark",
       };
     });
     await equipPage(page, longRepo);

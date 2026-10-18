@@ -767,13 +767,13 @@ function handleFsChanged(dirs: string[]): void {
     // open_file_dev_plan §1.2 的「无 py 工作区新增 .py 后补启动引擎」不在这里判：
     // fs-changed 只有**父目录**，按目录名判 .py 在真机从不成立（历史 latent bug，
     // 只有 mock 推文件路径时才偶然生效）。改由 onFilesChanged 吃 fs-file-changed。
-    // Live Templates 热重载（M2）：工作区层 <ws>/.opencharm/ 或用户层 <data_root>/config 变更。
+    // Live Templates 热重载（M2）：工作区层 <ws>/.montauri/ 或用户层 <data_root>/config 变更。
     // TD-027 A6：原 `endsWith("/config")` 把工作区任意 xxx/config 变更也当成模板配置——收紧。
-    // 取舍：OPENCHARM_DATA_ROOT 重定向到非默认路径时用户层外部编辑的热重载失效（面板内保存不受影响）。
+    // 取舍：MONTAURI_DATA_ROOT 重定向到非默认路径时用户层外部编辑的热重载失效（面板内保存不受影响）。
     if (
       dirs.some((d) => {
         const n = d.toLowerCase().replace(/\\/g, "/");
-        return n.endsWith("/.opencharm") || n.endsWith("/.opencharm/config") || n.endsWith("/opencharm/config");
+        return n.endsWith("/.montauri") || n.endsWith("/.montauri/config") || n.endsWith("/montauri/config");
       })
     )
       await loadTemplatesConfig();
@@ -981,7 +981,7 @@ async function doOpenFile(path: string, revealLine?: number, opts?: OpenFileOpti
     const uri = app.monaco.Uri.file(path);
     const existing = app.monaco.editor.getModel(uri);
     // P1（2026-10-08 review）：rename 后的过期引用防线——model URI 创建后不可变，
-    // rename a.py→b.py 时 tab.path/model.__opencharmPath 已迁移到新路径，但过期引用
+    // rename a.py→b.py 时 tab.path/model.__montauriPath 已迁移到新路径，但过期引用
     // （搜索结果/引用面板/LSP 未更新期的 traceback 链接）仍指向旧路径 a.py：
     // getModel(旧uri) 命中 b.py 的 model → 若不拦会开出共享同一 model 的第二个 tab
     // （关一个 dispose 另一个跟着坏）。此时按 model 的真实归属重定向到既有 tab。
@@ -1171,7 +1171,7 @@ export function closeTabSilent(tab: Tab): void {
     editorTimers.clearAutosave(tab.path); // 在途 autosave 计时器随 tab 关闭作废（防 dispose 后写盘复活内容）
     lsp.didClose(tab.path);
     lsp.discardCachedDiagnostics(tab.path); // CR-22：关文件即释放诊断缓存
-    app.monaco.editor.setModelMarkers(tab.model, "opencharm-lsp", []);
+    app.monaco.editor.setModelMarkers(tab.model, "montauri-lsp", []);
     splitEditor.onModelDisposed(tab.model); // C-4：分屏钉住该 model 时同步收起（先于 dispose）
     tab.model.dispose();
   }
@@ -1393,8 +1393,8 @@ async function saveTab(tab: Tab, opts?: SaveOptions): Promise<void> {
     if (cleaned !== value) tab.model.setValue(cleaned);
   }
   // PR-F（dx_features_backlog §6.6/§6.8）：保存时语法错误提示——写盘前查当前模型 error 级
-  // marker。getModelMarkers 不带 owner 过滤 = 三桶统一覆盖（opencharm-lsp / opencharm-intel /
-  // opencharm-ruff，owner 名实测见 6.6），与 quickFix.ts 的双桶口径一致且更宽。
+  // marker。getModelMarkers 不带 owner 过滤 = 三桶统一覆盖（montauri-lsp / montauri-intel /
+  // montauri-ruff，owner 名实测见 6.6），与 quickFix.ts 的双桶口径一致且更宽。
   // **只提示不阻止保存**（避免打断自动化场景）；runActions 门控——autosave / 运行前落盘 /
   // git 改写磁盘等非显式路径不弹 toast（高频路径会刷屏）。
   // 2026-09-29 修订：文案区分「语法错误 / 类型/引用错误」（旧文案统称语法错误，pyrefly
@@ -1584,7 +1584,7 @@ export async function startLsp(): Promise<void> {
     // 架构铁律要求它失败静默降级、互不拖累；此处只提示，不 return（return 会让 intel 不启动）。
     setLspNote("main.lsp.startFailed", { msg: String(e) });
   }
-  // 运行时引擎（opencharm-intel）：开关控制（P3-T09），失败静默降级（静态引擎照常工作）
+  // 运行时引擎（montauri-intel）：开关控制（P3-T09），失败静默降级（静态引擎照常工作）
   if (app.settings.runtime_intel_enabled) {
     try {
       await lsp.startIntel(app.workspaceRoot, rootUri);
@@ -1598,7 +1598,7 @@ export async function startLsp(): Promise<void> {
   for (const t of app.tabs) lsp.didOpen(t.path, t.model);
 }
 
-function setMarkers(path: string, markers: MonacoApi.editor.IMarkerData[], owner = "opencharm-lsp"): void {
+function setMarkers(path: string, markers: MonacoApi.editor.IMarkerData[], owner = "montauri-lsp"): void {
   // samePath（斜杠+大小写归一）：pydantic 诊断的 Rust 侧返回正斜杠绝对路径，
   // tab.path 可能是反斜杠——精确 === 会全程失配（2026-09-29 复核修复）
   const tab = app.tabs.find((t) => samePath(t.path, path));
@@ -1606,7 +1606,7 @@ function setMarkers(path: string, markers: MonacoApi.editor.IMarkerData[], owner
 }
 
 // Monaco standalone 无文件系统：Ctrl+hover 定义预览（goToDefinitionAtPosition）会 createModelReference
-// 报 "Model not found"（未打开的文件无法建 model）。F12/菜单跳转走 opencharm 自己的 handler，不受影响；
+// 报 "Model not found"（未打开的文件无法建 model）。F12/菜单跳转走 montauri 自己的 handler，不受影响；
 // 这里静默该已知限制的 unhandled rejection，避免控制台噪音。
 window.addEventListener("unhandledrejection", (e) => {
   const reason = e.reason as { message?: string } | string | undefined;
@@ -1951,7 +1951,7 @@ async function init(): Promise<void> {
   // PR-I：Ctrl+Shift+双击 = 查找引用（PyCharm 手势对标，鼠标事件因而按 into DisposableStore）
   lspProviders.add(installCtrlShiftDblclickUsages(app.editor));
   lspProviders.add(initRenameWidget(app.editor)); // F2 就地重命名 + 右键菜单「重命名…」
-  // 库支持 PR-2：正则字面量 lens / 高亮装饰 / opencharm-libs 诊断（与 codeVision 引用 lens 并存，D-2）
+  // 库支持 PR-2：正则字面量 lens / 高亮装饰 / montauri-libs 诊断（与 codeVision 引用 lens 并存，D-2）
   lspProviders.add(initDslLens(app.editor));
   lspProviders.add(await import("./jsonLiteral").then((m) => m.initJsonLiteral(app.editor))); // 库支持 P1 §7-3：JSON 字面量高亮/折叠/诊断/右键（动态 import 见顶部体积纪律）
   lspProviders.add(initClipboardDiffAction(app.editor)); // C-5：右键菜单「与剪贴板对比」
@@ -1961,7 +1961,7 @@ async function init(): Promise<void> {
   initQuickFixActions(); // P4：D-1/D-2 自研快速修复（Ctrl+. 灯泡；registerCodeActionProvider 自持 dispose 无需入 store）
   lspProviders.add(lsp.registerLspSignatureHelp()); // 签名帮助（参数提示）
   lspProviders.add(lsp.registerLspCodeAction()); // Ctrl+. 快速修复
-  // 运行时类型标注（opencharm-intel）+ 静态变量提示；主编辑器已创建（1762 行），
+  // 运行时类型标注（montauri-intel）+ 静态变量提示；主编辑器已创建（1762 行），
   // onDidCreateEditor 捕获不到 → 显式传入（跳变治理 B 的光标跟踪依赖，见 inlayFreeze.ts 头注）
   lspProviders.add(lsp.registerLspInlayHints([app.editor]));
   // 零引擎关键字补全：非 LSP 的静态兜底（无引擎语言才生效，python 由上面三段负责），
@@ -1976,7 +1976,7 @@ async function init(): Promise<void> {
   // 不能用 editor.addAction——addAction 内部会把 id 加 editorId 前缀（`editorId:id`），导致 executeCommand 找不到。
   app.monaco.editor.registerCommand(lsp.INSTALL_PACKAGE_COMMAND, (_accessor, ...args: unknown[]) => {
     const pkg = args[0];
-    console.debug(`[opencharm-install] 命令触发 pkg=${String(pkg)}`);
+    console.debug(`[montauri-install] 命令触发 pkg=${String(pkg)}`);
     if (typeof pkg === "string" && pkg) void installMissingPackage(pkg);
   });
   // 依赖健康 M3（§6.3）：「安装 X 并加入 pyproject」灯泡动作（E4/E3 → uv add，diff 数据源）
@@ -2122,7 +2122,7 @@ async function init(): Promise<void> {
   // P1：本地历史（Ctrl+Shift+H）——无 Git 工作区的回滚兜底
   initLocalHistory();
   setLocalHistoryHandlers({ reloadFile: (p) => reloadFileFromDisk(p, true) }); // 用户主动回滚：强制替换
-  // P2：ruff 实时 lint（诊断第三桶，owner = opencharm-ruff）
+  // P2：ruff 实时 lint（诊断第三桶，owner = montauri-ruff）
   setRuffLintHandlers({ setMarkers });
   // P2：书签（Ctrl+F11 切换 / Ctrl+Shift+F11 列表）
   initBookmarks(app.editor, app.monaco);

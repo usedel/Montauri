@@ -128,7 +128,7 @@ if (-not (Test-Path $tgz)) {
     $url = "https://registry.npmjs.org/@fontsource/jetbrains-mono/-/jetbrains-mono-$Version.tgz"
     Write-Host "  downloading: $url"
     $wc = New-Object System.Net.WebClient
-    $wc.Headers.Add("User-Agent", "opencharm-fetch-fonts/1.0")
+    $wc.Headers.Add("User-Agent", "montauri-fetch-fonts/1.0")
     try {
         $wc.DownloadFile($url, $tgz)
     } catch {

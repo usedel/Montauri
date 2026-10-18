@@ -6,7 +6,7 @@
 
 ## 1. 背景与目标
 
-项目开发中 markdown 文件（README / docs / 方案文档）非常常见。目标是在 OpenCharm 内提供
+项目开发中 markdown 文件（README / docs / 方案文档）非常常见。目标是在 Montauri 内提供
 「编辑器左、预览右」的同屏实时预览，对齐 VS Code 体验：
 
 - 活动 tab 为 `.md` 时可一键开关分栏预览（默认 `Ctrl+Shift+V`）；
@@ -78,7 +78,7 @@ img src 改写：相对路径 → 以 md 所在目录解析绝对路径 → conv
 - [x] `shell/src/style.css`：预览排版样式（标题 / 表格 / 代码块 / 任务列表 / 图片 `max-width:100%`），
       全部使用现有 `--bg` / `--fg` / `--brand` token，深浅主题自动适配；`#md-preview` 独立滚动
 - [x] `shell/src/layout.ts`：分栏宽度拖拽复用 `startDrag` 机制 + `localStorage` 持久化
-      （对齐 `SIDEBAR_KEY` 先例，key 建议 `opencharm.mdpreview_width`）
+      （对齐 `SIDEBAR_KEY` 先例，key 建议 `montauri.mdpreview_width`）
 
 ### T3 · 渲染核心 `shell/src/markdownPreview.ts`（新域模块）
 

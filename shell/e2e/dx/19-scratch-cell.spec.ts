@@ -63,7 +63,7 @@ test("E-SC-2 右键「停止 Scratch 会话」→ 发 action=stop", async ({ pag
   // 动作本身的存在性由 initScratch 的 addAction 保证）
   await page.evaluate(async () => {
     const { app } = (await import(/* @vite-ignore */ "/src/state.ts")) as any;
-    app.editor.getAction("opencharm.stopScratch").run();
+    app.editor.getAction("montauri.stopScratch").run();
   });
 
   const log = await scratchLog(page);

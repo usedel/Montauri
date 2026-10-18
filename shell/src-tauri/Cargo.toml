@@ -1,11 +1,11 @@
 [package]
-name = "opencharm-shell"
+name = "montauri-shell"
 version = "0.1.0"
-description = "OpenCharm IDE shell (Tauri 2 + Monaco)"
+description = "Montauri IDE shell (Tauri 2 + Monaco)"
 edition = "2021"
 
 [lib]
-name = "opencharm_shell_lib"
+name = "montauri_shell_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

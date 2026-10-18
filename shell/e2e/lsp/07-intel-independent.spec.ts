@@ -8,7 +8,7 @@
  *  - `__E2E_SETTINGS_PRESET__.runtime_intel_enabled = true`：让 `main.ts:startLsp` 执行 `startIntel`；
  *  - `__E2E_LSP_PRESET__.staticInitFail = true`：mock 对 static 的 initialize 返回 LSP error
  *    （前端 requestEngine reject → startEngine 抛异常 → **不阻断** intel 启动）；
- *  - `get_intel_info` mock 返回伪 command（浏览器侧无真实 opencharm-intel 二进制），让 intel 走到 ready。
+ *  - `get_intel_info` mock 返回伪 command（浏览器侧无真实 montauri-intel 二进制），让 intel 走到 ready。
  *
  * ## 强判别
  *  static 引擎起不来 → engineStatus 停在 `starting`（非 `ready`）。若总闸未拆，`provideCompletionItems`
@@ -17,7 +17,7 @@
  *
  * 注：mock 下的 intel 候选实际是 `lspComplete`（静态成员语义）——浏览器侧无 intel 二进制，候选内容
  * 语义打折，但**行为契约（static 挂不拖死 intel 路的查询与上屏）** 由本 spec 钉死；真实 intel 候选
- * 由 opencharm-intel 构建 + 真机链路覆盖。
+ * 由 montauri-intel 构建 + 真机链路覆盖。
  */
 import { test, expect, type Page } from "@playwright/test";
 import { equipPage, makeGitRepo, type GitRepo } from "../helpers";

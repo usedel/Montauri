@@ -32,7 +32,7 @@ export function toggleWhitespaceRender(): boolean {
 /** 编辑器右键菜单入口（main 的 init 中注册，返回 IDisposable 入 DisposableStore） */
 export function initWhitespaceAction(editor: MonacoApi.editor.IStandaloneCodeEditor): MonacoApi.IDisposable {
   return editor.addAction({
-    id: "opencharm.toggleWhitespace",
+    id: "montauri.toggleWhitespace",
     label: t("ide.ws.actionLabel"),
     contextMenuGroupId: "2_view", // 视察组：排在修改组之后
     contextMenuOrder: 1.5,

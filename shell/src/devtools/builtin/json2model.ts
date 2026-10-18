@@ -11,7 +11,7 @@ import { t } from "../../i18n";
  * 本工具的全局 id（`<pluginId>.<toolId>`）。传裸 `"json2model"` 会让 `openDevTools` 静默回落到
  * 「最近使用」工具（面板开了但打开的是别的工具）——同 devtools/index.ts 的 HTTP_TOOL_ID 踩坑。
  */
-export const JSON2MODEL_TOOL_ID = pluginToolId("opencharm.builtin", "json2model");
+export const JSON2MODEL_TOOL_ID = pluginToolId("montauri.builtin", "json2model");
 
 // A4 ③：HTTP 响应 → 模型生成的**接收端**（与 http.ts 的 setPendingRequest 同构）：
 // 工具已挂载（面板有实例缓存）时直接投递给在线消费者，否则暂存等下次 mount 消费。

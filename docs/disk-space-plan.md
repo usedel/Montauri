@@ -1,6 +1,6 @@
 # 系统盘占用治理方案（已实施 · 2026-08-29）
 
-> 目标：在 v2 目录布局（数据根 `%LOCALAPPDATA%\OpenCharm`、工具归用户自有位置）下，
+> 目标：在 v2 目录布局（数据根 `%LOCALAPPDATA%\Montauri`、工具归用户自有位置）下，
 > 最大化减少 C 盘占用，并把「占用可视化 + 清理 + 迁移」做成产品能力，而不是停留在文档提示。
 >
 > 修订：全局虚拟环境功能已移除（项目环境隔离原则，见 data-directory-layout-v2.md 修订记录 6），
@@ -12,16 +12,16 @@
 
 | # | 来源 | 典型体量 | 可再生？ | 治理手段 | 归属 |
 |---|---|---|---|---|---|
-| 1 | uv 下载缓存 `%LOCALAPPDATA%\uv\cache` | 1–5 GB（随项目数增长） | ✅ 完全可再生 | `UV_CACHE_DIR` 环境变量重定向；`uv cache prune` / `clean` | uv 官方机制，OpenCharm 尊重并引导 |
-| 2 | 项目内 `.venv` | 0.3–2 GB × 项目数 | ❌ | 项目本身放 D: 盘 | 用户项目，OpenCharm 不管 |
+| 1 | uv 下载缓存 `%LOCALAPPDATA%\uv\cache` | 1–5 GB（随项目数增长） | ✅ 完全可再生 | `UV_CACHE_DIR` 环境变量重定向；`uv cache prune` / `clean` | uv 官方机制，Montauri 尊重并引导 |
+| 2 | 项目内 `.venv` | 0.3–2 GB × 项目数 | ❌ | 项目本身放 D: 盘 | 用户项目，Montauri 不管 |
 | 3 | uv 工具 `%APPDATA%\uv\tools`（pyrefly 等） | 0.1–0.3 GB/个 | ✅ 可重装 | `UV_TOOL_DIR` 重定向 | uv 官方机制 |
-| 4 | trace 库 `<data_root>\traces\*.db` | 10 MB–1 GB | ✅ 重新采样即可 | 按项目清理 | OpenCharm 新增 |
-| 5 | WebView2 用户数据 `<data_root>\webview\` | 0.1–0.5 GB（缓存为主） | ✅（登录态除外） | 清理缓存子目录（保留登录态） | OpenCharm 新增 |
+| 4 | trace 库 `<data_root>\traces\*.db` | 10 MB–1 GB | ✅ 重新采样即可 | 按项目清理 | Montauri 新增 |
+| 5 | WebView2 用户数据 `<data_root>\webview\` | 0.1–0.5 GB（缓存为主） | ✅（登录态除外） | 清理缓存子目录（保留登录态） | Montauri 新增 |
 | 6 | 运行时 `<data_root>\runtime\` | ~50 MB | 随版本分发 | 不治理 | — |
 | 7 | 日志 `<data_root>\logs\` | <10 MB | ✅ | 已有轮转 | — |
 
 > 结论：**大头是 uv 缓存（可数 GB）与各项目 `.venv`（跟随项目目录）**。uv 缓存有官方重定向机制；
-> OpenCharm 数据根内只剩可再生中小项（traces/webview/logs），治理手段是清理 + 整根重定向。
+> Montauri 数据根内只剩可再生中小项（traces/webview/logs），治理手段是清理 + 整根重定向。
 
 ---
 
@@ -33,7 +33,7 @@
 
 | 环境变量（用户级） | 作用 |
 |---|---|
-| `OPENCHARM_DATA_ROOT=D:\opencharm-data` | OpenCharm 全部数据（config/traces/webview/logs）搬离 C 盘（高级用户手动设置；应用自身的落位机制走指针文件，见 P2） |
+| `MONTAURI_DATA_ROOT=D:\montauri-data` | Montauri 全部数据（config/traces/webview/logs）搬离 C 盘（高级用户手动设置；应用自身的落位机制走指针文件，见 P2） |
 | `UV_CACHE_DIR=D:\uv-cache` | uv 下载缓存搬离 C 盘（对用户所有项目生效） |
 | `UV_TOOL_DIR=D:\uv-tools` | uv 工具本体（pyrefly 等）搬离 C 盘 |
 
@@ -60,10 +60,10 @@
 
 **落位机制（跨平台指针文件，无注册表 / 环境变量写入）**：
 
-- 数据根解析三级：`OPENCHARM_DATA_ROOT` 环境变量（仅开发/测试/高级用户，应用自身不写入）
-  → **数据根指针文件** → 平台默认（`%LOCALAPPDATA%\OpenCharm` 等，见 data-directory-layout-v2.md §3.1）。
-- 指针文件位于平台标准配置目录（Windows `%APPDATA%\OpenCharm\data-root`、
-  Linux `~/.config/opencharm/data-root`、macOS `~/Library/Application Support/OpenCharm/data-root`），
+- 数据根解析三级：`MONTAURI_DATA_ROOT` 环境变量（仅开发/测试/高级用户，应用自身不写入）
+  → **数据根指针文件** → 平台默认（`%LOCALAPPDATA%\Montauri` 等，见 data-directory-layout-v2.md §3.1）。
+- 指针文件位于平台标准配置目录（Windows `%APPDATA%\Montauri\data-root`、
+  Linux `~/.config/montauri/data-root`、macOS `~/Library/Application Support/Montauri/data-root`），
   内容 = 数据根绝对路径，仅几十字节，落在系统盘无妨；大体积数据按指针指向落盘。
 - 弃用 `setx`（Windows-only，且对当前进程树不生效——曾导致重启后重复弹首启提示）。
 
@@ -97,14 +97,14 @@
 
 设置面板「存储」页顶部提供「迁移数据到其他盘」：
 
-1. 用户选目标盘目录（如 `D:\opencharm-data`）；
+1. 用户选目标盘目录（如 `D:\montauri-data`）；
 2. 向导执行：整目录**复制**到目标（逐项容错，跳过清单写入 `.migration-skipped.txt`）→
-   重写数据根指针文件 → 提示重启 OpenCharm；
+   重写数据根指针文件 → 提示重启 Montauri；
 3. 迁移中断保护：先写 `<目标>\.migration-in-progress` 标记，启动时检测到则提示续迁/回退；
 4. 旧目录不自动删除（可能有被占用的日志文件），重启确认后由用户手工删除。
 
 **uv 目录不随迁**：`UV_CACHE_DIR` / `UV_TOOL_DIR` 是用户自有环境变量（工具所有权原则），
-OpenCharm 不代写不代搬；需要重定向时由用户自行设置（P0 文档化）。
+Montauri 不代写不代搬；需要重定向时由用户自行设置（P0 文档化）。
 
 ---
 
@@ -117,16 +117,16 @@ OpenCharm 不代写不代搬；需要重定向时由用户自行设置（P0 文�
 | P2 | 首启落位提示 + 迁移向导 | `util.rs` 增数据根指针文件解析；`storage_cmds.rs` 增 `set_data_root`（校验 + 写指针）、`migrate_data_root`（复制 + 重写指针 + 标记续迁）；前端首启 onboarding 弹窗 + 向导流；设置面板常显当前数据根 |
 
 **验证基准**：bench 项目集装满典型依赖后，迁移到 D: 前后对比
-`%LOCALAPPDATA%` 与 `%LOCALAPPDATA%\uv` 体积，目标：C 盘 OpenCharm 相关占用（含 uv）降到 <200 MB
+`%LOCALAPPDATA%` 与 `%LOCALAPPDATA%\uv` 体积，目标：C 盘 Montauri 相关占用（含 uv）降到 <200 MB
 （仅剩 runtime + config + logs）。
 
 ## 4. 风险与权衡
 
 | 风险 | 缓解 |
 |---|---|
-| 用户设置了 `OPENCHARM_DATA_ROOT` 后忘记，重装系统后找不到数据 | 设置面板常显当前数据根路径；首启提示弹窗记下用户的选择；迁移向导完成页提示备份建议 |
+| 用户设置了 `MONTAURI_DATA_ROOT` 后忘记，重装系统后找不到数据 | 设置面板常显当前数据根路径；首启提示弹窗记下用户的选择；迁移向导完成页提示备份建议 |
 | 首启弹窗打扰「只想快速开始」的用户 | 默认选项 = 默认位置一键进入，选自定义才多两步；触发条件保证只弹一次 |
 | 迁移中 kill 进程导致目录搬一半 | `.migration-in-progress` 标记 + 启动检测续迁；copy 逐项容错并记录跳过清单 |
 | 清理按钮误删用户还想留的东西 | 全部逐项确认 + 二次确认；只提供可再生项 |
 | 指针文件丢失/损坏（配置目录被清） | 回落平台默认根；数据仍完整保存在自定义根（可重新写指针找回） |
-| 卸载「删除数据」漏删已迁移的自定义根 | 卸载钩子按序清理：默认根 → 指针所指根（读 `%APPDATA%\OpenCharm\data-root`，含盘根护栏）→ 指针目录。环境变量 `OPENCHARM_DATA_ROOT` 属用户自有配置，应用与卸载器均不写不删 |
+| 卸载「删除数据」漏删已迁移的自定义根 | 卸载钩子按序清理：默认根 → 指针所指根（读 `%APPDATA%\Montauri\data-root`，含盘根护栏）→ 指针目录。环境变量 `MONTAURI_DATA_ROOT` 属用户自有配置，应用与卸载器均不写不删 |

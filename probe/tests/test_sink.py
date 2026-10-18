@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from opencharm_probe.sink import ObservationSink  # noqa: E402
+from montauri_probe.sink import ObservationSink  # noqa: E402
 
 
 def test_func_id_basic():
@@ -82,8 +82,8 @@ def test_monitor_fid_filename_normalized():
     否则同函数跨运行在 functions 表分裂多行（跨运行聚合语义被破坏）。"""
     import os
 
-    from opencharm_probe.config import ProbeConfig
-    from opencharm_probe.monitor import Monitor
+    from montauri_probe.config import ProbeConfig
+    from montauri_probe.monitor import Monitor
 
     for variant in ("F:\\X\\App.PY", "f:/x\\app.py", "F:/X/app.py"):
         sink = ObservationSink()

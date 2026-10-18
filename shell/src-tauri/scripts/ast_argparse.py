@@ -1,4 +1,4 @@
-# opencharm 受控脚本 · ast_argparse
+# montauri 受控脚本 · ast_argparse
 # 职责：用 ast 静态解析脚本内 argparse add_argument / click.option / typer.Option 的
 # **字面量参数**，产出参数表单模型（{name, flag, type, default, help, required, choices}）。
 # 约束：**不 import 用户模块、不执行用户代码**（PR-4 内省 kind 才执行，独立开关）；

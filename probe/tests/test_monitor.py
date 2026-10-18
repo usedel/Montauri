@@ -6,9 +6,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from opencharm_probe.config import ProbeConfig  # noqa: E402
-from opencharm_probe.monitor import Monitor  # noqa: E402
-from opencharm_probe.sink import ObservationSink  # noqa: E402
+from montauri_probe.config import ProbeConfig  # noqa: E402
+from montauri_probe.monitor import Monitor  # noqa: E402
+from montauri_probe.sink import ObservationSink  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent
 
@@ -408,7 +408,7 @@ def test_business_function_called_after_discovery_window(monkeypatch):
     （如 demo.py：import requests 耗时 > 窗口，main/get_quotes 被跳过）。
     """
     import time
-    from opencharm_probe import monitor as mon_mod
+    from montauri_probe import monitor as mon_mod
 
     monkeypatch.setattr(mon_mod, "_DISCOVERY_WINDOW", 0.05)
 
@@ -435,7 +435,7 @@ def test_active_window_recheck_throttled(monkeypatch):
     下一个决策点在完整窗口周期之后 → 回溯每窗口至多一次。
     """
     import time
-    from opencharm_probe import monitor as mon_mod
+    from montauri_probe import monitor as mon_mod
 
     monkeypatch.setattr(mon_mod, "_DISCOVERY_WINDOW", 0.05)
 
@@ -480,7 +480,7 @@ def test_sync_active_count_throttled_by_window(monkeypatch):
     _win_until 被推进（窗口期内后续调用直接 return，不再 _sync_active）。
     """
     import time
-    from opencharm_probe import monitor as mon_mod
+    from montauri_probe import monitor as mon_mod
 
     monkeypatch.setattr(mon_mod, "_DISCOVERY_WINDOW", 0.05)
     monkeypatch.setattr(mon_mod, "_QUIET_CLOSE", 10**9)  # 静默关窗不干扰
@@ -536,7 +536,7 @@ def test_quiet_close_path_also_throttled_by_window(monkeypatch):
     """
     import time as _time
 
-    from opencharm_probe import monitor as mon_mod
+    from montauri_probe import monitor as mon_mod
 
     monkeypatch.setattr(mon_mod, "_DISCOVERY_WINDOW", 10.0)  # 窗口期内不因时间到期
     # _QUIET_CLOSE 用真实值 2000：直接把 _quiet 推过阈值，模拟长运行脚本的
@@ -594,7 +594,7 @@ def test_sitecustomize_noise_does_not_close_window(monkeypatch):
     """
     import time as _time
 
-    from opencharm_probe import monitor as mon_mod
+    from montauri_probe import monitor as mon_mod
 
     monkeypatch.setattr(mon_mod, "_DISCOVERY_WINDOW", 10.0)  # 时间上限不干扰
     monkeypatch.setattr(mon_mod, "_MIN_DISCOVERY_FLOOR", 0.25)
@@ -782,12 +782,12 @@ def test_perf_mode_exclusive_subtracts_children():
 
 
 def test_perf_mode_env_var(monkeypatch, tmp_path):
-    """OPENCHARM_PROBE_PERF=1 开启性能模式（shell 运行环境注入通道）。"""
-    from opencharm_probe.config import load_config
+    """MONTAURI_PROBE_PERF=1 开启性能模式（shell 运行环境注入通道）。"""
+    from montauri_probe.config import load_config
 
-    monkeypatch.setenv("OPENCHARM_PROBE_HOME", str(tmp_path))  # 隔离真实配置文件
-    monkeypatch.delenv("OPENCHARM_PROBE_CONFIG", raising=False)
-    monkeypatch.setenv("OPENCHARM_PROBE_PERF", "1")
+    monkeypatch.setenv("MONTAURI_PROBE_HOME", str(tmp_path))  # 隔离真实配置文件
+    monkeypatch.delenv("MONTAURI_PROBE_CONFIG", raising=False)
+    monkeypatch.setenv("MONTAURI_PROBE_PERF", "1")
     assert load_config().perf_mode is True
-    monkeypatch.delenv("OPENCHARM_PROBE_PERF")
+    monkeypatch.delenv("MONTAURI_PROBE_PERF")
     assert load_config().perf_mode is False

@@ -131,7 +131,7 @@
   "terminal.terminalTabs": "Terminal Sessions",
   "status.statusGit": "Current Branch",
   "status.healthStatus": "Dependency Health",
-  "status.statusInterpreter": "Click to manage Python environments · OpenCharm manages dependencies with uv",
+  "status.statusInterpreter": "Click to manage Python environments · Montauri manages dependencies with uv",
   "status.statusMem": "Resource usage (shell + child processes) · click for details",
   "status.statusEngine": "Click to switch static analysis engine",
   "dialog.confirmOk": "OK",

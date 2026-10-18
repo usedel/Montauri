@@ -206,7 +206,7 @@ function mdPreviewHintEl(): HTMLElement | null {
   return document.getElementById("md-preview-hint");
 }
 /** 一次性引导标记（方案D）：首次打开 .md 且预览未开启时提示一次 */
-const HINT_SEEN_KEY = "opencharm.mdpreview_hint_seen";
+const HINT_SEEN_KEY = "montauri.mdpreview_hint_seen";
 
 /** 遍历 pre > code，按 language-xxx 异步高亮；未知语言 / colorize 失败回退纯文本。
  *  导出（open_file_dev_plan 批 2）：md 预览 Tab 复用同一高亮管线。 */
@@ -407,7 +407,7 @@ async function buildExportHtml(mdText: string, baseDir: string, title: string): 
   const doc = new DOMParser().parseFromString(assignHeadingIds(clean), "text/html");
   await inlineImagesBase64(doc, baseDir);
   // 代码高亮：导出稿是自包含浅色文档，故临时切到浅色主题再 colorize。
-  // 批 4：切的是 opencharm-light（自定义浅色主题）而非出厂 "vs"——否则导出文件里的代码块
+  // 批 4：切的是 montauri-light（自定义浅色主题）而非出厂 "vs"——否则导出文件里的代码块
   // 配色与用户在编辑器里看到的不是同一套（方案 §5.4 连带项）。
   // ⚠ 恢复路径收在 withEditorTheme 内部：setTheme 是全局副作用，泄漏会静默污染用户会话着色。
   await app.withEditorTheme(EDITOR_THEME_LIGHT, app.settings.theme, () => highlightCodeBlocks(doc.body));

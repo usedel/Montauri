@@ -39,14 +39,14 @@ export interface GitRepo {
 
 /** 建临时 git 仓库：init + user 配置 + 可选基线文件与提交 */
 export async function makeGitRepo(baseline?: { files: Record<string, string>; commitMsg?: string }): Promise<GitRepo> {
-  const root = mkdtempSync(join(tmpdir(), "opencharm-e2e-"));
+  const root = mkdtempSync(join(tmpdir(), "montauri-e2e-"));
   return finishRepo(root, baseline);
 }
 
 /** 建非 git 工作区（验收 E2E-03：非仓库空态 → init 流程）。内部句柄仍带 git 函数
  *  （后续 init 后可直接用），但**不执行 git init**。 */
 export async function makePlainDir(files?: Record<string, string>): Promise<GitRepo> {
-  const root = mkdtempSync(join(tmpdir(), "opencharm-plain-"));
+  const root = mkdtempSync(join(tmpdir(), "montauri-plain-"));
   // 只装配句柄不 init：git 命令照常可跑（mock git_status 会失败 → 前端显示非仓库空态 ✓）
   const git = (args: string[]): Promise<string> =>
     execFileAsync("git", ["-c", "core.autocrlf=false", "-c", "protocol.file.allow=always", ...args], { cwd: root, maxBuffer: 16 * 1024 * 1024 })
@@ -394,7 +394,7 @@ async function dispatchGit(cmd: string, args: Record<string, unknown>, repo: Git
       const mode = String(args.mode ?? "");
       const patch = String(args.patch ?? "");
       if (!patch.trim()) throw new Error("patch 不能为空");
-      const patchFile = resolve(join(root, ".git", `opencharm-e2e-patch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.diff`));
+      const patchFile = resolve(join(root, ".git", `montauri-e2e-patch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.diff`));
       writeFileSync(patchFile, patch, "utf8");
       try {
         const gitArgs = ["apply", "--recount", "--unidiff-zero"];
@@ -746,7 +746,7 @@ async function dispatchFs(cmd: string, args: Record<string, unknown>, repo: GitR
       const walk = (dir: string): void => {
         if (!existsSync(dir)) return;
         for (const e of readdirSync(dir, { withFileTypes: true })) {
-          if (e.name === ".git" || e.name === ".opencharm") continue;
+          if (e.name === ".git" || e.name === ".montauri") continue;
           const p = join(dir, e.name);
           if (e.isDirectory()) walk(p);
           else out.push(p);
@@ -775,8 +775,8 @@ async function dispatchFs(cmd: string, args: Record<string, unknown>, repo: GitR
       mkdirSync(root, { recursive: true });
       const isFastapi = projectType === "fastapi";
       const mainPy = isFastapi
-        ? 'from fastapi import FastAPI\n\napp = FastAPI()\n\n\n@app.get("/")\ndef root() -> str:\n    return "Hello from OpenCharm FastAPI!"\n'
-        : 'def main() -> None:\n    print("Hello from OpenCharm!")\n\n\nif __name__ == "__main__":\n    main()\n'
+        ? 'from fastapi import FastAPI\n\napp = FastAPI()\n\n\n@app.get("/")\ndef root() -> str:\n    return "Hello from Montauri FastAPI!"\n'
+        : 'def main() -> None:\n    print("Hello from Montauri!")\n\n\nif __name__ == "__main__":\n    main()\n'
       writeFileSync(join(root, "main.py"), mainPy, "utf8");
       // 最小 pyproject（对齐 Rust 方案 B 形状；方案 A/B 断言都用 contains）
       const pkg = name.toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^[._-]+|[._-]+$/g, "") || "app";
@@ -973,14 +973,14 @@ export async function equipPage(page: Page, repo: GitRepo, opts: { slowGitMs?: R
       const nameJson = JSON.stringify(name);
       const inlineDecl = template === "blank" ? "" : `,\n        "inline": { "label": "问候选区", "handler": "helloSelection" }`;
       const title = template === "inline" ? "问候选区" : template === "blank" ? "我的工具" : "我的第一个工具";
-      const manifest = `{"schemaVersion": 1,\n  "id": "${id}",\n  "name": ${nameJson},\n  "version": "0.1.0",\n  "engines": { "opencharm": ">=0.1.0" },\n  "contributes": {\n    "tools": [\n      {\n        "id": "hello",\n        "title": "${title}",\n        "description": "脚手架模板",\n        "category": "文本",\n        "icon": "rocket",\n        "entry": "./hello.js"${inlineDecl}\n      }\n    ]\n  },\n  "permissions": ["clipboard", "selection"]\n}\n`;
+      const manifest = `{"schemaVersion": 1,\n  "id": "${id}",\n  "name": ${nameJson},\n  "version": "0.1.0",\n  "engines": { "montauri": ">=0.1.0" },\n  "contributes": {\n    "tools": [\n      {\n        "id": "hello",\n        "title": "${title}",\n        "description": "脚手架模板",\n        "category": "文本",\n        "icon": "rocket",\n        "entry": "./hello.js"${inlineDecl}\n      }\n    ]\n  },\n  "permissions": ["clipboard", "selection"]\n}\n`;
       const entry =
         template === "inline"
           ? `// @ts-check\n/** inline 变换（E2E 复刻版）\n * @param {string} text\n * @param {ToolHost} host\n * @returns {string}\n */\nexport function helloSelection(text, host) {\n  host.log("变换输入：" + text.slice(0, 50));\n  return "你好，" + text + "！";\n}\n`
           : `// @ts-check\nexport function mount(host) { const { kit } = host; const wrap = kit.body(); const input = kit.textarea({ placeholder: "输入名字…", flex: true }); const out = kit.output({}); const greet = () => { out.set("你好，" + (input.value.trim() || "世界") + "！"); host.log("问候了：" + input.value.trim()); }; const go = kit.primaryButton("问候", "play", greet); wrap.append(input, kit.toolbar(go), out.el); host.root.appendChild(wrap); greet(); }\nexport function helloSelection(text) { return "你好，" + text + "！"; }\n`;
-      writeFileSync(join(root, "opencharm.plugin.json"), manifest, "utf8");
+      writeFileSync(join(root, "montauri.plugin.json"), manifest, "utf8");
       writeFileSync(join(root, "hello.js"), entry, "utf8");
-      writeFileSync(join(root, "opencharm-plugin.d.ts"), "// 类型声明（E2E 复刻占位）\n", "utf8");
+      writeFileSync(join(root, "montauri-plugin.d.ts"), "// 类型声明（E2E 复刻占位）\n", "utf8");
       return root;
     }
     if (cmd === "export_plugin") {
@@ -999,7 +999,7 @@ export async function equipPage(page: Page, repo: GitRepo, opts: { slowGitMs?: R
       return save;
     }
     if (cmd === "plugin_export_filename") {
-      const m = JSON.parse(readFileSync(join(String(args.pluginDir ?? ""), "opencharm.plugin.json"), "utf8"));
+      const m = JSON.parse(readFileSync(join(String(args.pluginDir ?? ""), "montauri.plugin.json"), "utf8"));
       return `${m.id ?? "plugin"}-${m.version ?? "0.0.0"}.zip`;
     }
     if (cmd === "import_plugin") {
@@ -1011,8 +1011,8 @@ export async function equipPage(page: Page, repo: GitRepo, opts: { slowGitMs?: R
       if (tops.length !== 1) throw new Error("zip 结构不对：应只有一个顶层目录（插件 id）");
       const id = tops[0];
       const srcRoot = join(zipPath, id);
-      const manifestPath = join(srcRoot, "opencharm.plugin.json");
-      if (!existsSync(manifestPath)) throw new Error("插件目录缺少 opencharm.plugin.json");
+      const manifestPath = join(srcRoot, "montauri.plugin.json");
+      if (!existsSync(manifestPath)) throw new Error("插件目录缺少 montauri.plugin.json");
       const m = JSON.parse(readFileSync(manifestPath, "utf8"));
       if (m.id !== id) throw new Error(`manifest.id（${m.id}）与目录名（${id}）不一致`);
       const dest = join(pluginsDir, id);
@@ -1022,10 +1022,10 @@ export async function equipPage(page: Page, repo: GitRepo, opts: { slowGitMs?: R
     }
     if (!pluginsDir) return cmd === "list_plugin_dirs" ? [] : null;
     if (cmd === "list_plugin_dirs") {
-      // 对齐 Rust：只列含 opencharm.plugin.json 的一级子目录，目录名序
+      // 对齐 Rust：只列含 montauri.plugin.json 的一级子目录，目录名序
       if (!existsSync(pluginsDir)) return [];
       return readdirSync(pluginsDir, { withFileTypes: true })
-        .filter((e) => e.isDirectory() && existsSync(join(pluginsDir, e.name, "opencharm.plugin.json")))
+        .filter((e) => e.isDirectory() && existsSync(join(pluginsDir, e.name, "montauri.plugin.json")))
         .map((e) => ({ dir_name: e.name, dir_path: join(pluginsDir, e.name) }))
         .sort((a, b) => a.dir_name.localeCompare(b.dir_name));
     }

@@ -11,7 +11,7 @@ export interface PluginManifest {
   id: string;
   name: string;
   version: string;
-  engines: { opencharm: string };
+  engines: { montauri: string };
   contributes?: {
     tools?: PluginToolContribution[];
   };
@@ -103,15 +103,15 @@ export function validateManifest(json: string): ManifestCheck {
   if (typeof raw.name !== "string" || raw.name.trim() === "") errors.push({ key: "ext.mf.nameEmpty" });
   if (typeof raw.version !== "string" || raw.version.trim() === "") errors.push({ key: "ext.mf.versionEmpty" });
 
-  // engines.opencharm：v1 仅支持 ">=X.Y.Z"
+  // engines.montauri：v1 仅支持 ">=X.Y.Z"
   const engines = raw.engines;
   if (
     engines === null || typeof engines !== "object" || Array.isArray(engines) ||
-    typeof (engines as Record<string, unknown>).opencharm !== "string"
+    typeof (engines as Record<string, unknown>).montauri !== "string"
   ) {
     errors.push({ key: "ext.mf.enginesNotString" });
   } else {
-    const spec = (engines as Record<string, string>).opencharm.trim();
+    const spec = (engines as Record<string, string>).montauri.trim();
     if (!/^>=\d+\.\d+\.\d+$/.test(spec)) {
       errors.push({ key: "ext.mf.enginesBadSpec", params: { spec } });
     }
@@ -148,7 +148,7 @@ export function validateManifest(json: string): ManifestCheck {
     id: id as string,
     name: raw.name as string,
     version: raw.version as string,
-    engines: raw.engines as { opencharm: string },
+    engines: raw.engines as { montauri: string },
     contributes: { tools },
     permissions,
   };

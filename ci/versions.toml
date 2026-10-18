@@ -1,4 +1,4 @@
-# OpenCharm 版本锁定基线（S1-T07）
+# Montauri 版本锁定基线（S1-T07）
 # 纪律：升级任何组件必须 PR + bench 回归全绿（开发计划 v2 §8）
 
 [shell]

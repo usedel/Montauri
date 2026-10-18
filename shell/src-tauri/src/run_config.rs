@@ -18,12 +18,12 @@ use std::path::{Path, PathBuf};
 
 use crate::env_cmds::{deps_mention, py_module_target, scan_app_decl};
 use crate::file_ops::project_hash;
-use crate::util::opencharm_home;
+use crate::util::montauri_home;
 
 // ---------- 工作区配置存储 ----------
 
 fn workspaces_dir() -> PathBuf {
-    opencharm_home().join("workspaces")
+    montauri_home().join("workspaces")
 }
 
 fn workspace_config_path(root: &str) -> PathBuf {
@@ -578,7 +578,7 @@ mod tests {
     fn detect_tmpdir(tag: &str) -> std::path::PathBuf {
         use std::time::{SystemTime, UNIX_EPOCH};
         let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-        let d = std::env::temp_dir().join(format!("opencharm-detect-{tag}-{nanos}"));
+        let d = std::env::temp_dir().join(format!("montauri-detect-{tag}-{nanos}"));
         std::fs::create_dir_all(&d).unwrap();
         d
     }

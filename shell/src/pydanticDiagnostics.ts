@@ -1,7 +1,7 @@
 // Pydantic 构造校验诊断（阶段 4 子项 1b · 诊断第四桶，docs/pyrefly_pydantic_support_plan.md §3.4.2）。
 //
 // 与 ruffLint.ts 同款形态：owner 隔离的被动诊断桶——Rust 拉取式扫描（scan_pydantic_issues）
-// → marker 注入（owner = opencharm-pydantic），与静态引擎 / intel / ruff 四桶并存互补。
+// → marker 注入（owner = montauri-pydantic），与静态引擎 / intel / ruff 四桶并存互补。
 // 触发：① 工作区打开时 detect_pydantic_stack 命中后全量一次；② 文件保存后防抖增量。
 // 开关：settings.pydantic_diagnostics（默认开；关闭即清空且不再扫描）。
 // 非 Pydantic 栈工作区零扫描零诊断（detect_pydantic_stack 门控）。
@@ -11,7 +11,7 @@ import type * as MonacoApi from "monaco-editor/esm/vs/editor/editor.api";
 import { app } from "./state";
 
 /** 诊断 owner（第四桶；marker 按 owner 独立管理，不覆盖引擎诊断） */
-export const PYDANTIC_OWNER = "opencharm-pydantic";
+export const PYDANTIC_OWNER = "montauri-pydantic";
 
 /** 保存后防抖窗口（ms）：与 ruffLint 的 800ms 同量级，取 1.5s（跨文件校验，频率更低） */
 const RESCAN_DEBOUNCE_MS = 1500;
@@ -120,7 +120,7 @@ function toMarker(it: PydanticIssue): MonacoApi.editor.IMarkerData {
     endColumn: endCol,
     message: it.message,
     severity: it.kind === "unknown" ? S.Warning : S.Error, // unknown 可能是动态字段，降 Warning
-    source: "opencharm-pydantic",
+    source: "montauri-pydantic",
   };
 }
 

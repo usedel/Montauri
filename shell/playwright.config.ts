@@ -17,7 +17,7 @@ export default defineConfig({
   reporter: [["list"]],
   // 产物落系统临时目录：Playwright 每轮清空 outputDir，任何工作区内路径都会触发
   // safe-delete 批量删除确认门槛（>500 文件）卡死测试进程（node_modules 内也一样）
-  outputDir: `${process.env.TEMP ?? process.env.TMP ?? "/tmp"}/opencharm-pw-results`,
+  outputDir: `${process.env.TEMP ?? process.env.TMP ?? "/tmp"}/montauri-pw-results`,
   use: {
     baseURL: "http://localhost:5173",
     // 强制直连（**不要删**）：本机装有全局 MITM 代理（http-divert-proxy，HTTP_PROXY=127.0.0.1:53018），

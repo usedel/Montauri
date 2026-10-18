@@ -1,9 +1,9 @@
-# OpenCharm Git 功能对标与交互改进报告（v2 · 深度版）
+# Montauri Git 功能对标与交互改进报告（v2 · 深度版）
 
 > **调研对象**：VS Code（官方文档 2026-09）、JetBrains PyCharm 2026.2（官方文档）
-> **核验基准**：OpenCharm `shell/src` + `shell/src-tauri/src`（2026-09-18 实读代码）
-> **方法**：竞品官方文档逐项抓取 + OpenCharm 代码逐条核验（每个缺陷结论均带 `file:line` 证据）
-> **一句话结论**：OpenCharm 的 git **后端能力其实覆盖了主流操作的 60%+**，被吐槽「功能不全」的根因是**交互入口严重偏科**——几乎所有能力都挤在侧栏 SCM 面板 + 二级「更多操作」菜单里，而竞品赖以建立「Git 很强」心智的**编辑器内反馈、命令面板/快捷键、状态栏、上下文菜单、可视化历史**这 5 个交互面，OpenCharm 基本是空白。
+> **核验基准**：Montauri `shell/src` + `shell/src-tauri/src`（2026-09-18 实读代码）
+> **方法**：竞品官方文档逐项抓取 + Montauri 代码逐条核验（每个缺陷结论均带 `file:line` 证据）
+> **一句话结论**：Montauri 的 git **后端能力其实覆盖了主流操作的 60%+**，被吐槽「功能不全」的根因是**交互入口严重偏科**——几乎所有能力都挤在侧栏 SCM 面板 + 二级「更多操作」菜单里，而竞品赖以建立「Git 很强」心智的**编辑器内反馈、命令面板/快捷键、状态栏、上下文菜单、可视化历史**这 5 个交互面，Montauri 基本是空白。
 
 ---
 
@@ -11,7 +11,7 @@
 
 1. [执行摘要](#1-执行摘要)
 2. [核心判断：5 个交互面缺位](#2-核心判断5-个交互面缺位)
-3. [OpenCharm 现状盘点（代码核验版）](#3-opencharm-现状盘点代码核验版)
+3. [Montauri 现状盘点（代码核验版）](#3-montauri-现状盘点代码核验版)
 4. [竞品深度对标](#4-竞品深度对标)
 5. [三方细粒度功能矩阵](#5-三方细粒度功能矩阵)
 6. [差距归因：为什么「全」被感知成「不全」](#6-差距归因为什么全被感知成不全)
@@ -40,9 +40,9 @@
 
 ## 2. 核心判断：5 个交互面缺位
 
-VS Code 与 PyCharm 都把 git 能力**冗余铺陈在 5 个交互面**上——同一个操作（如 stage）在多个面都能触达，用户无论习惯哪种路径都能找到。OpenCharm 几乎只做了其中 1.5 个面。
+VS Code 与 PyCharm 都把 git 能力**冗余铺陈在 5 个交互面**上——同一个操作（如 stage）在多个面都能触达，用户无论习惯哪种路径都能找到。Montauri 几乎只做了其中 1.5 个面。
 
-| 交互面 | VS Code | PyCharm | OpenCharm 现状 |
+| 交互面 | VS Code | PyCharm | Montauri 现状 |
 |---|---|---|---|
 | **① 编辑器内**（gutter 装饰、行内 blame、内联 diff 弹出、gutter 直接 stage/commit） | ✅ 绿/蓝/红 gutter + 点击弹内联 diff 可 stage/revert；行内 blame 装饰 + hover | ✅ gutter 变更标记（蓝/绿）可勾选行、点标记直接 Commit this change / Stage；Annotate 行内 blame | ❌ **完全空白**（仅文件树有 badge，编辑器内零反馈） |
 | **② SCM/Commit 面板** | ✅ Changes/Staged 两区 + 拖放 + 树/列表 + Graph + Timeline | ✅ Commit 窗口（changelist）+ Log + Shelf + Stash 标签 | ⚠️ 有变更列表 + 提交框 + 分支条 + stash 面板 + 扁平历史；**无图谱、无 changelist、无 Timeline** |
@@ -54,13 +54,13 @@ VS Code 与 PyCharm 都把 git 能力**冗余铺陈在 5 个交互面**上——
 
 ---
 
-## 3. OpenCharm 现状盘点（代码核验版）
+## 3. Montauri 现状盘点（代码核验版）
 
 ### 3.1 架构与调用链
 
 - 前端 `shell/src/git.ts` → Tauri `invoke` → Rust `shell/src-tauri/src/git_cmds.rs` / `git_status.rs`
 - Rust 用 `spawn_blocking` + `Command` 起本地 git 子进程；网络操作走 `exec_git_timeout`
-- git 二进制定位 `shell/src-tauri/src/tool_paths.rs:21`（`OPENCHARM_GIT_BIN` 覆盖 → 否则 PATH）
+- git 二进制定位 `shell/src-tauri/src/tool_paths.rs:21`（`MONTAURI_GIT_BIN` 覆盖 → 否则 PATH）
 - 状态缓存下沉零依赖模块 `shell/src/gitStatusState.ts`（供文件树装饰只读消费，避免循环依赖）
 
 ### 3.2 已支持能力（带证据）
@@ -182,9 +182,9 @@ VS Code 与 PyCharm 都把 git 能力**冗余铺陈在 5 个交互面**上——
 
 ### 4.3 关键洞察
 
-- **PyCharm 的「杀手锏」是 Commit 窗口的 chunk/行级勾选 + gutter 直接提交 + 三向可编辑 staging diff**——把「部分提交」做到极致，这正是 OpenCharm 最缺的（D1 + 无 hunk）。
-- **VS Code 的「杀手锏」是编辑器 gutter 内联 diff + Source Control Graph + 命令面板全覆盖**——把「git 在场感」和「键盘可达」做到极致，这正是 OpenCharm 面 ①④ 的空白。
-- 两家都把 **cherry-pick/revert/reset/rebase/tag** 挂在**历史条目右键**上——OpenCharm 历史是扁平文本且无右键，等于这些操作「无家可归」。
+- **PyCharm 的「杀手锏」是 Commit 窗口的 chunk/行级勾选 + gutter 直接提交 + 三向可编辑 staging diff**——把「部分提交」做到极致，这正是 Montauri 最缺的（D1 + 无 hunk）。
+- **VS Code 的「杀手锏」是编辑器 gutter 内联 diff + Source Control Graph + 命令面板全覆盖**——把「git 在场感」和「键盘可达」做到极致，这正是 Montauri 面 ①④ 的空白。
+- 两家都把 **cherry-pick/revert/reset/rebase/tag** 挂在**历史条目右键**上——Montauri 历史是扁平文本且无右键，等于这些操作「无家可归」。
 
 ---
 
@@ -192,7 +192,7 @@ VS Code 与 PyCharm 都把 git 能力**冗余铺陈在 5 个交互面**上——
 
 > ✅ 完整 · ⚠️ 部分/弱 · ❌ 缺失
 
-| 能力 | VS Code | PyCharm | OpenCharm |
+| 能力 | VS Code | PyCharm | Montauri |
 |---|---|---|---|
 | 文件级 stage/unstage | ✅ | ✅ | ✅ |
 | **Hunk 级 stage** | ✅ gutter 按钮 | ✅ diff 勾选 chunk | ❌ |
@@ -252,7 +252,7 @@ VS Code 与 PyCharm 都把 git 能力**冗余铺陈在 5 个交互面**上——
 
 1. **入口单一且下沉（D9/D10/D11/D8）**：pull/push/stash/history/blame 全在「更多操作」二级菜单；命令面板搜 `git` 只有 1 条；菜单栏无 Git；编辑器/文件树右键无 git；零快捷键。用户按肌肉记忆（`Ctrl+Shift+P`、菜单栏、右键）全部落空 → 判定「没有」。
 
-2. **粒度只在文件层（无 hunk/行 + D1）**：主流 IDE 的 SCM 内核体验是「diff 里逐块/逐行点 + 号」。OpenCharm 只能整文件，diff 还只读 → 判定「不专业、残缺」。
+2. **粒度只在文件层（无 hunk/行 + D1）**：主流 IDE 的 SCM 内核体验是「diff 里逐块/逐行点 + 号」。Montauri 只能整文件，diff 还只读 → 判定「不专业、残缺」。
 
 3. **编辑器零 git 反馈（无 gutter/无行内 blame）**：常年看不到「git 在场」信号 → 潜意识里 git 是「藏起来的角落」。
 
@@ -434,7 +434,7 @@ VS Code 与 PyCharm 都把 git 能力**冗余铺陈在 5 个交互面**上——
 
 ### 8.5 微交互层面的总结
 
-OpenCharm git 的微交互**基础素质不差**（错误内联提示、丢弃确认、冲突互斥面板、防抖刷新、状态刷新令牌 CR-20 等都做了），但对照竞品有一批「最后一公里」缺失：**忙碌态与防重入、破坏性操作的前置校验、空态/加载态、焦点管理、批量操作、时间格式本地化**。这类问题单个都不致命，叠加起来就是「功能都在但用着别扭」的直接来源——与第 6 章的入口/粒度问题共同构成「功能全却像不全」的完整拼图。**建议把 A 类 3 个 bug 修复 + B4 + C1 + C5 作为 P0.5 批次，先于所有新功能落地。**
+Montauri git 的微交互**基础素质不差**（错误内联提示、丢弃确认、冲突互斥面板、防抖刷新、状态刷新令牌 CR-20 等都做了），但对照竞品有一批「最后一公里」缺失：**忙碌态与防重入、破坏性操作的前置校验、空态/加载态、焦点管理、批量操作、时间格式本地化**。这类问题单个都不致命，叠加起来就是「功能都在但用着别扭」的直接来源——与第 6 章的入口/粒度问题共同构成「功能全却像不全」的完整拼图。**建议把 A 类 3 个 bug 修复 + B4 + C1 + C5 作为 P0.5 批次，先于所有新功能落地。**
 
 ---
 
@@ -578,4 +578,4 @@ OpenCharm git 的微交互**基础素质不差**（错误内联提示、丢弃�
 
 - VS Code 官方：Source Control overview / Staging & Committing / Resolve merge conflicts / Branches & worktrees / Repos & remotes / History（https://code.visualstudio.com/docs/sourcecontrol/*）
 - PyCharm 官方：Commit and push / Investigate changes / Diff Viewer / Log tab / Merge·Rebase·Cherry-pick / Shelve or stash（https://www.jetbrains.com/help/pycharm/*）
-- OpenCharm 现状：`shell/src` + `shell/src-tauri/src` 代码实读（2026-09-18），关键缺陷 D1–D14 均带 file:line 证据。
+- Montauri 现状：`shell/src` + `shell/src-tauri/src` 代码实读（2026-09-18），关键缺陷 D1–D14 均带 file:line 证据。

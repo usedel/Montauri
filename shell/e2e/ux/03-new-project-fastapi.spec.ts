@@ -155,7 +155,7 @@ test("NP-4（C-2）防重入：创建中连按 Enter 只发起一次 create_proj
 test("NP-5（C-3/C-4）创建流程：进入环境/依赖阶段前已关面板并展开输出面板", async ({ page }) => {
   const repo = await makeGitRepo({ files: { "keep.py": "print('keep')\n" }, commitMsg: "baseline" });
   // 预置「输出面板已收起」——C-4 的判据正是创建流程把它重新展开（否则进度被模态压暗又不可见）
-  await page.addInitScript(() => localStorage.setItem("opencharm.bottom_collapsed", "1"));
+  await page.addInitScript(() => localStorage.setItem("montauri.bottom_collapsed", "1"));
   await bootEmpty(page, repo);
   await expect(page.locator("#bottom")).toHaveClass(/collapsed/);
 

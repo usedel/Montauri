@@ -239,7 +239,7 @@
    Tauri 2.11 对 `__TAURI_INTERNALS__.invoke` 用 `Object.defineProperty(value)` 定义
    （`writable:false` / `configurable:false`），赋值包装层**静默失效**，前端 invoke 调用链不可拦截
    （2026-10-11 实测，首轮判据因此假阴性）。故：C-1 = `workspaces/<hash>.json` 的 interpreter ==
-   新建 `.venv` 解释器 + 数据根 `logs/opencharm.log` 中 venv 落盘后出现
+   新建 `.venv` 解释器 + 数据根 `logs/montauri.log` 中 venv 落盘后出现
    `dep_scan interpreter=true` → `[lsp_stop]` 重启序列；L-4 = 选「需下载」版本制造天然在途窗口
    （本次真实下载 Python 3.15.0，切走后创建才收尾）→ 新工作区配置未被旧 `.venv` 污染 +
    旧工作区配置未被改写 + 丢弃 toast。⚠ 日志时间戳是 **UTC**，与文件 mtime 比较必须同按 UTC 折算。

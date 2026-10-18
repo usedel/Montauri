@@ -1,4 +1,4 @@
-# OpenCharm CI（tech-debt #7 落地）
+# Montauri CI（tech-debt #7 落地）
 #
 # 目标平台 Windows-only（Tauri 2 + NSIS / ConPTY / WebView2；probe 测试假定 Windows 路径），
 # 故两个 job 均跑 windows-latest。
@@ -94,11 +94,11 @@ jobs:
         run: cargo test
 
       # tauri 构建脚本在 cargo test 编译期就会校验 tauri.conf.json bundle.resources：
-      # opencharm-intel.exe（需 release 构建）与 vendor/debugpy（.gitignore 不入库）
+      # montauri-intel.exe（需 release 构建）与 vendor/debugpy（.gitignore 不入库）
       # 在全新 checkout 上都不存在——与 build-release.ps1 步骤 2 / 2.5 对齐。
-      - name: opencharm-intel release 构建（bundle.resources 依赖）
+      - name: montauri-intel release 构建（bundle.resources 依赖）
         working-directory: intel
-        run: cargo build -p opencharm-intel --release
+        run: cargo build -p montauri-intel --release
 
       - name: vendored debugpy（bundle.resources 依赖，sha256 锁定）
         shell: pwsh

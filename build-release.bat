@@ -1,15 +1,15 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
 
-rem OpenCharm release packaging script (NSIS installer only).
-rem Runs the full pipeline: clean -> build opencharm-intel (release) -> npm install -> tauri build.
+rem Montauri release packaging script (NSIS installer only).
+rem Runs the full pipeline: clean -> build montauri-intel (release) -> npm install -> tauri build.
 rem Usage (from repo root or anywhere):
 rem   build-release.bat                 full build
 rem   build-release.bat -SkipNpmInstall skip npm install
 rem
 rem Requires: Rust toolchain (cargo) and Node.js (npm), see ci/versions.toml for pinned versions.
 rem Note: uv / pyrefly are managed at user runtime, not needed for packaging.
-rem       opencharm-intel and probe/src are bundled via shell/src-tauri/tauri.conf.json
+rem       montauri-intel and probe/src are bundled via shell/src-tauri/tauri.conf.json
 rem       bundle.resources; this script builds the release intel binary first.
 rem       Bundle target is fixed to NSIS (tauri.conf.json bundle.targets = "nsis").
 
@@ -63,15 +63,15 @@ if %PYCACHE_COUNT% GTR 0 (
     echo No __pycache__ dirs, skip
 )
 
-rem ---------- 2. build opencharm-intel (release) ----------
-call :Step "Build opencharm-intel (release, lto, may take a while)"
+rem ---------- 2. build montauri-intel (release) ----------
+call :Step "Build montauri-intel (release, lto, may take a while)"
 
 pushd "%ROOT%\intel"
-cargo build -p opencharm-intel --release
+cargo build -p montauri-intel --release
 set "CARGO_RC=%ERRORLEVEL%"
 popd
 if not %CARGO_RC%==0 (
-    call :Fail "opencharm-intel release build failed"
+    call :Fail "montauri-intel release build failed"
     exit /b 1
 )
 
@@ -116,6 +116,6 @@ if not %TAURI_RC%==0 (
 rem ---------- 5. done ----------
 call :Step "Done"
 echo Bundle output: shell/src-tauri/target/release/bundle/nsis/
-echo opencharm-intel.exe and probe/src are bundled as resources (see shell/src-tauri/tauri.conf.json bundle.resources)
+echo montauri-intel.exe and probe/src are bundled as resources (see shell/src-tauri/tauri.conf.json bundle.resources)
 
 exit /b 0

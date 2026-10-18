@@ -442,7 +442,7 @@ runWithRealApp(
     await page.locator('#btn-settings').click();
     await page.locator('#settings-modal').waitFor({ state: 'visible', timeout: 15_000 });
     await page.locator('.settings-nav-item[data-cat="appearance"]').click();
-    await page.locator('.theme-swatch[data-theme="opencharm-light"]').click();
+    await page.locator('.theme-swatch[data-theme="montauri-light"]').click();
     await page.locator('#settings-save').click();
     await page.locator('#settings-modal').waitFor({ state: 'hidden', timeout: 20_000 });
     await sleep(1500); // 等 applyEditorTheme 重注册 + setTheme 落地

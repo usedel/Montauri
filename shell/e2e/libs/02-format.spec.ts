@@ -113,7 +113,7 @@ test.describe("格式串工具（库支持 PR-3）", () => {
     await equip(page);
     await page.locator('.tree-item.file[data-path*="main.py"]').first().dblclick();
     await expect(page.locator("#tabbar .tab", { hasText: "main.py" })).toBeVisible({ timeout: 5_000 });
-    // opencharm-libs 桶下发 warning marker → Monaco 渲染 .squiggly-warning
+    // montauri-libs 桶下发 warning marker → Monaco 渲染 .squiggly-warning
     await expect(page.locator(".monaco-editor .squiggly-warning").first()).toBeVisible({ timeout: 10_000 });
   });
 

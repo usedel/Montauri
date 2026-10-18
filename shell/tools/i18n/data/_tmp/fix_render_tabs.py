@@ -3,7 +3,7 @@
 import re
 from pathlib import Path
 
-P = Path("d:/aipro/opencharm/shell/src/main.ts")
+P = Path("d:/aipro/montauri/shell/src/main.ts")
 lines = P.read_text(encoding="utf-8").split("\n")
 
 start = next(i for i, ln in enumerate(lines) if ln.strip() == "for (const t of app.tabs) {")

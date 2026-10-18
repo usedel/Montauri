@@ -333,7 +333,7 @@ export function installCtrlShiftDblclickUsages(
 /** 编辑器右键菜单「查找引用」入口（可发现性；键位仍归键位系统 Alt+F7 管） */
 export function initFindUsagesAction(editor: MonacoApi.editor.IStandaloneCodeEditor): MonacoApi.IDisposable {
   return editor.addAction({
-    id: "opencharm.findUsages",
+    id: "montauri.findUsages",
     label: t("ide.fu.actionLabel"),
     contextMenuGroupId: "navigation",
     contextMenuOrder: 1.7,

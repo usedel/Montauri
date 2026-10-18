@@ -108,7 +108,7 @@ function Get-FileSha256([string]$path) {
 # Resolve wheel download URLs from the PyPI JSON API once.
 $indexUrl = "https://pypi.org/pypi/debugpy/$Version/json"
 $wc = New-Object System.Net.WebClient
-$wc.Headers.Add("User-Agent", "opencharm-fetch-debugpy/1.0")
+$wc.Headers.Add("User-Agent", "montauri-fetch-debugpy/1.0")
 try {
     $meta = $wc.DownloadString($indexUrl) | ConvertFrom-Json
 } catch {

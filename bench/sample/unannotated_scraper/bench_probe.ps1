@@ -5,11 +5,11 @@
 # (same trap as tools/fetch-debugpy.ps1, see docs/debug_acceptance_record.md).
 $ErrorActionPreference = "Stop"
 $env:PYTHONIOENCODING = "utf-8"
-$env:OPENCHARM_PROBE_QUIET = "1"   # suppress probe summary (goes to stderr)
+$env:MONTAURI_PROBE_QUIET = "1"   # suppress probe summary (goes to stderr)
 
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $here   # anchor cwd: `uv run python bench_probe.py` below is cwd-relative
-$probeExe = Join-Path $here "..\..\..\probe\.venv\Scripts\opencharm-probe.exe"
+$probeExe = Join-Path $here "..\..\..\probe\.venv\Scripts\montauri-probe.exe"
 
 function Get-BenchMs([scriptblock]$runner) {
     $best = [double]::MaxValue

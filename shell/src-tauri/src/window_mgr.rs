@@ -61,7 +61,7 @@ fn is_under(file: &str, dir: &str) -> bool {
 }
 
 /// 单实例路由（lib.rs 的 on_second_instance 回调进入）：
-/// - 无文件参数 → 聚焦任一已有窗口（用户就是想「把 OpenCharm 带到前台」）。
+/// - 无文件参数 → 聚焦任一已有窗口（用户就是想「把 Montauri 带到前台」）。
 /// - 有文件 → 查窗口注册表找「文件 ∈ 已开工作区」的窗口：命中则聚焦 + emit startup-file
 ///   （前端 openFile）；未命中则 find_project_root 探测根 → 开新项目窗口（同进程多窗口，
 ///   去重内建）+ pending 槽透传初始文件。
@@ -136,7 +136,7 @@ pub async fn open_workspace_window(app: AppHandle, path: String) -> Result<(), S
     // 复刻主窗口构建配置（lib.rs 建窗处）：隐藏待页面加载完成后显示（防 FOUC），
     // 尺寸常量与初始几何（按主显示器工作区收尺寸 + 居中）统一走 util，避免两处漂移。
     let builder = WebviewWindowBuilder::new(&app, &label, WebviewUrl::default())
-        .title("OpenCharm")
+        .title("Montauri")
         .inner_size(crate::util::WIN_PREF_W, crate::util::WIN_PREF_H)
         .min_inner_size(crate::util::WIN_MIN_W, crate::util::WIN_MIN_H)
         .decorations(false)

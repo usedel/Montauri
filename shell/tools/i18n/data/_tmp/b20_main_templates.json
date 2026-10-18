@@ -907,7 +907,7 @@
    }
   ]
  },
- "提示：§ 声明了 debugpy —— OpenCharm 调试使用自带副本，二者互不影响，可按需移除声明。": {
+ "提示：§ 声明了 debugpy —— Montauri 调试使用自带副本，二者互不影响，可按需移除声明。": {
   "count": 1,
   "exprs": [
    "detect.depFiles.join(\"、\")"
@@ -916,10 +916,10 @@
    {
     "line": 1366,
     "quote": "`",
-    "body": "提示：${detect.depFiles.join(\"、\")} 声明了 debugpy —— OpenCharm 调试使用自带副本，二者互不影响，可按需移除声明。",
+    "body": "提示：${detect.depFiles.join(\"、\")} 声明了 debugpy —— Montauri 调试使用自带副本，二者互不影响，可按需移除声明。",
     "start": 58083,
     "end": 58166,
-    "src": "`提示：${detect.depFiles.join(\"、\")} 声明了 debugpy —— OpenCharm 调试使用自带副本，二者互不影响，可按需移除声明。`,"
+    "src": "`提示：${detect.depFiles.join(\"、\")} 声明了 debugpy —— Montauri 调试使用自带副本，二者互不影响，可按需移除声明。`,"
    }
   ]
  },
@@ -2226,21 +2226,21 @@
    }
   ]
  },
- "关于 OpenCharm": {
+ "关于 Montauri": {
   "count": 1,
   "exprs": [],
   "sites": [
    {
     "line": 1919,
     "quote": "\"",
-    "body": "关于 OpenCharm",
+    "body": "关于 Montauri",
     "start": 84314,
     "end": 84328,
-    "src": "title: \"关于 OpenCharm\","
+    "src": "title: \"关于 Montauri\","
    }
   ]
  },
- "OpenCharm §\\n轻量级 Python IDE（Tauri 2 + Monaco）\\n静态语义：Pyrefly / basedpyright · 运行时：opencharm-probe + opencharm-intel": {
+ "Montauri §\\n轻量级 Python IDE（Tauri 2 + Monaco）\\n静态语义：Pyrefly / basedpyright · 运行时：montauri-probe + montauri-intel": {
   "count": 1,
   "exprs": [
    "v"
@@ -2249,10 +2249,10 @@
    {
     "line": 1920,
     "quote": "`",
-    "body": "OpenCharm ${v}\\n轻量级 Python IDE（Tauri 2 + Monaco）\\n静态语义：Pyrefly / basedpyright · 运行时：opencharm-probe + opencharm-intel",
+    "body": "Montauri ${v}\\n轻量级 Python IDE（Tauri 2 + Monaco）\\n静态语义：Pyrefly / basedpyright · 运行时：montauri-probe + montauri-intel",
     "start": 84355,
     "end": 84474,
-    "src": "message: `OpenCharm ${v}\\n轻量级 Python IDE（Tauri 2 + Monaco）\\n静态语义：Pyrefly / basedpyright · 运行时：opencharm-probe + opencharm-intel`,"
+    "src": "message: `Montauri ${v}\\n轻量级 Python IDE（Tauri 2 + Monaco）\\n静态语义：Pyrefly / basedpyright · 运行时：montauri-probe + montauri-intel`,"
    }
   ]
  },
@@ -2312,7 +2312,7 @@
    }
   ]
  },
- "[opencharm-install] 命令触发 pkg=§": {
+ "[montauri-install] 命令触发 pkg=§": {
   "count": 1,
   "exprs": [
    "String(pkg)"
@@ -2321,10 +2321,10 @@
    {
     "line": 2189,
     "quote": "`",
-    "body": "[opencharm-install] 命令触发 pkg=${String(pkg)}",
+    "body": "[montauri-install] 命令触发 pkg=${String(pkg)}",
     "start": 97584,
     "end": 97629,
-    "src": "console.debug(`[opencharm-install] 命令触发 pkg=${String(pkg)}`);"
+    "src": "console.debug(`[montauri-install] 命令触发 pkg=${String(pkg)}`);"
    }
   ]
  },

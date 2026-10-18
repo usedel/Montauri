@@ -5,7 +5,7 @@
 // 有了逐个导航，用户保存后按 F8 即可顺藤摸瓜；保存 toast 也提供「定位」动作直达第一个错误。
 //
 // 口径与 saveTab 的 marker 统计一致：getModelMarkers 不带 owner 过滤 = 全桶覆盖
-// （opencharm-lsp / opencharm-intel / opencharm-ruff / opencharm-pydantic / opencharm-libs）。
+// （montauri-lsp / montauri-intel / montauri-ruff / montauri-pydantic / montauri-libs）。
 // 序列排序：行号升序 + 同行按列；导航范围含 error 与 warning（Info/Hint 噪声大，不进序列）。
 // 循环回绕：最后一个再按下一个 → 回到第一个（PyCharm 同款），toast 标注「已回绕」。
 
@@ -105,7 +105,7 @@ export interface SaveErrorBreakdown {
 }
 
 /** 自研诊断桶的 source（语义类：构造参数/注入问题/运行时智能，非 Python 语法错误） */
-const NON_SYNTAX_SOURCES = new Set(["opencharm-pydantic", "opencharm-libs", "opencharm-intel"]);
+const NON_SYNTAX_SOURCES = new Set(["montauri-pydantic", "montauri-libs", "montauri-intel"]);
 
 /** 判定单条 marker 是否语法错误（纯函数）：
  *  · pyrefly 语法错误 `code === "parse-error"`；语义/类型错误带其它 code（unknown-name 等）

@@ -90,7 +90,7 @@ export function initScratch(
   _monaco: MonacoModule,
 ): void {
   editor.addAction({
-    id: "opencharm.runCell",
+    id: "montauri.runCell",
     label: t("scratch.actionRun"),
     keybindings: [],
     contextMenuGroupId: "navigation",
@@ -98,7 +98,7 @@ export function initScratch(
     run: () => void runCell(editor),
   });
   editor.addAction({
-    id: "opencharm.stopScratch",
+    id: "montauri.stopScratch",
     label: t("scratch.actionStop"),
     keybindings: [],
     contextMenuGroupId: "navigation",

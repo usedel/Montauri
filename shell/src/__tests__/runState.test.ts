@@ -117,7 +117,7 @@ describe("多实例运行列表（§17-4 / §12）", () => {
   });
 
   it("选区运行：selection 元信息按临时文件路径查找（traceback 映射）", () => {
-    const sel = { tempPath: "/ws/__opencharm_selection__abc.py", sourcePath: "/ws/main.py", startLine: 12 };
+    const sel = { tempPath: "/ws/__montauri_selection__abc.py", sourcePath: "/ws/main.py", startLine: 12 };
     addRunInstance(inst({ id: "run-term-script", kind: "script", path: sel.tempPath, selection: sel }));
     expect(selectionMetaOf(sel.tempPath)).toEqual(sel);
     expect(selectionMetaOf("/ws/other.py")).toBeNull();
