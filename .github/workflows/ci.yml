@@ -114,6 +114,9 @@ jobs:
     needs: test
     # 打 tag（v*）或手动触发时跑；普通主干 push / PR 不跑（避免每次提交都编译 NSIS）
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+    # 创建 GitHub Release 需要写权限；仅授予本 job（test 矩阵不碰 release）
+    permissions:
+      contents: write
     steps:
       - name: 检出
         uses: actions/checkout@v4
@@ -146,3 +149,26 @@ jobs:
       - name: bench 回归（冷启动 / 内存红线）
         shell: pwsh
         run: ./bench/collect-metrics.ps1 -Runs 2
+
+      # 上传 NSIS 安装包为 artifact：任何触发（含 workflow_dispatch 手动打包）都能从
+      # 该 run 下载，不必等正式 release。if: always()——bench 红线失败时 job 已红，
+      # 但仍要留下安装包便于排查（retention 30 天）。
+      - name: 上传 NSIS 安装包（artifact）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nsis-${{ github.ref_name }}-${{ github.run_id }}
+          path: shell/src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
+          retention-days: 30
+
+      # 打 tag（v*）时自动创建 GitHub Release 并附上安装包——这就是「release 包」来源。
+      # 仅 tag 触发才建 release（workflow_dispatch 只是手动打包，不该产 release）。
+      # 前一步 bench 失败时本步骤默认被跳过：红线不过不发版。
+      - name: 创建 GitHub Release（仅 tag）
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Montauri ${{ github.ref_name }}
+          files: shell/src-tauri/target/release/bundle/nsis/*.exe
+          generate_release_notes: true
