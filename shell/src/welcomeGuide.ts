@@ -4,6 +4,9 @@
 //       .md 自动开预览；每次覆写即最新，无版本陈旧问题）。
 //   S2  欢迎页三步卡（教学 + 键位展示，不代触发）+ 功能巡礼（数据驱动 checklist，
 //       挂命令面板注册表「单一数据源」）+ force-show 欢迎页（MB-13 收口）。
+//   v1.4（2026-10-18）：欢迎页顺序对调——「最近的工作区」紧随动作按钮，巡礼**默认折叠**
+//       成一行（首屏让位高频意图「继续上次工作」，点标题行仍可展开；原「默认展开」见
+//       onboarding_dev_plan.md v1.3 修订记录）。
 //
 // 设计准绳（方案 §2.0 友好性三定律）：在对的时刻出现 / 一步可体验 / 可结束。
 // 工程红线：巡礼条目与「试一下」直接挂 quickOpen 注册表（findQuickOpenAction 按 id
@@ -211,8 +214,11 @@ export function runTourAction(quickOpenId: string): boolean {
   return true;
 }
 
-/** 巡礼区折叠态（「全部完成 / 不感兴趣」→ 折叠成一行；模块级，会话内保持） */
-let tourCollapsed = false;
+/** 巡礼区折叠态（「全部完成 / 不感兴趣」→ 折叠成一行；模块级，会话内保持）。
+ *  v1.4 起默认折叠：欢迎页顺序对调后「最近的工作区」紧随动作按钮，巡礼若默认展开仍会把
+ *  最近列表挤出首屏——收成一行（标题 + 进度 + 展开箭头）兼顾发现性与不打扰，点击标题行展开。
+ *  e2e 04-onboarding.spec.ts OG-2/OG-6/OG-7 锁该默认态（含展开后交互）。 */
+let tourCollapsed = true;
 
 export function isTourCollapsed(): boolean {
   return tourCollapsed;

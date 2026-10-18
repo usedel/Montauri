@@ -324,8 +324,20 @@
                 <button data-i18n="welcome.newProject" id="ew-new-project" class="btn btn--lg"><span class="icon"><i class="codicon codicon-add" aria-hidden="true"></i></span>新建项目</button>
               </div>
 
+              <!-- v1.4 顺序对调（2026-10-18）：最近的工作区紧随动作按钮——「继续上次工作」是
+                   欢迎页最高频意图，新手引导两块不再把它挤到第二屏。原顺序（引导在上）见
+                   onboarding_dev_plan.md §3.2a v1.3 及以前记录。 -->
+              <div id="ew-recent-section" class="ew-section hidden">
+                <div data-i18n="welcome.recentSectionDiv" class="ew-section-title ew-recent-title">
+                  最近的工作区
+                  <button data-i18n-aria="welcome.recentClear" data-i18n-tip="welcome.recentClear" id="ew-recent-clear" class="ew-recent-clear" data-tip="清空最近的工作区" aria-label="清空最近的工作区"><i class="codicon codicon-clear-all" aria-hidden="true"></i></button>
+                </div>
+                <div id="ew-recent-list"></div>
+              </div>
+
               <!-- PR-S2：快速开始三步卡 + 功能巡礼（onboarding dev plan §3.2）。
-                   显隐与 #ew-actions 同口径（updateEditorOverlay）：无工作区全量、有工作区隐藏。 -->
+                   显隐与 #ew-actions 同口径（updateEditorOverlay）：无工作区全量、有工作区隐藏。
+                   巡礼默认折叠成一行（v1.4），点标题行展开——见 welcomeGuide.ts::tourCollapsed。 -->
               <div id="ew-quickstart" class="ew-section hidden">
                 <div data-i18n="welcome.quickstartDiv" class="ew-section-title">快速开始</div>
                 <div id="ew-quickstart-steps" class="ew-quickstart-steps"></div>
@@ -340,14 +352,6 @@
                 </div>
                 <div id="ew-tour-body" class="ew-tour-body"></div>
                 <div id="ew-tour-foot" class="ew-tour-foot"></div>
-              </div>
-
-              <div id="ew-recent-section" class="ew-section hidden">
-                <div data-i18n="welcome.recentSectionDiv" class="ew-section-title ew-recent-title">
-                  最近的工作区
-                  <button data-i18n-aria="welcome.recentClear" data-i18n-tip="welcome.recentClear" id="ew-recent-clear" class="ew-recent-clear" data-tip="清空最近的工作区" aria-label="清空最近的工作区"><i class="codicon codicon-clear-all" aria-hidden="true"></i></button>
-                </div>
-                <div id="ew-recent-list"></div>
               </div>
 
               <div class="ew-section">

@@ -7,7 +7,7 @@
  *  - OG-1d 中文目录锚点可跳转（回归：marked 对中文 href 施加 encodeURI，点击需解码）
  *  - OG-1e 预览 Tab 右键「在终端中打开」→ 终端 cwd 为文档真实目录（回归：mdpreview: 虚拟 path）
  *  - OG-1f 语言切换 → 预览工具栏与 tab 标题同步重取词（回归：面板 chrome 惰性构建一次不刷词）
- *  - OG-2 欢迎页三步卡可见 + 指南链接可点
+ *  - OG-2 欢迎页三步卡可见 + 指南链接可点（v1.4：巡礼默认折叠，展开后断言 6 条）
  *  - OG-3 有工作区时帮助菜单「欢迎页」→ overlay 完整版显示 → 点关闭恢复编辑器
  *  - OG-4 命令面板「新手指南」可达（打开指南）
  *  - OG-6 巡礼条目「试一下」（选 open_devtools）→ devtools 面板打开 + 条目变勾选 + 计数 1/6
@@ -200,7 +200,12 @@ test.describe("OG-1/2：指南入口 + 欢迎页三步卡", () => {
     await expect(steps).toHaveCount(3);
     await expect(page.locator("#ew-quickstart-steps .ew-qs-step", { hasText: "运行脚本" }).locator("kbd")).toHaveText("Ctrl+F10");
     await expect(page.locator("#ew-quickstart-steps .ew-qs-step", { hasText: "启动调试" }).locator("kbd")).toHaveText("F5");
-    // 巡礼区：6 条 + 计数 0/6
+    // 巡礼区：v1.4 起默认折叠成一行（首屏让位「最近的工作区」）——先锁默认态，再点标题行展开
+    await expect(page.locator("#ew-tour-section")).toHaveClass(/collapsed/);
+    await expect(page.locator("#ew-tour-body")).toBeHidden();
+    await page.locator("#ew-tour-header").click();
+    await expect(page.locator("#ew-tour-section")).not.toHaveClass(/collapsed/);
+    // 展开后：6 条 + 计数 0/6
     await expect(page.locator("#ew-tour-body .ew-tour-item")).toHaveCount(6);
     await expect(page.locator("#ew-tour-count")).toHaveText("0/6 已体验");
     // 指南链接可点 → 打开指南 tab
@@ -289,6 +294,8 @@ test.describe("OG-6/7：功能巡礼", () => {
     const repo = await makePlainDir({ "a.py": "x = 1\n" });
     await bootEmpty(page, repo);
 
+    // v1.4：巡礼默认折叠，先点标题行展开
+    await page.locator("#ew-tour-header").click();
     // 点击 open_devtools 条目的「试一下」→ devtools 面板（picker）打开
     const row = page.locator("#ew-tour-body .ew-tour-item", { hasText: "工具箱" });
     await row.locator(".btn", { hasText: "试一下" }).click();
@@ -305,6 +312,8 @@ test.describe("OG-6/7：功能巡礼", () => {
     const repo = await makePlainDir({ "a.py": "x = 1\n" });
     await bootEmpty(page, repo);
 
+    // v1.4：巡礼默认折叠，先点标题行展开（renderTour 折叠态早退，不渲染条目）
+    await page.locator("#ew-tour-header").click();
     // 直接经页内 API 标记全部完成 + 重渲（6 条逐一「试一下」会真的开 6 个面板，不适合 e2e）
     await page.evaluate(async () => {
       const wg = (await import(/* @vite-ignore */ "/src/welcomeGuide.ts")) as any;
