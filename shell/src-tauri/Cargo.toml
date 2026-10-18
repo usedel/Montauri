@@ -2,6 +2,7 @@
 name = "montauri-shell"
 version = "0.1.0"
 description = "Montauri IDE shell (Tauri 2 + Monaco)"
+license = "MIT"
 edition = "2021"
 
 [lib]

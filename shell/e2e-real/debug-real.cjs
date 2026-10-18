@@ -58,7 +58,7 @@ const {
   dismissBlockingModals,
 } = require('./lib/real-env.cjs');
 
-const REAL_PYTHON = process.env.OC_REAL_PYTHON || 'D:\\py\\python.exe';
+const REAL_PYTHON = process.env.OC_REAL_PYTHON || 'python';
 
 const SCRIPT_PY = [
   'def compute(x):',

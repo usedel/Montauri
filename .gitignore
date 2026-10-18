@@ -62,5 +62,8 @@ ci/.cache/
 shell/.cargo/
 # AI 助手工作区数据（非项目产物）
 .workbuddy-ai/
-# 过程中生成的临时脚本与产物
-scripts/_tmp/
+# 过程中生成的临时脚本与产物（任意层级的 _tmp/ 目录）
+_tmp/
+
+# 对外分发策划（2026-10-18 拍板：不随开源分发，另存私人处）
+/CONTENT-SERIES.md

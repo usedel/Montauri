@@ -31,7 +31,7 @@ const {
   presetRecentWorkspaces,
 } = require('./lib/real-env.cjs');
 
-const REAL_PYTHON = process.env.OC_REAL_PYTHON || 'D:\\py\\python.exe';
+const REAL_PYTHON = process.env.OC_REAL_PYTHON || 'python';
 /** 预置 http_timeout_ms：让 HR-6「真实超时」在 3s 内可判（默认 30s 太慢） */
 const TIMEOUT_MS = 3000;
 /** 慢响应时长（远大于上面的超时，保证 HR-6 必超时） */

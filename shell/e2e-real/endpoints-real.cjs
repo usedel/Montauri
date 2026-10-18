@@ -1,7 +1,7 @@
 /**
  * 端点工具窗真机（Real App）CDP 复现/验收脚本 — EP-REAL-1..3
  * （对应 docs/pycharm_framework_support_report.md §8.3 F1/F2：用户实测报告
- *   「打开 D:\aipro\cb_watcher\backend，端点侧栏点击各端点均报『打开文件失败』」）
+ *   「打开一个含 FastAPI 端点声明的工作区，端点侧栏点击各端点均报『打开文件失败』」）
  *
  * 与 e2e/ux/02-frameworks.spec.ts（浏览器 mock）分层：mock 桥的 fs read_file 对相对路径
  * 会 join 仓库根兜底，**复现不了**真实 Rust read_file 只认绝对路径的契约缺口——
@@ -12,7 +12,7 @@
  *   node e2e-real/endpoints-real.cjs
  *
  * 环境变量：
- *   OC_WORKSPACE    目标工作区（默认 D:\aipro\cb_watcher\backend；需依赖声明含 fastapi/flask
+ *   OC_WORKSPACE    目标工作区（默认取仓库自带 bench/sample/fastapi_annotated；需依赖声明含 fastapi/flask
  *                   且源码有 app 声明，端点侧栏才有内容）
  *   OC_CDP_PORT / OC_CDP_TIMEOUT / OC_KEEP_APP   同 debug-real.cjs
  *
@@ -23,8 +23,10 @@
 'use strict';
 
 const { runWithRealApp, record, dismissBlockingModals } = require('./lib/real-env.cjs');
+const path = require('path');
 
-const WORKSPACE = process.env.OC_WORKSPACE || 'D:\\aipro\\cb_watcher\\backend';
+// 默认指向仓库自带样例：含 `app = FastAPI(...)` 声明 + `@app.post(...)` 端点，开箱可测
+const WORKSPACE = process.env.OC_WORKSPACE || path.resolve(__dirname, '..', '..', 'bench', 'sample', 'fastapi_annotated');
 
 async function activeTabName(page) {
   return page.evaluate(() => document.querySelector('#tabbar .tab.active .name')?.textContent ?? null);
@@ -106,7 +108,6 @@ runWithRealApp(
     ],
     setupFixtures({ dataRoot }) {
       const { writeFileSync } = require('fs');
-      const path = require('path');
       // 隔离数据根：recent-workspaces 指向真实目标工作区；不预置解释器（端点扫描纯文件操作，
       // 与解释器无关——顺带覆盖「未配解释器」的默认路径）
       writeFileSync(

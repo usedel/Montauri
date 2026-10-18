@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 使用问题 / 上手求助
+    url: https://github.com/usedel/Montauri/blob/master/docs/onboarding_guide.md
+    about: 三分钟上手指南（新建项目 / 依赖 / 运行 / 调试）
+  - name: 贡献指南
+    url: https://github.com/usedel/Montauri/blob/master/CONTRIBUTING.md
+    about: 环境准备 / 测试分层 / 门禁纪律 / PR 规矩
+  - name: 安全漏洞报告
+    url: https://github.com/usedel/Montauri/blob/master/SECURITY.md
+    about: 请勿在公开 Issue 报告安全问题，走私密渠道

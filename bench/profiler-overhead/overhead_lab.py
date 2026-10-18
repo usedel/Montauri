@@ -23,8 +23,8 @@
 - V6 cProfile (ref)     ：参照组（产品要"对标 cProfile"，须知道它自己有多贵）
 
 用法：
-  D:\\py\\python.exe -X utf8 overhead_lab.py --rounds 2000 --reps 7
-  D:\\py\\python.exe -X utf8 overhead_lab.py --json <abs-path>
+  python -X utf8 overhead_lab.py --rounds 2000 --reps 7
+  python -X utf8 overhead_lab.py --json <abs-path>
 """
 from __future__ import annotations
 

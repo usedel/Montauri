@@ -39,7 +39,7 @@ const {
   presetRecentWorkspaces,
 } = require('./lib/real-env.cjs');
 
-const REAL_PYTHON = process.env.OC_REAL_PYTHON || 'D:\\py\\python.exe';
+const REAL_PYTHON = process.env.OC_REAL_PYTHON || 'python';
 
 /**
  * 被测脚本。main() 覆盖三类链式形态的采样点：

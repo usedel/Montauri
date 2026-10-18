@@ -16,7 +16,7 @@ const path = require("node:path");
 const ROOT = path.resolve(__dirname, "regex-ws");
 const FILE = "regex_probe.py";
 const VENV_PY = path.join(ROOT, ".venv", "Scripts", "python.exe");
-const PY = fs.existsSync(VENV_PY) ? VENV_PY : "D:\\py\\python.exe";
+const PY = fs.existsSync(VENV_PY) ? VENV_PY : "python";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const uriOf = (p) => "file:///" + path.join(ROOT, p).replace(/\\/g, "/");

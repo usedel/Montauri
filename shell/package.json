@@ -2,6 +2,8 @@
   "name": "montauri-shell",
   "private": true,
   "version": "0.1.0",
+  "description": "Montauri IDE shell (Tauri 2 + Monaco)",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "node scripts/free-dev-port.mjs && vite",

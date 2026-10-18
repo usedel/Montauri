@@ -21,7 +21,7 @@
  *      collect 进行中编辑器可正常输入（不卡死）
  *
  * 前置：
- *   - uv 在 PATH（OC_UV 可覆盖）；基础解释器 D:\py\python.exe（OC_REAL_PYTHON 可覆盖）；
+ *   - uv 在 PATH（OC_UV 可覆盖）；基础解释器取 PATH 的 python 3.13+（OC_REAL_PYTHON 可覆盖）；
  *   - vendor/debugpy 已就位（tools/fetch-debugpy.ps1，调试检查需要）；
  *   - 5173 / 9223 端口空闲（runWithRealApp 预检 fail fast）；
  *   - 网络可达 pypi（或 uv 缓存里有 pytest——probe 开发机通常有，--offline 兜底）。
@@ -40,7 +40,7 @@ const {
 } = require('./lib/real-env.cjs');
 
 const UV = process.env.OC_UV || 'uv';
-const REAL_PYTHON = process.env.OC_REAL_PYTHON || 'D:\\py\\python.exe';
+const REAL_PYTHON = process.env.OC_REAL_PYTHON || 'python';
 const VENDOR_DEBUGPY = path.join(__dirname, '..', '..', 'vendor', 'debugpy', 'debugpy');
 
 const TEST_API = [

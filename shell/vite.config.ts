@@ -5,7 +5,7 @@ import { defineConfig } from "vite";
 /**
  * 构建 root 的盘符大小写必须规范化（Windows 专项）。
  *
- * 现象：从 `d:\code\open-charm\shell`（小写盘符）下执行 `npm run build`，构建在
+ * 现象：从小写盘符路径（如 `d:\anywhere\shell`）下执行 `npm run build`，构建在
  * `[vite:html-inline-proxy]` 处失败——`No matching HTML proxy module found`。
  *
  * 根因：`process.cwd()` 会**原样保留调用方输入的盘符大小写**（`d:` vs `D:`），

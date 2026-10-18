@@ -57,8 +57,8 @@ cargo build --release  # P3-T02 性能验收用
 | 确定性口径 base 数值 | ✅ 23/23 = 100%（`bench/reports/gate-d-runtime-completion.md`），红线 ≥85% PASS |
 | 评测覆盖的已知空洞 | ⚠️ `completion.rs::bench_seed()` 的 6 个函数**全部 `stale=0`** → 23 个评测点对**降权策略零覆盖**；100% 既不能证明也不能反驳降权合理性。已补单测 `stale_candidates_rank_below_fresh_ones` 钉住降权行为（33/33 通过） |
 | 降权参数的依据 | 🔄 此前是裸字面量 `f.hits / 2`。现已提成具名常量 `STALE_HITS_DIVISOR`（值不变）+ 注释记录首个实测：改 1/2 源文件后只跑另一半，**stale 占比 30.0%**（3/10）——即常见编辑流下约 1/3 观测立刻变 stale。取值待真实项目 ≥1000 条观测后用 `tools/intel/trace_stats.py` 复核 |
-| 人工横向对标 | ❌ **已撤下（2026-10-07）**：本机无 PyCharm，roadmap P0-2 的二选一截止规则到期（v1.4 仍无对标）即撤项。工作单 `bench/reports/gate-d-ab-worklist.md` 保留归档（Montauri 侧 23 点排名已填好），将来换对照组（如 VS Code + Pylance）可直接复用——但结论必须改写为"对 X"，不得拿它冒充原命题。**在新证据出现前，"比 PyCharm 更准"是不可写的表述**（口径纪律见 `CONTENT-SERIES.md`） |
-| 真实项目端到端 | ✅ **已采并收口（2026-10-07）**：跨 **3 个真实项目 / 7 次运行 / 497 条函数观测**（`metawake/backend` 277 · `pylume/probe` 187 · `cb_watcher/backend` 33），742 B/条，hits p50 2 / p99 121，stale 仍 0.0%。真源 `bench/reports/trace-stats-cumulative.md`；**门槛口径（「≥1000 条」= 函数观测）与「不再专门采样、改为日常累积」的处置见 `bench/reports/trace-sample-threshold.md`** |
+| 人工横向对标 | ❌ **已撤下（2026-10-07）**：本机无 PyCharm，roadmap P0-2 的二选一截止规则到期（v1.4 仍无对标）即撤项。工作单 `bench/reports/gate-d-ab-worklist.md` 保留归档（Montauri 侧 23 点排名已填好），将来换对照组（如 VS Code + Pylance）可直接复用——但结论必须改写为"对 X"，不得拿它冒充原命题。**在新证据出现前，"比 PyCharm 更准"是不可写的表述** |
+| 真实项目端到端 | ✅ **已采并收口（2026-10-07）**：跨 **3 个真实项目 / 7 次运行 / 497 条函数观测**（三个未公开命名的项目分别贡献 277 / 187 / 33 条），742 B/条，hits p50 2 / p99 121，stale 仍 0.0%。真源 `bench/reports/trace-stats-cumulative.md`（gitignore 未入库）；**门槛口径（「≥1000 条」= 函数观测）与「不再专门采样、改为日常累积」的处置见该报告** |
 | trace 库保留窗口 | ⏳ 现行无条数/体积上限；`probe clean --days N` **只删 runs 行、不删观测数据**（易被误读为保留窗口）。`trace_stats.py` 建议按 8 MB 预算设条数上限（按当前 742 B/条反推约 ≤11,309 条）并已在报告中给出反推口径——**仍是建议值，未落代码**（同样受 ≥1000 条复核门槛约束） |
 
 ### P3-T11 A3 调用实参补全 + hover 观测签名（2026-10-06）

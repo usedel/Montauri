@@ -1751,7 +1751,7 @@ mod tests {
         fs::remove_dir_all(&site).unwrap();
     }
 
-    /// 用户实测 bug 锁定（2026-09-16，D:\PycharmProjects\handsome cbond/cb_daily.py）：
+    /// 用户实测 bug 锁定（2026-09-16，某外部项目根目录 cbond/cb_daily.py）：
     /// 脚本式布局（子目录裸导入 `from field_map import ...`，同目录无 __init__.py）——
     /// Python 运行语义是「脚本所在目录进 sys.path[0]」，探针旧口径只插工作区根，
     /// 同目录模块被误判 missing（E1 误报「field_map/settings 缺失」）。

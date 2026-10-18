@@ -65,7 +65,7 @@
 ## 3. 仓库与工程结构
 
 ```
-open-charm/
+Montauri/
 ├── docs/                    # 方案、开发计划、ADR、差距清单、验收报告
 │   └── adr/
 ├── shell/                   # Tauri 2 + Monaco 外壳（Phase 1 重建）

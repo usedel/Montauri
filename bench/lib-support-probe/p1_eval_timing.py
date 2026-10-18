@@ -4,7 +4,7 @@ P1 探针：求值桥（py_eval）的耗时基线。
 问题：工作区解释器为 null（uv run 兜底）时，`uv run python -c ...` 到底多慢？
 决定：求值桥的超时档位、是否需要进度提示、是否可用 `--no-project` 提速。
 
-用法：D:\\py\\python.exe bench\\lib-support-probe\\p1_eval_timing.py
+用法：python bench\\lib-support-probe\\p1_eval_timing.py
 输出：stdout 摘要 + bench/reports/lib-support-probe-p1.json
 
 口径：

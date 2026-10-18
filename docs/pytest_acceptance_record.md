@@ -157,7 +157,7 @@ i18n                 ✅ 编译期对齐（en-US 为 Record<ZhKey, string>）+ i
    已展开分组的子行不重渲染，且 `expanded` map 仍记为已展开 → 下一次点击先「折叠」一次才展开。
    修法：`visibleNodes()` 按 map 拍平可见节点后再分帧渲染（`toggleExpand` 增删路径不变）。
 
-**venv 误收集（2026-10-18，用户现场 `D:\PycharmProjects\smbter` 反馈，T1–T5 之后的修补批）：**
+**venv 误收集（2026-10-18，用户真实项目现场反馈，T1–T5 之后的修补批）：**
 
 8. **venv 目录下的三方包测试被收进测试树**（48 个 `test_*.py`，项目本体 0 个）：
    根因三层叠加——① `scan` 的共享剪枝名单 `SEARCH_IGNORED_DIRS` 只有 `.venv`，
@@ -190,7 +190,7 @@ i18n                 ✅ 编译期对齐（en-US 为 Record<ZhKey, string>）+ i
 
 ## 9. T5 真机验收（pytest-real，12 项检查 PASS）
 
-环境：`uv venv`（基座 `D:\py\python.exe`）+ `uv pip install pytest`（在线 ~2s，缓存兜底
+环境：`uv venv`（基座 PATH 中的 python 3.13）+ `uv pip install pytest`（在线 ~2s，缓存兜底
 `--offline`）→ 工作区解释器预置指向 venv python（`file_ops::project_hash` 同款 sha1 文件名）；
 真 Tauri app（tauri dev）+ CDP 9223 + 隔离数据根；结束 taskkill。
 

@@ -1,0 +1,87 @@
+name: Bug 报告
+description: 报告一个可复现的缺陷
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        提交前请确认：已在 [Issue 列表](https://github.com/usedel/Montauri/issues) 搜索过、且阅读过 README 的「已知边界」。
+        安全漏洞**不要**走本模板，请按 [SECURITY.md](https://github.com/usedel/Montauri/blob/master/SECURITY.md) 私密报告。
+
+  - type: input
+    id: version
+    attributes:
+      label: 版本
+      description: 安装包版本号（关于页/设置页查看），或源码构建的 commit
+      placeholder: "如 0.1.0 / commit 08a5632"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: 操作系统
+      options:
+        - Windows 11
+        - Windows 10
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: 涉及功能域
+      multiple: true
+      options:
+        - 补全 / 跳转 / Hover
+        - 诊断
+        - 运行（脚本/项目）
+        - 调试
+        - pytest 测试运行器
+        - Git
+        - SQLite 工具
+        - 设置 / 外观 / i18n
+        - 其他
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: 复现步骤
+      description: 最小化、可复现的步骤
+      placeholder: |
+        1. 打开工作区 ...
+        2. 在文件中输入 ...
+        3. 点击 ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志（可选但强烈建议）
+      description: 设置面板 → 日志分类 → 调至 debug 复现后，附上 `%USERPROFILE%\.montauri\logs\montauri.log` 相关片段
+      render: text
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: 自查
+      options:
+        - label: 我已搜索现有 Issue，确认不是重复
+          required: true
+        - label: 我已阅读 README「已知边界」，确认不是已知限制
+          required: true

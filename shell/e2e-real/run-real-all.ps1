@@ -113,7 +113,7 @@ try { $NodeExe = (Get-Command node -ErrorAction Stop).Source } catch { $NodeExe 
 # 而 PS 侧写 936 字节 → 同一文件两种编码。看结论请以 SUMMARY.md（始终 UTF-8）为准。
 
 # 发布前验收：release-real 默认优先取注册表安装位，会**默默验到机器上遗留的旧安装**
-# （2026-10-07 实测：本机 D:\Montauri 躺着 10-04 的旧包，用户 18:29 刚构建的产物根本没被验到）。
+# （2026-10-07 实测：注册表安装位若残留旧安装，刚构建的产物根本没被验到）。
 # -PreRelease 的语义是「我刚构建出来的包能不能干活」，故显式把 OC_RELEASE_EXE 指向构建产物。
 $buildExe = Join-Path $ShellDir "src-tauri\target\release\montauri-shell.exe"
 if ($PreRelease) {

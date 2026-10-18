@@ -9,6 +9,30 @@
 - **调试**：debugpy（随应用打包分发，版本锁 `ci/versions.toml`）+ 自研轻量 DAP 桥（stdio adapter 模式，见 ADR-0004）
 - **功能范围**：补全 / 跳转 / Hover / 诊断 + 脚本运行与 traceback 点击跳转 + 调试（断点 / 单步 / 调用栈 / 变量，最小闭环）
 
+## 快速开始（用户）
+
+**系统要求**：Windows 10 / 11（x64），WebView2 Runtime（Win11 内置，Win10 可装官方运行时）；macOS / Linux 暂不支持。
+
+**三个选择，任选其一：**
+
+| 方式 | 适合谁 | 说明 |
+|---|---|---|
+| ① 下载安装包 | 绝大多数用户 | Releases 页面获取 NSIS 安装包（`x64-setup.exe`），下一步下一步装完即用；当前账户安装、自动建开始菜单项（首批发布物随开源上线，暂无时用方式②） |
+| ② 自行打包 | 想要最新 master 的用户 | 仓库根执行 `powershell -File .\build-release.ps1 -SkipNpmInstall`，产物在 `shell/src-tauri/target/release/bundle/nsis/` |
+| ③ 从源码开发运行 | 想参与贡献 | 见 [CONTRIBUTING.md](CONTRIBUTING.md) |
+
+**首次启动**：应用会自动检测 `uv` / `pyrefly` 等外部工具，缺失时弹出「环境引导」，一键装到用户目录（不动系统）；装完即可获得完整的静态语义能力。运行脚本前建议先在设置面板确认工作区使用的 Python 解释器（或 venv）。
+
+**三分钟上手**（新建项目 → 装依赖 → 运行 → 调试实战）：
+
+- 打开一个含 `pyproject.toml` 或 `.py` 的目录，欢迎页与侧栏文件树会引导完成基础操作；
+- 运行：编辑器右上角 ▶ 或运行菜单（脚本 / 项目两种模式，输出进统一 PTY 控制台，traceback 的 `File "...", line N` **可点击跳转**）；
+- 调试：断点 / 单步 / 调用栈 / 变量（debugpy 已随包分发，零额外安装）；
+- 测试：侧栏「测试」视图自动发现 pytest 用例，绿箭头逐用例运行/调试，失败一键跳转；
+- 更多细节见 [`docs/onboarding_guide.md`](docs/onboarding_guide.md)。
+
+**数据与日志**：应用数据在 `%USERPROFILE%\.montauri\`（`MONTAURI_DATA_ROOT` 可重定向），日志目录同上 `logs\`，设置面板 →「日志」可调级别并一键打开目录。
+
 ## 文档索引
 
 | 文档 | 说明 |
@@ -16,7 +40,7 @@
 | [`docs/delivery-overview.md`](docs/delivery-overview.md) | **交付总览（现行入口）**：20 个功能域 × 交付日期 × 计划真源 × 验收记录 × 状态、文档地图（按角色读）、已知文档不一致登记、门禁与复核命令、新会话上手路径 |
 | [`docs/python_ide_tech_plan_v3.md`](docs/python_ide_tech_plan_v3.md) | **技术方案 v3（现行）**：Tauri+Monaco 外壳架构 |
 | [`docs/python_ide_dev_plan_v2.md`](docs/python_ide_dev_plan_v2.md) | **开发计划 v2（现行）**：Phase 重排与当前进度 |
-| [`docs/runtime_profiler_dev_plan.md`](docs/runtime_profiler_dev_plan.md) | **内置 Profiler（A2）开发计划 v0.1（待裁决后开工）**：默认关的「性能模式」形态、PR 拆分 P1–P5、预算占位与口径红线；**立项前的开销门槛实验数据见 [`bench/reports/a2-overhead-lab.md`](bench/reports/a2-overhead-lab.md)** |
+| [`docs/runtime_profiler_dev_plan.md`](docs/runtime_profiler_dev_plan.md) | **内置 Profiler（A2）开发计划 v0.1（待裁决后开工）**：默认关的「性能模式」形态、PR 拆分 P1–P5、预算占位与口径红线；**立项前的开销门槛实验数据见 `bench/reports/a2-overhead-lab.md`** |
 | [`docs/python_debug_dev_plan.md`](docs/python_debug_dev_plan.md) | **调试功能开发计划 v1.3（已实施）**：DAP / debugpy 集成，D1–D5 |
 | [`docs/debug_acceptance_record.md`](docs/debug_acceptance_record.md) | 调试功能验收记录（D1–D5 / Gate E） |
 | [`docs/python_run_dev_plan.md`](docs/python_run_dev_plan.md) | **运行功能交互设计 v3.4（现行，已实施）**：脚本/项目运行 + 统一 PTY 控制台 |
@@ -63,7 +87,7 @@
 ## 仓库结构
 
 ```
-open-charm/
+Montauri/
 ├── shell/                   # ✅ Tauri 2 + Monaco 外壳（Phase 1 交付，验收达标）
 ├── bench/                   # ✅ 基准项目集 + 指标采集脚本
 ├── ci/                      # ✅ 版本锁定基线
@@ -122,9 +146,9 @@ powershell -File .\build-release.ps1
 
 ## 已知边界
 
-- **Pydantic 构造校验**：默认引擎 pyrefly 不对 `BaseModel` 子类的构造调用做静态红线；Montauri 以自研第四桶诊断（`montauri-pydantic`）补齐**类型错 / 缺失必填 / 未知字段**三类检查（设置 → Pydantic 构造校验，默认开）。检查为轻量文本解析（非完整类型系统）：跨文件继承链不合并、多行构造调用跳过、复杂表达式跳过；alias 字段按别名放行。实测与上游跟踪见 [`bench/reports/pydantic-engine-probe.md`](bench/reports/pydantic-engine-probe.md)。
+- **Pydantic 构造校验**：默认引擎 pyrefly 不对 `BaseModel` 子类的构造调用做静态红线；Montauri 以自研第四桶诊断（`montauri-pydantic`）补齐**类型错 / 缺失必填 / 未知字段**三类检查（设置 → Pydantic 构造校验，默认开）。检查为轻量文本解析（非完整类型系统）：跨文件继承链不合并、多行构造调用跳过、复杂表达式跳过；alias 字段按别名放行。实测与上游跟踪见 `bench/reports/pydantic-engine-probe.md`。
 - **Pydantic 字段重命名**：pyrefly 对此类字段 references=0（只改声明处）；Montauri 已自研**改名传播补充**——rename 时扫描 `Model(field=` 构造调用点并入编辑集（引擎结果优先去重，扫描 2s 超时自动降级）。basedpyright 引擎下两者均由引擎自身覆盖，自研层自动旁路。计划与实施记录见 [`docs/pyrefly_pydantic_support_plan.md`](docs/pyrefly_pydantic_support_plan.md)。
-- **运行时补全（intel）只有自证数据，未与 PyCharm 做过横向对比**：自测口径下 **23/23 = 100%**（期望 label 出现在 top-5，见 [`bench/reports/gate-d-runtime-completion.md`](bench/reports/gate-d-runtime-completion.md)）。原计划的「PyCharm 同场景人工横向对标（23 点）」**已于 2026-10-07 撤下**——本机无 PyCharm，按二选一截止规则执行（v1.4 死线到期撤项；撤项与收口记录见 [`docs/delivery-overview.md`](docs/delivery-overview.md) v1.14）；工作单 [`bench/reports/gate-d-ab-worklist.md`](bench/reports/gate-d-ab-worklist.md) 保留归档，供将来换对照组（如 VS Code + Pylance）时复用。**⇒ 本项目没有"比 PyCharm 更准"的证据，任何对比表述都必须限定为"在自有样例集上"。** 相关降权参数（`STALE_HITS_DIVISOR = 2`）仍是**建议值**：真实项目样本已跨 3 个项目累计 **497 条函数观测**（见 [`bench/reports/trace-stats-cumulative.md`](bench/reports/trace-stats-cumulative.md)），未达「跨 ≥2~3 个项目累计 ≥1000 条」的复核门槛，故未落值；门槛口径与收口处置（不再专门采样，改为日常 IDE 使用自然累积）见 [`bench/reports/trace-sample-threshold.md`](bench/reports/trace-sample-threshold.md)。
+- **运行时补全（intel）只有自证数据，未与 PyCharm 做过横向对比**：自测口径下 **23/23 = 100%**（期望 label 出现在 top-5，见 `bench/reports/gate-d-runtime-completion.md`）。原计划的「PyCharm 同场景人工横向对标（23 点）」**已于 2026-10-07 撤下**——本机无 PyCharm，按二选一截止规则执行（v1.4 死线到期撤项；撤项与收口记录见 [`docs/delivery-overview.md`](docs/delivery-overview.md) v1.14）；工作单 `bench/reports/gate-d-ab-worklist.md` 保留归档，供将来换对照组（如 VS Code + Pylance）时复用。**⇒ 本项目没有"比 PyCharm 更准"的证据，任何对比表述都必须限定为"在自有样例集上"。** 相关降权参数（`STALE_HITS_DIVISOR = 2`）仍是**建议值**：真实项目样本已跨 3 个项目累计 **497 条函数观测**（见 `bench/reports/trace-stats-cumulative.md`），未达「跨 ≥2~3 个项目累计 ≥1000 条」的复核门槛，故未落值；门槛口径与收口处置（不再专门采样，改为日常 IDE 使用自然累积）见 `bench/reports/trace-sample-threshold.md`。
 
 ## 当前状态
 
@@ -134,3 +158,16 @@ powershell -File .\build-release.ps1
 - **界面设计改进计划已收官**（十批，30/30 项 + 2 条遗留）：按钮体系 / scale token / Tooltip 双轨收敛 / ARIA 语义（tree·tabs·dialog·tooltip·menu）/ 浅色主题对比度达标 / 响应式下限 / 字号字体族全局跟随设置；沉淀的硬规则已固化到 `.codebuddy/rules/typescript-code-style`，逐批可见变化的人工抽查清单见计划文档 §7。
 - **国际化（zh-CN / en-US 双语）已交付**：index.html 静态骨架、Rust 错误提示与全部功能域动态文案均已纳管（20 批抽取，en/zh 词条编译期对齐 + 单测兜底）；设置 → 外观 → 语言即时切换，实施与新增文案流程见 [`docs/i18n.md`](docs/i18n.md)。
 - 现行方案：[`docs/python_ide_tech_plan_v3.md`](docs/python_ide_tech_plan_v3.md) · 现行计划：[`docs/python_ide_dev_plan_v2.md`](docs/python_ide_dev_plan_v2.md) · 技术债登记：[`docs/tech-debt.md`](docs/tech-debt.md)。
+
+## 参与贡献
+
+欢迎 Issue / PR / 文档改进 / 使用反馈：
+
+- 贡献指南（环境准备 / 测试分层 / 门禁纪律 / PR 规矩）：[`CONTRIBUTING.md`](CONTRIBUTING.md)
+- 行为准则：[`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md)
+- 安全漏洞请**私密**报告（勿开发布 Issue）：[`SECURITY.md`](SECURITY.md)
+- 架构铁律与分语言代码规范：[`AGENTS.md`](AGENTS.md) · [`.codebuddy/rules/`](.codebuddy/rules/)
+
+## License
+
+本项目以 [MIT License](LICENSE) 开源。随包分发的 [JetBrains Mono](shell/public/fonts/OFL.txt) 字体遵循 SIL OFL 1.1。

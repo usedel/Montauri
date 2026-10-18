@@ -255,7 +255,7 @@ pub struct PerWindow<T>(Mutex<HashMap<String, T>>); // String = WindowKey
 
 > **自动化验收记录（`e2e-real/multi-window-real.cjs`，2026-09-28 已跑通，16/16 PASS）**：
 > `MC-REAL-1..7`（窗口创建/文件树/交互/去重/关闭）+ `MC-REAL-LSP-1/2`（LSP 隔离）+ `MC-REAL-WATCH-1/2`（文件监听独立性）+ `MC-REAL-TERM-1/2/3`（终端 spawn + term-data 定向不串）+ `MC-REAL-DBG-1/2`（双窗口调试会话并存）。
-> 运行：`cd shell && node e2e-real/multi-window-real.cjs`；调试段需真实解释器，`OC_REAL_PYTHON=D:\py3\3.11.9\python.exe`（缺省 `D:\py\python.exe`，缺失时调试段自动 SKIP，其余用例照跑）。
+> 运行：`cd shell && node e2e-real/multi-window-real.cjs`；调试段需真实解释器，`OC_REAL_PYTHON=<解释器路径>`（缺省取 PATH 的 `python`，缺失时调试段自动 SKIP，其余用例照跑）。
 > 本案已通过 §5.4 全部场景自动化验收，无需再手动 GUI 验收本清单。
 
 ---

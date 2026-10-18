@@ -22,7 +22,7 @@ const ENGINE = (process.argv[2] || "pyrefly").toLowerCase();
 
 const PY_CANDIDATES = [
   process.env.OC_REAL_PYTHON,
-  "D:\\py\\python.exe",
+  "python",
   "C:\\Users\\tom\\.local\\bin\\python3.13.exe",
 ].filter(Boolean);
 const PYTHON = PY_CANDIDATES.find((p) => fs.existsSync(p)) || undefined;

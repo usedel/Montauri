@@ -25,7 +25,7 @@ basedpyright = "1.39.10"             # 备选引擎（`basedpyright-langserver -
 ruff = "0.16.1"                      # lint/format（Phase 1 后期接入 LSP 桥）
 
 [toolchain]
-python = "3.13.7"         # uv 管理（D:\py3\3.13.7）；系统默认 3.11.9 不可用（<3.12 基线）
+python = "3.13.7"         # uv 管理；系统默认 3.11.9 不可用（<3.12 基线）
 uv = "0.10.11"
 rust = "1.96.0"           # x86_64-pc-windows-msvc
 webview2 = "151.0"        # Windows 内置

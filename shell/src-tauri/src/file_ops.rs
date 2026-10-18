@@ -615,7 +615,7 @@ mod tests {
 
     #[test]
     fn test_strip_verbatim_prefix() {
-        assert_eq!(strip_verbatim_prefix("\\\\?\\F:\\ai-pro\\x"), "F:\\ai-pro\\x");
+        assert_eq!(strip_verbatim_prefix("\\\\?\\F:\\dev\\x"), "F:\\dev\\x");
         assert_eq!(strip_verbatim_prefix("\\\\?\\UNC\\server\\share"), "\\\\server\\share");
         assert_eq!(strip_verbatim_prefix("F:\\plain\\path"), "F:\\plain\\path");
     }

@@ -200,7 +200,7 @@ test("E-DX-SQ4 同 range error+warning 并存：红线优先渲染", async ({ pa
 });
 
 test("E-DX-SQ5 大量 marker（> Monaco 渲染上限 500）：error 优先渲染（分层截断）", async ({ page }) => {
-  // 复刻真实环境实案（hermes-agent/cli.py 851 条 marker，75 行 error 排在 marker service
+  // 复刻真实环境实案（真实项目 cli.py 851 条 marker，75 行 error 排在 marker service
   // 插入序 500 名后 → 无装饰无红线，早期 warning 恰在前 500 → 有黄线）。
   // 修复：capMarkersBySeverity 分层截断（Error 全保留 > Warning > Info），error 必入渲染窗口。
   const diags: Record<string, unknown>[] = [];

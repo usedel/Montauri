@@ -36,7 +36,7 @@ uv run syntax_error.py              # SyntaxError 单行格式（line 16）
 
 | 工具 | 版本 |
 |---|---|
-| Python（uv 管理） | 3.13.7（`D:\py3\3.13.7`） |
+| Python（uv 管理） | 3.13.7 |
 | uv | 0.10.11 |
 | pyrefly | 1.4.0（`~/.local/bin`，实测 `pyrefly --version`；2026-10-16 自 1.3.1 升级） |
 | basedpyright | 1.40.1（based on pyright 1.1.414；`~/.local/bin`，已入 PATH） |

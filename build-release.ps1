@@ -9,7 +9,7 @@
 #   release-real（验构建产物）+ 开发链路 6 套，约 12 分钟，任一套失败即非零退出。
 #   这是真机层唯一有明确触发点的入口——nightly 无 CI 宿主（远端只有 Gitee），
 #   光靠"配置已编排"等于没跑（P1-4 结论：脚本存在 ≠ 覆盖存在）。
-#   前置：5173 / 9223 空闲；http-divert-proxy 未运行；D:\py\python.exe 存在（或设 OC_REAL_PYTHON）。
+#   前置：5173 / 9223 空闲；http-divert-proxy 未运行；python 3.13 在 PATH（或用 OC_REAL_PYTHON 指定）。
 #
 # Requires: Rust toolchain (cargo) and Node.js (npm), see ci/versions.toml for pinned versions.
 # Note: uv / pyrefly are managed at user runtime, not needed for packaging.

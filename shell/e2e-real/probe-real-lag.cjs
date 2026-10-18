@@ -1,6 +1,7 @@
 // 真实项目探针：复现「basedpyright 在真实大项目里输入 `module.` 补全秒级卡顿」。
-// 用用户现场：hermes-agent/cli.py（13783 行）+ `time.`。
 // 用法：node e2e-real/probe-real-lag.cjs [basedpyright|pyrefly]
+//   OC_PROJECT   目标工作区（必填；建议指向一个真实大项目，待测文件行数越多越能暴露卡顿）
+//   OC_FILE      工程内待测文件（默认 cli.py）
 'use strict';
 
 const { chromium } = require('@playwright/test');
@@ -22,8 +23,8 @@ const CDP_PORT = Number(process.env.OC_CDP_PORT || 9227);
 const CDP_TIMEOUT_MS = Number(process.env.OC_CDP_TIMEOUT || 300) * 1000;
 const DEV_URL_HOST = 'localhost:5173';
 
-const PROJECT = 'D:\\hema\\hermes-fika\\hermes-agent';
-const FILE = 'cli.py';
+const PROJECT = process.env.OC_PROJECT;
+const FILE = process.env.OC_FILE || 'cli.py';
 const TRIGGER = 'time'; // 输入 `time.` 触发标准库成员补全
 
 function allPages(browser) {
@@ -42,6 +43,10 @@ async function dismissBlockingModals(page) {
 }
 
 (async () => {
+  if (!PROJECT) {
+    console.error('[预检] 请用 OC_PROJECT 指定一个真实工作区（建议大项目）；待测文件可用 OC_FILE 覆盖');
+    process.exit(2);
+  }
   if (await portInUse(5173)) { console.error('[预检] 5173 已占用'); process.exit(2); }
   if (await portInUse(CDP_PORT)) { console.error(`[预检] CDP ${CDP_PORT} 已占用`); process.exit(2); }
 

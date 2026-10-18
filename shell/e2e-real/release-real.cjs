@@ -74,7 +74,7 @@ const BUILD_EXE = path.join(REPO, 'shell', 'src-tauri', 'target', 'release', 'mo
 const CDP_PORT = Number(process.env.OC_CDP_PORT || 9223);
 const CDP_TIMEOUT_MS = Number(process.env.OC_CDP_TIMEOUT || 180) * 1000;
 const OUT_DIR = path.join(REPO, 'scripts', '_tmp', 'release-real-shots');
-const REAL_PYTHON = process.env.OC_REAL_PYTHON || 'D:\\py\\python.exe';
+const REAL_PYTHON = process.env.OC_REAL_PYTHON || 'python';
 
 function mtimeOf(p) {
   try { return fs.statSync(p).mtime.toISOString(); } catch { return null; }
@@ -82,8 +82,8 @@ function mtimeOf(p) {
 
 /**
  * 「验的是哪个产物」——必须显式告警，否则门禁会给出**假信心**。
- * 2026-10-07 实测：`resolveExe()` 优先取注册表安装位，而本机 `D:\Montauri\` 里躺着一个
- * 10-04 的旧安装 → release-real 默默验了旧包（7/7 PASS），而用户 18:29 刚构建的产物
+ * 2026-10-07 实测：`resolveExe()` 优先取注册表安装位，注册表位可能残留旧安装
+ * → release-real 默默验了旧包（7/7 PASS），而刚构建的产物
  * 根本没被验到；报告里还看不出来（当时 JSON 连 exe 字段都不落盘）。
  */
 function staleTargetWarning() {

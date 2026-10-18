@@ -1798,7 +1798,7 @@ function severityForEngine(lspSeverity: number | undefined, code: string | undef
 
 /** Monaco markerDecorationsService 的渲染硬上限：每 model 只取前 500 条 marker 建装饰
  *  （markerDecorationsService.js `_updateDecorations` 的 `take: 500`），**按 marker service
- *  内部插入序**截断——大文件实案（hermes-agent/cli.py，851 条：169 error + 682 warning）
+ *  内部插入序**截断——大文件实案（真实项目 cli.py，851 条：169 error + 682 warning）
  *  中 75 行的 missing-import error 排在 500 名后 → 无装饰 → 无红线，而早期插入的
  *  warning 恰在前 500 → 有黄线，表现为「警告有线、错误没线」（2026-09-29 真实环境
  *  CDP 取证定位）。注入前按 severity 分层截断（Error 全保留 > Warning > Info > Hint），

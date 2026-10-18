@@ -3,7 +3,7 @@
 单测（probe/tests/test_monitor.py::test_mute_after_limit）只覆盖 Monitor 层；
 本脚本走完整链路（CLI run → 落库 → 回读 SQLite），钉住"采集到落库"这一段。
 
-用法：D:\\py\\python.exe -X utf8 check_hits_e2e.py [calls=1000] [limit=200]
+用法：python -X utf8 check_hits_e2e.py [calls=1000] [limit=200]
 """
 from __future__ import annotations
 

@@ -960,8 +960,8 @@ mod tests {
     fn strip_verbatim_prefixes() {
         use std::path::Path;
         assert_eq!(
-            strip_verbatim(PathBuf::from(r"\\?\F:\ai-pro\open-charm\vendor\debugpy\debugpy")),
-            Path::new(r"F:\ai-pro\open-charm\vendor\debugpy\debugpy"),
+            strip_verbatim(PathBuf::from(r"\\?\F:\dev\montauri\vendor\debugpy\debugpy")),
+            Path::new(r"F:\dev\montauri\vendor\debugpy\debugpy"),
         );
         assert_eq!(
             strip_verbatim(PathBuf::from(r"\\?\UNC\server\share\debugpy")),

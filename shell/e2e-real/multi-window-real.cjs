@@ -32,7 +32,7 @@ const {
   allPages,
 } = require('./lib/real-env.cjs');
 
-const REAL_PYTHON = process.env.OC_REAL_PYTHON || 'D:\\py\\python.exe';
+const REAL_PYTHON = process.env.OC_REAL_PYTHON || 'python';
 
 // 调试独立性的最小脚本：断点停在 :6（a = compute(10) 之前）即可判断「命中」，
 // 不验证局部变量（那是 debug-real 的口径，这里只验双窗口调试会话不互杀）。

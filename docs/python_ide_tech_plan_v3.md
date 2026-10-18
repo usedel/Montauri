@@ -63,7 +63,7 @@ v2 的核心判断（运行时采样是立项核心、静态语义复用 pyrefly
 ### 2.2 工程结构
 
 ```
-open-charm/
+Montauri/
 ├── shell/                    # Tauri 2 + Monaco 外壳（本次重建）
 │   ├── src/                  # 前端 TS（Vite 构建）
 │   │   ├── lsp/              # LSP 桥接层 TS 侧（ADR-0003）

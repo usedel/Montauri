@@ -23,7 +23,7 @@ const path = require('path');
 const env = require('./lib/real-env.cjs');
 const { chromium } = require('@playwright/test');
 
-const PYTHON = process.env.OC_REAL_PYTHON || 'D:\\py\\python.exe';
+const PYTHON = process.env.OC_REAL_PYTHON || 'python';
 const CDP_PORT = Number(process.env.OC_CDP_PORT || 9223);
 const CDP_TIMEOUT = Number(process.env.OC_CDP_TIMEOUT || 600) * 1000;
 const OUT_DIR = path.join(__dirname, '..', '..', 'scripts', '_tmp');
