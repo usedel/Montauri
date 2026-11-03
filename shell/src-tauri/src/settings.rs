@@ -154,7 +154,8 @@ pub struct Settings {
     pub trim_trailing_whitespace: bool,
     /// 保存时确保文件以换行结束（PR-C；仅显式保存触发；须与前端同步）
     pub final_newline: bool,
-    /// 新建 .py/.pyw 文件后自动插 header 文件头模板（PR-K；默认关；须与前端 new_file_template 同步）
+    /// 新建 .py/.pyw 文件后自动插 header 文件头模板（PR-K；2026-11-03 起默认开；
+    /// 旧配置已显式写 false 的保持关——serde(default) 只兜缺字段；须与前端 new_file_template 同步）
     pub new_file_template: bool,
     /// 粘贴 JSON 自动转 Python dict 字面量（PR-M；默认开，Ctrl+Z 可撤；须与前端同步）
     pub paste_json_to_python: bool,
@@ -286,8 +287,9 @@ impl Default for Settings {
             inline_diagnostics: false,
             trim_trailing_whitespace: true,
             final_newline: true,
-            // PR-K：默认关（避免污染草稿流；与前端 DEFAULT_SETTINGS 保持一致）
-            new_file_template: false,
+            // PR-K：2026-11-03 起默认开（用户裁决「默认用 header 模板作为 py/pyw 文件头」；
+            // 旧配置显式 false 不受影响；与前端 DEFAULT_SETTINGS 保持一致）
+            new_file_template: true,
             // PR-M：默认开（Ctrl+Z 单步可撤；与前端 DEFAULT_SETTINGS 保持一致）
             paste_json_to_python: true,
             // B-3（PyCharm 调研）：只步进我的代码，默认开

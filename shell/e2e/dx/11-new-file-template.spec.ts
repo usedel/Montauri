@@ -1,9 +1,11 @@
 /**
  * E2E：PR-K 新建 .py 文件自动插 header 文件头模板（dx_features_backlog §6.6）
  *
- *  - E-DX-NT1 开关默认关：文件树右键「新建 Python 文件」后编辑器为空（不插模板）
- *  - E-DX-NT2 设置开关打开后：新建 Python 文件自动插文件头（断言编辑器 model——
- *    mock 配置 autosave 默认 off，插入只改内存 model，不落盘，磁盘断言不适用）
+ * 2026-11-03 修订：开关默认由关改为开（用户裁决「默认用 header 模板作为 py/pyw 文件头」），
+ * 两用例随之反转方向：
+ *  - E-DX-NT1 默认开：文件树右键「新建 Python 文件」即自动插文件头（断言编辑器 model——
+ *    mock 配置 autosave 默认 off，插入只改内存 model，不落盘，磁盘应仍为空）
+ *  - E-DX-NT2 设置开关关掉后：新建 Python 文件为空（不插模板）
  *
  * 两个入口（普通「新建文件」输入 .py 后缀 / 专属「新建 Python 文件」）共用 insertHeaderIfEnabled
  * 门控；草稿（Ctrl+Alt+Shift+Insert）不走该路径天然豁免，无单独用例。
@@ -35,6 +37,16 @@ async function modelValue(page: Page, suffix: string): Promise<string> {
   }, suffix);
 }
 
+/** 打开设置面板（编辑器分区），供 NT2 关闭开关用。
+ *  用标题栏「设置」按钮而非 Ctrl+Alt+S——boot 早期键位分发尚未就绪（实测）；
+ *  先等树渲染完成（boot 就绪标志），否则按钮接线未完成时点击被吞（合跑偶发）。 */
+async function openEditorSettings(page: Page): Promise<void> {
+  await expect(page.locator("#tree .tree-item", { hasText: "a.py" })).toBeVisible({ timeout: 20_000 });
+  await page.locator("button[title='设置'], #btn-settings").first().click();
+  await expect(page.locator("#settings-modal, .modal:has(#settings-save)").first()).toBeVisible({ timeout: 5_000 });
+  await page.locator('.settings-nav-item[data-cat="editor"]').click();
+}
+
 test.beforeEach(async ({ page }) => {
   pageErrors.length = 0;
   page.on("pageerror", (e) => pageErrors.push(String(e)));
@@ -47,28 +59,24 @@ test.afterEach(() => {
   expect(pageErrors, pageErrors.join("\n")).toEqual([]);
 });
 
-test("E-DX-NT1 默认关：新建 Python 文件为空（不插文件头模板）", async ({ page }) => {
+test("E-DX-NT1 默认开：新建 Python 文件自动插文件头模板", async ({ page }) => {
   await newPyFileViaTree(page, "alpha.py");
   await expect(page.locator(".monaco-editor")).toBeVisible({ timeout: 20_000 });
-  await expect.poll(() => modelValue(page, "alpha.py"), { timeout: 10_000 }).toBe("");
+  // header 模板（builtin.header）：编码声明行 + 光标停 $END$；这里只断言模板体落进 model
+  await expect.poll(() => modelValue(page, "alpha.py"), { timeout: 10_000 })
+    .toContain("# -*- coding: utf-8 -*-");
+  // mock autosave 默认 off：插入只改内存 model，磁盘应仍为空（未被自动落盘）
   expect(repo.read("alpha.py")).toBe("");
 });
 
-test("E-DX-NT2 开关开：新建 Python 文件自动插文件头模板", async ({ page }) => {
-  // 设置面板打开 new_file_template（编辑器分区，接线同 PR-B/PR-C 开关）；
-  // 用标题栏「设置」按钮而非 Ctrl+Alt+S——boot 早期键位分发尚未就绪（实测）。
-  // 先等树渲染完成（boot 就绪标志），否则按钮接线未完成时点击被吞（合跑偶发）。
-  await expect(page.locator("#tree .tree-item", { hasText: "a.py" })).toBeVisible({ timeout: 20_000 });
-  await page.locator("button[title='设置'], #btn-settings").first().click();
-  await expect(page.locator("#settings-modal, .modal:has(#settings-save)").first()).toBeVisible({ timeout: 5_000 });
-  await page.locator('.settings-nav-item[data-cat="editor"]').click();
-  await page.locator("#settings-new-file-template").check();
+test("E-DX-NT2 开关关：新建 Python 文件为空（不插文件头模板）", async ({ page }) => {
+  await openEditorSettings(page);
+  await page.locator("#settings-new-file-template").uncheck();
   await page.locator("#settings-save").click();
   await expect(page.locator("#settings-modal")).toBeHidden({ timeout: 5_000 });
 
   await newPyFileViaTree(page, "beta.py");
   await expect(page.locator(".monaco-editor")).toBeVisible({ timeout: 20_000 });
-  // header 模板（builtin.header）：编码声明行 + 光标停 $END$；这里只断言模板体落进 model
-  await expect.poll(() => modelValue(page, "beta.py"), { timeout: 10_000 })
-    .toContain("# -*- coding: utf-8 -*-");
+  await expect.poll(() => modelValue(page, "beta.py"), { timeout: 10_000 }).toBe("");
+  expect(repo.read("beta.py")).toBe("");
 });

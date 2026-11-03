@@ -785,7 +785,7 @@ function fillForm(settings: Settings): void {
   settingsInlineDiagnosticsEl.checked = settings.inline_diagnostics ?? DEFAULT_SETTINGS.inline_diagnostics;
   settingsTrimTrailingEl.checked = settings.trim_trailing_whitespace !== false; // PR-C
   settingsFinalNewlineEl.checked = settings.final_newline !== false;
-  // PR-K：默认关，旧配置缺字段时兜底关（与 DEFAULT_SETTINGS 同向，!== true 反向兼容不适用）
+  // PR-K：2026-11-03 起默认开，旧配置缺字段兜底开（?? DEFAULT 同向）；显式 false 保持关
   settingsNewFileTemplateEl.checked = settings.new_file_template ?? DEFAULT_SETTINGS.new_file_template;
   // PR-M：默认开，旧配置缺字段兜底开（!== false 惯例）
   settingsPasteJsonEl.checked = settings.paste_json_to_python !== false;

@@ -901,10 +901,12 @@ export async function createPyFileAt(entry: Entry): Promise<void> {
   await insertHeaderIfEnabled(target);
 }
 
-/** PR-K：按设置对新建的 .py/.pyw 文件插入 header 模板（开关关/非 Python 文件为 no-op）。
- *  门控判定收敛到 newFileTemplate.ts 纯函数（普通新建/专属 Python 新建两入口共用）。 */
+/** PR-K：按设置对新建的 .py/.pyw 文件插入 header 模板（2026-11-03 起默认开；
+ *  非 Python 文件为 no-op；旧配置显式 false 保持关）。门控判定收敛到
+ *  newFileTemplate.ts 纯函数（普通新建/专属 Python 新建两入口共用）。 */
 async function insertHeaderIfEnabled(target: string): Promise<void> {
-  if (!headerTemplateApplies(target, app.settings.new_file_template === true)) return;
+  // !== false：缺字段（旧配置 / Rust serde 兜底前的防御）= 新默认「开」
+  if (!headerTemplateApplies(target, app.settings.new_file_template !== false)) return;
   app.editor.setPosition({ lineNumber: 1, column: 1 });
   await fh().insertHeaderTemplate();
 }

@@ -89,7 +89,8 @@ export interface Settings {
   /** 保存时确保文件以换行结束（PR-C；仅显式保存） */
   final_newline: boolean;
   /** 新建 .py/.pyw 文件后自动插 header 文件头模板（PR-K · dx_features_backlog §6.6；
-   *  默认关——避免污染草稿流；草稿（Ctrl+Alt+Shift+Insert）不走此路径天然豁免） */
+   *  2026-11-03 起默认开——用户裁决「默认用 header 模板作为 py/pyw 文件头」；
+   *  草稿（Ctrl+Alt+Shift+Insert）不走此路径天然豁免） */
   new_file_template: boolean;
   /** 粘贴 JSON 自动转 Python dict 字面量（PR-M · dx_features_backlog §6.6；默认开——
    *  单次 executeEdits = 单一撤销粒度，Ctrl+Z 一步回原文，非破坏性） */
@@ -265,8 +266,9 @@ export const DEFAULT_SETTINGS: Settings = {
   // PR-C（PyCharm 对标）：保存清理默认开——「保存即干净」，不影响 autosave 静默落盘
   trim_trailing_whitespace: true,
   final_newline: true,
-  // PR-K：新建 .py 文件自动插文件头模板，默认关（避免污染草稿流；须与 Rust Settings::default 保持同步）
-  new_file_template: false,
+  // PR-K：新建 .py 文件自动插文件头模板，2026-11-03 起默认开（用户裁决；旧配置已显式写
+  // false 的保持关——显式配置优先；须与 Rust Settings::default 保持同步）
+  new_file_template: true,
   // PR-M：粘贴 JSON 自动转 Python 字面量，默认开（Ctrl+Z 单步可撤；须与 Rust Settings::default 保持同步）
   paste_json_to_python: true,
   // D-4：默认全 Warning（维持映射引入前的行为，默认值保守）

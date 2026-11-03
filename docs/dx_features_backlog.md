@@ -324,6 +324,7 @@
 - **e2e 实测两坑（已就地注释）**：① autosave=off 下模板插入只改内存 model 不落盘，断言必须走 `app.tabs[].model.getValue()` 而非磁盘 `repo.read()`；② boot 早期（未开任何文件）Ctrl+Alt+S 键位分发未就绪，开设置面板用标题栏 `#btn-settings` 按钮。
 - e2e `e2e/dx/11-new-file-template.spec.ts`（2 例）：NT1 默认关 → 新建 Python 文件为空；NT2 开关开 → 自动插 `# -*- coding: utf-8 -*-` 文件头。
 - 验证基线：`tsc` 全绿 · vitest newFileTemplate 5/5 · `cargo test` 218 全绿 · **e2e dx 域 25/25 全绿**（含真实 pyrefly 桥 2 例）。
+- **修订（2026-11-03）**：开关默认值 false → **true**（用户裁决「默认用 header 模板作为 py/pyw 文件头」）。语义：新用户 / 旧配置缺字段默认开；已显式写 false 的配置保持关（显式配置优先）。门控调用改 `!== false`（缺字段兜底开）；e2e dx/11 两用例随默认值反转方向（NT1 默认开即插模板 + 磁盘仍空、NT2 关掉后为空）。
 
 **PR-L 落地记录（2026-09-27，已实现并全绿）**：
 - 新增 `shell/src/ruffHints.ts`：`RUFF_HINTS` 精确规则码 → 中文速释表（首发 ~60 条，覆盖 E/W/F/I/N/UP/B/C4/SIM/RET/ARG/A/DTZ/ERA/S/T/RUF 等常见类别）+ `withRuffHint(code, message)` 纯函数（命中时在 `<code> <message>` 后追加 `\n\n〔速释〕<解释>`）。
@@ -452,7 +453,7 @@
 | PR-H 全局搜索正则 + 文件 glob | ✅ 已落地（e2e dx/08，Cargo 只加 `regex`，掩码走 ignore overrides） | 6.6 PR-H 落地记录 |
 | PR-I Ctrl+Shift+双击查找引用 | ✅ 已落地（e2e dx/09；**不能用 DOM dblclick**，见记录三条实测） | 6.6 PR-I 落地记录 |
 | PR-J Ctrl+Space IME 探针 | ✅ 已落地（人工验证确认吞键 → `trigger_suggest: Alt+/` 备选键全链 + e2e dx/14，键位表 55→56） | 6.6 PR-J 落地记录（探针报告 + 人工验证结论） |
-| PR-K 新建 .py 模板 | ✅ 已落地（e2e dx/11，默认关；**mock 桥补齐 create_file 映射**、`createPyFileAt` 改为门控，见落地记录） | 6.6 PR-K 落地记录 |
+| PR-K 新建 .py 模板 | ✅ 已落地（e2e dx/11，2026-11-03 起默认开；**mock 桥补齐 create_file 映射**、`createPyFileAt` 改为门控，见落地记录） | 6.6 PR-K 落地记录 |
 | PR-L ruff 规则中文速释 | ✅ 已落地（e2e dx/12；速释表 `ruffHints.ts` 首发 ~60 条，hover 经 marker 消息原生渲染） | 6.6 末尾 PR-L 落地记录 |
 | PR-M 粘贴 JSON → Python dict | ✅ 已落地（e2e dx/13，默认开、单步可撤；`pasteJson.ts` 纯函数 + onDidPaste 拦截） | 6.6 末尾 PR-M 落地记录 |
 | PR-G2 工作区级符号 Quick Pick | ✅ 已落地（e2e dx/15；复用 G-1 索引加 file/line 字段 + 就绪订阅，键位仍 Ctrl+F12） | 6.8 末尾 PR-G2 落地记录 |
