@@ -27,6 +27,7 @@ import {
   setExternalChangeActions,
   shouldHandleNow,
 } from "../externalChange";
+import { markDiskSynced } from "../externalBaseline";
 import { app, type Tab } from "../state";
 
 // ---------- 测试替身 ----------
@@ -245,6 +246,45 @@ describe("handleFileChanged（plan §4.1 数据流）", () => {
     await handleFileChanged("C:\\ws\\main.py");
     expect(invoke).toHaveBeenCalledTimes(1);
     expect(t.model.getValue()).toBe("v2\n");
+  });
+});
+
+describe("磁盘内容基线（裁决 ④ 回声闸门，2026-11-03 误报修复）", () => {
+  it("保存回声 + 保存后继续输入（dirty）→ 不弹冲突面板、缓冲与脏标记原样", async () => {
+    const t = tab("C:\\ws\\main.py", { dirty: true, text: "saved\nmore typing\n" });
+    app.tabs = [t];
+    markDiskSynced(t, "saved\n"); // 我们刚写盘的内容
+    invoke.mockResolvedValue("saved\n"); // watcher 回声读到的就是它（用户已继续输入）
+    await handleFileChanged("C:\\ws\\main.py");
+    expect(openChoice).not.toHaveBeenCalled();
+    expect(t.model.getValue()).toBe("saved\nmore typing\n");
+    expect(t.dirty).toBe(true);
+    // 未建立 pending：下一次保存不会被拦截
+    expect(await externalSaveGate(t)).toBe(false);
+  });
+
+  it("磁盘偏离基线（真外部改动）→ 仍按 conflict 交用户裁决", async () => {
+    const t = tab("C:\\ws\\main.py", { dirty: true, text: "mine\n" });
+    app.tabs = [t];
+    markDiskSynced(t, "old disk\n");
+    invoke.mockResolvedValue("outside\n");
+    openChoice.mockResolvedValue("cancel");
+    await handleFileChanged("C:\\ws\\main.py");
+    expect(openChoice).toHaveBeenCalledTimes(1);
+    expect(t.model.getValue()).toBe("mine\n");
+  });
+
+  it("同一次外部改动被重复广播 → 只问一次（观察即更新基线）", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_000);
+    const t = tab("C:\\ws\\main.py", { dirty: true, text: "mine\n" });
+    app.tabs = [t];
+    invoke.mockResolvedValue("outside\n");
+    openChoice.mockResolvedValue("cancel");
+    await handleFileChanged("C:\\ws\\main.py");
+    nowSpy.mockReturnValue(5_000); // 越过 800ms 单飞窗口
+    await handleFileChanged("C:\\ws\\main.py");
+    nowSpy.mockRestore();
+    expect(openChoice).toHaveBeenCalledTimes(1);
   });
 });
 

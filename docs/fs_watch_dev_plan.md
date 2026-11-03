@@ -131,6 +131,8 @@ notify（磁盘变更）
 
 `notify-debouncer-mini` 不给 create/modify/remove（§2 W5）。**但本功能不需要事件类型** —— 读盘比对即可推导全部必要语义：
 
+**前置闸门：磁盘内容基线（2026-11-03 修订，裁决 ④）**。判 `dirty` 之前先比「本次读到的磁盘内容」与「最后一次观察到的磁盘内容」：相同 → 磁盘没有内容变化，直接忽略，**不看 dirty**。原表第一行只在 `disk == model` 时抑制回声，而 autosave 写盘后 300ms 防抖窗口内用户继续输入（默认 `autosave: delay 2s`，停手 2s 后恢复打字是常态）会让 `disk == 刚写入的内容 != model` 且 `dirty == true`，于是每次自动保存都可能弹「文件已被外部修改」。基线由 `externalBaseline.ts` 在**打开 / 自身写盘 / 外部重载 / 每次事件观察**四处维护（`diskChangedSince()` 观察即更新，同一外部改动的重复广播只问一次）。
+
 | 磁盘状态 | 判定 | 动作 |
 |---|---|---|
 | 读盘成功且内容 == model 当前值 | `identical` | **无动作**。这就是「自身保存回声」的天然抑制器 |
@@ -380,4 +382,16 @@ Rust 侧：`watcher.rs` 补「结构化事件只发文件不发目录」「忽�
 **真机实证（`external-change-real` 3/3，43.5s）**：EC-REAL-1 自动重载后脏圆点=0（§4.7 陷阱的实锤）· EC-REAL-2 真实 notify 链路弹出三选一面板（ok=另存为… / cancel=稍后处理 / 标记=1）· EC-REAL-3 Ctrl+S 弹保存语义面板 → 覆盖磁盘 == 我的缓冲。
 
 **门禁**：tsc 0 错 · vitest 125 文件/1598 用例 · cargo 373 · e2e editor 域全绿 · e2e-ui 65/66（1 项存量，已 stash 对照实证与本批无关）· budget-check 全 PASS（新登记 5 项：watcher.rs 410 / externalChange.ts 380 / 单测 340 / CSS 60 / 已含 main.ts 余量核算）。
+
+### 12.1 误报修复（2026-11-03）：自身保存回声被判成外部改动
+
+| 项 | 内容 |
+|---|---|
+| 现象 | autosave / Ctrl+S 写盘后 300ms 防抖窗口内继续输入 → 弹「文件已被外部修改」，磁盘上其实只有我们自己刚写的那一次内容 |
+| 根因 | 判定只有 `disk == model` 一道回声抑制（§4.3 原表第一行）。`dirty` 时 disk 恒为上次写盘内容、model 已含新输入，二者必然不等 → `conflict` |
+| 修法 | `externalBaseline.ts` 新增磁盘内容基线（裁决 ④）：`diskChangedSince()` 先于 dirty 判定；打开 / 写盘 / 重载 / 观察四处维护；未初始化时按「有变化」处理，不漏判真外部改动 |
+| 连带修复 | 写盘（`writeTabToDisk`）与重载（`markDiskSynced`）的 `dirty = false` 加内容守卫：await 期间用户继续输入 → 保留脏标记（原先无条件复位会让后续事件按 `dirty=false` 自动重载，静默吞掉新输入） |
+| 拆分 | `main.ts` 已 2440/2440 触顶：读写盘包装下沉到 `externalBaseline.ts`（76/90），main 三处调用点行数净增 0；`externalChange.ts` 375/380，**未抬阈值** |
+| 诊断 | `logExternalConflict()` 打 `knownLen / diskLen / modelLen`：复现时 CDP 直读，`knownLen == diskLen` 即不该走到冲突分支 |
+| 门禁 | tsc 0 错 · vitest 126 文件/1622 用例（externalChange 33 例，新增 3 例：回声忽略 / 真外部改动仍冲突 / 重复广播只问一次）· budget-check 全 PASS（新增登记 `externalBaseline.ts` 90） |
 

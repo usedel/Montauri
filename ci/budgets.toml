@@ -500,7 +500,16 @@ watcher_rs_max_lines = 580
 #   上限 380（实测 +20%）。范围：内容比对判定（替代事件类型，零新依赖）+ 三选一面板
 #   两种语义（watcher 触发 / 保存拦截）+ dirty 内容守卫复位 + 800ms 单飞 + pending 装饰。
 #   本体零 app/monaco 依赖（单测 node 环境直跑，vi.mock 替身 dialog/invoke）。
+#   2026-11-03：回声闸门（裁决 ④）落地时**未抬本阈值**——基线状态与读写盘包装拆到
+#   externalBaseline.ts，本文件 375/380。
 external_change_ts_max_lines = 380
+
+# externalBaseline.ts（磁盘内容基线，fs-watch 裁决 ④，2026-11-03 误报修复新增）：82 行。
+#   上限 90（实测 +10%）。拆分而非抬 externalChange 阈值：后者已触顶，而基线是
+#   纯状态 + 读写盘包装（saveTab / openFile / reloadFileFromDisk 三个调用点），
+#   与判定流程无耦合。范围：knownDiskText Map + readFileTracked / writeTabToDisk /
+#   markDiskSynced / diskChangedSince / resetDiskBaseline / logExternalConflict。
+external_baseline_ts_max_lines = 90
 
 # externalChange.test.ts（同上单测）：359 行（30 用例）。上限 410。
 #   首登估 ~245 → 实际 294（外部改动检测主体）；TD-029⑤ 批量冲突合并再 +65（批量只弹一次 /

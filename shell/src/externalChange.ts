@@ -5,14 +5,16 @@
 // 本 IDE 里已打开的 tab 既不重载也不提示，用户 Ctrl+S 会**静默覆盖外部改动**，且会话快照的
 // draft 也随之被覆盖 → 改动不可恢复。
 //
-// 三条核心裁决（推导见计划文档，动代码前必读）：
+// 四条核心裁决（推导见计划文档，动代码前必读）：
 // ① **内容比对代替事件类型**：notify-debouncer-mini 不给 create/modify/remove，但读盘比对
-//    model 内容可推出全部必要语义，且天然吞掉「自身保存的回声」（保存后磁盘 == model → no-op）。
-//    因此不换 notify-debouncer-full（零新增依赖）。
+//    model 内容可推出全部必要语义。因此不换 notify-debouncer-full（零新增依赖）。
 // ② **读盘失败只提示不动作**：命令面无 path_exists/metadata，读盘失败混着「真删除 /
 //    10MB 守卫 / 网络盘 IO 错误」，判 removed 会误关 tab。
 // ③ **dirty 复位必须内容守卫**：置脏是统一集中点（main.ts 的 onDidChangeContent 对任何
 //    setValue 生效），裸 setValue 会让 tab 假脏并把整文件内容存进会话 draft。
+// ④ **磁盘内容基线（回声闸门）先于 dirty 判定**（2026-11-03 修复）：自身保存的回声必须
+//    按「磁盘内容是否变化」过滤，只比 model 会把「保存后 300ms 内继续输入」判成外部改动。
+//    基线与判定实现在 externalBaseline.ts（本文件行数受预算约束，状态不在此堆放）。
 
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -23,6 +25,7 @@ import { app, type Tab } from "./state";
 import type * as MonacoApi from "monaco-editor/esm/vs/editor/editor.api";
 import { basename, codicon, normalizePath } from "./util";
 import { toast } from "./toast";
+import { diskChangedSince, logExternalConflict, markDiskSynced, resetDiskBaseline } from "./externalBaseline";
 
 // ---------- 纯逻辑（零依赖，单测直接 import） ----------
 
@@ -162,6 +165,7 @@ function syncTabDecorations(): void {
 export function resetExternalChangeState(): void {
   pendingExternal.clear();
   lastHandledAt.clear();
+  resetDiskBaseline();
   syncTabDecorations();
 }
 
@@ -188,16 +192,13 @@ async function applyFromDisk(tab: Tab, snapshot: string, prefetched?: string): P
   if (tab.model.getValue() !== snapshot) return false;
   if (disk === tab.model.getValue()) {
     // 用户已自行改回与磁盘一致：identical 语义，顺手清脏（plan §7.1 用例 8 的另一半）
-    if (tab.dirty) {
-      tab.dirty = false;
-      refreshTabsSafe();
-    }
+    if (markDiskSynced(tab, disk)) refreshTabsSafe();
     pendingExternal.delete(tabKey(tab.path));
     syncTabDecorations();
     return true;
   }
   if (applyExternalText(tab.model, disk) === "changed") return false;
-  tab.dirty = false;
+  markDiskSynced(tab, disk); // 基线 + dirty 内容守卫（裁决 ③④）
   pendingExternal.delete(tabKey(tab.path));
   refreshTabsSafe();
   return true;
@@ -279,6 +280,9 @@ export async function handleFileChanged(
   const disk = await readDisk(tab.path);
   if (tab.model.getValue() !== before) return; // 读盘期间缓冲变了 → 本轮作废（§4.4）
 
+  // 裁决 ④ 回声闸门：磁盘无内容变化 → 本次事件无需打扰（详见 externalBaseline.ts 头注）
+  if (disk !== null && !diskChangedSince(tab.path, disk)) return;
+
   const kind = classifyExternalChange({ modelText: before, diskText: disk, dirty: tab.dirty });
   if (kind === "unreadable") {
     pendingExternal.add(tabKey(tab.path));
@@ -302,6 +306,7 @@ export async function handleFileChanged(
   }
   pendingExternal.add(tabKey(tab.path));
   refreshTabsSafe();
+  logExternalConflict(tab.path, before, disk, tab.dirty); // 诊断留痕（复现误报时看 knownLen/diskLen）
   // 冲突一律先标记。批量模式下交给批次末尾的合并面板；单文件时就地裁决（保持原 UX）
   if (deferConflict) {
     deferConflict(tab, before);

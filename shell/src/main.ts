@@ -164,6 +164,7 @@ import {
   setDepInstallHandler, wireDepHealthEvents,
 } from "./depHealth";
 import { externalSaveGate, resetExternalChangeState, setExternalChangeActions, wireExternalChange } from "./externalChange"; // 外部改动检测（docs/fs_watch_dev_plan.md）
+import { markDiskSynced, readFileTracked, writeTabToDisk } from "./externalBaseline"; // 磁盘内容基线（fs-watch 裁决 ④）
 import { wireWatchHealth } from "./watchHealth"; // 监听健康度（TD-029②）
 import {
   initDepHealthPanel, renderDepHealth, resetDepHealthPanel, handleScanComplete, setHealthStatus,
@@ -968,7 +969,7 @@ async function doOpenFile(path: string, revealLine?: number, opts?: OpenFileOpti
   if (!tab) {
     let content: string;
     try {
-      content = await invoke<string>("read_file", { path });
+      content = await readFileTracked(path); // 读盘顺带记磁盘基线（fs-watch 裁决 ④）
     } catch (e) {
       // 大文件守卫 / 目录 / 编码错误等：toast 呈现而非静默 unhandled rejection
       toast(t("main.openFile.failed", { msg: String(e) }), "error");
@@ -1415,8 +1416,7 @@ async function saveTab(tab: Tab, opts?: SaveOptions): Promise<void> {
   // P1：本地历史——**写盘前**留一版快照（content 传 null = 后端读磁盘，落的是保存前的内容）。
   // 失败只记日志：历史是兜底能力，绝不阻断保存（与 ruff 缺席不阻断格式化的策略一致）。
   await snapshotHistory(tab.path);
-  await invoke("write_file", { path: tab.path, content: tab.model.getValue() });
-  tab.dirty = false;
+  await writeTabToDisk(tab); // 写盘 + 磁盘基线 + dirty 内容守卫（fs-watch 裁决 ③④）
   renderTabs();
   // 保存通知（引擎常在保存时触发完整重新检查）
   lsp.didSave(tab.path, tab.model);
@@ -1468,11 +1468,11 @@ async function reloadFileFromDisk(path: string, force = false): Promise<void> {
   console.debug("[reloadFileFromDisk]", path, "命中 tab:", !!tab, "打开的 tab:", app.tabs.map((t) => t.path));
   if (!tab) return;
   if (!force && tab.dirty) return; // 有未保存修改且非强制：跳过（调用方负责提示）
-  const content = await invoke<string>("read_file", { path });
+  const content = await readFileTracked(path); // 读盘顺带记磁盘基线（fs-watch 裁决 ④）
   // 全文替换用 pushEditOperations 而非 setValue——setValue 会清空该 model 的 undo 栈，
   // git 改写工作区/本地历史回滚后 Ctrl+Z 将无法回到替换前内容；pushEditOperations 保栈
   tab.model.pushEditOperations([], [{ range: tab.model.getFullModelRange(), text: content }], () => null);
-  tab.dirty = false;
+  markDiskSynced(tab, content); // 基线 + dirty 内容守卫（替换期间若有并发编辑则保留脏）
   renderTabs();
   await lsp.didChangeFull(path, tab.model);
 }

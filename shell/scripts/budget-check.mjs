@@ -162,6 +162,7 @@ addLine("shell/src/scratch.ts", "scratch_ts_max_lines");
 addLine("shell/src-tauri/src/scratch_cmds.rs", "scratch_cmds_rs_max_lines");
 addLine("shell/src-tauri/src/watcher.rs", "watcher_rs_max_lines");
 addLine("shell/src/externalChange.ts", "external_change_ts_max_lines");
+addLine("shell/src/externalBaseline.ts", "external_baseline_ts_max_lines");
 addLine("shell/src/watchHealth.ts", "watch_health_ts_max_lines");
 addLine("shell/src/__tests__/watchHealth.test.ts", "watch_health_test_ts_max_lines");
 addLine("shell/src/__tests__/externalChange.test.ts", "external_change_test_ts_max_lines");
