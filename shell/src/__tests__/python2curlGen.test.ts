@@ -57,6 +57,23 @@ describe("pythonToCurl（requests/httpx 调用 → cURL）", () => {
     expect(() => pythonToCurl(`req = requests.get("https://a.dev")`)).not.toThrow(); // 前缀变量不影响
   });
 
+  it("模块级字面量变量实参可代入（curl2python 产物可直接反读）", () => {
+    const code = [
+      'url = "https://a.dev/search"',
+      "headers = {",
+      '    "X-Token": "abc",',
+      "}",
+      'params = {"q": "x"}',
+      "resp = requests.get(url, headers=headers, params=params, timeout=10)",
+    ].join("\n");
+    expect(pythonToCurl(code)).toBe("curl 'https://a.dev/search?q=x' -H 'X-Token: abc' --max-time 10");
+  });
+
+  it("变量在调用之后赋值 / 值非字面量 → 仍抛非字面量（不臆测）", () => {
+    expect(() => pythonToCurl('resp = requests.get(url)\nurl = "https://a.dev"')).toThrow(/非字面量/);
+    expect(() => pythonToCurl('url = build()\nresp = requests.get(url)')).toThrow(/非字面量/);
+  });
+
   it("对照：不误识别 requests.Session 等非动词调用", () => {
     expect(() => pythonToCurl(`s = requests.Session()`)).toThrow(/未识别到/);
   });

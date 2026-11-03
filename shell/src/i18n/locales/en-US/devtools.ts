@@ -289,6 +289,7 @@ export const devtools: Record<DevtoolsKey, string> = {
   "devtools.p2c.paramsDict": "params must be a dict literal",
   "devtools.p2c.scalarOnly": "query/headers values must be string or number literals",
   "devtools.p2c.timeoutNum": "timeout must be a number literal",
+  "devtools.p2c.authTuple": "auth must be a (user, pass) tuple or \"user:pass\" string literal",
   "devtools.p2c.tooManyPositional": "No positional arguments allowed after the 2nd one",
   "devtools.p2c.unclosed": "Unbalanced parentheses; cannot parse the call",
   "devtools.p2c.unsupportedKwarg": "Unsupported argument \"{name}\" (only params/headers/json/data/cookies/timeout)",

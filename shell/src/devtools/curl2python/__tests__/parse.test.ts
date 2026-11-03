@@ -65,7 +65,8 @@ describe("generatePython 生成", () => {
     const code = generatePython(cmd);
     expect(code).toContain("import requests");
     expect(code).toContain("requests.post(");
-    expect(code).toContain('"https://example.com/api"');
+    expect(code).toContain('url = "https://example.com/api"');
+    expect(code).toContain("requests.post(url,");
     expect(code).toContain('"a": 1');
     expect(code).toContain("resp.raise_for_status()");
   });
@@ -73,7 +74,8 @@ describe("generatePython 生成", () => {
   it("生成 auth / verify=False / cookie", () => {
     const cmd = parseCurl("curl -k -u 'user:pass' -b 'sid=abc' 'https://a.com'");
     const code = generatePython(cmd);
-    expect(code).toContain("auth=(\"user\", \"pass\")");
+    expect(code).toContain('auth = ("user", "pass")');
+    expect(code).toContain("auth=auth");
     expect(code).toContain("verify=False");
     expect(code).toContain('"sid": "abc"');
   });

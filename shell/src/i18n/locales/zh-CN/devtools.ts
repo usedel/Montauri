@@ -288,6 +288,7 @@ export const devtools = {
   "devtools.p2c.paramsDict": "params 须为 dict 字面量",
   "devtools.p2c.scalarOnly": "query/headers 的值须为字符串或数字字面量",
   "devtools.p2c.timeoutNum": "timeout 须为数字字面量",
+  "devtools.p2c.authTuple": "auth 须为 (user, pass) 二元组或 user:pass 字符串字面量",
   "devtools.p2c.tooManyPositional": "第 2 个位置实参之后不支持再传位置实参",
   "devtools.p2c.unclosed": "括号未闭合，无法解析调用",
   "devtools.p2c.unsupportedKwarg": "暂不支持的实参 \"{name}\"（仅 params/headers/json/data/cookies/timeout）",
