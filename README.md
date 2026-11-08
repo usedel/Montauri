@@ -9,6 +9,24 @@
 - **调试**：debugpy（随应用打包分发，版本锁 `ci/versions.toml`）+ 自研轻量 DAP 桥（stdio adapter 模式，见 ADR-0004）
 - **功能范围**：补全 / 跳转 / Hover / 诊断 + 脚本运行与 traceback 点击跳转 + 调试（断点 / 单步 / 调用栈 / 变量，最小闭环）
 
+![Montauri 主界面：深色主题，FastAPI + 爬虫演示工作区](docs/assets/hero-dark.png)
+
+> 浅色主题同样内置：[hero-light.png](docs/assets/hero-light.png) · 界面中英双语即时切换 · 上图由 [`shell/scripts/readme-assets.mjs`](shell/scripts/readme-assets.mjs) 一键复现。
+
+**现在就试**（Windows 10/11 x64，WebView2）：[Releases 下载页](https://gitee.com/usedel/Montauri/releases) · [三分钟上手](docs/onboarding_guide.md) · [自行打包](#打包发布)
+
+> 首发状态：`tauri.conf.json` 当前版本 `0.1.0`，**首个 tag 尚未打出**，Releases 页暂时为空。想立刻使用请走下方方式②；维护者按 [`docs/first_release.md`](docs/first_release.md) 走一遍，即可把下载入口变成真链接。
+
+### 为什么是它
+
+| 卖点 | 可核验口径 |
+|---|---|
+| **轻** | 冷启动 < 1.5 s、空闲内存 ≤ 600 MB（编辑器 + LSP 合计）是**验收红线**，数值真源 [`dev plan v2 §1.2`](docs/python_ide_dev_plan_v2.md)；产物体积与巨型文件行数受 [`ci/budgets.toml`](ci/budgets.toml) 预算门禁约束 |
+| **省** | 运行时探针实测 **1.35x**（红线 < 1.5x），只在显式运行时注入，窗口外零全局派发，见 [`run_acceptance_record.md`](docs/run_acceptance_record.md) |
+| **跑过才懂** | 运行时补全在**自有样例集**上 23/23（期望 label 进 top-5）；这是自证口径，**未与其他 IDE 做横向对比**，口径与撤项记录见下方[「已知边界」](#已知边界) |
+
+> 对外引用上述数字前请核对文档 HEAD 与所引真源的时点；口径纪律见 [`improvement_and_roadmap_report.md`](docs/improvement_and_roadmap_report.md) §5 / §9。
+
 ## 快速开始（用户）
 
 **系统要求**：Windows 10 / 11（x64），WebView2 Runtime（Win11 内置，Win10 可装官方运行时）；macOS / Linux 暂不支持。
@@ -17,7 +35,7 @@
 
 | 方式 | 适合谁 | 说明 |
 |---|---|---|
-| ① 下载安装包 | 绝大多数用户 | Releases 页面获取 NSIS 安装包（`x64-setup.exe`），下一步下一步装完即用；当前账户安装、自动建开始菜单项（首批发布物随开源上线，暂无时用方式②） |
+| ① 下载安装包 | 绝大多数用户 | [Releases 页面](https://gitee.com/usedel/Montauri/releases) 获取 NSIS 安装包（`x64-setup.exe`），下一步下一步装完即用；当前账户安装、自动建开始菜单项。**`v0.1.0` 首个 tag 尚未打出，当前请用方式②；发版动作见 [`docs/first_release.md`](docs/first_release.md)** |
 | ② 自行打包 | 想要最新 master 的用户 | 仓库根执行 `powershell -File .\build-release.ps1 -SkipNpmInstall`，产物在 `shell/src-tauri/target/release/bundle/nsis/` |
 | ③ 从源码开发运行 | 想参与贡献 | 见 [CONTRIBUTING.md](CONTRIBUTING.md) |
 
@@ -37,6 +55,7 @@
 
 | 文档 | 说明 |
 |---|---|
+| [`docs/first_release.md`](docs/first_release.md) | **v0.1.0 首次发版执行清单**：产物清单 / tag 与 CI 触发前置 / Release Notes 文案 / 首屏素材与演示分镜 / 对外口径纪律 |
 | [`docs/delivery-overview.md`](docs/delivery-overview.md) | **交付总览（现行入口）**：20 个功能域 × 交付日期 × 计划真源 × 验收记录 × 状态、文档地图（按角色读）、已知文档不一致登记、门禁与复核命令、新会话上手路径 |
 | [`docs/python_ide_tech_plan_v3.md`](docs/python_ide_tech_plan_v3.md) | **技术方案 v3（现行）**：Tauri+Monaco 外壳架构 |
 | [`docs/python_ide_dev_plan_v2.md`](docs/python_ide_dev_plan_v2.md) | **开发计划 v2（现行）**：Phase 重排与当前进度 |
