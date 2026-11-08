@@ -67,7 +67,8 @@ const OUTSIDE_MONACO = new Set([
 ]);
 
 /** 生产版追加：DevTools 快捷键（dev 版保留以便调试；生产版 wry 已禁用 devtools，拦了也是空操作）
- *  Ctrl+Shift+C 不拦——预留给终端复制。 */
+ *  Ctrl+Shift+C 不拦——预留给终端复制；Ctrl+C 同样不拦：有选区时由 terminal.ts 的自定义
+ *  键盘钩子接管为复制，无选区时仍交 xterm 发 \x03（中断 / 优雅停止）。 */
 const PROD_ONLY = new Set(["Ctrl+Shift+KeyI", "Ctrl+Shift+KeyJ"]);
 
 /** 该组合是否应被护栏吞掉（纯函数，便于单测；inMonaco = 焦点在 Monaco 内） */

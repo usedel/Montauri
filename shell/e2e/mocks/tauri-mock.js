@@ -1021,6 +1021,12 @@
       (window.__E2E_COPIED__ = window.__E2E_COPIED__ || []).push(String(args.text ?? ""));
       return null;
     }
+    // 终端键盘分流验收：记录写入 PTY 的数据（\x03 = 中断）。与 copy_to_clipboard 的
+    // __E2E_COPIED__ 分表，便于断言「有选区复制 / 无选区中断」两条路径互不串扰。
+    if (cmd === "term_write") {
+      (window.__E2E_TERM_WRITES__ = window.__E2E_TERM_WRITES__ || []).push(String(args.data ?? ""));
+      return null;
+    }
     // 终端 spawn：浏览器无真实 PTY，只记录入参（**cwd 是「在终端打开落到哪个目录」的判据**）
     // 并返回 null（venv 指示为空）。与 __E2E_OPENED_PATHS__ 分表，断言互不串扰。
     if (cmd === "term_spawn") {

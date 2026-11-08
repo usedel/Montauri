@@ -163,11 +163,15 @@ module  → <解释器> -m <模块> <args>           或  uv run python -m <模�
 | 输出与输入同屏 | ✅ 提示符后原地打字回车，无独立输入框 | ❌ 输入框与输出分离，割裂 |
 | `input()` 体验 | ✅ PyCharm「Emulate terminal」效果 | ❌ 需额外输入行 + 「等待输入…」状态 |
 | `getpass` / `tqdm` / 彩色 / `\r` 进度条 | ✅ 真 TTY 全可用 | ❌ 管道下全退化 |
-| `Ctrl+C` 优雅退出 | ✅ 写 `\x03` | ❌ 无 |
+| `Ctrl+C` 优雅退出（**无选区时**） | ✅ 写 `\x03`；有选区 = 复制选区，见 §6.2 | ❌ 无 |
 | traceback 点击跳转 | ✅ xterm link provider | ✅ 正则 |
 | probe 采样 | ✅ 见 §5.4 | ✅ |
 
 ### 6.2 控制台行为
+
+- **VSCode 语义的 `Ctrl+C` 分流**（2026-11-08）：有选区时由 `terminal.ts` 自定义键盘钩子接管为
+  「复制选区」（复用 `copy_to_clipboard`），无选区时仍交 xterm 写 `\x03`（中断 / 优雅停止）；
+  `Ctrl+Shift+C` 恒复制。取舍：运行中有选区时 `Ctrl+C` 不再中断程序，须用 ⏹ / `Ctrl+F2` 或先清选区。
 
 - **回显行**写在输出之前，运行前明确「这次用哪套环境跑」：
   - 脚本：`> [venv] python main.py --flag`

@@ -54,6 +54,8 @@ function buildShortcuts(): WelcomeShortcut[] { return [
   { label: t("welcome.shortcuts.gotoSymbol"), kb: "goto_symbol" },
   // PR-J（dx_features_backlog §6.6）：触发补全建议备选键（Ctrl+Space 被中文 IME 吞键，人工验证）
   { label: t("welcome.shortcuts.triggerSuggest"), kb: "trigger_suggest" },
+  // 终端复制选区：不在键位系统内（xterm 键盘钩子固定语义），故用 fixed
+  { label: t("welcome.shortcuts.terminalCopy"), fixed: "Ctrl+C" },
   { label: t("welcome.shortcuts.navBack"), kb: "nav_back" },
   { label: t("welcome.shortcuts.recentFiles"), kb: "recent_files" },
   { label: t("welcome.shortcuts.openSettings"), kb: "open_settings" },

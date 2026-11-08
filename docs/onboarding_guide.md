@@ -79,6 +79,7 @@
 | 剪贴板 diff（对比复制前后的内容） | devtools 工具箱内 |
 | Search Everywhere（文件 / 符号 / 命令混搜） | 双击 `Shift` |
 | 全局搜索 | `Ctrl+Shift+F` |
+| 终端复制选区（选中后） | `Ctrl+C`（无选区时 = 中断运行）· `Ctrl+Shift+C` 恒复制 |
 | 调试控制台求值 | `Alt+F8` |
 | 最近打开的文件 | `Ctrl+E` |
 | Markdown 预览 | `Ctrl+Shift+V` |

@@ -141,7 +141,7 @@ M4 实测与文档收尾（§17-19 + §19 风险闭环）
   - C4 调试中运行按钮正确禁用（tooltip「已有脚本在运行（先停止）」）；
   - C6 脚本运行中 F5 调试被拒（调试按钮全禁用、运行继续）；
   - C7 Shift+F5/工具栏停止后按钮全禁用（exited 复位正确；debug-toolbar 常驻 DOM 属设计，以按钮态判定）。
-- [x] 运行主链路（A 组）✅：A1 运行+回显+退出、A2 tab 复用+标题更新、A5 Ctrl+C 优雅停止、A6 关 tab 无孤儿进程（Win32 进程核验）、A7 关 tab 后重跑自动重建、A9 运行中再运行终止重跑（**发现回归并已修复**：M2 简化时把覆盖语义改成了静默忽略，修复后 tick 归零验证通过）、A10 选区/E1 连点（三连点单实例）。
+- [x] 运行主链路（A 组）✅：A1 运行+回显+退出、A2 tab 复用+标题更新、A5 Ctrl+C 优雅停止、A6 关 tab 无孤儿进程（Win32 进程核验）、A7 关 tab 后重跑自动重建、A9 运行中再运行终止重跑（**发现回归并已修复**：M2 简化时把覆盖语义改成了静默忽略，修复后 tick 归零验证通过）、A10 选区/E1 连点（三连点单实例）、A11 终端选区复制（有选区 `Ctrl+C` 复制且不发 `\x03`，无选区仍发 `\x03`；`e2e/ux/10-terminal-copy.spec.ts` 4 条）。
 - [x] 配置面板（D 组）✅：D1 打开+7 项精简表单、D2 保存+读回一致、D4 运行生效（read_run_config 同源）。
 - [x] probe PTY 实测（§19-1 首证）✅：`[montauri-probe] ✓ … → traces\*.db` 在 PTY 会话正常出现，不污染 stdout 可读性、trace 落库（开销正式基准留 M4-4.1）。
 - [x] 全局 grep：`run-stdout` / `run-stderr` / `run-exit` / `RUN_CHILD` / `run_stdin` / `stop_script(` / `run_script(` / `run_profile(` 无残留 ✅

@@ -265,6 +265,10 @@ openapi_cmds_rs_max_lines = 320
 #   队列（同 epSampleCore / selectorCore 的分层惯例，单测可直接 import）。上限 130。
 terminal_backpressure_ts_max_lines = 130
 
+# terminalKeys.ts（终端 Ctrl+C 复制/中断分流谓词，2026-11-08 新增）：零依赖纯逻辑层
+#   （同 terminalBackpressure / epSampleCore 分层惯例，单测可直接 import）。上限 60。
+terminal_keys_ts_max_lines = 60
+
 # selectorCore.ts / selector.ts（A4 选择器测试，2026-10-06 新增）：379 / 394 行。上限 460 / 480（余量 ~21% / ~22%）。
 #   两层是刻意分的（同 epSample 那条教训）：Core 零 app 依赖（不 import state / i18n / util）→
 #   单测直接 import 即可，happy-dom 下跑得动；selector.ts 那层要 PanelHost / DOMPurify / 面板 DOM。

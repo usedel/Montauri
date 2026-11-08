@@ -191,6 +191,7 @@ addLine("shell/src/startupRestore.ts", "startup_restore_ts_max_lines");
 addLine("shell/src/styles/endpointJump.css", "endpoint_jump_css_max_lines");
 addLine("shell/src-tauri/src/openapi_cmds.rs", "openapi_cmds_rs_max_lines");
 addLine("shell/src/terminalBackpressure.ts", "terminal_backpressure_ts_max_lines");
+addLine("shell/src/terminalKeys.ts", "terminal_keys_ts_max_lines");
 addLine("shell/src/devtools/builtin/selectorCore.ts", "selector_core_ts_max_lines");
 addLine("shell/src/devtools/builtin/selector.ts", "selector_ts_max_lines");
 addLine("shell/src/devtools/builtin/http.ts", "http_ts_max_lines");

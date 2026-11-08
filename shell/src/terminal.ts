@@ -14,6 +14,8 @@ import { errMsg } from "./util";
 import { localizeBackendError } from "./i18n/backendError";
 import { shellThemeOf } from "./theme/tokens";
 import { OutputBackpressure } from "./terminalBackpressure"; // TD-021①：背压 UTF-8 字节口径
+import { shouldCopyOnCtrlC } from "./terminalKeys";
+import { toast } from "./toast";
 
 /** 终端配色随外壳主题（D1 P-01：浅色主题下不再固定深色终端；批 4 起判定走 shellThemeOf） */
 function xtermTheme(): ITheme {
@@ -127,6 +129,20 @@ export class IntegratedTerminal {
     this.term.loadAddon(this.fit);
     this.term.open(host);
     this.fit.fit();
+
+    // VSCode 语义：有选区时 Ctrl+C = 复制选区，无选区仍写 \x03（中断 / 优雅停止）。
+    // 判定谓词外提到 terminalKeys.ts（零依赖纯逻辑，单测不必 import xterm）。
+    // 返回 false = 不交给 xterm（不发 \x03）；preventDefault 阻断浏览器 copy 事件，
+    // 避免与 copy_to_clipboard IPC 双写剪贴板。Ctrl+Shift+C / keyup / Cmd+C 一律不拦，
+    // 保留 xterm 与 browserKeys.ts 原有的复制与中断路径。
+    this.term.attachCustomKeyEventHandler((e) => {
+      if (!shouldCopyOnCtrlC(e, this.term.hasSelection())) return true;
+      const text = this.term.getSelection();
+      if (!text) return true; // 取不到选区文本就交回 xterm，不静默吞键
+      e.preventDefault();
+      void invoke("copy_to_clipboard", { text }).catch((err) => toast(errMsg(err), "error"));
+      return false;
+    });
 
     // 键盘输入 → PTY
     this.term.onData((data) => {
