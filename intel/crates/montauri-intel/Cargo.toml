@@ -1,6 +1,6 @@
 [package]
 name = "montauri-intel"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Montauri runtime intelligence LSP (Phase 3) — 消费 probe 的 SQLite trace 库，提供运行时补全/跳转/hover"
 license = "MIT"
