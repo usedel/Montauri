@@ -228,3 +228,28 @@ test("OF-9 编辑 md 右上角三按钮可见，「预览模式」按钮切纯�
   await expect(page.locator("#btn-md-preview-mode")).toBeVisible();
 });
 
+// ---------- OF-10：预览区文本可选中（2026-11-24 修复 body 全局 user-select:none 的局部恢复） ----------
+
+test("OF-10 md 预览区文本可拖选（user-select:text 覆盖 body 全局禁选）", async ({ page }) => {
+  const repo = await makePlainDir({ "note.md": "# 标题\n\n正文段落可选中\n" });
+  await bootMdRepo(page, repo, { hasPy: false });
+
+  await clickTreeItem(page, "note.md");
+  await expect(page.locator("#md-preview-tab-panel")).toBeVisible({ timeout: 10_000 });
+  const p = page.locator("#md-preview-tab-panel p").first();
+  await expect(p).toHaveText("正文段落可选中");
+
+  // 根因断言：body 是 user-select:none，预览内容区必须显式恢复为 text（继承链）
+  expect(await p.evaluate((el) => getComputedStyle(el).userSelect)).toBe("text");
+
+  // 行为断言：真实拖选产生选区（不依赖剪贴板权限）
+  const box = await p.boundingBox();
+  expect(box).not.toBeNull();
+  const y = box!.y + box!.height / 2;
+  await page.mouse.move(box!.x + 2, y);
+  await page.mouse.down();
+  await page.mouse.move(box!.x + box!.width - 2, y, { steps: 8 });
+  await page.mouse.up();
+  expect(await page.evaluate(() => window.getSelection()?.toString() ?? "")).toContain("正文段落");
+});
+

@@ -1483,6 +1483,12 @@ html[data-reduce-motion] .tree-item.tree-running::after { animation: none; }
 }
 #md-preview.resizing { transition: none; }
 
+/* 预览区文本可选中复制：body 全局 user-select:none，内容区须显式恢复（同 #output 先例）。
+   两种预览宿主（侧栏分栏 / 独立预览 Tab）一并覆盖；不影响工具栏按钮等 UI 的禁选策略。 */
+:is(#md-preview, .md-preview-tab-body) {
+  user-select: text;
+}
+
 /* 预览内容排版（标题 / 表格 / 代码块 / 任务列表 / 图片）——全部 token 化 */
 :is(#md-preview, .md-preview-tab-body) h1, :is(#md-preview, .md-preview-tab-body) h2, :is(#md-preview, .md-preview-tab-body) h3,
 :is(#md-preview, .md-preview-tab-body) h4, :is(#md-preview, .md-preview-tab-body) h5, :is(#md-preview, .md-preview-tab-body) h6 {
